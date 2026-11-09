@@ -17,7 +17,7 @@ import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 
 type ListenHandler = (event: { payload: unknown }) => void;
 
-const API = {
+const API = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],
   enabled: true,
   host: "127.0.0.1",
   port: 7686,

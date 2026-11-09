@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Provider-authoritative top-level turn completion, including all automatic continuations.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ReplyRelayTurn {
     pub user_turn_id: String,
@@ -13,7 +13,7 @@ pub struct ReplyRelayTurn {
     pub complete: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ReplyRelayOutcome {
     Error,
@@ -31,7 +31,7 @@ impl ReplyRelayOutcome {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ReplyRelayEndedTurn {
     pub user_turn_id: String,
@@ -41,13 +41,13 @@ pub struct ReplyRelayEndedTurn {
     pub outcome: ReplyRelayOutcome,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct ReplyRelayUnavailable {
     pub unavailable: bool,
     pub reason: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(untagged)]
 pub enum ReplyRelayEvidence {
     Answered(ReplyRelayTurn),

@@ -137,13 +137,7 @@ pub fn live_target(
     bound.filter(|tab_id| liveness(tab_id) == TargetLiveness::Live)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReceiverTargetView {
-    pub plugin_id: String,
-    pub tab_id: Option<String>,
-    pub live: bool,
-}
+pub use codeterm_wire::plugin_host::ReceiverTargetView;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

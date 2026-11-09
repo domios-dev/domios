@@ -61,7 +61,7 @@ fn agent_guide_from_manifest(manifest: &super::PluginManifest) -> Option<String>
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 struct AgentCommandOut {
     #[serde(default)]
     result: Option<String>,
@@ -135,3 +135,11 @@ impl AgentCommandProvider for JsAgentCommandHandler {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    AgentCommandOut::export_all(config)?;
+    Ok(())
+}

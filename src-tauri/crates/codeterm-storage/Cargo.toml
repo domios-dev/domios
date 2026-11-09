@@ -9,6 +9,7 @@ edition = "2021"
 test-support = ["dep:tempfile"]
 
 [dependencies]
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 codeterm-paths = { path = "../codeterm-paths" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }

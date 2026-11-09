@@ -4,35 +4,14 @@ use codeterm_plugin::agent_runtime::{
     RuntimeAccountCredits, RuntimeContext, RuntimeRateLimit, RuntimeSettings, TokenUsage,
 };
 use parking_lot::Mutex;
-use serde::Serialize;
 use std::{collections::HashMap, sync::LazyLock};
 
 mod tab_usage;
 pub use tab_usage::{for_tab, read_for_tab};
 
-#[derive(Clone, Serialize)]
-struct Reading<T> {
-    captured_at: u64,
-    value: T,
-}
+use codeterm_plugin::api_contracts::Reading;
 
-#[derive(Clone, Serialize)]
-struct UsageProjection {
-    tab_id: String,
-    thread_id: Option<String>,
-    #[serde(skip)]
-    provider: String,
-    #[serde(skip)]
-    nonce: String,
-    #[serde(skip)]
-    epoch: u64,
-    billing_mode: codeterm_usage::contract::BillingMode,
-    captured_at: u64,
-    token_usage: Option<Reading<TokenUsage>>,
-    rate_limits: Option<Reading<Vec<RuntimeRateLimit>>>,
-    resets: Option<codeterm_plugin::agent_runtime::ResetCredits>,
-    account_credits: Option<RuntimeAccountCredits>,
-}
+use codeterm_plugin::api_contracts::UsageProjection;
 
 static USAGE: LazyLock<Mutex<HashMap<String, UsageProjection>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));

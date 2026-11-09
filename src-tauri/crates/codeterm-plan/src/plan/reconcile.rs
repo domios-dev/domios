@@ -150,7 +150,7 @@ impl ReconcileConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum DriftKind {
     InProgressTabGone,
@@ -161,7 +161,7 @@ pub enum DriftKind {
     AcceptedButNotDone,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct DriftItem {
     pub task_id: String,
     pub plan_id: String,

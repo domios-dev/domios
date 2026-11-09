@@ -12,7 +12,7 @@ use super::push;
 use super::store::{Notification, NotificationProvenance};
 
 /// One channel's own address for a message it placed.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct ChannelPlacement {
     pub service: String,
     pub locator: String,

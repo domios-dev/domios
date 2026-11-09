@@ -56,13 +56,13 @@ const live = (i: number) => ({ id: `live-${i}`, timestampMs: 2_000 + i });
 // live lifecycle: started → running, then finished updates in place (same id)
 {
   let msgs: NormalizedChatMessage[] = [];
-  msgs = applyShellLifecycle(msgs, { kind: "started", commandLine: "npm test", cwd: "/repo" }, live(0));
+  msgs = applyShellLifecycle(msgs, { kind: "started", command_line: "npm test", cwd: "/repo" }, live(0));
   eq(msgs.length, 1, "started appends a running item");
   eq(msgs[0].shellStatus, "running", "started → running");
   eq(msgs[0].shellHasOutputStart, true, "started implies output-start");
   const runningId = msgs[0].id;
 
-  msgs = applyShellLifecycle(msgs, { kind: "finished", commandLine: "npm test", exitCode: 0, cwd: "/repo" }, live(1));
+  msgs = applyShellLifecycle(msgs, { kind: "finished", command_line: "npm test", exit_code: 0, cwd: "/repo" }, live(1));
   eq(msgs.length, 1, "finished updates in place — no new item");
   eq(msgs[0].id, runningId, "finished keeps the running item's id (stable bubble)");
   eq(msgs[0].shellStatus, "ok", "finished exit 0 → ok");
@@ -70,15 +70,15 @@ const live = (i: number) => ({ id: `live-${i}`, timestampMs: 2_000 + i });
 
 {
   let msgs: NormalizedChatMessage[] = [];
-  msgs = applyShellLifecycle(msgs, { kind: "started", commandLine: "boom" }, live(0));
-  msgs = applyShellLifecycle(msgs, { kind: "finished", commandLine: "boom", exitCode: 127 }, live(1));
+  msgs = applyShellLifecycle(msgs, { kind: "started", command_line: "boom" }, live(0));
+  msgs = applyShellLifecycle(msgs, { kind: "finished", command_line: "boom", exit_code: 127 }, live(1));
   eq(msgs[0].shellStatus, "failed", "non-zero exit → failed");
   eq(msgs[0].shellExitCode, 127, "exit code surfaced");
 }
 
 {
   let msgs: NormalizedChatMessage[] = [];
-  msgs = applyShellLifecycle(msgs, { kind: "finished", commandLine: "git status", exitCode: 0, cwd: "/x" }, live(0));
+  msgs = applyShellLifecycle(msgs, { kind: "finished", command_line: "git status", exit_code: 0, cwd: "/x" }, live(0));
   eq(msgs.length, 1, "finished with no started still produces an item");
   eq(msgs[0].shellStatus, "ok", "A/D-only finished resolves status");
   eq(msgs[0].shellHasOutputStart, false, "A/D-only item has_output_start=false");
@@ -93,10 +93,10 @@ const live = (i: number) => ({ id: `live-${i}`, timestampMs: 2_000 + i });
 
 {
   let msgs: NormalizedChatMessage[] = [];
-  msgs = applyShellLifecycle(msgs, { kind: "started", commandLine: "a" }, live(0));
-  msgs = applyShellLifecycle(msgs, { kind: "finished", commandLine: "a", exitCode: 0 }, live(1));
-  msgs = applyShellLifecycle(msgs, { kind: "started", commandLine: "b" }, live(2));
-  msgs = applyShellLifecycle(msgs, { kind: "finished", commandLine: "b", exitCode: 0 }, live(3));
+  msgs = applyShellLifecycle(msgs, { kind: "started", command_line: "a" }, live(0));
+  msgs = applyShellLifecycle(msgs, { kind: "finished", command_line: "a", exit_code: 0 }, live(1));
+  msgs = applyShellLifecycle(msgs, { kind: "started", command_line: "b" }, live(2));
+  msgs = applyShellLifecycle(msgs, { kind: "finished", command_line: "b", exit_code: 0 }, live(3));
   eq(msgs.length, 2, "two commands → two items");
   eq([msgs[0].shellCommand, msgs[1].shellCommand], ["a", "b"], "order preserved");
 }

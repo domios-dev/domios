@@ -616,7 +616,7 @@ describe("mission control board panels", () => {
 
   it("keeps the team Board with no active plan: previous plans, team stream and no plan figures", async () => {
     const onOpenPlan = vi.fn();
-    const archived: Plan = { ...PLAN, id: "pl_done1", title: "First Snake", goal: null, status: "archived" };
+    const archived: import("./missionControlState").TeamPlanSummary = { ...PLAN, id: "pl_done1", title: "First Snake", goal: null, status: "archived", team_id: PLAN.team_id ?? null, mode: PLAN.mode ?? "planning", planning_state: PLAN.planning_state ?? "drafting", task_counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 0, ...PLAN.task_counts } };
     const pager: EventPager = {
       pageCount: 1,
       page: () => [logEvent({ ts: DAY + H, kind: "decision", text: "archived pl_done1" })],

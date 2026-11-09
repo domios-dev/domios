@@ -346,7 +346,7 @@ pub struct NewMemItem {
     pub pinned: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct MemItem {
     pub author: MemAuthor,
     pub id: String,

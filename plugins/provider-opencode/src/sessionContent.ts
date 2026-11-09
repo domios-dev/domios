@@ -1,10 +1,8 @@
-import { type HostIoSteps } from "@codeterm/plugin-sdk";
+import { type HostIoSteps, type AgentProvider } from "@codeterm/plugin-sdk";
 import { safeJson, OpencodePart } from "./helpers";
 
-export interface SessionContentQuery {
-  maxBytes?: number;
-  hintTerms?: string[];
-}
+export type SessionContentQuery = Partial<Parameters<NonNullable<AgentProvider["readSessionContent"]>>[1]>;
+export type SessionContentReply = NonNullable<ReturnType<NonNullable<AgentProvider["readSessionContent"]>>>;
 
 interface ContentRow {
   ts?: number;
@@ -32,7 +30,7 @@ function likePattern(term: string): string {
   return "%" + term.replace(/[\\%_]/g, "\\$&") + "%";
 }
 
-export function* readOpencodeSessionContent(db: string, sessionId: string, query: SessionContentQuery | null | undefined): HostIoSteps<unknown> {
+export function* readOpencodeSessionContent(db: string, sessionId: string, query: SessionContentQuery | null | undefined): HostIoSteps<SessionContentReply | null> {
   const maxBytes = Math.max(0, Math.floor(Number(query && query.maxBytes) || 0));
   const hints = query && Array.isArray(query.hintTerms)
     ? query.hintTerms.filter((term) => typeof term === "string" && term.length > 0)
@@ -50,7 +48,7 @@ export function* readOpencodeSessionContent(db: string, sessionId: string, query
   const rows = (yield* queryRows<ContentRow>(db, CONTENT_SQL_HEAD + hintSql + CONTENT_SQL_TAIL, params));
   if (!rows) return null;
 
-  const messages: unknown[] = [];
+  const messages: SessionContentReply["messages"] = [];
   for (let i = 0; i < rows.length; i++) {
     const part = safeJson(rows[i].part) as (OpencodePart & { synthetic?: boolean; ignored?: boolean }) | null;
     if (!part || part.type !== "text" || typeof part.text !== "string" || !part.text.trim()) continue;

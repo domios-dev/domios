@@ -25,25 +25,11 @@ export type UpdateStatus =
   | "restarting"
   | "error";
 
-export type UpdatePhase =
-  | "idle"
-  | "checking"
-  | "downloading"
-  | "applying"
-  | "success"
-  | "error";
+export type UpdatePhase = import("../../gen/UpdatePhase").UpdatePhase;
 
-export type UpdateChannel = "stable" | "rc" | "nightly";
+export type UpdateChannel = import("../../gen/Channel").Channel;
 
-export interface UpdateInfo {
-  current_version: string;
-  latest_version: string;
-  update_available: boolean;
-  release_url?: string;
-  release_notes?: string | null;
-  download_url?: string | null;
-  published_at?: string | null;
-}
+export type UpdateInfo = Pick<import("../../gen/UpdateInfo").UpdateInfo, "current_version" | "latest_version" | "update_available"> & Partial<Omit<import("../../gen/UpdateInfo").UpdateInfo, "current_version" | "latest_version" | "update_available">>;
 
 export interface InstallResponse {
   status: "updating" | "up_to_date" | "command" | "browser_opened" | "already_in_flight";

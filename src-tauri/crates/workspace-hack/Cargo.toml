@@ -85,7 +85,7 @@ toml_datetime = { version = "1", features = ["serde"] }
 toml_parser = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log"] }
 tracing = { version = "0.1", features = ["log"] }
-ts-rs = { version = "12", features = ["no-serde-warnings", "serde-json-impl"] }
+ts-rs = { version = "12", features = ["chrono-impl", "no-serde-warnings", "serde-json-impl"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }

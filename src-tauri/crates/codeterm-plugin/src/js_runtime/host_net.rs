@@ -31,7 +31,7 @@ static DECISION_FETCH_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLo
         .map_err(|_| "decision HTTP client unavailable".into())
 });
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct FetchOpts {
     url: String,
@@ -375,10 +375,13 @@ async fn run_stream_async(job_id: String, opts_json: String) -> Result<(), Strin
     Ok(())
 }
 
+#[derive(ts_rs::TS)]
 struct StreamPollResponse {
     chunks: Vec<String>,
     done: bool,
+    #[ts(optional)]
     status: Option<u16>,
+    #[ts(optional)]
     error: Option<String>,
 }
 
@@ -912,4 +915,13 @@ mod physical_tests {
         drop(scope);
         assert!(physical::current().is_none());
     }
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    FetchOpts::export_all(config)?;
+    StreamPollResponse::export_all(config)?;
+    Ok(())
 }

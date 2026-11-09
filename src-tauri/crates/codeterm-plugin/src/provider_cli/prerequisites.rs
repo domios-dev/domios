@@ -3,7 +3,7 @@ use crate::js_runtime::{probe_bin, BinResolution};
 #[cfg(any(windows, test))]
 mod powershell;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, ts_rs::TS)]
 pub struct CommandPrerequisite {
     pub binary: String,
     pub installed: Option<bool>,

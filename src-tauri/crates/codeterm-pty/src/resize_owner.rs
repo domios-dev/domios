@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct ResizeOwner {
     pub tab_id: String,
     pub pty_id: String,
@@ -200,5 +200,23 @@ mod tests {
         assert_eq!(owner.client_id, "web:phone");
         assert_eq!(owner.cols, 80);
         assert!(registry.is_owner("pty", "web:phone"));
+    }
+}
+
+#[derive(Clone, Debug, Serialize, ts_rs::TS)]
+pub struct ResizeOwnerClaim {
+    pub owner: ResizeOwner,
+    pub current_size: Option<ResizePtySize>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, ts_rs::TS)]
+pub struct ResizePtySize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl From<(u16, u16)> for ResizePtySize {
+    fn from((cols, rows): (u16, u16)) -> Self {
+        Self { cols, rows }
     }
 }

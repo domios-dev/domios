@@ -10,11 +10,11 @@ import { BoardEventLog } from "./BoardEventLog";
 import { ConnectedPlanSettings } from "./ConnectedPlanSettings";
 import { boardRefs } from "./BoardRefText";
 import { BOARD_ROW_COLUMNS, boardLayout, type BoardLayout, type EventPager } from "./missionControlBoardModel";
-import type { TeamPlanSummary, PlanBoardState } from "./missionControlState";
+import type { MissionControlPlanView, PlanBoardState } from "./missionControlState";
 import type { TeamSpend } from "./teamSpend";
 
 export interface MissionControlBoardProps {
-  plan: TeamPlanSummary | Plan;
+  plan: MissionControlPlanView | Plan;
   state: PlanBoardState | null;
   /** Set while the first snapshot for this plan is still in flight. */
   loading?: boolean;
@@ -23,7 +23,7 @@ export interface MissionControlBoardProps {
   /** Plans whose ids and task ids the Board names by title; defaults to this plan. */
   plans?: readonly Plan[];
   /** Archived plans the same team ran before the active one, newest first. */
-  previousPlans?: readonly TeamPlanSummary[];
+  previousPlans?: readonly MissionControlPlanView[];
   /** Switches the host to the Spec, Plan or Tasks view. */
   onOpenView?: (mode: "spec" | "plan" | "tasks") => void;
   onOpenTask?: (taskId: string, planId?: string) => void;
@@ -86,7 +86,7 @@ export function MissionControlBoard({
       data-board-layout={layout}
       className="mc-board"
     >
-      <ConnectedPlanSettings key={plan.id} plan={plan} api={api} initial={state?.control_loop ?? plan.control_loop} fromSnapshot={Boolean(api)} now={now} />
+      <ConnectedPlanSettings key={plan.id} plan={plan} api={api} initial={state?.control_loop ?? ("control_loop" in plan ? plan.control_loop : undefined)} fromSnapshot={Boolean(api)} now={now} />
       {spendError && <InlineErrorNotice role="alert" error={spendError} operation="loading team spend" />}
       {error && (
         <div data-testid="mc-board-error"><InlineErrorNotice error={error} operation="loading plans" /></div>

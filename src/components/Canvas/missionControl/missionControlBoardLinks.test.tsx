@@ -15,7 +15,7 @@ import { planForDetail } from "./planDetailTarget";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const API: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
+const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
 
 const WS_ID = "ws-test";
 const WORKSPACES: Workspace[] = [{ id: WS_ID, name: "Test", tabs: ["orch-1"], active_tab_id: null, cwd: null }];

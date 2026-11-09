@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 pub const MAX_ATTEMPTS: u32 = 3;
 const BACKOFF_MS: u64 = 60_000;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct ExtractionRetry {
     pub attempt: u32,
     pub parked: bool,

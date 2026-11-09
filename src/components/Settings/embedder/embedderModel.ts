@@ -1,33 +1,10 @@
-export interface EmbedderIdentity {
-  provider: string;
-  model: string;
-  dimension: number;
-}
+export type EmbedderIdentity = import("../../../../gen/EmbedderIdentity").EmbedderIdentity;
 
-export interface ReembedProgress {
-  state: "idle" | "running" | "completed" | "failed" | "cancelled";
-  target: EmbedderIdentity | null;
-  total: number;
-  done: number;
-  failed: number;
-  last_error?: string | null;
-  current_item?: { id: string; done: number; total: number } | null;
-}
+export type ReembedProgress = Pick<import("../../../../gen/ReembedProgress").ReembedProgress, "state" | "target" | "total" | "done" | "failed"> & Partial<import("../../../../gen/ReembedProgress").ReembedProgress>;
 
-export interface EmbedderStatus extends EmbedderIdentity {
-  remote: boolean;
-  available: boolean;
-  index: EmbedderIdentity | null;
-  index_matches: boolean;
-  vectors: number;
-  pending: number;
-  reembed: ReembedProgress;
-}
+export type EmbedderStatus = Pick<import("../../../../gen/EmbedderStatus").EmbedderStatus, "provider" | "model" | "dimension" | "remote" | "available" | "index" | "index_matches" | "vectors" | "pending"> & Partial<Omit<import("../../../../gen/EmbedderStatus").EmbedderStatus, "reembed">> & { reembed: ReembedProgress };
 
-export interface Refusal {
-  message: string;
-  hints: string[];
-}
+export type Refusal = import("../../../../gen/EmbedderRefusal").EmbedderRefusal;
 
 export function normalizeRefusal(reason: unknown): Refusal {
   if (typeof reason === "string") return { message: reason, hints: [] };
@@ -42,26 +19,9 @@ export function normalizeRefusal(reason: unknown): Refusal {
   return { message: "The embedder request failed.", hints: [] };
 }
 
-export interface ProviderModel {
-  model: string;
-  dimension: number;
-  min_dimension: number;
-  max_tokens: number;
-  default: boolean;
-}
+export type ProviderModel = import("../../../../gen/EmbedderModelDescriptor").EmbedderModelDescriptor;
 
-export interface ProviderListing {
-  id: string;
-  label: string;
-  remote: boolean;
-  models: ProviderModel[];
-  active: boolean;
-  key?: {
-    file: { path: string; present: boolean; owner_only: boolean | null };
-    in_vault: boolean;
-  } | null;
-  refusal: Refusal | null;
-}
+export type ProviderListing = Omit<import("../../../../gen/ProviderListing").ProviderListing, "key" | "modalities"> & Partial<Pick<import("../../../../gen/ProviderListing").ProviderListing, "modalities">> & {key?: Omit<NonNullable<import("../../../../gen/ProviderListing").ProviderListing["key"]>, "vault_name"> | null};
 
 export function refusalForPlatform(reason: unknown, provider: ProviderListing | undefined, remoteOptIn: boolean, platform: string): Refusal {
   const refusal = normalizeRefusal(reason);
@@ -81,21 +41,9 @@ export function refusalForPlatform(reason: unknown, provider: ProviderListing | 
   return normalizeRefusal({ message: refusal.message, hints });
 }
 
-export interface EmbedderListing {
-  providers: ProviderListing[];
-  remote_opt_in: boolean;
-  remote_warning: string;
-  status: EmbedderStatus;
-}
+export type EmbedderListing = Omit<import("../../../../gen/EmbedderListing").EmbedderListing, "providers" | "status"> & {providers: ProviderListing[]; status: EmbedderStatus};
 
-export interface SwitchPreview {
-  target: EmbedderIdentity;
-  remote: boolean;
-  warning: string | null;
-  plan: { items: number; entities: number; docs: number };
-  total: number;
-  refusal: Refusal | null;
-}
+export type SwitchPreview = Pick<import("../../../../gen/SwitchPreview").SwitchPreview, "target" | "remote" | "warning" | "total" | "refusal"> & Partial<Pick<import("../../../../gen/SwitchPreview").SwitchPreview, "already_active" | "already_running" | "cancelled">> & {plan: Pick<import("../../../../gen/SwitchPlan").SwitchPlan, "items" | "entities" | "docs"> & Partial<Pick<import("../../../../gen/SwitchPlan").SwitchPlan, "blueprints">>};
 
 export interface EmbedderOption {
   value: string;

@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Tone {
     #[default]
@@ -20,7 +20,7 @@ pub enum Tone {
     Accent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Spacing {
     None,
@@ -31,17 +31,20 @@ pub enum Spacing {
 }
 
 /// The only styling a plugin may set — bounded tokens, never free CSS.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct NodeStyle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub tone: Option<Tone>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub spacing: Option<Spacing>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "ViewNoteLevel")]
 pub enum NoteLevel {
     #[default]
     Info,
@@ -50,13 +53,14 @@ pub enum NoteLevel {
 }
 
 /// A node in a plugin-authored view tree.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ViewNode {
     /// A line of text.
     Text {
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         style: Option<NodeStyle>,
     },
     /// A big value with a small caption (e.g. token count).
@@ -64,8 +68,10 @@ pub enum ViewNode {
         label: String,
         value: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         unit: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         style: Option<NodeStyle>,
     },
     /// A label/value pair on one line (e.g. "Account: me@x.io").
@@ -73,6 +79,7 @@ pub enum ViewNode {
         key: String,
         value: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         style: Option<NodeStyle>,
     },
     /// A small pill.
@@ -85,12 +92,14 @@ pub enum ViewNode {
     Row {
         children: Vec<ViewNode>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         style: Option<NodeStyle>,
     },
     /// Vertical layout.
     Stack {
         children: Vec<ViewNode>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         style: Option<NodeStyle>,
     },
     /// A horizontal rule.
@@ -108,14 +117,16 @@ pub enum ViewNode {
         label: String,
         action: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         style: Option<NodeStyle>,
     },
 }
 
 /// A complete glance view: optional title + the node tree.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct GlanceView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub title: Option<String>,
     pub nodes: Vec<ViewNode>,
 }

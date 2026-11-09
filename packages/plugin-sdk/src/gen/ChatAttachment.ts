@@ -4,4 +4,4 @@
  * An image (or file) attachment on a user message, mirroring the frontend
  * `ChatAttachment`.
  */
-export type ChatAttachment = { id: string, mimeType: string, data?: string | null, url?: string | null, path?: string | null, };
+export type ChatAttachment = { id: string, mimeType: string, data?: string, url?: string, path?: string, };

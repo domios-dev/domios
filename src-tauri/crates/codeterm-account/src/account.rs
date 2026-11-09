@@ -23,11 +23,14 @@ fn token_expired(expires_at: u64) -> bool {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
+#[ts(rename = "AccountStatus")]
 pub struct Status {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
     pub server_stop_unconfirmed: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
     pub session_revoked: bool,
     pub provider: String,
     pub identity: Option<Identity>,
@@ -36,6 +39,7 @@ pub struct Status {
     pub last_sign_in_failure: Option<SignInFailure>,
     /// Signed out because the saved sign-in belongs to another account target; the credential is kept.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub target_mismatch: Option<crate::TargetMismatch>,
     /// The remote purchase switch; false unless the last fetch said exactly "true".
     pub purchases_enabled: bool,

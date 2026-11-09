@@ -56,7 +56,7 @@ describe("provider compatibility hint", () => {
   it("stays quiet for supported, undeclared, missing and backend CLIs", () => {
     for (const status of [null, base, installed,
       { ...installed, compatibility: { verdict: "supported" as const, reasons: [] } },
-      { ...installed, compatibility: { verdict: "unknown" as const, reasons: ["undeclared_capability"] } },
+      { ...installed, compatibility: { verdict: "unknown" as const, reasons: ["undeclared_capability" as const] } },
       { ...installed, required: false, compatibility: { verdict: "unknown" as const, reasons: [] } },
     ]) expect(providerCompatibilityHint(status)).toBeNull();
   });

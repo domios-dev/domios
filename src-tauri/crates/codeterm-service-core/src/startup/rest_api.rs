@@ -14,29 +14,11 @@ mod restart;
 mod streams;
 pub use restart::RestartAcceptance;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RestApiPhase {
-    Starting,
-    Listening,
-    Failed,
-}
+pub use codeterm_wire::api_contracts::RestApiPhase;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RestApiDiagnostic {
-    ListenerExited,
-    BindOwnershipFailed,
-    WorkersBlocked,
-}
+pub use codeterm_wire::api_contracts::RestApiDiagnostic;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct RestApiStatus {
-    pub generation: u64,
-    pub phase: RestApiPhase,
-    pub diagnostic: Option<RestApiDiagnostic>,
-    pub message: Option<String>,
-}
+pub use codeterm_wire::api_contracts::RestApiStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RestApiRecovery {

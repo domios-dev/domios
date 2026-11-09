@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const MAX_UNAVAILABLE_REASON_CHARS: usize = 240;
 
 /// Where a launch profile's account limits come from. Core branches only on the kind.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum RuntimeProfileLimitsSource {
     /// The account limits of a native provider, shown exactly as its own tabs show them.
@@ -62,12 +62,14 @@ fn valid_reason(reason: &str) -> bool {
 }
 
 /// Declared data for profiles installed from one registry id.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeRegistryDefaults {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub limits_source: Option<RuntimeProfileLimitsSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub full_access_mode: Option<String>,
 }
 

@@ -1,29 +1,11 @@
-use serde::Serialize;
-
 use super::session_binding_deferral::{DeferredSessionBinding, RefusedSessionBinding};
 use super::ServiceContext;
 use crate::multiplexer::types::{PriorBindingNonce, TabBacking};
 use codeterm_types::pty::BootStage;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionBindingStateKind {
-    Healthy,
-    DeferredPending,
-    Refused,
-    NeverBound,
-    Unbound,
-    StalePending,
-}
+pub use codeterm_wire::api_contracts::SessionBindingStateKind;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct SessionBindingState {
-    pub tab_id: String,
-    pub kind: SessionBindingStateKind,
-    pub current_session_id: Option<String>,
-    pub requested_session_id: Option<String>,
-    pub reason: Option<String>,
-}
+pub use codeterm_wire::api_contracts::SessionBindingState;
 
 /// The deferral still describes this tab when the session it was protecting is
 /// the one the tab is on; otherwise the tab has moved past it.

@@ -10,17 +10,10 @@ use codeterm_neighbors::{
     wire::{hex_id, Kind},
     Error, Result,
 };
-use serde::{Deserialize, Serialize};
+
 use serde_json::{json, Value};
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum NeighborNotify {
-    Off,
-    #[default]
-    InApp,
-    InAppAndBridges,
-}
+pub use codeterm_wire::api_contracts::NeighborNotify;
 
 pub(super) struct Arrival {
     message_id: String,

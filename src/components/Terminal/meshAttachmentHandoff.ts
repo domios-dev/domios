@@ -12,21 +12,11 @@ import {
   type ComposerCapsule,
 } from "./composerCapsules";
 
-export type MeshAttachmentKind = "voice" | "file";
+export type MeshAttachmentKind = import("../../../gen/MeshAttachmentKind").MeshAttachmentKind;
 
-export interface MeshAttachmentTransferRequest extends Record<string, unknown> {
-  ordinaryTabId: string;
-  peerId: string;
-  path: string;
-  kind: MeshAttachmentKind;
-}
+export type MeshAttachmentTransferRequest = Record<string, unknown> & {ordinaryTabId: import("../../../gen/MeshAttachmentTransferBody").MeshAttachmentTransferBody["ordinary_tab_id"]; peerId: import("../../../gen/MeshAttachmentTransferBody").MeshAttachmentTransferBody["peer_id"]; path: import("../../../gen/MeshAttachmentTransferBody").MeshAttachmentTransferBody["path"]; kind: import("../../../gen/MeshAttachmentTransferBody").MeshAttachmentTransferBody["kind"]};
 
-export interface TransferredAttachment {
-  path: string;
-  kind: MeshAttachmentKind;
-  size: number;
-  reference?: string | null;
-}
+export type TransferredAttachment = Omit<import("../../../gen/MeshIngestedAttachment").MeshIngestedAttachment, "reference"> & Partial<Pick<import("../../../gen/MeshIngestedAttachment").MeshIngestedAttachment, "reference">>;
 
 export interface AttachmentHandoffDeps {
   /** Peer the web mirror relays tab traffic to; its tab ids are peer-local. */

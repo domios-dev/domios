@@ -18,7 +18,7 @@ pub enum PluginTier {
 }
 
 /// What a plugin contributes to the host.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ts_rs::TS)]
 pub struct PluginCapabilities {
     #[serde(default)]
     pub commands: Vec<String>,

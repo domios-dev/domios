@@ -24,12 +24,7 @@ export type PluginInstallSource =
 
 /** A plugin physically installed on disk, workspace-loaded, or a bundled system
  * provider — the daemon's `snapshot.plugins`. */
-export interface PluginLoadError {
-  message: string;
-  path: string;
-  at_ms: number;
-  kept_previous: boolean;
-}
+export type PluginLoadError = Pick<import("../../../gen/PluginLoadError").PluginLoadError, "message" | "path" | "at_ms" | "kept_previous">;
 
 export interface InstalledPlugin {
   id: string;

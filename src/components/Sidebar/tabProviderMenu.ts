@@ -24,18 +24,9 @@ export function tabProviderEntryLabel(_view: TabProviderMenuView): string {
 }
 
 export interface ProviderSwitchOptions { model?: string; reasoningEffort?: string; force?: boolean }
-export interface ProviderSwitchResult {
-  tab_id: string;
-  provider: string;
-  session_id: string;
-  previous_provider: string;
-  previous_session_id: string | null;
-  previous_history_path: string;
-  binding_restored: boolean;
-  handoff_delivered: boolean;
-}
+export type ProviderSwitchResult = import("../../../gen/ProviderSwitchOutcome").ProviderSwitchOutcome;
 
-export interface ProviderSwitchStatus { operation_id: string; tab_id: string; provider: string; phase: "pending" | "running" | "completed" | "failed"; outcome: ProviderSwitchResult | null; error: string | null }
+export type ProviderSwitchStatus = import("../../../gen/ProviderSwitchStatus").ProviderSwitchStatus;
 
 export interface TabProviderSwitchApi {
   switchProvider(tabId: string, providerId: string, options?: ProviderSwitchOptions): Promise<ProviderSwitchStatus | ProviderSwitchResult | void>;

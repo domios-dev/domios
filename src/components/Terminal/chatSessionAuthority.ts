@@ -1,9 +1,6 @@
 import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 
-export interface TranscriptAuthority {
-  source_session_id: string | null;
-  session_binding_nonce: string | null;
-}
+export type TranscriptAuthority = Pick<import("../../../gen/ChatStartResult").ChatStartResult, "source_session_id" | "session_binding_nonce">;
 
 export function transcriptAuthorityMatches(
   listener: TranscriptAuthority | null,
@@ -54,30 +51,9 @@ export function attachmentActivity(
  *  reported states, not waits: an observed delta is what clears either. */
 export type ChatUnavailableReason = "no_transcript_source" | "authority_mismatch";
 
-export interface ChatStartResult extends TranscriptAuthority {
-  kind?: "snapshot" | "unchanged" | "delta";
-  file_length?: number;
-  text: string;
-  offset: number;
-  offset_kind?: "bytes" | "items";
-  start_offset?: number;
-  pending?: boolean;
-  /** The provider named no transcript source for this session, so nothing is
-   *  loading one; `pending` here means unavailable, not "not yet". */
-  source_missing?: boolean;
-  messages?: ChatMessage[];
-  /** Read-only rows from earlier provider sessions, before the active session window. */
-  archived_messages?: ChatMessage[];
-  cursor?: string;
-  subscription_id?: string | null;
-}
+export type ChatStartResult = Omit<import("../../../gen/ChatStartResult").ChatStartResult, "messages" | "archived_messages" | "kind" | "offset_kind" | "start_offset" | "pending" | "source_missing"> & Partial<Pick<import("../../../gen/ChatStartResult").ChatStartResult, "kind" | "offset_kind" | "start_offset" | "pending" | "source_missing">> & {messages?: ChatMessage[]; archived_messages?: ChatMessage[]};
 
-export interface KnownChatWindow extends TranscriptAuthority {
-  source_session_id: string;
-  end_offset: number;
-  file_length: number;
-  cursor: string;
-}
+export type KnownChatWindow = import("../../../gen/KnownChatWindow").KnownChatWindow;
 
 export function chatStartBatchKind(kind: ChatStartResult["kind"]): "snapshot" | "delta" | null {
   return kind === "unchanged" ? null : kind === "delta" ? "delta" : "snapshot";
@@ -91,13 +67,7 @@ export function knownWindowForAuthority(
   return known && transcriptAuthorityMatches(known, sessionId, nonce) ? known : undefined;
 }
 
-export interface ChatBackfillResult extends TranscriptAuthority {
-  text: string;
-  offset_kind?: "bytes" | "items";
-  start_offset: number;
-  end_offset: number;
-  messages?: ChatMessage[];
-}
+export type ChatBackfillResult = Omit<import("../../../gen/ChatBackfillResult").ChatBackfillResult, "messages" | "offset_kind"> & Partial<Pick<import("../../../gen/ChatBackfillResult").ChatBackfillResult, "offset_kind">> & {messages?: ChatMessage[]};
 
 export interface ChatMsgEvent extends TranscriptAuthority {
   tab_id: string;

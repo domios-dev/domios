@@ -6,30 +6,14 @@ export interface AutomationScope {
 
 export const ALL_JOBS_SCOPE = "__all_jobs__";
 
-export interface AutomationIdentity extends AutomationScope {
-  kind: "blueprint" | "cron" | "worker";
-  id: string;
-  owner_tab_id: string | null;
-}
+export type AutomationIdentity = Omit<import("../../../gen/AutomationIdentity").AutomationIdentity, "kind"> & {kind: "blueprint" | "cron" | "worker"};
 
-export type CommandResultStatus = "success" | "nonzero" | "error" | "cancelled" | "deadline" | "unconfirmed";
+export type CommandResultStatus = import("../../../gen/SentinelCommandStatus").SentinelCommandStatus;
 
-export interface CommandCapture {
-  total_bytes: number;
-  retained_bytes: number;
-  truncated: boolean;
-}
+export type CommandCapture = import("../../../gen/SentinelCommandCapture").SentinelCommandCapture;
 
 // The wire also carries primary/cleanup diagnostics; they are unscrubbed, so the UI type omits them.
-export interface CommandResultMetadata {
-  status: CommandResultStatus;
-  exit_code: number | null;
-  resources_confirmed: boolean;
-  stdout: CommandCapture | null;
-  stderr: CommandCapture | null;
-  started_at: number;
-  finished_at: number;
-}
+export type CommandResultMetadata = Pick<import("../../../gen/SentinelCommandResultMetadata").SentinelCommandResultMetadata, "status" | "exit_code" | "resources_confirmed" | "stdout" | "stderr" | "started_at" | "finished_at">;
 
 export interface AutomationHandlerResult {
   status: string | null;
@@ -111,13 +95,7 @@ export interface AutomationNode {
   stop: { allowed: boolean; reason: string | null };
 }
 
-export interface CausalRunContext {
-  id: string;
-  root_node: string;
-  root_transition: string;
-  started_at: number;
-  parent: { node: string; transition: string; handler: string } | null;
-}
+export type CausalRunContext = import("../../../gen/CausalRunContext").CausalRunContext;
 
 export interface AutomationRun {
   id: string;
@@ -154,35 +132,14 @@ export interface AutomationEdge {
   evidence: { kind: "configured"; route_id: string } | { kind: "observed"; execution_id: string };
 }
 
-export interface AutomationScenario {
-  id: string;
-  name: string;
-  root: AutomationIdentity;
-}
+export type AutomationScenario = Omit<import("../../../gen/AutomationScenario").AutomationScenario, "root"> & {root: AutomationIdentity};
 
-export interface AutomationGraph extends AutomationScope {
-  configured_fallback?: { adapter_id: string; model: string | null } | null;
-  all_teams?: boolean;
-  truncated?: boolean;
-  scenarios: readonly AutomationScenario[];
-  revision: string;
-  nodes: readonly AutomationNode[];
-  edges: readonly AutomationEdge[];
-  blueprints?: readonly BlueprintSnapshot[];
-  runs?: readonly AutomationRun[];
-  quarantined?: readonly QuarantinedBlueprint[];
-}
+export type AutomationGraph = Pick<import("../../../gen/AutomationGraphSnapshot").AutomationGraphSnapshot, "workspace_id" | "team_id" | "revision"> & Partial<Pick<import("../../../gen/AutomationGraphSnapshot").AutomationGraphSnapshot, "all_teams" | "truncated">> & {configured_fallback?: {adapter_id: string; model: string | null} | null; scenarios: readonly AutomationScenario[]; nodes: readonly AutomationNode[]; edges: readonly AutomationEdge[]; blueprints?: readonly BlueprintSnapshot[]; runs?: readonly AutomationRun[]; quarantined?: readonly QuarantinedBlueprint[]};
 
 /** A committed Blueprint refused at load; it never runs until recreated. */
-export interface QuarantinedBlueprint {
-  id: string;
-  name: string | null;
-  state: "quarantined";
-  code: string;
-  reason: string;
-}
+export type QuarantinedBlueprint = Pick<import("../../../gen/QuarantinedBlueprint").QuarantinedBlueprint, "id" | "name" | "code" | "reason"> & {state: "quarantined"};
 
-export type BlueprintOwnerKind = "tab" | "team";
+export type BlueprintOwnerKind = import("../../../gen/BlueprintOwner").BlueprintOwner;
 export type BlueprintState = "idle" | "running" | "held" | "stopped" | "failed";
 export type BlueprintStepState = "waiting" | "running" | "done" | "failed" | "skipped";
 export type BlueprintResultState = "waiting" | "delivering" | "delivered" | "failed";

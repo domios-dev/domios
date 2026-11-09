@@ -1,6 +1,6 @@
 import type { Plan, Section, Task } from "./types";
 
-export type PlanProjectionView = "summary" | "board" | "document" | "list" | "chat" | "task_metadata";
+export type PlanProjectionView = import("../../../gen/PlanViewProjection").PlanViewProjection;
 export type PlanTaskView = Pick<Task,
   "id" | "name" | "type" | "status" | "model" | "status_label" |
   "parent_task_id" | "assigned_tab_id" | "peer" | "section_ids" | "canvas"
@@ -34,14 +34,7 @@ export type PlanProjection = Pick<PlanView,
 > & { revision: string; canonical_project_path?: string; spec_refs?: string[];
   tasks: PlanTaskMetadata[]; sections: PlanSectionView[] };
 
-export interface CommittedPlanChange {
-  plan_id: string;
-  revision: string;
-  previous_revision: string;
-  task_ids: string[];
-  reset: boolean;
-  deleted: boolean;
-}
+export type CommittedPlanChange = import("../../../gen/CommittedPlanChange").CommittedPlanChange;
 
 export function planRevision(value: unknown): string {
   const revision = value && typeof value === "object" && "revision" in value ? value.revision : null;

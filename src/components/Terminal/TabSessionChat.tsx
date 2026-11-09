@@ -137,7 +137,16 @@ interface Props {
   chatBackend?: boolean;
 }
 
-const DISABLED_PLAN_API: ApiConfig = { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false };
+const DISABLED_PLAN_API: ApiConfig = {
+  mesh_tailnet_host: null,
+  cors_allow_origins: [],
+  preview_secret_paths: [],
+  enabled: false,
+  host: "127.0.0.1",
+  port: 0,
+  token: null,
+  cors: false,
+};
 
 const CHAT_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const NO_RAIL_INDICES: readonly number[] = [];

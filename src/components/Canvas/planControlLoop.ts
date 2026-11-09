@@ -1,31 +1,16 @@
-export type ControlLoopMode = "curator" | "heartbeat" | "off";
+type PlanHydrated<T, K extends keyof T, N extends keyof T = never> = Pick<{ [P in keyof T]: T[P] | (P extends N ? null : never) }, K> & Partial<Omit<{ [P in keyof T]: T[P] | (P extends N ? null : never) }, K>>;
 
-export interface CuratorRound {
-  number: number;
-  started_at: number;
-  ended_at: number | null;
-  outcome: string;
-  summary: string;
-  next_delay_secs: number;
-  reason: string;
-  learnings: number;
-  save_id: string | null;
-}
+export type ControlLoopMode = import("../../../gen/ControlLoopMode").ControlLoopMode;
 
-export interface PlanControlLoop {
-  manual_run_requested?: boolean;
-  running?: { number: number } | null;
+export type CuratorRound = PlanHydrated<Pick<import("../../../gen/CuratorRound").CuratorRound, Extract<keyof import("../../../gen/CuratorRound").CuratorRound, "number" | "started_at" | "ended_at" | "outcome" | "summary" | "next_delay_secs" | "reason" | "learnings" | "save_id">>, "number" | "started_at" | "ended_at" | "outcome" | "summary" | "next_delay_secs" | "reason" | "learnings" | "save_id", "ended_at" | "save_id">;
+
+export type PlanControlLoop = Omit<PlanHydrated<Pick<import("../../../gen/ControlLoop").ControlLoop, Extract<keyof import("../../../gen/ControlLoop").ControlLoop, "manual_run_requested" | "running" | "mode" | "heartbeat_interval_secs" | "next_at" | "last_round" | "fallback_reason" | "suspended_reason" | "counts_7d">>, "mode" | "heartbeat_interval_secs" | "next_at" | "last_round" | "fallback_reason" | "suspended_reason" | "counts_7d", "running" | "heartbeat_interval_secs" | "next_at" | "last_round" | "fallback_reason" | "suspended_reason">, "running" | "mode" | "last_round"> & {
+  running?: (Pick<import("../../../gen/CuratorRun").CuratorRun, "number"> & Partial<Omit<import("../../../gen/CuratorRun").CuratorRun, "number">>) | null;
   mode: ControlLoopMode;
-  heartbeat_interval_secs: number | null;
-  next_at: number | null;
   last_round: CuratorRound | null;
-  fallback_reason: string | null;
-  suspended_reason: string | null;
-  counts_7d: Record<"rounds" | "quiet" | "nudged" | "learnings" | "saves" | "fallbacks", number>;
-}
+};
 
-export interface ControlLoopUpdate {
+export type ControlLoopUpdate = Omit<PlanHydrated<Pick<import("../../../gen/ControlLoopUpdate").ControlLoopUpdate, Extract<keyof import("../../../gen/ControlLoopUpdate").ControlLoopUpdate, "mode" | "heartbeat_interval_secs">>, "mode", "heartbeat_interval_secs">, "mode"> & {
   mode: ControlLoopMode;
-  heartbeat_interval_secs?: number | null;
-}
+};
 

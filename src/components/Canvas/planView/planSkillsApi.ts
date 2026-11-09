@@ -2,27 +2,11 @@ import { daemonFetch } from "../../../lib/webApi";
 import { authHeaders } from "../../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../../lib/types";
 
-export interface PlanSkillSummary {
-  slug: string;
-  title: string;
-  purpose: string;
-  check: string | null;
-  verdict: string;
-}
+export type PlanSkillSummary = import("../../../../gen/PlanSkillSummary").PlanSkillSummary;
 
-export interface PlanSkillLedgerEntry {
-  seq: number;
-  slug: string;
-  verdict: string;
-  rationale: string;
-}
+export type PlanSkillLedgerEntry = import("../../../../gen/PlanSkillLedgerEntry").PlanSkillLedgerEntry;
 
-export interface PlanSkillDetail {
-  slug: string;
-  title: string;
-  body: string;
-  ledger: PlanSkillLedgerEntry[];
-}
+export type PlanSkillDetail = import("../../../../gen/PlanSkillDetail").PlanSkillDetail;
 
 export async function fetchPlanSkills(
   api: ApiConfig,

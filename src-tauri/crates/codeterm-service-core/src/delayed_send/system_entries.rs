@@ -26,14 +26,7 @@ impl MessageOrigin {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeliveryTickView {
-    pub at_ms: u64,
-    pub outcome: String,
-    pub spinal_verdict: String,
-    pub spinal_reason: String,
-}
+pub use codeterm_wire::api_contracts::DeliveryTickView;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

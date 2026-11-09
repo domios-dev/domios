@@ -20,16 +20,7 @@ fn err(msg: impl Into<String>) -> String {
     serde_json::json!({ "error": msg.into() }).to_string()
 }
 
-#[derive(serde::Deserialize)]
-struct ProgressOpts {
-    label: String,
-    #[serde(default)]
-    percent: Option<f32>,
-    #[serde(default)]
-    done: bool,
-    #[serde(default)]
-    error: Option<String>,
-}
+use codeterm_wire::plugin_host::ProgressOpts;
 
 fn apply_progress_raw(
     registry: &PluginActivityRegistry,

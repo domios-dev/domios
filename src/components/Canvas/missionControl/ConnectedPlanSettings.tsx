@@ -2,7 +2,7 @@ import { useGuideNavigation } from "@codeterm/chat-ui/GuideDirective";
 import type { ApiConfig } from "../../../lib/types";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import type { PlanControlLoop } from "../planControlLoop";
-import type { TeamPlanSummary } from "./missionControlState";
+import type { MissionControlPlanView } from "./missionControlState";
 import { PlanSettingsPanel } from "./PlanSettingsPanel";
 import { planOversight } from "./planOversightAdapter";
 import { usePlanControlLoop } from "./usePlanControlLoop";
@@ -10,7 +10,7 @@ import { usePlanSettingsClock } from "./usePlanSettingsClock";
 import { openNotificationCenter } from "../../Notifications/openNotificationCenter";
 
 export function ConnectedPlanSettings({ plan, api, initial, now, fromSnapshot = false }: {
-  plan: TeamPlanSummary;
+  plan: MissionControlPlanView;
   api?: ApiConfig;
   initial?: PlanControlLoop;
   fromSnapshot?: boolean;

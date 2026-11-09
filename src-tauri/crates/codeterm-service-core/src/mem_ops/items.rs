@@ -57,25 +57,7 @@ pub struct SaveBody {
     pub pinned: Option<bool>,
 }
 
-#[derive(Deserialize, Default)]
-pub struct UpdateBody {
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub summary: Option<String>,
-    #[serde(default)]
-    pub area: Option<String>,
-    #[serde(default)]
-    pub tags: Option<Vec<String>>,
-    #[serde(default)]
-    pub body: Option<String>,
-    #[serde(default)]
-    pub importance: Option<f64>,
-    #[serde(default)]
-    pub pinned: Option<bool>,
-    #[serde(default)]
-    pub changed_by: Option<String>,
-}
+pub use codeterm_wire::api_contracts::UpdateBody;
 
 /// Shared field-level validation for a partial-update patch, used by both
 /// the HTTP and socket transports so the two can never drift.

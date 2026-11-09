@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatus {
     pub logged_in: bool,
@@ -9,7 +10,7 @@ pub struct AuthStatus {
     pub config_directory: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiErrorKind {
     RateLimit,
@@ -20,7 +21,7 @@ pub enum ApiErrorKind {
     Other,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum PermissionMode {
     #[serde(rename = "default")]
     Default,
@@ -36,27 +37,32 @@ pub enum PermissionMode {
     Auto,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct SessionObservations {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub retry_error: Option<RuntimeErrorSignal>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
     pub retry_succeeded: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub unavailable_model: Option<String>,
     pub api_error: Option<ApiErrorKind>,
     pub permission_mode: Option<PermissionMode>,
     #[serde(default)]
     pub clears_api_error: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub retry_after_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub turn_id: Option<String>,
     #[serde(default)]
     pub retrying: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeErrorSignal {
     pub retryable: bool,
@@ -64,7 +70,7 @@ pub struct RuntimeErrorSignal {
     pub retry_at_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeRetryableErrorKind {
     Transient,

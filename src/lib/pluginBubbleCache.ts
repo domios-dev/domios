@@ -1,15 +1,8 @@
 // Shared cache behind PluginBubbles (codeterm#336 part C): one entry per
 // (pluginId, repository identity), computed only on a hidden->visible transition or an invalidation — no interval.
 import { invoke } from "./bridge";
-import type { Tone } from "../components/Extensions/ViewNodeRenderer";
 
-export interface BubbleData {
-  label: string;
-  tone?: Tone;
-  icon?: string | null;
-  tooltip?: string | null;
-  action?: string | null;
-}
+export type BubbleData = Omit<import("../../gen/BubbleData").BubbleData, "tone"> & Partial<Pick<import("../../gen/BubbleData").BubbleData, "tone">>;
 
 export interface PluginBubbleSubscription {
   setActive: (active: boolean) => void;

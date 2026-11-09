@@ -22,7 +22,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const API: ApiConfig = {
+const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],
   enabled: true,
   host: "127.0.0.1",
   port: 7686,

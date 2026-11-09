@@ -6,36 +6,14 @@ use super::registry::{JsonlSource, SourceIncarnation, SourceObservation};
 use super::resume_cursor::{
     plan_resume, ChatEpoch, ResumeCursor, ResumePlan, ResumeResetReason, ResumeSourceKind,
 };
-use crate::agent::chat_types::ChatMsg;
 use crate::agent::registry::AgentRegistry;
 use crate::service::ServiceState;
 
 pub const RESUME_PAGE_BYTES: u64 = 1024 * 1024;
 
-#[derive(serde::Serialize)]
-pub struct ResumeDelta {
-    pub messages: Vec<ChatMsg>,
-    pub start_offset: u64,
-    pub offset: u64,
-    pub cursor: String,
-    pub source_session_id: String,
-    pub session_binding_nonce: Option<String>,
-}
+pub use codeterm_types::api_contracts::ResumeDelta;
 
-#[derive(serde::Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ChatResumeResult {
-    Resumed {
-        deltas: Vec<ResumeDelta>,
-        caught_up: bool,
-    },
-    ResetRequired {
-        reason: ResumeResetReason,
-    },
-    Unsupported {
-        source_kind: ResumeSourceKind,
-    },
-}
+pub use codeterm_types::api_contracts::ChatResumeResult;
 
 pub fn encode_cursor(
     epoch: ChatEpoch,

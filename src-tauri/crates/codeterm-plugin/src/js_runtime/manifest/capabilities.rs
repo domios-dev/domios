@@ -338,13 +338,13 @@ impl Serialize for ChatBackendCap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum WebhookReceiverKind {
     Pebble,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct WebhookReceiverCap {
     pub kind: WebhookReceiverKind,

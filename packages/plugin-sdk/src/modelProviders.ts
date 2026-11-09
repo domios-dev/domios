@@ -1,12 +1,5 @@
-export interface ModelProviderDefinition {
-  id: string;
-  kind: "openai-compatible" | "anthropic";
-  baseUrl: string;
-  models: string[];
-  keyEnv?: string;
-  name?: string;
-  secretName?: string;
-}
+import type {OptionalWireFields} from "./wireViews";
+export type ModelProviderDefinition = OptionalWireFields<import("./gen/ModelProviderDefinition").ModelProviderDefinition, "keyEnv" | "name" | "secretName">;
 
 export interface ModelProviderConfig {
   readModelPresets(config: unknown): ModelPreset[];
@@ -22,9 +15,4 @@ export interface ModelProviderConfig {
   modelProviderKeyEnvName(id: string): string;
 }
 
-export interface ModelPreset {
-  name: string;
-  model: string;
-  prompt: string;
-  params?: { temperature?: number; top_p?: number; steps?: number };
-}
+export type ModelPreset = OptionalWireFields<import("./gen/ModelPreset").ModelPreset, "params">;

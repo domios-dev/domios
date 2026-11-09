@@ -186,7 +186,7 @@ impl MemManager {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct MemStats {
     pub total_items: u64,
     pub by_kind: std::collections::HashMap<String, u64>,

@@ -30,15 +30,7 @@ pub async fn workers_get(
         .ok_or((StatusCode::NOT_FOUND, format!("worker {} not found", id)))
 }
 
-#[derive(Deserialize)]
-pub struct WorkerSpawnBody {
-    pub intent: String,
-    pub task: String,
-    #[serde(default)]
-    pub agent: Option<String>,
-    #[serde(default)]
-    pub parent: Option<String>,
-}
+pub use codeterm_wire::api_contracts::WorkerSpawnBody;
 
 pub async fn workers_spawn(
     AxumState(state): AxumState<AppState>,

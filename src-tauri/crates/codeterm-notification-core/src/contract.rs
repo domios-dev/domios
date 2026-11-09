@@ -16,7 +16,7 @@ pub trait OfferedChoice {
 }
 
 /// What one notification button does, as the daemon stores and emits it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NotificationAction {
     /// Opens a URL.
@@ -42,8 +42,9 @@ pub enum NotificationAction {
 /// command that some later surface has to refuse - it cannot name one at all.
 /// This is the provenance seam: every transport that accepts an action set
 /// parses into this type and can name only user-facing actions.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[ts(rename = "CallerNotificationAction")]
 pub enum CallerAction {
     Url { label: String, value: String },
     Dismiss { label: String },
@@ -246,9 +247,10 @@ pub fn answer_actions(labels: &[String]) -> Result<Vec<CallerAction>, String> {
 
 /// The answer slot of one notification. `asked_from_tab` is captured when the
 /// question is sent; nothing here is resolved when an answer is tapped.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct AnswerSlot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub daemon_request: Option<String>,
     /// The asking tab, recorded at send time. Cleared when that tab closes.
     pub asked_from_tab: Option<String>,
@@ -257,6 +259,7 @@ pub struct AnswerSlot {
     #[serde(default)]
     pub answered_via: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub answered_by: Option<String>,
     /// Whether the standing answer reached the asking tab. Recording an answer
     /// and carrying it back are separate facts, so a refused send cannot render

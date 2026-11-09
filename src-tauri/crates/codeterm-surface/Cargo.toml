@@ -11,6 +11,7 @@ workspace = true
 test-support = []
 
 [dependencies]
+codeterm-wire = { path = "../codeterm-wire" }
 codeterm-browser = { path = "../codeterm-browser" }
 codeterm-local-recording = { path = "../codeterm-local-recording" }
 codeterm-paths = { path = "../codeterm-paths" }

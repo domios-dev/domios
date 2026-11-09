@@ -70,7 +70,7 @@ impl ConversionCancellation {
 pub const MAX_CONVERSION_STEPS: usize = 3;
 
 /// One declared edge: a converter turns `from` into `to`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ts_rs::TS)]
 pub struct Conversion {
     pub from: MediaKind,
     pub to: MediaKind,
@@ -83,15 +83,21 @@ impl Conversion {
 }
 
 /// What a conversion consumes and where its result may land.
+#[derive(ts_rs::TS)]
+#[ts(rename_all = "camelCase")]
 pub struct ConvertRequest {
+    #[ts(as = "String")]
     pub input_path: PathBuf,
     pub from: MediaKind,
     pub to: MediaKind,
     /// Directory the produced file must stay inside.
+    #[ts(as = "String")]
     pub output_dir: PathBuf,
     pub language: Option<String>,
     /// Point after which the conversion must give up.
+    #[ts(rename = "deadlineMs", as = "u64")]
     pub deadline: Instant,
+    #[ts(skip)]
     pub cancellation: ConversionCancellation,
 }
 

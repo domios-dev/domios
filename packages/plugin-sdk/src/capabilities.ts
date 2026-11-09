@@ -1,34 +1,26 @@
+import type {OptionalWireCases, OptionalWireFields} from "./wireViews";
 import type { AgentRuntime } from "./agentRuntime";
-import type { ParsedSessionRecord, SessionRecordsMeta } from "./jsonlRecords";
-export type PreTrustOutcome =
-  | { status: "already_trusted" | "granted" }
-  | { status: "skipped" | "failed"; reason: string };
+import type { ParsedSessionRecord,SessionRecordsMeta } from "./jsonlRecords";
+export type PreTrustOutcome = import("./gen/PreTrustOutcome").PreTrustOutcome;
 
 // Plugin-facing capability contracts. Each capability is one Rust trait the host
 // adapts to a `plugin.js` export; shapes mirror how the host consumes them.
 
 // ── Shared context ──
 
-import type { ModelProviderConfig } from "./modelProviders";
-import type {ProviderAuthStatus, ProviderSessionObservations} from "./providerSignals";
 import type { ChatMsg } from "./gen/ChatMsg";
+import type { ModelProviderConfig } from "./modelProviders";
+import type { ProviderAuthStatus,ProviderSessionObservations } from "./providerSignals";
 
 /** Manifest spawn.turnEvidenceNormalization; applies symmetrically to exact user-turn matching. */
-export interface TurnEvidenceNormalization {
-  unwrapPastedContentWrapper?: boolean;
-  collapseHorizontalWhitespace?: boolean;
-  dropSupplementaryCharacters?: boolean;
-  dropLineBreaks?: boolean;
-}
+export type TurnEvidenceNormalization = OptionalWireFields<import("./gen/TurnEvidenceNormalization").TurnEvidenceNormalization, "unwrapPastedContentWrapper" | "collapseHorizontalWhitespace" | "dropSupplementaryCharacters" | "dropLineBreaks">;
 
 /** Manifest spawn contract; absent means the provider does not restore chat on resume. */
 export interface ResumeHistoryCapability {
   restoresConversationHistoryOnResume?: boolean;
 }
 
-export interface SessionResumeCapability {
-  exact: boolean;
-}
+export type SessionResumeCapability = import("./gen/SessionResume").SessionResume;
 
 export interface TabContext {
   tabId?: string;
@@ -40,58 +32,25 @@ export interface SessionDeltaContext {
   from_offset: number;
 }
 
-export interface SessionModelTranscriptBoundary {
-  lastEntryUuid: string | null;
-  lastEntryTimestamp: string | null;
-  lastEntryType: string | null;
-  boundaryFound: boolean;
-}
+export type SessionModelTranscriptBoundary = import("./gen/SessionModelTranscriptBoundary").SessionModelTranscriptBoundary;
 
 // ── statusBubble ──
 
-export type BubbleTone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
+export type BubbleTone = import("./gen/Tone").Tone;
 
-export interface StatusBubble {
-  label: string;
-  tone: BubbleTone;
-  icon?: string;
-  tooltip?: string;
-  // "openPanel:view:<id>" opens the plugin's iframe view; "openPanel:<name>" a built-in panel.
-  action?: string;
-}
+export type StatusBubble = OptionalWireFields<import("./gen/BubbleData").BubbleData, "icon" | "tooltip" | "action">;
 
 // ── glanceView (mirrors src-tauri/crates/codeterm-service-core/src/view/mod.rs ViewNode) ──
 
-export type Tone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
-export type Spacing = "none" | "sm" | "md" | "lg";
-export type NoteLevel = "info" | "warn" | "error";
+export type Tone = import("./gen/Tone").Tone;
+export type Spacing = import("./gen/Spacing").Spacing;
+export type NoteLevel = import("./gen/ViewNoteLevel").ViewNoteLevel;
 
-export interface NodeStyle {
-  tone?: Tone;
-  spacing?: Spacing;
-}
+export type NodeStyle = OptionalWireFields<import("./gen/NodeStyle").NodeStyle, "tone" | "spacing">;
 
-export type ViewNode =
-  | { kind: "text"; text: string; style?: NodeStyle }
-  | {
-      kind: "stat";
-      label: string;
-      value: string;
-      unit?: string;
-      style?: NodeStyle;
-    }
-  | { kind: "keyVal"; key: string; value: string; style?: NodeStyle }
-  | { kind: "badge"; label: string; tone?: Tone }
-  | { kind: "row"; children: ViewNode[]; style?: NodeStyle }
-  | { kind: "stack"; children: ViewNode[]; style?: NodeStyle }
-  | { kind: "divider" }
-  | { kind: "note"; body: string; level?: NoteLevel }
-  | { kind: "button"; label: string; action: string; style?: NodeStyle };
+export type ViewNode = OptionalWireCases<Exclude<import("./gen/ViewNode").ViewNode, {kind: "row" | "stack"}>, "tone" | "level"> | ViewNodeRow | ViewNodeStack;
 
-export interface GlanceView {
-  title?: string;
-  nodes: ViewNode[];
-}
+export type GlanceView = Omit<OptionalWireFields<import("./gen/GlanceView").GlanceView, "title">, "nodes"> & {nodes: ViewNode[]};
 
 // ── view (sandboxed iframe UI bridge target) ──
 
@@ -100,9 +59,9 @@ export type ViewCall = (method: string, args: unknown, context: ViewCallContext)
 // ── agentProvider ──
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
 
-export interface ContextAttach { editable: boolean; readOnly: boolean; }
-export interface ContextFiles { edit: string[]; read: string[]; }
-export interface HostOwnedCapabilities { questions: boolean; todos: boolean; }
+export type ContextAttach = import("./gen/ContextAttach").ContextAttach;
+export type ContextFiles = import("./gen/TaskFiles").TaskFiles;
+export type HostOwnedCapabilities = import("./gen/HostOwnedCapabilities").HostOwnedCapabilities;
 
 export interface LaunchParams {
   contextFiles?: ContextFiles;
@@ -132,78 +91,25 @@ export interface LaunchParams {
   [key: string]: unknown;
 }
 
-export interface LaunchArtifactSweepRequest {
-  instanceId: string;
-  liveTabIds: string[];
-  /** Host holds each registered instance's exclusive lifetime lock throughout this call. */
-  goneInstanceIds?: string[];
-  confirm: boolean;
-  includeLegacy: boolean;
-}
+export type LaunchArtifactSweepRequest = OptionalWireFields<import("./gen/LaunchArtifactSweepRequest").LaunchArtifactSweepRequest, "goneInstanceIds">;
 
-export interface LaunchArtifactSweepReport {
-  dead: string[];
-  legacy: string[];
-  removed: string[];
-}
+export type LaunchArtifactSweepReport = import("./gen/LaunchArtifactSweepReport").LaunchArtifactSweepReport;
 
 /** One process in the tab's own PTY tree; `startToken` is its OS process start time. */
-export interface LaunchProcess {
-  pid: number;
-  depth: number;
-  startToken: string;
-}
+export type LaunchProcess = import("./gen/LaunchProcess").LaunchProcess;
 
 /** Everything the host knows about one launch, and nothing about any other. */
-export interface LaunchSessionEvidence {
-  cwd: string;
-  launchMarker?: string | null;
-  launchedAtMs: number;
-  processes: LaunchProcess[];
-}
+export type LaunchSessionEvidence = OptionalWireFields<import("./gen/LaunchSessionEvidence").LaunchSessionEvidence, "launchMarker">;
 
 /** Provider-authoritative top-level completion, including automatic continuations. */
-export type ReplyRelayEvidence = ReplyRelayTurn | {
-  userTurnId: string;
-  userRecordStart: number;
-  userText: string;
-  complete: false;
-  outcome: "error" | "cancelled" | "reflection_limit";
-} | {
-  unavailable: true;
-  reason: string;
-};
+export type ReplyRelayEvidence = import("./gen/ReplyRelayEvidence").ReplyRelayEvidence;
 
-export interface ReplyRelayTurn {
-  userTurnId: string;
-  /** UTF-8 byte start of the original user record; IDs remain stable in the own-session history. */
-  userRecordStart: number;
-  userText: string;
-  assistantTurnId: string;
-  answer: string;
-  complete: true;
-}
+export type ReplyRelayTurn = import("./gen/ReplyRelayTurn").ReplyRelayTurn;
 
-export interface LaunchSessionDetection {
-  sessionId: string;
-  source: "pid_registry" | "launch_marker";
-}
+export type LaunchSessionDetection = import("./gen/LaunchSessionDetection").LaunchSessionDetection;
 
 /** Full launch context for a resumed session, not just its id. */
-export interface ResumeParams {
-  cwd?: string | null;
-  contextFiles?: ContextFiles | null;
-  toolLessInstructionsPath?: string | null;
-  sessionId: string;
-  skipPermissions?: boolean;
-  hostOwned?: HostOwnedCapabilities;
-  agentName?: string | null;
-  instanceId?: string | null;
-  /** Composed system prompt to re-apply; absent when the host has none. */
-  systemPrompt?: string | null;
-  args?: string[];
-  [key: string]: unknown;
-}
+export type ResumeParams = OptionalWireFields<import("./gen/AgentResumeParams").AgentResumeParams, "cwd" | "contextFiles" | "toolLessInstructionsPath" | "skipPermissions" | "hostOwned" | "agentName" | "instanceId" | "systemPrompt" | "args">;
 
 // picker can't read its layout (e.g. opencode's single-row options).
 export interface ParsedPrompt {
@@ -217,71 +123,34 @@ export interface ParsedPrompt {
 
 // ── tab-state classification (mirrors codeterm-plugin tab_state.rs) ──
 
-export type TabState =
-  | "working"
-  | "waiting_on_auth"
-  | "update_prompt"
-  | "rate_limited"
-  | "clarifying_question"
-  | "idle_stuck"
-  | "unknown";
+export type TabState = import("./gen/TabState").TabState;
 
 /** Host-built snapshot of the tab's OWN session/screen handed to classifyTabState. */
-export interface TabStateSnapshot {
-  tabId: string;
-  agentType: string;
-  sessionId?: string | null;
-  cwd?: string | null;
-  /** Recent rendered screen tail (provider fingerprints match against this). */
-  screenText: string;
-}
+export type TabStateSnapshot = OptionalWireFields<import("./gen/TabStateSnapshot").TabStateSnapshot, "sessionId" | "cwd">;
 
-export interface DelayedResume {
-  /** ISO-8601 wall-clock time to fire the resume. */
-  at: string;
-  text: string;
-  thenKeys?: string[];
-}
+export type DelayedResume = OptionalWireFields<import("./gen/DelayedResume").DelayedResume, "thenKeys">;
 
 /** The action a classifier recommends; the host reactor branches only on these generic fields. */
-export interface TabStateAction {
-  /** Key names to inject, e.g. ["down", "enter"]. */
-  keys?: string[];
-  delayedResume?: DelayedResume;
-  /** A user-facing surface: `kind` names the card template, `payload` its body. */
-  surface?: { kind: string; payload: unknown };
-}
+export type TabStateAction = Omit<import("./gen/TabStateAction").TabStateAction, "surface"> & {surface?: Omit<NonNullable<import("./gen/TabStateAction").TabStateAction["surface"]>, "payload"> & {payload: unknown}};
 
-export interface TabStateClassification {
-  state: TabState;
-  /** Ensemble vote score in 0.0..=1.0. */
-  confidence: number;
-  data?: { resetAt?: string; questions?: string[] };
-  action?: TabStateAction;
-}
+export type TabStateClassification = Omit<import("./gen/TabStateClassification").TabStateClassification, "action"> & {action?: TabStateAction};
 
 // ── declarative settings schema (mirrors codeterm-plugin provider/settings.rs) ──
 
 /** One field of the declarative settings UI, tagged by `kind` (section, toggle, text, …). */
-export interface SettingField {
-  kind: string;
-  [key: string]: unknown;
-}
+export type SettingField = import("./gen/SettingField").SettingField;
 
 export interface AgentProvider {
   sessionResume?(): SessionResumeCapability;
-  authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
+  authStatusProbe?(): import("./gen/AuthStatusProbe").AuthStatusProbe | null;
   tracksBackgroundWork?(): boolean;
-  parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"|"session_boundary"}[];
+  parseBackgroundWork?(record: unknown): import("./gen/BackgroundWorkObservation").BackgroundWorkObservation[];
   reasoningEffortLaunchArgsForModel?(model: string | null, effort: string): string[];
   modelCatalogueSeed?(): ModelInfo[];
   parseAuthStatus?(record: unknown): ProviderAuthStatus | null;
   parseSessionObservations?(record: unknown): ProviderSessionObservations | null;
-  parseContextUsage?(record: unknown): {used_tokens: number; window_tokens: number; cost_usd: number | null; source: string} | null;
-  permissionHookCapability?(): {
-    protocol: string;
-    options: Array<{ label: string; value: string }>;
-  } | null;
+  parseContextUsage?(record: unknown): import("./gen/TurnContext").TurnContext | null;
+  permissionHookCapability?(): import("./gen/PermissionHookCapability").PermissionHookCapability | null;
   starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined;
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;
@@ -293,12 +162,7 @@ export interface AgentProvider {
   detectEvents?(text: string): string[];
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
-  buildLaunchSpec?(params: LaunchParams | { resume: ResumeParams }): {
-    program: string;
-    args: string[];
-    envSet?: Record<string, string>;
-    envUnset?: string[];
-  } | null;
+  buildLaunchSpec?(params: LaunchParams | { resume: ResumeParams }): (OptionalWireFields<import("./gen/LaunchSpec").LaunchSpec, "envSet" | "envUnset">) | null;
   releaseTabLaunchArtifacts?(tabId: string, instanceId: string): boolean;
   /** Persist provider-owned folder trust after this tab's trust dialog closes. */
   folderTrustAnswered?(tabId: string, instanceId: string): boolean;
@@ -316,7 +180,7 @@ export interface AgentProvider {
   /** Effective launch-folder trust, including the provider's trust-root precedence. */
   directoryTrustState?(path: string, skipPermissions: boolean): "trusted" | "untrusted" | "unknown";
   /** One next base64 key plus its stable choice/focus identity, or null. */
-  launchOnboardingResponse?(screen: string): { frameKey: string; step: string } | null;
+  launchOnboardingResponse?(screen: string): (import("./gen/LaunchOnboardingResponse").LaunchOnboardingResponse) | null;
   /** Exact option value for that same narrow, provider-declared onboarding response. */
   launchOnboardingSafeChoice?(screen: string): string | null;
   /** Parse only the active directory-trust dialog for tab status/respond. */
@@ -326,11 +190,11 @@ export interface AgentProvider {
     toolName: string,
     prompt: ParsedPrompt,
     screen?: string,
-  ): { optionIndex: number; rule: string; steps: string[] } | null;
+  ): (import("./gen/PermissionPromptWireResponse").PermissionPromptWireResponse) | null;
   /** Safe response role for a prompt only after core accepted its classifier. */
   classifiedPromptAutoResponse?(state: TabState, screen: string): "skip" | null;
   updatePromptSafeChoice?(prompt: ParsedPrompt): string | null;
-  updatePromptAvailability?(screen: string): { currentVersion: string; latestVersion: string } | null;
+  updatePromptAvailability?(screen: string): (import("./gen/ProviderUpdateAvailability").ProviderUpdateAvailability) | null;
   parsePrompt?(text: string): ParsedPrompt | null;
   parseSwitchConfirmationPrompt?(screen: string, selection: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
@@ -338,7 +202,7 @@ export interface AgentProvider {
   /** Further usage logs owned by this exact session file (e.g. sub-agent transcripts beside it). */
   sessionUsageSources?(sessionFilePath: string, sessionId: string): string[];
   /** Every usage log this provider owns for the session; `sessionId` scopes a log shared by many sessions. */
-  usageSources?(cwd: string, sessionId: string): { path: string; sessionId?: string }[];
+  usageSources?(cwd: string, sessionId: string): (OptionalWireFields<import("./gen/WireUsageSource").WireUsageSource, "sessionId">)[];
   sessionExists?(cwd: string, sessionId: string): boolean | null;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
@@ -384,13 +248,13 @@ export interface AgentProvider {
    *  `query.maxBytes`; a message lacking any `hintTerms` entry may be omitted. Null = unreadable. */
   readSessionContent?(
     sessionId: string,
-    query: { maxBytes: number; hintTerms: string[] },
-  ): { messages: unknown[]; truncated?: boolean } | null;
+    query: (import("./gen/SessionContentQuery").SessionContentQuery),
+  ): (Omit<import("./gen/WireSessionContent").WireSessionContent, "messages" | "truncated"> & {messages: Array<OptionalWireFields<import("./gen/SerdeSessionMessage").SerdeSessionMessage, "ts" | "isMeta">>; truncated?: import("./gen/WireSessionContent").WireSessionContent["truncated"]}) | null;
   structuredToolFileDiffs?(part: unknown): FileDiff[] | null;
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
   checkIntegration?(): unknown;
-  installIntegration?(apiPort: number, options: { consent: boolean }): unknown;
+  installIntegration?(apiPort: number, options: (OptionalWireFields<import("./gen/IntegrationInstallOptions").IntegrationInstallOptions, "repair">)): unknown;
   uninstallIntegration?(): unknown;
   restoreIntegration?(): unknown;
   ensureIntegrationOnStartup?(apiPort: number): unknown;
@@ -407,51 +271,18 @@ export interface AgentProvider {
 
 // ── secretBackend (mirrors the bitwarden plugin + JsSecretBackend) ──
 
-export interface SecretCreds {
-  masterPassword?: string;
-  email?: string;
-  twoFactorToken?: string;
-  apiKeyClientId?: string;
-  apiKeyClientSecret?: string;
-  /** Explicit consent to remember this credential for headless unlock. The host
-   *  always sends a bool; treat absent or malformed as false. */
-  persistForAutoUnlock: boolean;
-  [key: string]: unknown;
-}
+export type SecretCreds = import("./gen/UnlockCredentials").UnlockCredentials;
 
 // core SecretStore trait: `{ ok }` / `{ ok: <payload> }` / `{ error: <kind> }`.
-export type SecretError = {
-  kind: string;
-  message?: string;
-  candidates?: string[];
-};
+export type SecretError = import("./gen/SecretError").SecretError;
 export type SecretEnvelope<T = unknown> = { ok: T } | { error: SecretError };
 
 // secretStatus is the one method that returns a bare StoreStatus, not an envelope.
-export interface SecretStatus {
-  status: "unlocked" | "locked" | "logged_out" | "unavailable";
-  user?: string | null;
-  transient?: boolean;
-  endpoint?: string;
-  reason?: string;
-}
+export type SecretStatus = import("./gen/StoreStatus").StoreStatus;
 
-export interface SecretSaveRequest {
-  name: string;
-  value: string;
-  notes?: string | null;
-  folder?: string | null;
-  organization?: string | null;
-  collection?: string | null;
-  overwrite?: boolean;
-}
+export type SecretSaveRequest = import("./gen/SaveRequest").SaveRequest;
 
-export interface SecretListFilter {
-  organization?: string;
-  collection?: string;
-  folder?: string;
-  limit?: number;
-}
+export type SecretListFilter = OptionalWireFields<import("./gen/ListFilter").ListFilter, "organization" | "collection" | "folder" | "limit">;
 
 export interface SecretBackend {
   secretStatus(): SecretStatus;
@@ -473,10 +304,7 @@ export interface SecretBackend {
 
 // ── transcriber (mirrors the transcriber plugin + Transcriber trait) ──
 
-export interface TranscribeResult {
-  text?: string;
-  error?: string;
-}
+export type TranscribeResult = OptionalWireFields<import("./gen/TranscribeOut").TranscribeOut, "text" | "error">;
 
 export interface Transcriber {
   transcribe(path: string, lang?: string): TranscribeResult;
@@ -485,29 +313,15 @@ export interface Transcriber {
 
 // ─── converter + graphNodes (declared conversions and event sources) ───
 
-export type MediaKind = "text" | "audio" | "video" | "image";
+export type MediaKind = import("./gen/MediaKind").MediaKind;
 
-export interface GraphNodeConversion {
-  from: MediaKind;
-  to: MediaKind;
-}
+export type GraphNodeConversion = import("./gen/Conversion").Conversion;
 
 /** One declared conversion of an input file. */
-export interface ConvertRequest {
-  inputPath: string;
-  from: MediaKind;
-  to: MediaKind;
-  outputDir: string;
-  language?: string | null;
-  deadlineMs: number;
-}
+export type ConvertRequest = import("./gen/ConvertRequest").ConvertRequest;
 
 /** `{text}` | `{path}` (inside outputDir) | `{error}`. */
-export interface ConvertResult {
-  text?: string;
-  path?: string;
-  error?: string;
-}
+export type ConvertResult = OptionalWireFields<import("./gen/ConvertOut").ConvertOut, "text" | "path" | "error">;
 
 /** Mirrors the core Converter trait; the host chains declared edges into plans. */
 export interface Converter {
@@ -560,70 +374,27 @@ export interface GraphNodesManifestCapability {
   eventSources?: EventSourceDeclaration[];
 }
 
-export type DecisionQuestion =
-  | { type: "choice"; options: Record<string, string> }
-  | { type: "noul"; criteria?: { true: string; false: string } | null }
-  | { type: "score"; levels: string[] };
+export type DecisionQuestion = OptionalWireCases<import("./gen/DecisionQuestion").DecisionQuestion, "criteria">;
 
-export interface DecisionRequest {
-  state: unknown;
-  instructions: string;
-  question: DecisionQuestion;
-}
+export type DecisionRequest = Omit<import("./gen/DecisionRequest").DecisionRequest, "question"> & {question: DecisionQuestion};
 
-export interface NamedDecisionQuestion {
-  instructions: string;
-  question: DecisionQuestion;
-}
+export type NamedDecisionQuestion = Omit<import("./gen/NamedDecisionQuestion").NamedDecisionQuestion, "question"> & {question: DecisionQuestion};
 
-export interface DecisionQuestionsRequest {
-  state: unknown;
-  questions: Record<string, NamedDecisionQuestion>;
-}
+export type DecisionQuestionsRequest = Omit<import("./gen/DecisionQuestionsRequest").DecisionQuestionsRequest, "questions"> & {questions: Record<string, NamedDecisionQuestion>};
 
-export type DecisionAnswers = Record<string, DecisionAnswer>;
+export type DecisionAnswers = DecisionResponse["answers"];
 
-export interface DecisionUsage {
-  input_tokens: number;
-  output_tokens: number;
-}
+export type DecisionUsage = import("./gen/DecisionUsage").DecisionUsage;
 
-export interface DecisionPricing {
-  display_name: string;
-  input_usd_per_million: number;
-  output_usd_per_million: number;
-}
+export type DecisionPricing = import("./gen/DecisionPricing").DecisionPricing;
 
-export interface DecisionResponse {
-  answers: DecisionAnswers;
-  usage: DecisionUsage | null;
-}
+export type DecisionResponse = import("./gen/DecisionResponse").DecisionResponse;
 
-export interface DecisionPrimitives {
-  choice: boolean;
-  noul: boolean;
-  score: boolean;
-}
+export type DecisionPrimitives = import("./gen/DecisionPrimitives").DecisionPrimitives;
 
-export interface DecisionModelInfo {
-  id: string;
-  display_name: string;
-}
+export type DecisionModelInfo = import("./gen/DecisionModelInfo").DecisionModelInfo;
 
-export type DecisionAnswer =
-  | {
-      type: "choice";
-      choice: string;
-      probabilities: Record<string, number>;
-      confidence: number | null;
-    }
-  | { type: "noul"; p: number }
-  | {
-      type: "score";
-      score: number;
-      probabilities: Record<string, number>;
-      confidence: number | null;
-    };
+export type DecisionAnswer = import("./gen/DecisionAnswer").DecisionAnswer;
 
 export interface DecisionModelCapability {
   /** Declares that choice confidence is calibrated for single-decision authorization. */
@@ -632,7 +403,7 @@ export interface DecisionModelCapability {
   supportsQuestionBatch?(): boolean;
   modelId?(): string | null;
   selectModel?(id: string): boolean;
-  metadata?(): { display_name?: string; help_url?: string; server_address?: string; settings_url?: string };
+  metadata?(): (Partial<{[K in keyof import("./gen/DecisionMetadata").DecisionMetadata]: NonNullable<import("./gen/DecisionMetadata").DecisionMetadata[K]>}>);
   pricing?(): DecisionPricing | null;
   decide(request: DecisionRequest, remainingMs?: number): DecisionAnswer | DecisionFailure;
   /** Named questions over shared state; omitted methods use sequential decide calls. */
@@ -646,7 +417,7 @@ export interface DecisionFailure {
 }
 
 /** Manifest token policy for `capabilities.decisionModel`. Bare true is optional. */
-export type DecisionModelTokenMode = "required" | "optional" | "none";
+export type DecisionModelTokenMode = import("./gen/TokenMode").TokenMode;
 export type DecisionModelManifestCapability = boolean | { tokenMode: DecisionModelTokenMode };
 
 // ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
@@ -670,16 +441,9 @@ export interface ToolEdit {
   new: string;
 }
 
-export type ChatTimelineMarker =
-  | { kind: "queued" }
-  | { kind: "external_edit"; path: string }
-  | { kind: "context_compaction" };
+export type ChatTimelineMarker = import("./gen/ChatTimelineMarker").ChatTimelineMarker;
 
-export interface ChatSessionIntent {
-  title?: string;
-  goal?: string;
-  goalStatus?: string;
-}
+export type ChatSessionIntent = OptionalWireFields<import("./gen/ChatSessionIntent").ChatSessionIntent, "title" | "goal" | "goalStatus">;
 
 /** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
 export interface FileDiffHunk {
@@ -743,71 +507,21 @@ export interface NormalizedChatMessage
   toolError?: boolean;
 }
 
-export interface ModelInfo {
-  primary?: boolean;
-  id: string;
-  // camelCase here; the host maps it to Rust ModelInfo.display_name.
-  displayName: string;
-  description?: string;
-  // Account-can-select-this-now. Omitted ⇒ "no info, treat as available"; `false` greys it out. Set by live discovery.
-  available?: boolean;
-  // A probe that could not run reports "unknown" here and publishes no
-  // `available` boolean: unavailable must mean the CLI answered no.
-  availability?: "available" | "unavailable" | "unknown";
-  // Marks this model to lead the picker list, ahead of the rest.
-  featured?: boolean;
-  // Short chip rendered beside the model label in spawn pickers.
-  badge?: string;
-  // Provider-declared picker section label. Models sharing a group render
-  // together under that heading; omitted models stay in the flat list.
-  group?: string;
-  // Omitted uses the provider's reasoningEfforts fallback; [] means no selector.
-  reasoningEfforts?: ReasoningEffortInfo[];
-  defaultReasoningEffort?: string;
-}
+export type ModelInfo = Pick<import("./gen/SerdeModelInfo").SerdeModelInfo, "id" | "displayName"> & Partial<{[K in Exclude<keyof import("./gen/SerdeModelInfo").SerdeModelInfo, "id" | "displayName" | "reasoningEfforts">]: NonNullable<import("./gen/SerdeModelInfo").SerdeModelInfo[K]>}> & {reasoningEfforts?: ReasoningEffortInfo[]};
 
-export interface ReasoningEffortInfo {
-  id: string;
-  displayName: string;
-  description?: string;
-}
+export type ReasoningEffortInfo = Pick<import("./gen/SerdeReasoningEffortInfo").SerdeReasoningEffortInfo, "id" | "displayName"> & {description?: NonNullable<import("./gen/SerdeReasoningEffortInfo").SerdeReasoningEffortInfo["description"]>};
 
-export interface Model extends ModelInfo {}
+export type Model = Pick<import("./gen/PluginModel").PluginModel, "id"> & {displayName: NonNullable<import("./gen/PluginModel").PluginModel["displayName"]>} & Partial<Omit<import("./gen/PluginModel").PluginModel, "id" | "displayName">>;
 
 /** Provider-owned grouping of its models, e.g. the upstream company a routed
  *  model belongs to. `id` matches a model-id prefix; `label` is rendered. */
-export interface ModelGroup {
-  id: string;
-  label: string;
-}
+export type ModelGroup = import("./gen/ModelGroup").ModelGroup;
 
 /** Cumulative usage the provider attributes to one model group. snake_case to
  *  match the host wire shape; `cost_micros` is USD × 1_000_000. */
-export interface ModelGroupUsage {
-  group: string;
-  messages: number;
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-  cost_micros: number;
-  /** Spend observed for this group, in cents. Absent when unreported. */
-  spend_cents?: number;
-  /** Included allowance for the group's billing cycle, in cents. Absent when
-   *  the provider cannot read a live limit — never a fabricated value. */
-  spend_limit_cents?: number;
-  /** Remaining allowance for the group's billing cycle, in cents. Absent when
-   *  the provider cannot read a live balance. */
-  spend_remaining_cents?: number;
-  /** Billing-cycle reset for the group's spend, in epoch ms. */
-  spend_resets_at_ms?: number;
-}
+export type ModelGroupUsage = OptionalWireFields<import("./gen/ModelGroupUsage").ModelGroupUsage, "spend_cents" | "spend_limit_cents" | "spend_remaining_cents" | "spend_resets_at_ms">;
 
-export interface PresetInfo {
-  id: string;
-  name: string;
-  description?: string;
-}
+export type PresetInfo = OptionalWireFields<import("./gen/PresetInfo").PresetInfo, "description">;
 
 export type SessionMode = "interactive" | "watcher";
 
@@ -816,11 +530,7 @@ export interface ChatWindowConfig {
   policy?: "top";
 }
 
-export interface ObservationConfig {
-  orchestration?: boolean;
-  chatTail?: number;
-  reports?: boolean;
-}
+export type ObservationConfig = Partial<import("./gen/ObservationConfig").ObservationConfig>;
 
 export type ContextEngineConfig =
   | { kind: "chat"; window?: ChatWindowConfig }
@@ -838,20 +548,11 @@ export interface WatcherTickInput {
   observations?: unknown;
 }
 
-export type WatcherVerdictStatus = "ok" | "attention" | "stalled";
+export type WatcherVerdictStatus = import("./gen/WatcherVerdictStatus").WatcherVerdictStatus;
 
-export interface WatcherAction {
-  kind: "nudge" | "notify" | "report";
-  tab?: string;
-  message: string;
-}
+export type WatcherAction = OptionalWireFields<import("./gen/WatcherAction").WatcherAction, "tab">;
 
-export interface WatcherVerdict {
-  status: WatcherVerdictStatus;
-  summary: string;
-  state?: unknown;
-  actions?: WatcherAction[];
-}
+export type WatcherVerdict = OptionalWireFields<import("./gen/WatcherVerdict").WatcherVerdict, "state" | "actions">;
 
 export interface ChatBackendOpenSessionCtx {
   tabId: string;
@@ -864,51 +565,28 @@ export interface ChatBackendOpenSessionCtx {
 }
 
 // Live state of an open session (mirrors Rust ChatSessionInfo). `model` absent ⇒ no per-session model.
-export interface ChatSessionInfo {
-  model?: string;
-}
+export type ChatSessionInfo = OptionalWireFields<import("./gen/ChatSessionInfo").ChatSessionInfo, "model">;
 
 // `spawnable` makes the backend user-openable; `watcher` opts into host-driven watcher ticks.
 export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean; sessionConfig?: boolean; agentTasks?: boolean };
 
-export interface AgentTaskInput {
-  runId: string;
-  tabId: string;
-  workspaceId: string;
-  profile: string;
-  task: string;
-  input: string;
-  timeoutMs: number;
-  maxTokens: number;
-  maxTurns: number;
-}
+export type AgentTaskInput = import("./gen/AgentTaskInput").AgentTaskInput;
 
-export interface AgentTaskResult {
-  status: "done" | "failed" | "cancelled" | "deadline_exceeded";
-  output: unknown;
-  error?: string;
-}
+export type AgentTaskResult = OptionalWireFields<import("./gen/AgentTaskResult").AgentTaskResult, "error">;
 
-export interface ChatBackendCloseReceipt {
-  sessionId: string;
-  processExited: true;
-}
+export type ChatBackendCloseReceipt = import("./gen/ChatBackendCloseReceipt").ChatBackendCloseReceipt;
 
 export interface ChatBackend {
   runAgentTask?(input: AgentTaskInput): AgentTaskResult;
   abortAgentTask?(runId: string): void;
-  openSession(ctx: ChatBackendOpenSessionCtx): { sessionId: string };
+  openSession(ctx: ChatBackendOpenSessionCtx): ({sessionId: NonNullable<import("./gen/OpenOut").OpenOut["sessionId"]>});
   sendMessage(sessionId: string, text: string): void;
   // Optional turn-advance, called each tick before `poll` so an async backend drains its tickets. Best-effort; omit if synchronous.
   pump?(sessionId: string): void;
   poll(
     sessionId: string,
     cursor?: string | null,
-  ): {
-    messages: NormalizedChatMessage[];
-    cursor: string | null;
-    done?: boolean;
-  };
+  ): (Omit<Extract<import("./gen/PollOut").PollOut, {messages: unknown}>, "messages" | "done"> & {messages: NormalizedChatMessage[]; done?: NonNullable<Extract<import("./gen/PollOut").PollOut, {messages: unknown}>["done"]>});
   // Confirmed respawn requires an exact session receipt after all owned processes exit.
   closeSession(sessionId: string): void | ChatBackendCloseReceipt;
   listModels?(): Model[];
@@ -925,61 +603,25 @@ export interface ChatBackend {
 
 export interface ChatPreprocessor {
   match: "text";
-  chatPreprocess(ctx: {
-    tabId: string;
-    cwd: string | null;
-    provider: string | null;
-    text: string;
-    turnIndex: number;
-  }): { text: string } | null; // null = passthrough
+  chatPreprocess(ctx: (import("./gen/PreprocessCtx").PreprocessCtx & {text: string})): ({text: NonNullable<import("./gen/PreprocessOut").PreprocessOut["text"]>}) | null; // null = passthrough
 }
 
 // Declared in plugin.json as `capabilities.webhookReceiver`. `audio: true` lets the
 // host accept one bounded `audio/*` part and transcribe it with the installed Transcriber.
-export interface ReceiverStatusQueryCapability {
-  usagePage: number;
-  usage: number;
-  reportId: number;
-  request: number[];
-}
+export type ReceiverStatusQueryCapability = import("./gen/ReceiverStatusQuery").ReceiverStatusQuery;
 
-export interface LocalRecordingButtonCapability {
-  interfaceNumber: number; collectionId: string; reportId: number; reportBytes: number; usagePage: number;
-  pressUsage: number; buttonUsages: number[]; bitField: number; linkCollection: number; debounceMs: number;
-}
+export type LocalRecordingButtonCapability = import("./gen/LocalRecordingButton").LocalRecordingButton;
 
-export interface LocalRecordingTriggerCapability {
-  vendorId: number;
-  productId: number;
-  usagePage: number;
-  usage: number;
-  button?: LocalRecordingButtonCapability;
-}
+export type LocalRecordingTriggerCapability = OptionalWireFields<import("./gen/LocalRecordingTrigger").LocalRecordingTrigger, "button">;
 
-export interface WebhookReceiverCapability {
-  kind: "pebble";
-  audio?: boolean;
-}
+export type WebhookReceiverCapability = OptionalWireFields<import("./gen/WebhookReceiverCap").WebhookReceiverCap, "audio">;
 
 // Metadata only: audio bytes never enter the plugin.
-export interface WebhookAudio {
-  mediaType: string;
-  size: number;
-}
+export type WebhookAudio = import("./gen/WebhookAudio").WebhookAudio;
 
-export interface WebhookReceiveContext {
-  payload: unknown;
-  receivedAt: string;
-  // Present only for an audio-capable receiver that was sent an audio part.
-  audio?: WebhookAudio;
-}
+export type WebhookReceiveContext = OptionalWireFields<import("./gen/WebhookReceiveContext").WebhookReceiveContext, "audio">;
 
-export interface WebhookDelivery {
-  text: string;
-  eventId?: string;
-  // The sender's own transcript; the host renders it labelled beside its own transcription.
-  transcript?: string;
-}
+export type WebhookDelivery = import("./gen/WebhookDelivery").WebhookDelivery;
 
 export interface WebhookReceiver {
   webhookReceive(ctx: WebhookReceiveContext): WebhookDelivery | null;
@@ -988,23 +630,15 @@ export interface WebhookReceiver {
 // ── tabMenu (plugin.json `capabilities.tabMenu`; no export runs on click) ──
 
 // `receiverTarget` requires webhookReceiver or localRecordingTrigger.
-export type TabMenuAction = "receiverTarget";
+export type TabMenuAction = import("./gen/TabMenuAction").TabMenuAction;
 
-export interface TabMenuContribution {
-  // 1-32 lowercase letters, digits or '-', unique within the plugin.
-  id: string;
-  // 1-48 trimmed characters; the item's accessible name.
-  label: string;
-  action: TabMenuAction;
-  /** Optional relative path to an SVG shipped inside the plugin bundle. */
-  icon?: string;
-}
+export type TabMenuContribution = OptionalWireFields<import("./gen/TabMenuItem").TabMenuItem, "icon">;
 
 // ── surfaces (plugin.json `capabilities.surfaces`; core owns the tab frame) ──
 
 // `view` renders the plugin's `ui/index.html` and requires `capabilities.view`.
-export type SurfaceRenderer = "view" | "stream";
-export type SurfaceRestore = "relaunch" | "placeholder" | "none";
+export type SurfaceRenderer = import("./gen/SurfaceRenderer").SurfaceRenderer;
+export type SurfaceRestore = import("./gen/SurfaceRestore").SurfaceRestore;
 
 /** Host-injected iframe bridge; state subscriptions are hints, not a polling API. */
 export interface SurfaceViewBridge {
@@ -1015,18 +649,7 @@ export interface SurfaceViewBridge {
 }
 
 /** Authoritative context of this registered UI document; no run/budget or private lease. */
-export interface ViewCallContext {
-  plugin: string;
-  origin: "document" | "remote_task" | "recording_setup";
-  surface: string | null;
-  instance: string | null;
-  tab: string | null;
-  owner: string | null;
-  workspace: string | null;
-  team: string | null;
-  actor: { kind: "local" };
-  frame: string | null;
-}
+export type ViewCallContext = import("./gen/ViewCallContext").ViewCallContext;
 
 export interface SurfaceCallContext {
   surface: string;
@@ -1043,51 +666,24 @@ export interface SurfaceAgentHandler {
   onSurfaceCall(context: SurfaceCallContext, verb: string, args: string[]): string;
 }
 
-export interface SurfaceContribution {
-  /** View only: at most 32 unique lowercase kebab verbs, each at most 32 bytes. */
-  agentVerbs?: string[];
-  /** View only: permit identity-only state invalidation through host.surface.invalidate. */
-  stateInvalidation?: boolean;
-  // 1-32 lowercase letters, digits or '-', unique within the plugin.
-  id: string;
-  // One word, no whitespace: the tab title.
-  title: string;
-  renderer: SurfaceRenderer;
-  // Opened under an owner agent; the UI labels it "{owner}'s {title}".
-  agentBound?: boolean;
-  restore?: SurfaceRestore;
-  // Required for `stream`: the core surface runtime that renders it (e.g. "browser").
-  runtime?: string;
-  // Toolbar spec passed through untouched to the frontend; `stream` only.
-  chrome?: Record<string, unknown>;
-}
+export type SurfaceContribution = OptionalWireFields<import("./gen/SurfaceDecl").SurfaceDecl, "agentVerbs" | "stateInvalidation" | "agentBound" | "restore" | "runtime" | "chrome">;
 
 // ── viewHostActions (plugin.json `capabilities.viewHostActions`; requires `view`) ──
 
 // The user-gesture actions the view page may ask for through `ct.host`; each named once.
-export type ViewHostAction = "copyText" | "saveAs" | "reveal" | "pickFile";
+export type ViewHostAction = import("./gen/ViewHostAction").ViewHostAction;
 
 // `capabilities.viewInputs`, required by (and only allowed with) `pickFile`: what the user may
 // pick for the view, as passive media types, each at most `maxBytes`, at most `maxFiles` per pick.
-export type ViewInputMediaType =
+export type ViewInputMediaType = Extract<import("./mediaDelivery").MediaContentType,
   | "image/png" | "image/jpeg" | "image/webp" | "image/gif"
   | "audio/mpeg" | "audio/ogg" | "audio/wav"
-  | "video/mp4" | "video/webm" | "video/ogg";
-export interface ViewInputsContribution {
-  accept: ViewInputMediaType[];
-  maxBytes: number;
-  // 1-8.
-  maxFiles: number;
-}
+  | "video/mp4" | "video/webm" | "video/ogg">;
+export type ViewInputsContribution = import("./gen/ViewInputs").ViewInputs;
 
 // One file the user picked: an opaque handle owned by this frame, never a path. Image preview is not
 // implied; show it as a file until the host offers a preview URL for it.
-export interface PickedInput {
-  handle: string;
-  fileName: string;
-  contentType: string;
-  size: number;
-}
+export type PickedInput = Pick<import("./gen/IngestedInput").IngestedInput, "handle" | "fileName" | "contentType" | "size">;
 export type PickFileResult =
   | { ok: true; inputs: PickedInput[]; skipped: { fileName: string; code: "denied" | "unavailable" | "invalid"; reason: string }[] }
   | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };
@@ -1126,7 +722,7 @@ export interface AgentCommandCtx {
 }
 
 export interface AgentCommandHandler {
-  onAgentCommand(ctx: AgentCommandCtx): { result: string; catalogueChanged?: boolean } | { error: string };
+  onAgentCommand(ctx: AgentCommandCtx): ({result: NonNullable<import("./gen/AgentCommandOut").AgentCommandOut["result"]>; catalogueChanged?: import("./gen/AgentCommandOut").AgentCommandOut["catalogueChanged"]}) | ({error: NonNullable<import("./gen/AgentCommandOut").AgentCommandOut["error"]>});
 }
 
 // ── The default-export shape: every capability method optional ──
@@ -1158,21 +754,10 @@ export interface PluginModule
   [key: string]: unknown;
 }
 
-export interface PermissionChangedEvent {
-  permission: string;
-  allowed: true;
-  source: "install" | "action" | "settings";
-}
+export type PermissionChangedEvent = import("./gen/PermissionChangedEvent").PermissionChangedEvent & {allowed: true};
 
-export interface RunMediaLookupContext {
-  origin: "durable_run";
-  plugin: string;
-  workspace: string;
-  team: string | null;
-  owner: string;
-  run: string;
-  producerOperation: string;
-  producerPort: string;
-  receiverNode: string;
-}
+export type RunMediaLookupContext = import("./gen/RunMediaLookupContext").RunMediaLookupContext;
 export type MediaFileContext = ViewCallContext | RunMediaLookupContext;
+
+interface ViewNodeRow extends Omit<Extract<import("./gen/ViewNode").ViewNode, {kind: "row"}>, "children"> {children: ViewNode[]}
+interface ViewNodeStack extends Omit<Extract<import("./gen/ViewNode").ViewNode, {kind: "stack"}>, "children"> {children: ViewNode[]}

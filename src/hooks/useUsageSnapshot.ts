@@ -187,36 +187,13 @@ export function useUsageHistory(opts: UseUsageHistoryOptions): UseUsageHistoryRe
   return { rows, loading, error, refetch };
 }
 
-export interface SessionProjection {
-  projected_pct: number;
-  rate_per_min: number;
-  will_exceed: boolean;
-}
+export type SessionProjection = import("../../gen/SessionProjection").SessionProjection;
 
-export interface DayActual {
-  day_start_ms: number;
-  pct: number | null;
-}
+export type DayActual = import("../../gen/DayActual").DayActual;
 
-export interface WeeklyProjection {
-  end_of_today_pct: number;
-  end_of_cycle_pct: number;
-  avg_weekday_spend: number;
-  avg_weekend_spend: number;
-  /** Per day-of-week projected spend (0=Sun..6=Sat). */
-  dow_estimates: number[];
-  rate_per_min_recent: number;
-  rest_of_today_est: number;
-  today_so_far: number;
-  confidence: "high" | "medium" | "low";
-  /** Per-day actuals for active cycle, oldest→newest. Authoritative — use this for past + today bars. */
-  day_actuals: DayActual[];
-}
+export type WeeklyProjection = import("../../gen/WeeklyProjection").WeeklyProjection;
 
-export interface ProjectionResponse {
-  session: SessionProjection | null;
-  weekly: WeeklyProjection | null;
-}
+export type ProjectionResponse = import("../../gen/ProjectionResponse").ProjectionResponse;
 
 export interface UseUsageProjectionOptions {
   provider: string;

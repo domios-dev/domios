@@ -11,7 +11,7 @@ pub const CURATOR_INITIAL_WINDOW_MS: u64 = CURATOR_MAX_DELAY_SECS * 1000;
 pub const CURATOR_ELEVATED_LANES: usize = 5;
 pub const CURATOR_HIGH_LANES: usize = 10;
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CuratorOutcome {
     Quiet,
@@ -37,7 +37,7 @@ impl std::fmt::Display for CuratorOutcome {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CuratorAsked {
     #[default]
@@ -61,7 +61,7 @@ impl std::str::FromStr for CuratorAsked {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CuratorFailure {
     ProviderUnavailable,
@@ -96,7 +96,7 @@ impl std::fmt::Display for CuratorFailure {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CuratorSuspension {
     RemindersDisabled,
@@ -105,7 +105,7 @@ pub enum CuratorSuspension {
     WaitingOnHuman,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ControlLoopMode {
     #[default]
@@ -114,7 +114,7 @@ pub enum ControlLoopMode {
     Off,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct CuratorCounts {
     pub rounds: u64,
     pub quiet: u64,
@@ -124,7 +124,7 @@ pub struct CuratorCounts {
     pub fallbacks: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct CuratorRound {
     #[serde(default)]
     pub run_id: Option<String>,
@@ -159,7 +159,7 @@ pub struct CuratorRound {
     pub duration_ms: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct CuratorGrant {
     pub tab_id: String,
     pub session_id: String,
@@ -171,7 +171,7 @@ pub struct CuratorGrant {
     pub save_candidates: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct CuratorRun {
     #[serde(default)]
     pub run_id: Option<String>,
@@ -230,7 +230,7 @@ impl CuratorRun {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct CuratorAgentState {
     pub state: String,
     pub since: u64,
@@ -240,7 +240,7 @@ pub struct CuratorAgentState {
 #[path = "control_loop_tests.rs"]
 mod tests;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(default)]
 pub struct ControlLoop {
     pub manual_run_requested: bool,

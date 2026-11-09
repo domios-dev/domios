@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 /// One remote worker, as last seen by the orchestrator it reports to.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct RemoteWorker {
     /// Paired peer (instance name) the worker runs on.
     pub peer: String,

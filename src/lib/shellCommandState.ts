@@ -1,16 +1,13 @@
 import { isPtyBacked } from "./surfaceTab";
 import type { Tab } from "./types";
 
-export const SHELL_PURPOSES = ["build", "dev", "qa", "deploy", "logs", "db", "shell"] as const;
-export type ShellPurpose = (typeof SHELL_PURPOSES)[number];
+export const SHELL_PURPOSES = ["build", "dev", "qa", "deploy", "logs", "db", "shell"] as const satisfies readonly ShellPurpose[];
+export type ShellPurpose = import("../../gen/ShellPurpose").ShellPurpose;
 
 export function isShellPurpose(value: string | undefined): value is ShellPurpose {
   return SHELL_PURPOSES.includes(value as ShellPurpose);
 }
-export interface ShellCommandState {
-  activity: "unknown" | "running" | "idle";
-  last_exit_code: number | null;
-}
+export type ShellCommandState = import("../../gen/ShellCommandState").ShellCommandState;
 
 export function isUtilityShell(tab: Tab): boolean {
   return tab.tab_type === "Terminal" && isPtyBacked(tab)

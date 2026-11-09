@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 mod activity;
 mod runtime_state;
@@ -28,69 +29,8 @@ pub use turn_resume::{
 
 pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSection};
 
-/// A workspace contains multiple tabs and tracks which tab is active.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Workspace {
-    pub id: String,
-    pub name: String,
-    pub tabs: Vec<String>,
-    pub active_tab_id: Option<String>,
-    #[serde(default)]
-    pub cwd: Option<String>,
-    #[serde(default)]
-    pub cwd_missing: bool,
-    /// Directory the daemon created for this workspace; host provenance, never wire input.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provisioned_cwd: Option<String>,
-    /// Protected workspaces cannot be closed via API or UI.
-    #[serde(default)]
-    pub protected: bool,
-    /// Creation order for plan-limit locks; 0 until restore backfills a legacy item.
-    #[serde(default)]
-    pub created_at_ms: u64,
-    #[serde(
-        default,
-        skip_deserializing,
-        skip_serializing_if = "std::ops::Not::not"
-    )]
-    pub locked: bool,
-    /// Sibling ordinal among workspaces. Only relative order within the group
-    /// matters; the frontend sorts by it. Legacy snapshots default to 0.
-    #[serde(default)]
-    pub sort_order: i32,
-    #[serde(
-        default,
-        skip_serializing_if = "codeterm_types::plan::task_key::WorkspaceTaskKeys::is_unissued"
-    )]
-    pub task_keys: codeterm_types::plan::task_key::WorkspaceTaskKeys,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ContextEpochTransport {
-    #[default]
-    AgentProvider,
-    ChatBackend,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ContextEpochBoundary {
-    #[default]
-    ContextReset,
-    ProviderHandoff,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ContextEpochArchive {
-    pub provider: String,
-    pub cwd: String,
-    pub session_id: String,
-    #[serde(default)]
-    pub transport: ContextEpochTransport,
-    #[serde(default)]
-    pub boundary: ContextEpochBoundary,
-}
+mod workspace;
+pub use workspace::{ContextEpochArchive, ContextEpochBoundary, ContextEpochTransport, Workspace};
 
 /// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
 /// task-owning worker overrides the hidden-skip so it lands in recently-closed.
@@ -142,33 +82,42 @@ impl TabCloseReason {
 /// carry the PTY-agent identity that lives outside `backing` so a reopened
 /// agent tab can resume its session (or launch fresh if it's gone). Persisted
 /// as one row in the sqlite closed-history store (`state::closed`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct ClosedTab {
     pub tab_id: String,
     /// Original parent tab id — preserves the orchestration hierarchy so a
     /// cascade reopen can relink the subtree.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub parent_tab_id: Option<String>,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub description: Option<String>,
     #[serde(default)]
     pub backing: TabBacking,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub role_profile: Option<String>,
     /// Worker binding — present only on a task-owning worker. Restored so a
     /// reopened worker rebinds to its task/lane instead of launching anonymous.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub model: Option<String>,
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub agent_runtime_config: Option<serde_json::Value>,
     #[serde(default)]
     pub restorable_launch: RestorableLaunchParameters,
@@ -226,7 +175,7 @@ pub enum Orientation {
 }
 
 /// Tunable watcher limits set by the spawner; host clamps to safe bounds.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, TS)]
 pub struct WatcherPolicy {
     pub tick_interval_secs: u64,
     pub nudge_cooldown_secs: u64,
@@ -258,7 +207,7 @@ impl WatcherPolicy {
 }
 
 /// Persisted watcher session state on a chatBackend tab.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, TS)]
 pub struct WatcherSpec {
     pub charter: String,
     pub policy: WatcherPolicy,
@@ -280,7 +229,7 @@ pub struct WatcherSpec {
 /// driven by a plugin's `chatBackend` capability and a `Surface` tab renders a
 /// plugin-declared app; both keep `pty_id: None` permanently (no backend reader,
 /// no screen state). The single discriminator the `TabTransport` seam dispatches on.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TabBacking {
     #[default]
@@ -303,7 +252,7 @@ impl TabBacking {
 }
 
 /// Which plugin surface a tab renders. It has no text input and no agent.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct SurfaceBacking {
     pub plugin_id: String,
     pub surface_id: String,
@@ -313,13 +262,15 @@ pub struct SurfaceBacking {
     pub owner_label: bool,
     /// Last committed top-level page of a relaunching stream surface; local desk state only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub resume_url: Option<String>,
     /// Named browser profile the surface last ran under; `None` is the clean profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub resume_profile: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PendingDeliveryChannel {
     SystemPrompt,
@@ -327,7 +278,7 @@ pub enum PendingDeliveryChannel {
     FallbackBootstrap,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PendingDeliveryProvenance {
     SystemPrompt,
@@ -335,13 +286,13 @@ pub enum PendingDeliveryProvenance {
     FallbackBootstrap,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct DeliveryAttemptProvenance {
     pub attempt_id: String,
     pub started_at_ms: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PendingDeliveryState {
     Pending,
@@ -361,13 +312,14 @@ impl PendingDeliveryState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct PendingDeliveryRecord {
     record_id: String,
     pub content_digest: String,
     pub channel: PendingDeliveryChannel,
     pub provenance: PendingDeliveryProvenance,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     send_id: Option<String>,
     state: PendingDeliveryState,
     attempt_provenance: Option<DeliveryAttemptProvenance>,
@@ -517,7 +469,7 @@ impl PendingDeliveryProvenance {
 
 /// Who a tab's prompts are owed to; declared at spawn, never inferred from
 /// strings. `Automation` has no owner; user-owned automation does.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TabAudience {
     #[default]
@@ -529,26 +481,32 @@ pub enum TabAudience {
 /// Rename-proof identity for a spawned agent tab. Captures the assignment a
 /// pane was launched with so a supervisor can match on identity, not on the
 /// mutable display title. Written once at spawn; never overwritten by rename.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, TS)]
 pub struct TaskBinding {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub plan_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub attempt_id: Option<String>,
     /// Stable digest of the `--task` handle for ad-hoc lanes with no plan task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub spawn_handle: Option<String>,
     pub bound_at: u64,
 }
 
 /// A superseded nonce tagged with the agent session active when it was issued.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 pub struct PriorBindingNonce {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub resume_target_session_id: Option<String>,
     pub nonce: String,
 }
@@ -563,7 +521,7 @@ pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
 }
 
 /// A tab represents one terminal, chat backend, or transient choice surface.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PendingModelSelection {
     pub model: String,
     pub effort: Option<String>,
@@ -571,13 +529,13 @@ pub struct PendingModelSelection {
     pub confirmation_pending: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum SleepReason {
     Idle,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct Tab {
     #[serde(default, skip_deserializing)]
     pub frozen: bool,
@@ -585,8 +543,10 @@ pub struct Tab {
     #[serde(default, skip_deserializing)]
     pub has_checklist: bool,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub slept_at_ms: Option<u64>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub sleep_reason: Option<SleepReason>,
     #[serde(default)]
     pub last_active_at_ms: Option<u64>,
@@ -597,6 +557,7 @@ pub struct Tab {
     #[serde(default, skip_deserializing)]
     pub fork_source_session_id: Option<String>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub context: Option<codeterm_types::agent::context::TurnContext>,
     pub id: String,
     /// Sibling ordinal within a workspace or orchestration group.
@@ -611,6 +572,7 @@ pub struct Tab {
     #[serde(default)]
     pub purpose: ShellPurpose,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub icon: Option<String>,
     #[serde(default)]
     pub utility_created_at: u64,
@@ -628,13 +590,16 @@ pub struct Tab {
     #[serde(skip)]
     pub utility_command_pending: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub close_restore: Option<CloseRestoreTabState>,
     #[serde(default, skip_deserializing)]
     pub shell_command_state: ShellCommandState,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub pending_delivery: Option<PendingDeliveryRecord>,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub description: Option<String>,
     #[serde(skip, default)]
     pub description_origin: TabDescriptionOrigin,
@@ -643,9 +608,11 @@ pub struct Tab {
     pub provisioned_cwd: Option<String>,
     /// Legacy snapshot field; current tab types never set it.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub url: Option<String>,
     /// Agent type (e.g. "claude") — set by frontend when detected.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_type: Option<String>,
     /// When true, only explicit unlock or agent exit can change `agent_type`.
     /// Set by spawn paths and input-parsed launch commands; blocks output-based
@@ -668,46 +635,60 @@ pub struct Tab {
     pub agent_booting: bool,
     /// Agent session ID for resume (e.g. Claude Code session).
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_session_id: Option<String>,
     /// Human-readable session name emitted by the agent's TUI (e.g. Claude
     /// Code's "vivid-bhabha-1234" handle). Captured once per agent run via
     /// AgentProvider::extract_session_name. Searchable via `domios tab find`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_session_name: Option<String>,
     /// Current model family on the live session ("Opus"/"Sonnet"/"Haiku").
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_session_model: Option<String>,
     #[serde(skip, default)]
     pub agent_session_model_identity: Option<SessionModelIdentity>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub pending_model_switch_observation: Option<PendingModelSwitchObservation>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub pending_model_selection: Option<PendingModelSelection>,
     /// Model selected by plan/task routing before a launch-time override.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_planned_model: Option<String>,
     /// Model explicitly requested at launch. Advisory only: the tab badge and
     /// reports use `agent_session_model`, which must come from runtime evidence.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_requested_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     #[serde(serialize_with = "runtime_state::serialize")]
     pub agent_runtime_state: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub agent_runtime_config: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub agent_runtime_questions: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub structured_runtime_mode: Option<String>,
     /// Model accepted by provider catalog resolution and passed to launch args.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_provider_resolved_model: Option<String>,
     /// Structured catalog/runtime fallback provenance. Runtime actual is absent
     /// until provider-owned session evidence supplies it.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub model_fallback: Option<ModelFallbackNotice>,
     /// Runtime evidence that the provider ran a different model than requested.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub model_identity_mismatch: Option<ModelIdentityMismatch>,
     #[serde(default, skip_serializing_if = "ReasoningEffortIdentity::is_empty")]
     pub reasoning_effort_identity: ReasoningEffortIdentity,
@@ -717,27 +698,33 @@ pub struct Tab {
     pub context_epoch_archives: Vec<ContextEpochArchive>,
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub session_binding_nonce: Option<String>,
     /// Exact launch nonce echoed by the agent's accepted session-start report.
     /// This is cleared on every session transition; the configured nonce alone
     /// never proves that the current agent owns the tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub reported_session_binding_nonce: Option<String>,
     /// Superseded nonces tagged with their issuing agent session.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub prior_session_binding_nonces: Vec<PriorBindingNonce>,
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub shell_integration_nonce: Option<String>,
     /// Lineage of the operation owning this tab's authority. Stamped only by
     /// the journal writer; persisted as telemetry linking the tab to its history.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub lifecycle_epoch: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub lifecycle_operation_id: Option<String>,
     /// Immutable assignment identity stamped at spawn. Survives self-renames so
     /// external supervisors can match a lane by task rather than by title.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub task_binding: Option<TaskBinding>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Vec::is_empty")]
     pub taskless_authorized_gates: Vec<String>,
@@ -749,24 +736,30 @@ pub struct Tab {
     #[serde(default)]
     pub roleless_tracked: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub managed: Option<ManagedTab>,
     /// Structural orchestration role. The finer-grained kind lives in
     /// `role_profile` and is resolved through `role_kind` descriptors.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub role: Option<AgentRole>,
     /// Role kind id layered on the structural role (`orchestrator`,
     /// `general_agent`, `planner`, `watcher`, or a Worker subtype).
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub role_profile: Option<String>,
     /// Team membership. Roleless members are Team utility terminals; their
     /// creator is recorded in `spawned_by_tab_id`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub team_id: Option<String>,
     /// Watcher-mode machine state (charter, policy, tick counters).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub watcher: Option<WatcherSpec>,
     /// Parent tab ID in the orchestration hierarchy.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub parent_tab_id: Option<String>,
     /// Planner tab spawned as this Orchestrator's fresh pair before a plan
     /// exists. Consumed by the first plan create/goal path and never persisted.
@@ -782,23 +775,28 @@ pub struct Tab {
     /// When `report_target_mesh_peer` is set, this is a tab id or `main`/`general`
     /// alias on that remote peer rather than a local tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub report_target_tab_id: Option<String>,
     /// Paired mesh peer (instance name or id) the report target lives on. Set by
     /// `agent spawn --mesh PEER` so a remote worker's `agent report` relays back
     /// to the spawning orchestrator / General target on another machine.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub report_target_mesh_peer: Option<String>,
     /// Tab id of the caller that ran `agent spawn` (CODETERM_TAB_ID at spawn time).
     /// Independent of `parent_tab_id` (which controls the role hierarchy and is
     /// forbidden for Orchestrators). Used as a final fallback by report routing
     /// so a top-level orchestrator's report still reaches its spawning agent.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub spawned_by_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub neighbor_authority: Option<NeighborAuthority>,
     /// Authenticated control ownership (controller identity, origin peer, origin
     /// Team) — separate from transport identity. Drives target-side attribution.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub ownership: Option<codeterm_types::pty::RemoteOwnership>,
     /// Title naming priority level.
     #[serde(default)]
@@ -808,15 +806,19 @@ pub struct Tab {
     pub chat_view: bool,
     /// Pending interactive prompt (permission, confirmation, etc.)
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub pending_prompt: Option<PendingPrompt>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub pending_prompt_kind: Option<codeterm_types::pty::PromptKind>,
     /// Live 3-state agent classification (working / idle / question + subtype),
     /// computed from the PTY stream by the shared state engine and surfaced to
     /// the chat view. Persisted only with the tab-owned session identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub turn_resume: Option<TurnResumeMark>,
     /// Auto-approve prompts (set when spawned with skip_permissions).
     /// When true, detected prompts are answered automatically instead of shown to user.
@@ -847,6 +849,7 @@ pub struct Tab {
     pub show_in_tabbar: bool,
     /// Graph-worker id linking this tab to a GraphWorkerRegistry entry.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub worker_id: Option<String>,
     /// In-memory only — true when tab was deserialized from a session
     /// snapshot. Gates the spawn-fresh-agent path in commands::pty so it
@@ -875,14 +878,17 @@ pub struct Tab {
     /// Current agent-boot stage, surfaced to late UI attachers and persisted
     /// only with the tab-owned session identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
     /// Human-readable reason for a failed boot stage. Runtime-only and paired
     /// with a reason-carrying `boot_stage`; cleared by any later plain stage.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub boot_failure_reason: Option<String>,
     /// Identity of the launch a provisional stage describes. Paired with a
     /// provisional `boot_stage` and cleared by any stage that is not one.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub provisional_launch: Option<codeterm_types::pty::ProvisionalLaunch>,
 }
 
@@ -900,7 +906,7 @@ fn default_show_in_tabbar() -> bool {
 }
 
 /// Title priority: higher levels cannot be overwritten by lower ones.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize, TS)]
 pub enum TitleLevel {
     /// "Terminal" — initial default, lowest priority
     Default = 0,
@@ -1111,7 +1117,7 @@ impl Tab {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, TS)]
 pub enum TabType {
     #[default]
     Terminal,

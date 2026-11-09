@@ -3,7 +3,7 @@ import { OPERATION_LABELS } from "./meshResourceActions";
 
 export type InventoryKind = "cron" | "daemon";
 export type InventoryState = "healthy" | "degraded" | "down" | "unknown" | "disabled" | "running" | "failed" | "idle";
-export type InventoryFreshness = "fresh" | "stale" | "offline";
+export type InventoryFreshness = import("../../../gen/InventoryFreshness").InventoryFreshness;
 export type InventorySortKey = "machine" | "name" | "kind" | "state" | "schedule";
 export type InventoryCapabilityFilter = "all" | "available" | "unavailable";
 

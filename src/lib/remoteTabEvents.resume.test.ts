@@ -7,7 +7,7 @@ import {
 import { onRemoteTransportState } from "./remoteTabTransportState";
 
 configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: "fixture" });
-configureRemoteTabTransport({ enabled: true, host: "127.0.0.1", port: 7685, token: "fixture", cors: false });
+configureRemoteTabTransport({mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7685, token: "fixture", cors: false });
 
 describe("remote chat event subscription ownership", () => {
   afterEach(() => vi.unstubAllGlobals());

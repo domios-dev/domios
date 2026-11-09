@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Reversible Dreamer hygiene: nightly merge and stale-archive budgets.
 /// The stale archive stays off until the owner has spot-checked a dry run.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct DreamHygieneConfig {
     pub stale_archive: bool,

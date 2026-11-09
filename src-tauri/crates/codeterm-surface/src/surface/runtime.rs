@@ -6,89 +6,20 @@ use std::time::Duration;
 
 use futures_core::Stream;
 use parking_lot::Mutex;
-use serde::Serialize;
 use serde_json::Value;
 
 use super::model::SurfaceError;
 use codeterm_browser::screencast::ScreencastFrame;
 use codeterm_browser::viewport::ViewportRequest;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SurfaceState {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub viewport_owner: Option<String>,
-    pub owner: String,
-    pub title: String,
-    pub url: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub target_id: String,
-    pub activity: String,
-    /// The agent driving `activity` when it is not the surface owner.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub actor: String,
-    pub needs_human: String,
-    pub profile: String,
-    pub profiles: Vec<String>,
-}
+pub use codeterm_wire::api_contracts::SurfaceState;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum NoticeTone {
-    Info,
-    Error,
-}
+pub use codeterm_wire::api_contracts::NoticeTone;
 
 /// Lets the viewer render a recurring condition in place instead of as a notice bar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NoticeKind {
-    PreviewPaused,
-}
+pub use codeterm_wire::api_contracts::NoticeKind;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SurfaceNotice {
-    pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tone: Option<NoticeTone>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<NoticeKind>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-}
-
-pub const PREVIEW_PAUSED_TEXT: &str = "Preview paused while the window is hidden";
-
-impl SurfaceNotice {
-    fn toned(text: impl Into<String>, tone: Option<NoticeTone>) -> Self {
-        Self {
-            text: text.into(),
-            tone,
-            kind: None,
-            detail: None,
-        }
-    }
-
-    pub fn plain(text: impl Into<String>) -> Self {
-        Self::toned(text, None)
-    }
-
-    pub fn info(text: impl Into<String>) -> Self {
-        Self::toned(text, Some(NoticeTone::Info))
-    }
-
-    pub fn error(text: impl Into<String>) -> Self {
-        Self::toned(text, Some(NoticeTone::Error))
-    }
-
-    pub fn preview_paused(detail: impl Into<String>) -> Self {
-        Self {
-            kind: Some(NoticeKind::PreviewPaused),
-            detail: Some(detail.into()),
-            ..Self::plain(PREVIEW_PAUSED_TEXT)
-        }
-    }
-}
+pub use codeterm_wire::api_contracts::{SurfaceNotice, PREVIEW_PAUSED_TEXT};
 
 #[derive(Debug, Clone)]
 pub enum SurfaceEvent {

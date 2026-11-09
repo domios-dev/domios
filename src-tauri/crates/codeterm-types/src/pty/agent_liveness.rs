@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{is_qualified_model_id, plain_model_id, short_model_name, BootStage};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentLiveness {
     /// An agent process was observed running behind this tab.

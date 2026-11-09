@@ -1,6 +1,7 @@
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -8,22 +9,9 @@ const MAX_ROWS: usize = 10_000;
 const MAX_AGE_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 const EVICT_EVERY: usize = 100;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ActivitySource {
-    Push,
-    Health,
-    Peer,
-    Cron,
-}
+pub use codeterm_wire::api_contracts::ActivitySource;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ActivityLevel {
-    Info,
-    Warn,
-    Error,
-}
+pub use codeterm_wire::api_contracts::ActivityLevel;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivityEvent {

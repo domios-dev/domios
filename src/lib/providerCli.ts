@@ -1,24 +1,4 @@
-export interface ProviderCliStatus {
-  launch_profiles?: { id: string; installed: boolean | null }[];
-  display_name?: string | null;
-  latest_version?: string | null;
-  update_refusal?: string | null;
-  update_job?: { tab_id: string; state: "running" | "succeeded" | "failed"; summary: string } | null;
-  update_summary?: string | null;
-  detected_version?: string | null;
-  version_probe?: "pending" | "detected" | "missing" | "unreadable" | "failed" | "timeout" | "invalid" | "saturated";
-  compatibility?: { verdict: "supported" | "breaking" | "unknown"; reasons: string[] };
-  required: boolean;
-  installed: boolean | null;
-  binary: string | null;
-  resolved_path: string | null;
-  availability: "available" | "unavailable" | "unknown";
-  searched: string[];
-  installer: string | null;
-  updater: string | null;
-  installer_prerequisites?: { binary: string; installed: boolean | null; hint: string }[];
-  updater_prerequisites?: { binary: string; installed: boolean | null; hint: string }[];
-}
+export type ProviderCliStatus = Pick<import("../../gen/ProviderCliStatus").ProviderCliStatus, "required" | "installed" | "binary" | "resolved_path" | "availability" | "searched" | "installer" | "updater"> & Partial<Omit<import("../../gen/ProviderCliStatus").ProviderCliStatus, "update_job">> & { update_job?: (Omit<NonNullable<import("../../gen/ProviderCliStatus").ProviderCliStatus["update_job"]>, "state"> & { state: "running" | "succeeded" | "failed" }) | null };
 
 export type ProviderCliState = "checking" | "none" | "installed" | "missing" | "unknown";
 

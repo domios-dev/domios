@@ -4,7 +4,7 @@ import { isFirstRunGeneralTab } from "../components/AgentPicker/constants";
 
 export const FIRST_RUN_DISABLED_REASON = "Choose your General agent first";
 
-export function firstRunLocked(general: Pick<GeneralAgentConfig, "first_run_complete"> | undefined): boolean {
+export function firstRunLocked(general: Partial<Pick<GeneralAgentConfig, "first_run_complete">> | undefined): boolean {
   return general?.first_run_complete !== true;
 }
 

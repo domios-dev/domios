@@ -14,7 +14,7 @@ import { variantLaunch } from "./modelVariants";
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
 import type { FileDiff, HostOwnedCapabilities, LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import { lastPromptShape, parsePermissionPrompt, parseQuestionMenuPrompt, parseModalPickerPrompt, chunkHasQuestionMenuRow, findModalPickerTitle, isVerticalPrompt, verticalPromptHighlightIndex, discoverOpencodeModels, withOpencodeGroupUsage, normalizeSessionDirectory, parseStructuredCursor, opencodeDbPath, opencodeConfigPath, opencodeBindingPluginPath, opencodePluginEntry, opencodePluginEntryMatches, isCurrentOpencodeBindingPluginSource, ownsOpencodeBindingPluginSource, opencodeBindingPluginSource, opencodeSessionRecord, partToChatMsg, toolFileDiffs, scanMessagesForModel, scanSessionModel, scanMessagesForQualifiedModel, scanSessionDirectory, ASSISTANT_MESSAGE_MAX_BYTES, MESSAGE_ROLE_MAX_BYTES, safeJson, OpencodePart, OpencodeConfig, OpencodeSessionRow, ModelGroupUsage } from "./helpers";
-import { readOpencodeSessionContent, SessionContentQuery } from "./sessionContent";
+import { readOpencodeSessionContent, SessionContentQuery, SessionContentReply } from "./sessionContent";
 
 const TITLE_RE = /opencode/i;
 // Two-part fingerprint: opencode mention + TUI/prompt signal to avoid false positives.
@@ -324,11 +324,11 @@ const plugin = {
     return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
   },
 
-  *readSessionContent(sessionId: string, query: SessionContentQuery): HostIoSteps<{ messages: unknown[]; truncated?: boolean } | null> {
+  *readSessionContent(sessionId: string, query: SessionContentQuery): HostIoSteps<SessionContentReply | null> {
     if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
     const db = opencodeDbPath();
     if (!db || !(yield* host.io.fs.fileExists(db))) return null;
-    return (yield* readOpencodeSessionContent(db, sessionId, query)) as { messages: unknown[]; truncated?: boolean } | null;
+    return yield* readOpencodeSessionContent(db, sessionId, query);
   },
 
   *checkIntegration(): HostIoSteps<unknown> {

@@ -178,7 +178,7 @@ export function AgentProviderScreen({
 }
 
 // Mirrors OrchestrationConfig::default() in codeterm-types config schema.
-const ORCHESTRATION_DEFAULTS: OrchestrationConfig = {
+const ORCHESTRATION_DEFAULTS: Pick<OrchestrationConfig, "plan_reminders" | "nudge_interval_secs"> = {
   plan_reminders: true,
   nudge_interval_secs: 1800,
 };

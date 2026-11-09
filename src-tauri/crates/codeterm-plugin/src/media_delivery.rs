@@ -54,7 +54,7 @@ pub struct OpenedMedia {
     pub content_type: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 pub struct MediaHandle {
     pub handle: String,
     pub url: Option<String>,

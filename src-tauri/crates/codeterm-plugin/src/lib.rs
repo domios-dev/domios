@@ -87,3 +87,5 @@ mod test_support;
 pub mod binary_transfer;
 pub mod plugin_id;
 pub mod surface_invocation;
+
+pub mod api_contracts;

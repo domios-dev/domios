@@ -1,16 +1,17 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 pub use crate::agent::AgentRole;
 
 /// An interactive prompt option (e.g. permission request).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct PromptOption {
     pub label: String,
     /// Value to send to PTY (e.g. "1", "y", "n")
     pub value: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PromptKind {
     Provider,
@@ -30,9 +31,10 @@ impl PromptKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct PromptIdentity {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub request_id: Option<String>,
     pub kind: PromptKind,
     pub options: Vec<PromptOption>,
@@ -48,7 +50,7 @@ impl PromptIdentity {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct PromptSection {
     pub label: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -58,19 +60,24 @@ pub struct PromptSection {
 }
 
 /// A pending interactive prompt from an agent.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct PendingPrompt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub request_id: Option<String>,
     pub question: String,
     pub options: Vec<PromptOption>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub sections: Option<Vec<PromptSection>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub multi_select: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub submit_available: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub selected_values: Option<Vec<String>>,
 }
 

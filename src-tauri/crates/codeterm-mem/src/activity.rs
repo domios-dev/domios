@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct MemActivityEvent {
     pub op: String,
     pub mem_ids: Vec<String>,
@@ -12,7 +12,7 @@ pub struct MemActivityEvent {
     pub ts_ms: u64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct MemActivitySource {
     pub kind: String,
     pub tab_id: Option<String>,

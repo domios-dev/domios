@@ -5,29 +5,14 @@
  */
 import type React from "react";
 
-export type Tone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
-export type Spacing = "none" | "sm" | "md" | "lg";
-export interface NodeStyle {
-  tone?: Tone;
-  spacing?: Spacing;
-}
-export type NoteLevel = "info" | "warn" | "error";
+export type Tone = import("../../../gen/Tone").Tone;
+export type Spacing = import("../../../gen/Spacing").Spacing;
+export type NodeStyle = import("../../../gen/NodeStyle").NodeStyle;
+export type NoteLevel = import("../../../gen/ViewNoteLevel").ViewNoteLevel;
 
-export type ViewNode =
-  | { kind: "text"; text: string; style?: NodeStyle }
-  | { kind: "stat"; label: string; value: string; unit?: string; style?: NodeStyle }
-  | { kind: "keyVal"; key: string; value: string; style?: NodeStyle }
-  | { kind: "badge"; label: string; tone?: Tone }
-  | { kind: "row"; children: ViewNode[]; style?: NodeStyle }
-  | { kind: "stack"; children: ViewNode[]; style?: NodeStyle }
-  | { kind: "divider" }
-  | { kind: "note"; body: string; level?: NoteLevel }
-  | { kind: "button"; label: string; action: string; style?: NodeStyle };
+export type ViewNode = import("../../../gen/ViewNode").ViewNode;
 
-export interface GlanceView {
-  title?: string;
-  nodes: ViewNode[];
-}
+export type GlanceView = import("../../../gen/GlanceView").GlanceView;
 
 const TONE_COLOR: Record<Tone, string> = {
   default: "var(--ct-fg)",

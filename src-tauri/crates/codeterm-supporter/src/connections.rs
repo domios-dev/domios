@@ -11,7 +11,8 @@ use codeterm_mem::decision::token_store::TokenStore;
 
 pub static TRANSACTION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
+#[ts(rename = "SupporterFailure")]
 pub struct ConnectionError {
     pub code: &'static str,
     pub message: &'static str,

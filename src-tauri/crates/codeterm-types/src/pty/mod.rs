@@ -1,3 +1,7 @@
+pub mod boot_event;
+pub mod spawn;
+pub use boot_event::{TabBootStageEvent, TabLaunchGeneration};
+pub use spawn::AtomicSpawn;
 pub mod agent_live_state;
 pub mod agent_liveness;
 pub mod agent_model_name;

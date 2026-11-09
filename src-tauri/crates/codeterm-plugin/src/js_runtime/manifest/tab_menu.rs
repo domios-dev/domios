@@ -9,7 +9,7 @@ const MAX_ITEM_ID_BYTES: usize = 32;
 const MAX_LABEL_CHARS: usize = 48;
 
 /// A host-owned action. The plugin names it; only the host decides what it does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum TabMenuAction {
     /// Toggle the clicked tab as the target of the plugin's own webhook receiver.
@@ -26,7 +26,7 @@ impl TabMenuAction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct TabMenuItem {
     pub id: String,
@@ -34,6 +34,7 @@ pub struct TabMenuItem {
     pub action: TabMenuAction,
     /// Optional relative SVG path; the host sanitizes it before registration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub icon: Option<String>,
     /// Effective sanitized icon, populated by `PluginManifest::load`.
     #[serde(skip)]

@@ -18,7 +18,8 @@ pub struct SpendAlert {
     pub event_key: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
+#[ts(rename = "SupporterSpendTotals")]
 struct Totals {
     input_tokens: u64,
     output_tokens: u64,
@@ -182,3 +183,11 @@ impl SpendBook {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    Totals::export_all(config)?;
+    Ok(())
+}

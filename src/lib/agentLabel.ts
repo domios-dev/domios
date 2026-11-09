@@ -9,7 +9,7 @@
 import { isQualifiedModelId, plainModelId, shortModelName } from "./agentModelName";
 import { formatModelBadge, modelBadgeWidthForProvider } from "./formatModelBadge";
 
-export type AgentLiveness = "live" | "absent" | "unobserved";
+export type AgentLiveness = import("../../gen/AgentLiveness").AgentLiveness;
 
 export interface LivenessEvidence {
   /** The tab record claims an agent. A record is never evidence of a process. */

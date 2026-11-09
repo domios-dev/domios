@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { differentNetwork, transportState, type NetworkTransportStatus } from "./networkTransport";
 
 const status = (state: NetworkTransportStatus["state"]): NetworkTransportStatus => ({
-  display_name: "Private transport", state, identity: null, network_name: null, user: null,
+  display_name: "Private transport", state, identity: null, network_name: null,
   addresses: [], peer_listener: true, encrypted: true, setup_actions: [],
 });
 

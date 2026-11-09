@@ -1,23 +1,10 @@
-import { ioResolve, type HostIoSteps } from "./ioPrograms";
-export interface RemoteTaskCapability {
-  backend: string;
-  mode: string;
-  displayName: string;
-  environments: RemoteEnvironment[];
-  availability: {status: "unavailable"; reason: string} | {status: "available"};
-  followUp: boolean;
-  cancel: boolean;
-  applyDiff: boolean;
-}
+import { ioResolve,type HostIoSteps } from "./ioPrograms";
+export type RemoteTaskCapability = import("./gen/RemoteTaskCapability").RemoteTaskCapability;
 
 /** Runtime account and environment discovery for a declared remote mode. */
-export type RemoteTaskDiscovery = Pick<RemoteTaskCapability, "availability" | "environments">;
+export type RemoteTaskDiscovery = import("./gen/RemoteTaskDiscovery").RemoteTaskDiscovery;
 
-export interface RemoteEnvironment {
-  id: string;
-  label: string;
-  accountRef: string;
-}
+export type RemoteEnvironment = import("./gen/RemoteEnvironment").RemoteEnvironment;
 
 export type RemoteTaskStatus = "pending" | "running" | "ready" | "error";
 

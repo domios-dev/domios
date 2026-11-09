@@ -1,20 +1,11 @@
 import { formatUntil } from "../../lib/timeLabels";
 import { invoke } from "../../lib/bridge";
 
-export type DelayedMessageState = "queued" | "stashed" | "sending" | "failed";
+export type DelayedMessageState = import("../../../gen/DelayedMessageState").DelayedMessageState;
 
-export interface DeliveryTickView {
-  atMs: number;
-  outcome: string;
-  spinalVerdict: string;
-  spinalReason: string;
-}
+export type DeliveryTickView = import("../../../gen/DeliveryTickView").DeliveryTickView;
 
-export interface RecurrenceRule {
-  everyMs: number;
-  untilMs?: number | null;
-  count?: number | null;
-}
+export type RecurrenceRule = Pick<import("../../../gen/RecurrenceRule").RecurrenceRule, "everyMs"> & Partial<Pick<import("../../../gen/RecurrenceRule").RecurrenceRule, "untilMs" | "count">>;
 
 export interface DelayedMessage {
   turnRetry?: { kind: "transient" | "rate_limited_until"; attempt: number; epoch: number; bindingNonce: string; threadId: string } | null;

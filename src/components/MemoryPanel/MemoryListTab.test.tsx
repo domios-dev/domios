@@ -12,7 +12,7 @@ import { MemoryListTab } from "./MemoryListTab";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const api: ApiConfig = {
+const api: ApiConfig = {mesh_tailnet_host: null, preview_secret_paths: [],
   enabled: true,
   host: "127.0.0.1",
   port: 7686,

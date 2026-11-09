@@ -228,7 +228,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           ip: p.addresses[0]?.ip ?? "",
           api_port: p.api_port,
           online: p.online,
-          access_level: p.access_level,
+          access_level: typeof p.access_level === "string" ? p.access_level : "custom",
           last_seen: p.last_seen,
           relay_protocol_version: p.relay_protocol_version,
         }),

@@ -39,7 +39,7 @@ struct LoadFingerprint {
 }
 
 /// The last failed load attempt for a plugin, surfaced to Settings > Plugins.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, ts_rs::TS)]
 pub struct PluginLoadError {
     pub id: String,
     pub path: PathBuf,

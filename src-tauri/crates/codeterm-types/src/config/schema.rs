@@ -1,3 +1,4 @@
+use ts_rs::TS;
 mod digests;
 pub use digests::{
     default_digest_rules, DigestCondition, DigestRuleConfig, OrchestrationDigestsConfig,
@@ -17,7 +18,7 @@ pub use super::supporter::{
 };
 pub use super::tab_sleep::TabSleepConfig;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct AppConfig {
     #[serde(default)]
@@ -42,6 +43,7 @@ pub struct AppConfig {
     /// `settings_schema()` trait method; the renderer reads/writes
     /// the `agents.<id>.*` paths.
     #[serde(default)]
+    #[ts(type = "Record<string, import(\"../src/lib/configWireFallbacks\").ProviderConfig>")]
     pub agents: HashMap<String, ProviderConfig>,
     /// Per-plugin settings, keyed by plugin id. A generic JSON bag because each
     /// plugin defines its own settings schema (rendered by SchemaRenderer); the
@@ -67,6 +69,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub updater: UpdaterConfig,
     #[serde(default)]
+    #[ts(type = "import(\"../src/lib/configWireFallbacks\").UiConfig")]
     pub ui: UiConfig,
     #[serde(default)]
     pub runaway: RunawayConfig,
@@ -116,7 +119,7 @@ impl Default for AppConfig {
 /// Orchestration-economics KPI event ledger. On by default: the choke-point counters
 /// and the `aggregate_by_plan` query surface it waited for both ship, and the ledger
 /// stores only local ids, counts and timestamps. Opt out with [`KPI_ENABLED_KEY`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct KpiConfig {
     pub enabled: bool,
@@ -165,7 +168,7 @@ pub struct ProviderConfig {
 /// launch-time integration check reads. One name, two readers.
 pub const INTEGRATION_CONSENT_GRANTED: &str = "integration_consent_granted";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct ApiConfig {
     pub enabled: bool,
@@ -200,7 +203,7 @@ impl Default for ApiConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct ThemeConfig {
     pub name: String,
@@ -254,7 +257,7 @@ impl Default for ThemeConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct FontConfig {
     pub family: String,
@@ -272,7 +275,7 @@ impl Default for FontConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct TerminalConfig {
     pub default_shell: Option<String>,
@@ -282,7 +285,7 @@ pub struct TerminalConfig {
     pub copy_on_select: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct DiagnosticsConfig {
     pub terminal_transport: bool,
@@ -301,7 +304,7 @@ impl Default for TerminalConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct NotificationConfig {
     pub desktop: bool,
@@ -342,7 +345,7 @@ impl Default for NotificationConfig {
 /// off is a legitimate answer: that level then interrupts nowhere, which is also
 /// where every column starts. The record is kept regardless — the panel is the
 /// complete log and is not one of these columns.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct AgentLevelChoice {
     pub level: String,
     /// Retained and inert. No policy reads it: every record reaches the panel,
@@ -360,6 +363,7 @@ pub struct AgentLevelChoice {
     /// written before this field keeps exactly the chime it had. An answer of
     /// either kind wins over that fallback: the old rule is a default, not a rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub sound: Option<bool>,
     /// One flag per push channel, keyed by the channel's service id. Flattened,
     /// so a row keeps the exact shape it had when a channel was a named field,
@@ -499,7 +503,7 @@ fn default_per_scope_limit() -> u32 {
 /// an integration's inbound admission list, which admits senders rather than
 /// naming an audience. Empty means nobody, never everyone admitted. Whether a
 /// level reaches this channel at all is that channel's column of the grid.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct PushChannelConfig {
     #[serde(deserialize_with = "deserialize_user_id_list")]
@@ -518,7 +522,7 @@ impl Default for PushChannelConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct KeybindingsConfig {
     pub new_tab: String,
@@ -556,7 +560,7 @@ impl Default for KeybindingsConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct SocketConfig {
     pub path: Option<String>,
@@ -568,7 +572,7 @@ impl Default for SocketConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct AgentConfig {
     pub reply_relay_max_hops: u8,
@@ -594,7 +598,7 @@ impl Default for AgentConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct GeneralAgentConfig {
     pub capability_hints: bool,
@@ -658,7 +662,7 @@ fn default_file_sync_interval() -> u64 {
     60
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct OrchestrationConfig {
     pub plan_reminders: bool,
@@ -685,7 +689,7 @@ impl Default for OrchestrationConfig {
 
 /// The workspace essence map. Section `[orchestration.map]`. Off until the
 /// owner opts in: a project without a map wants no Cartographer at all.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct MapConfig {
     pub enabled: bool,
@@ -710,7 +714,7 @@ fn default_refresh_verify_timeout_secs() -> u64 {
 /// The orchestrator refresh cycle (S1..S5). Section `[orchestration.refresh]`.
 /// `after_reflection` stays OFF until the drill series passes — the manual
 /// `domios orchestrator refresh` trigger is always available regardless.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct RefreshConfig {
     /// Auto-run a refresh after a reflection block records its learning. OFF by default.
@@ -737,7 +741,7 @@ impl Default for RefreshConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct UsageConfig {
     pub enabled: bool,
@@ -762,7 +766,7 @@ fn default_reflect_every_gates() -> u32 {
 }
 
 /// Cadence for the orchestrator reflection loop. Section `[orchestration.reflect]`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct ReflectConfig {
     /// Emit a self-review block every N gate/bounce events. 0 disables the cadence trigger.
@@ -782,7 +786,7 @@ fn default_l1_budget_tokens() -> usize {
     300
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct MemoryConfig {
     pub backend: super::MemoryBackend,
@@ -914,7 +918,7 @@ where
         .collect())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct IntegrationsConfig {
     pub telegram_enabled: bool,
@@ -954,7 +958,7 @@ fn default_bitwarden_server_url() -> String {
     "https://vault.bitwarden.com".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct SecretsConfig {
     /// Active backend id. The `SecretBackendFactory` registry knows the
@@ -973,7 +977,7 @@ pub struct SecretsConfig {
     pub bitwarden: BitwardenSettings,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct BitwardenSettings {
     #[serde(default = "default_bitwarden_server_url")]
@@ -1012,7 +1016,7 @@ fn default_voice_fallback_raw() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct VoiceTranscribeConfig {
     pub enabled: bool,
@@ -1059,7 +1063,7 @@ fn default_text_hooks_fallback() -> String {
     "forward".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct TextHooksConfig {
     pub enabled: bool,
@@ -1085,7 +1089,7 @@ impl Default for TextHooksConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct MeshConfig {
     pub enabled: bool,
@@ -1111,13 +1115,13 @@ fn default_test_binary_max_secs() -> u64 {
 
 /// Config for the daemon runaway-test-binary sweeper.
 /// Section `[runaway]` in config.toml.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct RunawayConfig {
     /// Enable the background sweeper. Default true.
     #[serde(default = "default_runaway_enabled")]
     pub enabled: bool,
-    /// Kill test binaries (*/target/*/deps/*) that have been alive longer than this.
+    /// Kill test binaries under target dependencies that have been alive longer than this.
     #[serde(default = "default_test_binary_max_secs")]
     pub test_binary_max_secs: u64,
 }
@@ -1136,7 +1140,7 @@ mod tests;
 
 pub use super::utility_tabs::{UtilityTabLimits, UtilityTabsConfig};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct RestoreConfig {
     pub active_window_hours: u64,

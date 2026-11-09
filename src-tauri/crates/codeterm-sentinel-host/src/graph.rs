@@ -11,7 +11,6 @@ pub(crate) use detail::configured_fallback;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use serde::Serialize;
 use serde_json::{json, Value};
 
 use super::{
@@ -29,30 +28,9 @@ pub const MAX_NODES: usize = 1024;
 pub const MAX_EDGES: usize = 4096;
 pub const MAX_RUNS_PER_CRON: usize = 64;
 
-#[derive(Clone, Debug, Serialize)]
-pub struct Scenario {
-    pub id: String,
-    pub name: String,
-    pub root: Identity,
-}
+pub use codeterm_sentinel::graph_contracts::Scenario;
 
-#[derive(Clone, Debug, Serialize)]
-pub struct Snapshot {
-    pub workspace_id: String,
-    pub team_id: Option<String>,
-    pub all_teams: bool,
-    pub revision: String,
-    pub scenarios: Vec<Scenario>,
-    pub nodes: Vec<Value>,
-    pub runs: Vec<Value>,
-    pub blueprints: Vec<Value>,
-    pub edges: Vec<Value>,
-    pub truncated: bool,
-    pub configured_fallback: Value,
-    /// Committed Blueprints refused at load, with their typed reasons; they never run.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub quarantined: Vec<crate::storage::quarantine::Quarantined>,
-}
+pub use codeterm_sentinel::graph_contracts::Snapshot;
 
 #[derive(Clone)]
 pub struct ConnectedCron {

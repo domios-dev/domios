@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::types::{AgentRef, PlanMode};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanPauseRole {
     Orchestrator,
@@ -10,7 +10,7 @@ pub enum PlanPauseRole {
     Worker,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanPauseEffect {
     PlanReminders,
@@ -26,7 +26,7 @@ pub const PLAN_PAUSE_EFFECTS: [PlanPauseEffect; 4] = [
     PlanPauseEffect::TeamSchedules,
 ];
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum PlanPauseStepOutcome {
     #[default]
@@ -49,22 +49,25 @@ impl PlanPauseStepOutcome {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlanPauseAgent {
     pub tab_id: String,
     pub name: String,
     pub role: PlanPauseRole,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub team_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub session_id: Option<String>,
     #[serde(default)]
     pub pause_notice: PlanPauseStepOutcome,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub resume_notice: Option<PlanPauseStepOutcome>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlanPauseSchedule {
     pub job_id: String,
     pub name: String,
@@ -72,10 +75,11 @@ pub struct PlanPauseSchedule {
     #[serde(default)]
     pub pause_outcome: PlanPauseStepOutcome,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub resume_outcome: Option<PlanPauseStepOutcome>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanPauseStage {
     Applying,
@@ -83,7 +87,7 @@ pub enum PlanPauseStage {
     Incomplete,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlanResumeRecord {
     pub resumed_at: u64,
     pub restored_mode: PlanMode,
@@ -91,7 +95,7 @@ pub struct PlanResumeRecord {
 }
 
 /// One pause operation on a plan. Immutable once its resume is recorded.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlanPauseOperation {
     pub id: String,
     pub paused_at: u64,
@@ -107,6 +111,7 @@ pub struct PlanPauseOperation {
     pub effects: Vec<PlanPauseEffect>,
     pub stage: PlanPauseStage,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub resume: Option<PlanResumeRecord>,
 }
 
