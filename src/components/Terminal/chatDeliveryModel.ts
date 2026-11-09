@@ -29,6 +29,7 @@ function sameMatchedRow(left: ChatSendStatus["matched_row"], right: ChatSendStat
 }
 
 export function deliveryState(send: DeliverySend): DeliveryState {
+  if (!send.correlationId && !send.status && !send.echo) return "uncertain";
   if (send.status?.state === "failed" || (!send.status && send.requestFailed)) return "failed";
   if (send.echo || send.status?.state === "delivered") return "delivered";
   if (!send.status && send.requestUncertain) return "uncertain";
@@ -68,7 +69,8 @@ export function unownedHeldSends(sends: readonly DeliverySend[], statuses: reado
 }
 
 export function waitsAfterTurn(send: DeliverySend): boolean {
-  return deliveryState(send) === "queued";
+  const state = deliveryState(send);
+  return state === "queued" || (send.wasHeld === true && (state === "sending" || state === "written"));
 }
 
 export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus): DeliverySend {
@@ -149,7 +151,7 @@ export function deliveryProjectionSends(
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",
         flowAtMs: send.sentAtMs,
-        held: deliveryState(send) === "queued",
+        held: waitsAfterTurn(send),
       };
     });
 }
@@ -157,11 +159,12 @@ export function deliveryProjectionSends(
 export function canDeleteChatSend(send: DeliverySend): boolean {
   if (send.dismissed || deliveryState(send) === "delivered") return false;
   if (!send.correlationId || send.status?.system_send) return canDismissSettledChatSend(send);
-  return true;
+  return !!send.status || deliveryState(send) === "failed" || deliveryState(send) === "uncertain";
 }
 
 export function canDismissSettledChatSend(send: DeliverySend): boolean {
-  return !send.dismissed && (deliveryState(send) === "failed" || send.status?.state === "submit_unconfirmed");
+  return !send.dismissed && (deliveryState(send) === "failed" || send.status?.state === "submit_unconfirmed"
+    || (!send.correlationId && !send.status && deliveryState(send) === "uncertain"));
 }
 
 export function canEditChatSend(send: DeliverySend): boolean {

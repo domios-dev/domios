@@ -18,7 +18,7 @@ const peerPath = "/Users/peer-user/voice-note.webm";
 const expansion = () => ({ kind: "none" as const });
 
 function draft(tab: string) {
-  addChatSend(tab, { id: "voice", content: "pending", sentAtMs: 10 });
+  addChatSend(tab, { id: "voice", correlationId: "voice", content: "pending", sentAtMs: 10 });
   setChatSendDraft(tab, "voice", {
     text: "", attachments: [path], recordedVoiceAttachments: [path], capsules: {}, reply: null,
   });

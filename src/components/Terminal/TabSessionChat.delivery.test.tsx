@@ -586,7 +586,7 @@ test("a held send waits after the running turn's live operation and becomes its 
       toolStatus: "running", toolStartedAtMs: Date.now() - 1000 },
   ];
   const { host, root, dispatch } = await renderChat(tabId, undefined, undefined, undefined, { messages: turn, working: true });
-  const status = (state: "held" | "delivered", sequence: number) => ({
+  const status = (state: "held" | "written" | "delivered", sequence: number) => ({
     tab_id: tabId, send_id: "held-tx", correlationId: "held-send", state, sequence,
     ledger_id: "ledger", retained_from: 1, error: null, pending_reason: state === "held" ? "held_active_turn" : undefined,
   });
@@ -607,13 +607,17 @@ test("a held send waits after the running turn's live operation and becomes its 
     assert(queued?.getAttribute("aria-label"), "queued state exposes its reason");
     assert([...held.querySelectorAll("button")].some(button => button.textContent === "Remove"), "queued input can be cancelled");
 
-    latest = status("delivered", 2);
+    latest = status("written", 2);
+    await act(async () => dispatch("chat-send-status", latest));
+    assert(live[0].compareDocumentPosition(held) & Node.DOCUMENT_POSITION_FOLLOWING,
+      "a written send keeps its place after the turn it waited behind");
+    latest = status("delivered", 3);
     await act(async () => dispatch("chat-send-status", latest));
     const delivered = Array.from(bubbles()).filter((bubble) => bubble.textContent?.includes("opaque-held"));
     assert(delivered.length === 1 && delivered[0].getAttribute("data-message-id") === "held-send", "delivery keeps the one bubble");
     const stillLive = host.querySelector('[data-testid="chat-live-operation"]');
     assert(stillLive && delivered[0].compareDocumentPosition(stillLive) & Node.DOCUMENT_POSITION_FOLLOWING,
-      "only genuinely queued input stays after the running tool");
+      "confirmed delivery resumes conversation placement");
   } finally {
     await act(async () => root.unmount()); host.remove();
   }
@@ -805,6 +809,38 @@ for (const reducedMotion of [false, true]) {
     }
   });
 }
+
+test("hydrated tokenless input exposes recovery and stays removed after reload", async () => {
+  const tabId = "hydrated-tokenless";
+  const repository = new MemoryChatSendRepository();
+  repository.records.set(JSON.stringify([tabId, "tokenless"]), encodeChatSend(tabId, {
+    id: "tokenless", content: "opaque stored input", sentAtMs: 1,
+  }));
+  __setChatSendRepositoryForTest(repository);
+  const { host, root } = await renderChat(tabId);
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  let requests = 0;
+  __setInvokeForTest(async <T,>() => { requests++; return [] as T; });
+  try {
+    await act(async () => { await ensureChatSendTabHydrated(tabId); });
+    const bubble = host.querySelector('[data-message-id="tokenless"]');
+    assert(bubble && bubble.querySelector('[role="status"][data-state="uncertain"]'), "restored input has a reason");
+    const buttons = [...bubble.querySelectorAll("button")];
+    assert(buttons.some(button => button.textContent === "Edit and resend"), "restored input is editable");
+    assert(!buttons.some(button => button.textContent === "Retry"), "restored input never offers replay");
+    const remove = buttons.find(button => button.textContent === "Remove");
+    assert(remove, "restored input is removable");
+    await act(async () => remove.click());
+    assert(!host.querySelector('[data-message-id="tokenless"]'), "local receipt removes the bubble");
+    await act(async () => { forgetChatSendsInMemory(); await ensureChatSendTabHydrated(tabId); });
+    assert(!host.querySelector('[data-message-id="tokenless"]'), "removal survives rehydration");
+    assert(requests === 0, "local recovery sends no host request");
+  } finally {
+    __setInvokeForTest(null);
+    await act(async () => root.unmount()); host.remove();
+    __setChatSendRepositoryForTest(null);
+  }
+});
 
 test("failed image send with an early runtime row renders one bubble with visible recovery", async () => {
   const tabId = "failed-image-identity";

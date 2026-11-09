@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { beforeEach, test, vi } from "vitest";
 
-import { applyDeliveryStatus, deliveryState, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canDeleteChatSend, deliveryState, type DeliverySend } from "./chatDeliveryModel";
+import { encodeChatSend } from "./chatSendDurableModel";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { deleteTrackedChatMessage, isProvenAdmissionRefusal, reconcileTrackedChatMessages, sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 import { addChatSend, beginChatSendRetry, forgetChatSendsInMemory, observeDeliveryStatus, readChatSends,
@@ -16,16 +17,22 @@ test("a stalled admission reaches uncertainty without replay and still accepts i
   addChatSend(tabId, { id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 1 });
   let complete!: (status: ChatSendStatus) => void;
   let writes = 0;
+  let deletions = 0;
   __setInvokeForTest(async <T,>(command: string) => {
     if (command === "chat_send_text") { writes++; return await new Promise<ChatSendStatus>(resolve => { complete = resolve; }) as T; }
+    if (command === "chat_send_delete") deletions++;
     if (command === "chat_send_admissions") return [{ correlationId: "token", evidence: "absent" }] as T;
     return [] as T;
   });
   try {
     const request = assert.rejects(sendTrackedChatMessage(tabId, "token", "opaque"), /admission_unknown/);
+    await deleteTrackedChatMessage(tabId, "bubble");
+    assert.equal(deletions, 0);
+    assert.equal(readChatSends(tabId)[0].dismissed, undefined);
     await vi.advanceTimersByTimeAsync(60_000);
     await request;
     assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
+    assert.equal(canDeleteChatSend(readChatSends(tabId)[0]), true);
     assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
     complete({ tab_id: tabId, send_id: "tx", correlationId: "token", state: "delivered", sequence: 1,
       ledger_id: "ledger", retained_from: 1, error: null });
@@ -35,14 +42,18 @@ test("a stalled admission reaches uncertainty without replay and still accepts i
   } finally { vi.useRealTimers(); }
 });
 
-test("settled tokenless removal persists across a frontend restart without invoking delivery", async () => {
+test("hydrated tokenless input is uncertain and removable across restart without invoking delivery", async () => {
   const tabId = "tokenless-settled";
   const repository = new MemoryChatSendRepository();
+  repository.records.set(JSON.stringify([tabId, "tokenless"]), encodeChatSend(tabId, {
+    id: "tokenless", content: "opaque", sentAtMs: 1,
+  }));
   __setChatSendRepositoryForTest(repository);
   await ensureChatSendTabHydrated(tabId);
   let calls = 0;
   __setInvokeForTest(async <T,>() => { calls++; return [] as T; });
-  addChatSend(tabId, { id: "tokenless", content: "opaque", sentAtMs: 1, requestFailed: true });
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
+  assert.equal(beginChatSendRetry(tabId, "tokenless"), undefined);
   await deleteTrackedChatMessage(tabId, "tokenless");
   assert.ok(readChatSends(tabId).every(send => send.id !== "tokenless" || send.dismissed));
   assert.ok(await repository.readDismissal(tabId, "tokenless"));

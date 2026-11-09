@@ -184,7 +184,7 @@ test("hydration failure is visible without disabling local sends or inventing de
     await act(async () => root.render(createElement(Probe)));
     await act(async () => ensureChatSendTabHydrated(tabId));
     assert.equal(snapshot.hydration, "error");
-    await act(async () => addChatSend(tabId, { id: "live", content: "still usable", sentAtMs: 1 }));
+    await act(async () => addChatSend(tabId, { id: "live", correlationId: "live", content: "still usable", sentAtMs: 1 }));
     assert.equal(snapshot.hydration, "error");
     assert.equal(snapshot.sends[0]?.id, "live");
     assert.equal(deliveryState(snapshot.sends[0]!), "sending");
