@@ -14,7 +14,7 @@ pub struct StepDescriptor {
     pub id: String,
     pub title: String,
     pub description: String,
-    #[ts(as = "serde_json::Value")]
+    #[ts(as = "super::AuthoredSchema")]
     pub params: StepSchema,
     pub inputs: BTreeMap<String, StepPort>,
     pub outputs: BTreeMap<String, StepPort>,
@@ -31,7 +31,7 @@ pub struct StepPort {
     pub max_items: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    #[ts(as = "Option<serde_json::Value>")]
+    #[ts(as = "Option<super::AuthoredSchema>")]
     pub schema: Option<StepSchema>,
 }
 

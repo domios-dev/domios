@@ -22,15 +22,10 @@ export interface ResumeHistoryCapability {
 
 export type SessionResumeCapability = import("./gen/SessionResume").SessionResume;
 
-export interface TabContext {
-  tabId?: string;
-  cwd?: string | null;
-}
+export type {TabContext} from "./tabContext";
+import type {TabContext} from "./tabContext";
 
-export interface SessionDeltaContext {
-  session_key: string;
-  from_offset: number;
-}
+export type SessionDeltaContext = import("./gen/SessionDeltaContext").SessionDeltaContext;
 
 export type SessionModelTranscriptBoundary = import("./gen/SessionModelTranscriptBoundary").SessionModelTranscriptBoundary;
 
@@ -63,33 +58,7 @@ export type ContextAttach = import("./gen/ContextAttach").ContextAttach;
 export type ContextFiles = import("./gen/TaskFiles").TaskFiles;
 export type HostOwnedCapabilities = import("./gen/HostOwnedCapabilities").HostOwnedCapabilities;
 
-export interface LaunchParams {
-  contextFiles?: ContextFiles;
-  /** Absolute host-owned shared instructions file; an unreadable supplied path must refuse launch. */
-  toolLessInstructionsPath?: string;
-  skipPermissions?: boolean;
-  hostOwned?: HostOwnedCapabilities;
-  args?: string[];
-  agentName?: string;
-  sessionId?: string;
-  task?: string;
-  /** Optional provider-visible starter turn selected by the host. */
-  starterPrompt?: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "general_bootstrap" | "startup_handshake";
-  /** Host-owned text for starter prompts shared across providers. */
-  starterPromptText?: string;
-  /** Host-owned opening frame for the selected starter turn. */
-  starterPromptPrefix?: string;
-  /// Fixed local server the host wants this agent's structured-prompt handle to
-  /// listen on. Set only for providers that declare `supportsStructuredPrompts`;
-  /// the plugin maps it to the provider's own server flags (opencode:
-  /// `--hostname <h> --port <p>`).
-  structuredPromptServer?: { hostname: string; port: number };
-  /** Host-minted inert token a provider may carry into its own session record. */
-  launchMarker?: string;
-  /** Stable identity for the CodeTerm data directory writing this launch. */
-  instanceId?: string;
-  [key: string]: unknown;
-}
+export type LaunchParams = import("./gen/LaunchParams").LaunchParams;
 
 export type LaunchArtifactSweepRequest = OptionalWireFields<import("./gen/LaunchArtifactSweepRequest").LaunchArtifactSweepRequest, "goneInstanceIds">;
 
@@ -112,14 +81,7 @@ export type LaunchSessionDetection = import("./gen/LaunchSessionDetection").Laun
 export type ResumeParams = OptionalWireFields<import("./gen/AgentResumeParams").AgentResumeParams, "cwd" | "contextFiles" | "toolLessInstructionsPath" | "skipPermissions" | "hostOwned" | "agentName" | "instanceId" | "systemPrompt" | "args">;
 
 // picker can't read its layout (e.g. opencode's single-row options).
-export interface ParsedPrompt {
-  question: string;
-  options: [string, string][];
-  sections?: Array<{ label: string; active?: boolean; completed?: boolean }>;
-  multiSelect?: boolean;
-  submitAvailable?: boolean;
-  selectedValues?: string[];
-}
+export type ParsedPrompt = import("./gen/ParsedPrompt").ParsedPrompt;
 
 // ── tab-state classification (mirrors codeterm-plugin tab_state.rs) ──
 
@@ -188,7 +150,7 @@ export interface AgentProvider {
   /** Tool-permission approval for the hook-reported tool; `null` leaves the prompt to the user. */
   permissionPromptResponse?(
     toolName: string,
-    prompt: ParsedPrompt,
+    prompt: import("./gen/PendingPrompt").PendingPrompt,
     screen?: string,
   ): (import("./gen/PermissionPromptWireResponse").PermissionPromptWireResponse) | null;
   /** Safe response role for a prompt only after core accepted its classifier. */
@@ -231,11 +193,7 @@ export interface AgentProvider {
   describeSession?(
     filePath: string,
     head?: string,
-  ): {
-    projectPath?: string;
-    title?: string;
-    summary?: string;
-  } | null;
+  ): import("./gen/SessionDescription").SessionDescription | null;
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
   /** Host-observed CLI identity, computed before entering the plugin VM. */
@@ -275,7 +233,7 @@ export type SecretCreds = import("./gen/UnlockCredentials").UnlockCredentials;
 
 // core SecretStore trait: `{ ok }` / `{ ok: <payload> }` / `{ error: <kind> }`.
 export type SecretError = import("./gen/SecretError").SecretError;
-export type SecretEnvelope<T = unknown> = { ok: T } | { error: SecretError };
+export type SecretEnvelope<T = unknown> = OptionalWireFields<import("./gen/SecretEnvelope").SecretEnvelope<T>, "ok" | "error">;
 
 // secretStatus is the one method that returns a bare StoreStatus, not an envelope.
 export type SecretStatus = import("./gen/StoreStatus").StoreStatus;
@@ -330,49 +288,13 @@ export interface Converter {
 
 // NodeSchema subset: an object of scalar or one-level scalar-array properties.
 // No $ref, combinators, patternProperties or nested objects.
-export type NodeScalarType = "string" | "integer" | "number" | "boolean";
-
-export interface NodeScalarSchema {
-  type: NodeScalarType;
-  description?: string;
-  /** Strings only. */
-  enum?: string[];
-  /** Strings only; at most 65536. */
-  maxLength?: number;
-}
-
-export interface NodeArraySchema {
-  type: "array";
-  items: NodeScalarSchema;
-  /** At most 256. */
-  maxItems: number;
-  description?: string;
-}
-
+export type NodeScalarType = import("./gen/NodeScalarType").NodeScalarType;
+export type NodeScalarSchema = import("./gen/AuthoredNodeScalarSchema").AuthoredNodeScalarSchema;
+export type NodeArraySchema = import("./gen/AuthoredNodeArraySchema").AuthoredNodeArraySchema;
 export type NodePropertySchema = NodeScalarSchema | NodeArraySchema;
-
-export interface NodeSchema {
-  type: "object";
-  properties: Record<string, NodePropertySchema>;
-  required?: string[];
-}
-
-/** A declared event source for graph nodes. */
-export interface EventSourceDeclaration {
-  /** Namespaced kind (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, <= 64 bytes). */
-  kind: string;
-  /** 1-128 bytes. */
-  title: string;
-  params?: NodeSchema;
-  payload?: NodeSchema;
-}
-
-/** Manifest `capabilities.graphNodes`. */
-export interface GraphNodesManifestCapability {
-  steps?: import("./blueprintSteps").BlueprintStepDescriptor[];
-  converters?: GraphNodeConversion[];
-  eventSources?: EventSourceDeclaration[];
-}
+export type NodeSchema = OptionalWireFields<import("./gen/AuthoredNodeSchema").AuthoredNodeSchema, "required" | "properties">;
+export type EventSourceDeclaration = import("./gen/EventSourceDeclaration").EventSourceDeclaration;
+export type GraphNodesManifestCapability = OptionalWireFields<import("./gen/GraphNodesManifestCapability").GraphNodesManifestCapability, "steps" | "converters" | "eventSources">;
 
 export type DecisionQuestion = OptionalWireCases<import("./gen/DecisionQuestion").DecisionQuestion, "criteria">;
 
@@ -412,13 +334,11 @@ export interface DecisionModelCapability {
   primitives(): DecisionPrimitives;
 }
 
-export interface DecisionFailure {
-  error: "unavailable" | "timeout" | "invalid_response" | "transport";
-}
+export type DecisionFailure = import("./gen/DecisionFailure").DecisionFailure;
 
 /** Manifest token policy for `capabilities.decisionModel`. Bare true is optional. */
 export type DecisionModelTokenMode = import("./gen/TokenMode").TokenMode;
-export type DecisionModelManifestCapability = boolean | { tokenMode: DecisionModelTokenMode };
+export type DecisionModelManifestCapability = import("./gen/DecisionModelManifestCapability").DecisionModelManifestCapability ;
 
 // ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
 
@@ -534,19 +454,9 @@ export type ObservationConfig = Partial<import("./gen/ObservationConfig").Observ
 
 export type ContextEngineConfig =
   | { kind: "chat"; window?: ChatWindowConfig }
-  | {
-      kind: "machine";
-      charter: string;
-      observations?: ObservationConfig;
-      tickIntervalSecs?: number;
-    };
+  | (import("./gen/CoreMachineEngine").CoreMachineEngine & {observations?: ObservationConfig});
 
-export interface WatcherTickInput {
-  tick: number;
-  nowMs: number;
-  state: unknown;
-  observations?: unknown;
-}
+export type WatcherTickInput = import("./gen/WatcherTickInput").WatcherTickInput;
 
 export type WatcherVerdictStatus = import("./gen/WatcherVerdictStatus").WatcherVerdictStatus;
 
@@ -568,7 +478,7 @@ export interface ChatBackendOpenSessionCtx {
 export type ChatSessionInfo = OptionalWireFields<import("./gen/ChatSessionInfo").ChatSessionInfo, "model">;
 
 // `spawnable` makes the backend user-openable; `watcher` opts into host-driven watcher ticks.
-export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean; sessionConfig?: boolean; agentTasks?: boolean };
+export type ChatBackendCapability = OptionalWireCases<import("./gen/ChatBackendCapability").ChatBackendCapability, "spawnable" | "watcher" | "sessionConfig" | "agentTasks" | "contextOwner">;
 
 export type AgentTaskInput = import("./gen/AgentTaskInput").AgentTaskInput;
 
@@ -603,7 +513,7 @@ export interface ChatBackend {
 
 export interface ChatPreprocessor {
   match: "text";
-  chatPreprocess(ctx: (import("./gen/PreprocessCtx").PreprocessCtx & {text: string})): ({text: NonNullable<import("./gen/PreprocessOut").PreprocessOut["text"]>}) | null; // null = passthrough
+  chatPreprocess(ctx: import("./gen/PreprocessRequest").PreprocessRequest): ({text: NonNullable<import("./gen/PreprocessOut").PreprocessOut["text"]>}) | null; // null = passthrough
 }
 
 // Declared in plugin.json as `capabilities.webhookReceiver`. `audio: true` lets the
@@ -651,16 +561,7 @@ export interface SurfaceViewBridge {
 /** Authoritative context of this registered UI document; no run/budget or private lease. */
 export type ViewCallContext = import("./gen/ViewCallContext").ViewCallContext;
 
-export interface SurfaceCallContext {
-  surface: string;
-  instance: string;
-  tab: string;
-  owner: string;
-  /** Authenticated calling agent tab id, stamped by the host. */
-  actor: string;
-  /** Sanitized display label; attribution uses actor, never this label as authority. */
-  actorLabel: string;
-}
+export type SurfaceCallContext = import("./gen/SurfaceCallContext").SurfaceCallContext;
 
 export interface SurfaceAgentHandler {
   onSurfaceCall(context: SurfaceCallContext, verb: string, args: string[]): string;
@@ -683,22 +584,14 @@ export type ViewInputsContribution = import("./gen/ViewInputs").ViewInputs;
 
 // One file the user picked: an opaque handle owned by this frame, never a path. Image preview is not
 // implied; show it as a file until the host offers a preview URL for it.
-export type PickedInput = Pick<import("./gen/IngestedInput").IngestedInput, "handle" | "fileName" | "contentType" | "size">;
-export type PickFileResult =
-  | { ok: true; inputs: PickedInput[]; skipped: { fileName: string; code: "denied" | "unavailable" | "invalid"; reason: string }[] }
-  | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };
+export type {PickedInput, PickFileResult, ViewHostResult, ViewHostAvailability, PickFileOptions} from "./viewHost";
+import type {PickFileResult, ViewHostResult, ViewHostAvailability, PickFileOptions} from "./viewHost";
 
 // `denied`: no recent activation in this shown, focused view; undeclared; cancelled; `busy` (one
 // call at a time, at most one effect per second); `stale` (the frame was hidden or replaced
 // meanwhile); or media this frame does not own.
 // `unavailable`: the host cannot act here (the web mirror has no file manager).
 // `invalid`: malformed text, handle or arguments.
-export type ViewHostResult = { ok: true } | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };
-
-// What this app instance can perform here (the web mirror has no file manager, an insecure origin no
-// clipboard). It grants nothing: the declaration, gesture and media ownership are checked on each use.
-export type ViewHostAvailability = Record<ViewHostAction, boolean>;
-
 // `window.ct.host` inside the view page. Call the actions from a click or key handler: the host checks
 // its own user activation. Media handles are the host-issued ones this frame received; never paths.
 export interface ViewHostBridge {
@@ -709,17 +602,12 @@ export interface ViewHostBridge {
   reveal(mediaHandle: string): Promise<ViewHostResult>;
   // The app's own picker (system dialog, or the browser's on the web mirror). `accept` may only narrow
   // the declared `viewInputs.accept`; `multiple` is honored up to `viewInputs.maxFiles`.
-  pickFile(options?: { accept?: ViewInputMediaType[]; multiple?: boolean }): Promise<PickFileResult>;
+  pickFile(options?: PickFileOptions): Promise<PickFileResult>;
 }
 
 // ── onAgentCommand (the inverse seam) ──
 
-export interface AgentCommandCtx {
-  body?: string;
-  sessionId: string;
-  verb: string;
-  args: string[];
-}
+export type AgentCommandCtx = import("./gen/AgentCommandCtx").AgentCommandCtx;
 
 export interface AgentCommandHandler {
   onAgentCommand(ctx: AgentCommandCtx): ({result: NonNullable<import("./gen/AgentCommandOut").AgentCommandOut["result"]>; catalogueChanged?: import("./gen/AgentCommandOut").AgentCommandOut["catalogueChanged"]}) | ({error: NonNullable<import("./gen/AgentCommandOut").AgentCommandOut["error"]>});
@@ -741,7 +629,7 @@ export interface PluginModule
     Partial<AgentCommandHandler>,
     Partial<SurfaceAgentHandler>,
     Partial<ModelProviderConfig> {
-  onPermissionChanged?(event: PermissionChangedEvent): void | { error: string };
+  onPermissionChanged?(event: PermissionChangedEvent): void | import("./gen/HostError").HostError;
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;

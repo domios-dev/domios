@@ -1186,3 +1186,13 @@ fn host_data_dir_returns_instance_root() {
         codeterm_paths::data_dir_path()
     );
 }
+
+#[test]
+fn missing_directory_metadata_keeps_null_timestamps() {
+    let root = tempfile::tempdir().unwrap();
+    let value = super::dir_entry_to_json(&root.path().join("missing"), "missing", None);
+    assert_eq!(value["createdMs"], serde_json::Value::Null);
+    assert_eq!(value["modifiedMs"], serde_json::Value::Null);
+    assert!(value.as_object().unwrap().contains_key("createdMs"));
+    assert!(value.as_object().unwrap().contains_key("modifiedMs"));
+}

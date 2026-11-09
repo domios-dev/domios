@@ -13,7 +13,7 @@ export type TransferRefusal = import("./gen/TransferRefusal").TransferRefusal;
 export type TransferFailure = import("./gen/TransferFailure").TransferFailure;
 export type TransferReceipt = import("./gen/TransferReceipt").TransferReceipt;
 export type TransferResult = TransferReceipt | TransferFailure;
-export type TransferStart = { jobId: string } | TransferFailure;
+export type TransferStart = import("./gen/HostJobStart").HostJobStart | TransferFailure;
 export interface HostTransfer {
   bindInput<T>(handle: string, destinationOrigin: string, then: (result: TransferInputGrant | TransferFailure) => T): T;
   start(request: TransferRequest): TransferStart;

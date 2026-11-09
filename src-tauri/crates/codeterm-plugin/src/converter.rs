@@ -70,7 +70,7 @@ impl ConversionCancellation {
 pub const MAX_CONVERSION_STEPS: usize = 3;
 
 /// One declared edge: a converter turns `from` into `to`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ts_rs::TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, ts_rs::TS)]
 pub struct Conversion {
     pub from: MediaKind,
     pub to: MediaKind,

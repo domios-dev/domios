@@ -6,7 +6,10 @@ use rquickjs::{function::Func, Object};
 use std::sync::Arc;
 
 fn error(message: &str) -> String {
-    serde_json::json!({"error":message}).to_string()
+    serde_json::to_string(&codeterm_wire::plugin_host::HostError {
+        error: message.into(),
+    })
+    .unwrap_or_else(|_| "null".into())
 }
 
 fn context(sandbox: &PluginSandbox) -> Result<crate::blueprint_step::StepInputContext, String> {

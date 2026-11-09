@@ -10,6 +10,40 @@ use super::wire::{encode_cwd_dashed, session_description_head};
 use super::JsProvider;
 use crate::provider::{self, SessionMetadata};
 
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+struct SessionDescription {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    project_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    summary: Option<String>,
+}
+
+impl<'de> serde::Deserialize<'de> for SessionDescription {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = <Value as serde::Deserialize>::deserialize(deserializer)?;
+        let text = |key| value.get(key).and_then(Value::as_str).map(str::to_owned);
+        Ok(Self {
+            project_path: text("projectPath"),
+            title: text("title"),
+            summary: text("summary"),
+        })
+    }
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    SessionDescription::export_all(config)?;
+    Ok(())
+}
+
 fn is_session_stem(stem: &str) -> bool {
     stem.len() >= 32 && stem.contains('-')
 }
@@ -169,24 +203,26 @@ impl JsProvider {
     }
 
     pub(super) fn manifest_describe_session(&self, session: &SessionMetadata) -> SessionMetadata {
-        let extra: Option<Value> = self.try_call(
+        let extra: Option<SessionDescription> = self.try_call(
             "describeSession",
             &[
                 json!(&session.file_path),
                 json!(session_description_head(Path::new(&session.file_path))),
             ],
         );
-        let described = |field: &str| {
-            extra
-                .as_ref()
-                .and_then(|value| value.get(field))
-                .and_then(|value| value.as_str())
-                .map(String::from)
-        };
         SessionMetadata {
-            project_path: described("projectPath").or_else(|| session.project_path.clone()),
-            title: described("title").or_else(|| session.title.clone()),
-            summary: described("summary").or_else(|| session.summary.clone()),
+            project_path: extra
+                .as_ref()
+                .and_then(|d| d.project_path.clone())
+                .or_else(|| session.project_path.clone()),
+            title: extra
+                .as_ref()
+                .and_then(|d| d.title.clone())
+                .or_else(|| session.title.clone()),
+            summary: extra
+                .as_ref()
+                .and_then(|d| d.summary.clone())
+                .or_else(|| session.summary.clone()),
             ..session.clone()
         }
     }

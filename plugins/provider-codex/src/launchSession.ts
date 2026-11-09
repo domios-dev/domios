@@ -23,7 +23,7 @@ interface RolloutEntry {
   };
 }
 
-export function withLaunchMarker(instructions: string, marker: string | undefined): string {
+export function withLaunchMarker(instructions: string, marker: string | null | undefined): string {
   if (!marker) return instructions;
   return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
 }

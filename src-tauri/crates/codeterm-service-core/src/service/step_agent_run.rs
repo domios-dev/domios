@@ -16,8 +16,8 @@ use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::types::{TabAudience, TabCloseReason};
 use crate::service::spawn::{RuntimeOwnerLinkage, SpawnTabSpec, TabVisibility};
 use crate::service::{ServiceContext, SpawnAgentParams};
+pub use codeterm_wire::plugin_host::StepRunState;
 use parking_lot::{Condvar, Mutex};
-use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::Instant;
@@ -32,20 +32,8 @@ const TRUNCATED: &str = "\n[truncated]";
 // Ended runs stay readable for later reconcile calls, then are forgotten (reported as unknown).
 const ENDED_RETENTION: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum StepRunState {
-    Running,
-    Done { text: String },
-    Failed { reason: String },
-    Canceled,
-    Unknown,
-}
-
-impl StepRunState {
-    fn terminal(&self) -> bool {
-        !matches!(self, Self::Running | Self::Unknown)
-    }
+fn run_terminal(state: &StepRunState) -> bool {
+    !matches!(state, StepRunState::Running | StepRunState::Unknown)
 }
 
 struct StepRun {
@@ -126,7 +114,7 @@ fn bounded(text: &str) -> String {
 fn settle(run_id: &str, state: StepRunState) -> Option<Option<String>> {
     let mut runs = RUNS.runs.lock();
     let run = runs.get_mut(run_id)?;
-    if run.state.terminal() {
+    if run_terminal(&run.state) {
         return None;
     }
     run.state = state;
@@ -263,7 +251,7 @@ impl ServiceContext {
             }
             if runs
                 .values()
-                .filter(|run| run.plugin == request.plugin && !run.state.terminal())
+                .filter(|run| run.plugin == request.plugin && !run_terminal(&run.state))
                 .count()
                 >= 32
             {
@@ -290,7 +278,7 @@ impl ServiceContext {
         };
         let ended_early = if let Some(run) = RUNS.runs.lock().get_mut(&run_id) {
             run.tab_id = Some(handle.tab_id.clone());
-            run.state.terminal()
+            run_terminal(&run.state)
         } else {
             false
         };
@@ -342,7 +330,7 @@ impl ServiceContext {
             else {
                 return StepRunState::Unknown;
             };
-            if run.state.terminal() {
+            if run_terminal(&run.state) {
                 return run.state.clone();
             }
             if RUNS.changed.wait_until(&mut runs, deadline).timed_out() {
@@ -367,7 +355,7 @@ impl ServiceContext {
             .filter(|run| run.plugin == plugin && run.operation == operation)
         {
             None => return StepRunState::Unknown,
-            Some(run) if run.state.terminal() => return run.state.clone(),
+            Some(run) if run_terminal(&run.state) => return run.state.clone(),
             Some(run) => run.tab_id.clone(),
         };
         if let Some(tab) = &tab {

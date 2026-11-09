@@ -1,6 +1,7 @@
 // Shared cache behind PluginBubbles (codeterm#336 part C): one entry per
 // (pluginId, repository identity), computed only on a hidden->visible transition or an invalidation — no interval.
 import { invoke } from "./bridge";
+import type {TabContext} from "../../packages/plugin-sdk/src/tabContext";
 
 export type BubbleData = Omit<import("../../gen/BubbleData").BubbleData, "tone"> & Partial<Pick<import("../../gen/BubbleData").BubbleData, "tone">>;
 
@@ -12,7 +13,7 @@ export interface PluginBubbleSubscription {
 type Fetcher = (pluginId: string, cwd: string | null, tabId: string, refresh: boolean, signal: AbortSignal) => Promise<BubbleData | null>;
 
 function defaultFetcher(pluginId: string, cwd: string | null, tabId: string, refresh: boolean, signal: AbortSignal): Promise<BubbleData | null> {
-  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId, refresh }, signal });
+  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId, refresh } satisfies TabContext, signal });
 }
 
 let fetcher: Fetcher = defaultFetcher;

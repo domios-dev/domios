@@ -59,14 +59,6 @@ export interface AgentRuntime {
   runtimeResponse(ctx:RuntimeContext, op:Operation, state:JsonValue, reply:RpcReply): RuntimeStep;
   runtimeReduce(ctx:RuntimeContext, state:JsonValue, frames:readonly RuntimeFrame[]): RuntimeReduction;
 }
-export type RuntimeLifecycleEvent =
-  | {kind:"spawnFailed"; epoch:number; reason:string}
-  | {kind:"processExited"; epoch:number; code?:number; signal?:number; stderrTail:string; requested:boolean}
-  | {kind:"pipeEof"; epoch:number; stream:"stdout"}
-  | {kind:"pipeFailure"; epoch:number; stream:"stdin"|"stdout"; reason:string}
-  | {kind:"initialized"; epoch:number}
-  | {kind:"threadUnloaded"; epoch:number; threadId:string; reason:string};
-
 export type RuntimeRateLimit = OptionalWireFields<import("./gen/RuntimeRateLimit").RuntimeRateLimit, "resetsAt" | "windowMinutes">;
 export type HostAgentEvent = import("./gen/HostAgentRuntimeEvent").HostAgentRuntimeEvent;
 export type HostAgentRuntimeEvent = import("./gen/HostAgentRuntimeEvent").HostAgentRuntimeEvent;
@@ -83,8 +75,8 @@ export type RuntimeThreadParent = import("./gen/RuntimeThreadParent").RuntimeThr
 
 export type RuntimeHistoryQuestion = Omit<Omit<OptionalWireFields<import("./gen/RuntimeHistoryQuestion").RuntimeHistoryQuestion, "resolved">, "questions"> & {questions: Readonly<import("./gen/RuntimeHistoryQuestion").RuntimeHistoryQuestion["questions"]>}, "questions"> & {questions: readonly RuntimeQuestion[]};
 
-export type RuntimeRestoreContext = {instructions:string|null; additionalContext:readonly RuntimeAdditionalContext[]}
-export type RuntimeAdditionalContext = {key:string; kind:"application"|"user"; value:string}
+export type RuntimeRestoreContext = Omit<import("./gen/RuntimeRestoreContext").RuntimeRestoreContext<RuntimeAdditionalContext>, "additionalContext"> & {additionalContext: Readonly<import("./gen/RuntimeRestoreContext").RuntimeRestoreContext<RuntimeAdditionalContext>["additionalContext"]>};
+export type RuntimeAdditionalContext = import("./gen/RuntimeAdditionalContext").RuntimeAdditionalContext;
 
 export type RuntimeLoginMethod = import("./gen/RuntimeLoginMethod").RuntimeLoginMethod;
 export type RuntimeLoginState = OptionalWireFields<import("./gen/RuntimeLoginState").RuntimeLoginState, "loginId" | "method" | "url" | "userCode" | "expiresAtMs" | "error">;

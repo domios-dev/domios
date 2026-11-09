@@ -1,3 +1,4 @@
+import type {TabContext} from "../../../packages/plugin-sdk/src/tabContext";
 import { invokePluginWithConsent } from "../../lib/pluginConsent";
 /**
  * The plugin "glance" — a Chrome-extension-style popover that renders a
@@ -35,7 +36,7 @@ export function GlancePopover({
   configHelp?: string;
   /** The trigger the glance hangs from. */
   anchor: RefObject<HTMLElement | null>;
-  ctx?: Record<string, unknown>;
+  ctx?: TabContext;
   onClose: () => void;
   onOpenSettings: (pluginId: string) => void;
 }) {

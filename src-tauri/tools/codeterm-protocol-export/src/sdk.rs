@@ -106,5 +106,31 @@ pub(super) fn export_sdk(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_plugin::chatpreprocessor::PreprocessCtx::export_all(config)?;
     codeterm_wire::plugin_host::StepAgentStartOptions::export_all(config)?;
     codeterm_wire::plugin_host::ViewIdentity::export_all(config)?;
+    codeterm_wire::plugin_host::HostError::export_all(config)?;
+    codeterm_wire::plugin_host::HostWorkerStartOptions::export_all(config)?;
+    codeterm_wire::plugin_host::HostWorkspaceOptions::export_all(config)?;
+    codeterm_wire::plugin_host::HostWorkspaceResult::export_all(config)?;
+    codeterm_wire::plugin_host::HostJobStart::export_all(config)?;
+    codeterm_wire::plugin_host::HostSessionResult::export_all(config)?;
+    codeterm_wire::plugin_host::HostTicketResult::export_all(config)?;
+    codeterm_wire::plugin_host::HostAgentSpawnOptions::export_all(config)?;
+    codeterm_wire::plugin_host::HostWorkerPoll::export_all(config)?;
+    codeterm_wire::plugin_host::HostAgentPoll::export_all(config)?;
+    codeterm_wire::plugin_host::HostMemSearchOptions::export_all(config)?;
+    codeterm_wire::plugin_host::HostMemSearchResult::export_all(config)?;
+    codeterm_plugin::usage_parser::UsageSnapshot::export_all(config)?;
+    codeterm_secrets::js_backend::export_protocol_contracts(config)?;
+    codeterm_wire::plugin_host::HostRunStart::export_all(config)?;
+    codeterm_wire::plugin_host::StepRunState::export_all(config)?;
+    codeterm_wire::plugin_host::SurfaceCallContext::export_all(config)?;
+    codeterm_wire::plugin_host::HostSurfaceResult::export_all(config)?;
+    codeterm_wire::plugin_host::HostOk::export_all(config)?;
+    codeterm_plugin::agent_runtime::RuntimeRestoreContext::<
+        codeterm_plugin::agent_runtime::RuntimeAdditionalContext,
+    >::export_all(config)?;
+    codeterm_wire::plugin_host::HostRefusal::export_all(config)?;
+    codeterm_wire::plugin_host::HostSurfaceArguments::export_all(config)?;
+    codeterm_wire::plugin_host::WatcherTickInput::export_all(config)?;
+    codeterm_wire::plugin_host::CoreMachineEngine::export_all(config)?;
     Ok(())
 }

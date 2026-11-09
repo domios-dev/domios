@@ -51,7 +51,8 @@ impl ServiceContext {
     ) -> String {
         match self.step_surface_call_inner(plugin, context, verb, raw) {
             Ok(value) => value.to_string(),
-            Err(error) => json!({"error":error}).to_string(),
+            Err(error) => serde_json::to_string(&codeterm_wire::plugin_host::HostError { error })
+                .unwrap_or_else(|_| "null".into()),
         }
     }
 
@@ -84,9 +85,13 @@ impl ServiceContext {
             agent_call::resolve_caller_tab(&mux, owner).ok_or("step owner closed")?
         };
         if verb == "status" && call.surface.is_none() {
-            return Ok(
-                json!({"result": if context.surfaces.lock().is_empty() { format!("no {} open; run `open` first", surface.title.to_lowercase()) } else { "step surface identity required".to_string() }}),
-            );
+            return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {
+                result: if context.surfaces.lock().is_empty() {
+                    format!("no {} open; run `open` first", surface.title.to_lowercase())
+                } else {
+                    "step surface identity required".to_string()
+                }
+            }));
         }
         if verb == "open" {
             if call.surface.is_some() || !context.surfaces.lock().is_empty() {
