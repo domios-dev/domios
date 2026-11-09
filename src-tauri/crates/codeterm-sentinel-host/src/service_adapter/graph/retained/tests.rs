@@ -258,7 +258,8 @@ fn blueprint_v2_project_loads_retained_definition_history_before_projection() {
             retained.get(&job.id),
             &codeterm_plugin::graph_nodes::GraphNodeRegistry::default()
         )
-        .unwrap()["graph_definition_version"],
-        1
+        .unwrap()
+        .graph_definition_version,
+        Some(Some(1))
     );
 }

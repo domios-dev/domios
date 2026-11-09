@@ -621,12 +621,10 @@ fn sentinel_command_scope_expiry_team_cleanup_and_stop_wake_exact_source() {
         let lease = leases
             .iter()
             .find(|lease| lease.job.id == first.id)
-            .cloned()
             .unwrap();
         let unrelated = leases
             .iter()
             .find(|lease| lease.job.id == other.id)
-            .cloned()
             .unwrap();
         let wake = Arc::new(CountWake(std::sync::atomic::AtomicUsize::new(0)));
         let unrelated_wake = Arc::new(CountWake(std::sync::atomic::AtomicUsize::new(0)));
@@ -723,7 +721,6 @@ fn sentinel_command_revision_or_owner_change_after_claim_refuses_launch() {
                     .jobs
                     .iter_mut()
                     .find(|current| current.id == job.id)
-                    .cloned()
                     .unwrap();
                 match change {
                     "revision" => current.revision += 1,

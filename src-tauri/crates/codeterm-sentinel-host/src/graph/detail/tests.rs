@@ -80,14 +80,14 @@ fn definition_text_is_redacted_bounded_and_explicitly_truncated() {
             "a".repeat(5000)
         );
     }
-    let value = definition(&job);
+    let value = json!(definition(&job));
     assert_eq!(value["probe_truncated"], true);
     assert!(value["probe"].as_str().unwrap().len() <= MAX_TEXT_BYTES);
     assert_eq!(value["commands"][0]["command_truncated"], true);
     assert!(!value.to_string().contains("credential-fixture"));
     job.matches.insert("done".into(), "x".repeat(5000));
     assert_eq!(
-        definition(&job),
+        json!(definition(&job)),
         json!({"unavailable":"definition_exceeds_v1_bounds"})
     );
 }
@@ -240,7 +240,7 @@ fn invalid_history_provenance_is_not_complete() {
 
 #[test]
 fn missing_node_explains_unavailable_definition_and_history() {
-    let value = missing(&crate::graph::identity(&job()));
+    let value = json!(missing(&crate::graph::identity(&job())));
     assert_eq!(value["scope"]["node_id"], "node");
     assert_eq!(value["definition"], json!({"unavailable":"node_missing"}));
     assert_eq!(value["origin"], "unknown");
