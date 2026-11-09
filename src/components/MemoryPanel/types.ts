@@ -1,9 +1,4 @@
-export interface MemAuthor {
-  kind: "owner" | "neighbor" | "system";
-  account_uid?: string;
-  friendship_id?: string;
-  label?: string;
-}
+export type MemAuthor = import("../../../gen/MemAuthor").MemAuthor;
 
 export type MemKind =
   | "skill"

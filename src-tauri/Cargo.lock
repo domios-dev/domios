@@ -1258,6 +1258,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.8.2",
+ "ts-rs",
  "ulid",
  "uuid",
  "vt100",
@@ -1792,6 +1793,7 @@ dependencies = [
  "tempfile",
  "tokenizers 0.22.2",
  "tokio",
+ "ts-rs",
  "ulid",
  "uuid",
  "windows-sys 0.61.2",
@@ -2106,10 +2108,14 @@ dependencies = [
 name = "codeterm-protocol-export"
 version = "0.0.0"
 dependencies = [
+ "codeterm-agent-model",
+ "codeterm-mem",
  "codeterm-mesh",
  "codeterm-plugin",
  "codeterm-pty",
+ "codeterm-storage",
  "codeterm-types",
+ "codeterm-worker-services",
  "ts-rs",
  "workspace-hack",
 ]
@@ -2489,6 +2495,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "ts-rs",
  "windows-sys 0.61.2",
  "workspace-hack",
 ]
@@ -2651,6 +2658,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "ts-rs",
  "url",
  "uuid",
  "workspace-hack",
@@ -10190,6 +10198,7 @@ version = "12.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756050066659291d47a554a9f558125db17428b073c5ffce1daf5dcb0f7231d8"
 dependencies = [
+ "chrono",
  "serde_json",
  "thiserror 2.0.21",
  "ts-rs-macros",

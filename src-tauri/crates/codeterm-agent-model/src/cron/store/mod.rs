@@ -51,7 +51,7 @@ use crate::cron::clock::SharedClock;
 #[cfg(any(test, feature = "test-support"))]
 use crate::persisted_state::{Loaded, StateFile};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub enum CronRunStatus {
     Running,
     AwaitingOwnerPrompt,
@@ -60,9 +60,10 @@ pub enum CronRunStatus {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct CronRunInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cancel_reason: Option<CronCancelReason>,
     pub run_id: String,
     pub started_at: u64,
@@ -71,43 +72,56 @@ pub struct CronRunInfo {
     pub tab_id: Option<String>,
     // session_id + cwd captured before the hidden tab closes so the read-only chat-ui can resolve and render this past run's jsonl.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub report_delivery: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct CronJob {
     pub id: String,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub description: Option<String>,
     pub workspace_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub team_id: Option<String>,
     pub schedule: String,
     pub enabled: bool,
     pub agent: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub reasoning_effort: Option<String>,
     pub task: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub role: Option<String>,
     /// Mem skill slug (`domios mem skill new <slug>`) resolved and injected
     /// into the task brief at fire time — see `cron::scheduler::fire_job`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub skill: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub creator_tab_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub report_target_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub oneshot: bool,
@@ -115,17 +129,22 @@ pub struct CronJob {
     pub max_history: usize,
     pub created_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub last_run: Option<CronRunInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub next_run: Option<u64>,
     /// None → 10% of interval clamped to [1m, 30m]. Some(0) → off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub jitter_max_ms: Option<u64>,
     /// IANA timezone (e.g. "Europe/Riga"). None → UTC.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub tz: Option<String>,
     /// Per-cron run timeout. None → fall back to global memory.worker_timeout_seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub timeout_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub consecutive_failures: u32,

@@ -11,6 +11,7 @@ workspace = true
 test-support = []
 
 [dependencies]
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-pty = { path = "../codeterm-pty" }

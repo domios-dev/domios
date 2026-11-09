@@ -22,6 +22,17 @@ pub fn export() -> Result<(), Box<dyn std::error::Error>> {
         codeterm_mesh::contract::types::MeshStatus::export_all(&protocol)?;
         codeterm_mesh::contract::types::MeshPeersResponse::export_all(&protocol)?;
         codeterm_mesh::network_transport::NetworkIdentity::export_all(&protocol)?;
+        codeterm_worker_services::remote_workers::RemoteWorker::export_all(&protocol)?;
+        codeterm_mem::workers::GraphWorkerInfo::export_all(&protocol)?;
+        codeterm_agent_model::cron::store::CronRunInfo::export_all(&protocol)?;
+        codeterm_agent_model::cron::store::CronJob::export_all(&protocol)?;
+        codeterm_storage::CronCancelReason::export_all(&protocol)?;
+        codeterm_mem::store::MemAuthor::export_all(&protocol)?;
+        codeterm_mem::MemStats::export_all(&protocol)?;
+        codeterm_mem::embedder::EmbedderStatus::export_all(&protocol)?;
+        codeterm_mem::activity::MemActivityEvent::export_all(&protocol)?;
+        codeterm_mem::graph_layout::snapshot::Snapshot::export_all(&protocol)?;
+        codeterm_mem::graph_layout::snapshot::DeltaResponse::export_all(&protocol)?;
         AppConfig::export_all(&protocol)?;
         Team::export_all(&protocol)?;
         AgentRole::export_all(&protocol)?;

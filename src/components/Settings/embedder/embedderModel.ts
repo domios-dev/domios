@@ -1,28 +1,8 @@
-export interface EmbedderIdentity {
-  provider: string;
-  model: string;
-  dimension: number;
-}
+export type EmbedderIdentity = import("../../../../gen/EmbedderIdentity").EmbedderIdentity;
 
-export interface ReembedProgress {
-  state: "idle" | "running" | "completed" | "failed" | "cancelled";
-  target: EmbedderIdentity | null;
-  total: number;
-  done: number;
-  failed: number;
-  last_error?: string | null;
-  current_item?: { id: string; done: number; total: number } | null;
-}
+export type ReembedProgress = Pick<import("../../../../gen/ReembedProgress").ReembedProgress, "state" | "target" | "total" | "done" | "failed"> & Partial<import("../../../../gen/ReembedProgress").ReembedProgress>;
 
-export interface EmbedderStatus extends EmbedderIdentity {
-  remote: boolean;
-  available: boolean;
-  index: EmbedderIdentity | null;
-  index_matches: boolean;
-  vectors: number;
-  pending: number;
-  reembed: ReembedProgress;
-}
+export type EmbedderStatus = Pick<import("../../../../gen/EmbedderStatus").EmbedderStatus, "provider" | "model" | "dimension" | "remote" | "available" | "index" | "index_matches" | "vectors" | "pending"> & Partial<Omit<import("../../../../gen/EmbedderStatus").EmbedderStatus, "reembed">> & { reembed: ReembedProgress };
 
 export interface Refusal {
   message: string;

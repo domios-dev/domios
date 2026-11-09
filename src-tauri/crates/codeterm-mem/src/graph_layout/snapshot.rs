@@ -10,7 +10,7 @@ use super::placement::COORD_RANGE;
 
 pub const MAX_IDS: usize = 500;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct SnapshotNode {
     pub id: String,
     pub x: f32,
@@ -22,7 +22,7 @@ pub struct SnapshotNode {
     pub pinned: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct ClusterAgg {
     pub id: u32,
     pub x: f32,
@@ -30,14 +30,14 @@ pub struct ClusterAgg {
     pub size: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct ClusterEdge {
     pub from: u32,
     pub to: u32,
     pub weight: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct SnapshotStats {
     pub node_count: usize,
     pub cluster_count: usize,
@@ -45,7 +45,7 @@ pub struct SnapshotStats {
     pub vectorized_without_position: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct Snapshot {
     pub layout_version: u64,
     pub computed_at: String,
@@ -56,7 +56,7 @@ pub struct Snapshot {
     pub stats: SnapshotStats,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct DeltaNode {
     pub id: String,
     pub x: f32,
@@ -64,7 +64,7 @@ pub struct DeltaNode {
     pub cluster_id: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 #[serde(untagged)]
 pub enum DeltaResponse {
     Unchanged {

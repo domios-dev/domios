@@ -38,7 +38,7 @@ const COLOR_PALETTE: [&str; 12] = [
     "hsl(330, 70%, 60%)",
 ];
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerStatus {
     Queued,
@@ -83,7 +83,7 @@ pub fn is_dreaming_intent(intent: &str) -> bool {
     intent.starts_with(DREAMING_INTENT_PREFIX)
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct GraphWorkerInfo {
     pub worker_id: String,
     pub tab_id: String,
@@ -97,19 +97,26 @@ pub struct GraphWorkerInfo {
     pub report: Option<String>,
     pub done_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub last_observed_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub extraction_retry: Option<crate::extraction_retry::ExtractionRetry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub log_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub agent_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub model: Option<String>,
     // session_id + cwd captured before the hidden tab closes so the read-only chat-ui can resolve and render this run's jsonl after the fact.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cwd: Option<String>,
     // inverse seam — recorded from `host.agent.spawn(commands)` (C2 MINOR-2).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -117,9 +124,11 @@ pub struct GraphWorkerInfo {
     // How execution ended. Absent means execution has not ended; it never
     // implies the run's artifact was finalized.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub execution_end: Option<ExecutionEnd>,
     // The artifact this run claimed, by identity. Separate from execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub diary_id: Option<String>,
     #[serde(default)]
     pub finalization: DiaryFinalization,

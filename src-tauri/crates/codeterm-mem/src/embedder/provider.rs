@@ -33,7 +33,7 @@ pub enum Modality {
 
 /// The stamp persisted beside the vectors: a vector is only comparable with
 /// vectors carrying an equal identity.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 pub struct EmbedderIdentity {
     pub provider: String,
     pub model: String,

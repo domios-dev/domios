@@ -161,13 +161,7 @@ export async function deleteItem(api: ApiConfig, id: string): Promise<{ deleted:
   return res.json();
 }
 
-export interface MemStats {
-  total_items: number;
-  total_vectors: number;
-  total_relations: number;
-  total_entities: number;
-  by_kind: Record<string, number>;
-}
+export type MemStats = import("../../../gen/MemStats").MemStats;
 
 export async function fetchWorkerLog(api: ApiConfig, workerId: string): Promise<string> {
   const res = await daemonFetch(api, `/api/mem/workers/${encodeURIComponent(workerId)}/log`, {

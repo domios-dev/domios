@@ -120,80 +120,22 @@ export type {
 /** A worker running on another mesh peer that reports to a local orchestrator.
  *  It has no local PTY — the UI renders it as a read-only "remote Tab" ghost
  *  node under its orchestrator. Mirrors the Rust `RemoteWorker`. */
-export interface RemoteWorker {
-  /** Paired peer (instance name) the worker runs on. */
-  peer: string;
-  /** The worker's tab id on that peer. */
-  remote_tab: string;
-  title: string;
-  model: string | null;
-  /** Last reported lifecycle: working | done | blocked | partial. */
-  status: string;
-  last_message: string;
-  last_seen_ms: number;
-}
+export type RemoteWorker = import("../../gen/RemoteWorker").RemoteWorker;
 
 /** Map of local orchestrator tab id → its remote workers. */
 export type RemoteWorkersByOrchestrator = Record<string, RemoteWorker[]>;
 
 // Graph worker (Phase E memory visualization)
 
-export type GraphWorkerStatus =
-  | "queued"
-  | "starting"
-  | "reading"
-  | "analyzing"
-  | "writing"
-  | "done"
-  | "error"
-  | "failed"
-  | "cancelled"
-  | "hard_timeout"
-  | "timeout"
-  | "timed_out"
-  | "orphaned";
+export type GraphWorkerStatus = import("../../gen/WorkerStatus").WorkerStatus | "failed" | "cancelled" | "hard_timeout" | "timeout" | "timed_out";
 
-export type ExecutionEnd =
-  | { kind: "reported" }
-  | { kind: "process_ended"; detail: string }
-  | { kind: "timed_out"; detail: string }
-  | { kind: "cancelled" }
-  | { kind: "orphaned" };
+export type ExecutionEnd = import("../../gen/ExecutionEnd").ExecutionEnd;
 
-export type DiaryFinalization =
-  | { state: "pending" }
-  | { state: "succeeded"; diary_id: string }
-  | { state: "partial"; diary_id?: string | null; reason: string }
-  | { state: "failed"; diary_id?: string | null; reason: string };
+export type DiaryFinalization = import("../../gen/DiaryFinalization").DiaryFinalization;
 
-export interface GraphWorkerInfo {
-  worker_id: string;
-  tab_id: string | null;
-  intent: string;
-  spawned_by: string;
-  spawned_at: number;
-  status: GraphWorkerStatus;
-  progress_text: string | null;
-  touched_nodes: string[];
-  color: string;
-  report: string | null;
-  done_at: number | null;
-  last_observed_at?: number | null;
-  extraction_retry?: {
-    attempt: number;
-    parked: boolean;
-    retry_after: number | null;
-    reason: string | null;
-  } | null;
-  log_path?: string | null;
-  agent_provider?: string | null;
-  model?: string | null;
-  session_id?: string | null;
-  cwd?: string | null;
-  execution_end?: ExecutionEnd | null;
-  diary_id?: string | null;
-  finalization?: DiaryFinalization | null;
-}
+type WireGraphWorkerInfo = import("../../gen/GraphWorkerInfo").GraphWorkerInfo;
+type LocalGraphWorkerInfo = { [K in keyof WireGraphWorkerInfo]: K extends "tab_id" | "progress_text" | "report" | "done_at" | "last_observed_at" | "extraction_retry" | "log_path" | "agent_provider" | "model" | "session_id" | "cwd" | "execution_end" | "diary_id" | "finalization" ? WireGraphWorkerInfo[K] | null : WireGraphWorkerInfo[K] };
+export type GraphWorkerInfo = Required<Pick<LocalGraphWorkerInfo, "worker_id" | "intent" | "spawned_by" | "spawned_at" | "progress_text" | "touched_nodes" | "color" | "report" | "done_at"> > & Partial<Omit<LocalGraphWorkerInfo, "tab_id" | "status" | "finalization" | "extraction_retry">> & { tab_id: WireGraphWorkerInfo["tab_id"] | null; status: GraphWorkerStatus; finalization?: DiaryFinalization | null; extraction_retry?: Omit<import("../../gen/ExtractionRetry").ExtractionRetry, "reason"> & Partial<Pick<import("../../gen/ExtractionRetry").ExtractionRetry, "reason">> | null };
 
 export type PluginActivity = Omit<import("../../gen/PluginActivity").PluginActivity, "percent" | "error" | "status"> & Partial<Pick<import("../../gen/PluginActivity").PluginActivity, "percent" | "error">> & { status: "running" | "done" | "error" };
 
@@ -206,51 +148,17 @@ export interface SpawnWorkerReq {
 
 // Cron types
 
-export type CronRunStatus = "Running" | "AwaitingOwnerPrompt" | "Success" | "Failed" | "Cancelled";
+export type CronRunStatus = import("../../gen/CronRunStatus").CronRunStatus;
 
-export type CronCancelReason = "user_cancel" | "superseded" | "restart_reconcile" | "timeout" | "owner_closed";
+export type CronCancelReason = import("../../gen/CronCancelReason").CronCancelReason;
 
-export interface CronRunInfo {
-  cancel_reason?: CronCancelReason | null;
-  run_id: string;
-  started_at: number;
-  finished_at: number | null;
-  status: CronRunStatus;
-  tab_id: string | null;
-  session_id?: string | null;
-  cwd?: string | null;
-  summary?: string | null;
-}
+type WireCronRunInfo = import("../../gen/CronRunInfo").CronRunInfo;
+type LocalCronRunInfo = { [K in keyof WireCronRunInfo]: K extends "cancel_reason" | "finished_at" | "tab_id" | "session_id" | "cwd" | "summary" ? WireCronRunInfo[K] | null : WireCronRunInfo[K] };
+export type CronRunInfo = Required<Pick<LocalCronRunInfo, "run_id" | "started_at" | "finished_at" | "status" | "tab_id"> > & Partial<Omit<LocalCronRunInfo, never>>;
 
-export interface CronJob {
-  protected?: boolean;
-  id: string;
-  name: string;
-  description: string | null;
-  workspace_id: string;
-  team_id?: string | null;
-  schedule: string;
-  enabled: boolean;
-  agent: string;
-  /** Model id within the agent provider (e.g. "opus", "gpt-5.4-mini"). `null` = provider default. */
-  model: string | null;
-  /** Reasoning-effort id advertised by the agent provider. `null` = provider default. */
-  reasoning_effort: string | null;
-  task: string;
-  cwd: string | null;
-  role: string | null;
-  creator_tab_id?: string | null;
-  report_target_tab_id?: string | null;
-  oneshot: boolean;
-  max_history: number;
-  created_at: number;
-  last_run: CronRunInfo | null;
-  next_run: number | null;
-  /** Anti-predictability jitter cap in milliseconds. `null` = provider
-   *  default (auto ~10% of interval), `0` = disabled, positive = max ms
-   *  added to each scheduled fire. */
-  jitter_max_ms: number | null;
-}
+type WireCronJob = import("../../gen/CronJob").CronJob;
+type LocalCronJob = { [K in keyof WireCronJob]: K extends "description" | "team_id" | "model" | "reasoning_effort" | "cwd" | "role" | "creator_tab_id" | "report_target_tab_id" | "last_run" | "next_run" | "jitter_max_ms" ? WireCronJob[K] | null : WireCronJob[K] };
+export type CronJob = Required<Pick<LocalCronJob, "id" | "name" | "description" | "workspace_id" | "schedule" | "enabled" | "agent" | "model" | "reasoning_effort" | "task" | "cwd" | "role" | "oneshot" | "max_history" | "created_at" | "next_run" | "jitter_max_ms"> > & Partial<Omit<LocalCronJob, "last_run">> & { last_run: CronRunInfo | null };
 
 export type ShellProfile = import("../../gen/ShellProfile").ShellProfile;
 
