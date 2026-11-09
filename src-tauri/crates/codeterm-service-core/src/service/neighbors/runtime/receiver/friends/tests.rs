@@ -205,7 +205,7 @@ async fn deferred_publication_keeps_its_batch_version_after_invalidation() {
         assert_eq!(payload["receiving_here"], true);
     }
     let (snapshot, version) = service.neighbor_friend_receiver_snapshot();
-    assert_eq!(snapshot, json!({}));
+    assert_eq!(json!(snapshot), json!({}));
     assert_eq!(version, invalidated_version);
     let next_invalidation = service.forget_neighbor_friend_receiver("first");
     assert!(next_invalidation > invalidated_version);

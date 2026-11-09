@@ -232,7 +232,13 @@ async fn receiver_move_keeps_local_concierge_and_never_copies_bindings_or_permis
     assert_eq!(view["concierge_missing"], false);
     assert!(view.get("not_receiving_reason").is_none());
     let lapsed = std::collections::BTreeSet::from(["machine".to_owned()]);
-    let expired = service.neighbor_concierge_projection(&friendship, &settings, &receiver, &lapsed);
+    let expired = serde_json::to_value(service.neighbor_concierge_projection(
+        &friendship,
+        &settings,
+        &receiver,
+        &lapsed,
+    ))
+    .unwrap();
     assert_eq!(
         expired["not_receiving_reason"],
         ServiceContext::receiver_view(&receiver, &lapsed)["not_receiving_reason"]

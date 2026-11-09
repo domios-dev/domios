@@ -7,7 +7,8 @@ use codeterm_neighbors::{
     Result,
 };
 use codeterm_types::plan::ExecutionIntent;
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
 mod tools;
 
 pub(super) struct RestoreGrant {
@@ -290,7 +291,7 @@ impl ServiceContext {
         friendship: &str,
         permission: &Permission,
         settings: &Settings,
-    ) -> Result<Value> {
+    ) -> Result<codeterm_neighbors::responses::NeighborPermission> {
         let own = metadata.friend_folder(friendship)?;
         let requested = permission
             .folder
@@ -311,6 +312,9 @@ impl ServiceContext {
                 .unwrap_or_default()
         };
         let folder = cwd.unwrap_or(requested);
+        use codeterm_neighbors::responses::{
+            FolderEnforcement, FolderNetwork, FolderReads, FolderWrites, NeighborPermission,
+        };
         let (writes, note) = match sandbox {
             Some(policy) => {
                 let roots = if policy.writable_roots.is_empty() { String::new() }
@@ -319,16 +323,23 @@ impl ServiceContext {
                 let writes = if pad_only { "Only this concierge's own AgentPad is writable; the friend folder and other files are read-only." }
                     else if policy.intent == ExecutionIntent::ReadOnly { "Filesystem writes are disabled by the provider sandbox." }
                     else { "Writes are limited to the folder by the provider sandbox." };
-                (if pad_only { "pad_only" } else { "provider_sandbox" }, format!("{writes}{roots} Reads are not confined on {}.", std::env::consts::OS))
+                (if pad_only { FolderWrites::PadOnly } else { FolderWrites::ProviderSandbox }, format!("{writes}{roots} Reads are not confined on {}.", std::env::consts::OS))
             }
-            None => (if permission.machine_access == MachineAccess::Full { "unrestricted" } else { "advisory" }, format!("This provider has no active OS filesystem sandbox on {}. Non-Full native file tools use launch-scoped grants (own pad for read-only; folder plus pad for folder access). OS reads and writes are not confined.", std::env::consts::OS)),
+            None => (if permission.machine_access == MachineAccess::Full { FolderWrites::Unrestricted } else { FolderWrites::Advisory }, format!("This provider has no active OS filesystem sandbox on {}. Non-Full native file tools use launch-scoped grants (own pad for read-only; folder plus pad for folder access). OS reads and writes are not confined.", std::env::consts::OS)),
         };
-        let mut value = json!(permission);
-        value["initial_context_digest"] = json!(settings.initial_context_digest(friendship));
-        value["effective_folder"] = json!(folder);
-        value["folder_enforcement"] = json!({"writes":writes,"reads":"not_confined","note":note});
-        value["folder_enforcement"]["network"] = json!("not_confined");
-        Ok(value)
+        Ok(NeighborPermission {
+            permission: permission.clone(),
+            initial_context_digest: settings
+                .initial_context_digest(friendship)
+                .map(str::to_owned),
+            effective_folder: folder,
+            folder_enforcement: FolderEnforcement {
+                writes,
+                reads: FolderReads::NotConfined,
+                network: FolderNetwork::NotConfined,
+                note,
+            },
+        })
     }
 }
 

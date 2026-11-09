@@ -1,3 +1,4 @@
+import { channelStatus } from "./neighborRuntime.testdata";
 import { it, vi, expect } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -35,13 +36,13 @@ vi.mock("./NeighborReceiveHere", () => ({
 
 const { neighbor, mounted, button, hasButton, runtime, concierge, render } = createNeighborsViewFixture({ notices, transport, bridge, account, mux });
 
-const elsewhere: ReceiverState = { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 7 };
-const overridden: ReceiverState = { receiving_here: true, receiving_enabled: true, receiver_machine_label: "This laptop", revision: 3 };
+const elsewhere: ReceiverState = { receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 7 };
+const overridden: ReceiverState = { receiving_here: true, is_me: true, receiving_enabled: true, receiver_machine_label: "This laptop", revision: 3 };
 
 /** The runtime with this account received here, and Ada received as given. */
 function receiving(ada: ReceiverState): NeighborRuntimeClient {
   const client = runtime({ pair: "tab-gateway" });
-  vi.mocked(client.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: { pair: ada } });
+  vi.mocked(client.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: { pair: ada } }));
   return { ...client, receiveFriend: vi.fn(async () => {}) };
 }
 function friends(list: NeighborList["friends"]): NeighborClient {
@@ -141,7 +142,7 @@ it("a friend the status does not know yet borrows nothing from the account: no l
   // The account is received elsewhere, but Ada's own receiver is unknown, so nothing may claim where Ada arrives.
   const unknown = (): NeighborRuntimeClient => {
     const client = receiving(elsewhere);
-    vi.mocked(client.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: {} } as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+    vi.mocked(client.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: {} }));
     return client;
   };
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={unknown()} />);

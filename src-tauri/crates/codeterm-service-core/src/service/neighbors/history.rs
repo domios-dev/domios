@@ -13,12 +13,7 @@ const MAX_BYTES: usize = 768 * 1024;
 pub(crate) mod handling;
 pub(super) mod read;
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(untagged)]
-pub(super) enum Author {
-    Person(String),
-    Agent { agent: String, name: String },
-}
+pub(super) use codeterm_neighbors::responses::{HistoryAuthor as Author, Submission};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(super) struct ReceivedBy {
@@ -64,14 +59,6 @@ pub(super) struct Entry {
     pub read_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submission: Option<Submission>,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum Submission {
-    Accepted,
-    Unconfirmed,
-    Refused,
 }
 
 pub(super) struct HistoryReceipt {
@@ -179,7 +166,16 @@ impl History {
         }
     }
 
+    #[cfg(test)]
     fn page(&self, before: Option<&str>, limit: usize) -> Value {
+        json!(self.response_page(before, limit))
+    }
+
+    fn response_page(
+        &self,
+        before: Option<&str>,
+        limit: usize,
+    ) -> codeterm_neighbors::responses::HistoryPage {
         let end = before.map_or(self.entries.len(), |id| {
             self.entries
                 .iter()
@@ -187,21 +183,39 @@ impl History {
                 .unwrap_or(0)
         });
         let start = end.saturating_sub(limit.clamp(1, 100));
-        let entries: Vec<_> = self.entries[start..end]
+        let entries = self.entries[start..end]
             .iter()
             .rev()
-            .map(|entry| {
-                let mut value = json!(entry);
-                if let Some(object) = value.as_object_mut() {
-                    object.remove("received_by");
-                    object.remove("flag_callers");
-                    object.remove("handling_owner");
-                }
-                value
+            .map(|entry| codeterm_neighbors::responses::HistoryEntry {
+                direction: entry.direction.clone(),
+                author: entry.author.clone(),
+                sender_uid: entry.sender_uid.clone(),
+                body: entry.body.clone(),
+                at: entry.at,
+                message_id: entry.message_id.clone(),
+                kind: entry.kind,
+                in_reply_to: entry.in_reply_to.clone(),
+                outcome: entry.outcome.clone(),
+                reason: entry.reason.clone(),
+                limit: entry.limit,
+                resets_at: entry.resets_at,
+                retry_after_seconds: entry.retry_after_seconds,
+                delivery_status: entry.delivery_status,
+                delivered_at: entry.delivered_at,
+                read_at: entry.read_at,
+                submission: entry.submission,
+                flags: entry.flags.clone(),
+                handling_state: entry.handling.handling_state,
+                handling_reason: entry.handling.handling_reason.clone(),
+                handling_updated_at: entry.handling.handling_updated_at,
             })
             .collect();
-        let next = (start > 0).then(|| self.entries[start].message_id.clone());
-        json!({"entries":entries,"next_before":next,"ended":self.ended})
+        let next_before = (start > 0).then(|| self.entries[start].message_id.clone());
+        codeterm_neighbors::responses::HistoryPage {
+            entries,
+            next_before,
+            ended: self.ended,
+        }
     }
 }
 
@@ -236,18 +250,30 @@ impl Metadata {
             .unwrap_or_default())
     }
 
+    #[cfg(test)]
     pub(super) async fn history_page(
         &self,
         friendship: &str,
         before: Option<&str>,
         limit: usize,
     ) -> Result<Value> {
+        self.history_response_page(friendship, before, limit)
+            .await
+            .map(|page| json!(page))
+    }
+
+    pub(super) async fn history_response_page(
+        &self,
+        friendship: &str,
+        before: Option<&str>,
+        limit: usize,
+    ) -> Result<codeterm_neighbors::responses::HistoryPage> {
         if before.is_some_and(|id| !hex_id(id, 32)) {
             return Err(Error::InvalidEnvelope);
         }
         let history = self.history(friendship).await?;
         let before = before.map(str::to_owned);
-        tokio::task::spawn_blocking(move || history.page(before.as_deref(), limit))
+        tokio::task::spawn_blocking(move || history.response_page(before.as_deref(), limit))
             .await
             .map_err(|_| Error::CursorStore)
     }

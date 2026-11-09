@@ -141,5 +141,12 @@ pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_mesh::account_mesh::protocol::AccountMeshPair::export_all(config)?;
     codeterm_supporter::connections::ConnectionError::export_all(config)?;
     codeterm_supporter::export_protocol_contracts(config)?;
+    codeterm_neighbors::responses::ChannelStatus::export_all(config)?;
+    codeterm_neighbors::responses::NeighborListenerEvent::export_all(config)?;
+    codeterm_neighbors::responses::NeighborPermission::export_all(config)?;
+    codeterm_neighbors::responses::ReceiverState::export_all(config)?;
+    codeterm_neighbors::responses::HistoryAuthor::export_all(config)?;
+    codeterm_neighbors::responses::HistoryPage::export_all(config)?;
+    codeterm_neighbors::responses::HistoryEntry::export_all(config)?;
     Ok(())
 }

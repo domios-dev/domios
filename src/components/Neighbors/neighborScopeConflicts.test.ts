@@ -1,9 +1,9 @@
 import { expect, it } from "vitest";
-import type { NeighborPermission } from "./neighborRuntimeClient";
+import type { NeighborPermissionDraft } from "./neighborRuntimeClient";
 import { scopeConflicts } from "./neighborScopeConflicts";
 
-const base: NeighborPermission = { allowed: true, scope: "", allow_tab_requests: false, allow_memory: true, allow_files: true, machine_access: "read_only", folder: null };
-const grants = (scope: string, patch: Partial<NeighborPermission> = {}) => scopeConflicts({ ...base, scope, ...patch }).map(conflict => conflict.grant);
+const base: NeighborPermissionDraft = { allowed: true, scope: "", allow_tab_requests: false, allow_memory: true, allow_files: true, machine_access: "read_only", folder: null };
+const grants = (scope: string, patch: Partial<NeighborPermissionDraft> = {}) => scopeConflicts({ ...base, scope, ...patch }).map(conflict => conflict.grant);
 
 it("flags a scope that claims memory, files or tabs the switches do not grant", () => {
   expect(grants("They may read my memory about the build.", { allow_memory: false })).toEqual(["memory"]);

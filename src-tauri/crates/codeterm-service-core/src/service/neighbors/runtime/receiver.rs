@@ -20,14 +20,25 @@ impl ServiceContext {
                 .is_some_and(|id| lapsed.contains(id))
     }
 
+    #[cfg(test)]
     pub(super) fn receiver_view(status: &ReceiverStatus, lapsed: &BTreeSet<String>) -> Value {
+        json!(Self::receiver_state(status, lapsed))
+    }
+
+    pub(super) fn receiver_state(
+        status: &ReceiverStatus,
+        lapsed: &BTreeSet<String>,
+    ) -> codeterm_neighbors::responses::ReceiverState {
         let expired = Self::receiver_membership_expired(status, lapsed);
-        let mut view = json!({"receiving_here":status.receiving_here(), "receiver_machine_label":status.receiver_machine_label,
-            "receiving_enabled":status.receiving_enabled && !expired,"revision":status.receiver_revision,"is_me":status.is_me});
-        if expired {
-            view["not_receiving_reason"] = json!("membership_expired");
+        codeterm_neighbors::responses::ReceiverState {
+            receiving_here: status.receiving_here(),
+            receiver_machine_label: status.receiver_machine_label.clone(),
+            receiving_enabled: status.receiving_enabled && !expired,
+            revision: status.receiver_revision,
+            is_me: status.is_me,
+            not_receiving_reason: expired
+                .then_some(codeterm_neighbors::responses::NotReceivingReason::MembershipExpired),
         }
-        view
     }
 
     /// The account installations `mesh peers` reports as Membership expired.

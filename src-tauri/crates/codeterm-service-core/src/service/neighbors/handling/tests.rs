@@ -155,7 +155,7 @@ async fn runtime_receipt_and_exact_turn_edges_persist_delivered_working_and_no_r
         .unwrap()
         .iter()
         .all(|entry| entry.get("handling_owner").is_none()));
-    let status = svc.neighbor_handling_status();
+    let status = json!(svc.neighbor_handling_status());
     assert!(!status.to_string().contains("opaque-private-body"));
     assert!(fixture
         .ui
