@@ -37,7 +37,7 @@ export interface WorkingOnTask {
   updated_at?: number;
   status_changed_at?: number;
   activity_at?: number;
-  lane?: Pick<NonNullable<Task["lane"]>, "tab_id" | "branch">;
+  lane?: Pick<NonNullable<Task["lane"]>, "tab_id" | "branch"> | null;
   milestones?: Task["milestones"];
 }
 

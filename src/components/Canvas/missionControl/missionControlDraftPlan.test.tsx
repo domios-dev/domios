@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_READ_FIELDS } from "../cards/fixtures.testdata";
 import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
@@ -58,6 +59,7 @@ function mission(recordedEvents: number): MissionControlState {
 
 function boardState(recordedEvents: number): PlanBoardState {
   return {
+    ...FIXTURE_BOARD_READ_FIELDS,
     plan_id: PLAN_ID,
     revision: String(recordedEvents),
     task_counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 0 },

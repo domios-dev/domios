@@ -429,6 +429,7 @@ pub struct AttachmentRef {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct Milestone {
     pub id: String,
+    #[serde(default)]
     pub from: AgentRef,
     pub kind: String,
     #[serde(default)]

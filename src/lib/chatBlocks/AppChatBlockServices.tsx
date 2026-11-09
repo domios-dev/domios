@@ -22,7 +22,7 @@ import { createJobsBlockStore } from "./jobsBlockStore";
 import { createMentionHost } from "./mentionHost";
 import { createTasksBlockHost, type PlansSnapshot } from "./tasksBlockHost";
 import { fetchPlans, fetchPlanTaskReference } from "../../components/Canvas/plansApi";
-import type { PlanProjection } from "../../components/Canvas/planProjection";
+import type { PlanRead } from "../../components/Canvas/planProjection";
 import { planRevision } from "../../components/Canvas/planProjection";
 import { webRequestContext } from "../webApi";
 import { mentionScopeForTab } from "../mentionSources/scope";
@@ -87,7 +87,7 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
       const offScope=watchMentionState(mux,()=>changed());
       return {ready:offPlans.ready,stop:()=>{offPlans.stop();offScope();}};
     };
-    const tasks=createScopedPlanBlockRead<PlanProjection>({
+    const tasks=createScopedPlanBlockRead<PlanRead>({
       epoch,watch,
       read:(key,signal)=>{const spec=decodeTasksBlockKey(key);if(!spec)throw new Error("Task card is invalid");return readTasksBlockPlan(live.current.api,spec,signal);},
       targets:(key,_value,change)=>decodeTasksBlockKey(key)?.planId===change.plan_id,

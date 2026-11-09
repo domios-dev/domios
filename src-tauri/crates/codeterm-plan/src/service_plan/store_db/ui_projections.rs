@@ -7,7 +7,10 @@ use crate::service_plan::PlanError;
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::Value;
 pub(super) use views::{ListCursorView, ListWindowView, TaskView};
-use views::{PlanDetailsView, PlanHeaderView, PlanView, SectionView};
+use views::{
+    PlanDetailedView, PlanDetailsView, PlanHeaderView, PlanProjection, PlanSummaryView, PlanView,
+    SectionView,
+};
 
 const HEADER: &str = "json_object(
     'id',p.id,'title',p.title,'status',p.status,'project_path',p.project_path,
@@ -51,16 +54,18 @@ impl PlanDatabase {
         view: PlanViewProjection,
     ) -> Result<Value, PlanError> {
         if view == PlanViewProjection::Chat {
-            return self
-                .chat_projection(None, None, None, Some(id), None)?
+            let value = self
+                .chat_projection_reads(None, None, None, Some(id), None)?
                 .pop()
-                .ok_or(PlanError::NotFound);
+                .ok_or(PlanError::NotFound)?;
+            return serde_json::to_value(PlanProjection::Chat(Box::new(value)))
+                .map_err(super::json_error);
         }
         let mut guard = self.connection.lock();
         let transaction = guard.transaction().map_err(db_error)?;
         let value = projection(&transaction, id, view)?;
         transaction.commit().map_err(db_error)?;
-        serde_json::to_value(value).map_err(super::json_error)
+        serde_json::to_value(PlanProjection::View(Box::new(value))).map_err(super::json_error)
     }
 
     pub(in crate::service_plan) fn ui_plan_summaries(
@@ -184,14 +189,17 @@ pub(super) fn projection_with_list(
         tasks = selected;
         window
     });
-    Ok(PlanView {
+    let summary = PlanSummaryView {
         header,
-        details,
         sections,
         tasks,
         task_window,
         task_counts: super::board_state_queries::task_counts(connection, id)?,
         revision: super::change_feed::revision(connection, id)?.to_string(),
+    };
+    Ok(match details {
+        Some(details) => PlanView::Detailed(Box::new(PlanDetailedView { summary, details })),
+        None => PlanView::Summary(Box::new(summary)),
     })
 }
 

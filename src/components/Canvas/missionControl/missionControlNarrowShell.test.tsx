@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_READ_FIELDS } from "../cards/fixtures.testdata";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
@@ -250,6 +251,7 @@ function missionControlState(): MissionControlState {
 
 function boardState(): PlanBoardState {
   return {
+    ...FIXTURE_BOARD_READ_FIELDS,
     plan_id: FIXTURE_PLAN.id,
     task_counts: {
       pending: 1,

@@ -1,14 +1,14 @@
 import type { TasksBlockSpec } from "@codeterm/chat-ui";
 import { fetchPlanListWindow, fetchPlanProjection, fetchRequestedPlanTaskMetadata, PlanReadError } from "../../components/Canvas/plansApi";
-import type { PlanProjection } from "../../components/Canvas/planProjection";
+import type { PlanRead } from "../../components/Canvas/planProjection";
 import type { ApiConfig } from "../types";
 import { webRequestContext, assertWebRequestContext } from "../webApi";
 
-export async function readTasksBlockPlan(api:ApiConfig,spec:TasksBlockSpec,signal:AbortSignal):Promise<PlanProjection>{
+export async function readTasksBlockPlan(api:ApiConfig,spec:TasksBlockSpec,signal:AbortSignal):Promise<PlanRead>{
   const context=webRequestContext();
-  let result:PlanProjection|undefined;
-  const tasks=new Map<string,PlanProjection["tasks"][number]>();
-  const accept=(page:PlanProjection)=>{
+  let result:PlanRead|undefined;
+  const tasks=new Map<string,PlanRead["tasks"][number]>();
+  const accept=(page:PlanRead)=>{
     assertWebRequestContext(context);
     if(result && result.revision!==page.revision)throw new Error("Tasks changed while reading this card. Refresh it to read the current tasks.");
     result=page;for(const task of page.tasks)tasks.set(task.id,task);

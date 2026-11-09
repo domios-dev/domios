@@ -1,5 +1,6 @@
 use super::*;
 use crate::service_plan::store_db::hot_write::tests::fixtures;
+use serde_json::json;
 
 #[test]
 fn list_windows_search_status_and_cursor_remain_scoped_read_only() {

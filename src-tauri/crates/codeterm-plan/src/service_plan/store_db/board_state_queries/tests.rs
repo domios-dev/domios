@@ -13,40 +13,42 @@ fn board_state_reads_exact_counts_and_event_windows_without_histories_or_writes(
         .board_state_projection(&plan.id, 100, 0, true)
         .unwrap();
     assert!(!first.complete);
-    assert_eq!(first.value["revision"], "1");
-    assert_eq!(first.value["task_counts"]["total"], 1162);
-    assert_eq!(first.value["task_counts"]["done"], 1);
-    assert_eq!(first.value["task_counts"]["blocked"], 1);
+    let first_value = serde_json::to_value(&first.value).unwrap();
+    assert_eq!(first_value["revision"], "1");
+    assert_eq!(first_value["task_counts"]["total"], 1162);
+    assert_eq!(first_value["task_counts"]["done"], 1);
+    assert_eq!(first_value["task_counts"]["blocked"], 1);
     assert_eq!(
-        first.value["mission_control"]["bounces"]["total_attempts"],
+        first_value["mission_control"]["bounces"]["total_attempts"],
         21
     );
     assert_eq!(
-        first.value["mission_control"]["bounces"]["first_try_done"],
+        first_value["mission_control"]["bounces"]["first_try_done"],
         1
     );
     assert_eq!(
-        first.value["mission_control"]["event_log"]["entries"]
+        first_value["mission_control"]["event_log"]["entries"]
             .as_array()
             .unwrap()
             .len(),
         50
     );
-    assert_eq!(first.value["next_event_cursor"], 50);
+    assert_eq!(first_value["next_event_cursor"], 50);
     let next = database
         .board_state_projection(&plan.id, 100, 50, true)
         .unwrap();
-    assert_eq!(next.value["revision"], first.value["revision"]);
+    let next_value = serde_json::to_value(&next.value).unwrap();
+    assert_eq!(next_value["revision"], first_value["revision"]);
     assert_eq!(
-        next.value["mission_control"]["event_log"]["entries"]
+        next_value["mission_control"]["event_log"]["entries"]
             .as_array()
             .unwrap()
             .len(),
         50
     );
-    assert_eq!(next.value["next_event_cursor"], 100);
-    assert!(first.value["control_loop"].get("rounds").is_none());
-    assert!(first.value["control_loop"].get("task_states").is_none());
+    assert_eq!(next_value["next_event_cursor"], 100);
+    assert!(first_value["control_loop"].get("rounds").is_none());
+    assert!(first_value["control_loop"].get("task_states").is_none());
     assert_eq!(first.mode, plan.mode);
     assert_eq!(first.status, plan.status);
     assert_eq!(first.team_id, plan.team_id);
@@ -56,15 +58,16 @@ fn board_state_reads_exact_counts_and_event_windows_without_histories_or_writes(
     let summary = database
         .board_state_projection(&plan.id, 100, 0, false)
         .unwrap();
+    let summary_value = serde_json::to_value(&summary.value).unwrap();
     assert_eq!(
-        summary.value["mission_control"]["event_log"]["recorded_events"],
-        first.value["mission_control"]["event_log"]["recorded_events"]
+        summary_value["mission_control"]["event_log"]["recorded_events"],
+        first_value["mission_control"]["event_log"]["recorded_events"]
     );
-    assert!(summary.value["mission_control"]["event_log"]["entries"]
+    assert!(summary_value["mission_control"]["event_log"]["entries"]
         .as_array()
         .unwrap()
         .is_empty());
-    assert_eq!(summary.value["event_window_loaded"], false);
+    assert_eq!(summary_value["event_window_loaded"], false);
     let connection = database.connection.lock();
     let root: i64 = connection
         .query_row(

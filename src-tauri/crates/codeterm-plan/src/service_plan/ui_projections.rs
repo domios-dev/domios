@@ -1,3 +1,7 @@
+pub mod board;
+pub mod task_reads;
+pub mod views;
+
 use super::{PlanError, PlanStore};
 use serde::Deserialize;
 use serde_json::Value;

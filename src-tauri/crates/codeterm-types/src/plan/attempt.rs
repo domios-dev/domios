@@ -160,6 +160,7 @@ pub struct TaskExecutorTermination {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TaskExecutionAttempt {
     pub id: String,
+    #[serde(default)]
     pub executor_tab_id: String,
     #[serde(default)]
     pub executor_title: Option<String>,

@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_SUMMARY } from "../cards/fixtures.testdata";
 // Run: npx tsx src/components/Canvas/planView/BoardTaskCard.test.tsx
 
 import { act, type ReactElement } from "react";
@@ -183,6 +184,7 @@ test("locator is absent when a task has neither group nor section", async () => 
 
 test("bounded summary card keeps locator, execution badges, historical executor, age and status metadata", async () => {
   const summary: PlanTaskBoardSummary = {
+    ...FIXTURE_BOARD_SUMMARY,
     id: "summary-done",
     position: 8,
     name: "Summarized completed task",
@@ -193,7 +195,7 @@ test("bounded summary card keeps locator, execution badges, historical executor,
     activity_at: 2_500,
     key: "CT-88",
     locator: { groupKey: "release", groupLabel: "Release", groupColor: "#a371f7", section: "Packaging" },
-    lane: { branch: "release/1.18" },
+    lane: { tab_id: null, branch: "release/1.18" },
     latest_note: "Release check completed",
     historical_executor: {
       tab_id: "tab-worker",
@@ -231,6 +233,7 @@ test("bounded summary card keeps locator, execution badges, historical executor,
 
 test("bounded active summary keeps its working-on model, tab, branch and age chips", async () => {
   const summary: PlanTaskBoardSummary = {
+    ...FIXTURE_BOARD_SUMMARY,
     id: "summary-active",
     position: 9,
     name: "Active summarized task",
@@ -257,6 +260,7 @@ test("bounded active summary keeps its working-on model, tab, branch and age chi
 
 test("bounded summary preserves QA queue position and operator status reason", () => {
   const card = buildSummaryBoardTaskCard({
+    ...FIXTURE_BOARD_SUMMARY,
     id: "qa-summary",
     position: 4,
     name: "Queued QA task",

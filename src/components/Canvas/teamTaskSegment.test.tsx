@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_READ_FIELDS } from "./cards/fixtures.testdata";
 import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
@@ -529,6 +530,7 @@ function missionState(): MissionControlState {
 }
 
 const BOARD_STATE: PlanBoardState = {
+  ...FIXTURE_BOARD_READ_FIELDS,
   revision: "1",
   plan_id: TEAM_PLAN.id,
   task_counts: { pending: 2, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 2 },

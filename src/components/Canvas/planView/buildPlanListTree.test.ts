@@ -1,6 +1,7 @@
+import { FIXTURE_PLAN_DETAILED_READ, FIXTURE_TASK_METADATA } from "../cards/fixtures.testdata";
 // Run: npx tsx src/components/Canvas/planView/buildPlanListTree.test.ts
 
-import type { PlanProjection } from "../planProjection";
+import type { PlanListProjection } from "../planProjection";
 import { buildBoardPlanModel } from "./boardModel";
 import { selectActiveWork } from "./activeWork";
 import type { Tab } from "../../../lib/types";
@@ -276,16 +277,21 @@ test("text filter matches task titles", () => {
 });
 
 test("SQL view metadata renders without document bodies or histories", () => {
-  const view: PlanProjection = {
+  const view: PlanListProjection = {
+    ...FIXTURE_PLAN_DETAILED_READ,
+    canonical_project_path: "/repo", mode: "execution", planning_state: "approved",
+    task_window: { next_cursor: null, total: 1, cancelled: 0 },
+    task_counts: { ...FIXTURE_PLAN_DETAILED_READ.task_counts, in_progress: 1, total: 1 },
     id: "projection", title: "Projected plan", status: "active", revision: "1",
     owner: { tab_id: null, session_id: null, title: null }, project_path: "/repo",
     created_at: 1, updated_at: 1, canvas: { viewport: null },
     sections: [{ id: "section", title: "Outline", subsections: [] }],
     tasks: [{
+      ...FIXTURE_TASK_METADATA,
       id: "visible", name: "Visible task", type: "implement", status: "in_progress",
       model: null, status_label: null, assigned_tab_id: null, parent_task_id: null,
       peer: null, section_ids: ["section"], canvas: { x: null, y: null, collapsed: false },
-      criteria_count: 3, milestone_count: 7, updated_at: 25,
+      criteria_count: 3, milestone_count: 7, updated_at: 25, status_changed_at: 25,
     }],
   };
   const rows = buildPlanListRows(view);

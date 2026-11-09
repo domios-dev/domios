@@ -1,13 +1,13 @@
+use super::ui_projections::board::PlanBoardState;
 use super::{PlanError, PlanStore};
 use crate::plan::{PlanMode, PlanStatus};
-use serde_json::Value;
 
 pub struct BoardStateRead {
     pub mode: PlanMode,
     pub status: PlanStatus,
     pub team_id: Option<String>,
     pub complete: bool,
-    pub value: Value,
+    pub value: PlanBoardState,
 }
 
 impl PlanStore {

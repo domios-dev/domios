@@ -50,15 +50,7 @@ export type MissionControlSpend = import("../../../../gen/MissionControlSpend").
 
 export type MissionControlState = import("../../../../gen/MissionControl").MissionControl;
 
-export interface PlanBoardState {
-  revision?: string;
-  control_loop?: import("../planControlLoop").PlanControlLoop;
-  plan_id: string;
-  task_counts: PlanTaskCounts;
-  mission_control: Pick<MissionControlState, "bounces" | "event_log" | "spend"> & Partial<Omit<MissionControlState, "bounces" | "event_log" | "spend">>;
-  next_event_cursor?: number | null;
-  event_window_loaded?: boolean;
-}
+export type PlanBoardState = import("../../../../gen/PlanBoardState").PlanBoardState;
 
 export type MissionControlPlanView = Plan | TeamPlanSummary;
 
