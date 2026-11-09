@@ -11,11 +11,12 @@ use crate::provider::{
     ProviderTransport, ProviderTrust, SystemPromptDelivery, PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
 };
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct PresetInfo {
     pub id: String,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub description: Option<String>,
 }
 

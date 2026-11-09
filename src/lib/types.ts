@@ -195,17 +195,7 @@ export interface GraphWorkerInfo {
   finalization?: DiaryFinalization | null;
 }
 
-export interface PluginActivity {
-  id: string;
-  pluginId: string;
-  kind: string;
-  label: string;
-  percent?: number | null;
-  status: "running" | "done" | "error";
-  error?: string | null;
-  startedAt: number;
-  updatedAt: number;
-}
+export type PluginActivity = Omit<import("../../gen/PluginActivity").PluginActivity, "percent" | "error" | "status"> & Partial<Pick<import("../../gen/PluginActivity").PluginActivity, "percent" | "error">> & { status: "running" | "done" | "error" };
 
 export interface SpawnWorkerReq {
   intent: string;
@@ -294,68 +284,22 @@ export type ShellProfile = import("../../gen/ShellProfile").ShellProfile;
 
 
 
-export interface NetworkIdentity { kind: string; network_id: string }
-export interface NetworkTransportStatus {
-  display_name: string;
-  state: "not_installed" | "not_running" | "permission_needed" | "signed_out" | "starting" | "connected" | "unknown";
-  identity: NetworkIdentity | null;
-  network_name: string | null;
-  user?: string | null;
-  addresses: string[];
-  peer_listener: boolean;
-  encrypted: boolean;
-  setup_actions: Array<{ kind: string; url: string }>;
-}
+export type NetworkIdentity = import("../../gen/NetworkIdentity").NetworkIdentity;
+export type NetworkTransportStatus = import("../../gen/TransportStatus").TransportStatus;
 
-export interface MeshStatus {
-  enabled: boolean;
-  instance_id: string;
-  instance_name: string;
-  tailscale_ip: string | null;
-  local_ip: string | null;
-  api_port: number;
-  paired_count: number;
-  transport: NetworkTransportStatus | null;
-  web_ui: WebUiAnnouncement | null;
-}
+export type MeshStatus = Omit<import("../../gen/MeshStatus").MeshStatus, "build"> & Partial<Pick<import("../../gen/MeshStatus").MeshStatus, "build">>;
 
-export interface PeerAddress {
-  ip: string;
-  is_tailscale: boolean;
-}
+export type PeerAddress = import("../../gen/PeerAddress").PeerAddress;
 
-export interface PairedPeer {
-  instance_id: string;
-  instance_name: string;
-  addresses: PeerAddress[];
-  api_port: number;
-  public_key: string;
-  paired_at: string;
-  last_seen: string | null;
-  online: boolean;
-  is_primary: boolean;
-  access_level: string;
-  version: string | null;
-  web_ui?: WebUiAnnouncement | null;
-  relay_protocol_version: number;
-}
+export type PairedPeer = Pick<import("../../gen/PairedPeer").PairedPeer, "instance_id" | "instance_name" | "addresses" | "api_port" | "public_key" | "paired_at" | "last_seen" | "online" | "is_primary" | "access_level" | "version" | "relay_protocol_version"> & Partial<import("../../gen/PairedPeer").PairedPeer>;
 
 export const RELAY_PROTOCOL_VERSION = 3;
 
-export type WebUiEndpoint =
-  | { transport: "tailscale_https"; host: string; port: number }
-  | { transport: "tailscale_http"; ip: string; port: number }
-  | { transport: "lan_http"; ip: string; port: number };
+export type WebUiEndpoint = import("../../gen/WebUiEndpoint").WebUiEndpoint;
 
-export interface WebUiAnnouncement {
-  protocol_version: number;
-  endpoints: WebUiEndpoint[];
-}
+export type WebUiAnnouncement = import("../../gen/WebUiAnnouncement").WebUiAnnouncement;
 
-export interface MeshPeersResponse {
-  paired: PairedPeer[];
-  local_instance_name: string;
-}
+export type MeshPeersResponse = Pick<import("../../gen/MeshPeersResponse").MeshPeersResponse, "paired" | "local_instance_name"> & Partial<import("../../gen/MeshPeersResponse").MeshPeersResponse>;
 
 /// Per-provider settings stored under `agents.<id>` in the TOML config.
 /// Mirrors `src-tauri/src/config/schema.rs::ProviderConfig`.
@@ -380,307 +324,56 @@ export interface MeshPeersResponse {
 // Provider descriptor wire types mirror `src-tauri/src/agent/provider.rs`.
 // Frontend consumes them via `list_agent_providers`.
 
-export interface ModelInfo {
-  id: string;
-  primary?: boolean | null;
-  display_name: string;
-  description?: string;
-  available?: boolean | null;
-  // A probe that could not run reports "unknown" here instead of collapsing
-  // into `available: false`. See `lib/modelAvailability.ts`.
-  availability?: "available" | "unavailable" | "unknown" | null;
-  /** Catalog marks this model to lead the picker list, ahead of the rest. */
-  featured?: boolean | null;
-  /** Short chip rendered beside the model label in spawn pickers. */
-  badge?: string | null;
-  /** Provider-declared picker section; models sharing it render together. */
-  group?: string | null;
-  /** Omitted uses provider reasoning_efforts; [] means no selector. */
-  reasoning_efforts?: ReasoningEffortInfo[] | null;
-  /** Provider-reported default for this model, before provider-wide fallback. */
-  default_reasoning_effort?: string;
-}
+type WireModelInfo = import("../../gen/ModelInfo").ModelInfo;
+export type ModelInfo = { [K in keyof WireModelInfo]: K extends "primary" | "available" | "availability" | "featured" | "badge" | "group" | "reasoning_efforts" ? WireModelInfo[K] | null : WireModelInfo[K] };
 
 /** Provider-owned grouping of its models, e.g. the upstream company a routed
  *  model belongs to. `id` matches the model-id prefix; `label` is the text the
  *  picker renders. Core never maps a vendor id to a label. */
-export interface ModelGroup {
-  id: string;
-  label: string;
-}
+export type ModelGroup = import("../../gen/ModelGroup").ModelGroup;
 
 /** Cumulative usage the provider attributes to one model group. `cost_micros`
  *  is USD × 1_000_000 so the wire stays integer. The optional `spend_*` fields
  *  are the group's spend meter; the limit/remaining pair is present only when
  *  the provider can read a live quota — absent, never fabricated. */
-export interface ModelGroupUsage {
-  group: string;
-  messages: number;
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-  cost_micros: number;
-  spend_cents?: number;
-  spend_limit_cents?: number;
-  spend_remaining_cents?: number;
-  spend_resets_at_ms?: number;
-}
+export type ModelGroupUsage = import("../../gen/ModelGroupUsage").ModelGroupUsage;
 
-export interface ReasoningEffortInfo {
-  id: string;
-  display_name: string;
-  description?: string;
-}
+export type ReasoningEffortInfo = import("../../gen/ReasoningEffortInfo").ReasoningEffortInfo;
 
-export interface PresetInfo {
-  id: string;
-  name: string;
-  description?: string;
-}
+export type PresetInfo = import("../../gen/PresetInfo").PresetInfo;
 
 /** Runtime backing a provider — the spawn discriminant (was the `kind` string). */
-export type ProviderTransport = "pty" | "chat_backend";
+export type ProviderTransport = import("../../gen/ProviderTransport").ProviderTransport;
 
 /** Behavior surface a provider exposes for configuration. Tagged on `model`. */
-export type BehaviorConfig =
-  | { model: "none" }
-  | { model: "own_prompt_set" }
-  | { model: "presets_and_system_prompt" }
-  | { model: "graph" };
+export type BehaviorConfig = import("../../gen/BehaviorConfig").BehaviorConfig;
 
 /** How a system prompt reaches the provider. */
-export type SystemPromptDelivery = { cli_flag: string } | "session_config" | "external";
+export type SystemPromptDelivery = import("../../gen/SystemPromptDelivery").SystemPromptDelivery;
 
-export type NoteLevel = "info" | "warn" | "error";
-export type BadgeStyle = "green" | "orange" | "red" | "gray";
-export type ActionStyle = "primary" | "secondary" | "danger";
-export type PathOpenKind = "open_folder" | "open_file" | "reveal_in_explorer";
+export type NoteLevel = import("../../gen/NoteLevel").NoteLevel;
+export type BadgeStyle = import("../../gen/BadgeStyle").BadgeStyle;
+export type ActionStyle = import("../../gen/ActionStyle").ActionStyle;
+export type PathOpenKind = import("../../gen/PathOpenKind").PathOpenKind;
 
-export interface BadgeVariant {
-  id: string;
-  label: string;
-  style: BadgeStyle;
-}
+export type BadgeVariant = import("../../gen/BadgeVariant").BadgeVariant;
 
 /// Discriminated union — `kind` field tags the variant. Mirror of
 /// `SettingField` enum (snake_case rename) on the Rust side.
-export type SettingField =
-  | {
-      kind: "section";
-      title: string;
-      description?: string;
-      fields: SettingField[];
-    }
-  | {
-      kind: "toggle";
-      key: string;
-      label: string;
-      default: boolean;
-      description?: string;
-    }
-  | {
-      kind: "text";
-      key: string;
-      label: string;
-      default?: string;
-      placeholder?: string;
-      description?: string;
-    }
-  | {
-      kind: "number";
-      key: string;
-      label: string;
-      default?: number;
-      min?: number;
-      max?: number;
-      description?: string;
-    }
-  | {
-      kind: "select";
-      key: string;
-      label: string;
-      options: [string, string][];
-      default?: string;
-      description?: string;
-    }
-  | {
-      kind: "array";
-      key: string;
-      label: string;
-      description?: string;
-      item_label?: string;
-      default?: Record<string, unknown>[];
-      item: {
-        kind: "object";
-        fields: Array<
-          | {
-              kind: "text";
-              key: string;
-              label: string;
-              default?: string;
-              placeholder?: string;
-              description?: string;
-            }
-          | {
-              kind: "textarea";
-              key: string;
-              label: string;
-              default?: string;
-              placeholder?: string;
-              description?: string;
-            }
-          | {
-              kind: "number";
-              key: string;
-              label: string;
-              default?: number;
-              min?: number;
-              max?: number;
-              description?: string;
-            }
-          | {
-              kind: "json";
-              key: string;
-              label: string;
-              default?: Record<string, unknown>;
-              description?: string;
-            }
-        >;
-      };
-    }
-  | { kind: "api_key"; env_var: string; label: string; link?: string }
-  | { kind: "info"; title?: string; body: string; level: NoteLevel }
-  | { kind: "path_link"; label: string; path: string; open: PathOpenKind }
-  | {
-      kind: "badge";
-      query_command: string;
-      query_args?: Record<string, unknown>;
-      variants: BadgeVariant[];
-    }
-  | {
-      kind: "action";
-      id: string;
-      label: string;
-      command: string;
-      state_query?: string;
-      args?: Record<string, unknown>;
-      confirm?: string;
-      style: ActionStyle;
-    }
-  | { kind: "when"; field: string; equals: unknown; then: SettingField[] };
+export type SettingField = import("../../gen/SettingField").SettingField;
 
-export type ProviderAvailability = "available" | "unavailable" | "unknown";
+export type ProviderAvailability = import("../../gen/ProviderAvailability").ProviderAvailability;
 
-export interface ModelCatalogueCapability {
-  authority: "authoritative" | "free_form";
-  liveDiscoveryRequired: boolean;
-}
+export type ModelCatalogueCapability = Pick<import("../../gen/ModelCatalogueCapability").ModelCatalogueCapability, "authority" | "liveDiscoveryRequired"> & Partial<import("../../gen/ModelCatalogueCapability").ModelCatalogueCapability>;
 
-export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
+export type ModelSwitchMode = import("../../gen/ModelSwitchMode").ModelSwitchMode;
 
-export interface ProviderAttachmentCapabilities {
-  filePaths: boolean;
-  inlineText: boolean;
-  imagePaths: boolean;
-}
+export type ProviderAttachmentCapabilities = import("../../gen/AttachmentCapabilities").AttachmentCapabilities;
 
-export interface ProviderDescriptor {
-  availability_checking?: boolean;
-  general_agent_offer_when_absent?: boolean;
-  /** Whether this provider can be a Neighbor's concierge here, for which machine access modes, and which of those this
-   *  platform actually confines; the per-friend folder enforcement note stays the precise projection. */
-  neighbor_concierge?: { supported: boolean; machine_access: readonly string[]; enforced_machine_access: readonly string[] };
-  attachments?: ProviderAttachmentCapabilities;
-  remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
-  agent_runtime?: {
-    launchProfiles?: Readonly<Record<string, import("../../packages/plugin-sdk/src/agentRuntime").RuntimeLaunchProfile>>;
-    runtimeModes?: readonly { id: string; displayName: string }[];
-    hostApprovals?: boolean;
-    serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
-    usage?: boolean;
-    backgroundProcesses?: boolean;
-    goals?: { actions: readonly string[] };
-    threadHistory?: { actions: readonly ("fork" | "revert")[] };
-  };
-  supports_session_fork?: boolean;
-  supports_subagent_visibility?: boolean;
-  cli_status?: import("./providerCli").ProviderCliStatus;
-  schema_version: number;
-  id: string;
-  catalogue_version?: number;
-  display_name: string;
-  /** Runtime backing — the spawn discriminant (replaces the old `kind` string). */
-  transport: ProviderTransport;
-  /** Behavior surface for configuration. Optional; defaults to `{ model: "none" }`. */
-  behavior_config?: BehaviorConfig;
-  /** Named presets (chat backends); agents default empty. */
-  presets?: PresetInfo[];
-  /** How a system prompt reaches the provider. */
-  system_prompt_delivery: SystemPromptDelivery;
-  icon_hint?: string;
-  icon_svg?: string;
-  icon_color?: string;
-  available_models: ModelInfo[];
-  model_catalogue?: ModelCatalogueCapability;
-  /** Provider-owned groupings of `available_models`; empty ⇒ one flat list. */
-  model_groups?: ModelGroup[];
-  default_model?: string;
-  /// Reasoning-effort levels the provider supports at launch. Empty ⇒ the
-  /// provider exposes no effort selector and the UI must not render one.
-  reasoning_efforts?: ReasoningEffortInfo[];
-  default_reasoning_effort?: string;
-  settings_schema: SettingField[];
-  /// Schema rendered into Settings → Notifications. Optional / may be empty
-  /// (e.g. Codex contributes none today). Notifications tab iterates providers
-  /// and renders one section per non-empty contribution.
-  notifications_schema: SettingField[];
-  supports_lazy_skills: boolean;
-  has_hooks: boolean;
-  /** Provider writes custom model endpoints into its own config. */
-  supports_model_endpoints?: boolean;
-  supports_permission_bypass?: boolean;
-  /// Provider can render a tab as chat (JSONL sessions or structured/DB-backed
-  /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
-  supports_chat_ui?: boolean;
-  /// Provider exposes a structured prompt source (claude AskUserQuestion in the
-  /// JSONL transcript, opencode SSE bus) so pending prompts come from a handle
-  /// rather than PTY scraping. Informational on the wire today.
-  supports_structured_prompts?: boolean;
-  supports_prompt_answers?: boolean;
-  /// Provider recognizes its own permission prompts, so per-tab auto-confirm is offered.
-  supports_permission_auto_confirm?: boolean;
-  /// Binary name to probe via `which` when checking installation. Optional —
-  /// providers without a CLI dependency leave this null.
-  cli_binary?: string | null;
-  /// Shell command that installs the CLI for the current platform. Used by
-  /// the Install card on the per-provider Settings screen.
-  cli_login?: { methods: { id: string; label: string; args: string[] }[]; urlPattern: string; timeoutMs: number } | null;
-  install_command?: string | null;
-  /// Short provider-declared note shown beside the name in pickers, e.g. a
-  /// free-tier offer. Absent means the provider claims nothing.
-  badge?: string | null;
-  /** Provider-declared shell command that updates the CLI on this platform. */
-  update_command?: string | null;
-  /// How a live tab switches model: `restart_resume` relaunches the tab on its
-  /// own session. Missing or `unsupported` means the model is chosen at spawn.
-  model_switch?: ModelSwitchMode;
-  /// Provider-declared in-agent context-compaction command. Consumed
-  /// capability-keyed by the orchestrator refresh cycle. Missing = no compact.
-  compact_command?: string | null;
-  /// Optional `integration.trust_grant` capability: core invokes the
-  /// provider-owned hook-trust grant once per integration install, scoped to
-  /// these managed key(s). Informational on the wire.
-  integration_trust_grant?: { managedKeys: string[] } | null;
-  /// What enumeration observed about the launch binary on this machine.
-  /// Absent (older peer) means nothing was observed — read it as `unknown`,
-  /// never as the negative. Use `providerAvailability()` rather than this field.
-  availability?: ProviderAvailability;
-}
+type WireProviderDescriptor = import("../../gen/ProviderDescriptor").ProviderDescriptor;
+type ProviderRuntimeView = Partial<Omit<import("../../gen/AgentRuntimeCapability").AgentRuntimeCapability, "launchProfiles" | "runtimeModes" | "serviceTiers" | "goals" | "threadHistory">> & { launchProfiles?: Readonly<Record<string, import("../../packages/plugin-sdk/src/agentRuntime").RuntimeLaunchProfile>>; runtimeModes?: readonly import("../../gen/RuntimeModeDescriptor").RuntimeModeDescriptor[]; serviceTiers?: readonly import("../../gen/RuntimeServiceTier").RuntimeServiceTier[]; goals?: { actions: readonly string[] }; threadHistory?: { actions: readonly import("../../gen/RuntimeThreadHistoryAction").RuntimeThreadHistoryAction[] } };
+export type ProviderDescriptor = Pick<WireProviderDescriptor, "schema_version" | "id" | "display_name" | "transport" | "system_prompt_delivery" | "settings_schema" | "notifications_schema" | "supports_lazy_skills" | "has_hooks"> & Partial<Omit<WireProviderDescriptor, "agent_runtime" | "cli_status" | "available_models" | "model_catalogue" | "cli_login" | "neighbor_concierge" | "cli_binary" | "install_command" | "badge" | "update_command" | "compact_command" | "integration_trust_grant"> > & { availability_checking?: boolean; available_models: ModelInfo[]; model_catalogue?: ModelCatalogueCapability; agent_runtime?: ProviderRuntimeView; cli_status?: import("./providerCli").ProviderCliStatus; neighbor_concierge?: Omit<import("../../gen/NeighborConciergeCapability").NeighborConciergeCapability, "machine_access" | "enforced_machine_access"> & { machine_access: readonly string[]; enforced_machine_access: readonly string[] }; cli_login?: Omit<import("../../gen/CliLoginCapability").CliLoginCapability, "codeInput"> & Partial<Pick<import("../../gen/CliLoginCapability").CliLoginCapability, "codeInput">> | null; cli_binary?: WireProviderDescriptor["cli_binary"] | null; install_command?: WireProviderDescriptor["install_command"] | null; badge?: WireProviderDescriptor["badge"] | null; update_command?: WireProviderDescriptor["update_command"] | null; compact_command?: WireProviderDescriptor["compact_command"] | null; integration_trust_grant?: WireProviderDescriptor["integration_trust_grant"] | null };
 
-export interface ModelCatalogueChanged {
-  provider: string;
-  version: number;
-}
+export type ModelCatalogueChanged = import("../../gen/ModelCatalogueChanged").ModelCatalogueChanged;
 
 export type { OrchestrationPairInput, OrchestrationPairResult } from "./orchestrationPairTypes";

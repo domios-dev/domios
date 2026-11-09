@@ -15,6 +15,13 @@ pub fn export() -> Result<(), Box<dyn std::error::Error>> {
     SystemSend::export_all(&config)?;
     if let Some(directory) = std::env::var_os("DOMIOS_PROTOCOL_EXPORT_DIR") {
         let protocol = config.with_out_dir(directory);
+        codeterm_plugin::provider::ProviderDescriptor::export_all(&protocol)?;
+        codeterm_plugin::provider::ModelGroupUsage::export_all(&protocol)?;
+        codeterm_plugin::model_catalog::ModelCatalogueChanged::export_all(&protocol)?;
+        codeterm_plugin::activity::PluginActivity::export_all(&protocol)?;
+        codeterm_mesh::contract::types::MeshStatus::export_all(&protocol)?;
+        codeterm_mesh::contract::types::MeshPeersResponse::export_all(&protocol)?;
+        codeterm_mesh::network_transport::NetworkIdentity::export_all(&protocol)?;
         AppConfig::export_all(&protocol)?;
         Team::export_all(&protocol)?;
         AgentRole::export_all(&protocol)?;

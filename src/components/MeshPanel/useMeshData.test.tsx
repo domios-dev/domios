@@ -137,7 +137,7 @@ it("surfaces a timed-out peer load as an error and releases the refresh for the 
   let peersTimeOut = true;
   const peer = {
     instance_id: "peer-1", instance_name: "Peer", addresses: [], api_port: 7685, online: true,
-    access_level: "full", last_seen: null, relay_protocol_version: 2,
+    access_level: { custom: ["read_tabs"] }, last_seen: null, relay_protocol_version: 2,
   };
   __setListenForTest(async () => () => {});
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
@@ -168,6 +168,7 @@ it("surfaces a timed-out peer load as an error and releases the refresh for the 
     assert.equal(state?.error, null);
     assert.equal(state?.loaded, true);
     assert.deepEqual(state?.peers.map((candidate) => candidate.instance_id), ["peer-1"]);
+    assert.equal(state?.peers[0].access_level, "custom");
   } finally {
     await view.close();
     __setInvokeForTest(null);

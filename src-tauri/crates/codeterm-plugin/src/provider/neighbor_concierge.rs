@@ -2,7 +2,7 @@ use super::{AgentProvider, SystemPromptDelivery};
 use codeterm_types::plan::ExecutionIntent;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct NeighborConciergeCapability {
     pub supported: bool,

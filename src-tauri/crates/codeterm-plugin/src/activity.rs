@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use parking_lot::RwLock;
 use serde::Serialize;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginActivity {
     pub id: String,

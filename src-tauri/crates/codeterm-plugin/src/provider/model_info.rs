@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// What a capability probe concluded about one model. `Unknown` is the answer a
 /// probe that could not run must give: unavailable means the CLI said no, never
 /// that we failed to ask.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelAvailability {
     Available,
@@ -15,38 +15,47 @@ pub enum ModelAvailability {
 }
 
 /// Single model offered by an agent provider.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct ModelInfo {
     pub id: String,
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub description: Option<String>,
     /// Account-can-select-this-now. `None` (common) ⇒ no info, treat as available;
     /// `Some(false)` greys it out in the picker. Set by live discovery; usually `None` in static seeds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub available: Option<bool>,
     /// The probe's own three-state verdict. `None` ⇒ nothing probed this model,
     /// so `available` alone decides; `Some(Unknown)` ⇒ the probe could not run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub availability: Option<ModelAvailability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub primary: Option<bool>,
     /// `Some(true)` ⇒ the catalog lists this model ahead of the rest, preserving
     /// catalog order within each group. `None`/`Some(false)` ⇒ ordinary order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub featured: Option<bool>,
     /// Short chip rendered beside the label in the spawn model picker.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub badge: Option<String>,
     /// Provider-declared picker section. Models sharing a `group` render together
     /// under that heading; `None` models stay in the flat list. Core never derives
     /// a group from a model id — the provider that owns the id declares it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub group: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub reasoning_efforts: Option<Vec<ReasoningEffortInfo>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub default_reasoning_effort: Option<String>,
 }
 
@@ -75,11 +84,12 @@ impl ModelInfo {
 /// Single reasoning-effort level a provider supports (e.g. codex low/medium/high).
 /// Mirrors `ModelInfo`: capability-declared, surfaced in discovery/API/UI. An
 /// empty `reasoning_efforts` list means the provider exposes no effort selector.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct ReasoningEffortInfo {
     pub id: String,
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub description: Option<String>,
 }

@@ -59,13 +59,14 @@ fn deserialize_service_tier_id<'de, D: serde::Deserializer<'de>>(
     Option::<String>::deserialize(deserializer)
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeServiceTier {
     pub id: String,
     pub name: String,
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub unavailable_reason: Option<String>,
 }
 

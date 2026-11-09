@@ -2,7 +2,7 @@ use super::{AgentRuntimeCapability, RuntimeContext, RuntimeFailure, RuntimeFailu
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeHostMcpDeclaration {
     pub param: String,

@@ -1862,6 +1862,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "ts-rs",
  "uuid",
  "workspace-hack",
 ]
@@ -2036,6 +2037,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.8.2",
+ "ts-rs",
  "uuid",
  "wait-timeout",
  "workspace-hack",
@@ -2104,6 +2106,8 @@ dependencies = [
 name = "codeterm-protocol-export"
 version = "0.0.0"
 dependencies = [
+ "codeterm-mesh",
+ "codeterm-plugin",
  "codeterm-pty",
  "codeterm-types",
  "ts-rs",
