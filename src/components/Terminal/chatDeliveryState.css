@@ -1,13 +1,13 @@
-/* Delivery state sits beside the user bubble as one quiet liquid dot. */
 .ct-delivery {
-  position: absolute;
-  right: calc(100% + 8px);
-  bottom: 10px;
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  width: max-content;
-  flex-direction: row-reverse;
+  max-width: 100%;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
 }
 
 /* Ring and fill are pseudo layers so the pulse animates only transform and opacity on the compositor. */
@@ -15,6 +15,7 @@
   --ct-delivery-fill: var(--ct-accent);
   --ct-delivery-duration: 1.6s;
   position: relative;
+  flex-shrink: 0;
   width: 7px;
   height: 7px;
   border-radius: 999px;
@@ -69,13 +70,11 @@
   position: static;
   flex-direction: row;
   flex-shrink: 0;
-  max-width: 50%;
+  max-width: 100%;
 }
 
 .ct-delivery--inline .ct-delivery__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
   color: var(--ct-muted-fg);
   font-size: 11px;
 }

@@ -9,6 +9,17 @@ const row = (id: string, delta?: number): NormalizedChatMessage => ({
 });
 const send = (id: string, delta: number) => ({ id, content: id, sentAtMs: at + delta, flowAtMs: at + delta });
 
+test("an existing own user row represents the pending send without declaring delivery", () => {
+  const pending = { ...send("bubble", 0), correlationId: "token", echoEligible: false };
+  for (const identity of [{ id: "bubble" }, { id: "provider-row", correlationId: "token" }]) {
+    const committed: NormalizedChatMessage = { ...identity, type: "user", content: pending.content };
+    assert.deepEqual(placePendingSends([committed], [pending]), [committed]);
+    assert.equal(placePendingSends([{ ...committed, inheritedFromSessionId: "parent" }], [pending]).length, 2);
+    assert.equal(pending.echoEligible, false);
+  }
+  assert.equal(placePendingSends([{ id: "other", type: "user", content: pending.content }], [pending]).length, 2);
+});
+
 test("later rows push two written sends up without sorting source rows", () => {
   const sends = [send("first", 0), send("second", 1000)];
   const history = [row("old", -1000)];

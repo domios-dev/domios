@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ChatSend, NormalizedChatMessage, SendEcho } from "@codeterm/chat-core";
-import { applyDeliveryStatus, canRetryChatSend, canDeleteChatSend, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, unownedHeldSends, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canRetryChatSend, canDeleteChatSend, canDismissSettledChatSend, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, unownedHeldSends, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
 import {
@@ -421,18 +421,32 @@ export function removeChatSend(tabId: string, id: string): void {
   if (next.length !== current.length) publish(tabId, next);
 }
 
-export function observeDeliveryStatus(status: ChatSendStatus): void {
-  if (status.system_send && status.correlationId) {
-    addChatSend(status.tab_id, {
-      id: status.send_id, correlationId: status.correlationId,
-      content: status.system_send.content, sentAtMs: status.system_send.sent_at_ms,
-    });
-  }
+export function observeDeliveryStatus(status: ChatSendStatus): void | Promise<void> {
+  if (status.system_send && status.correlationId && !readChatSends(status.tab_id)
+    .some(send => send.id === status.send_id || send.correlationId === status.correlationId)) return restoreSystemChatSend(status);
   const current = readChatSends(status.tab_id);
   const next = current.map((send) => applyDeliveryStatus(send, status));
   if (next.some((send, index) => send !== current[index])) publish(status.tab_id, next);
   hostStatusesByTab.set(status.tab_id, new Map(hostStatusesByTab.get(status.tab_id)).set(status.send_id, status));
   notifyIfLoadedSnapshotChanged(status.tab_id);
+}
+
+async function restoreSystemChatSend(status: ChatSendStatus): Promise<void> {
+  const sourceRepository = activeRepository;
+  await ensureTabHydrated(status.tab_id);
+  const marker = await sourceRepository.readDismissal(status.tab_id, status.send_id);
+  if (sourceRepository !== activeRepository) return;
+  if (marker) {
+    if (rememberDismissalMarker(status.tab_id, marker)) notify(status.tab_id);
+    return;
+  }
+  if (!readChatSends(status.tab_id).some(send => send.id === status.send_id || send.correlationId === status.correlationId)) {
+    addChatSend(status.tab_id, {
+      id: status.send_id, correlationId: status.correlationId,
+      content: status.system_send!.content, sentAtMs: status.system_send!.sent_at_ms,
+    });
+  }
+  await observeDeliveryStatus(status);
 }
 
 export function failChatSendRequest(tabId: string, id: string): void {
@@ -631,6 +645,14 @@ export function beginChatSendDeletion(tabId: string, id: string): DeliverySend |
   if (!send || !canDeleteChatSend(send) || deleting.has(key)) return;
   deleting.add(key);
   return send;
+}
+
+export async function persistLocalChatSendDismissal(tabId: string, send: DeliverySend): Promise<void> {
+  if (!canDismissSettledChatSend(send)) return;
+  const dismissed = { ...send, dismissed: true };
+  await activeRepository.persistDismissal(tabId, dismissed);
+  if (activeRepository.state() !== "ready") throw new Error("Message could not be removed. Try again.");
+  observeChatSendDismissal(tabId, { send_id: send.status?.send_id ?? send.id, send: dismissed });
 }
 
 export function endChatSendDeletion(tabId: string, id: string): void {

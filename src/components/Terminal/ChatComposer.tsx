@@ -18,6 +18,7 @@ import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { useComposerRecall } from "./useComposerRecall";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
+import { useChatDeliveryComposer } from "./chatDeliveryComposer";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { classifyComposerDevice, composerEnterIntent, isComposerEnterKey } from "./composerKeyboard";
 import {
@@ -276,6 +277,11 @@ function ChatComposerImpl({
   const provider = useAgentDescriptor(tabProvider);
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError,
     keepTextInline: Boolean(tabProvider && !provider?.attachments?.filePaths) });
+  useChatDeliveryComposer(tabId, text => {
+    const existing = textareaRef.current?.value ?? input;
+    setInput(capsules.fromPortable([existing, text].filter(Boolean).join("\n")));
+    textareaRef.current?.focus({ preventScroll: true });
+  });
   const [composing, setComposing] = useState(false);
   const transcription = useTranscriptionStatus();
   const capsulesActive = !composing && hasCapsuleTokens(input);
