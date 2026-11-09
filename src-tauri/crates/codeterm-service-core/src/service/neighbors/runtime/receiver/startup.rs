@@ -75,12 +75,21 @@ impl ServiceContext {
                         .map(|receiver| receiver.status.receiver_revision)
                 })
                 .unwrap_or(0);
-            let mut view = status
-                .map(|status| Self::receiver_view(status, &self.neighbor_lapsed_installations()))
-                .unwrap_or_else(|| json!({"receiver_unavailable":true}));
-            view["friendship_id"] = json!(change.friendship_id);
-            view["friend_receivers_version"] = json!(change.version);
-            self.ui.emit("neighbor-runtime-status", view);
+            let view = match status {
+                Some(status) => codeterm_neighbors::responses::NeighborListenerEvent::Receiver {
+                    receiver: Self::receiver_state(status, &self.neighbor_lapsed_installations()),
+                    friendship_id: change.friendship_id.clone(),
+                    friend_receivers_version: change.version,
+                },
+                None => codeterm_neighbors::responses::NeighborListenerEvent::Unavailable {
+                    receiver_unavailable: true,
+                    friendship_id: Some(change.friendship_id.clone()),
+                    friend_receivers_version: Some(change.version),
+                    reason: None,
+                    message: None,
+                },
+            };
+            self.ui.emit("neighbor-runtime-status", json!(view));
             if !here && status.is_some() {
                 self.reconcile_neighbor_concierge_receiver(
                     metadata,
@@ -198,7 +207,7 @@ impl ServiceContext {
                 {
                     let version = service.forget_neighbor_friend_receivers();
                     service.stop_neighbor_listeners();
-                    service.ui.emit("neighbor-runtime-status", json!({"receiver_unavailable":true,"friend_receivers_version":version}));
+                    service.ui.emit("neighbor-runtime-status", json!(codeterm_neighbors::responses::NeighborListenerEvent::Unavailable { receiver_unavailable: true, friendship_id: None, friend_receivers_version: Some(version), reason: None, message: None }));
                 }
                 log::debug!("[neighbors] current activation failed: {error}");
                 return Err(Error::Gateway);

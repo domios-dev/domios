@@ -11,7 +11,7 @@ use codeterm_neighbors::{
     Error, Result,
 };
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 pub use codeterm_wire::api_contracts::NeighborNotify;
 
@@ -73,16 +73,19 @@ impl Settings {
 }
 
 impl ServiceContext {
-    pub(super) fn neighbor_notification_preferences(settings: &Settings, friends: &Value) -> Value {
-        let mut preferences = serde_json::Map::new();
+    pub(super) fn neighbor_notification_preferences(
+        settings: &Settings,
+        friends: &Value,
+    ) -> std::collections::BTreeMap<String, NeighborNotify> {
+        let mut preferences = std::collections::BTreeMap::new();
         if let Some(friends) = friends["friends"].as_array() {
             for friend in friends {
                 if let Some(id) = friend["friendship_id"].as_str() {
-                    preferences.insert(id.into(), json!(settings.neighbor_notify(id)));
+                    preferences.insert(id.into(), settings.neighbor_notify(id));
                 }
             }
         }
-        Value::Object(preferences)
+        preferences
     }
 
     pub(super) fn remember_neighbor_names(&self, friends: &Value) {

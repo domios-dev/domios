@@ -89,7 +89,14 @@ impl ServiceContext {
         metadata.save_settings(settings).await?;
         self.ui.emit(
             "neighbor-runtime-status",
-            json!({"friendship_id":friendship,"status":"stopped","reason":"friendship_ended"}),
+            json!(
+                codeterm_neighbors::responses::NeighborListenerEvent::Listener {
+                    friendship_id: Some(friendship.into()),
+                    status: codeterm_neighbors::supervisor::ListenerState::Stopped,
+                    error: None,
+                    reason: Some("friendship_ended".into())
+                }
+            ),
         );
         // Defer abort until cleanup completes: a list refresh may run inside this target.
         drop(targets);

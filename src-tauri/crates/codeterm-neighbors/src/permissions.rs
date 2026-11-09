@@ -13,7 +13,7 @@ pub enum MachineAccess {
     Full,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct Permission {
     pub allowed: bool,

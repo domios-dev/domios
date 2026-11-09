@@ -1,3 +1,4 @@
+import { channelStatus } from "./neighborRuntime.testdata";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
@@ -8,9 +9,9 @@ import { friendReceiverState, useReceiverState } from "./useReceiverState";
 vi.mock("../../lib/bridge", () => ({ listen: vi.fn(async () => () => {}) }));
 
 const receiver = (receiving_here: boolean, revision: number): ReceiverState =>
-  ({ receiving_here, receiving_enabled: true, receiver_machine_label: "desk", revision });
+  ({ receiving_here, receiving_enabled: true, receiver_machine_label: "desk", revision, is_me: receiving_here });
 const status = (here: boolean, revision: number): ChannelStatus =>
-  ({ enrolled: true, bindings: {}, friend_receivers_version: revision, friend_receivers: { first: receiver(here, revision) } });
+  ({ enrolled: true, enabled: true, machine_label: "desk", watches: {}, incoming_handling: {}, permissions: {}, concierges: {}, notification_preferences: {}, listeners: {}, listener_errors: {}, bindings: {}, friend_receivers_version: revision, friend_receivers: { first: receiver(here, revision) } });
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -23,7 +24,7 @@ function client(...replies: Array<Promise<ChannelStatus>>) {
     status: vi.fn(() => replies.shift() ?? new Promise<ChannelStatus>(() => {})),
     subscribe: vi.fn(async (handler: (event: NeighborListenerEvent) => void) => { emit = handler; return () => {}; }),
   } as unknown as NeighborRuntimeClient;
-  return { runtime, emit: (event: NeighborListenerEvent) => emit(event) };
+  return { runtime, emit: (event: unknown) => emit(event as NeighborListenerEvent) };
 }
 
 let unmount: (() => void) | undefined;
@@ -151,9 +152,9 @@ it("shares receiver status on open across concurrent consumers", async () => {
 });
 
 it.each([4, 5])("keeps an unversioned friend event at revision %s when its reread returns the old receiver", async revision => {
-  const initial = { enrolled: true, bindings: {}, friend_receivers: {
+  const initial = channelStatus({ enrolled: true, bindings: {}, friend_receivers: {
     first: { ...receiver(false, 4), receiver_machine_label: "Studio" },
-  } };
+  } });
   const { runtime, emit } = client(Promise.resolve(initial), Promise.resolve(initial));
   const host = document.createElement("div");
   const root = createRoot(host);

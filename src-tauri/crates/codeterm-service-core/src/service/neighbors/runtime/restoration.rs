@@ -151,27 +151,47 @@ impl ServiceContext {
         }
         let service = self.clone();
         let generation = self.neighbor_history_generation();
-        self.start_neighbor_restoration_with(generation, move || {
-            let service = service.clone();
-            async move {
-                let result = async {
-                    if !service.restore_neighbor_watches(generation).await? {
-                        service.neighbor_operation(owner::Operation::Restore).await?;
+        self.start_neighbor_restoration_with(
+            generation,
+            move || {
+                let service = service.clone();
+                async move {
+                    let result = async {
+                        if !service.restore_neighbor_watches(generation).await? {
+                            service
+                                .neighbor_operation(owner::Operation::Restore)
+                                .await?;
+                        }
+                        Ok::<(), String>(())
                     }
-                    Ok::<(), String>(())
-                }.await;
-                service.require_neighbor_generation(generation).map_err(|_| Error::Revoked)?;
-                service.require_neighbors_enabled()?;
-                result.map_err(|error| {
-                    let refusal = super::super::recovery::startup_error(&error);
-                    if !super::super::recovery::hold::entitlement_refusal(refusal) {
-                        log::debug!("[neighbors] restoration failed: {error}");
-                    }
-                    service.ui.emit("neighbor-runtime-status", json!({"receiver_unavailable":true,"reason":"neighbor_reception_start_failed","message":error}));
-                    refusal
-                })
-            }
-        }, Arc::new(codeterm_neighbors::supervisor::RuntimeClock));
+                    .await;
+                    service
+                        .require_neighbor_generation(generation)
+                        .map_err(|_| Error::Revoked)?;
+                    service.require_neighbors_enabled()?;
+                    result.map_err(|error| {
+                        let refusal = super::super::recovery::startup_error(&error);
+                        if !super::super::recovery::hold::entitlement_refusal(refusal) {
+                            log::debug!("[neighbors] restoration failed: {error}");
+                        }
+                        service.ui.emit(
+                            "neighbor-runtime-status",
+                            json!(
+                                codeterm_neighbors::responses::NeighborListenerEvent::Unavailable {
+                                    receiver_unavailable: true,
+                                    friendship_id: None,
+                                    friend_receivers_version: None,
+                                    reason: Some("neighbor_reception_start_failed".into()),
+                                    message: Some(error)
+                                }
+                            ),
+                        );
+                        refusal
+                    })
+                }
+            },
+            Arc::new(codeterm_neighbors::supervisor::RuntimeClock),
+        );
     }
 }
 

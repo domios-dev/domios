@@ -11,7 +11,7 @@ export function mergeHistory(current: readonly HistoryEntry[], page: readonly Hi
 export function speaker(entry: HistoryEntry, friendName: string): string {
   if (entry.author === "me") return "You";
   if (entry.author === "friend") return friendName;
-  return entry.author.name;
+  return typeof entry.author === "object" ? entry.author.name : entry.author;
 }
 
 /** A calendar day label for the first message of each day, in the viewer's locale. */

@@ -13,7 +13,7 @@ import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { applyTrustPreset, TRUST_OPTIONS, trustPresetOf, type TrustPreset } from "./neighborTrustPresets";
 import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";
-import { PERMISSION_WORKSPACES, type MachineAccess, type NeighborPermission } from "./neighborRuntimeClient";
+import { PERMISSION_WORKSPACES, type MachineAccess, type NeighborPermissionDraft } from "./neighborRuntimeClient";
 import { scopeConflicts } from "./neighborScopeConflicts";
 import { LiquidToggle } from "../shared/LiquidToggle";
 import "./neighborPermissions.css";
@@ -38,7 +38,7 @@ function readScopeHeight(friendship: string): number | null {
 function writeScopeHeight(friendship: string, height: number) {
   try { localStorage.setItem(scopeHeightKey(friendship), String(height)); } catch { /* Storage can be unavailable in a private viewer. */ }
 }
-const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allowed === b.allowed && a.scope === b.scope
+const samePermission = (a: NeighborPermissionDraft, b: NeighborPermissionDraft) => a.allowed === b.allowed && a.scope === b.scope
   && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false)
   && (a.allow_memory ?? true) === (b.allow_memory ?? true) && (a.allow_files ?? true) === (b.allow_files ?? true)
   && (a.folder ?? null) === (b.folder ?? null) && (a.memory_areas ?? []).join("\n") === (b.memory_areas ?? []).join("\n") && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only")
@@ -61,7 +61,7 @@ function useStagedValue<T>(saved: T) {
 }
 
 /** Allowing requests needs a written scope; the relay refuses an empty or oversized one. */
-export function permissionProblem(permission: NeighborPermission): string | null {
+export function permissionProblem(permission: NeighborPermissionDraft): string | null {
   if (scopeBytes(permission.scope) > SCOPE_LIMIT) return "The scope is too long. Keep it to the essentials.";
   if (permission.allowed && !permission.scope.trim()) return "Write what they may ask before allowing requests.";
   if (permission.machine_access === "folder" && !permission.folder) return "Choose the folder their concierge may work in.";
@@ -70,15 +70,15 @@ export function permissionProblem(permission: NeighborPermission): string | null
 
 /** What a Neighbor may ask, whether they may open tabs, and how often; editable here or with your General Agent. */
 export function NeighborPermissionsEditor({ neighbor, name, permission, pending, onSave, onSaveDailyLimit, onSaveFileDailyLimit, onLimit, onEditWithGeneral }: {
-  neighbor: Neighbor; name: string; permission: NeighborPermission | null | undefined; pending: boolean;
-  onSave: (permission: NeighborPermission) => Promise<void>;
+  neighbor: Neighbor; name: string; permission: NeighborPermissionDraft | null | undefined; pending: boolean;
+  onSave: (permission: NeighborPermissionDraft) => Promise<void>;
   onSaveDailyLimit: (dailyLimit: number | null) => Promise<void>;
   /** Absent until the daemon offers a way to change it; the current allowance still shows. */
   onSaveFileDailyLimit?: (bytes: number | null) => Promise<void>;
   onLimit: (limit: number) => Promise<boolean>; onEditWithGeneral: () => void;
 }) {
-  const [baseline, setBaseline] = useState<NeighborPermission | null>(permission ?? null);
-  const [draft, setDraft] = useState<NeighborPermission | null>(permission ?? null);
+  const [baseline, setBaseline] = useState<NeighborPermissionDraft | null>(permission ?? null);
+  const [draft, setDraft] = useState<NeighborPermissionDraft | null>(permission ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedLimit, setSavedLimit] = useState(neighbor.inbound_per_hour);
@@ -119,7 +119,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     onResized: height => writeScopeHeight(neighbor.friendship_id, height) });
   const limitField = useId();
   const [awaitingFolder, setAwaitingFolder] = useState(false);
-  const [incoming, setIncoming] = useState<NeighborPermission | null>(null);
+  const [incoming, setIncoming] = useState<NeighborPermissionDraft | null>(null);
   const changed = draft !== null && baseline !== null && !samePermission(draft, baseline);
   const dirty = useRef(changed);
   dirty.current = changed;
@@ -154,7 +154,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     hourly.reset();
     setAwaitingFolder(false); setError(null);
   };
-  const edit =(patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
+  const edit =(patch: Partial<NeighborPermissionDraft>) => setDraft(current => current ? { ...current, ...patch } : current);
   return <div className="neighbor-permissions">
     <Segmented<TrustPreset> aria-label="Trust" className="neighbor-trust" value={awaitingFolder ? "collaborator" : draft ? trustPresetOf(draft, dailyValue) : "custom"} height={28} options={TRUST_OPTIONS}
       onChange={preset => {
@@ -290,7 +290,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   </div>;
 }
 
-type FolderEnforcement = NonNullable<NeighborPermission["folder_enforcement"]>;
+type FolderEnforcement = NonNullable<NeighborPermissionDraft["folder_enforcement"]>;
 
 const WRITES_LINE: Record<FolderEnforcement["writes"], string> = {
   pad_only: "Only its own notes folder is writable.",

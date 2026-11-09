@@ -1,17 +1,33 @@
 use super::ServiceContext;
 use codeterm_neighbors::{supervisor::ListenerState, Error};
-use serde_json::{json, Value};
+use serde_json::json;
 
-pub(super) fn failure_detail(error: Error, previous: Option<Value>) -> Value {
+use codeterm_neighbors::responses::{ListenerFailure, NeighborListenerEvent, NeighborWatchState};
+
+pub(super) fn failure_detail(error: Error, previous: Option<ListenerFailure>) -> ListenerFailure {
     match error {
         Error::ListenProtocol {
             kind: "listen_retries_exhausted",
-        } => json!({"kind":"listen_retries_exhausted","last_error":previous}),
-        Error::ListenProtocol { kind } => json!({"kind":kind}),
-        Error::Firestore { code, operation } => {
-            json!({"kind":"grpc","code":code,"operation":operation})
-        }
-        error => json!({"kind":format!("{error:?}"),"message":error.to_string()}),
+        } => ListenerFailure {
+            kind: "listen_retries_exhausted".into(),
+            last_error: Some(previous.map(Box::new)),
+            ..Default::default()
+        },
+        Error::ListenProtocol { kind } => ListenerFailure {
+            kind: kind.into(),
+            ..Default::default()
+        },
+        Error::Firestore { code, operation } => ListenerFailure {
+            kind: "grpc".into(),
+            code: Some(code),
+            operation: Some(operation.into()),
+            ..Default::default()
+        },
+        error => ListenerFailure {
+            kind: format!("{error:?}"),
+            message: Some(error.to_string()),
+            ..Default::default()
+        },
     }
 }
 
@@ -20,7 +36,13 @@ impl ServiceContext {
         let version = self.forget_neighbor_friend_receivers();
         self.ui.emit(
             "neighbor-runtime-status",
-            json!({"receiver_unavailable":true,"friend_receivers_version":version}),
+            json!(NeighborListenerEvent::Unavailable {
+                receiver_unavailable: true,
+                friendship_id: None,
+                friend_receivers_version: Some(version),
+                reason: None,
+                message: None
+            }),
         );
         self.neighbor_watch_state(watch, ListenerState::Reconnecting, Some(error));
         let detail = self
@@ -28,8 +50,7 @@ impl ServiceContext {
             .watch_states
             .lock()
             .get(watch)
-            .and_then(|state| state.get("error"))
-            .cloned();
+            .and_then(|state| state.error.clone());
         self.stop_neighbor_listeners_state(ListenerState::Reconnecting, detail);
     }
     pub(super) fn neighbor_watch_state(
@@ -39,11 +60,7 @@ impl ServiceContext {
         failure: Option<Error>,
     ) {
         let mut watches = self.neighbor_cell().watch_states.lock();
-        let previous = watches
-            .get(watch)
-            .and_then(|view| view.get("error"))
-            .filter(|value| !value.is_null())
-            .cloned();
+        let previous = watches.get(watch).and_then(|view| view.error.clone());
         let error = if state == ListenerState::Receiving {
             None
         } else {
@@ -51,7 +68,10 @@ impl ServiceContext {
                 .map(|error| failure_detail(error, previous.clone()))
                 .or(previous)
         };
-        let view = json!({"status":state,"error":error});
+        let view = NeighborWatchState {
+            status: state,
+            error: error.clone(),
+        };
         watches.insert(watch.into(), view.clone());
         drop(watches);
         self.ui.emit(
@@ -75,7 +95,12 @@ impl ServiceContext {
             }
             self.ui.emit(
                 "neighbor-runtime-status",
-                json!({"friendship_id":friend,"status":state,"error":error}),
+                json!(NeighborListenerEvent::Listener {
+                    friendship_id: Some(friend),
+                    status: state,
+                    error: Some(error.clone()),
+                    reason: None
+                }),
             );
         }
     }

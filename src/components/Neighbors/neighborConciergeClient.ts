@@ -1,41 +1,12 @@
 import { listen } from "../../lib/bridge";
 import { localFetch } from "../../lib/webApi";
-import { deliveryStatus, PERMISSION_WORKSPACES, runtimeCall, type NeighborDeliveryStatus, type NeighborPermission } from "./neighborRuntimeClient";
+import { deliveryStatus, PERMISSION_WORKSPACES, runtimeCall, type NeighborPermissionDraft } from "./neighborRuntimeClient";
 
-export type HistoryAuthor = "me" | "friend" | { agent: string; name: string };
+export type HistoryAuthor = import("../../../gen/NeighborHistoryAuthor").NeighborHistoryAuthor;
 
 export type HistoryKind = import("../../../gen/NeighborHistoryKind").NeighborHistoryKind;
 
-export interface HistoryEntry {
-  direction: "in" | "out";
-  kind: HistoryKind;
-  in_reply_to?: string;
-  /** Incoming only: how your side handled it, and why when it was refused. */
-  outcome?: "refused" | "answered";
-  reason?: string;
-  /** Set on a message the daily limit refused: the limit and when it resets, in unix milliseconds. */
-  limit?: number;
-  resets_at?: number;
-  /** Hourly or overall limits: how long until another send may go through. */
-  retry_after_seconds?: number;
-  author: HistoryAuthor;
-  body: string;
-  /** Unix milliseconds. */
-  at: number;
-  message_id: string;
-  delivery_status?: NeighborDeliveryStatus;
-  /** Outgoing only: whether the relay took the message at all. */
-  submission?: "accepted" | "unconfirmed" | "refused";
-  /** Incoming only: where your concierge stands on it, why when it settled that way, and since when (unix milliseconds). */
-  handling_state?: HandlingState;
-  handling_reason?: string;
-  handling_updated_at?: number;
-  /** Outgoing only: when it reached your friend and when they read it (unix milliseconds), once their Domios reports receipts. */
-  delivered_at?: number;
-  read_at?: number;
-  /** Incoming only: who marked it as unsafe or unwanted, and why. */
-  flags?: MessageFlag[];
-}
+export type HistoryEntry = Omit<import("../../../gen/NeighborHistoryEntry").NeighborHistoryEntry, "sender_uid">;
 
 export type FlagCategory = import("../../../gen/FlagCategory").FlagCategory;
 const FLAG_CATEGORIES: readonly string[] = ["suspicious_instructions", "private_data_request", "malicious_link", "spam", "other"];
@@ -62,7 +33,7 @@ const HANDLING_STATES: readonly string[] = ["delivered_to_concierge", "working",
 
 export type NeighborNotify = import("../../../gen/NeighborNotify").NeighborNotify;
 
-export interface HistoryPage { entries: HistoryEntry[]; next_before: string | null; ended: boolean }
+export type HistoryPage = Omit<import("../../../gen/NeighborHistoryPage").NeighborHistoryPage, "entries"> & { entries: HistoryEntry[] };
 
 export interface NeighborConciergeClient {
   history(friendship: string, before?: string, signal?: AbortSignal): Promise<HistoryPage>;
@@ -70,7 +41,7 @@ export interface NeighborConciergeClient {
   onPermissionChanged(handler: (friendship: string) => void): Promise<() => void>;
   /** A null tab means the friendship no longer has a concierge here, for example after removal. */
   onAgentChanged(handler: (friendship: string, gatewayTab: string | null) => void): Promise<() => void>;
-  setPermission(friendship: string, permission: NeighborPermission): Promise<void>;
+  setPermission(friendship: string, permission: NeighborPermissionDraft): Promise<void>;
   /** Omitted options mean the provider's defaults; `service_tier` "default" is the standard speed. */
   changeAgent(friendship: string, provider: string, model?: string, options?: ConciergeLaunchOptions): Promise<string>;
   setDailyLimit(friendship: string, dailyLimit: number | null): Promise<void>;

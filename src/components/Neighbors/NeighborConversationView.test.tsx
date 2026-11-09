@@ -1,3 +1,4 @@
+import { channelStatus, permissionResponse, conciergeState } from "./neighborRuntime.testdata";
 import { it, vi, expect } from "vitest";
 import type { HistoryEntry } from "./neighborConciergeClient";
 import type { NeighborList } from "./neighborModel";
@@ -5,7 +6,6 @@ import type { NeighborClient } from "./neighborClient";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { NeighborConversationView } from "./NeighborConversationView";
-import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { parseConciergeStatus } from "./useConciergeStatus";
 import { NeighborRuntimeFailure } from "./neighborRuntimeClient";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
@@ -86,10 +86,10 @@ it("shows their daily allowance, explains a limit refusal and holds the composer
 });
 
 it("says when a friend has no concierge on this machine, with the waiting count only once it is known", async () => {
-  const missing = (pending_count: number | null) => ({ gateway_tab: null, concierge_missing: true, pending_count, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" });
+  const missing = (pending_count: number | null) => conciergeState({ gateway_tab: null, concierge_missing: true, pending_count, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" });
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {},
-    concierges: { pair: missing(3) } } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: {},
+    concierges: { pair: missing(3) } }));
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
@@ -156,7 +156,7 @@ it("runs a friend's html only once the owner allowed interactive content from th
   const entries: HistoryEntry[] = [{ direction: "in", kind: "question", author: "friend", body: "```html\n<p>inert fence</p>\n```\n\n<ds-html><p>hi</p></ds-html>\n\n<ds-page src=\"/private/example.html\" />\n\n<ds-image src=\"/private/example.png\" />\n\n<ds-setting key=\"plugins.example.enabled\" />", at: 1700000000000, message_id: "i1" }];
   const runtimeClient = runtime();
   const permission = { allowed: true, scope: "anything", allow_tab_requests: false, allow_interactive_content: false };
-  vi.mocked(runtimeClient.permission).mockResolvedValue(permission);
+  vi.mocked(runtimeClient.permission).mockResolvedValue(permissionResponse(permission));
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
@@ -169,7 +169,7 @@ it("runs a friend's html only once the owner allowed interactive content from th
   });
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
   expect(host.querySelector("iframe")).toBeNull();
-  vi.mocked(runtimeClient.permission).mockResolvedValue({ ...permission, allow_interactive_content: true });
+  vi.mocked(runtimeClient.permission).mockResolvedValue(permissionResponse({ ...permission, allow_interactive_content: true }));
   await act(async () => changedPermission("pair"));
   const frame = host.querySelector("iframe");
   expect(frame?.getAttribute("srcdoc")).toContain("<p>hi</p>");
@@ -179,7 +179,7 @@ it("runs a friend's html only once the owner allowed interactive content from th
   expect(host.querySelector("img, [role=switch]")).toBeNull();
   expect(host.textContent).toContain('/private/example.html');
   expect(host.textContent).toContain('plugins.example.enabled');
-  vi.mocked(runtimeClient.permission).mockResolvedValue(permission);
+  vi.mocked(runtimeClient.permission).mockResolvedValue(permissionResponse(permission));
   await act(async () => changedPermission("pair"));
   expect(host.querySelector("iframe")).toBeNull();
 });

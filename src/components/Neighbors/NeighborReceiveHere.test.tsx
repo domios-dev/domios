@@ -10,7 +10,7 @@ vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), localF
 
 let unmount: (() => void) | undefined;
 afterEach(() => { unmount?.(); unmount = undefined; document.body.replaceChildren(); });
-const receiver: ReceiverState = { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Old desk", revision: 9 };
+const receiver: ReceiverState = { receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Old desk", revision: 9 };
 const button = (name: string) => Array.from(document.querySelectorAll("button")).find(node => node.textContent === name)!;
 
 it("confirms only the named friend and target before calling its bound action", async () => {

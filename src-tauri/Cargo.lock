@@ -1884,6 +1884,7 @@ dependencies = [
  "aes-gcm",
  "async-trait",
  "base64 0.22.1",
+ "codeterm-wire",
  "ed25519-dalek",
  "googleapis-tonic-google-firestore-v1",
  "hkdf 0.12.4",

@@ -64,11 +64,14 @@ pub struct NeighborRuntimeCell {
     listeners: parking_lot::Mutex<listener::Slots>,
     pub(super) states:
         parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
-    pub(super) failures: parking_lot::Mutex<HashMap<String, Value>>,
+    pub(super) failures:
+        parking_lot::Mutex<HashMap<String, codeterm_neighbors::responses::ListenerFailure>>,
     pending_counts: parking_lot::Mutex<HashMap<String, u64>>,
     names: parking_lot::Mutex<HashMap<String, String>>,
     control_cancel: tokio::sync::Notify,
-    pub(super) watch_states: parking_lot::Mutex<std::collections::BTreeMap<String, Value>>,
+    pub(super) watch_states: parking_lot::Mutex<
+        std::collections::BTreeMap<String, codeterm_neighbors::responses::NeighborWatchState>,
+    >,
     bootstrapped: std::sync::atomic::AtomicBool,
     restoration: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -772,7 +775,14 @@ impl ServiceContext {
         {
             self.ui.emit(
                 "neighbor-runtime-status",
-                json!({"status":"stopped","reason":"Neighbor listener unavailable"}),
+                json!(
+                    codeterm_neighbors::responses::NeighborListenerEvent::Listener {
+                        friendship_id: None,
+                        status: codeterm_neighbors::supervisor::ListenerState::Stopped,
+                        error: None,
+                        reason: Some("Neighbor listener unavailable".into())
+                    }
+                ),
             );
         }
         Ok(owner::Outcome::Value(result))
@@ -824,7 +834,7 @@ impl ServiceContext {
     pub(super) fn stop_neighbor_listeners_state(
         &self,
         status: codeterm_neighbors::supervisor::ListenerState,
-        error: Option<Value>,
+        error: Option<codeterm_neighbors::responses::ListenerFailure>,
     ) {
         self.neighbor_cell().pending_counts.lock().clear();
         self.neighbor_cell()
@@ -839,15 +849,24 @@ impl ServiceContext {
                 .states
                 .lock()
                 .insert(friendship.clone(), status);
-            let mut view = json!({"friendship_id":friendship,"status":status});
+
             if let Some(error) = &error {
                 self.neighbor_cell()
                     .failures
                     .lock()
                     .insert(friendship.clone(), error.clone());
-                view["error"] = error.clone();
             }
-            self.ui.emit("neighbor-runtime-status", view);
+            self.ui.emit(
+                "neighbor-runtime-status",
+                json!(
+                    codeterm_neighbors::responses::NeighborListenerEvent::Listener {
+                        friendship_id: Some(friendship),
+                        status,
+                        error: error.clone().map(Some),
+                        reason: None
+                    }
+                ),
+            );
         }
     }
 

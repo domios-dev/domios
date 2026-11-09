@@ -62,25 +62,30 @@ pub(in crate::service::neighbors) struct Change {
 
 impl ServiceContext {
     pub(in crate::service::neighbors) fn neighbor_friend_receiver_views(&self) -> Value {
-        self.neighbor_friend_receiver_snapshot().0
+        json!(self.neighbor_friend_receiver_snapshot().0)
     }
 
-    pub(in crate::service::neighbors) fn neighbor_friend_receiver_snapshot(&self) -> (Value, u64) {
+    pub(in crate::service::neighbors) fn neighbor_friend_receiver_snapshot(
+        &self,
+    ) -> (
+        BTreeMap<String, codeterm_neighbors::responses::ReceiverState>,
+        u64,
+    ) {
         let lapsed = self.neighbor_lapsed_installations();
         let generation = self.neighbor_cell().generation.load(Ordering::Acquire);
         let cell = self.extensions.get_or_init(Cell::default);
         let known = cell.known.lock();
-        let views: serde_json::Map<String, Value> = known
+        let views: BTreeMap<String, codeterm_neighbors::responses::ReceiverState> = known
             .iter()
             .filter(|(_, known)| known.generation == generation)
             .map(|(id, known)| {
                 (
                     id.clone(),
-                    Self::receiver_view(&known.receiver.status, &lapsed),
+                    Self::receiver_state(&known.receiver.status, &lapsed),
                 )
             })
             .collect();
-        (Value::Object(views), cell.version.load(Ordering::Acquire))
+        (views, cell.version.load(Ordering::Acquire))
     }
 
     pub(in crate::service::neighbors) fn stop_neighbor_concierge_listener(&self, friendship: &str) {
@@ -101,7 +106,14 @@ impl ServiceContext {
             );
             self.ui.emit(
                 "neighbor-runtime-status",
-                json!({"friendship_id":friendship,"status":"stopped"}),
+                json!(
+                    codeterm_neighbors::responses::NeighborListenerEvent::Listener {
+                        friendship_id: Some(friendship.into()),
+                        status: codeterm_neighbors::supervisor::ListenerState::Stopped,
+                        error: None,
+                        reason: None
+                    }
+                ),
             );
         }
     }
