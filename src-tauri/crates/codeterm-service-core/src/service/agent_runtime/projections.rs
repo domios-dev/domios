@@ -338,6 +338,8 @@ pub fn latest(
             reading
         })
         .collect::<Vec<_>>();
+    drop(readings);
+    drop(mux);
     current.sort_by(|a, b| a.tab_id.cmp(&b.tab_id));
     enrich_latest(row, provider, current)
 }

@@ -112,3 +112,6 @@ pub enum UsageLatestResponse {
         runtime_usage: Vec<UsageProjection>,
     },
 }
+
+#[cfg(test)]
+mod tests;

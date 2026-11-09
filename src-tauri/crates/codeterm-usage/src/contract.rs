@@ -74,3 +74,6 @@ pub enum UsageSnapshotEvent<'a> {
         captured_at: u64,
     },
 }
+
+#[cfg(test)]
+mod tests;
