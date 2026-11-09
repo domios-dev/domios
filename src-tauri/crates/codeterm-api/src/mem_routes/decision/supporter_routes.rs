@@ -99,10 +99,13 @@ pub async fn supporter_status(AxumState(state): AxumState<ConnectionState>) -> R
         let store = state.store;
         let mut adapters = registered_adapters(models);
         for adapter in &mut adapters {
+            let mode = models
+                .get(&adapter.id)
+                .map_or(TokenMode::None, |model| model.token_mode());
             adapter.token = Some(token_status_json(
                 &adapter.id,
                 &store.status(&adapter.id)?,
-                adapter.token_mode,
+                mode,
             ));
         }
         let id = cfg.active_id().unwrap_or("");

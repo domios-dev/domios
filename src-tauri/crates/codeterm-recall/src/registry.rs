@@ -45,10 +45,11 @@ pub fn registered_adapters(
     ids.into_iter()
         .filter_map(|id| {
             let model = models.get(&id)?;
+            let primitives = model.primitives();
             Some(codeterm_supporter::responses::SupporterAdapter {
                 id,
                 token_mode: model.token_mode(),
-                primitives: model.primitives(),
+                primitives,
                 models: model.cached_models(),
                 token: None,
                 pricing: model.pricing(),
