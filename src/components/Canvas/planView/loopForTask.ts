@@ -1,5 +1,5 @@
 import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
-import type { LoopSpec } from "../types";
+import type { LoopSpec, PlanTaskLoopBadge } from "../types";
 
 /** Mirrors src-tauri/src/plan/loop_engine.rs STAGNATION_THRESHOLD. */
 export const LOOP_STAGNATION_THRESHOLD = 2;
@@ -16,7 +16,7 @@ export interface LoopForTaskResult {
   stopWhen: string | null;
   warning: boolean;
   tooltip: string;
-  loops: LoopSpec[];
+  loops: Array<LoopSpec | PlanTaskLoopBadge["loops"][number]>;
 }
 
 function clean(value?: string | null): string | null {

@@ -2,7 +2,7 @@ import { daemonFetch, webRequestContext, assertWebRequestContext } from "../../l
 import type { ControlLoopUpdate, PlanControlLoop } from "./planControlLoop";
 import { authHeaders, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
-import { planRevision, type PlanView, type PlanProjection, type PlanProjectionView, type PlanListProjection, type PlanListCursor } from "./planProjection";
+import { planRevision, type PlanView, type PlanProjection, type PlanProjectionView, type PlanListProjection, type PlanMetadataProjection, type PlanListCursor, type PlanReadForView, type PlanChatRead, type PlanSummaryRead, type PlanTaskMetadata } from "./planProjection";
 import type {
   DriftItem,
   OrchestratorRef,
@@ -88,7 +88,7 @@ export class PlanReadError extends Error {
   }
 }
 
-export async function fetchPlanProjection(api: ApiConfig, planId: string, view: PlanProjectionView, signal?: AbortSignal, project?: string | null): Promise<PlanProjection> {
+export async function fetchPlanProjection<V extends PlanProjectionView>(api: ApiConfig, planId: string, view: V, signal?: AbortSignal, project?: string | null): Promise<PlanReadForView<V>> {
   const query = new URLSearchParams({ view });
   if (project) query.set("project", project);
   const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/projection?${query}`, {
@@ -96,30 +96,32 @@ export async function fetchPlanProjection(api: ApiConfig, planId: string, view: 
     signal,
   });
   if (!res.ok) throw new PlanReadError(res.status, `plan projection failed: ${res.status} ${await res.text()}`);
-  const value = await res.json() as PlanProjection;
+  const value = await res.json() as PlanReadForView<V>;
   planRevision(value);
   if (value.id !== planId) throw new Error("Plan projection did not match the requested plan.");
   return value;
 }
 
-export async function fetchPlanListWindow(api: ApiConfig, planId: string, status: string, search: string, signal?: AbortSignal, cursor?: PlanListCursor, taskRef?: string, taskIds?: readonly string[], metadata = false): Promise<PlanListProjection> {
+export function fetchPlanListWindow(api: ApiConfig, planId: string, status: string, search: string, signal: AbortSignal | undefined, cursor: PlanListCursor | undefined, taskRef: string | undefined, taskIds: readonly string[] | undefined, metadata: true): Promise<PlanMetadataProjection>;
+export function fetchPlanListWindow(api: ApiConfig, planId: string, status: string, search: string, signal?: AbortSignal, cursor?: PlanListCursor, taskRef?: string, taskIds?: readonly string[], metadata?: false): Promise<PlanListProjection>;
+export async function fetchPlanListWindow(api: ApiConfig, planId: string, status: string, search: string, signal?: AbortSignal, cursor?: PlanListCursor, taskRef?: string, taskIds?: readonly string[], metadata = false): Promise<PlanListProjection | PlanMetadataProjection> {
   const query = new URLSearchParams({ view: metadata ? "task_metadata" : "list", page_size: "25", status, search });
   if (taskIds) query.set("task_ids",JSON.stringify(taskIds));
   if (taskRef) query.set("task_ref", taskRef);
   if (cursor) { query.set("after_position", String(cursor.position)); query.set("after_task_id", cursor.task_id); }
   const response = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/projection?${query}`, { headers: authHeaders(api), signal });
   if (!response.ok) throw new PlanReadError(response.status, `plan list failed: ${response.status} ${await response.text()}`);
-  const value = await response.json() as PlanListProjection;
+  const value = await response.json() as PlanListProjection | PlanMetadataProjection;
   planRevision(value);
   if (value.id !== planId || !value.task_window) throw new Error("Plan list did not match the requested window.");
   return value;
 }
 
-export async function fetchRequestedPlanTaskMetadata(api: ApiConfig, planId: string, status = "all", taskRef?: string, signal?: AbortSignal): Promise<PlanListProjection> {
+export async function fetchRequestedPlanTaskMetadata(api: ApiConfig, planId: string, status = "all", taskRef?: string, signal?: AbortSignal): Promise<PlanMetadataProjection> {
   const context = webRequestContext();
   let cursor: PlanListCursor | undefined;
-  let result: PlanListProjection | undefined;
-  const tasks = new Map<string, PlanProjection["tasks"][number]>();
+  let result: PlanMetadataProjection | undefined;
+  const tasks = new Map<string, PlanTaskMetadata>();
   do {
     assertWebRequestContext(context);
     const page = await fetchPlanListWindow(api, planId, status, "", signal, cursor, taskRef, undefined, true);
@@ -248,6 +250,10 @@ export async function resolvePlanRefs(
   return body.refs ?? [];
 }
 
+type PlansReadOptions = { project?: string | null; chat?: boolean; query?: string; team?: string | null; tabId?: string };
+export function fetchPlans(api: ApiConfig, signal: AbortSignal | undefined, opts: PlansReadOptions & { chat: true }): Promise<PlanChatRead[]>;
+export function fetchPlans(api: ApiConfig, signal?: AbortSignal, opts?: PlansReadOptions & { chat?: false }): Promise<PlanSummaryRead[]>;
+export function fetchPlans(api: ApiConfig, signal?: AbortSignal, opts?: PlansReadOptions): Promise<PlanProjection[]>;
 export async function fetchPlans(
   api: ApiConfig,
   signal?: AbortSignal,

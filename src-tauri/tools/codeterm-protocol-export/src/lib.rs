@@ -159,6 +159,45 @@ pub fn export() -> Result<(), Box<dyn std::error::Error>> {
         codeterm_plan::service_plan::team_mission_control::TeamMissionControlQuery::export_all(
             &protocol,
         )?;
+        codeterm_plan::service_plan::ui_projections::views::PlanView::export_all(&protocol)?;
+        codeterm_plan::service_plan::ui_projections::views::PlanTaskMetadata::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::views::PlanSectionView::export_all(&protocol)?;
+        codeterm_plan::service_plan::ui_projections::views::PlanListCursor::export_all(&protocol)?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskBoardColumnPage::export_all(&protocol)?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskBoardCounts::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskBoardCursor::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskBoardLocator::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskBoardPage::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskBoardSummary::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskCompetitionAttemptSummary::export_all(&protocol)?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskCompetitionBadge::export_all(&protocol)?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskDetail::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskDetailContext::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskHistoricalExecutor::export_all(&protocol)?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskHistoryPage::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::task_reads::PlanTaskLoopBadge::export_all(
+            &protocol,
+        )?;
+        codeterm_plan::service_plan::ui_projections::board::PlanBoardState::export_all(&protocol)?;
+        codeterm_plan::service_plan::ui_projections::views::PlanProjection::export_all(&protocol)?;
         AppConfig::export_all(&protocol)?;
         Team::export_all(&protocol)?;
         AgentRole::export_all(&protocol)?;

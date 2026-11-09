@@ -578,7 +578,7 @@ fn task_detail_reads_one_exact_task_with_its_history_and_small_context() {
             rusqlite::params![
                 plan.id,
                 selected_id,
-                serde_json::json!({ "id": "milestone-1", "kind": "decision", "text": "Selected task diagnostic history", "ts": 4, "links": [], "loop_id": null, "iteration": null, "canvas": { "x": null, "y": null, "collapsed": false } }).to_string(),
+                serde_json::json!({ "id": "milestone-1", "kind": "decision", "text": "Selected task diagnostic history", "future_field": true, "ts": 4, "links": [], "loop_id": null, "iteration": null, "canvas": { "x": null, "y": null, "collapsed": false } }).to_string(),
             ],
         )
         .unwrap();
@@ -588,7 +588,7 @@ fn task_detail_reads_one_exact_task_with_its_history_and_small_context() {
             rusqlite::params![
                 plan.id,
                 selected_id,
-                serde_json::json!({ "id": "attempt-1", "tab_id": "worker-1", "role": "worker", "report_status": "in_review", "outcome": "review requested" }).to_string(),
+                serde_json::json!({ "id": "attempt-1", "tab_id": "worker-1", "role": "worker", "report_status": "in_review", "outcome": "review requested", "future_field": true }).to_string(),
             ],
         )
         .unwrap();
@@ -608,6 +608,60 @@ fn task_detail_reads_one_exact_task_with_its_history_and_small_context() {
         "Selected task diagnostic history"
     );
     assert_eq!(detail["task"]["execution_attempts"][0]["id"], "attempt-1");
+    assert_eq!(detail["task"]["milestones"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        detail["task"]["execution_attempts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        detail["task"]["milestones"][0]["from"],
+        serde_json::json!({
+            "tab_id": null, "session_id": null, "title": null,
+        })
+    );
+    assert_eq!(
+        detail["task"]["execution_attempts"][0]["executor_tab_id"],
+        ""
+    );
+    for (kind, id) in [
+        (
+            crate::service_plan::task_history::TaskHistoryKind::Milestones,
+            "milestone-1",
+        ),
+        (
+            crate::service_plan::task_history::TaskHistoryKind::Attempts,
+            "attempt-1",
+        ),
+    ] {
+        let history = store
+            .task_history_page(&plan.id, &selected_id, kind, None, 50)
+            .unwrap();
+        assert_eq!(history["items"].as_array().unwrap().len(), 1);
+        assert_eq!(history["items"][0]["id"], id);
+    }
+
+    let chat = store.chat_snapshot(None, None, None).unwrap();
+    let chat_task = chat.iter().find(|row| row["id"] == plan.id).unwrap()["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|task| task["id"] == selected_id)
+        .unwrap();
+    assert_eq!(chat_task["milestones"].as_array().unwrap().len(), 1);
+    assert_eq!(chat_task["execution_attempts"].as_array().unwrap().len(), 1);
+    assert_eq!(chat_task["milestones"][0]["id"], "milestone-1");
+    assert_eq!(chat_task["execution_attempts"][0]["id"], "attempt-1");
+    assert_eq!(
+        chat_task["milestones"][0]["from"],
+        serde_json::json!({
+            "tab_id": null, "session_id": null, "title": null,
+        })
+    );
+    assert_eq!(chat_task["execution_attempts"][0]["executor_tab_id"], "");
+
     assert_eq!(detail["context"]["plan_id"], plan.id);
     assert!(detail.get("tasks").is_none());
     assert!(detail

@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_READ_FIELDS } from "../cards/fixtures.testdata";
 import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
@@ -62,7 +63,8 @@ function missionState(openGates: OpenDecisionGate[] = []): MissionControlState {
 }
 
 function boardState(openGates: OpenDecisionGate[] = []): PlanBoardState {
-  return { plan_id: ACTIVE.id, revision: "1", task_counts: COUNTS, mission_control: missionState(openGates) };
+  return {
+    ...FIXTURE_BOARD_READ_FIELDS, plan_id: ACTIVE.id, revision: "1", task_counts: COUNTS, mission_control: missionState(openGates) };
 }
 
 async function mount(ui: ReactElement) {

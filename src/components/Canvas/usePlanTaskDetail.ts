@@ -4,7 +4,7 @@ import { planRevision } from "./planProjection";
 import type { ApiConfig } from "../../lib/types";
 import { fetchPlanTaskDetail, fetchPlanTaskHistory, PlanReadError } from "./plansApi";
 import { taskDisplayKey } from "./taskDisplayKey";
-import type { PlanTaskDetail, TaskHistoryKind, Milestone, TaskExecutionAttempt } from "./types";
+import type { PlanTaskDetail, TaskHistoryKind } from "./types";
 import { useScopedPlanRead } from "./useScopedPlanRead";
 
 export interface UsePlanTaskDetailResult {
@@ -57,8 +57,8 @@ export function usePlanTaskDetail(api: ApiConfig | undefined, planId: string | n
       setData((current) => {
         if (!current || current.task_id !== data.task_id || planRevision(current) !== page.revision || current.history?.[kind] !== before) return current;
         const task = { ...current.task };
-        if (kind === "milestones") task.milestones = [...page.items as Milestone[], ...task.milestones];
-        else task.execution_attempts = [...page.items as TaskExecutionAttempt[], ...(task.execution_attempts ?? [])];
+        if (kind === "milestones") task.milestones = [...page.items as PlanTaskDetail["task"]["milestones"], ...task.milestones];
+        else task.execution_attempts = [...page.items as PlanTaskDetail["task"]["execution_attempts"], ...(task.execution_attempts ?? [])];
         return { ...current, task, history: { ...current.history!, [kind]: page.next_cursor } };
       });
     } catch (cause) {

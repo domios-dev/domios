@@ -1,7 +1,7 @@
 use super::PlanStore;
 use serde_json::Value;
 
-pub(in crate::service_plan) mod read;
+pub mod read;
 
 impl PlanStore {
     pub fn chat_snapshot_for_tab(

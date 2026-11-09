@@ -1,8 +1,11 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
+use crate::service_plan::ui_projections::board::{
+    PlanBoardControlLoop, PlanBoardMissionControl, PlanBoardState,
+};
 use crate::service_plan::{board_state::BoardStateRead, state::TaskCounts, PlanError};
 use rusqlite::OptionalExtension;
-use serde_json::{json, Value};
+use serde_json::json;
 
 pub(super) const COUNTS_SQL: &str = "SELECT (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='pending'),
     (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='in_progress'),
@@ -62,12 +65,8 @@ impl PlanDatabase {
             'manual_run_requested',json(CASE WHEN json_extract(header_json,'$.control_loop.manual_run_requested') THEN 'true' ELSE 'false' END),
             'running',CASE WHEN json_type(header_json,'$.control_loop.running')='object' THEN json_object('number',json_extract(header_json,'$.control_loop.running.number')) END)
             FROM plans WHERE id=?1", [id], |row| column(row,0)).map_err(db_error)?;
-        let mut control_loop: Value = decode(id, &raw)?;
-        control_loop["counts_7d"] = json!(super::status_queries::control_counts(
-            &transaction,
-            id,
-            now_ms
-        )?);
+        let mut control_loop: PlanBoardControlLoop = decode(id, &raw)?;
+        control_loop.counts_7d = super::status_queries::control_counts(&transaction, id, now_ms)?;
         let events = if include_events {
             super::state_event_queries::event_window(&transaction, id, 50, event_offset)?
         } else {
@@ -81,9 +80,19 @@ impl PlanDatabase {
         let next_event_cursor = events
             .truncated
             .then_some(event_offset.saturating_add(events.entries.len()));
-        let value = json!({ "plan_id": id, "revision": super::change_feed::revision(&transaction,id)?.to_string(),
-            "task_counts": counts,"control_loop":control_loop,"mission_control":{"bounces":bounces,"event_log":events},
-            "next_event_cursor":next_event_cursor,"event_window_loaded":include_events });
+        let value = PlanBoardState {
+            plan_id: id.into(),
+            revision: super::change_feed::revision(&transaction, id)?.to_string(),
+            task_counts: counts,
+            control_loop,
+            mission_control: PlanBoardMissionControl {
+                bounces,
+                event_log: events,
+                spend: None,
+            },
+            next_event_cursor,
+            event_window_loaded: include_events,
+        };
         transaction.commit().map_err(db_error)?;
         Ok(BoardStateRead {
             mode,

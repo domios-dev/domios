@@ -1,3 +1,4 @@
+import { FIXTURE_PLAN_READ } from "../Canvas/cards/fixtures.testdata";
 import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Sidebar/teamActivePlanRecovery.test.tsx
 
@@ -9,7 +10,7 @@ import { __setListenForTest } from "../../lib/bridge";
 import { fireResync } from "../../lib/resync";
 import { PlansProvider, usePlanIndex, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
-import type { PlanProjection } from "../Canvas/planProjection";
+import type { PlanSummaryRead } from "../Canvas/planProjection";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import type { Plan, Task } from "../Canvas/types";
 import { SidebarDnd } from "./sortable";
@@ -105,9 +106,14 @@ function indexEntry(value: Plan): PlanIndexEntry {
   };
 }
 
-function summary(value: Plan): PlanProjection {
+function summary(value: Plan): PlanSummaryRead {
   return {
-    ...value,
+    ...FIXTURE_PLAN_READ,
+    id: value.id, title: value.title, status: value.status, owner: value.owner,
+    project_path: value.project_path, canonical_project_path: value.project_path,
+    created_at: value.created_at, updated_at: value.updated_at, canvas: value.canvas,
+    mode: value.mode ?? "planning", planning_state: value.planning_state ?? "drafting",
+    team_id: value.team_id ?? null,
     revision: String(value.updated_at),
     tasks: [],
     task_counts: { total: value.tasks.length, pending: value.tasks.length, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 },

@@ -4,6 +4,81 @@ use crate::service_plan::store_db::hot_write::tests::fixtures;
 use serde_json::json;
 
 #[test]
+fn typed_reads_preserve_nulls_absent_fields_and_stored_task_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let mut plan = fixtures::fixture(root.path(), 0, 0);
+    plan.tasks.truncate(2);
+    let database = fixtures::database(root.path(), &plan);
+    let task = &plan.tasks[1];
+    let detail = database.task_detail(&plan.id, &task.id).unwrap();
+    assert_eq!(
+        serde_json::to_vec(&detail["task"]).unwrap(),
+        serde_json::to_vec(&serde_json::to_value(task).unwrap()).unwrap()
+    );
+    assert_eq!(detail.get("loop_badge"), Some(&Value::Null));
+    assert_eq!(detail["context"].get("team_id"), Some(&Value::Null));
+    assert_eq!(
+        detail["history"],
+        json!({"milestones":null,"attempts":null})
+    );
+
+    let board = database
+        .task_board_page(&plan.id, Some("pending"), 50, None)
+        .unwrap();
+    assert!(board.get("counts").is_none());
+    assert!(board.get("columns").is_none());
+    assert_eq!(board["column"].get("next_cursor"), Some(&Value::Null));
+    let row = &board["column"]["items"][1];
+    for field in [
+        "assigned_tab_id",
+        "pause_reason",
+        "model",
+        "peer",
+        "qa_state",
+        "status_label",
+        "locator",
+        "latest_note",
+        "historical_executor",
+        "competition_badge",
+        "loop_badge",
+    ] {
+        assert_eq!(row.get(field), Some(&Value::Null), "{field}");
+    }
+    assert_eq!(row["lane"], json!({"tab_id":null,"branch":null}));
+    let summary = database
+        .ui_plan_projection(&plan.id, PlanViewProjection::Summary)
+        .unwrap();
+    assert_eq!(summary.get("team_id"), Some(&Value::Null));
+    assert!(summary.get("goal").is_none());
+    assert!(summary.get("task_window").is_none());
+    let chat = database
+        .ui_plan_projection(&plan.id, PlanViewProjection::Chat)
+        .unwrap();
+    assert!(chat.get("canonical_project_path").is_none());
+    assert!(chat.get("planning_state").is_none());
+    assert_eq!(chat.get("team_id"), Some(&Value::Null));
+    assert_eq!(
+        chat["heartbeat"],
+        serde_json::to_value(&plan.heartbeat).unwrap()
+    );
+    for task in chat["tasks"].as_array().unwrap() {
+        assert_eq!(task.get("model_rationale"), Some(&Value::Null));
+        assert_eq!(task.get("intent"), Some(&Value::Null));
+        assert_eq!(task["body"], "");
+        assert!(task.get("criteria_count").is_some());
+        assert!(task.get("milestone_count").is_some());
+    }
+    let state = database
+        .board_state_projection(&plan.id, 100, 0, false)
+        .unwrap();
+    let state = serde_json::to_value(state.value).unwrap();
+    assert_eq!(state.get("next_event_cursor"), Some(&Value::Null));
+    assert_eq!(state["control_loop"].get("running"), Some(&Value::Null));
+    assert!(state["control_loop"].get("suspended_reason").is_none());
+    assert!(state["mission_control"].get("spend").is_none());
+}
+
+#[test]
 fn ui_projections_expose_only_the_requested_document_or_visible_task_metadata() {
     let directory = tempfile::tempdir().unwrap();
     let mut plan = fixtures::fixture(directory.path(), 0, 0);

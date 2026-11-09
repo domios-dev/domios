@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_READ_FIELDS } from "../cards/fixtures.testdata";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -296,6 +297,7 @@ const NO_TASKS: PlanTaskCounts = {
 
 function boardState(mission: MissionControlState, counts: PlanTaskCounts = TASK_COUNTS): PlanBoardState {
   return {
+    ...FIXTURE_BOARD_READ_FIELDS,
     plan_id: FIXTURE_PLAN.id,
     task_counts: counts,
     mission_control: mission,

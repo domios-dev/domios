@@ -1,22 +1,23 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
+use crate::service_plan::ui_projections::task_reads::{PlanTaskHistoryItem, PlanTaskHistoryPage};
 use crate::service_plan::{task_history::TaskHistoryKind, PlanError};
 use rusqlite::{params, Connection};
-use serde_json::{json, Value};
+use serde_json::Value;
 
-pub(super) struct HistoryPage {
-    pub items: Vec<Value>,
+pub(super) struct HistoryPage<T> {
+    pub items: Vec<T>,
     pub next_cursor: Option<i64>,
 }
 
-pub(super) fn page(
+pub(super) fn page<T: serde::de::DeserializeOwned>(
     connection: &Connection,
     plan_id: &str,
     task_id: &str,
     kind: TaskHistoryKind,
     before: Option<i64>,
     limit: usize,
-) -> Result<HistoryPage, PlanError> {
+) -> Result<HistoryPage<T>, PlanError> {
     let (table, position) = match kind {
         TaskHistoryKind::Milestones => ("plan_task_milestones", "seq"),
         TaskHistoryKind::Attempts => ("plan_task_attempts", "position"),
@@ -60,10 +61,36 @@ impl PlanDatabase {
         let transaction = guard.transaction().map_err(db_error)?;
         let task_id =
             super::task_page_queries::resolve_detail_task(&transaction, plan_id, task_ref)?;
-        let page = page(&transaction, plan_id, &task_id, kind, before, limit)?;
-        let value = json!({ "plan_id": plan_id, "task_id": task_id,
-            "revision": super::change_feed::revision(&transaction, plan_id)?.to_string(),
-            "items": page.items, "next_cursor": page.next_cursor });
+        let (items, next_cursor) = match kind {
+            TaskHistoryKind::Milestones => {
+                let page = page(&transaction, plan_id, &task_id, kind, before, limit)?;
+                (
+                    page.items
+                        .into_iter()
+                        .map(PlanTaskHistoryItem::Milestone)
+                        .collect(),
+                    page.next_cursor,
+                )
+            }
+            TaskHistoryKind::Attempts => {
+                let page = page(&transaction, plan_id, &task_id, kind, before, limit)?;
+                (
+                    page.items
+                        .into_iter()
+                        .map(PlanTaskHistoryItem::Attempt)
+                        .collect(),
+                    page.next_cursor,
+                )
+            }
+        };
+        let value = serde_json::to_value(PlanTaskHistoryPage {
+            plan_id: plan_id.into(),
+            task_id,
+            revision: super::change_feed::revision(&transaction, plan_id)?.to_string(),
+            items,
+            next_cursor,
+        })
+        .map_err(super::json_error)?;
         transaction.commit().map_err(db_error)?;
         Ok(value)
     }
