@@ -17,7 +17,7 @@ async function connect() {
     subscribe(_path, handler, options) { connections.push({ handler, options: options! }); return () => {}; },
   } as TransportClient);
   const stop = output.subscribeTabOutput("mesh:peer/tab", { onOutput() {}, onTruncated() {}, onEnded() {} });
-  const recover = () => transport.configureRemoteTabTransport({
+  const recover = () => transport.configureRemoteTabTransport({mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],
     enabled: true, host: "daemon.test", port: 7686, token: "recovered", cors: false,
   });
   return { connections, stop, recover };

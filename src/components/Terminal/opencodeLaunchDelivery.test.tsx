@@ -21,7 +21,7 @@ test("a lazy provider's ready composer ends Starting before a session exists", (
   const composerReady = {
     ...tab,
     boot_stage: "provider_ready" as const,
-    provisional_launch: {
+    provisional_launch: {first_turn_payload_written: false,
       pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
       awaiting_binding_ack: true, first_turn_input_ready: true,
     },

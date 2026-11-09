@@ -2101,6 +2101,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-protocol-export"
+version = "0.0.0"
+dependencies = [
+ "codeterm-types",
+ "ts-rs",
+ "workspace-hack",
+]
+
+[[package]]
 name = "codeterm-provider-ops"
 version = "0.0.0"
 dependencies = [

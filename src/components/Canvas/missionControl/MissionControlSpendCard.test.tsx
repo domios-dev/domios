@@ -285,7 +285,7 @@ describe("mission control spend card", () => {
   });
 
   it("mission_control_spend_reads_the_team_spend_route_for_a_date_range", async () => {
-    const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
+    const api: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
     const fixture = teamSpendFixture();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => fixture });
     vi.stubGlobal("fetch", muxMockFetch(fetchMock));

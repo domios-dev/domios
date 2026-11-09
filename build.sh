@@ -115,7 +115,7 @@ DEV_NOTIFY_TARGET_MESH="${DEV_NOTIFY_TARGET_MESH:-}"
 
 # Long operations stream one receipt through the shell's live Domios return route.
 case "$CMD" in
-  dev-server|process-probe|qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  dev-server|process-probe|qa-lock-storm|feature-cycle|lane-check|types-export|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -2790,6 +2790,7 @@ Domios build commands
   check-tests                 Compile app and CLI test profiles
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package>... [--tests] [--timings]  Type-check touched packages in one Cargo check with the shared Cargo job limit
+  types-export             Export protocol TypeScript through the serialized lane cache
   fmt [--base REF | --paths FILE...]  Format owned files or changed Rust/JS files
   dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
@@ -3007,6 +3008,12 @@ EOF
       enter_cargo_gateway "$CMD ${*:2}"
     fi
     lane_check "${@:2}"
+    ;;
+  types-export)
+    if [ "$CODETERM_BUILD_GATEWAY_MODE" = queue ]; then
+      enter_cargo_gateway "$CMD ${*:2}"
+    fi
+    lane_types_export "${@:2}"
     ;;
   dev-link-measure)
     if [ "${CODETERM_LINK_TIMING:-0}" = 1 ]; then

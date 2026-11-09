@@ -40,7 +40,7 @@ test("AgentReady event forwards booting and session binding", () => {
 });
 
 test("lazy first-turn event forwards its launch-scoped composer evidence", () => {
-  const launch = {
+  const launch = {first_turn_payload_written: false,
     pty_id: "own-pty",
     binding_nonce: "own-nonce",
     reason: "composer ready",

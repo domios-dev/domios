@@ -23,7 +23,7 @@ vi.mock("../../../lib/webApi", async (importOriginal) => ({
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const NOW = 1_700_000_000_000;
-const API = { enabled: true, host: "localhost", port: 7686, token: "fixture", cors: false };
+const API = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "localhost", port: 7686, token: "fixture", cors: false };
 const BASE: PlanControlLoop = {
   mode: "curator", heartbeat_interval_secs: null, next_at: NOW + 45 * 60_000,
   last_round: null, fallback_reason: null, suspended_reason: null,

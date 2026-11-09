@@ -22,7 +22,7 @@ export function usageTrackingOverrides(
 ): Record<string, boolean | undefined> {
   const out: Record<string, boolean | undefined> = {};
   for (const [providerId, config] of Object.entries(agents)) {
-    out[providerId] = config?.usage_tracking_enabled;
+    out[providerId] = config?.usage_tracking_enabled ?? undefined;
   }
   return out;
 }

@@ -36,13 +36,25 @@ configure_lane_workspace_wrapper() {
   fi
 }
 
-lane_cargo_check() {
+lane_locked_command() {
   local python
   if command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1; then python=python3
   elif command -v python >/dev/null 2>&1 && python --version >/dev/null 2>&1; then python=python
   else echo 'lane-check requires Python for the shared-intermediate lock' >&2; return 2; fi
-  "$python" "$(dirname "${BASH_SOURCE[0]}")/lane-check-run.py" "$CARGO_BUILD_BUILD_DIR" cargo "$@"
+  "$python" "$(dirname "${BASH_SOURCE[0]}")/lane-check-run.py" "$CARGO_BUILD_BUILD_DIR" "$@"
 }
+
+lane_cargo_check() {
+  lane_locked_command cargo "$@"
+}
+
+lane_types_export() (
+  [ "$#" = 0 ] || { echo 'Usage: ./build.sh types-export [--wait-build]' >&2; return 2; }
+  configure_lane_build_dir || return $?
+  configure_lane_cache || return $?
+  configure_lane_workspace_wrapper || return $?
+  lane_locked_command node scripts/export-chat-types.mjs
+)
 
 lane_check() (
   local packages=() tests=() timings=() target=(--lib) manifest=src-tauri/Cargo.toml package has_cli=0

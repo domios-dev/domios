@@ -119,7 +119,7 @@ test("opening Board keeps the parked List reader detached", async () => {
   setupDom();
   const previousFetch=globalThis.fetch;
   const requests: URL[]=[];
-  const api: ApiConfig={enabled:true,host:"127.0.0.1",port:7686,token:"test-token",cors:true};
+  const api: ApiConfig={mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [], enabled:true,host:"127.0.0.1",port:7686,token:"test-token",cors:true};
   globalThis.fetch=muxMockFetch(async(input)=>{
     const url=new URL(String(input));requests.push(url);
     if(url.pathname.endsWith("/board-state"))return Response.json({error:"Fixture has no board snapshot"},{status:503});
@@ -214,7 +214,7 @@ test("PlanViewShell switches between Spec, Plan, and Board without losing shell 
 test("Tasks mode requests one compact page without subscribing to full plans", async () => {
   setupDom();
   window.localStorage.setItem(PLAN_VIEW_MODE_STORAGE_KEY, "tasks");
-  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
+  const api: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
   const entry = {
     plan_id: FIXTURE_PLAN.id,
     file_path: "/tmp/plan.json",
@@ -283,7 +283,7 @@ test("Tasks mode requests one compact page without subscribing to full plans", a
 
 test("task segment opens from the scoped detail endpoint without a full plan read", async () => {
   setupDom();
-  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
+  const api: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
   const taskId = "task-exact-detail";
   const task = {
     ...FIXTURE_TASK,
@@ -373,7 +373,7 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
 test("task side panel requests scoped detail even when a plan summary is already listed", async () => {
   setupDom();
   planSidePanelStore.close();
-  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
+  const api: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
   const taskId = "task-side-panel-detail";
   const task = { ...FIXTURE_TASK, id: taskId, key: "CT-PANEL", name: "Side panel scoped detail", body: "Panel task description." };
   const detail = {

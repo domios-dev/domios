@@ -32,7 +32,7 @@ __setListenForTest(async (event, handler) => {
 });
 globalThis.fetch = muxMockFetch(async (input) => { fetched.push(String(input)); return Response.json(String(input).includes("/fs/list-dir") ? { entries: [{ name: "cdp.mjs", path: "/repo/cdp.mjs" }] } : (String(input).includes("chat=1") || String(input).includes("view=summary")) ? { plans: [{ ...FIXTURE_PLAN, revision: String(renders + 1), project_path: "/repo", team_id: "team-a", title: `Update ${renders}` }] } : { plans: [] }); });
 configureDaemonTransport({ origin: harnessWindow.location.origin, token: "fixture" });
-const api = { enabled: true, host: "127.0.0.1", port: 7686, token: "fixture", cors: true };
+const api = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "fixture", cors: true };
 function Harness() { renders++; const feed = useSidebarPlansOptional(); currentPlanTitle = feed.plans[0]?.title; refetchPlans = feed.refetch; sources = useComposerMentionSources("t"); return null; }
 async function main() {
   const element = document.createElement("div"); const root = createRoot(element);

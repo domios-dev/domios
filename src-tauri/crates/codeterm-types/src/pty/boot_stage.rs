@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// One stage of a tab's agent-boot lifecycle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum BootStage {
     /// Tab exists and is waiting for PTY materialization.
@@ -43,7 +44,7 @@ pub enum BootStage {
 /// The PTY and launch attempt a provisional stage describes, whichever source
 /// latched it. Retirement compares late readiness against both, so a prior PTY
 /// or a superseded attempt can never speak for the launch that is latched.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ProvisionalLaunch {
     pub pty_id: String,
     pub binding_nonce: String,

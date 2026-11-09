@@ -1,0 +1,14 @@
+[package]
+name = "codeterm-protocol-export"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codeterm-types = { path = "../../crates/codeterm-types" }
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
+workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }

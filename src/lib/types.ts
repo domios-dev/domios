@@ -1,3 +1,47 @@
+import type { AutoConfirmedPrompt } from "../../gen/AutoConfirmedPrompt";
+import type { PendingPrompt } from "../../gen/PendingPrompt";
+import type { BootStage } from "../../gen/BootStage";
+import type { ProvisionalLaunch } from "../../gen/ProvisionalLaunch";
+import type { RemoteOwnership } from "../../gen/RemoteOwnership";
+import type { TabStatus } from "../../gen/TabStatus";
+import type { AgentRole } from "../../gen/AgentRole";
+export type { AgentRole } from "../../gen/AgentRole";
+export type { PromptOption } from "../../gen/PromptOption";
+export type { PromptSection } from "../../gen/PromptSection";
+export type { AutoConfirmedPrompt } from "../../gen/AutoConfirmedPrompt";
+export type { PendingPrompt } from "../../gen/PendingPrompt";
+export type { BootStage } from "../../gen/BootStage";
+export type { ProvisionalLaunch } from "../../gen/ProvisionalLaunch";
+export type { RemoteOwnership } from "../../gen/RemoteOwnership";
+export type { TabStatus } from "../../gen/TabStatus";
+export type { TeamLifecycle } from "../../gen/TeamLifecycle";
+export type { ThemeConfig } from "../../gen/ThemeConfig";
+export type { FontConfig } from "../../gen/FontConfig";
+export type { TerminalConfig as TerminalConfigSettings } from "../../gen/TerminalConfig";
+export type { DiagnosticsConfig as DiagnosticsConfigSettings } from "../../gen/DiagnosticsConfig";
+export type NotificationConfig = Omit<import("../../gen/NotificationConfig").NotificationConfig, "agent_levels"> & { agent_levels: AgentLevelChoice[] };
+type NamedAgentLevelChoice = Pick<import("../../gen/AgentLevelChoice").AgentLevelChoice, "level" | "bell" | "desktop" | "sound">;
+export type AgentLevelChoice = NamedAgentLevelChoice & Record<string, NamedAgentLevelChoice[keyof NamedAgentLevelChoice]>;
+export type { PushChannelConfig } from "../../gen/PushChannelConfig";
+export type { KeybindingsConfig } from "../../gen/KeybindingsConfig";
+export type { SocketConfig as SocketConfigSettings } from "../../gen/SocketConfig";
+export type { AgentConfig } from "../../gen/AgentConfig";
+export type { GeneralAgentConfig } from "../../gen/GeneralAgentConfig";
+export type { IntegrationsConfig } from "../../gen/IntegrationsConfig";
+export type { SecretsConfig } from "../../gen/SecretsConfig";
+export type { BitwardenSettings } from "../../gen/BitwardenSettings";
+export type { MeshConfig } from "../../gen/MeshConfig";
+export type { OrchestrationConfig } from "../../gen/OrchestrationConfig";
+export type { ProviderConfig } from "./configWireFallbacks";
+export type { SupporterSources } from "../../gen/SupporterSources";
+export type { MemoryRerankConfig } from "../../gen/MemoryRerankConfig";
+export type { SupporterConfig } from "../../gen/SupporterConfig";
+export type { MemoryConfig } from "../../gen/MemoryConfig";
+export type { UiConfig } from "./configWireFallbacks";
+export type { ReplacedModelDefault } from "../../gen/ReplacedModelDefault";
+export type { ModelDefaultsConfig } from "../../gen/ModelDefaultsConfig";
+export type ApiConfig = import("../../gen/ApiConfig").ApiConfig & { token: string | null };
+export type AppConfig = Omit<import("../../gen/AppConfig").AppConfig, "api" | "notifications"> & { api: ApiConfig; notifications: NotificationConfig };
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../packages/plugin-sdk/src/agentRuntime";
 import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";
 import type {ProviderSignals} from "./providerSignals";
@@ -70,39 +114,15 @@ export interface ClosedStructureView {
   blueprint_count: number;
 }
 
-export type AgentRole = "Manager" | "Worker";
 
-export interface PromptOption {
-  label: string;
-  value: string;
-}
 
-export interface PromptSection {
-  label: string;
-  active?: boolean;
-  completed?: boolean;
-}
 
-export interface AutoConfirmedPrompt {
-  tool_name: string;
-  option_label: string;
-  rule: string;
-  question: string;
-  options: string[];
-  prompt_fingerprint: string;
-  session_id?: string | null;
-  confirmed_at_ms: number;
-}
 
-export interface PendingPrompt {
-  request_id?: string | null;
-  question: string;
-  options: PromptOption[];
-  sections?: PromptSection[] | null;
-  multi_select?: boolean | null;
-  submit_available?: boolean | null;
-  selected_values?: string[] | null;
-}
+
+
+
+
+
 
 /** A plugin surface tab: a plugin view rendered inside a core-owned tab frame. */
 export interface SurfaceTabBacking {
@@ -157,24 +177,7 @@ export interface TabAgentState {
   subtype?: "model_choice" | "model_picker" | "permission" | "auth" | "rate_limit" | "update" | "error" | "unknown";
 }
 
-/** Truthful tab-boot progress, emitted by the daemon at real launch
- *  transitions (never timer-driven). Mirrors Rust `service::boot_stage::BootStage`. */
-export type BootStage =
-  | "pty_starting"
-  | "pty_spawned"
-  | "reader_ready"
-  | "shell_ready"
-  | "agent_launching"
-  | "launch_written"
-  | "provider_ready"
-  | "preparing_role_instructions"
-  | "delivering_instructions"
-  | "agent_ready"
-  | "awaiting_owner_prompt"
-  | "pty_reattached"
-  | "launch_deadline_elapsed"
-  | "launch_binding_unconfirmed"
-  | "spawn_failed";
+
 
 /** Payload of the `tab-boot-stage` event. */
 export interface TabBootStageEvent {
@@ -192,14 +195,7 @@ export interface TabBootStageEvent {
   };
 }
 
-export interface ProvisionalLaunch {
-  pty_id: string;
-  binding_nonce: string;
-  reason: string;
-  awaiting_binding_ack?: boolean;
-  first_turn_input_ready?: boolean;
-  first_turn_payload_written?: boolean;
-}
+
 
 export interface Tab {
   agent_runtime_config?: { confirmedServiceTier?: { selection: ServiceTierSelection; sessionId: string; bindingNonce: string | null }; serviceTier?: ServiceTierSelection; serviceTierAvailability?: Record<string, readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>; serviceTierAvailabilityBinding?: {sessionId:string;bindingNonce:string|null}; [key: string]: unknown } | null;
@@ -306,13 +302,7 @@ export interface Tab {
   ownership?: RemoteOwnership;
 }
 
-export interface RemoteOwnership {
-  controller_title: string;
-  controller_tab_id?: string;
-  peer_id: string;
-  peer_name: string;
-  team?: { id: string; title?: string };
-}
+
 
 export interface MultiplexerState {
   workspaces: Workspace[];
@@ -335,19 +325,9 @@ export interface MultiplexerState {
   tab_statuses?: Record<string, TabStatus>;
 }
 
-export type TeamLifecycle = "forming" | "active" | "paused" | "complete" | "archived";
 
-export interface Team {
-  id: string;
-  name?: string | null;
-  lifecycle: TeamLifecycle;
-  created_at: number;
-  workspace_id: string;
-  /** Set only on a synthesized remote Team; shows the origin peer once in the header. */
-  remote_peer_name?: string | null;
-  /** Over the plan limit: visible but not usable until the plan allows it. */
-  locked?: boolean;
-}
+
+export type Team = Omit<import("../../gen/Team").Team, "name"> & { name?: import("../../gen/Team").Team["name"] | null; remote_peer_name?: string | null };
 
 /** Result of the one atomic spawn command (`mux_spawn_tab`). */
 export interface AtomicSpawn {
@@ -390,7 +370,7 @@ export type {
   CallerNotificationAction,
 } from "./notificationTypes";
 
-export type TabStatus = "Working" | "Waiting" | "Idle" | "Error" | "Dead";
+
 
 /** A worker running on another mesh peer that reports to a local orchestrator.
  *  It has no local PTY — the UI renders it as a read-only "remote Tab" ghost
@@ -539,35 +519,9 @@ export interface CronJob {
 
 // Configuration types (matches Rust AppConfig schema)
 
-export interface ThemeConfig {
-  name: string;
-  background: string;
-  foreground: string;
-  cursor: string;
-  selection: string;
-  black: string;
-  red: string;
-  green: string;
-  yellow: string;
-  blue: string;
-  magenta: string;
-  cyan: string;
-  white: string;
-  bright_black: string;
-  bright_red: string;
-  bright_green: string;
-  bright_yellow: string;
-  bright_blue: string;
-  bright_magenta: string;
-  bright_cyan: string;
-  bright_white: string;
-}
 
-export interface FontConfig {
-  family: string;
-  size: number;
-  ligatures: boolean;
-}
+
+
 
 export interface ShellProfile {
   id: string;
@@ -577,147 +531,35 @@ export interface ShellProfile {
   wsl_distro: string | null;
 }
 
-export interface TerminalConfigSettings {
-  default_shell?: string | null;
-  cursor_style: string;
-  cursor_blink: boolean;
-  scrollback: number;
-  copy_on_select: boolean;
-}
 
-export interface DiagnosticsConfigSettings {
-  terminal_transport: boolean;
-}
 
-export interface NotificationConfig {
-  desktop: boolean;
-  /** The chime's master mute. Which levels chime is each level's own answer on
-   *  its row; this silences all of them at once without destroying those
-   *  answers, and is the gesture the browser's audio permission hangs off. */
-  sound: boolean;
-  toast_duration: number;
-  /** Whether the bell surface is drawn at all. Presentation, not routing: off
-   *  hides the indicator while every record is still kept, which is what keeps
-   *  it distinguishable from every row having its bell column closed. */
-  show_bell: boolean;
-  /** Per-channel push opt-in, keyed by the channel's service id. Nothing here
-   *  names a channel: the registry decides which keys are meaningful. */
-  channels: Record<string, PushChannelConfig>;
-  /** One row per level, generated by the daemon from the one closed level set.
-   *  Settings render this list rather than restating it. */
-  agent_levels: AgentLevelChoice[];
-}
 
-/** One row of the levels grid: where this level may go BEYOND the panel, which
- *  keeps every record unconditionally, and whether it chimes. The named fields
- *  are named; every other key is a push channel's service id, flattened into the
- *  row. `bell` is retained and inert — nothing routes on it, and it stays a
- *  named field so the flattened map never reads it back as a channel. `sound` is
- *  named for the same reason and is not inert: it is this level's own chime
- *  answer, and `undefined` is unanswered rather than off, so a row written
- *  before the field keeps the chime it had. An absent channel key reads as
- *  closed, which is how a channel the registry gains arrives off. Every column
- *  off is a legitimate answer: that level is kept in the panel and interrupts
- *  nowhere, and every column starts there. */
-export interface AgentLevelChoice {
-  level: string;
-  bell: boolean;
-  desktop: boolean;
-  sound?: boolean;
-  [channel: string]: string | boolean | undefined;
-}
 
-/** One channel's push audience. `recipients` is deliberately not that
- *  integration's inbound admission list, which admits senders rather than
- *  naming an audience. Empty means nobody, never everyone admitted; whether a
- *  level reaches this channel at all is that channel's column of the grid. */
-export interface PushChannelConfig {
-  recipients: string[];
-  per_scope_limit: number;
-}
 
-export interface KeybindingsConfig {
-  new_tab?: string;
-  close_tab?: string;
-  new_workspace?: string;
-  copy?: string;
-  paste?: string;
-  search?: string;
-  zoom_in?: string;
-  zoom_out?: string;
-  zoom_reset?: string;
-  open_settings?: string;
-  reopen_tab: string;
-  /** Cycle to the next sidebar item (plan entry or tab) in the active workspace. */
-  next_tab: string;
-  /** Cycle to the previous sidebar item (plan entry or tab) in the active workspace. */
-  prev_tab?: string;
-}
 
-export interface SocketConfigSettings {
-  path: string | null;
-}
 
-export interface AgentConfig {
-  reply_relay_max_hops?: number;
-  poll_interval_ms: number;
-  idle_timeout_s: number;
-  resume_sessions: boolean;
-  sandbox_ceiling?: "read-only" | "workspace-write";
-}
 
-export interface ApiConfig {
-  enabled: boolean;
-  host: string;
-  port: number;
-  token: string | null;
-  cors: boolean;
-  cors_allow_origins?: string[];
-  preview_secret_paths?: string[];
-}
 
-export interface GeneralAgentConfig {
-  capability_hints?: boolean;
-  enabled: boolean;
-  agent_provider: string;
-  model?: string | null;
-  reasoning_effort?: string | null;
-  auto_restart: boolean;
-  max_restart_attempts: number;
-  restart_delay_s: number;
-  first_run_complete?: boolean;
-}
 
-export interface IntegrationsConfig {
-  telegram_enabled: boolean;
-  telegram_allowed_users: string[];
-  discord_enabled: boolean;
-  discord_allowed_users: string[];
-  webhook_enabled: boolean;
-  webhook_port: number;
-  secrets: SecretsConfig;
-}
 
-export interface SecretsConfig {
-  backend: string;
-  default_organization: string;
-  default_collection: string;
-  bitwarden?: BitwardenSettings;
-}
 
-export interface BitwardenSettings {
-  server_url: string;
-}
 
-export interface MeshConfig {
-  enabled: boolean;
-  instance_name: string;
-}
 
-export interface OrchestrationConfig {
-  plan_reminders: boolean;
-  nudge_interval_secs: number;
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 export interface NetworkIdentity { kind: string; network_id: string }
 export interface NetworkTransportStatus {
@@ -784,108 +626,23 @@ export interface MeshPeersResponse {
 
 /// Per-provider settings stored under `agents.<id>` in the TOML config.
 /// Mirrors `src-tauri/src/config/schema.rs::ProviderConfig`.
-export interface ProviderConfig {
-  resume_sessions?: boolean;
-  default_model?: string;
-  /// When false, the provider is hidden from the per-workspace
-  /// "New <Provider> Session" menu. Defaults to true (visible).
-  visible_in_menu?: boolean;
-  /// Periodic /usage probing for this provider. On by default; auto-rendered
-  /// by `<SchemaRenderer />` from the plugin's `settings_schema()` when the
-  /// provider declares a `usage_parser()`.
-  usage_tracking_enabled?: boolean;
-  // Additional plugin-declared fields land in this map (TOML #[serde(flatten)]).
-  [key: string]: unknown;
-}
 
-export interface SupporterSources {
-  recall: number;
-  graph: number;
-  docs: number;
-  sessions?: number;
-}
 
-export interface MemoryRerankConfig {
-  docs_hybrid: boolean;
-  sources: SupporterSources;
-  candidates: number;
-  max_concurrency: number;
-  request_mode: "per_candidate" | "shared_state";
-  low_confidence_threshold: number;
-  max_body_chars: number;
-}
 
-export interface SupporterConfig {
-  adapter?: string | null;
-  connections: Record<string, { model: string | null; endpoint: string | null }>;
-  deadline_ms: number;
-  memory_rerank: MemoryRerankConfig;
-  calls_per_hour?: number | null;
-}
 
-export interface MemoryConfig {
-  extraction_agent: string;
-  extraction_model: string;
-  auto_extract: boolean;
-  dreaming_agent: string;
-  dreaming_model: string;
-  worker_model: string;
-  worker_timeout_seconds: number;
-  dedup_threshold: number;
-  file_sync_enabled: boolean;
-  file_sync_interval_minutes: number;
-  librarian_enabled?: boolean;
-}
 
-export interface UiConfig {
-  memory_tab_enabled?: boolean;
-  mesh_tab_enabled?: boolean;
-  keepawake_display?: boolean;
-  usage_intro_hint_opens?: number;
-  [key: string]: unknown;
-}
 
-export interface AppConfig {
-  browser_upload_folders?: Record<string, string[]>;
-  tab_sleep?: { enabled: boolean; idle_minutes: number };
-  restore?: { active_window_hours: number };
-  updater?: {
-    channel?: string;
-    allow_provider_updates_in_non_prod?: boolean;
-    auto_update_provider_clis?: boolean;
-  };
-  theme: ThemeConfig;
-  font: FontConfig;
-  terminal: TerminalConfigSettings;
-  diagnostics: DiagnosticsConfigSettings;
-  notifications: NotificationConfig;
-  keybindings: KeybindingsConfig;
-  socket: SocketConfigSettings;
-  agent: AgentConfig;
-  api: ApiConfig;
-  agents: { [providerId: string]: ProviderConfig };
-  general_agent: GeneralAgentConfig;
-  memory: MemoryConfig;
-  supporter: SupporterConfig;
-  integrations: IntegrationsConfig;
-  mesh: MeshConfig;
-  neighbors: { enabled: boolean };
-  orchestration: OrchestrationConfig;
-  ui?: UiConfig;
-  model_defaults?: ModelDefaultsConfig;
-}
 
-/** A stored model default the daemon moved off a model its catalogue stopped offering. */
-export interface ReplacedModelDefault {
-  provider: string;
-  from: string;
-  to: string;
-  reason: string;
-}
 
-export interface ModelDefaultsConfig {
-  replaced?: Record<string, ReplacedModelDefault>;
-}
+
+
+
+
+
+
+
+
+
 
 // Provider descriptor wire types mirror `src-tauri/src/agent/provider.rs`.
 // Frontend consumes them via `list_agent_providers`.

@@ -56,7 +56,7 @@ const lazyComposerReady: Tab = {
   pty_id: "own-pty",
   session_binding_nonce: "own-nonce",
   boot_stage: "provider_ready",
-  provisional_launch: {
+  provisional_launch: {first_turn_payload_written: false,
     pty_id: "own-pty",
     binding_nonce: "own-nonce",
     reason: "composer-ready",

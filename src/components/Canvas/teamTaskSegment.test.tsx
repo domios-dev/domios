@@ -488,7 +488,7 @@ describe("temporary task segment through show full", () => {
   });
 });
 
-const API: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
+const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
 
 function missionState(): MissionControlState {
   return {

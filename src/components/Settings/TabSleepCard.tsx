@@ -5,7 +5,7 @@ import { SettingsCard, Toggle } from "./shared";
 
 export function TabSleepCard({ config, onUpdate }: {
   config: AppConfig;
-  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+  onUpdate: (section: "tab_sleep", patch: Partial<AppConfig["tab_sleep"]>) => void;
 }) {
   const settings = tabSleepSettings(config);
   return <SettingsCard icon={<Clock size={16} />} title="Tab sleep"
