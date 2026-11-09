@@ -2104,6 +2104,7 @@ dependencies = [
 name = "codeterm-protocol-export"
 version = "0.0.0"
 dependencies = [
+ "codeterm-pty",
  "codeterm-types",
  "ts-rs",
  "workspace-hack",
@@ -2138,6 +2139,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "ts-rs",
  "workspace-hack",
 ]
 
@@ -2165,6 +2167,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "ts-rs",
  "ulid",
  "uuid",
  "vt100",

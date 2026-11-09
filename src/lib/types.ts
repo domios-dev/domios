@@ -1,10 +1,5 @@
-import type { AutoConfirmedPrompt } from "../../gen/AutoConfirmedPrompt";
-import type { PendingPrompt } from "../../gen/PendingPrompt";
-import type { BootStage } from "../../gen/BootStage";
-import type { ProvisionalLaunch } from "../../gen/ProvisionalLaunch";
-import type { RemoteOwnership } from "../../gen/RemoteOwnership";
-import type { TabStatus } from "../../gen/TabStatus";
-import type { AgentRole } from "../../gen/AgentRole";
+type NullableOptionals<T> = { [K in keyof T]: undefined extends T[K] ? T[K] | null : T[K] };
+
 export type { AgentRole } from "../../gen/AgentRole";
 export type { PromptOption } from "../../gen/PromptOption";
 export type { PromptSection } from "../../gen/PromptSection";
@@ -46,310 +41,60 @@ import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../
 import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";
 import type {ProviderSignals} from "./providerSignals";
 
-/** Title priority: higher levels cannot be overwritten by lower ones. */
-export enum TitleLevel {
-  Default = "Default",
-  Auto = "Auto",
-  Agent = "Agent",
-  User = "User",
-}
+export type TitleLevel = import("../../gen/TitleLevel").TitleLevel;
+export const TitleLevel = { Default: "Default", Auto: "Auto", Agent: "Agent", User: "User" } as const satisfies Record<TitleLevel, TitleLevel>;
 
-export interface Workspace {
-  id: string;
-  name: string;
-  tabs: string[];
-  active_tab_id: string | null;
-  cwd: string | null;
-  cwd_missing?: boolean;
-  protected?: boolean;
-  /** Over the plan limit: visible but not usable until the plan allows it. */
-  locked?: boolean;
-  /** Sibling ordinal among workspaces; the sidebar sorts by it. */
-  sort_order?: number;
-}
+export type Workspace = Pick<import("../../gen/Workspace").Workspace, "id" | "name" | "tabs" | "active_tab_id" | "cwd"> & Partial<import("../../gen/Workspace").Workspace>;
 
-/** A tab that was closed and can be reopened. Mirrors Rust `ClosedTab`
- *  (serde snake_case). `closed_at` is a UNIX-millisecond timestamp. Now backed
- *  by the sqlite closed-history store rather than the session snapshot. */
-export interface ClosedTab {
-  tab_id: string;
-  /** Original parent tab id — preserves the orchestration hierarchy for a
-   *  cascade-group reopen. */
-  parent_tab_id?: string | null;
-  title: string;
-  description?: string | null;
-  backing?: TabBacking;
-  cwd?: string | null;
-  agent_type?: string | null;
-  agent_session_id?: string | null;
-  model?: string | null;
-  closed_at: number;
-  /** Workspace the tab belonged to. Empty string on old records. */
-  workspace_id?: string;
-  workspace_name?: string;
-}
+export type ClosedTab = Pick<import("../../gen/ClosedTab").ClosedTab, "tab_id" | "title" | "closed_at"> & Partial<import("../../gen/ClosedTab").ClosedTab>;
 
-/** A closed tab enriched for the sidebar: the per-workspace reopen `index`, an
- *  `orphaned` flag (its workspace no longer exists), and the group it belongs
- *  to. Mirrors Rust `ClosedTabView` (ClosedTab flattened + these fields). */
-export interface ClosedTabView extends ClosedTab {
-  index: number;
-  orphaned: boolean;
-  group_id: string;
-  group_kind: "single" | "cascade" | "workspace";
-}
+export type ClosedTabView = Pick<import("./multiplexerWireFallbacks").ClosedTabView, "tab_id" | "title" | "closed_at" | "index" | "orphaned" | "group_id" | "group_kind"> & Partial<import("./multiplexerWireFallbacks").ClosedTabView>;
 
-export interface ClosedStructureView {
-  id: string;
-  state: "closed" | "restoring" | "restored";
-  kind: "team" | "workspace";
-  label: string;
-  closed_at: number;
-  undo_until: number;
-  member_count: number;
-  team_count: number;
-  shell_count: number;
-  agent_count: number;
-  cron_count: number;
-  blueprint_count: number;
-}
+export type { ClosedStructureView } from "../../gen/ClosedStructureView";
 
+export type SurfaceTabBacking = Extract<import("../../gen/TabBacking").TabBacking, { kind: "surface" }>;
 
+export type TabBacking = import("../../gen/TabBacking").TabBacking;
 
+export type WatcherPolicy = import("../../gen/WatcherPolicy").WatcherPolicy;
 
+export type WatcherSpec = Pick<import("../../gen/WatcherSpec").WatcherSpec, "charter" | "policy"> & Partial<Omit<import("../../gen/WatcherSpec").WatcherSpec, "observations" | "state">> & { observations?: unknown; state?: unknown };
 
+export type TabAgentState = Omit<NullableOptionals<import("../../gen/AgentLiveState").AgentLiveState>, "subtype"> & Pick<import("../../gen/AgentLiveState").AgentLiveState, "subtype">;
 
+export type TabBootStageEvent = Pick<import("../../gen/TabBootStageEvent").TabBootStageEvent, "tab_id" | "stage"> & Partial<import("../../gen/TabBootStageEvent").TabBootStageEvent>;
 
-
-
-
-
-/** A plugin surface tab: a plugin view rendered inside a core-owned tab frame. */
-export interface SurfaceTabBacking {
-  kind: "surface";
-  plugin_id: string;
-  surface_id: string;
-  instance_id: string;
-  /** The tab is labelled after its owner (`parent_tab_id`). */
-  owner_label?: boolean;
-}
-
-/** What backs a tab's I/O — a PTY (terminal), a plugin chatBackend, or a plugin
- *  surface. Mirrors the Rust `TabBacking` (serde `tag = "kind"`, snake_case). */
-export type TabBacking =
-  | { kind: "pty" }
-  | { kind: "chat_backend"; plugin_id: string; session_id: string }
-  | SurfaceTabBacking;
-
-/** Tunable watcher limits set by the spawner; host clamps to safe bounds. */
-export interface WatcherPolicy {
-  tick_interval_secs: number;
-  nudge_cooldown_secs: number;
-  max_actions_per_tick: number;
-}
-
-/** Persisted watcher session state on a chatBackend tab. Mirrors Rust `WatcherSpec`. */
-export interface WatcherSpec {
-  charter: string;
-  policy: WatcherPolicy;
-  observations?: unknown;
-  state?: unknown;
-  tick?: number;
-  last_tick_ms?: number | null;
-  last_status?: string | null;
-  tick_inflight_since_ms?: number | null;
-}
-
-/** Backend-computed live agent state. Mirrors the Rust `AgentLiveState` serde
- *  shape; `subtype` only carries meaning when `state === "question"`. */
-export interface TabAgentState {
-  state: "working" | "idle" | "question";
-  /** Provider-rendered live status line, e.g. Claude's token/progress row. */
-  status_line?: string | null;
-  /** Provider-rendered completed-turn summary shown while idle. */
-  last_turn_summary?: string | null;
-  /** Complete authoritative input request shown while questioning. */
-  question?: string | null;
-  /** Provider-derived work phase, e.g. thinking/streaming/tool, when known. */
-  phase?: string | null;
-  /** Parsed elapsed time in milliseconds: the live turn while working, the finished turn while idle. */
-  elapsed_ms?: number | null;
-  subtype?: "model_choice" | "model_picker" | "permission" | "auth" | "rate_limit" | "update" | "error" | "unknown";
-}
-
-
-
-/** Payload of the `tab-boot-stage` event. */
-export interface TabBootStageEvent {
-  tab_id: string;
-  stage: BootStage;
-  agent_booting?: boolean;
-  session_bound?: boolean;
-  reason?: string | null;
-  provisional_launch?: ProvisionalLaunch | null;
-  launch_generation?: {
-    epoch: number | null;
-    operation_id: string | null;
-    pty_id: string | null;
-    binding_nonce: string | null;
-  };
-}
-
-
-
-export interface Tab {
-  agent_runtime_config?: { confirmedServiceTier?: { selection: ServiceTierSelection; sessionId: string; bindingNonce: string | null }; serviceTier?: ServiceTierSelection; serviceTierAvailability?: Record<string, readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>; serviceTierAvailabilityBinding?: {sessionId:string;bindingNonce:string|null}; [key: string]: unknown } | null;
+type TabClearableFields = "agent_runtime_config" | "agent_runtime_state" | "pending_model_selection" | "pending_model_switch_observation" | "close_restore" | "shell_profile" | "icon" | "workspace_id" | "pty_id" | "description" | "cwd" | "agent_type" | "agent_session_id" | "session_binding_nonce" | "reported_session_binding_nonce" | "agent_session_name" | "agent_session_model" | "agent_requested_model" | "structured_runtime_mode" | "agent_provider_resolved_model" | "agent_label" | "role" | "role_profile" | "team_id" | "spawned_by_tab_id" | "managed" | "parent_tab_id" | "pending_prompt" | "pending_prompt_kind" | "agent_state" | "worker_id" | "slept_at_ms" | "last_active_at_ms" | "boot_stage" | "lifecycle_epoch" | "lifecycle_operation_id" | "boot_failure_reason" | "provisional_launch" | "watcher";
+type LocalTabNullability<T> = { [K in keyof T]: K extends TabClearableFields ? T[K] | null : T[K] };
+type WireSnapshotTab = import("../../gen/MultiplexerSnapshot").MultiplexerSnapshot["tabs"][string];
+export type Tab = Pick<WireSnapshotTab, "id" | "pty_id" | "tab_type" | "title" | "cwd"> & Partial<Omit<LocalTabNullability<WireSnapshotTab>, "agent_runtime_config" | "agent_runtime_questions" | "agent_runtime_state" | "title_pending_local" | "remote_peer_id" | "remote_peer_name" | "remote_tab_id" | "remote_channels" | "provider_signals" | "pending_model_selection" | "pending_model_switch_observation" | "context_epoch_archives" | "watcher" | "agent_state">> & {
+  workspace_id?: import("../../gen/Workspace").Workspace["id"] | null;
+  session_bound?: import("../../gen/TabBootStageEvent").TabBootStageEvent["session_bound"];
+  watcher?: WatcherSpec | null;
+  agent_state?: TabAgentState | null;
+  agent_runtime_config?: { confirmedServiceTier?: { selection: ServiceTierSelection; sessionId: string; bindingNonce: string | null }; serviceTier?: ServiceTierSelection; serviceTierAvailability?: Record<string, readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>; serviceTierAvailabilityBinding?: {sessionId:string;bindingNonce:string|null}; systemPrompt?: never; [key: string]: unknown } | null;
   agent_runtime_questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
   agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
-  pending_model_selection?: { model: string; effort: string | null; confirmation_pending?: boolean } | null;
-  pending_model_switch_observation?: { launched_model: string } | null;
-  close_restore?: { command: string | null; stopped: boolean; record_id: string | null; exact_session: boolean } | null;
-  shell_profile?: ShellProfile | null;
-  purpose?: import("./shellCommandState").ShellPurpose;
-  icon?: string | null;
-  shell_command_state?: import("./shellCommandState").ShellCommandState;
-  context?: { used_tokens: number; window_tokens: number; cost_usd: number | null; source: string };
   provider_signals?: ProviderSignals;
-  id: string;
-  workspace_id?: string | null;
-  /** Per-group sibling ordinal within the owning workspace or hierarchy. */
-  sort_order?: number;
-  pty_id: string | null;
-  /** Defaults to `{ kind: "pty" }` when absent (pre-field snapshots). */
-  backing?: TabBacking;
-  tab_type: "Terminal" | "Choice";
-  title: string;
-  description?: string | null;
-  cwd: string | null;
-  title_level?: TitleLevel;
-  /** Frontend-only: true while `title` was set by a local optimistic rename
-   *  not yet confirmed by a backend snapshot. Distinguishes a genuine
-   *  in-flight rename (must survive a tied/stale backend snapshot) from a
-   *  stale title merely carried over from a prior snapshot or cache
-   *  hydration (must yield to the backend on the next tie). Cleared once a
-   *  backend SET_STATE reports a matching title. */
   title_pending_local?: boolean;
-  agent_type?: string | null;
-  agent_session_id?: string | null;
-  /** Launch-scoped proof used to reject chat events emitted by a prior tab binding. */
-  session_binding_nonce?: string | null;
-  reported_session_binding_nonce?: string | null;
-  agent_session_name?: string | null;
-  agent_session_model?: string | null;
-  agent_requested_model?: string | null;
-  structured_runtime_mode?: string | null;
-  agent_provider_resolved_model?: string | null;
-  agent_label?: string | null;
-  reasoning_effort_identity?: {
-    planned?: string | null;
-    requested?: string | null;
-    resolved?: string | null;
-    actual: string | null;
-    actual_source?: "session-owned" | "provider-default-unverified" | null;
-  };
-  context_epoch_archives?: Array<{
-    provider: string;
-    cwd: string;
-    session_id: string;
-  }>;
-  role?: AgentRole | null;
-  role_profile?: string | null;
-  roleless_tracked?: boolean;
-  /** The tab's own checklist currently holds items; peers report it for their tabs too. */
-  has_checklist?: boolean;
-  team_id?: string | null;
-  spawned_by_tab_id?: string | null;
-  managed?: { manager_tab_id: string; manager_name: string; manager_closed: boolean } | null;
-  parent_tab_id?: string | null;
-  can_spawn?: boolean;
-  depth?: number;
-  chat_view?: boolean;
-  pending_prompt?: PendingPrompt | null;
-  pending_prompt_kind?: import("./notificationTypes").NotificationPromptIdentity["kind"] | null;
-  /** Live 3-state agent classification from the backend state engine. Drives
-   *  the chat-view AgentStateIndicator. Absent until the backend classifies. */
-  agent_state?: TabAgentState | null;
-  protected?: boolean;
-  /** Over the plan limit: visible but takes no input until the plan allows it. */
-  locked?: boolean;
-  connected_services?: string[];
-  hidden?: boolean;
-  show_in_tabbar?: boolean;
-  worker_id?: string | null;
-  agent_booting?: boolean;
-  frozen?: boolean;
-  slept_at_ms?: number | null;
-  last_active_at_ms?: number | null;
-  /** True only when this visible session explicitly bypasses provider permissions/sandbox. */
-  auto_approve?: boolean;
-  /** Opt-in: provider-recognized permission prompts are answered with their affirmative option. */
-  permission_auto_confirm?: boolean;
-  permission_auto_confirmations?: AutoConfirmedPrompt[];
-  /** Current agent-boot stage for late attachers reading the live snapshot.
-   *  Absent once boot completes or before it begins. */
-  boot_stage?: BootStage | null;
-  lifecycle_epoch?: number | null;
-  lifecycle_operation_id?: string | null;
-  session_bound?: boolean;
-  boot_failure_reason?: string | null;
-  provisional_launch?: ProvisionalLaunch | null;
-  /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
-  watcher?: WatcherSpec | null;
   remote_peer_id?: string;
   remote_peer_name?: string;
   remote_tab_id?: string;
   remote_channels?: RemoteChannelAvailabilityMap;
-  ownership?: RemoteOwnership;
-}
+  pending_model_selection?: Omit<import("../../gen/PendingModelSelection").PendingModelSelection, "confirmation_pending"> & Partial<Pick<import("../../gen/PendingModelSelection").PendingModelSelection, "confirmation_pending">> | null;
+  pending_model_switch_observation?: Pick<import("../../gen/PendingModelSwitchObservation").PendingModelSwitchObservation, "launched_model"> & Partial<import("../../gen/PendingModelSwitchObservation").PendingModelSwitchObservation> | null;
+  context_epoch_archives?: Array<Pick<import("../../gen/ContextEpochArchive").ContextEpochArchive, "provider" | "cwd" | "session_id"> & Partial<import("../../gen/ContextEpochArchive").ContextEpochArchive>>;
+};
 
-
-
-export interface MultiplexerState {
-  workspaces: Workspace[];
-  tabs: Record<string, Tab>;
-  teams?: Team[];
-  active_workspace_id: string | null;
-  focused_tab_id: string | null;
-  /** Monotonic snapshot generation stamped by the backend. The reducer ignores
-   *  any incoming snapshot whose generation is `<=` the one already applied. */
-  generation?: number;
-  /** Bounded newest-first view of the closed-tab history across all
-   *  workspaces (sourced from the sqlite store, not the session snapshot).
-   *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
-   *  and group metadata. */
-  recently_closed?: ClosedTabView[];
-  closed_structures?: ClosedStructureView[];
-  /** Aggregate Idle/Working/Waiting/Error/Dead per PTY-backed tab, mirrored from the
-   *  backend's live status tracker so the tab rail hydrates correctly on
-   *  reload instead of staying blank until the next status event. */
-  tab_statuses?: Record<string, TabStatus>;
-}
+export type MultiplexerState = Omit<import("../../gen/MultiplexerSnapshot").MultiplexerSnapshot, "workspaces" | "tabs" | "teams" | "recently_closed" | "generation"> & { workspaces: Workspace[]; tabs: Record<string, Tab>; teams?: Team[]; recently_closed?: ClosedTabView[]; generation?: number };
 
 
 
 export type Team = Omit<import("../../gen/Team").Team, "name"> & { name?: import("../../gen/Team").Team["name"] | null; remote_peer_name?: string | null };
 
-/** Result of the one atomic spawn command (`mux_spawn_tab`). */
-export interface AtomicSpawn {
-  snapshot: MultiplexerState;
-  tab_id: string;
-  workspace_id: string;
-  launch_command?: string;
-  warning?: string;
-}
+export type AtomicSpawn = import("../../gen/AtomicSpawn").AtomicSpawn<MultiplexerState>;
 
-export interface WorkspaceInfo {
-  id: string;
-  name: string;
-  tab_count: number;
-  is_active: boolean;
-  cwd: string | null;
-  cwd_missing?: boolean;
-  protected?: boolean;
-  tab_ids: string[];
-  /** Set only when create_workspace deduped by cwd instead of creating one. */
-  existing?: boolean;
-}
+export type WorkspaceInfo = import("../../gen/WorkspaceInfo").WorkspaceInfo;
 
 export interface TabInfo {
   id: string;
@@ -517,19 +262,7 @@ export interface CronJob {
   jitter_max_ms: number | null;
 }
 
-// Configuration types (matches Rust AppConfig schema)
-
-
-
-
-
-export interface ShellProfile {
-  id: string;
-  name: string;
-  executable: string;
-  args: string[];
-  wsl_distro: string | null;
-}
+export type ShellProfile = import("../../gen/ShellProfile").ShellProfile;
 
 
 

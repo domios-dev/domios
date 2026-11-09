@@ -1,7 +1,8 @@
 use codeterm_provider_signals::{ApiErrorKind, AuthStatus, PermissionMode, SessionObservations};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ProviderSignals {
     #[serde(default)]
     pub capabilities: Option<super::capability_probe::ProbeSnapshot>,

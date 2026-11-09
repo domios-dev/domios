@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 impl super::Tab {
     /// The name this tab's own session declared for a runtime-qualified model id.
@@ -42,20 +43,23 @@ impl super::Tab {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ModelIdentityMismatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub planned_model: Option<String>,
     pub requested_model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub provider_resolved_model: Option<String>,
     pub actual_model: String,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ModelFallbackNotice {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub planned_model: Option<String>,
     pub requested_model: String,
     pub provider_resolved_model: String,
@@ -80,7 +84,7 @@ pub struct LaunchModelReport {
     pub transcript_model_at_launch: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct PendingModelSwitchObservation {
     pub session_id: String,
     pub launched_model: String,

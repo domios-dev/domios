@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use ts_rs::TS;
 
 use serde::Serialize;
 use uuid::Uuid;
@@ -51,7 +52,7 @@ fn short_id() -> String {
 }
 
 /// Lightweight workspace summary for listing.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 pub struct WorkspaceInfo {
     pub id: String,
     pub name: String,
@@ -65,6 +66,7 @@ pub struct WorkspaceInfo {
     pub locked: bool,
     /// Set to true when create_workspace deduped by cwd (no new ws was created).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub existing: Option<bool>,
     /// True when the daemon created this workspace's directory.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -137,7 +139,7 @@ pub struct TeamResolution {
 }
 
 /// Full state snapshot for frontend hydration.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 pub struct MultiplexerSnapshot {
     /// Monotonic generation; the reducer drops any snapshot whose value is
     /// `<=` the one already applied. Serialized first so the publisher can
@@ -145,6 +147,9 @@ pub struct MultiplexerSnapshot {
     pub generation: u64,
     pub workspaces: Vec<Workspace>,
     #[serde(serialize_with = "wire_snapshot::tabs")]
+    #[ts(
+        type = "Record<string, Omit<import(\"./Tab\").Tab, \"agent_runtime_config\" | \"prior_session_binding_nonces\"> & { agent_runtime_config?: Exclude<import(\"./serde_json/JsonValue\").JsonValue, Record<string, unknown>> | { [key: string]: import(\"./serde_json/JsonValue\").JsonValue | undefined; systemPrompt?: never }; prior_session_binding_nonces?: [import(\"./PriorBindingNonce\").PriorBindingNonce?, import(\"./PriorBindingNonce\").PriorBindingNonce?] }>"
+    )]
     pub tabs: HashMap<String, Tab>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub teams: Vec<Team>,
@@ -154,6 +159,7 @@ pub struct MultiplexerSnapshot {
     /// workspaces) for the sidebar. Sourced live from the sqlite store, NOT the
     /// persisted session snapshot — keeps both lean.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(type = "Array<import(\"../src/lib/multiplexerWireFallbacks\").ClosedTabView>")]
     pub recently_closed: Vec<ClosedTabView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub closed_structures: Vec<ClosedStructureView>,

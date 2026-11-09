@@ -1,23 +1,24 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ProbeCommand {
     pub name: String,
     pub description: Option<String>,
     pub argument_hint: Option<String>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ProbeModel {
     pub id: String,
     pub display_name: Option<String>,
     pub description: Option<String>,
 }
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ProbeAccount {
     pub subscription_type: Option<String>,
     pub api_provider: Option<String>,
 }
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct InitializeCapabilities {
     pub commands: Option<Vec<ProbeCommand>>,
     pub models: Option<Vec<ProbeModel>>,
@@ -27,7 +28,7 @@ pub struct InitializeCapabilities {
     pub fast_mode_state: Option<String>,
     pub output_style: Option<String>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ProbeFailure {
     Disabled,
@@ -43,7 +44,7 @@ pub enum ProbeFailure {
     Cleanup,
     Superseded,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ProbeSnapshot {
     Pending,

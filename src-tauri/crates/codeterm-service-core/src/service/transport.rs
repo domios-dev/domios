@@ -5,7 +5,7 @@
 //! and returns a snapshot only after transport launch succeeds.
 
 use crate::service::MuxEmitCause;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::spawn::{should_default_agent_tab_to_chat, TabVisibility};
 use super::ServiceContext;
@@ -37,18 +37,7 @@ pub struct AtomicSpawnParams {
     pub reasoning_effort: Option<String>,
 }
 
-/// Authoritative result the client applies once. PTY and chat launch work stays
-/// in the backend, so no mounted frontend surface is required to start either.
-#[derive(Debug, Clone, Serialize)]
-pub struct AtomicSpawn<S = MultiplexerSnapshot> {
-    pub snapshot: S,
-    pub tab_id: String,
-    pub workspace_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub launch_command: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warning: Option<String>,
-}
+pub type AtomicSpawn<S = MultiplexerSnapshot> = codeterm_types::pty::AtomicSpawn<S>;
 
 /// Per-spawn context handed to a transport's `launch`.
 pub struct TransportLaunchCtx<'a> {

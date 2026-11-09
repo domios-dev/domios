@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[derive(ts_rs::TS)]
 pub struct TaskFiles {
     #[serde(default)]
     pub edit: Vec<String>,

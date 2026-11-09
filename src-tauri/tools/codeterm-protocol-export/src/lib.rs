@@ -25,6 +25,14 @@ pub fn export() -> Result<(), Box<dyn std::error::Error>> {
         ProvisionalLaunch::export_all(&protocol)?;
         RemoteOwnership::export_all(&protocol)?;
         TabStatus::export_all(&protocol)?;
+        codeterm_types::pty::TabBootStageEvent::export_all(&protocol)?;
+        codeterm_pty::multiplexer::types::Tab::export_all(&protocol)?;
+        codeterm_pty::multiplexer::types::ClosedTab::export_all(&protocol)?;
+        codeterm_pty::multiplexer::types::Workspace::export_all(&protocol)?;
+        codeterm_pty::multiplexer::state::WorkspaceInfo::export_all(&protocol)?;
+        codeterm_pty::multiplexer::state::ClosedStructureView::export_all(&protocol)?;
+        codeterm_pty::multiplexer::state::MultiplexerSnapshot::export_all(&protocol)?;
+        codeterm_types::pty::AtomicSpawn::<codeterm_pty::multiplexer::state::MultiplexerSnapshot>::export_all(&protocol)?;
     }
     Ok(())
 }
