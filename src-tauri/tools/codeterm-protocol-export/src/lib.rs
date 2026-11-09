@@ -15,6 +15,7 @@ use ts_rs::{Config, TS};
 pub fn export() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env().with_large_int("number");
     ChatMsg::export_all(&config)?;
+    codeterm_types::agent::delivery::MatchedRow::export_all(&config)?;
     SystemSend::export_all(&config)?;
     codeterm_types::agent::roles::ReportOutcomeClass::export_all(&config)?;
     codeterm_wire::envelope::MessageSegment::export_all(&config)?;
@@ -198,6 +199,11 @@ pub fn export() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         codeterm_plan::service_plan::ui_projections::board::PlanBoardState::export_all(&protocol)?;
         codeterm_plan::service_plan::ui_projections::views::PlanProjection::export_all(&protocol)?;
+        codeterm_types::agent::delivery::ChatSendStatus::export_all(&protocol)?;
+        codeterm_types::agent::delivery::ChatSendResult::export_all(&protocol)?;
+        codeterm_types::agent::delivery::GoalBinding::export_all(&protocol)?;
+        codeterm_types::agent::delivery::LocalRecordingCommitOutcome::export_all(&protocol)?;
+        codeterm_wire::delayed::DelayedMessageView::export_all(&protocol)?;
         AppConfig::export_all(&protocol)?;
         Team::export_all(&protocol)?;
         AgentRole::export_all(&protocol)?;

@@ -8,8 +8,8 @@ use codeterm_plugin::agent_runtime::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-pub use codeterm_plugin::api_contracts::GoalBinding;
 use codeterm_plugin::api_contracts::GoalSnapshot;
+pub use codeterm_types::agent::delivery::GoalBinding;
 fn capture_binding(context: &RuntimeContext) -> Result<GoalBinding, String> {
     Ok(GoalBinding {
         thread_id: context

@@ -167,7 +167,9 @@ pub async fn chat_send_text(
                 None,
                 body.client_token,
             )?;
-            Ok(codeterm_service_core::service::agent_pad::ChatSendResult::new(status, pad_file))
+            Ok(codeterm_service_core::service::agent_pad::chat_send_result(
+                status, pad_file,
+            ))
         }
     })
     .await

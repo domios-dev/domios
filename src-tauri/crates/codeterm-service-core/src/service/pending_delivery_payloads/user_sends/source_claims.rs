@@ -8,7 +8,9 @@ pub(super) fn validate_claims(claims: &[SendRowClaim], tab: &str) -> Result<(), 
         || claims.iter().any(|claim| {
             claim.tab_id != tab
                 || uuid::Uuid::parse_str(&claim.send_id).is_err()
-                || !claim.matched_row.source.valid()
+                || !crate::service::chat_send_transaction::valid_source_row(
+                    &claim.matched_row.source,
+                )
                 || claim.matched_row.ordinal == 0
                 || !sends.insert(&claim.send_id)
                 || !rows.insert(&claim.matched_row)

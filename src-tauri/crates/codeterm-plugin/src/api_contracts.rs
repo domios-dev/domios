@@ -74,13 +74,7 @@ pub struct UsageProjection {
     pub account_credits: Option<RuntimeAccountCredits>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GoalBinding {
-    pub thread_id: String,
-    pub binding_nonce: String,
-    pub epoch: u64,
-}
+pub use codeterm_types::agent::delivery::GoalBinding;
 
 #[derive(Serialize, ts_rs::TS)]
 #[serde(untagged)]

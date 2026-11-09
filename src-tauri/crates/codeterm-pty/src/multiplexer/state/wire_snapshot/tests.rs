@@ -124,3 +124,31 @@ fn wire_cloud_mode_is_the_exact_persisted_launch_and_survives_restore() {
         "opaque-cloud"
     );
 }
+
+#[test]
+fn closed_summary_matches_the_redacted_persisted_record() {
+    let (mut state, id) = MultiplexerState::new();
+    populate(&mut state, &id, 3);
+    state.get_tab_mut(&id).unwrap().backing =
+        crate::multiplexer::types::TabBacking::Surface(crate::multiplexer::types::SurfaceBacking {
+            plugin_id: "plugin".into(),
+            surface_id: "surface".into(),
+            instance_id: "instance".into(),
+            owner_label: true,
+            resume_url: None,
+            resume_profile: None,
+        });
+    state.close_tab(&id).unwrap();
+    let snapshot = state.snapshot();
+    let view = &snapshot.recently_closed[0];
+    let workspace = state.list_workspaces()[0].id.clone();
+    let record = &state.list_recently_closed(&workspace)[0];
+    let mut previous = serde_json::to_value(record).unwrap();
+    previous
+        .as_object_mut()
+        .unwrap()
+        .remove("restorable_launch");
+    assert_eq!(serde_json::to_value(&view.tab).unwrap(), previous);
+    assert!(previous.get("description").is_none());
+    assert!(previous.get("agent_runtime_config").is_none());
+}

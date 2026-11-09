@@ -6,3 +6,5 @@ pub mod shell_command;
 pub mod plugin_host;
 
 pub mod api_contracts;
+
+pub mod delayed;

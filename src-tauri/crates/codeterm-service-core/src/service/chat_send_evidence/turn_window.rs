@@ -53,7 +53,7 @@ pub(super) fn structured_evidence_records(
             chat.messages
                 .into_iter()
                 .map(|message| StructuredUserTurn {
-                    source_row: crate::service::chat_send_transaction::SourceRowRef::structured(&anchor.session_id, &message.id),
+                    source_row: crate::service::chat_send_transaction::structured_source_row(&anchor.session_id, &message.id),
                     content: message.content,
                 })
                 .collect()
@@ -154,7 +154,7 @@ pub(super) fn jsonl_evidence_turns(
     rich: &crate::agent::chat_types::RichMessage,
 ) -> Vec<StructuredUserTurn> {
     let source_row = incarnation.and_then(|incarnation| {
-        crate::service::chat_send_transaction::SourceRowRef::jsonl(
+        crate::service::chat_send_transaction::jsonl_source_row(
             session,
             incarnation,
             crate::service::chat_send_transaction::TurnPosition {
