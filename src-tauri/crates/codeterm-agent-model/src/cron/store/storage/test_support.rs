@@ -1,6 +1,6 @@
 use super::super::CronFile;
 use super::codec::{job_record, run_record};
-use crate::storage::{CronHistoryImport, CronImport, CronJobImport, StorageError};
+use crate::storage::{CronHistoryImport, CronImport, CronJobId, CronJobImport, StorageError};
 use std::{fmt, path::Path};
 
 /// Why an original crons.json cannot be imported; a genuinely absent file is not one.
