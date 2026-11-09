@@ -3,6 +3,9 @@ use ts_rs::{Config, TS};
 pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     codeterm_usage::contract::UsageSnapshotRow::export_all(config)?;
     codeterm_wire::api_contracts::LocalPreviewFile::export_all(config)?;
+    codeterm_wire::api_contracts::IngestRequest::export_all(config)?;
+    codeterm_wire::api_contracts::IngestedAttachment::export_all(config)?;
+    codeterm_wire::api_contracts::TransferBody::export_all(config)?;
     codeterm_wire::api_contracts::UpdateBody::export_all(config)?;
     codeterm_mem::graph_layout::snapshot::EdgeRow::export_all(config)?;
     codeterm_mem::store::MemItem::export_all(config)?;

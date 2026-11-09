@@ -459,3 +459,39 @@ pub struct UpdateBody {
     #[serde(default)]
     pub changed_by: Option<String>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(rename = "MeshAttachmentKind")]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentKind {
+    Voice,
+    File,
+}
+
+#[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
+#[ts(rename = "MeshAttachmentIngestRequest")]
+pub struct IngestRequest {
+    pub kind: AttachmentKind,
+    pub name: String,
+    pub size: u64,
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(rename = "MeshIngestedAttachment")]
+pub struct IngestedAttachment {
+    pub path: String,
+    pub kind: AttachmentKind,
+    pub size: u64,
+    #[serde(default)]
+    pub reference: Option<String>,
+}
+
+#[derive(Deserialize, ts_rs::TS)]
+#[ts(rename = "MeshAttachmentTransferBody")]
+pub struct TransferBody {
+    pub ordinary_tab_id: String,
+    pub peer_id: String,
+    pub path: String,
+    pub kind: AttachmentKind,
+}

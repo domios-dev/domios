@@ -10666,10 +10666,10 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/tab_chat/results.rs",
+      "file": "src-tauri/crates/codeterm-types/src/api_contracts.rs",
       "token": "opencode",
       "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
+      "justification": "Existing serialized ChatOffsetKind tag moved unchanged with its Rust definition; no new provider occurrence.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
