@@ -13,6 +13,18 @@ Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: tr
 
 afterEach(() => document.body.replaceChildren());
 
+test("failed input exposes marked, unmarked and unknown reasons without changing its actions", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  for (const error of ["runtime_rejected_before_write: missing image", "runtime_preflight_before_write: binding changed", "upload rejected", undefined]) {
+    await act(async () => root.render(<ChatDeliveryState state="failed" error={error} onRetry={() => {}} />));
+    const status = host.querySelector('[role="status"]');
+    assert.ok(status?.textContent?.includes(error?.split(": ").slice(-1)[0] ?? "failure reason is unavailable"));
+    assert.ok(host.querySelector("button"));
+  }
+  await act(async () => root.unmount());
+});
+
 test("every pending state exposes its reason and available controls without interaction", async () => {
   const host = document.createElement("div");
   document.body.append(host);

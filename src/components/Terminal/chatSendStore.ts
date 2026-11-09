@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ChatSend, NormalizedChatMessage, SendEcho } from "@codeterm/chat-core";
-import { applyDeliveryStatus, canRetryChatSend, canDeleteChatSend, canDismissSettledChatSend, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, unownedHeldSends, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canRetryChatSend, canDeleteChatSend, canDismissSettledChatSend, chatSendFailureReason, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, unownedHeldSends, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
 import {
@@ -449,10 +449,10 @@ async function restoreSystemChatSend(status: ChatSendStatus): Promise<void> {
   await observeDeliveryStatus(status);
 }
 
-export function failChatSendRequest(tabId: string, id: string): void {
+export function failChatSendRequest(tabId: string, id: string, reason?: unknown): void {
   const current = readChatSends(tabId);
   const next = current.map((send) => (send.id === id || send.correlationId === id) && deliveryState(send) !== "delivered"
-    ? { ...send, requestFailed: true } : send);
+    ? { ...send, requestFailed: true, requestError: chatSendFailureReason(reason ?? send.requestError) } : send);
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
@@ -463,13 +463,14 @@ export function reconcileChatSendAdmission(tabId: string, correlationId: string,
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
-export function recordChatSendAdmissionFailure(tabId: string, correlationId: string, hadResponse: boolean): void {
+export function recordChatSendAdmissionFailure(tabId: string, correlationId: string, hadResponse: boolean, reason?: unknown): void {
   const current = readChatSends(tabId);
   const next = current.map((send) => {
     if (send.correlationId !== correlationId) return send;
-    const withResponse = send.requestHadResponse === hadResponse
+    const requestError = chatSendFailureReason(reason);
+    const withResponse = send.requestHadResponse === hadResponse && send.requestError === requestError
       ? send
-      : { ...send, requestHadResponse: hadResponse };
+      : { ...send, requestHadResponse: hadResponse, requestError };
     return reconcileAdmissionEvidence(withResponse, "unknown");
   });
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
@@ -492,7 +493,7 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
   const current = readChatSends(tabId);
   const send = current.find((item) => item.id === id);
   if (!send || deleting.has(deletionKey(tabId, id)) || !canRetryChatSend(send)) return;
-  const next = { ...send, requestFailed: false, requestUncertain: false, requestHadResponse: undefined, admissionSettled: undefined, status: undefined,
+  const next = { ...send, requestFailed: false, requestError: undefined, requestUncertain: false, requestHadResponse: undefined, admissionSettled: undefined, status: undefined,
     matchedRow: undefined, correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
   return next;

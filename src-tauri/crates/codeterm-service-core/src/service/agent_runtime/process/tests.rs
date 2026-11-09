@@ -37,6 +37,7 @@ fn init_process_boundary_test_logger() {
 
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
+        local_image_paths: false,
         host_mcp: None,
         envelope: None,
         interrupt: None,

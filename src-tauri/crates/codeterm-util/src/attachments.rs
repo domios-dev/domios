@@ -80,7 +80,7 @@ pub fn save_with_prefixed_name(
 }
 
 mod source;
-pub use source::{copy_complete_file, read_complete_file};
+pub use source::{copy_complete_file, read_complete_file, validate_complete_file};
 
 pub fn dropped_path_kind(path: &Path) -> &'static str {
     match std::fs::metadata(path) {

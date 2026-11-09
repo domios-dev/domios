@@ -184,6 +184,8 @@ export interface RuntimeLaunchProfile {
 /** `outsideWorkspace`: the agent confines its own work to the workspace and asks only to go beyond it. */
 export type RuntimeAskScope = "outsideWorkspace";
 export interface StdioAgentRuntimeCapability {
+  /** The native runtime reads validated host image paths instead of inline image bytes. */
+  localImagePaths?:boolean;
   hostMcp?:{param:string; methods:readonly string[]};
   envelope?:"jsonrpc2";
   interrupt?:{beforeFirstTurn:boolean};

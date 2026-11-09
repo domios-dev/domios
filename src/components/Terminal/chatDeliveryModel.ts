@@ -13,8 +13,19 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
+export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestError?: string; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
   wasHeld?: boolean };
+
+export function chatSendFailureReason(reason?: unknown): string {
+  const message = typeof reason === "string" ? reason
+    : reason && typeof reason === "object" && "message" in reason && typeof reason.message === "string" ? reason.message : "";
+  return message.trim().slice(0, 4096) || "Message was not sent; the failure reason is unavailable.";
+}
+
+export function deliveryError(send: DeliverySend): string | null | undefined {
+  const reason = send.status?.error || send.requestError;
+  return deliveryState(send) === "failed" ? chatSendFailureReason(reason) : reason;
+}
 
 function sameMatchedRow(left: ChatSendStatus["matched_row"], right: ChatSendStatus["matched_row"]): boolean {
   if (left == null || right == null) return left === right;
@@ -92,6 +103,8 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
     matchedRow: status.matched_row ?? send.matchedRow,
     status,
     requestFailed: false,
+    ...(send.requestError !== undefined || status.state === "failed"
+      ? { requestError: status.state === "failed" ? chatSendFailureReason(status.error || send.requestError) : undefined } : {}),
     requestUncertain: false,
     echo: status.state === "failed" ? undefined : send.echo,
   };
@@ -105,7 +118,8 @@ export function reconcileAdmissionEvidence(send: DeliverySend, evidence: Admissi
   const failed = evidence === "absent" && send.requestHadResponse === false;
   const uncertain = !failed;
   if (send.requestFailed === failed && send.requestUncertain === uncertain) return send;
-  return { ...send, requestFailed: failed, requestUncertain: uncertain };
+  return { ...send, requestFailed: failed, requestUncertain: uncertain,
+    ...(failed && !send.requestError ? { requestError: "No admission was recorded for the failed send request; no further failure reason is available." } : {}) };
 }
 
 export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {

@@ -30,6 +30,19 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+test("a local preparation failure exposes its retained reason under the original bubble", async () => {
+  const tabId = "local-image-refusal";
+  const { host, root } = await renderChat(tabId);
+  try {
+    await act(async () => {
+      addChatSend(tabId, { id: "local-image", correlationId: "local-image", content: "inspect", sentAtMs: 1 });
+      failChatSendRequest(tabId, "local-image", new Error("Image upload could not be read"));
+    });
+    const bubble = host.querySelector('[data-testid="user-bubble-row"]');
+    assert(bubble?.querySelector('[role="status"]')?.textContent?.includes("Image upload could not be read"), "local reason reaches the bubble footer");
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://localhost/" });

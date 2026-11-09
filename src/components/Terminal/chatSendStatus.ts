@@ -105,9 +105,9 @@ export async function sendTrackedChatMessage(
     return status;
   } catch (error) {
     activeAdmissions.delete(key);
-    if (isProvenAdmissionRefusal(error)) failChatSendRequest(tabId, messageId);
+    if (isProvenAdmissionRefusal(error)) failChatSendRequest(tabId, messageId, error);
     else {
-      recordChatSendAdmissionFailure(tabId, messageId, hadDaemonResponse(error));
+      recordChatSendAdmissionFailure(tabId, messageId, hadDaemonResponse(error), error);
       void reconcileTrackedChatMessages(tabId).catch(() => {});
     }
     console.warn("[chat-send] optimistic send request failed", {

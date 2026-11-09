@@ -813,6 +813,7 @@ fn turn_scoped_requests_native_quickjs_declaration_parity() {
         Arc::new(PluginVm::from_source("turn-fixture", "module.exports={}".into()).unwrap()),
     );
     assert_eq!(native.agent_runtime(), js.agent_runtime());
+    assert!(js.agent_runtime().unwrap().local_image_paths);
     assert_eq!(
         js.agent_runtime().unwrap().turn_scoped_requests,
         vec!["submitTurn"]

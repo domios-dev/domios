@@ -508,12 +508,13 @@ test("unprepared attachment sends survive restart on their original bubble", asy
     await act(async () => {
       addChatSend(tabId, { id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 1700000000000 });
       setChatSendDraft(tabId, "bubble", { text: "opaque", attachments: ["/opaque/file"], recordedVoiceAttachments: [], capsules: {}, reply: null });
-      failChatSendRequest(tabId, "bubble");
+      failChatSendRequest(tabId, "bubble", new Error("image upload rejected"));
       forgetChatSendsInMemory();
     });
     await act(async () => ensureChatSendTabHydrated(tabId));
     assert.equal(readChatSends(tabId).length, 1);
     assert.deepEqual(readChatSends(tabId)[0].draft?.attachments, ["/opaque/file"]);
+    assert.equal(readChatSends(tabId)[0].requestError, "image upload rejected");
     assert.equal(deliveryState(readChatSends(tabId)[0]), "failed");
   });
 });

@@ -14,13 +14,14 @@ export async function prepareChatDelivery(tabId: string, send: DeliverySend, exp
     const expansion = await expand(result.composed);
     if (expansion.kind === "error") throw new Error(expansion.message);
     const composed = expansion.kind === "expanded" ? expansion.text : result.composed;
+    if (!composed.trim()) throw new Error("No message was sent because the prepared message is empty.");
     updateChatSendContent(tabId, send.id, composed);
     setChatSendDraft(tabId, send.id, undefined);
     return composed;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     updateChatSendContent(tabId, send.id, `Message was not sent: ${reason}`);
-    failChatSendRequest(tabId, send.id);
+    failChatSendRequest(tabId, send.id, error);
     throw error;
   }
 }

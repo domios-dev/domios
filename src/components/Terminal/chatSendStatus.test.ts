@@ -292,6 +292,7 @@ test("reconnect resolves a response-less refused admission using durable absence
   await ensureChatSendTabHydrated(tabId);
   assert.equal(deliveryState(readChatSends(tabId)[0]), "failed");
   assert.equal(calls.filter((command) => command === "chat_send_text").length, 1);
+  assert.equal(readChatSends(tabId)[0].requestError, "opaque-network-failure");
   assert.notEqual(beginChatSendRetry(tabId, "offline-bubble"), undefined);
 });
 
