@@ -7,6 +7,7 @@ import { stringify } from "yaml";
 import type { BlueprintSolutionsApi } from "./blueprintSolutions";
 import type { CatalogEntry } from "./solutionCatalog";
 import { catalogEntry, filterCatalog, NO_CATALOG_FILTER, solutionKind } from "./solutionCatalog";
+import { createMuxReadCapacity, MUX_READ_CAPACITY } from "../../lib/streamMuxRequestModel";
 
 const callable = { schema_version: 2, kind: "pipeline", name: "add-seventeen", steps: [{ id: "add", code: { lang: "python", src: "def main(v): return v + 17" }, in: { type: "integer" }, out: { type: "integer" } }], result: { from: "add.out" } };
 const watch = { schema_version: 2, kind: "watch", name: "ci-watch", steps: [{ id: "source", uses: "probe", with: { command: { lit: "gh run list" } } }, { id: "decide", uses: "ask", buckets: ["failing"], routes: { failing: "notify" } }, { id: "notify", uses: "notify" }] };
@@ -159,7 +160,33 @@ async function main() {
   const afterUnmount = reads;
   await act(async () => { change("w", "blueprint-library:5"); });
   assert.equal(reads, afterUnmount);
+  const capacity = createMuxReadCapacity();
+  let documentReads = 0;
+  const capacityApi = {
+    ...api,
+    list: async () => [{ id: "capacity", when_to_use: "Wait for connection capacity", how: null, uses: 0, successes: 0, last_used: 0 }],
+    document: async () => {
+      if (++documentReads === 1) throw { [MUX_READ_CAPACITY]: capacity.capture() };
+      return { title: "add-seventeen", body: stringify(callable), tags: [] };
+    },
+  };
+  await render(<SavedSolutions sources={sources} revision={0} api={capacityApi} />);
+  await flush();
+  assert.equal(documentReads, 1);
+  assert(!container.textContent?.includes("Unavailable"), "a never-sent document read must not become a failed catalogue entry");
+  await act(async () => capacity.released());
+  await flush();
+  assert.equal(documentReads, 2);
+  assert.deepEqual(rows(), ["solution:capacity"]);
+  await act(async () => capacity.released());
+  assert.equal(documentReads, 2, "a completed read is not reissued on later capacity events");
+  documentReads = 0;
+  await render(<SavedSolutions sources={sources} revision={1} api={capacityApi} />);
+  await flush();
+  assert.equal(documentReads, 1);
   await act(async () => root.unmount());
+  await act(async () => capacity.released());
+  assert.equal(documentReads, 1, "unmount cancels the waiting document read");
   win.happyDOM.cancelAsync();
   console.log("SavedSolutions: save completion, catalogue filters, semantic ranking, open, export and delete passed");
 }

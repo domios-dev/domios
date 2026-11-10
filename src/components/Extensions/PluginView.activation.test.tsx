@@ -34,6 +34,7 @@ const hostDeps = vi.hoisted(() => ({
 }));
 vi.mock("../../lib/pluginViewHostDeps", () => ({ viewHostDeps: () => hostDeps }));
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
+vi.mock("../../lib/pluginSnapshotStore", () => ({ getPluginSnapshotState: () => ({ snapshot: { plugins: [{ id: "panel-fixture", display_name: "Workspace tools" }] } }) }));
 
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
 import { PLUGIN_THEME_VARS, PluginView } from "./PluginView";
@@ -137,6 +138,18 @@ it("closes on Escape only while shown", async () => {
   await act(async () => root!.render(<PluginView pluginId="analytics" api={undefined} active onClose={close} />));
   pressEscape();
   expect(close).toHaveBeenCalledTimes(1);
+});
+
+it("names a host panel and closes through its standard back control without adding chrome to embeds", async () => {
+  const close = vi.fn();
+  await mount(<PluginView pluginId="panel-fixture" api={undefined} onClose={close} />);
+  expect(host!.querySelector("h2")?.textContent).toBe("Workspace tools");
+  const back = host!.querySelector<HTMLButtonElement>('button[aria-label="Back to where you were"]');
+  expect(back).not.toBeNull();
+  await act(async () => back!.click());
+  expect(close).toHaveBeenCalledTimes(1);
+  await act(async () => root!.render(<PluginView pluginId="panel-fixture" api={undefined} embedded onClose={close} />));
+  expect(host!.querySelector("header")).toBeNull();
 });
 
 it("forwards KPI notices only to an opted-in visible document", async () => {
