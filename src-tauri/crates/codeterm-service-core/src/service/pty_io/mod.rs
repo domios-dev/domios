@@ -13,6 +13,7 @@ mod lifecycle;
 mod send;
 pub(crate) mod submit_transaction;
 pub(crate) mod tab_env;
+pub(crate) mod utility_command;
 
 pub(crate) use crate::service::ordered_actions::*;
 #[cfg(test)]

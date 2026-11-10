@@ -26,3 +26,23 @@ pub const TEAM_SPAWN_ROLE_MUST_ANCHOR: &str = "team_spawn_role_must_anchor";
 /// `--team --role Orchestrator` was combined with a flag the staffing verb does
 /// not carry; the flag is named rather than silently dropped.
 pub const TEAM_SPAWN_FLAG_UNSUPPORTED: &str = "team_spawn_flag_unsupported";
+
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
+pub struct PlanTakeover {
+    pub plan_id: String,
+    pub owner_tab_id: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
+pub struct AddTeamMemberResult {
+    pub tab_id: String,
+    pub team: super::Team,
+    pub role_type: String,
+    pub role_profile: Option<String>,
+    pub plan_takeover: Option<PlanTakeover>,
+    pub reused: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub warning: Option<String>,
+}

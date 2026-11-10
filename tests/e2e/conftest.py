@@ -148,7 +148,7 @@ def _cleanup_e2e_workspaces(api: CodeTermAPI):
             if non_e2e_count + len(e2e_ws) <= 1:
                 break
             try:
-                api.close_workspace(ws["id"])
+                api.cleanup_workspace(ws["id"])
                 e2e_ws = e2e_ws[1:]  # track remaining
             except Exception:
                 pass
@@ -170,7 +170,7 @@ def api_tab(api_only: CodeTermAPI):
             try:
                 workspaces = api_only.list_workspaces()
                 if len(workspaces) > 1:
-                    api_only.close_workspace(ws_id)
+                    api_only.cleanup_workspace(ws_id)
             except Exception:
                 pass
 
@@ -195,17 +195,14 @@ def shared_eager_tab(api: CodeTermAPI):
             try:
                 workspaces = api.list_workspaces()
                 if len(workspaces) > 1:
-                    api.close_workspace(ws_id)
+                    api.cleanup_workspace(ws_id)
             except Exception:
                 pass
 
 
 @pytest.fixture()
 def fresh_tab(api: CodeTermAPI):
-    """Create a disposable workspace + tab, yield tab_id, clean up after.
-
-    The initial tab from workspace creation is an Orchestrator by default.
-    """
+    """Create a disposable workspace + tab, yield tab_id, clean up after."""
     ws_id = None
     try:
         ws_name = unique_name("e2e-ws")
@@ -231,6 +228,6 @@ def fresh_tab(api: CodeTermAPI):
             try:
                 workspaces = api.list_workspaces()
                 if len(workspaces) > 1:
-                    api.close_workspace(ws_id)
+                    api.cleanup_workspace(ws_id)
             except Exception:
                 pass  # best effort

@@ -111,18 +111,22 @@ pub fn discover(
     bucket: Option<&str>,
     handler: Option<&str>,
 ) -> Result<Vec<FileReference>, String> {
+    use codeterm_sentinel::graph_contracts::Definition;
     let definition = super::detail::definition(job);
-    let source = match (bucket, handler) {
-        (None, None) => definition["probe"].as_str().unwrap_or_default(),
-        (Some(bucket), Some(handler)) => definition["commands"]
-            .as_array()
-            .and_then(|commands| {
-                commands
-                    .iter()
-                    .find(|command| command["bucket"] == bucket && command["handler_id"] == handler)
-            })
-            .and_then(|command| command["command"].as_str())
+    let source = match (bucket, handler, &definition) {
+        (None, None, Definition::Available(definition)) => {
+            definition.probe.as_deref().unwrap_or_default()
+        }
+        (None, None, Definition::Unavailable { .. }) => "",
+        (Some(bucket), Some(handler), Definition::Available(definition)) => definition
+            .commands
+            .iter()
+            .find(|command| command.bucket == bucket && command.handler_id == handler)
+            .map(|command| command.command.as_str())
             .ok_or("node command definition unavailable")?,
+        (Some(_), Some(_), Definition::Unavailable { .. }) => {
+            return Err("node command definition unavailable".into())
+        }
         _ => return Err("file discovery requires an exact node or command route".into()),
     };
     let cwd = Path::new(&job.cwd);

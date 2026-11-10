@@ -80,6 +80,7 @@ async fn older_concierge_is_replaced_in_friend_folder_without_losing_permissions
         let projected = service
             .neighbor_permission_projection(&metadata, &friend, &permission, &saved)
             .unwrap();
+        let projected = serde_json::to_value(projected).unwrap();
         assert_eq!(projected["folder_enforcement"]["writes"], "advisory");
         assert_eq!(
             std::path::Path::new(projected["effective_folder"].as_str().unwrap())

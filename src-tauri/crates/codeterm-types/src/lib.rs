@@ -14,3 +14,5 @@ pub mod server_bootstrap;
 mod test_support;
 
 pub mod app_quit;
+
+pub mod api_contracts;

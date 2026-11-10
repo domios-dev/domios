@@ -2,6 +2,12 @@ use codeterm_types::agent::chat_types::{MessageBlock, RichMessage, SessionDelta}
 
 use super::JsProvider;
 
+#[derive(serde::Serialize, ts_rs::TS)]
+pub(super) struct SessionDeltaContext<'a> {
+    session_key: std::borrow::Cow<'a, str>,
+    from_offset: u64,
+}
+
 #[derive(PartialEq, Eq)]
 pub(super) struct Failure {
     path: std::path::PathBuf,
@@ -82,9 +88,9 @@ impl JsProvider {
         // land inside line bodies, which the plugin's per-line JSON.parse will reject. Byte-count is no longer trusted from JS; we computed it above.
         let line_starts = crate::jsonl_window::record_starts(&window.bytes);
         let chunk = chunk_value(window.bytes);
-        let context = serde_json::json!({
-            "session_key": path.to_string_lossy(),
-            "from_offset": from_offset,
+        let context = serde_json::json!(SessionDeltaContext {
+            session_key: path.to_string_lossy(),
+            from_offset,
         });
         #[derive(serde::Deserialize)]
         struct JsDelta {

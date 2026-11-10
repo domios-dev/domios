@@ -18,7 +18,7 @@ use super::graph_layout::cache::LayoutCache;
 
 const QUEUE_CAPACITY: usize = 1024;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
 pub struct QueueStatus {
     pub queued: usize,
     pub in_flight: usize,

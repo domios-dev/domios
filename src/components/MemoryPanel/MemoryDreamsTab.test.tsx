@@ -134,7 +134,7 @@ async function main() {
     return { ok: true, json: async () => ({}) } as Response;
   });
 
-  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
+  const api: ApiConfig = {mesh_tailnet_host: null, preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -185,7 +185,7 @@ async function incompleteOnPageKeepsOneCount() {
     return { ok: true, json: async () => ({}) } as Response;
   });
 
-  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
+  const api: ApiConfig = {mesh_tailnet_host: null, preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -273,7 +273,7 @@ async function openedDreamShowsItsRunReport() {
     return { ok: true, json: async () => ({}) } as Response;
   });
 
-  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
+  const api: ApiConfig = {mesh_tailnet_host: null, preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);

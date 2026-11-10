@@ -129,14 +129,7 @@ export async function fetchItemFull(api: ApiConfig, id: string): Promise<MemItem
   return res.json();
 }
 
-export interface ItemPatch {
-  title?: string;
-  summary?: string;
-  area?: string;
-  tags?: string[];
-  body?: string;
-  importance?: number;
-}
+export type ItemPatch = {[K in "title" | "summary" | "area" | "tags" | "body" | "importance"]?: NonNullable<import("../../../gen/MemoryUpdateBody").MemoryUpdateBody[K]>};
 
 export async function patchItem(
   api: ApiConfig,
@@ -161,13 +154,7 @@ export async function deleteItem(api: ApiConfig, id: string): Promise<{ deleted:
   return res.json();
 }
 
-export interface MemStats {
-  total_items: number;
-  total_vectors: number;
-  total_relations: number;
-  total_entities: number;
-  by_kind: Record<string, number>;
-}
+export type MemStats = import("../../../gen/MemStats").MemStats;
 
 export async function fetchWorkerLog(api: ApiConfig, workerId: string): Promise<string> {
   const res = await daemonFetch(api, `/api/mem/workers/${encodeURIComponent(workerId)}/log`, {

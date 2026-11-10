@@ -206,7 +206,6 @@ impl ServiceContext {
         };
 
         let command_submission = if let Some(command) = spec.cmd.as_deref() {
-            self.prepare_utility_command(&tab_id, command);
             let exact_pty = self.resolve_pty_id(&tab_id)?;
             match self.submit_shell_command_with_receipt(&tab_id, &exact_pty, command) {
                 Ok(submission) => Some(submission),

@@ -1,7 +1,7 @@
 use super::{RuntimeFailure, RuntimeFailureCode, MAX_RUNTIME_BATCH};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeStreamWindow {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -10,12 +10,13 @@ pub struct RuntimeStreamWindow {
     pub turn_requests: Vec<RuntimeTurnRequestWitness>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeTurnRequestWitness {
     pub send_id: String,
     pub turn_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub after_sequence: Option<u64>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub written: bool,

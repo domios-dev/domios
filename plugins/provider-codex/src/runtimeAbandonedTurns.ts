@@ -1,8 +1,8 @@
-import type { AgentEvent, ChatMsg } from "@codeterm/plugin-sdk";
+import type { AgentEvent,ChatMsg } from "@codeterm/plugin-sdk";
 import { activityLabel } from "@codeterm/plugin-sdk";
 
 export interface ToolLifecycle {
-  toolStatus?: "running" | "completed" | "failed" | "interrupted" | "abandoned" | null;
+  toolStatus?: ChatMsg["toolStatus"];
   toolStartedAtMs?: number | null;
   toolCompletedAtMs?: number | null;
 }

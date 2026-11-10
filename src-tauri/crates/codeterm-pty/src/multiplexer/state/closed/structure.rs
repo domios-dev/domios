@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use ts_rs::TS;
 
 use codeterm_types::team::Team;
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,7 @@ pub struct ArchivedTab {
     pub paired_planner_tab_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum StructureState {
     Captured,
@@ -36,7 +37,7 @@ pub struct ClosedStructure {
     pub resources: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ClosedStructureView {
     pub state: StructureState,
     pub id: String,

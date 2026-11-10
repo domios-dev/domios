@@ -6,6 +6,7 @@ pub mod channel;
 pub mod check_throttle;
 pub mod checker;
 pub mod container;
+pub mod contracts;
 pub mod debian;
 pub mod discovery_policy;
 pub mod headless;

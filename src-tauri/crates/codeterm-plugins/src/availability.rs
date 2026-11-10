@@ -68,7 +68,7 @@ fn version_decision(installed: Option<&str>, offer: UpdateOffer<'_>) -> &'static
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AvailabilityState {
     UpToDate,
@@ -78,15 +78,16 @@ pub enum AvailabilityState {
     CoreSilent,
 }
 
-#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AvailabilityUpdateKind")]
 pub enum UpdateKind {
     Plugin,
     App,
     Frontend,
 }
 
-#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct AvailabilityItem {
     pub id: String,
     pub kind: UpdateKind,

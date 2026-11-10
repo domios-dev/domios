@@ -6,13 +6,13 @@ use super::{
     storage::Metadata,
     ServiceContext,
 };
-use codeterm_neighbors::{Error, Result};
+use codeterm_neighbors::{responses::NeighborHandlingSummary, Error, Result};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub(super) struct Cell {
-    summaries: parking_lot::Mutex<BTreeMap<String, (u64, Value)>>,
+    summaries: parking_lot::Mutex<BTreeMap<String, (u64, Vec<NeighborHandlingSummary>)>>,
     edges: parking_lot::Mutex<BTreeMap<String, PtyEdge>>,
     pending: parking_lot::Mutex<BTreeMap<String, PtyEdge>>,
     worker: std::sync::atomic::AtomicBool,
@@ -68,8 +68,23 @@ pub(super) fn incoming(
     }
 }
 
-pub(super) fn summary(history: &History) -> Value {
-    json!(history.entries.iter().filter(|entry| entry.direction=="in").filter_map(|entry| entry.handling.handling_state.map(|state| json!({"message_id":entry.message_id,"handling_state":state,"handling_reason":entry.handling.handling_reason,"handling_updated_at":entry.handling.handling_updated_at}))).collect::<Vec<_>>())
+pub(super) fn summary(history: &History) -> Vec<NeighborHandlingSummary> {
+    history
+        .entries
+        .iter()
+        .filter(|entry| entry.direction == "in")
+        .filter_map(|entry| {
+            entry
+                .handling
+                .handling_state
+                .map(|state| NeighborHandlingSummary {
+                    message_id: entry.message_id.clone(),
+                    handling_state: state,
+                    handling_reason: entry.handling.handling_reason.clone(),
+                    handling_updated_at: entry.handling.handling_updated_at,
+                })
+        })
+        .collect()
 }
 
 pub(super) fn now() -> u64 {
@@ -77,7 +92,12 @@ pub(super) fn now() -> u64 {
 }
 
 impl ServiceContext {
-    pub(super) fn remember_neighbor_handling(&self, friend: &str, summary: Value, generation: u64) {
+    pub(super) fn remember_neighbor_handling(
+        &self,
+        friend: &str,
+        summary: Vec<NeighborHandlingSummary>,
+        generation: u64,
+    ) {
         let mut summaries = self.neighbor_cell().handling.summaries.lock();
         if summaries.len() >= 200 && !summaries.contains_key(friend) {
             if let Some(key) = summaries.keys().next().cloned() {
@@ -86,9 +106,11 @@ impl ServiceContext {
         }
         summaries.insert(friend.into(), (generation, summary));
     }
-    pub(super) fn neighbor_handling_status(&self) -> Value {
+    pub(super) fn neighbor_handling_status(
+        &self,
+    ) -> BTreeMap<String, Vec<NeighborHandlingSummary>> {
         let generation = self.neighbor_history_generation();
-        let summaries: serde_json::Map<String, Value> = self
+        let summaries: BTreeMap<String, Vec<NeighborHandlingSummary>> = self
             .neighbor_cell()
             .handling
             .summaries
@@ -97,7 +119,7 @@ impl ServiceContext {
             .filter(|(_, (recorded, _))| *recorded == generation)
             .map(|(friend, (_, value))| (friend.clone(), value.clone()))
             .collect();
-        Value::Object(summaries)
+        summaries
     }
 
     pub(super) async fn mutate_neighbor_handling(

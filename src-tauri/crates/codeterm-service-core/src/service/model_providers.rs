@@ -4,7 +4,6 @@ use codeterm_plugin::{
     model_providers::{EndpointKind, ModelProviderConfig, ModelProviderDefinition},
     AgentProvider,
 };
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -95,56 +94,7 @@ impl std::fmt::Display for ModelProviderError {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ModelProviderRequest {
-    PresetAdd {
-        preset: codeterm_plugin::model_providers::ModelPreset,
-    },
-    PresetRemove {
-        name: String,
-    },
-    PresetList,
-    Add {
-        provider: ModelProviderDefinition,
-        #[serde(deserialize_with = "secret_from_wire")]
-        value: SecretString,
-    },
-    AddFromSecret {
-        provider: ModelProviderDefinition,
-        source_secret: String,
-    },
-    Update {
-        provider: ModelProviderDefinition,
-        #[serde(default, deserialize_with = "optional_secret_from_wire")]
-        value: Option<SecretString>,
-    },
-    Discover {
-        kind: EndpointKind,
-        base_url: String,
-        #[serde(default, deserialize_with = "optional_secret_from_wire")]
-        value: Option<SecretString>,
-        #[serde(default)]
-        source_secret: Option<String>,
-    },
-    Remove {
-        name: String,
-    },
-    List,
-    Test {
-        name: String,
-    },
-}
-
-fn secret_from_wire<'de, D: serde::Deserializer<'de>>(d: D) -> Result<SecretString, D::Error> {
-    String::deserialize(d).map(SecretString::from)
-}
-
-fn optional_secret_from_wire<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Option<SecretString>, D::Error> {
-    Option::<String>::deserialize(d).map(|value| value.map(SecretString::from))
-}
+pub use codeterm_secrets::model_provider_request::ModelProviderRequest;
 
 pub fn select_owner(
     providers: &[Arc<dyn AgentProvider>],

@@ -1,17 +1,20 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use crate::responses::{
+    ActiveState, SavedState, SupporterConnectionRow, SupporterConnectionToken, SupporterMutation,
+};
 use codeterm_decision::{DecisionModel, TokenMode};
 use codeterm_types::config::{SupporterConfig, SupporterConnection};
 use serde::Serialize;
-use serde_json::{json, Value};
 
 use crate::SupporterRegistry;
 use codeterm_mem::decision::token_store::TokenStore;
 
 pub static TRANSACTION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
+#[ts(rename = "SupporterFailure")]
 pub struct ConnectionError {
     pub code: &'static str,
     pub message: &'static str,
@@ -59,7 +62,7 @@ pub fn list(
     cfg: &SupporterConfig,
     registry: &SupporterRegistry,
     store: &TokenStore,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<SupporterConnectionRow>> {
     let mut rows = Vec::new();
     for id in members(cfg, registry, store)? {
         let adapter = registry.get(&id);
@@ -103,15 +106,21 @@ pub fn list(
         } else {
             None
         };
-        rows.push(json!({
-            "adapter": id, "model": model, "active": cfg.active_id() == Some(id.as_str()),
-            "token_mode": mode, "token": { "present": token.present, "mode_ok": token.mode_ok },
-            "pricing": adapter.as_ref().and_then(|adapter| adapter.pricing()),
-            "metadata": adapter.as_ref().map(|adapter| adapter.metadata()),
-            "error": error,
-        }));
+        rows.push(SupporterConnectionRow {
+            active: cfg.active_id() == Some(id.as_str()),
+            adapter: id,
+            model,
+            token_mode: mode,
+            token: SupporterConnectionToken {
+                present: token.present,
+                mode_ok: token.mode_ok,
+            },
+            pricing: adapter.as_ref().and_then(|adapter| adapter.pricing()),
+            metadata: adapter.as_ref().map(|adapter| adapter.metadata()),
+            error,
+        });
     }
-    rows.sort_by_key(|row| row["active"] != true);
+    rows.sort_by_key(|row| !row.active);
     Ok(rows)
 }
 
@@ -170,7 +179,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         requested: Option<String>,
         token: Option<&str>,
         require_new_token: bool,
-    ) -> Result<Value> {
+    ) -> Result<SupporterMutation> {
         let adapter = self.adapter(id)?;
         if members(self.cfg, self.registry, self.store)?.contains(id) {
             return Err(ConnectionError::new(
@@ -210,21 +219,31 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         );
         if let Err(error) = self.commit(saved) {
             if token.is_some() {
-                return Ok(
-                    json!({ "state": "saved_not_active", "adapter": id, "model": model, "error": error }),
-                );
+                return Ok(SupporterMutation::Saved {
+                    state: SavedState::SavedNotActive,
+                    adapter: id.into(),
+                    model,
+                    error,
+                });
             }
             return Err(error);
         }
         match self.activate(id) {
             Ok(value) => Ok(value),
-            Err(error) => Ok(
-                json!({ "state": "saved_not_active", "adapter": id, "model": model, "error": error }),
-            ),
+            Err(error) => Ok(SupporterMutation::Saved {
+                state: SavedState::SavedNotActive,
+                adapter: id.into(),
+                model,
+                error,
+            }),
         }
     }
 
-    pub fn use_adapter(&mut self, id: &str, requested: Option<String>) -> Result<Value> {
+    pub fn use_adapter(
+        &mut self,
+        id: &str,
+        requested: Option<String>,
+    ) -> Result<SupporterMutation> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             return self.connect(id, requested, None, false);
         }
@@ -239,10 +258,14 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         }
         let model = self.model(id, requested)?;
         self.apply_model(id, model.clone(), true)?;
-        Ok(json!({ "state": "active", "adapter": id, "model": model }))
+        Ok(SupporterMutation::Active {
+            state: ActiveState::Active,
+            adapter: id.into(),
+            model,
+        })
     }
 
-    pub fn activate(&mut self, id: &str) -> Result<Value> {
+    pub fn activate(&mut self, id: &str) -> Result<SupporterMutation> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             return Err(ConnectionError::new(
                 "unknown_adapter",
@@ -260,7 +283,11 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         }
         let model = self.model(id, None)?;
         self.apply_model(id, model.clone(), true)?;
-        Ok(json!({ "state": "active", "adapter": id, "model": model }))
+        Ok(SupporterMutation::Active {
+            state: ActiveState::Active,
+            adapter: id.into(),
+            model,
+        })
     }
 
     fn apply_model(&mut self, id: &str, model: Option<String>, activate: bool) -> Result<()> {
@@ -294,7 +321,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         Ok(())
     }
 
-    pub fn set_model(&mut self, id: &str, requested: String) -> Result<Value> {
+    pub fn set_model(&mut self, id: &str, requested: String) -> Result<SupporterMutation> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             return Err(ConnectionError::new(
                 "unknown_adapter",
@@ -303,10 +330,13 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         }
         let model = self.model(id, Some(requested))?;
         self.apply_model(id, model.clone(), false)?;
-        Ok(json!({ "adapter": id, "model": model }))
+        Ok(SupporterMutation::Model {
+            adapter: id.into(),
+            model,
+        })
     }
 
-    pub fn replace_token(&mut self, id: &str, token: &str) -> Result<Value> {
+    pub fn replace_token(&mut self, id: &str, token: &str) -> Result<SupporterMutation> {
         let adapter = self.adapter(id)?;
         if adapter.token_mode() == TokenMode::None {
             return Err(ConnectionError::new(
@@ -323,13 +353,19 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         self.store
             .set(id, token)
             .map_err(|_| ConnectionError::unavailable())?;
-        Ok(json!({ "adapter": id, "present": true }))
+        Ok(SupporterMutation::Token {
+            adapter: id.into(),
+            present: true,
+        })
     }
 
-    pub fn clear_token(&mut self, id: &str) -> Result<Value> {
+    pub fn clear_token(&mut self, id: &str) -> Result<SupporterMutation> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             self.adapter(id)?;
-            return Ok(json!({ "adapter": id, "removed": false }));
+            return Ok(SupporterMutation::Cleared {
+                adapter: id.into(),
+                removed: false,
+            });
         }
         let present = self
             .store
@@ -345,10 +381,13 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
                     .map_err(|_| std::io::Error::other("configuration unavailable"))
             })
             .map_err(|_| ConnectionError::unavailable())?;
-        Ok(json!({ "adapter": id, "removed": present }))
+        Ok(SupporterMutation::Cleared {
+            adapter: id.into(),
+            removed: present,
+        })
     }
 
-    pub fn disconnect(&mut self, id: &str) -> Result<Value> {
+    pub fn disconnect(&mut self, id: &str) -> Result<SupporterMutation> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             return Err(ConnectionError::new(
                 "unknown_adapter",
@@ -367,7 +406,11 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
                     .map_err(|_| std::io::Error::other("configuration unavailable"))
             })
             .map_err(|_| ConnectionError::unavailable())?;
-        Ok(json!({ "adapter": id, "removed": true, "active": self.cfg.adapter }))
+        Ok(SupporterMutation::Disconnected {
+            adapter: id.into(),
+            removed: true,
+            active: self.cfg.adapter.clone(),
+        })
     }
 }
 

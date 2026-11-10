@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TimelineState {
     Working,
@@ -8,7 +9,7 @@ pub enum TimelineState {
     Question,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum QuestionSubtype {
     ModelChoice,
@@ -30,21 +31,27 @@ pub struct TabVerdict {
 /// Persisted-to-frontend snapshot of a tab's live agent state. Stored on the
 /// tab (runtime-only, recomputed from output) and serialized into the mux
 /// snapshot so the chat view's state indicator renders it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct AgentLiveState {
     pub state: TimelineState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub subtype: Option<QuestionSubtype>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub status_line: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub phase: Option<String>,
     /// The live turn's elapsed time while working; the finished turn's duration while idle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub elapsed_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub last_turn_summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub question: Option<String>,
 }
 

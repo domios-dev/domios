@@ -38,9 +38,9 @@ impl UserSendStore {
             if index.version != 1 {
                 return Err("user index version is unknown".into());
             }
-            index
-                .source_claims
-                .retain(|claim| claim.matched_row.source.valid());
+            index.source_claims.retain(|claim| {
+                crate::service::chat_send_transaction::valid_source_row(&claim.matched_row.source)
+            });
             validate_index(&index, &tab.tab_id)?;
             let sequence_base = index.next_sequence;
             tab.unsettled
@@ -133,9 +133,9 @@ impl UserSendStore {
         if index.version != 1 {
             return Err("user index version is unknown".into());
         }
-        index
-            .source_claims
-            .retain(|claim| claim.matched_row.source.valid());
+        index.source_claims.retain(|claim| {
+            crate::service::chat_send_transaction::valid_source_row(&claim.matched_row.source)
+        });
         validate_index(&index, &tab.tab_id)?;
         let previous = data
             .as_ref()

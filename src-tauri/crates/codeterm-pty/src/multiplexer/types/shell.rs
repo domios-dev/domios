@@ -1,12 +1,16 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 pub struct CloseRestoreTabState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub utility_owner_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub paired_planner_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub session_cwd: Option<String>,
     pub command: Option<String>,
     pub stopped: bool,
@@ -24,7 +28,7 @@ impl CloseRestoreTabState {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellPurpose {
     Build,
@@ -61,7 +65,7 @@ impl ShellPurpose {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellActivity {
     #[default]
@@ -70,7 +74,7 @@ pub enum ShellActivity {
     Idle,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ShellCommandState {
     pub activity: ShellActivity,
     pub last_exit_code: Option<i32>,

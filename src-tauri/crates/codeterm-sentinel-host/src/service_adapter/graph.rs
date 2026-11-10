@@ -217,7 +217,9 @@ pub trait AutomationGraphExt {
         team: Option<&str>,
     ) -> Result<Snapshot, String>;
     fn automation_graph_workspace_snapshot(&self, workspace: &str) -> Result<Snapshot, String>;
-    fn automation_configured_fallback(&self) -> Value;
+    fn automation_configured_fallback(
+        &self,
+    ) -> Option<codeterm_sentinel::graph_contracts::ConfiguredFallback>;
     fn automation_graph_stop_host(
         &self,
         workspace: &str,
@@ -409,8 +411,11 @@ impl AutomationGraphExt for ServiceContext {
                 combined.revision = format!("{:x}", Sha256::digest(revisions.join("|")));
                 combined.all_teams = true;
                 for node in &mut combined.nodes {
-                    if let Some(detail) = node.get_mut("detail") {
-                        detail["definition"] = json!({"unavailable":"team_view_required"});
+                    if let Some(detail) = &mut node.detail {
+                        detail.definition =
+                            codeterm_sentinel::graph_contracts::Definition::Unavailable {
+                                unavailable: "team_view_required".into(),
+                            };
                     }
                 }
                 project_pipeline_contract(
@@ -436,7 +441,9 @@ impl AutomationGraphExt for ServiceContext {
         )
     }
 
-    fn automation_configured_fallback(&self) -> Value {
+    fn automation_configured_fallback(
+        &self,
+    ) -> Option<codeterm_sentinel::graph_contracts::ConfiguredFallback> {
         let config = self
             .try_ext::<codeterm_service_core::config::ConfigState>()
             .map(|s| s.lock().supporter.clone());
@@ -447,7 +454,7 @@ impl AutomationGraphExt for ServiceContext {
             Some((config, id)) => {
                 graph::configured_fallback(Some(id), config.connection(id).model.as_deref())
             }
-            None => Value::Null,
+            None => None,
         }
     }
 

@@ -1,3 +1,4 @@
+import { channelStatus, permissionResponse } from "./neighborRuntime.testdata";
 import { it, expect, vi } from "vitest";
 import { act } from "react";
 import type { NeighborList } from "./neighborModel";
@@ -8,7 +9,7 @@ import { localFetch } from "../../lib/webApi";
 import { parseReferralTrial } from "./referralTrial";
 import { parseNeighbors } from "./neighborModel";
 import type { NeighborNotify, HistoryEntry } from "./neighborConciergeClient";
-import { NeighborRuntimeFailure, type NeighborListenerEvent, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { NeighborRuntimeFailure, type NeighborListenerEvent } from "./neighborRuntimeClient";
 import { missingConciergeLine } from "./useConciergeStatus";
 import { openNeighborPage } from "./neighborFocus";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
@@ -250,7 +251,7 @@ it("saves permissions directly and refuses an allowed grant without a scope", as
   });
   expect(document.body.textContent).toContain("Applying restarts Ada's concierge with a fresh session.");
   await act(async () => button("Apply").click());
-  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", { allowed: true, scope: "Questions about our shared project", allow_tab_requests: false, memory_write_areas: [] });
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", permissionResponse({ allowed: true, scope: "Questions about our shared project", allow_tab_requests: false, memory_write_areas: [] }));
 });
 
 it("shows a sent invitation as its typed email with no profile and no action", async () => {
@@ -292,7 +293,7 @@ it("shows a calm off state with a way back on, and draws no ring while Neighbors
 
 it("tells the old machine that receiving moved, and warns before taking it over", async () => {
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } });
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } }));
   await render("paid", { runtimeClient });
   await act(async () => button("Ada, connected").click());
   expect(document.body.textContent).toContain("Studio");
@@ -311,7 +312,7 @@ it.each([
   ["receiver_revision_stale", "x".repeat(4096) + "opaque-secret-tail", "x".repeat(255) + "…"],
 ] as const)("shows safe takeover failure %s without expanding Details", async (reason, message, displayed) => {
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } });
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } }));
   vi.mocked(runtimeClient.receiveFriend).mockRejectedValue(new NeighborRuntimeFailure(reason, message));
   await render("paid", { runtimeClient });
   await act(async () => button("Ada, connected").click());
@@ -331,7 +332,7 @@ it.each([
   { token: "opaque-secret-object", message: "opaque-secret-message" },
 ])("does not retain non-runtime takeover rejection %# in the alert or Details", async failure => {
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } });
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } }));
   vi.mocked(runtimeClient.receiveFriend).mockRejectedValue(failure);
   await render("paid", { runtimeClient });
   await act(async () => button("Ada, connected").click());
@@ -347,11 +348,11 @@ it("requires a fresh confirmation if receiving moves while the active takeover p
   const runtimeClient = runtime();
   let changed: ((event: NeighborListenerEvent) => void) | undefined;
   vi.mocked(runtimeClient.subscribe).mockImplementation(async handler => { changed = handler; return () => {}; });
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } });
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } }));
   await render("paid", { runtimeClient });
   await act(async () => button("Ada, connected").click());
   await act(async () => button("Receive this friend here").click());
-  await act(async () => changed?.({ receiving_here: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5, friendship_id: "pair" }));
+  await act(async () => changed?.({ receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5, friendship_id: "pair", friend_receivers_version: 1 }));
   await act(async () => button("Receive this friend here").click());
   expect(runtimeClient.receiveFriend).not.toHaveBeenCalled();
   await act(async () => button("Receive this friend here").click());
@@ -380,7 +381,7 @@ it("caps the waiting count the way the daemon does", () => {
 
 it("says nothing about receiving until the daemon knows", async () => {
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: {} } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: {}, friend_receivers: {} }));
   await render("paid", { runtimeClient });
   expect(document.body.textContent).not.toContain("Receiver not chosen yet");
   expect(hasButton("Receive all friends here")).toBe(false);
@@ -404,8 +405,8 @@ it("turns off reading memory and files for one friend and saves it", async () =>
 it("sets machine access: the folder with its honest note, and a warning for full access", async () => {
   const conciergeClient = concierge([]);
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "Project questions", allow_tab_requests: false, machine_access: "folder", folder: "/work/shared",
-    effective_folder: "/work/shared", folder_enforcement: { writes: "advisory", reads: "not_confined", note: "Writes are advisory with this agent; reads are not confined." } });
+  vi.mocked(runtimeClient.permission).mockResolvedValue(permissionResponse({ allowed: true, scope: "Project questions", allow_tab_requests: false, machine_access: "folder", folder: "/work/shared",
+    effective_folder: "/work/shared", folder_enforcement: { writes: "advisory", reads: "not_confined", network: "not_confined", note: "Writes are advisory with this agent; reads are not confined." } }));
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
@@ -422,8 +423,8 @@ it("sets machine access: the folder with its honest note, and a warning for full
 
 it("shows concise read-only limits and keeps the runtime's full note under Details", async () => {
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "Questions", allow_tab_requests: false, machine_access: "read_only",
-    folder_enforcement: { writes: "pad_only", reads: "not_confined", note: "Writes only its own pad; reads are not confined." } });
+  vi.mocked(runtimeClient.permission).mockResolvedValue(permissionResponse({ allowed: true, scope: "Questions", allow_tab_requests: false, machine_access: "read_only",
+    folder_enforcement: { writes: "pad_only", reads: "not_confined", network: "not_confined", note: "Writes only its own pad; reads are not confined." } }));
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);

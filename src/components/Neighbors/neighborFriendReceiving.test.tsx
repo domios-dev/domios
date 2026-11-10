@@ -1,3 +1,4 @@
+import { channelStatus } from "./neighborRuntime.testdata";
 import { it, vi, expect } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -35,13 +36,13 @@ vi.mock("./NeighborReceiveHere", () => ({
 
 const { neighbor, mounted, button, hasButton, runtime, concierge, render } = createNeighborsViewFixture({ notices, transport, bridge, account, mux });
 
-const elsewhere: ReceiverState = { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 7 };
-const overridden: ReceiverState = { receiving_here: true, receiving_enabled: true, receiver_machine_label: "This laptop", revision: 3 };
+const elsewhere: ReceiverState = { receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 7 };
+const overridden: ReceiverState = { receiving_here: true, is_me: true, receiving_enabled: true, receiver_machine_label: "This laptop", revision: 3 };
 
 /** The runtime with this account received here, and Ada received as given. */
 function receiving(ada: ReceiverState): NeighborRuntimeClient {
   const client = runtime({ pair: "tab-gateway" });
-  vi.mocked(client.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: { pair: ada } });
+  vi.mocked(client.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: { pair: ada } }));
   return { ...client, receiveFriend: vi.fn(async () => {}) };
 }
 function friends(list: NeighborList["friends"]): NeighborClient {
@@ -66,10 +67,18 @@ async function choose(item: string) {
   await act(async () => entry.click());
 }
 
-it("the sidebar friend row says where that friend is received and receives only that friend here", async () => {
-  const runtimeClient = receiving(elsewhere);
-  await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
+it("the sidebar moves the receiving line from an existing event and receives only that friend here", async () => {
+  const runtimeClient = receiving(overridden);
+  const client = friends([neighbor]);
+  let receiverChanged: Parameters<NeighborRuntimeClient["subscribe"]>[0] | undefined;
+  vi.mocked(runtimeClient.subscribe).mockImplementation(async handler => { receiverChanged = handler; return () => {}; });
+  await mount(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} />);
+  expect(hasButton("Open Ada's concierge")).toBe(true);
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: { pair: elsewhere }, friend_receivers_version: 2 }));
+  await act(async () => receiverChanged!({ ...elsewhere, friendship_id: "pair", friend_receivers_version: 2 }));
   expect(document.body.textContent).toContain("receiving on Studio Mac");
+  expect(hasButton("Open Ada's concierge")).toBe(false);
+  expect(client.list).toHaveBeenCalledTimes(1);
   await openMenu("Actions for Ada");
   await choose("Receive this friend here");
   const confirm = button("Confirm receiving");
@@ -107,13 +116,13 @@ it("a local receiver offers stopping only that friend", async () => {
 });
 
 
-it("the concierge row's menu receives the same friend here", async () => {
-  const runtimeClient = receiving(elsewhere);
+it("the current concierge row's menu stops receiving the same friend here", async () => {
+  const runtimeClient = receiving(overridden);
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
   await openMenu("Actions for Ada's concierge");
-  await choose("Receive this friend here");
+  await choose("Stop receiving this friend");
   await act(async () => button("Confirm receiving").click());
-  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set");
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 3, "reset");
 });
 
 it("the conversation says where the friend is received and offers receiving them here without blocking the chat", async () => {
@@ -141,7 +150,7 @@ it("a friend the status does not know yet borrows nothing from the account: no l
   // The account is received elsewhere, but Ada's own receiver is unknown, so nothing may claim where Ada arrives.
   const unknown = (): NeighborRuntimeClient => {
     const client = receiving(elsewhere);
-    vi.mocked(client.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: {} } as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+    vi.mocked(client.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: {} }));
     return client;
   };
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={unknown()} />);

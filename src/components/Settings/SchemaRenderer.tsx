@@ -633,7 +633,7 @@ function BadgeField({
   variants,
 }: {
   queryCommand: string;
-  queryArgs?: Record<string, unknown>;
+  queryArgs?: Extract<SettingField, { kind: "badge" }>["query_args"];
   variants: BadgeVariant[];
 }) {
   const [variant, setVariant] = useState<BadgeVariant | null>(null);

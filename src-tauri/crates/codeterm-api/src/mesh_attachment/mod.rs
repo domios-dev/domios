@@ -8,7 +8,6 @@ use axum::{
     Json,
 };
 use base64::Engine as _;
-use serde::Deserialize;
 
 use crate::routes::AppState;
 use codeterm_service_core::service::mesh_attachment::*;
@@ -139,13 +138,7 @@ pub async fn transfer_to_peer(
     parse_ingest_response(&source, resp)
 }
 
-#[derive(Deserialize)]
-pub struct TransferBody {
-    pub ordinary_tab_id: String,
-    pub peer_id: String,
-    pub path: String,
-    pub kind: AttachmentKind,
-}
+pub use codeterm_wire::api_contracts::TransferBody;
 
 /// `POST /api/mesh/attachments/transfer` — web-mirror twin of `mesh_transfer_attachment`.
 pub async fn transfer(

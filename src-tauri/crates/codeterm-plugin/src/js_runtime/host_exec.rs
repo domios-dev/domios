@@ -3,6 +3,9 @@
 //! by the caller via `PluginSandbox::can_exec` before this is invoked. Secrets
 //! travel via `env`/`stdin`, never argv (visible to `ps`).
 
+mod protocol;
+use protocol::{ExecPollResult, ExecResult};
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -53,7 +56,7 @@ pub(super) fn current_host_env() -> HashMap<String, String> {
     HOST_EXEC_ENV.with(|stack| stack.borrow().last().cloned().unwrap_or_default())
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct ExecOpts {
     bin: String,
@@ -78,7 +81,7 @@ struct ExecOpts {
     conversation: Option<Vec<ExecConversationStep>>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct ExecConversationStep {
     stdin: String,
@@ -86,7 +89,8 @@ struct ExecConversationStep {
 }
 
 fn err(msg: &str) -> String {
-    serde_json::json!({ "error": msg }).to_string()
+    serde_json::to_string(&codeterm_wire::plugin_host::HostError { error: msg.into() })
+        .unwrap_or_else(|_| "null".into())
 }
 
 /// Run the subprocess described by `opts_json`. The binary is already
@@ -144,7 +148,12 @@ pub(super) fn run_with_host_env(
             .spawn()
         {
             // running; the plugin manages its lifetime.
-            Ok(child) => serde_json::json!({ "code": 0, "pid": child.id() }).to_string(),
+            Ok(child) => serde_json::to_string(&ExecResult {
+                code: Some(0),
+                pid: Some(child.id()),
+                ..Default::default()
+            })
+            .unwrap_or_else(|_| "null".into()),
             Err(e) => err(&format!("spawn {}: {e}", opts.bin)),
         };
     }
@@ -212,18 +221,15 @@ pub(super) fn run_with_host_env(
     let (out, stdout_truncated) = out_rx.recv().unwrap_or_default();
     let (errout, stderr_truncated) = err_rx.recv().unwrap_or_default();
     drop(registration);
-    let mut value = serde_json::json!({
-        "code": status_code,
-        "stdout": out,
-        "stderr": errout,
-    });
-    if let Some(e) = timeout_error {
-        value["error"] = serde_json::json!(e);
-    }
-    if stdout_truncated || stderr_truncated {
-        value["truncated"] = serde_json::json!(true);
-    }
-    value.to_string()
+    serde_json::to_string(&ExecResult {
+        code: Some(status_code),
+        stdout: Some(out),
+        stderr: Some(errout),
+        error: timeout_error,
+        truncated: (stdout_truncated || stderr_truncated).then_some(true),
+        ..Default::default()
+    })
+    .unwrap_or_else(|_| "null".into())
 }
 
 fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> String {
@@ -376,15 +382,14 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
     }
     let stderr = err_rx.recv().unwrap_or_default();
     drop(registration);
-    let mut value = serde_json::json!({
-        "code": status_code,
-        "stdout": stdout,
-        "stderr": stderr,
-    });
-    if let Some(error) = failure.or(wait_failure) {
-        value["error"] = serde_json::json!(error);
-    }
-    value.to_string()
+    serde_json::to_string(&ExecResult {
+        code: Some(status_code),
+        stdout: Some(stdout),
+        stderr: Some(stderr),
+        error: failure.or(wait_failure),
+        ..Default::default()
+    })
+    .unwrap_or_else(|_| "null".into())
 }
 
 fn json_rpc_response_id(line: &str) -> Option<u64> {
@@ -524,7 +529,8 @@ pub(super) fn start_with_host_env(
         run_exec_worker(worker_job_id, owned, host_env, sandbox)
     });
 
-    serde_json::json!({ "jobId": job_id }).to_string()
+    serde_json::to_string(&codeterm_wire::plugin_host::HostJobStart { job_id })
+        .unwrap_or_else(|_| "null".into())
 }
 
 fn with_host_env(mut opts: ExecOpts, host_env: &HashMap<String, String>) -> ExecOpts {
@@ -556,10 +562,21 @@ pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
         .get_mut(job_id)
         .filter(|job| job.plugin_id == plugin_id)
     else {
-        return serde_json::json!({ "done": true, "error": "job not found" }).to_string();
+        return serde_json::to_string(&ExecPollResult {
+            done: Some(true),
+            result: ExecResult {
+                error: Some("job not found".into()),
+                ..Default::default()
+            },
+        })
+        .unwrap_or_else(|_| "null".into());
     };
     if !job.done {
-        return serde_json::json!({ "done": false }).to_string();
+        return serde_json::to_string(&ExecPollResult {
+            done: Some(false),
+            result: ExecResult::default(),
+        })
+        .unwrap_or_else(|_| "null".into());
     }
     if let Some(result) = job.result.clone() {
         if job.retained {
@@ -572,25 +589,19 @@ pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
         return result.to_string();
     }
 
-    let mut out = serde_json::Map::new();
-    out.insert("done".to_string(), serde_json::json!(true));
-    if let Some(code) = job.code {
-        out.insert("code".to_string(), serde_json::json!(code));
-    }
-    if let Some(stdout) = &job.stdout {
-        out.insert("stdout".to_string(), serde_json::json!(stdout));
-    }
-    if let Some(stderr) = &job.stderr {
-        out.insert("stderr".to_string(), serde_json::json!(stderr));
-    }
-    if let Some(error) = &job.error {
-        out.insert("error".to_string(), serde_json::json!(error));
-    }
-    if job.truncated {
-        out.insert("truncated".to_string(), serde_json::json!(true));
-    }
+    let out = ExecPollResult {
+        done: Some(true),
+        result: ExecResult {
+            code: job.code,
+            stdout: job.stdout.clone(),
+            stderr: job.stderr.clone(),
+            error: job.error.clone(),
+            truncated: job.truncated.then_some(true),
+            ..Default::default()
+        },
+    };
     jobs.remove(job_id);
-    serde_json::Value::Object(out).to_string()
+    serde_json::json!(out).to_string()
 }
 
 pub(super) fn close(plugin_id: &str, job_id: &str) {
@@ -713,7 +724,14 @@ pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
             Some(job) => (job.done_event.clone(), job.deadline),
             None => {
                 return WaitResult::Completed(
-                    serde_json::json!({ "done": true, "error": "job not found" }).to_string(),
+                    serde_json::to_string(&ExecPollResult {
+                        done: Some(true),
+                        result: ExecResult {
+                            error: Some("job not found".into()),
+                            ..Default::default()
+                        },
+                    })
+                    .unwrap_or_else(|_| "null".into()),
                 )
             }
         }
@@ -1028,3 +1046,13 @@ fn finish_json_job(job_id: &str, result: &str) {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    protocol::export(config)?;
+    ExecOpts::export_all(config)?;
+    ExecConversationStep::export_all(config)?;
+    Ok(())
+}

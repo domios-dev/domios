@@ -66,6 +66,16 @@ impl Serialize for ChatPreprocessorCap {
     }
 }
 
+#[derive(Deserialize, ts_rs::TS)]
+#[serde(untagged)]
+pub(super) enum DecisionModelManifestCapability {
+    Flag(bool),
+    Obj {
+        #[serde(rename = "tokenMode")]
+        token_mode: TokenMode,
+    },
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DecisionModelCap {
     pub enabled: bool,
@@ -77,17 +87,8 @@ impl<'de> Deserialize<'de> for DecisionModelCap {
     where
         D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Raw {
-            Flag(bool),
-            Obj {
-                #[serde(rename = "tokenMode")]
-                token_mode: TokenMode,
-            },
-        }
-        Ok(match Raw::deserialize(d)? {
-            Raw::Flag(enabled) => Self {
+        Ok(match DecisionModelManifestCapability::deserialize(d)? {
+            DecisionModelManifestCapability::Flag(enabled) => Self {
                 enabled,
                 token_mode: if enabled {
                     TokenMode::Optional
@@ -95,7 +96,7 @@ impl<'de> Deserialize<'de> for DecisionModelCap {
                     TokenMode::None
                 },
             },
-            Raw::Obj { token_mode } => Self {
+            DecisionModelManifestCapability::Obj { token_mode } => Self {
                 enabled: true,
                 token_mode,
             },
@@ -189,6 +190,24 @@ impl Serialize for SecretBackendCap {
     }
 }
 
+#[derive(Deserialize, ts_rs::TS)]
+#[serde(untagged)]
+pub(super) enum ChatBackendCapability {
+    Flag(bool),
+    Obj {
+        #[serde(default)]
+        spawnable: bool,
+        #[serde(default)]
+        watcher: bool,
+        #[serde(default, rename = "sessionConfig")]
+        session_config: bool,
+        #[serde(default, rename = "contextOwner")]
+        context_owner: Option<String>,
+        #[serde(default, rename = "agentTasks")]
+        agent_tasks: bool,
+    },
+}
+
 /// `chatBackend` capability declaration. Authors write either a bare bool
 /// (`true` — the backend is registered but NOT user-spawnable, e.g. a
 /// host-/agent-driven NPC tab) or an object carrying capability flags. Both
@@ -237,25 +256,8 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
     where
         D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Raw {
-            Flag(bool),
-            Obj {
-                #[serde(default)]
-                spawnable: bool,
-                #[serde(default)]
-                watcher: bool,
-                #[serde(default, rename = "sessionConfig")]
-                session_config: bool,
-                #[serde(default, rename = "contextOwner")]
-                context_owner: Option<String>,
-                #[serde(default, rename = "agentTasks")]
-                agent_tasks: bool,
-            },
-        }
-        Ok(match Raw::deserialize(d)? {
-            Raw::Flag(enabled) => Self {
+        Ok(match ChatBackendCapability::deserialize(d)? {
+            ChatBackendCapability::Flag(enabled) => Self {
                 enabled,
                 spawnable: false,
                 watcher: false,
@@ -263,7 +265,7 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                 context_owner: ContextOwner::default(),
                 agent_tasks: false,
             },
-            Raw::Obj {
+            ChatBackendCapability::Obj {
                 spawnable,
                 watcher,
                 session_config,
@@ -338,13 +340,13 @@ impl Serialize for ChatBackendCap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum WebhookReceiverKind {
     Pebble,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct WebhookReceiverCap {
     pub kind: WebhookReceiverKind,

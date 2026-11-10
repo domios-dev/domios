@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn retained_show_projection_preserves_serialized_overlay() {
+    use codeterm_sentinel::blueprint_snapshot::{NestedRun, Projection};
+
+    for projection in [
+        Projection::default(),
+        Projection {
+            plugin_nodes: Some(Default::default()),
+            historical_graph_available: Some(false),
+            graph_definition_version: Some(None),
+            call_graph: Some(json!({"payload": [null, true]})),
+            expanded_calls: Some(vec![]),
+            nested_run: Some(NestedRun {
+                id: None,
+                definition_version: None,
+                nodes: vec![],
+            }),
+        },
+        Projection {
+            graph_definition_version: Some(Some(3)),
+            ..Default::default()
+        },
+    ] {
+        let base =
+            json!({"id": "fixture", "call_graph": "existing", "graph_definition_version": 1});
+        let mut expected = base.clone();
+        expected.as_object_mut().unwrap().extend(
+            serde_json::to_value(&projection)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        let mut actual = base;
+        add_retained_projection(&mut actual, projection);
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
 fn blueprint_handlers_round_trip_without_changing_stored_identity_or_content() {
     let public = json!({
         "id": "sentinel_existing", "probe": "sentinel is opaque probe content",

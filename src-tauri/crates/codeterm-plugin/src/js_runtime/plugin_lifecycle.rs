@@ -18,8 +18,12 @@ impl PluginLifecycle for PluginVm {
             Err(VmError::MissingFunction(_)) => return Ok(()),
             Err(error) => return Err(error.to_string()),
         };
-        if let Some(error) = result.get("error").and_then(serde_json::Value::as_str) {
-            return Err(error.to_string());
+        if result.is_object() {
+            if let Ok(codeterm_wire::plugin_host::HostError { error }) =
+                <codeterm_wire::plugin_host::HostError as serde::Deserialize>::deserialize(&result)
+            {
+                return Err(error);
+            }
         }
         Ok(())
     }

@@ -70,7 +70,7 @@ export function blueprintBlockInfo(entry: Extract<ResolvedJob, { kind: "blueprin
   return {
     id: snapshot.id,
     kind: "blueprint",
-    name: snapshot.name,
+    name: snapshot.name ?? snapshot.id,
     state: BLUEPRINT_STATE[snapshot.state] ?? "enabled",
     stateLabel: snapshot.state.charAt(0).toUpperCase() + snapshot.state.slice(1),
     schedule: snapshot.trigger?.summary?.trim() || "No trigger",

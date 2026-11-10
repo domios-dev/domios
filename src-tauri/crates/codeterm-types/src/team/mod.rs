@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use uuid::Uuid;
 
 pub mod general_agent_membership;
 pub mod staffing;
 
 /// Team lifecycle from initial pairing through closure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TeamLifecycle {
     #[default]
@@ -18,11 +19,12 @@ pub enum TeamLifecycle {
 /// A Team groups the tabs of one multi-agent effort. Membership is the data
 /// relation `tab.team_id` + role — there is no separate membership table. Bound
 /// 1:1 to a plan (Phase 3); minted at the spawn edge (Phase 2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct Team {
     /// Stable id, `team_` prefix.
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub name: Option<String>,
     #[serde(default)]
     pub lifecycle: TeamLifecycle,

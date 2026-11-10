@@ -1,6 +1,6 @@
-import type {UsageDetails} from "../../types/usage";
+import {extraUsage} from "./usageDetailsModel";
 
-type ExtraUsage = NonNullable<UsageDetails["extra_usage"]>;
+type ExtraUsage = NonNullable<ReturnType<typeof extraUsage>>;
 
 function formatMinorAmount(amount: number, extra: ExtraUsage): string {
   const places = extra.decimal_places ?? 2;
@@ -13,7 +13,9 @@ function formatMinorAmount(amount: number, extra: ExtraUsage): string {
   }
 }
 
-export function extraUsageLabel(extra: ExtraUsage): string {
+export function extraUsageLabel(value: unknown): string {
+  const extra = extraUsage(value);
+  if (!extra) return "Usage credits unavailable";
   const parts = [`Usage credits ${extra.enabled ? "on" : "off"}`];
   if (extra.spend_limit_reached) parts.push("limit reached");
   else if (extra.disabled_reason) {

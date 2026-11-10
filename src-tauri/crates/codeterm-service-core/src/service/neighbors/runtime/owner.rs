@@ -5,6 +5,19 @@ use tokio::sync::{mpsc, oneshot};
 #[cfg(test)]
 struct Observer(mpsc::UnboundedSender<&'static str>);
 
+#[derive(Default)]
+struct Activity {
+    registry_activation: AtomicBool,
+}
+
+struct ActivityGuard<'a>(&'a Activity);
+
+impl Drop for ActivityGuard<'_> {
+    fn drop(&mut self) {
+        self.0.registry_activation.store(false, Ordering::Release);
+    }
+}
+
 pub(super) enum Operation {
     ConfirmReceiver(Box<ReceiverCommit>),
     StopLocal {
@@ -59,6 +72,22 @@ pub(super) struct Request {
 }
 
 impl ServiceContext {
+    pub(in crate::service::neighbors) fn neighbor_registry_activation_active(&self) -> bool {
+        self.extensions
+            .get_or_init(Activity::default)
+            .registry_activation
+            .load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(in crate::service::neighbors) fn fixture_neighbor_registry_activation(
+        &self,
+    ) -> impl Drop + '_ {
+        let activity = self.extensions.get_or_init(Activity::default);
+        activity.registry_activation.store(true, Ordering::Release);
+        ActivityGuard(activity)
+    }
+
     pub(super) async fn confirm_neighbor_receiver(
         &self,
         phase: Box<ReceiverCommit>,
@@ -159,6 +188,12 @@ impl ServiceContext {
         operation: Operation,
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
+        let activity = self.extensions.get_or_init(Activity::default);
+        activity.registry_activation.store(
+            matches!(&operation, Operation::RegistryChanged),
+            Ordering::Release,
+        );
+        let _activity = ActivityGuard(activity);
         match operation {
             Operation::ConfirmReceiver(phase) => {
                 if let Some(next) = &phase.continuation {

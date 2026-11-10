@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_READ_FIELDS } from "../cards/fixtures.testdata";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -127,6 +128,7 @@ function ownerMission(): MissionControlState {
 
 function ownerBoardState(): PlanBoardState {
   return {
+    ...FIXTURE_BOARD_READ_FIELDS,
     plan_id: FIXTURE_PLAN.id,
     task_counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 4, done: 0, cancelled: 0, total: 4 },
     mission_control: ownerMission(),

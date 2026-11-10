@@ -246,7 +246,8 @@ pub(super) fn start(sandbox: &Arc<PluginSandbox>, json: &str) -> String {
             }
         },
     ) {
-        Ok(job_id) => serde_json::json!({"jobId":job_id}).to_string(),
+        Ok(job_id) => serde_json::to_string(&codeterm_wire::plugin_host::HostJobStart { job_id })
+            .unwrap_or_else(|_| "null".into()),
         Err(_) => failure(TransferRefusal::Unavailable),
     }
 }

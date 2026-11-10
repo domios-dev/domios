@@ -8,5 +8,5 @@ export function runningBlueprintNamesForOwner(
   return blueprints
     .filter((blueprint) => blueprint.state === "running" && blueprint.owner?.kind === kind
       && (kind === "tab" ? blueprint.owner.tab_id : blueprint.owner.team_id) === ownerId)
-    .map((blueprint) => blueprint.name);
+    .map((blueprint) => blueprint.name ?? blueprint.id);
 }

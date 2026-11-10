@@ -113,7 +113,7 @@ impl ChatSendLedger {
             }
         }
         let source = match item_id {
-            Some(id) => Some(super::SourceRowRef::structured(thread, id)?),
+            Some(id) => Some(super::structured_source_row(thread, id)?),
             None => None,
         };
         self.confirm_send_with_row(client_id, source.as_ref())

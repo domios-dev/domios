@@ -321,7 +321,7 @@ fn parked_user_delivery_accepted_rpc_does_not_block_later_held_message() {
 
 #[test]
 fn runtime_items_claim_identical_sends_once_and_survive_durable_restore() {
-    use crate::service::chat_send_transaction::{MatchedRow, SendRowClaim, SourceRowRef};
+    use crate::service::chat_send_transaction::{MatchedRow, SendRowClaim};
     use crate::service::pending_delivery_payloads::user_sends::UserSendStore;
     let ledger = ChatSendLedger::default();
     let first = started(&ledger, "nonce-a");
@@ -368,7 +368,10 @@ fn runtime_items_claim_identical_sends_once_and_survive_durable_restore() {
         assert_eq!(
             status.matched_row,
             Some(MatchedRow {
-                source: SourceRowRef::structured("thread-a", item).unwrap(),
+                source: crate::service::chat_send_transaction::structured_source_row(
+                    "thread-a", item
+                )
+                .unwrap(),
                 ordinal: 1
             })
         );

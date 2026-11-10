@@ -1,10 +1,7 @@
 import type { LocalArtifactKind } from "@codeterm/chat-core";
 export type { LocalArtifactKind } from "@codeterm/chat-core";
 
-export interface LocalPreviewFile {
-  data: string;
-  media_type: string;
-}
+export type LocalPreviewFile = import("../../../gen/LocalPreviewFile").LocalPreviewFile;
 
 export type LocalArtifactLoader = (
   path: string,

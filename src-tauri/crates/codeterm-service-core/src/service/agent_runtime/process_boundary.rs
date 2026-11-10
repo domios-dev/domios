@@ -27,6 +27,10 @@ impl Member {
     pub(super) fn exited(&self) -> Result<bool, RuntimeFailure> {
         self.native.exited().map_err(failure)
     }
+
+    pub(super) fn wait_for_exit(&self, deadline: Instant) -> Result<(), RuntimeFailure> {
+        self.native.wait(deadline).map_err(failure)
+    }
 }
 
 pub(super) struct Boundary {

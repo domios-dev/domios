@@ -76,7 +76,7 @@ export function teamCloseResourcesForWorkspace(
         blueprints: blueprints.filter((blueprint) => blueprint.state === "running" && (
           blueprint.owner?.kind === "team" && blueprint.owner.team_id === teamId
           || blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && memberIds.has(blueprint.owner.tab_id)
-        )).map((blueprint) => blueprint.name),
+        )).map((blueprint) => blueprint.name ?? blueprint.id),
         lanes: [...lanes].sort((left, right) => left.localeCompare(right)),
       };
     });

@@ -20,7 +20,8 @@ pub struct ReportObservation<'a> {
     pub status: Option<codeterm_types::agent::ReportStatus>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, ts_rs::TS)]
+#[ts(rename_all = "camelCase")]
 pub struct ObservationConfig {
     pub orchestration: bool,
     pub chat_tail: usize,

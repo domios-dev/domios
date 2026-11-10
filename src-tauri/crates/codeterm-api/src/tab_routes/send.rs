@@ -167,7 +167,9 @@ pub async fn chat_send_text(
                 None,
                 body.client_token,
             )?;
-            Ok(codeterm_service_core::service::agent_pad::ChatSendResult::new(status, pad_file))
+            Ok(codeterm_service_core::service::agent_pad::chat_send_result(
+                status, pad_file,
+            ))
         }
     })
     .await
@@ -483,9 +485,9 @@ fn record_push_activity(state: &AppState, svc_id: &Option<String>, tab_id: &str,
         state.svc.services_store.conn(),
     );
     let preview = text.chars().take(200).collect::<String>();
-    let _ = writer.record(
-        codeterm_service_core::service::activity::ActivityEvent::push(svc_id, tab_id, &preview),
-    );
+    let _ = writer.record(codeterm_service_core::service::activity::push(
+        svc_id, tab_id, &preview,
+    ));
     state.svc.ui.emit(
         "service-pushed",
         serde_json::json!({"source_id": svc_id, "target": tab_id}),

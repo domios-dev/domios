@@ -3,7 +3,7 @@ use crate::wire::Kind;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum MachineAccess {
     None,
@@ -13,7 +13,7 @@ pub enum MachineAccess {
     Full,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct Permission {
     pub allowed: bool,

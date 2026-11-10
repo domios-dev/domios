@@ -694,10 +694,10 @@ pub(super) fn emit_snapshot_event(
     account_id: Option<&str>,
     snapshot_id: i64,
 ) {
-    let payload = serde_json::json!({
-        "provider": provider,
-        "account_id": account_id,
-        "snapshot_id": snapshot_id,
+    let payload = serde_json::json!(codeterm_usage::contract::UsageSnapshotEvent::Snapshot {
+        provider,
+        account_id,
+        snapshot_id,
     });
     svc.ui.emit(
         "usage-snapshot-updated",

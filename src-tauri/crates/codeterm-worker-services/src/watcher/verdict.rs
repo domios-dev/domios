@@ -16,7 +16,7 @@ const MALFORMED_SUMMARY_MAX: usize = 500;
 static FENCE_JSON_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?is)```(?:json)?\s*\r?\n?(.*?)```").unwrap());
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum WatcherVerdictStatus {
     Ok,
@@ -24,19 +24,21 @@ pub enum WatcherVerdictStatus {
     Stalled,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct WatcherAction {
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub tab: Option<String>,
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct WatcherVerdict {
     pub status: WatcherVerdictStatus,
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub state: Option<Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<WatcherAction>,

@@ -7,6 +7,7 @@ pub mod keys;
 pub mod permissions;
 pub mod receive;
 pub mod registry;
+pub mod responses;
 pub mod state;
 pub mod supervisor;
 pub mod wire;
@@ -35,6 +36,7 @@ pub enum Error {
     Expired,
     Decryption,
     LocalKeyUnavailable,
+    KeyInventoryPending,
     SecretStore,
     Transport,
     Unavailable,
@@ -165,6 +167,7 @@ impl std::fmt::Display for Error {
             Self::WrongPeer => "Neighbor identity mismatch",
             Self::Expired => "Neighbor message expired",
             Self::Decryption => "Cannot decrypt Neighbor message",
+            Self::KeyInventoryPending => "key_inventory_pending: Neighbor key preparation awaits inventory confirmation; receiving has not changed",
             Self::LocalKeyUnavailable => "Neighbor recipient key recovery required",
             Self::SecretStore => "Neighbor OS secret store unavailable",
             Self::Transport => "Neighbor transport unavailable",

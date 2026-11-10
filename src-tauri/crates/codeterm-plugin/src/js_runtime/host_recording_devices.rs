@@ -6,7 +6,10 @@ use super::{host_api::PluginSandbox, vm::VmError};
 use crate::local_recording::SelectedDevices;
 
 fn error(message: &str) -> String {
-    serde_json::json!({ "error": message }).to_string()
+    serde_json::to_string(&codeterm_wire::plugin_host::HostError {
+        error: message.into(),
+    })
+    .unwrap_or_else(|_| "null".into())
 }
 
 pub(super) fn install(host: &Object<'_>, sandbox: &Arc<PluginSandbox>) -> Result<(), VmError> {

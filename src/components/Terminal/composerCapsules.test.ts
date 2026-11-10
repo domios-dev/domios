@@ -85,7 +85,7 @@ const NOTES = String.raw`C:\Users\dev\AppData\Local\Temp\codeterm-chat\c3-pasted
   assert.equal(hasCapsuleTokens("plain old draft"), false);
   assert.equal(hasCapsuleTokens(text), true);
   assert.equal(serializeCapsuleDraft("plain old draft", EMPTY_CAPSULES), "plain old draft");
-  assert.equal(serializeCapsuleDraft(text, EMPTY_CAPSULES), "a text1 · 3 lines b", "an unknown token degrades to its label");
+  assert.equal(serializeCapsuleDraft(text, EMPTY_CAPSULES), text, "an unresolved attachment remains recoverable as a chip");
   const segments = capsuleSegments(text, EMPTY_CAPSULES);
   assert.equal(segments.length, 3);
   assert.deepEqual(segments[0], { text: "a " });

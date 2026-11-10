@@ -1,14 +1,7 @@
 import {CLAUDE_SLASH_COMMANDS, type SlashCommandSuggestion} from "./slashCommands";
-export interface InitializeCapabilities {
-  commands: Array<{name: string; description: string | null; argument_hint: string | null}> | null;
-  models: Array<{id: string; display_name: string | null; description: string | null}> | null;
-  agents: Array<{name: string; description: string | null; argument_hint: string | null}> | null;
-  account: {subscription_type: string | null; api_provider: string | null} | null;
-  current_permission_mode: string | null;
-  fast_mode_state: string | null;
-  output_style: string | null;
-}
-export type ProbeSnapshot = {status:"pending"} | {status:"ready";data:InitializeCapabilities} | {status:"unavailable";reason:string};
+export type InitializeCapabilities = import("../../gen/InitializeCapabilities").InitializeCapabilities;
+type WireProbeSnapshot = import("../../gen/ProbeSnapshot").ProbeSnapshot;
+export type ProbeSnapshot = Exclude<WireProbeSnapshot, { status: "unavailable" }> | (Omit<Extract<WireProbeSnapshot, { status: "unavailable" }>, "reason"> & { reason: string });
 export function cachedSlashCommands(snapshot:ProbeSnapshot | null | undefined):SlashCommandSuggestion[] {
   if (!snapshot) return CLAUDE_SLASH_COMMANDS;
   if (snapshot.status!=="ready") return [];

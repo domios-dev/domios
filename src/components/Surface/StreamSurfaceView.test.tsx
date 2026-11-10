@@ -130,6 +130,48 @@ suite.test("copy reads remote selection and paste sends local clipboard text onc
   await unmount();
 });
 
+suite.test("failed input releases Take control and keeps the reason until an explicit new attempt", async () => {
+  const { fake, region, unmount } = await mount({ surfaceTabId: SURFACE_TAB });
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState(state));
+  await act(async () => fake.emitFrame({ data: "", metadata: { deviceWidth: 800, deviceHeight: 600 } }));
+  fake.respond("input", () => { throw new Error("CDP session closed"); });
+  await act(async () => getByRole(region(), "button", "Take control").click());
+  await act(async () => getByRole(region(), "application").dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 100, clientY: 100 })));
+  await flushAsync();
+  assert.equal(surfaceControlStore.get(SURFACE_TAB), false);
+  assert.ok(getByRole(region(), "alert").textContent?.includes("CDP session closed"));
+  assert.equal(fake.callsTo("input").length, 1);
+  await act(async () => getByRole(region(), "img").click());
+  assert.equal(fake.callsTo("input").length, 1, "a failed action is never replayed");
+  fake.respond("input", () => undefined);
+  await act(async () => getByRole(region(), "button", "Take control").click());
+  assert.equal(queryByRole(region(), "alert"), null);
+  await act(async () => getByRole(region(), "application").dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 120, clientY: 100 })));
+  assert.equal(fake.callsTo("input").length, 2, "only the new click is forwarded");
+  await unmount();
+});
+
+suite.test("a disconnected stream marks the retained page unavailable until a fresh frame arrives", async () => {
+  const { fake, region, unmount } = await mount();
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState(state));
+  await act(async () => fake.emitFrame({ data: "", metadata: { deviceWidth: 800, deviceHeight: 600 } }));
+  await act(async () => getByRole(region(), "button", "Take control").click());
+  const failure = { text: "Live view unavailable: CDP session closed", tone: "error", kind: "unavailable" } as const;
+  await act(async () => fake.emitNotice(failure));
+  assert.equal(getByRole(region(), "alert").textContent, failure.text);
+  assert.equal(queryByRole(region(), "application"), null);
+  await act(async () => getByRole(region(), "img").dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 100, clientY: 100 })));
+  assert.equal(fake.callsTo("input").length, 0);
+  await act(async () => fake.emitOpen());
+  assert.ok(queryByRole(region(), "alert"), "an open connection alone does not prove a live page");
+  await act(async () => fake.emitFrame({ data: "", metadata: { deviceWidth: 800, deviceHeight: 600 } }));
+  assert.equal(queryByRole(region(), "alert"), null);
+  assert.ok(queryByRole(region(), "application"));
+  await unmount();
+});
+
 const capture: SnipCapture = { id: "s1", width: 640, height: 480, thumbnail: "data:image/jpeg;base64,AA==" };
 const pointer = (type: string, clientX: number, clientY: number) =>
   new PointerEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0, pointerId: 1 });
@@ -611,7 +653,7 @@ suite.test("a paused preview shows a quiet inline state, never the notice bar, a
   assert.equal(paused.textContent?.startsWith(PREVIEW_PAUSED_TEXT), true);
   assert.equal(byTestId(region(), "surface-notice"), null, "a recurring condition is not a notice bar");
   await act(async () => fake.emitNotice({ text: "boom", tone: "error" }));
-  assert.ok(raisedNotices.some((notice) => notice.body === "boom"), "other notices reach the toast publisher");
+  assert.ok(raisedNotices.some((notice) => notice.body?.includes("boom")), "other notices reach the toast publisher");
   assert.ok(byTestId(region(), "surface-preview-paused"), "and do not clear the paused state");
   await act(async () => fake.emitFrame(frameAt(640, 480)));
   assert.equal(byTestId(region(), "surface-preview-paused"), null, "the next frame clears it");

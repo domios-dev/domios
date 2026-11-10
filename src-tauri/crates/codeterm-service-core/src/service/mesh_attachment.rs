@@ -2,33 +2,14 @@
 
 use axum::http::StatusCode;
 use base64::Engine as _;
-use serde::{Deserialize, Serialize};
 
 pub const MESH_ATTACHMENT_MAX_BYTES: u64 = 25 * 1024 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AttachmentKind {
-    Voice,
-    File,
-}
+pub use codeterm_wire::api_contracts::AttachmentKind;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IngestRequest {
-    pub kind: AttachmentKind,
-    pub name: String,
-    pub size: u64,
-    pub data: String,
-}
+pub use codeterm_wire::api_contracts::IngestRequest;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IngestedAttachment {
-    pub path: String,
-    pub kind: AttachmentKind,
-    pub size: u64,
-    #[serde(default)]
-    pub reference: Option<String>,
-}
+pub use codeterm_wire::api_contracts::IngestedAttachment;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum IngestRefusal {

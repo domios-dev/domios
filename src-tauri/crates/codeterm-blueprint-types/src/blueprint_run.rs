@@ -1,15 +1,17 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
+#[ts(rename = "CausalRunParent")]
 pub struct Parent {
     pub node: String,
     pub transition: String,
     pub handler: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
+#[ts(rename = "CausalRunContext")]
 pub struct Context {
     pub id: String,
     pub root_node: String,

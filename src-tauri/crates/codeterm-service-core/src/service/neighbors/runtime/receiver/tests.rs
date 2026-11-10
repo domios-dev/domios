@@ -147,7 +147,10 @@ async fn failed_receiver_watch_keeps_reconnecting_cause_and_visible_exhaustion()
         service.neighbor_cell().states.lock()[&friend],
         ListenerState::Reconnecting
     );
-    assert_eq!(service.neighbor_cell().failures.lock()[&friend]["code"], 13);
+    assert_eq!(
+        json!(service.neighbor_cell().failures.lock()[&friend])["code"],
+        13
+    );
     {
         let events = observed.lock();
         assert_eq!(
@@ -167,15 +170,40 @@ async fn failed_receiver_watch_keeps_reconnecting_cause_and_visible_exhaustion()
     );
     service.neighbor_watch_state("control", ListenerState::Stopped, None);
     let watches = service.neighbor_cell().watch_states.lock();
-    assert_eq!(watches["control"]["status"], "stopped");
+    assert_eq!(json!(watches["control"])["status"], "stopped");
     assert_eq!(
-        watches["control"]["error"]["kind"],
+        json!(watches["control"])["error"]["kind"],
         "listen_retries_exhausted"
     );
-    assert_eq!(watches["control"]["error"]["last_error"]["code"], 13);
+    assert_eq!(json!(watches["control"])["error"]["last_error"]["code"], 13);
     drop(watches);
     assert_eq!(
-        service.neighbor_cell().failures.lock()[&friend]["kind"],
+        json!(service.neighbor_cell().failures.lock()[&friend])["kind"],
         "listen_retries_exhausted"
+    );
+}
+
+#[test]
+fn listener_response_distinguishes_omitted_metadata_from_explicit_null() {
+    use codeterm_neighbors::responses::{ListenerFailure, NeighborListenerEvent};
+    use codeterm_neighbors::supervisor::ListenerState;
+    let event = |error| NeighborListenerEvent::Listener {
+        friendship_id: Some("friend".into()),
+        status: ListenerState::Stopped,
+        error,
+        reason: None,
+    };
+    let failure = ListenerFailure {
+        kind: "listen_retries_exhausted".into(),
+        last_error: Some(None),
+        ..Default::default()
+    };
+    assert_eq!(
+        json!([event(None), event(Some(None)), event(Some(Some(failure)))]),
+        json!([
+            {"friendship_id":"friend","status":"stopped"},
+            {"friendship_id":"friend","status":"stopped","error":null},
+            {"friendship_id":"friend","status":"stopped","error":{"kind":"listen_retries_exhausted","last_error":null}}
+        ])
     );
 }

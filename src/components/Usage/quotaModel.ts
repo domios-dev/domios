@@ -1,4 +1,5 @@
-import type { UsageSnapshot } from "../../types/usage";
+import {usageField, usageRecord} from "./usageDetailsModel";
+import type { UsageLatestView } from "../../types/usage";
 
 /** A pill with nothing to read shows a quiet dash; the reason stays in its accessible name and popover. */
 export function unavailablePill(reason: string): { text: string; label: string } {
@@ -11,19 +12,19 @@ export interface QuotaReading { title: string; limits: QuotaLimit[] }
 const QUOTA_READ_INTERVAL_MS = 60_000;
 
 function quotaLimit(value: unknown): QuotaLimit | null {
-  const limit = value as { label?: unknown; used_percent?: unknown; resets_at?: unknown } | null | undefined;
-  if (typeof limit?.label !== "string" || typeof limit.used_percent !== "number" || !(limit.used_percent >= 0 && limit.used_percent <= 100)) return null;
+  const limit = value;
+  if (!usageRecord(limit) || typeof limit.label !== "string" || typeof limit.used_percent !== "number" || !(limit.used_percent >= 0 && limit.used_percent <= 100)) return null;
   if (limit.resets_at !== null && (typeof limit.resets_at !== "number" || !Number.isFinite(limit.resets_at))) return null;
   return { label: limit.label, usedPercent: limit.used_percent, resetsAt: limit.resets_at };
 }
 
 /** The plugin-read quota a profile's `quota` limits source stored, or null when absent or malformed. */
-export function quotaReading(snapshot: UsageSnapshot | null): QuotaReading | null {
+export function quotaReading(snapshot: UsageLatestView | null): QuotaReading | null {
   // Stored JSON is plugin-produced, so the declared shape is checked rather than trusted.
-  const quota = (snapshot?.parsed_ok ? snapshot.usage_details?.quota : null) as { title?: unknown; limits?: unknown } | null | undefined;
-  if (typeof quota?.title !== "string" || !Array.isArray(quota.limits) || !quota.limits.length) return null;
+  const quota = snapshot?.parsed_ok ? usageField(snapshot.usage_details, "quota") : null;
+  if (!usageRecord(quota) || typeof quota.title !== "string" || !Array.isArray(quota.limits) || !quota.limits.length) return null;
   const limits = quota.limits.map(quotaLimit);
-  return limits.every(Boolean) ? { title: quota.title, limits: limits as QuotaLimit[] } : null;
+  return limits.every((limit): limit is QuotaLimit => limit !== null) ? { title: quota.title, limits } : null;
 }
 
 /** The pill shows the limit closest to running out and names it. */

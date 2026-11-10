@@ -10,7 +10,7 @@ const MAX_NATIVE_RESERVATIONS: usize = 128;
 
 use codeterm_local_recording::LocalRecordingTrigger;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SelectedDevices {
     pub input_id: String,
@@ -27,7 +27,7 @@ impl SelectedDevices {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RecordingInputDevice {
     pub id: String,
@@ -38,7 +38,7 @@ pub struct RecordingInputDevice {
     pub collection_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum RecordingInputKind {
     Hid,
@@ -162,7 +162,7 @@ pub struct LocalRecordingRegistry {
 
 pub type LocalRecordingRegistryHandle = Arc<LocalRecordingRegistry>;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingStatus {
     pub plugin_id: String,
@@ -174,15 +174,16 @@ pub struct RecordingStatus {
     pub generation: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "LocalRecordingCaptureInvalidation")]
 pub struct LocalRecordingInvalidation {
     pub plugin_id: String,
     pub generation: u64,
     pub reason: LocalRecordingInvalidationReason,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum LocalRecordingInvalidationReason {
     Disabled,

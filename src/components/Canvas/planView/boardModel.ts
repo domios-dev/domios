@@ -100,7 +100,7 @@ export interface BoardTaskCardTask {
   status_changed_at?: number;
   activity_at?: number;
   assigned_tab_id?: string | null;
-  lane?: Pick<NonNullable<Task["lane"]>, "tab_id" | "branch">;
+  lane?: Pick<NonNullable<Task["lane"]>, "tab_id" | "branch"> | null;
   milestones?: Task["milestones"];
   taken_by_role?: string | null;
   model?: string | null;

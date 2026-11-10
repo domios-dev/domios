@@ -9,61 +9,17 @@
 use codeterm_service_core::service::MuxEmitCause;
 use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
 use codeterm_types::team::general_agent_membership::{CorrectiveShape, MembershipAttempt};
-use serde::{Deserialize, Serialize};
 
 use codeterm_service_core::service::startup_lease::StartupTeamLease;
 use codeterm_service_core::service::ServiceContext;
 use codeterm_service_core::service::SpawnAgentParams;
 
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct OrchestrationPairParams {
-    pub orchestrator_agent: String,
-    pub orchestrator_model: Option<String>,
-    /// Requested reasoning effort for the Orchestrator. Capability-validated
-    /// against the provider at spawn; unsupported values are rejected.
-    #[serde(default)]
-    pub orchestrator_reasoning_effort: Option<String>,
-    pub planner_agent: String,
-    pub planner_model: Option<String>,
-    /// Requested reasoning effort for the Planner (same validation as above).
-    #[serde(default)]
-    pub planner_reasoning_effort: Option<String>,
-    pub workspace_id: Option<String>,
-    pub title: Option<String>,
-    pub spawned_by_tab_id: Option<String>,
-    /// Blank picker tab to claim for the Orchestrator in place, instead of
-    /// spawning it as a brand-new tab (new-session picker confirm path).
-    pub existing_tab_id: Option<String>,
-    /// Explicit "I know I am a leaf and I am doing this deliberately"
-    /// declaration — codeterm#400. A caller tab holding a leaf role (Manager
-    /// or Worker) is refused unless this is set; it never widens who may
-    /// create a pair from a non-leaf tab, and it never substitutes an
-    /// intermediary — the newly minted Team is still attributed to the
-    /// declaring tab itself.
-    #[serde(default)]
-    pub leaf_creation_acknowledged: bool,
-}
+pub use codeterm_wire::api_contracts::OrchestrationPairParams;
 
 /// Success shape only — a failed Planner spawn returns `Err(String)` with the
 /// exact recovery command embedded (see `create_orchestration_pair`), never a
 /// half-populated `Ok`. There is no silent half-pair to represent here.
-#[derive(Debug, Clone, Serialize)]
-pub struct OrchestrationPairResult {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan_id: Option<String>,
-    pub orchestrator_tab_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub orchestrator_model: Option<String>,
-    pub planner_tab_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub planner_model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warning: Option<String>,
-    /// Advisory tab-budget nudge (task_4d649dfd) for the workspace AFTER both
-    /// tabs land — a pair adds two, so its count is the authoritative one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub budget_notice: Option<codeterm_service_core::service::tab_budget::TabBudgetNotice>,
-}
+pub use codeterm_wire::api_contracts::OrchestrationPairResult;
 
 fn pair_retry_command(
     workspace_id: &str,

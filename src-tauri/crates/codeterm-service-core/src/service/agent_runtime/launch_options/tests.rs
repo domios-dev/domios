@@ -72,6 +72,109 @@ fn register_neighbor_runtime(svc: &ServiceContext) {
         .register_provider(Box::new(JsProvider::new(manifest, vm)));
 }
 
+#[test]
+fn concierge_runtime_restart_carries_only_the_current_root_grant() {
+    use crate::{
+        multiplexer::{
+            state::MultiplexerState,
+            types::{NeighborAuthority, TabBacking},
+        },
+        service::test_fixture::ServiceFixture,
+    };
+    use codeterm_neighbors::permissions::MachineAccess;
+
+    for (access, sandbox) in [
+        (MachineAccess::ReadOnly, Some("read-only")),
+        (MachineAccess::Folder, Some("workspace-write")),
+        (MachineAccess::Full, None),
+    ] {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("pad-runtime".into());
+        tab.session_binding_nonce = Some("old-nonce".into());
+        tab.agent_session_id = Some("own-thread".into());
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "pad-runtime".into(),
+            session_id: "own-thread".into(),
+        };
+        tab.neighbor_authority = Some(NeighborAuthority {
+            uid: "owner".into(),
+            friendship_id: "a".repeat(64),
+            root_tab_id: None,
+        });
+        let fixture = ServiceFixture::new(mux);
+        fixture.install_seeded_storage_desk();
+        let svc = &fixture.service;
+        register_neighbor_runtime(svc);
+        svc.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+        svc.mux.write().get_tab_mut(&id).unwrap().cwd =
+            Some(fixture.temp.path().to_string_lossy().into_owned());
+        let mut params = SpawnAgentParams {
+            agent: Some("pad-runtime".into()),
+            sandbox: sandbox.map(str::to_owned),
+            neighbor_authority: svc
+                .mux
+                .read()
+                .get_tab(&id)
+                .unwrap()
+                .neighbor_authority
+                .clone(),
+            ..Default::default()
+        };
+        svc.configure_neighbor_launch_access("pad-runtime", access, &mut params)
+            .unwrap();
+        svc.prepare_agent_runtime_launch_options(&id, &params)
+            .unwrap();
+        super::super::authority::record_spawn_for_test(svc, &id, "pad-runtime", "old-nonce");
+        let expected = super::restore(svc, &id).unwrap();
+        let policy = svc
+            .mux
+            .read()
+            .get_tab(&id)
+            .unwrap()
+            .restorable_launch
+            .execution_sandbox
+            .clone();
+        let mut nonce = "old-nonce".to_owned();
+        for _ in 0..2 {
+            let next =
+                super::super::authority::rotate_restart(svc, &id, "pad-runtime", &nonce).unwrap();
+            assert_ne!(next, nonce);
+            assert_eq!(super::restore(svc, &id).unwrap(), expected);
+            let mux = svc.mux.read();
+            let tab = mux.get_tab(&id).unwrap();
+            assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
+            assert_eq!(tab.restorable_launch.execution_sandbox, policy);
+            assert_eq!(
+                tab.restorable_launch
+                    .runtime_launch_options
+                    .as_ref()
+                    .unwrap()
+                    .binding_nonce,
+                next
+            );
+            nonce = next;
+        }
+        svc.mux
+            .write()
+            .get_tab_mut(&id)
+            .unwrap()
+            .session_binding_nonce = Some("foreign-nonce".into());
+        assert!(svc
+            .carry_neighbor_restore_grant(&id, "foreign-nonce", "foreign-nonce")
+            .is_err());
+        assert!(super::restore(svc, &id).is_err());
+        svc.mux
+            .write()
+            .get_tab_mut(&id)
+            .unwrap()
+            .session_binding_nonce = Some(nonce.clone());
+        svc.neighbor_identity_changed();
+        assert!(super::super::authority::rotate_restart(svc, &id, "pad-runtime", &nonce).is_err());
+        assert!(super::restore(svc, &id).is_err());
+    }
+}
+
 #[tokio::test]
 async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_and_restore() {
     use crate::{

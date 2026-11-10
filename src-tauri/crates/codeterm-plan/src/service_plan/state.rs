@@ -35,7 +35,7 @@ pub struct PlanningReadiness {
     pub has_verification_hint: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, ts_rs::TS)]
 pub struct TaskCounts {
     pub pending: usize,
     pub in_progress: usize,

@@ -7,7 +7,7 @@ mod monitor;
 mod protocol;
 mod runtime;
 
-pub use codeterm_blueprint_types::plugin_schema::PluginSchema as StepSchema;
+pub use codeterm_blueprint_types::plugin_schema::{AuthoredSchema, PluginSchema as StepSchema};
 pub use descriptor::*;
 pub use input_scope::*;
 pub use ledger::*;

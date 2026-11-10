@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { AutomationResource, type AutomationSnapshot } from "./resource";
 import { isScenarioRoot, scopedAutomationGraph } from "./model";
 import { automationKindLabel, automationKey, type AutomationGraph } from "./types";
+import { createMuxReadCapacity, MUX_READ_CAPACITY } from "../../lib/streamMuxRequestModel";
 import { attachment, cronIdentity, deferred, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity, workerIdentity } from "./fixtures.testdata";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
@@ -22,6 +23,27 @@ function nextSnapshot(resource: AutomationResource, predicate: (snapshot: Automa
   });
   return ready.promise;
 }
+
+test("a never-dispatched graph read stays loading until released capacity permits one read", async () => {
+  const capacity = createMuxReadCapacity();
+  const refused = deferred<void>();
+  const transport = new FixtureTransport();
+  transport.readOverride = async () => {
+    if (transport.reads === 1) { refused.resolve(); throw { [MUX_READ_CAPACITY]: capacity.capture() }; }
+    return fixtureGraph();
+  };
+  const resource = new AutomationResource(transport, attachment);
+  const off = resource.subscribe(() => undefined);
+  await refused.promise;
+  assert.equal(resource.getSnapshot().failed, false);
+  assert.equal(resource.getSnapshot().loading, true);
+  const loaded = nextSnapshot(resource, snapshot => snapshot.graph !== null);
+  capacity.released();
+  await loaded;
+  assert.equal(transport.reads, 2);
+  assert.equal(resource.getSnapshot().failed, false);
+  off();
+});
 
 test("exact ID and ownership joins retain missing requested identity despite duplicate names", () => {
   const graph = fixtureGraph();

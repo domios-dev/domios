@@ -97,6 +97,7 @@ impl SubmitTransport for ShellTransport<'_> {
         }
     }
     fn write_paste(&self, _: &str, deadline: Instant) -> Result<usize, InjectionError> {
+        self.prewrite_guard()?;
         let session = self
             .svc
             .pty

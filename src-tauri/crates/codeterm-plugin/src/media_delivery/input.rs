@@ -42,7 +42,7 @@ pub enum IngestRefusal {
     Storage,
     Deadline,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct IngestedInput {
     pub handle: String,

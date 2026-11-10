@@ -96,7 +96,12 @@ impl Backend for SystemdBackend {
             .target_version(codeterm_build_info::version())?
             .is_none()
         {
-            return Ok(serde_json::json!({"status":"up_to_date"}));
+            return Ok(serde_json::json!(
+                codeterm_update::contracts::InstallResponse {
+                    status: codeterm_update::contracts::InstallStatus::UpToDate,
+                    ..Default::default()
+                }
+            ));
         }
         let _lease = codeterm_update::single_flight::global()
             .try_acquire()
@@ -121,7 +126,7 @@ impl Backend for SystemdBackend {
             ));
         }
         Ok(
-            serde_json::json!({"status":"scheduled", "message":"systemd accepted the update job. The root helper independently verifies the signed feed and archive. Read /api/update/status or journalctl -u domios-update.service for the final result."}),
+            serde_json::json!(codeterm_update::contracts::InstallResponse { status: codeterm_update::contracts::InstallStatus::Scheduled, message: Some(("systemd accepted the update job. The root helper independently verifies the signed feed and archive. Read /api/update/status or journalctl -u domios-update.service for the final result.").to_owned()), ..Default::default() }),
         )
     }
 

@@ -1,47 +1,26 @@
-import type { Plan, Section, Task } from "./types";
+import type { Plan, Task } from "./types";
 
-export type PlanProjectionView = "summary" | "board" | "document" | "list" | "chat" | "task_metadata";
-export type PlanTaskView = Pick<Task,
-  "id" | "name" | "type" | "status" | "model" | "status_label" |
-  "parent_task_id" | "assigned_tab_id" | "peer" | "section_ids" | "canvas"
-> & Partial<Omit<Task,
-  "id" | "name" | "type" | "status" | "model" | "status_label" |
-  "parent_task_id" | "assigned_tab_id" | "peer" | "section_ids" | "canvas"
->>;
+export type PlanProjectionView = import("../../../gen/PlanViewProjection").PlanViewProjection;
+export type PlanTaskMetadata = import("../../../gen/PlanTaskMetadata").PlanTaskMetadata;
+export type PlanRead = import("../../../gen/PlanView").PlanView;
+export type PlanSummaryRead = import("../../../gen/PlanSummaryView").PlanSummaryView;
+export type PlanDetailedRead = import("../../../gen/PlanDetailedView").PlanDetailedView;
+export type PlanChatRead = import("../../../gen/ChatPlanRead").ChatPlanRead;
+export type PlanProjection = import("../../../gen/PlanProjection").PlanProjection;
+export type PlanReadForView<V extends PlanProjectionView> = V extends "chat" ? PlanChatRead :
+  V extends "summary" | "task_metadata" ? PlanSummaryRead : PlanDetailedRead;
 
-export type PlanSectionView = Pick<Section, "id" | "title"> & {
-  subsections: PlanSectionView[];
-} & Partial<Omit<Section, "id" | "title" | "subsections">>;
+type TaskIdentity = "id" | "name" | "type" | "status" | "model" | "status_label" |
+  "parent_task_id" | "assigned_tab_id" | "peer" | "section_ids" | "canvas";
+export type PlanTaskView = Pick<PlanTaskMetadata, TaskIdentity> & Omit<Partial<Task>, "lane"> &
+  { lane?: Task["lane"] | PlanTaskMetadata["lane"] };
+export type PlanSectionView = import("../../../gen/PlanSectionView").PlanSectionView;
+type PlanIdentity = "id" | "title" | "status" | "owner" | "project_path" | "created_at" | "updated_at" | "canvas";
+export type PlanView = Pick<PlanRead, PlanIdentity> &
+  Partial<Omit<Plan, PlanIdentity | "tasks" | "sections">> &
+  { tasks: PlanTaskView[]; sections: PlanSectionView[] };
 
-export type PlanView = Pick<Plan,
-  "id" | "title" | "status" | "owner" | "project_path" | "created_at" | "updated_at" | "canvas"
-> & Partial<Omit<Plan,
-  "id" | "title" | "status" | "owner" | "project_path" | "created_at" | "updated_at" | "canvas" |
-  "tasks" | "sections"
->> & { tasks: PlanTaskView[]; sections: PlanSectionView[] };
-
-export type PlanTaskMetadata = Pick<PlanTaskView,
-  "id" | "name" | "type" | "key" | "handle" | "status" | "status_label" | "review_stage" | "qa_state" |
-  "assigned_tab_id" | "lane" | "parent_task_id" | "section_ids" | "group" | "model" | "peer" |
-  "priority" | "created_at" | "updated_at" | "status_changed_at" | "tags" | "canvas" |
-  "execution_attempts" | "criteria_count" | "milestone_count"
-> & { milestones?: Task["milestones"]; acceptance_criteria?: string[] };
-
-export type PlanProjection = Pick<PlanView,
-  "id" | "title" | "status" | "owner" | "planner" | "project_path" | "created_at" | "updated_at" |
-  "mode" | "planning_state" | "team_id" | "canvas" | "goal" | "primary_spec_id" | "spec_links" |
-  "task_groups" | "tag_facets" | "milestone_kinds" | "heartbeat" | "task_counts"
-> & { revision: string; canonical_project_path?: string; spec_refs?: string[];
-  tasks: PlanTaskMetadata[]; sections: PlanSectionView[] };
-
-export interface CommittedPlanChange {
-  plan_id: string;
-  revision: string;
-  previous_revision: string;
-  task_ids: string[];
-  reset: boolean;
-  deleted: boolean;
-}
+export type CommittedPlanChange = import("../../../gen/CommittedPlanChange").CommittedPlanChange;
 
 export function planRevision(value: unknown): string {
   const revision = value && typeof value === "object" && "revision" in value ? value.revision : null;
@@ -57,7 +36,6 @@ export function comparePlanRevisions(left: string, right: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-export interface PlanListCursor { position: number; task_id: string }
-export type PlanListProjection = PlanProjection & { task_window: {
-  next_cursor: PlanListCursor | null; total: number; cancelled: number;
-} };
+export type PlanListCursor = import("../../../gen/PlanListCursor").PlanListCursor;
+export type PlanListProjection = PlanDetailedRead & Required<Pick<PlanDetailedRead, "task_window">>;
+export type PlanMetadataProjection = PlanSummaryRead & Required<Pick<PlanSummaryRead, "task_window">>;

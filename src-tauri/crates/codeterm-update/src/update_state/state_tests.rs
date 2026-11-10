@@ -104,6 +104,8 @@ fn runtime_status_reports_download_progress() {
     assert_eq!(status["downloaded_bytes"], 25);
     assert_eq!(status["download_total_bytes"], 100);
     assert_eq!(status["download_progress"], 0.25);
+    assert_eq!(status.get("check_path"), Some(&serde_json::Value::Null));
+    assert_eq!(status.get("last_error"), Some(&serde_json::Value::Null));
 }
 
 #[test]

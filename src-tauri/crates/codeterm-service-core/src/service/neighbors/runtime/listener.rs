@@ -151,7 +151,7 @@ impl ReceptionEvents for Session {
             .cloned();
         let detail = super::super::reception::failure_detail(error, previous);
         log::debug!(
-            "[neighbor-listen] friendship={} failure={detail}",
+            "[neighbor-listen] friendship={} failure={detail:?}",
             self.friendship
         );
         self.service
@@ -189,7 +189,14 @@ impl ReceptionEvents for Session {
             .insert(self.friendship.clone(), status);
         self.service.ui.emit(
             "neighbor-runtime-status",
-            json!({"friendship_id":self.friendship,"status":status,"error":error}),
+            json!(
+                codeterm_neighbors::responses::NeighborListenerEvent::Listener {
+                    friendship_id: Some(self.friendship.clone()),
+                    status,
+                    error: Some(error),
+                    reason: None
+                }
+            ),
         );
     }
     async fn retry_after_failure(&self, attempt: usize) -> codeterm_neighbors::Result<()> {
@@ -199,7 +206,7 @@ impl ReceptionEvents for Session {
             .failures
             .lock()
             .get(&self.friendship)
-            .is_some_and(|detail| detail["kind"] == "existence_filter_retry_limit");
+            .is_some_and(|detail| detail.kind == "existence_filter_retry_limit");
         if reset_limit {
             self.state(ListenerState::Stopped);
         }
@@ -211,7 +218,7 @@ impl ReceptionEvents for Session {
                 .lock()
                 .get(&self.friendship)
                 .is_some_and(|detail| {
-                    detail["kind"] == "SecretStore" || detail["kind"] == "LocalKeyUnavailable"
+                    detail.kind == "SecretStore" || detail.kind == "LocalKeyUnavailable"
                 });
         if manual {
             self.retry.notified().await;

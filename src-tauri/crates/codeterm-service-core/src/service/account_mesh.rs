@@ -257,35 +257,7 @@ fn view_with_peer_memberships(
     view
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(untagged)]
-pub enum AccountMeshOutcome<T> {
-    Done {
-        ok: bool,
-        result: T,
-    },
-    Refused {
-        ok: bool,
-        request_id: Option<String>,
-        failure: AccountMeshRefusal,
-        #[serde(skip_serializing_if = "std::ops::Not::not")]
-        local_signed_out: bool,
-    },
-}
-
-impl<T> AccountMeshOutcome<T> {
-    pub fn of(result: Result<T, AccountMeshRefusal>, request_id: Option<String>) -> Self {
-        match result {
-            Ok(result) => Self::Done { ok: true, result },
-            Err(failure) => Self::Refused {
-                ok: false,
-                request_id,
-                failure,
-                local_signed_out: false,
-            },
-        }
-    }
-}
+pub use codeterm_account::account_mesh::contracts::AccountMeshOutcome;
 
 fn trust() -> Option<MembershipTrust> {
     Some(MembershipTrust::new(codeterm_entitlements::pinned()))

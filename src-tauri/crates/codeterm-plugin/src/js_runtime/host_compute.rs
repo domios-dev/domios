@@ -11,11 +11,15 @@ use super::host_api::PluginSandbox;
 use super::vm::VmError;
 
 fn err(msg: impl Into<String>) -> String {
-    serde_json::json!({ "error": msg.into() }).to_string()
+    serde_json::to_string(&codeterm_wire::plugin_host::HostError { error: msg.into() })
+        .unwrap_or_else(|_| "null".into())
 }
 
 pub(super) fn agent_resume_json(session_id: &str) -> String {
-    serde_json::json!({ "sessionId": session_id }).to_string()
+    serde_json::to_string(&codeterm_wire::plugin_host::HostSessionResult {
+        session_id: session_id.into(),
+    })
+    .unwrap_or_else(|_| "null".into())
 }
 
 pub(super) fn agent_get_json() -> String {

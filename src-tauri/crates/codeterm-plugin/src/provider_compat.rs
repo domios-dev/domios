@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CompatibilityManifest {
     #[serde(default)]
@@ -16,14 +16,14 @@ pub struct CompatibilityManifest {
     pub direct_sqlite: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct BreakingRange {
     pub range: String,
     pub reasons: Vec<CompatibilityReason>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CompatibilityReason {
     SqliteSchemaConversion,
@@ -35,7 +35,7 @@ pub enum CompatibilityReason {
     UndeclaredCapability,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CompatibilityVerdict {
     Supported,
@@ -43,7 +43,7 @@ pub enum CompatibilityVerdict {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct CompatibilityEvaluation {
     pub verdict: CompatibilityVerdict,
     pub reasons: Vec<CompatibilityReason>,

@@ -865,3 +865,15 @@ async fn no_receiver_chosen_has_its_own_conflict_code() {
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["code"], "receiver_not_chosen");
 }
+
+#[tokio::test]
+async fn key_inventory_pending_returns_typed_conflict_instead_of_key_recovery_503() {
+    let response = neighbor_failure("key_inventory_pending: Neighbor key preparation awaits inventory confirmation; receiving has not changed".into());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["code"], "key_inventory_pending");
+    assert_eq!(body["reason"], "key_inventory_pending");
+}

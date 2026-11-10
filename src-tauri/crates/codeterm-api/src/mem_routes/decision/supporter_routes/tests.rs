@@ -128,10 +128,10 @@ fn supporter_spend_status_exposes_today_month_and_credit_state() {
             }),
         }),
     );
-    let spend = spend_snapshot(&runtime, "fixture", Some(&price));
+    let spend = serde_json::json!(spend_snapshot(&runtime, "fixture", Some(&price)));
     assert_eq!(spend["today"]["estimated_usd"], 0.5);
     assert_eq!(spend["month"]["estimated_usd"], 0.5);
-    let unpriced = spend_snapshot(&runtime, "fixture", None);
+    let unpriced = serde_json::json!(spend_snapshot(&runtime, "fixture", None));
     assert_eq!(unpriced["today"]["estimated_usd"], Value::Null);
     assert_eq!(unpriced["month"]["estimated_usd"], Value::Null);
 }

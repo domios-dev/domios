@@ -1,5 +1,6 @@
 use super::*;
 use codeterm_blueprint_types::blueprint_document::Document;
+use codeterm_sentinel::blueprint_snapshot::{self as views, BlueprintRunState, BlueprintState};
 
 type Definitions = BTreeMap<String, BTreeMap<u64, Value>>;
 
@@ -53,10 +54,11 @@ pub(super) fn project(
         .iter()
         .filter(|job| graph::is_snapshot_root(job) && job.document.is_some())
     {
-        if !snapshot.nodes.iter().any(|node| {
-            node.pointer("/identity/kind").and_then(Value::as_str) == Some("blueprint")
-                && node.pointer("/identity/id").and_then(Value::as_str) == Some(&job.id)
-        }) {
+        if !snapshot
+            .nodes
+            .iter()
+            .any(|node| node.identity.kind == "blueprint" && node.identity.id == job.id)
+        {
             continue;
         }
         let mut entries = journals.get(&job.id).cloned().unwrap_or_default();
@@ -82,7 +84,7 @@ pub(super) fn project(
         let index = match snapshot
             .blueprints
             .iter()
-            .position(|view| view["id"] == job.id)
+            .position(|view| view.id == job.id)
         {
             Some(index) => index,
             None => {
@@ -91,19 +93,15 @@ pub(super) fn project(
             }
         };
         let view = &mut snapshot.blueprints[index];
-        extend(view, latest);
+        view.projection = latest;
         if job.pipeline().is_none() {
-            view["runs"] = json!(runs
-                .iter()
-                .map(|(id, _)| watch_run(id, &entries))
-                .collect::<Vec<_>>());
-            view["run_id"] = json!(runs.first().map(|(id, _)| id));
+            view.runs = runs.iter().map(|(id, _)| watch_run(id, &entries)).collect();
+            view.run_id = runs.first().map(|(id, _)| id.clone());
         }
-        if let Some(items) = view["runs"].as_array_mut() {
-            for item in items {
-                if let Some((_, projection)) = runs.iter().find(|(id, _)| item["id"] == *id) {
-                    extend(item, projection.clone());
-                }
+        for item in &mut view.runs {
+            if let Some((_, projection)) = runs.iter().find(|(id, _)| item.id.as_ref() == Some(id))
+            {
+                item.projection = projection.clone();
             }
         }
     }
@@ -115,7 +113,7 @@ fn run_projection(
     rows: &[BlueprintJournalEntry],
     versions: Option<&BTreeMap<u64, Value>>,
     plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
-) -> Result<Value, String> {
+) -> Result<views::Projection, String> {
     let version = if rows.is_empty() {
         Some(job.definition_version)
     } else {
@@ -127,26 +125,49 @@ fn run_projection(
     crate::blueprint_calls::project_retained(document.as_ref(), rows, version, plugins)
 }
 
-fn extend(target: &mut Value, projection: Value) {
-    if let (Some(target), Value::Object(fields)) = (target.as_object_mut(), projection) {
-        target.extend(fields);
-    }
-}
-
-fn watch_view(job: &Sentinel) -> Value {
+fn watch_view(job: &Sentinel) -> views::Snapshot {
     let owner = job
         .document
         .as_ref()
         .and_then(|doc| doc["owner"].as_str())
         .unwrap_or("tab");
-    json!({"id":job.id,"name":job.name,"note":job.note,"stopped_at":job.cleanup.stopped_at,"deletes_at":job.cleanup.deletes_at,
-        "owner":{"kind":owner,"tab_id":if owner == "team" {None} else {Some(&job.creator_tab_id)},"team_id":job.team_id},
-        "state":if job.machine.stopped {"stopped"} else if graph::held_reason(job).is_some() {"held"} else {"idle"},
-        "held_reason":graph::held_reason(job),
-        "run_id":null,"current_step":null,"last_event_at_ms":null,"steps":[],"runs":[]})
+    views::Snapshot {
+        id: job.id.clone(),
+        name: job.name.clone(),
+        note: job.note.clone(),
+        stopped_at: job.cleanup.stopped_at,
+        deletes_at: job.cleanup.deletes_at,
+        owner: views::Owner {
+            kind: owner.into(),
+            tab_id: if owner == "team" {
+                None
+            } else {
+                Some(job.creator_tab_id.clone())
+            },
+            team_id: job.team_id.clone(),
+        },
+        state: if job.machine.stopped {
+            BlueprintState::Stopped
+        } else if graph::held_reason(job).is_some() {
+            BlueprintState::Held
+        } else {
+            BlueprintState::Idle
+        },
+        held_reason: Some(graph::held_reason(job).map(str::to_owned)),
+        run_id: None,
+        current_step: None,
+        last_event_at_ms: None,
+        steps: Vec::new(),
+        runs: Vec::new(),
+        result: None,
+        trigger: None,
+        plugin_hold: None,
+        event_subscription: None,
+        projection: Default::default(),
+    }
 }
 
-fn watch_run(id: &str, entries: &[BlueprintJournalEntry]) -> Value {
+fn watch_run(id: &str, entries: &[BlueprintJournalEntry]) -> views::Run {
     use codeterm_blueprint_types::blueprint_journal::JournalState;
     let rows = entries
         .iter()
@@ -159,9 +180,25 @@ fn watch_run(id: &str, entries: &[BlueprintJournalEntry]) -> Value {
         Some(_) => "completed",
         None => "running",
     };
-    json!({"id":id,"state":state,"closed":closed.is_some(),"current_step":current,"steps":[],
-        "started_at_ms":rows.iter().map(|row| row.started_at_ms).min(),
-        "last_event_at_ms":rows.iter().map(|row| row.ended_at_ms.unwrap_or(row.started_at_ms)).max()})
+    views::Run {
+        id: Some(id.into()),
+        state: match state {
+            "failed" => BlueprintRunState::Failed,
+            "held" => BlueprintRunState::Held,
+            "completed" => BlueprintRunState::Completed,
+            _ => BlueprintRunState::Running,
+        },
+        closed: closed.is_some(),
+        current_step: current,
+        steps: Vec::new(),
+        started_at_ms: rows.iter().map(|row| row.started_at_ms).min(),
+        last_event_at_ms: rows
+            .iter()
+            .map(|row| row.ended_at_ms.unwrap_or(row.started_at_ms))
+            .max(),
+        result: None,
+        projection: Default::default(),
+    }
 }
 
 #[cfg(test)]

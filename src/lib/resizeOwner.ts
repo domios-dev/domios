@@ -3,19 +3,9 @@ import { uid } from "./uid";
 
 const CLIENT_ID_KEY = "codeterm.client_id.v1";
 
-export interface ResizeOwner {
-  tab_id: string;
-  pty_id: string;
-  client_id: string;
-  cols: number;
-  rows: number;
-  updated_at: number;
-}
+export type ResizeOwner = import("../../gen/ResizeOwner").ResizeOwner;
 
-export interface ResizeOwnerClaim {
-  owner: ResizeOwner;
-  current_size: { cols: number; rows: number } | null;
-}
+export type ResizeOwnerClaim = import("../../gen/ResizeOwnerClaim").ResizeOwnerClaim;
 
 export function resizeOwnerChangedEvent(tabId?: string | null): string {
   return tabId?.startsWith("mesh:")

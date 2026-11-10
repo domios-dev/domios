@@ -3,6 +3,9 @@ use super::supporter_json::SupporterJson;
 use super::*;
 use axum::extract::FromRef;
 use codeterm_service_core::service::supporter::connections;
+use codeterm_service_core::service::supporter::responses::{
+    SupporterSpend, SupporterState, SupporterStatus, SupporterTokenStatus,
+};
 
 #[derive(Deserialize)]
 pub struct TokenSetBody {
@@ -82,7 +85,7 @@ pub async fn supporter_token_status(
         .token_mode();
     token_io(move || {
         let status = state.store.status(&id)?;
-        Ok(token_status_json(&id, &status, mode))
+        Ok(json!(token_status_json(&id, &status, mode)))
     })
     .await
     .map(Json)
@@ -96,36 +99,72 @@ pub async fn supporter_status(AxumState(state): AxumState<ConnectionState>) -> R
         let store = state.store;
         let mut adapters = registered_adapters(models);
         for adapter in &mut adapters {
-            if let Some(id) = adapter["id"].as_str() {
-                let mode = models.get(id).map_or(TokenMode::None, |model| model.token_mode());
-                adapter["token"] = token_status_json(id, &store.status(id)?, mode);
-            }
+            let mode = models
+                .get(&adapter.id)
+                .map_or(TokenMode::None, |model| model.token_mode());
+            adapter.token = Some(token_status_json(
+                &adapter.id,
+                &store.status(&adapter.id)?,
+                mode,
+            ));
         }
         let id = cfg.active_id().unwrap_or("");
         let selected_token = store.status(id)?;
         let selected = models.get(id);
-        let mode = selected.as_ref().map_or(TokenMode::None, |model| model.token_mode());
-        let token = codeterm_service_core::service::supporter::read_token_snapshot(&runtime, &store, id);
-        let connected = codeterm_service_core::service::supporter::supporter_connected(&cfg, models, &token);
-        let rows = connections::list(&cfg, models, &store).map_err(|_| io::Error::other("connections unavailable"))?;
-        let mut output = json!({
-            "state": supporter_state(cfg.active_id().is_some(), &selected_token, selected.is_some(), mode),
-            "token_mode": token_mode_name(mode), "adapter": cfg.adapter,
-            "model": rows.iter().find(|row| row["active"] == true).map(|row| row["model"].clone()),
-            "deadline_ms": cfg.deadline_ms, "connected": connected,
-            "token": token_status_json(id, &selected_token, mode),
-            "adapter_registered": selected.is_some(), "adapters": adapters, "connections": rows,
-        });
-        if !connected && output["state"] == "active" { output["state"] = json!("adapter_unavailable"); }
+        let mode = selected
+            .as_ref()
+            .map_or(TokenMode::None, |model| model.token_mode());
+        let token =
+            codeterm_service_core::service::supporter::read_token_snapshot(&runtime, &store, id);
+        let connected =
+            codeterm_service_core::service::supporter::supporter_connected(&cfg, models, &token);
+        let rows = connections::list(&cfg, models, &store)
+            .map_err(|_| io::Error::other("connections unavailable"))?;
+        let mut state = supporter_state(
+            cfg.active_id().is_some(),
+            &selected_token,
+            selected.is_some(),
+            mode,
+        );
+        if !connected && state == SupporterState::Active {
+            state = SupporterState::AdapterUnavailable;
+        }
         let price = selected.as_ref().and_then(|model| model.pricing());
-        output["spend"] = spend_snapshot(&runtime, id, price.as_ref());
-        output["pricing"] = price.as_ref().map_or(Value::Null, |price| json!(price));
-        let activity = codeterm_service_core::service::supporter::activity_status(&runtime, cfg.calls_per_hour.unwrap_or(0));
-        if connected && activity["budget"]["reached"] == true { output["state"] = json!("budget_reached"); }
-        if connected && output["spend"]["exhausted"] == true { output["state"] = json!("credit_exhausted"); }
-        if let (Some(output), Some(activity)) = (output.as_object_mut(), activity.as_object()) { output.extend(activity.clone()); }
-        Ok(output)
-    }).await.map(Json)
+        let spend = spend_snapshot(&runtime, id, price.as_ref());
+        let activity = codeterm_service_core::service::supporter::activity_status(
+            &runtime,
+            cfg.calls_per_hour.unwrap_or(0),
+        );
+        if connected && activity.budget.reached {
+            state = SupporterState::BudgetReached;
+        }
+        if connected && spend.exhausted {
+            state = SupporterState::CreditExhausted;
+        }
+        let output = SupporterStatus {
+            state,
+            token_mode: mode,
+            adapter: cfg.adapter.clone(),
+            model: rows
+                .iter()
+                .find(|row| row.active)
+                .and_then(|row| row.model.clone()),
+            deadline_ms: cfg.deadline_ms,
+            connected,
+            token: token_status_json(id, &selected_token, mode),
+            adapter_registered: selected.is_some(),
+            adapters,
+            connections: rows,
+            spend,
+            pricing: price,
+            activity,
+            observation_scheduler:
+                codeterm_service_core::service::supporter::observation_scheduler_status(),
+        };
+        Ok(json!(output))
+    })
+    .await
+    .map(Json)
 }
 
 pub async fn supporter_models(AxumState(state): AxumState<ConnectionState>) -> RouteResult {
@@ -146,14 +185,14 @@ pub async fn supporter_use(
     .await
 }
 
-fn token_status_json(adapter: &str, status: &TokenStatus, mode: TokenMode) -> Value {
-    json!({
-        "adapter": adapter,
-        "token_mode": token_mode_name(mode),
-        "present": status.present,
-        "path": status.path,
-        "mode_ok": status.mode_ok,
-    })
+fn token_status_json(adapter: &str, status: &TokenStatus, mode: TokenMode) -> SupporterTokenStatus {
+    SupporterTokenStatus {
+        adapter: adapter.into(),
+        token_mode: mode,
+        present: status.present,
+        path: status.path.clone(),
+        mode_ok: status.mode_ok,
+    }
 }
 
 /// Token file IO stays off the async runtime; io errors never carry the token value.
@@ -193,12 +232,11 @@ fn spend_snapshot(
     runtime: &codeterm_service_core::service::supporter::SupporterRuntime,
     adapter: &str,
     price: Option<&codeterm_decision::DecisionPricing>,
-) -> Value {
+) -> SupporterSpend {
     let mut spend = runtime.spend_status(adapter);
     if price.is_none() {
-        for period in ["today", "month"] {
-            spend[period]["estimated_usd"] = Value::Null;
-        }
+        spend.today.estimated_usd = None;
+        spend.month.estimated_usd = None;
     }
     spend
 }

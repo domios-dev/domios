@@ -6,7 +6,7 @@ use super::{
 };
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -160,22 +160,9 @@ impl StopBackgroundProcessRequest {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BackgroundProcessEntry {
-    pub thread_id: String,
-    #[serde(flatten)]
-    pub process: RuntimeBackgroundProcess,
-}
+pub use codeterm_plugin::api_contracts::BackgroundProcessEntry;
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BackgroundProcessSnapshot {
-    pub root_thread_id: String,
-    pub binding_nonce: String,
-    pub epoch: u64,
-    pub processes: Vec<BackgroundProcessEntry>,
-}
+pub use codeterm_plugin::api_contracts::BackgroundProcessSnapshot;
 
 fn session_for_authority(
     svc: &ServiceContext,

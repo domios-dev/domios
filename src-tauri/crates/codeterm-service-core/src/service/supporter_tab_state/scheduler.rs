@@ -80,12 +80,18 @@ pub(crate) fn global() -> &'static Scheduler {
     QUEUE.get_or_init(Scheduler::new)
 }
 
-pub(crate) fn status() -> serde_json::Value {
+pub(crate) fn status() -> codeterm_supporter::responses::SupporterObservationScheduler {
     let snapshot = QUEUE.get().map(Scheduler::status);
-    serde_json::json!({ "questions_per_event": MAX_QUESTIONS, "global_in_flight": WORKERS,
-        "per_tab_in_flight": 1, "queue_limit": QUEUE_SIZE,
-        "active": snapshot.map_or(0, |s| s.active), "queued": snapshot.map_or(0, |s| s.queued),
-        "coalesced": snapshot.map_or(0, |s| s.coalesced), "dropped": snapshot.map_or(0, |s| s.dropped) })
+    codeterm_supporter::responses::SupporterObservationScheduler {
+        questions_per_event: MAX_QUESTIONS,
+        global_in_flight: WORKERS,
+        per_tab_in_flight: 1,
+        queue_limit: QUEUE_SIZE,
+        active: snapshot.map_or(0, |s| s.active),
+        queued: snapshot.map_or(0, |s| s.queued),
+        coalesced: snapshot.map_or(0, |s| s.coalesced),
+        dropped: snapshot.map_or(0, |s| s.dropped),
+    }
 }
 
 impl Scheduler {

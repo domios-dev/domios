@@ -79,7 +79,7 @@ impl SerdeSessionMetadata {
 
 /// CamelCase mirror of `SessionMessage` so plugin authors don't have to
 /// remember `is_meta` over `isMeta`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SerdeSessionMessage {
     role: String,
@@ -137,23 +137,50 @@ pub(super) fn encode_cwd_dashed(cwd: &str) -> String {
         .collect()
 }
 
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+struct LaunchParams<'a> {
+    agent_name: &'a Option<String>,
+    task: &'a Option<String>,
+    starter_prompt: crate::provider::StarterPrompt,
+    starter_prompt_text: Option<&'static str>,
+    starter_prompt_prefix: Option<String>,
+    args: &'a Option<Vec<String>>,
+    skip_permissions: bool,
+    host_owned: crate::provider::HostOwnedCapabilities,
+    session_id: &'a Option<String>,
+    structured_prompt_server: &'a Option<crate::provider::StructuredPromptServer>,
+    launch_marker: &'a Option<String>,
+    tool_less_instructions_path: &'a Option<String>,
+    context_files: &'a Option<codeterm_types::plan::TaskFiles>,
+    instance_id: &'a Option<String>,
+}
+
 pub(super) fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
-    json!({
-        "agentName": p.agent_name,
-        "task": p.task,
-        "starterPrompt": p.starter_prompt,
-        "starterPromptText": p.starter_prompt.host_text(),
-        "starterPromptPrefix": p.starter_prompt.system_prefix(),
-        "args": p.args,
-        "skipPermissions": p.skip_permissions,
-        "hostOwned": p.host_owned,
-        "sessionId": p.session_id,
-        "structuredPromptServer": p.structured_prompt_server,
-        "launchMarker": p.launch_marker,
-        "toolLessInstructionsPath": p.tool_less_instructions_path,
-        "contextFiles": p.context_files,
-        "instanceId": p.instance_id,
+    json!(LaunchParams {
+        agent_name: &p.agent_name,
+        task: &p.task,
+        starter_prompt: p.starter_prompt,
+        starter_prompt_text: p.starter_prompt.host_text(),
+        starter_prompt_prefix: p.starter_prompt.system_prefix(),
+        args: &p.args,
+        skip_permissions: p.skip_permissions,
+        host_owned: p.host_owned,
+        session_id: &p.session_id,
+        structured_prompt_server: &p.structured_prompt_server,
+        launch_marker: &p.launch_marker,
+        tool_less_instructions_path: &p.tool_less_instructions_path,
+        context_files: &p.context_files,
+        instance_id: &p.instance_id,
     })
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    LaunchParams::export_all(config)?;
+    Ok(())
 }
 
 pub(super) fn result_from_js(v: &serde_json::Value) -> Result<(), String> {

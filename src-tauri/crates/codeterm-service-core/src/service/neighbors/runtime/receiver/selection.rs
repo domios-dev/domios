@@ -102,21 +102,33 @@ impl SelectionPort for RelaySelection<'_> {
             uid: &registry.uid,
         };
         let existing = lifecycle.reconcile().await?;
+        log::debug!(
+            "[neighbor-keys] phase=prepare existing={} version={:?}",
+            existing.is_some(),
+            self.service
+                .neighbor_projection_version(&registry.uid, session.login_generation)
+        );
         let keys = match existing {
             Some(keys) => {
                 let id = keys.verifier_key_id(&registry.uid);
-                refresh_registration(
-                    &mut registered,
-                    RegistrationBinding::new(
-                        registry,
-                        self.generation,
-                        session.login_generation,
-                        id,
-                    ),
+                let binding = RegistrationBinding::new(
                     registry,
-                    &keys,
-                )
-                .await?;
+                    self.generation,
+                    session.login_generation,
+                    id.clone(),
+                );
+                if registered.is_none()
+                    && self.service.neighbor_key_registration_confirmed(
+                        &registry.uid,
+                        session.login_generation,
+                        &id,
+                        &registry.installation_id,
+                        &registry.machine_label,
+                    )
+                {
+                    *registered = Some(binding.clone());
+                }
+                refresh_registration(&mut registered, binding, registry, &keys).await?;
                 keys
             }
             None => lifecycle.enroll(&mut rand::rngs::OsRng).await?,
@@ -177,6 +189,28 @@ async fn select_friend_receiver(
 }
 
 impl ServiceContext {
+    #[cfg(test)]
+    pub(in crate::service::neighbors::runtime) async fn select_neighbor_receiver_for_test(
+        &self,
+        registry: &FirebaseRegistry,
+        scope: &KeyScope,
+    ) -> codeterm_neighbors::Result<Value> {
+        select_friend_receiver(
+            &RelaySelection {
+                service: self,
+                registry,
+                scope,
+                generation: self.neighbor_history_generation(),
+            },
+            &registry.installation_id,
+            &"a".repeat(64),
+            Selection::Set,
+            0,
+            false,
+        )
+        .await
+    }
+
     pub(in crate::service::neighbors::runtime) async fn set_neighbor_friend_receiver(
         &self,
         registry: &FirebaseRegistry,

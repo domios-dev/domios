@@ -179,9 +179,13 @@ impl BrowserRuntime {
                 let (target, png) = self.grab_collect(&page, point.x, point.y).await?;
                 let id = self.next_grab_id();
                 let label = grab::element_label(&target);
-                let card = target.to_json();
+                let card = target.clone();
                 self.keep_grab(&id, target, png);
-                json!({ "id": id, "label": label, "target": card })
+                json!(codeterm_browser::surface_contracts::GrabSelection {
+                    id,
+                    label,
+                    target: card
+                })
             }
             "grab.send" => return self.grab_send(ctx, parse(method, args)?).await,
             "snip.capture" => self.snip_capture(parse(method, args)?).await?,

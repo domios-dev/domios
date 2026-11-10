@@ -21,6 +21,13 @@ async function generatedFiles(directory, relative = "") {
   return files;
 }
 
+const tracked = new Set(
+  execFileSync("git", ["ls-files", "-z", "--", ...directories], {
+    cwd: root,
+    encoding: "utf8",
+  }).split("\0"),
+);
+
 for (const directory of directories) {
   const generated = await generatedFiles(directory);
   if (generated.length === 0) {
@@ -28,12 +35,7 @@ for (const directory of directories) {
   }
   for (const name of generated) {
     const relative = `${directory}/${name}`;
-    try {
-      execFileSync("git", ["ls-files", "--error-unmatch", "--", relative], {
-        cwd: root,
-        stdio: "ignore",
-      });
-    } catch {
+    if (!tracked.has(relative)) {
       throw new Error(`Generated TypeScript file is not committed: ${relative}`);
     }
   }

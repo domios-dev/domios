@@ -60,7 +60,7 @@ const DEFAULT_HOURLY_WEEKEND: [f64; 24] = [
     0.0, 0.0, 0.0, 0.0, 0.0,
 ];
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Confidence {
     High,
@@ -68,7 +68,7 @@ pub enum Confidence {
     Low,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct WeeklyProjection {
     pub end_of_today_pct: f64,
     pub end_of_cycle_pct: f64,
@@ -85,20 +85,20 @@ pub struct WeeklyProjection {
     pub day_actuals: Vec<DayActual>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct DayActual {
     pub day_start_ms: i64,
     pub pct: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct SessionProjection {
     pub projected_pct: f64,
     pub rate_per_min: f64,
     pub will_exceed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct ProjectionResponse {
     pub session: Option<SessionProjection>,
     pub weekly: Option<WeeklyProjection>,

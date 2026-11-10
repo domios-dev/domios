@@ -1,4 +1,4 @@
-import type { NeighborPermission } from "./neighborRuntimeClient";
+import type { NeighborPermissionDraft } from "./neighborRuntimeClient";
 
 /** A place where the written scope promises something the switches below it do not grant. */
 export interface ScopeConflict { grant: "memory" | "files" | "tabs" | "writes" | "folder"; line: string }
@@ -56,7 +56,7 @@ function within(path: string, folder: string): boolean | null {
 }
 
 /** What the scope text claims beyond the structured grants, as notices to read before Apply. Never blocks Apply. */
-export function scopeConflicts(permission: NeighborPermission): ScopeConflict[] {
+export function scopeConflicts(permission: NeighborPermissionDraft): ScopeConflict[] {
   const scope = permission.scope;
   if (!permission.allowed || !scope.trim()) return [];
   const found: ScopeConflict[] = [];

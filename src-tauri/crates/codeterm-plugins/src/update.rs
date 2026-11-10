@@ -43,11 +43,8 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
     };
     refresh_channel(Some(channel))?;
     let status = installed_update_status(id, before.as_deref(), Some(&provenance));
-    if status["reason"] != "newer_version" {
-        return Err(format!(
-            "plugin '{id}' is not updatable: {}",
-            status["reason"].as_str().unwrap_or("unknown")
-        ));
+    if status.reason != "newer_version" {
+        return Err(format!("plugin '{id}' is not updatable: {}", status.reason));
     }
     let registry = read_channel_registry()?;
     let ch = registry

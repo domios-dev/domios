@@ -304,6 +304,16 @@ impl Session {
         self.service
             .end_missing_neighbor_friendships(&self.metadata, &list, history_generation)
             .await?;
+        self.service
+            .reconcile_neighbor_nonlocal_receivers(
+                &self.metadata,
+                &self.transport.uid,
+                &self.transport.installation_id,
+                &list,
+                history_generation,
+            )
+            .await
+            .map_err(|_| Error::Gateway)?;
         let settings = self.metadata.settings().await?;
         annotate_list(&mut list, &settings).map_err(|_| Error::InvalidEnvelope)?;
         self.service.project_neighbor_pauses(&mut list, &settings);

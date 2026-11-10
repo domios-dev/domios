@@ -16,6 +16,7 @@ struct State {
     queued_version: Option<u64>,
     authoritative: bool,
     list_dirty: bool,
+    key_inventory_pending: Vec<String>,
 }
 #[derive(Default)]
 struct Cell {
@@ -37,7 +38,144 @@ pub(super) struct ActivationTicket {
     epoch: super::backend_reads::ListEpoch,
 }
 
+impl State {
+    fn key_inventory_matches(&self, uid: &str, generation: u64, key: &str) -> bool {
+        self.authoritative
+            && !self.unavailable
+            && self
+                .snapshots
+                .read(uid, generation, "friendsOwnKeys", "", now_seconds())
+                .and_then(|keys| {
+                    keys.as_array()
+                        .map(|keys| keys.iter().any(|row| row["verifier_key_id"] == key))
+                })
+                .unwrap_or(false)
+    }
+}
+
 impl ServiceContext {
+    pub(super) fn fence_neighbor_key_inventory(
+        &self,
+        uid: &str,
+        generation: u64,
+        key: &str,
+    ) -> Result<()> {
+        let cell = self.extensions.get_or_init(Cell::default);
+        let mut state = cell.state.lock();
+        if state.selected.as_ref() != Some(&(uid.to_owned(), generation)) {
+            return Err(Error::KeyInventoryPending);
+        }
+        state.key_inventory_pending.retain(|id| id != key);
+        if !state.key_inventory_matches(uid, generation, key) {
+            state.key_inventory_pending.push(key.to_owned());
+        }
+        log::debug!(
+            "[neighbor-keys] phase=acknowledged key={key} version={:?} pending={}",
+            state.snapshots.version(uid, generation),
+            !state.key_inventory_pending.is_empty()
+        );
+        drop(state);
+        cell.changed.notify_waiters();
+        Ok(())
+    }
+
+    pub(super) async fn wait_neighbor_key_inventory(
+        &self,
+        uid: &str,
+        generation: u64,
+        key: &str,
+    ) -> Result<()> {
+        let cell = self.extensions.get_or_init(Cell::default);
+        let wait = async {
+            loop {
+                let changed = cell.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                self.require_neighbor_reconciliation_account(uid, generation)
+                    .await
+                    .map_err(|_| Error::KeyInventoryPending)?;
+                {
+                    let state = cell.state.lock();
+                    if state.selected.as_ref() != Some(&(uid.to_owned(), generation)) {
+                        return Err(Error::KeyInventoryPending);
+                    }
+                    if state.key_inventory_matches(uid, generation, key) {
+                        log::debug!(
+                            "[neighbor-keys] phase=confirmed key={key} version={:?}",
+                            state.snapshots.version(uid, generation)
+                        );
+                        return Ok(());
+                    }
+                }
+                changed.await;
+            }
+        };
+        let result = tokio::time::timeout(std::time::Duration::from_secs(15), wait)
+            .await
+            .unwrap_or(Err(Error::KeyInventoryPending));
+        if result.is_err() {
+            log::debug!(
+                "[neighbor-keys] phase=pending key={key} version={:?}",
+                self.neighbor_projection_version(uid, generation)
+            );
+        }
+        result
+    }
+
+    pub(super) fn neighbor_key_inventory_pending(&self, uid: &str, generation: u64) -> bool {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        state.selected.as_ref() == Some(&(uid.to_owned(), generation))
+            && !state.key_inventory_pending.is_empty()
+    }
+
+    pub(super) fn neighbor_published_installation_key(&self, installation: &str) -> bool {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        let Some((uid, generation)) = &state.selected else {
+            return false;
+        };
+        state.authoritative
+            && !state.unavailable
+            && state.key_inventory_pending.is_empty()
+            && state
+                .snapshots
+                .read(uid, *generation, "friendsOwnKeys", "", now_seconds())
+                .and_then(|keys| {
+                    keys.as_array().map(|keys| {
+                        keys.iter()
+                            .any(|key| key["installation_id"] == installation)
+                    })
+                })
+                .unwrap_or(false)
+    }
+
+    pub(super) fn neighbor_key_registration_confirmed(
+        &self,
+        uid: &str,
+        generation: u64,
+        key: &str,
+        installation: &str,
+        label: &str,
+    ) -> bool {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        state.authoritative
+            && !state.unavailable
+            && state.key_inventory_pending.is_empty()
+            && state.selected.as_ref() == Some(&(uid.to_owned(), generation))
+            && state
+                .snapshots
+                .read(uid, generation, "friendsOwnKeys", "", now_seconds())
+                .and_then(|keys| {
+                    keys.as_array().map(|keys| {
+                        keys.iter().any(|row| {
+                            row["verifier_key_id"] == key
+                                && row["installation_id"] == installation
+                                && row["machine_label"] == label
+                        })
+                    })
+                })
+                .unwrap_or(false)
+    }
+
     fn queue_neighbor_projection_version(&self, uid: &str, generation: u64, version: u64) -> bool {
         let mut state = self.extensions.get_or_init(Cell::default).state.lock();
         if state.selected.as_ref() != Some(&(uid.to_owned(), generation))
@@ -429,6 +567,11 @@ impl ServiceContext {
                 state.unavailable = false;
                 state.authoritative = true;
                 state.list_dirty = false;
+                let pending = std::mem::take(&mut state.key_inventory_pending);
+                state.key_inventory_pending = pending
+                    .into_iter()
+                    .filter(|key| !state.key_inventory_matches(uid, generation, key))
+                    .collect();
             }
             applied
         };
@@ -518,7 +661,10 @@ impl ServiceContext {
         installation: &str,
     ) -> Option<Value> {
         let state = self.extensions.get_or_init(Cell::default).state.lock();
-        if !state.authoritative || (route == "friendsList" && state.list_dirty) {
+        if !state.authoritative
+            || (route == "friendsList" && state.list_dirty)
+            || (route == "friendsOwnKeys" && !state.key_inventory_pending.is_empty())
+        {
             return None;
         }
         state
@@ -546,6 +692,9 @@ impl ServiceContext {
             return Ok(None);
         }
         self.require_neighbors_enabled()?;
+        if route == "friendsOwnKeys" && self.neighbor_key_inventory_pending(uid, generation) {
+            return Err(Error::KeyInventoryPending);
+        }
         self.restore_neighbor_updates_once();
         let installation = self
             .installation_id()
@@ -577,6 +726,9 @@ impl ServiceContext {
                         .as_ref()
                         .is_some_and(|selected| selected != &(uid.to_owned(), generation))
                     {
+                        return None;
+                    }
+                    if route == "friendsOwnKeys" && !state.key_inventory_pending.is_empty() {
                         return None;
                     }
                     if state.authoritative && !(route == "friendsList" && state.list_dirty) {

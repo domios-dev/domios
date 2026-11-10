@@ -75,7 +75,7 @@ impl EligibilityInput<'_> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct ControlLoopUpdate {
     pub mode: ControlLoopMode,
     pub heartbeat_interval_secs: Option<u64>,

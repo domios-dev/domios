@@ -13,19 +13,9 @@ export type MemOp =
   | "recall"
   | "dream";
 
-export interface MemActivitySource {
-  kind: "cli" | "rest" | "dream" | "worker";
-  tab_id: string | null;
-  worker_id: string | null;
-  agent_provider: string | null;
-}
+export type MemActivitySource = import("../../../gen/MemActivitySource").MemActivitySource;
 
-export interface MemActivityEvent {
-  op: MemOp;
-  mem_ids: string[];
-  source: MemActivitySource;
-  ts_ms: number;
-}
+export type MemActivityEvent = Omit<import("../../../gen/MemActivityEvent").MemActivityEvent, "op"> & { op: MemOp };
 
 export interface Pulse {
   color: string;

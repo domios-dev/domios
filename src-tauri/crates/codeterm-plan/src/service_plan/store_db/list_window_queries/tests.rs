@@ -1,5 +1,6 @@
 use super::*;
 use crate::service_plan::store_db::hot_write::tests::fixtures;
+use serde_json::json;
 
 #[test]
 fn list_windows_search_status_and_cursor_remain_scoped_read_only() {
@@ -118,12 +119,12 @@ fn board_list_and_chat_materialize_windows_instead_of_whole_task_and_history_col
                 "chat" => json!(database
                     .chat_projection(None, None, None, Some(&plan.id), None)
                     .unwrap()),
-                _ => {
+                _ => json!(
                     database
                         .board_state_projection(&plan.id, 100, 0, surface == "board-state")
                         .unwrap()
                         .value
-                }
+                ),
             };
             let bytes = serde_json::to_vec(&value).unwrap().len();
             let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();

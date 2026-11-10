@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use serde::{ser::SerializeMap, Serialize, Serializer};
 
 use super::Tab;
-use crate::multiplexer::types::ClosedTab;
 
 pub(super) fn tabs<S: Serializer>(
     tabs: &HashMap<String, Tab>,
@@ -42,14 +41,6 @@ pub(super) fn sorted<S: Serializer, V: Serialize>(
     let mut entries: Vec<_> = values.iter().collect();
     entries.sort_unstable_by_key(|(key, _)| *key);
     serializer.collect_map(entries)
-}
-
-pub(super) fn closed_tab<S: Serializer>(tab: &ClosedTab, serializer: S) -> Result<S::Ok, S::Error> {
-    let mut wire = serde_json::to_value(tab).map_err(serde::ser::Error::custom)?;
-    if let Some(fields) = wire.as_object_mut() {
-        fields.remove("restorable_launch");
-    }
-    wire.serialize(serializer)
 }
 
 #[cfg(test)]

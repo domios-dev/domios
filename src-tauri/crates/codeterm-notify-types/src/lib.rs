@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// What a notification is, on the single axis a caller may name. Progress is a
 /// nameable level here rather than an unnameable absence; whether a level
 /// interrupts is destination configuration, not membership in this set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum NotifyLevel {
     /// Progress. Does not stop the agent.

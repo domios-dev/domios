@@ -53,6 +53,20 @@ impl PlanDatabase {
         plan_id: Option<&str>,
         tab_id: Option<&str>,
     ) -> Result<Vec<Value>, PlanError> {
+        self.chat_projection_reads(project, team, query, plan_id, tab_id)?
+            .into_iter()
+            .map(|read| serde_json::to_value(read).map_err(super::json_error))
+            .collect()
+    }
+
+    pub(in crate::service_plan) fn chat_projection_reads(
+        &self,
+        project: Option<&str>,
+        team: Option<&str>,
+        query: Option<&str>,
+        plan_id: Option<&str>,
+        tab_id: Option<&str>,
+    ) -> Result<Vec<ChatPlanRead>, PlanError> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
         record_query();
@@ -96,12 +110,10 @@ impl PlanDatabase {
                     || !tasks.is_empty()
             }) {
                 let mut value =
-                    super::super::chat_snapshot::read::snapshot(&plan, &tasks, &mut remaining);
-                value["revision"] =
-                    serde_json::json!(super::change_feed::revision(&transaction, &id)?.to_string());
-                value["task_counts"] =
-                    serde_json::json!(super::board_state_queries::task_counts(&transaction, &id)?);
-                super::list_window_queries::apply_task_counts(&transaction, &id, &mut value)?;
+                    super::super::chat_snapshot::read::snapshot(plan, tasks, &mut remaining);
+                value.revision = super::change_feed::revision(&transaction, &id)?.to_string();
+                value.task_counts = super::board_state_queries::task_counts(&transaction, &id)?;
+                super::list_window_queries::apply_task_counts(&transaction, &id, &mut value.tasks)?;
                 result.push(value);
             }
             if query.is_some() && result.len() >= 50 {
@@ -155,13 +167,13 @@ fn chat_tasks(
                 'acceptance_criteria',json((SELECT json_group_array('') FROM (SELECT value FROM json_each(t.row_json,'$.acceptance_criteria') LIMIT 1))),
                 'milestones',json((SELECT json_group_array(json(document)) FROM (
                     SELECT seq,json_object('id',json_extract(row_json,'$.id'),'ts',json_extract(row_json,'$.ts'),
-                        'kind',json_extract(row_json,'$.kind'),'from',json_extract(row_json,'$.from'),
+                        'kind',json_extract(row_json,'$.kind'),'from',json(coalesce(json_extract(row_json,'$.from'),'{}')),
                         'text','','links',json('[]'),'loop_id',json_extract(row_json,'$.loop_id'),
                         'iteration',json_extract(row_json,'$.iteration'),'canvas',json(coalesce(json_extract(row_json,'$.canvas'),'{}'))) AS document
                     FROM (SELECT seq,row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq DESC LIMIT 1) ORDER BY seq
                 ))),
                 'execution_attempts',json((SELECT json_group_array(json(document)) FROM (
-                    SELECT json_object('id',attempt_id,'executor_tab_id',executor_tab_id,
+                    SELECT json_object('id',attempt_id,'executor_tab_id',coalesce(executor_tab_id,''),
                         'role',json_extract(row_json,'$.role'),'model',json_extract(row_json,'$.model'),
                         'session_model',json_extract(row_json,'$.session_model'),'assigned_at',json_extract(row_json,'$.assigned_at')) AS document
                     FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2

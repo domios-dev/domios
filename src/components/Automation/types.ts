@@ -1,4 +1,15 @@
-import type { BlueprintProjection } from "../../lib/blueprintApi";
+import type { BlueprintProjectionInput } from "../../lib/blueprintProjectionView";
+
+type OptionalFields<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+type UnionKeys<T> = T extends unknown ? keyof T : never;
+type UnionFields<T> = { [K in UnionKeys<T>]?: T extends unknown ? K extends keyof T ? T[K] : never : never };
+type WireNode = import("../../../gen/AutomationNode").AutomationNode;
+type WireTransition = import("../../../gen/AutomationTransition").AutomationTransition;
+type WireGraph = import("../../../gen/AutomationGraphSnapshot").AutomationGraphSnapshot;
+type SafeTransitionHandler = Omit<import("../../../gen/AutomationTransitionHandler").AutomationTransitionHandler, "command_result"> & { command_result?: CommandResultMetadata | null };
+type NodeDetail = Omit<Partial<import("../../../gen/AutomationDetail").AutomationDetail>, "definition"> & { definition?: UnionFields<import("../../../gen/AutomationDefinition").AutomationDefinition> };
+type NodeLastResult = Omit<OptionalFields<import("../../../gen/AutomationLastResult").AutomationLastResult, "decided_by" | "adapter_id" | "model" | "confidence">, "handlers"> & { handlers: readonly SafeTransitionHandler[] };
+
 export interface AutomationScope {
   workspace_id: string;
   team_id: string | null;
@@ -6,244 +17,67 @@ export interface AutomationScope {
 
 export const ALL_JOBS_SCOPE = "__all_jobs__";
 
-export interface AutomationIdentity extends AutomationScope {
-  kind: "blueprint" | "cron" | "worker";
-  id: string;
-  owner_tab_id: string | null;
-}
+export type AutomationIdentity = import("../../../gen/AutomationIdentity").AutomationIdentity;
 
-export type CommandResultStatus = "success" | "nonzero" | "error" | "cancelled" | "deadline" | "unconfirmed";
+export type CommandResultStatus = import("../../../gen/SentinelCommandStatus").SentinelCommandStatus;
 
-export interface CommandCapture {
-  total_bytes: number;
-  retained_bytes: number;
-  truncated: boolean;
-}
+export type CommandCapture = import("../../../gen/SentinelCommandCapture").SentinelCommandCapture;
 
 // The wire also carries primary/cleanup diagnostics; they are unscrubbed, so the UI type omits them.
-export interface CommandResultMetadata {
-  status: CommandResultStatus;
-  exit_code: number | null;
-  resources_confirmed: boolean;
-  stdout: CommandCapture | null;
-  stderr: CommandCapture | null;
-  started_at: number;
-  finished_at: number;
-}
+export type CommandResultMetadata = Pick<import("../../../gen/SentinelCommandResultMetadata").SentinelCommandResultMetadata, "status" | "exit_code" | "resources_confirmed" | "stdout" | "stderr" | "started_at" | "finished_at">;
 
-export interface AutomationHandlerResult {
-  status: string | null;
-  execution_id: string | null;
-  accepted_at: number | null;
-  command_result?: CommandResultMetadata | null;
-}
+export type AutomationHandlerResult = Omit<import("../../../gen/AutomationHandlerResult").AutomationHandlerResult, "command_result"> & { command_result?: CommandResultMetadata | null };
 
-export interface AutomationHandler {
-  id: string;
-  type: string;
-  label?: string;
-  timeout_ms?: number;
-  target: AutomationIdentity | null;
-  availability: "available" | "missing" | "unavailable";
-  last_result: AutomationHandlerResult | null;
-}
+export type AutomationHandler = Omit<import("../../../gen/AutomationHandler").AutomationHandler, "last_result"> & { last_result: AutomationHandlerResult | null };
 
-export interface AutomationOutcome {
-  bucket: string;
-  handlers: readonly AutomationHandler[];
-}
+export type AutomationOutcome = Omit<import("../../../gen/AutomationOutcome").AutomationOutcome, "handlers"> & { handlers: readonly AutomationHandler[] };
 
-export interface AutomationExecutor {
-  kind: string | null;
-  provider_id: string | null;
-  adapter_id: string | null;
-  model: string | null;
-  capabilities: readonly string[] | null;
-}
+export type AutomationExecutor = OptionalFields<import("../../../gen/AutomationExecutor").AutomationExecutor, "selection" | "configured_model" | "reported_model">;
 
-export interface AgentBlueprintDefinition {
-  definition_version?: number;
-  source: "stored_agent_definition";
-  definition_id: string;
-  creator_tab_id: string;
-}
+export type AgentBlueprintDefinition = OptionalFields<import("../../../gen/AgentBlueprintDefinition").AgentBlueprintDefinition, "lineage" | "definition_version">;
 
-export interface AutomationNode {
-  held_reason?: string | null;
-  solution_success?: boolean;
-  conversation?: import("../../lib/blueprintRun").ConversationCounts;
-  source?: { type: string; kind?: string; display_name?: string; ref_type?: string; convert_to?: string | null; pattern?: string | null; idle_ms?: number | null };
-  detail?: {
-    runs_since_transition?: number;
-    last_probe_at?: number | null;
-    next_check_at_ms?: number | null;
-    probe_state?: string | null;
-    observe_target?: { kind: string; id: string } | null;
-    definition?: {
-      unavailable?: string;
-      command_language?: string;
-      decision_kind?: "pattern" | "agent";
-      question?: string;
-      buckets?: readonly { name: string; pattern: string | null }[];
-      probe?: string | null;
-      probe_truncated?: boolean;
-      commands?: readonly { bucket: string; handler_id: string; label: string; command: string; command_truncated: boolean; timeout_ms: number }[];
-    };
-  };
-  history?: readonly AutomationTransition[];
-  history_truncated?: boolean;
-  blueprint_definition?: AgentBlueprintDefinition | null;
-  executor?: AutomationExecutor | null;
-  identity: AutomationIdentity;
-  name: string;
-  purpose: string | null;
-  state: string | null;
-  availability: "available" | "missing" | "unavailable";
-  hidden: boolean | null;
-  schedule: string | null;
-  cadence_ms: number | null;
-  expires_at: number | null;
-  stopped_at?: number | null;
-  deletes_at?: number | null;
-  note?: string | null;
+export type AutomationNode = Omit<WireNode, "detail" | "outcomes" | "last_result" | "executor" | "blueprint_definition" | "history" | "source"> & {
+  detail?: NodeDetail;
   outcomes: readonly AutomationOutcome[];
-  last_result: { bucket: string; accepted_at: number; handlers: readonly (AutomationHandlerResult & { handler_id: string })[] } | null;
-  stop: { allowed: boolean; reason: string | null };
-}
+  last_result: NodeLastResult | null;
+  executor?: AutomationExecutor | null;
+  blueprint_definition?: AgentBlueprintDefinition | null;
+  history?: readonly AutomationTransition[];
+  source?: Pick<import("../../../gen/AutomationSourceDescriptor").AutomationSourceDescriptor, "type"> & UnionFields<import("../../../gen/AutomationSourceDescriptor").AutomationSourceDescriptor>;
+};
 
-export interface CausalRunContext {
-  id: string;
-  root_node: string;
-  root_transition: string;
-  started_at: number;
-  parent: { node: string; transition: string; handler: string } | null;
-}
+export type CausalRunContext = import("../../../gen/CausalRunContext").CausalRunContext;
 
-export interface AutomationRun {
-  id: string;
-  root_node: string;
-  root_transition: string;
-  started_at: number;
-  state: "running" | "completed" | "unconfirmed";
-  incomplete: boolean;
-  transitions: readonly { node: AutomationIdentity; transition_id: string; parent: CausalRunContext["parent"] }[];
-}
+export type AutomationRun = Omit<import("../../../gen/AutomationRun").AutomationRun, "transitions"> & { transitions: readonly OptionalFields<import("../../../gen/AutomationRunTransition").AutomationRunTransition, "conversation">[] };
 
-export interface AutomationTransition {
-  decided_by?: "adapter" | "pattern" | null;
-  adapter_id?: string | null;
-  model?: string | null;
-  confidence?: number | null;
-  reason?: string | null;
-  causal_run?: CausalRunContext | null;
-  routes_current?: boolean;
-  id: string;
-  bucket: string;
-  accepted_at: number;
-  handlers: readonly (AutomationHandlerResult & { handler_id: string; summary?: string | null })[];
-}
+export type AutomationTransition = Omit<OptionalFields<WireTransition, "causal_run" | "routes_current" | "pending_handlers" | "decided_by" | "adapter_id" | "model" | "confidence">, "handlers"> & { handlers: readonly SafeTransitionHandler[] };
 
-export interface AutomationEdge {
-  bucket: string;
-  handler_id: string;
-  handler_type: string;
-  result: AutomationHandlerResult | null;
-  id: string;
-  source: AutomationIdentity;
-  target: AutomationIdentity;
-  evidence: { kind: "configured"; route_id: string } | { kind: "observed"; execution_id: string };
-}
+export type AutomationEdge = Omit<import("../../../gen/AutomationEdge").AutomationEdge, "result"> & { result: AutomationHandlerResult | null };
 
-export interface AutomationScenario {
-  id: string;
-  name: string;
-  root: AutomationIdentity;
-}
+export type AutomationScenario = import("../../../gen/AutomationScenario").AutomationScenario;
 
-export interface AutomationGraph extends AutomationScope {
-  configured_fallback?: { adapter_id: string; model: string | null } | null;
-  all_teams?: boolean;
-  truncated?: boolean;
-  scenarios: readonly AutomationScenario[];
-  revision: string;
-  nodes: readonly AutomationNode[];
-  edges: readonly AutomationEdge[];
-  blueprints?: readonly BlueprintSnapshot[];
-  runs?: readonly AutomationRun[];
-  quarantined?: readonly QuarantinedBlueprint[];
-}
+export type AutomationGraph = Pick<WireGraph, "workspace_id" | "team_id" | "revision"> & Partial<Omit<WireGraph, "workspace_id" | "team_id" | "revision" | "nodes" | "edges" | "scenarios" | "blueprints" | "runs" | "quarantined">> & {
+  scenarios: readonly AutomationScenario[]; nodes: readonly AutomationNode[]; edges: readonly AutomationEdge[];
+  blueprints?: readonly BlueprintSnapshot[]; runs?: readonly AutomationRun[]; quarantined?: readonly QuarantinedBlueprint[];
+};
 
 /** A committed Blueprint refused at load; it never runs until recreated. */
-export interface QuarantinedBlueprint {
-  id: string;
-  name: string | null;
-  state: "quarantined";
-  code: string;
-  reason: string;
-}
+export type QuarantinedBlueprint = OptionalFields<import("../../../gen/QuarantinedBlueprint").QuarantinedBlueprint, "scenario_id" | "workspace_id" | "team_id" | "creator_tab_id">;
 
-export type BlueprintOwnerKind = "tab" | "team";
-export type BlueprintState = "idle" | "running" | "held" | "stopped" | "failed";
-export type BlueprintStepState = "waiting" | "running" | "done" | "failed" | "skipped";
-export type BlueprintResultState = "waiting" | "delivering" | "delivered" | "failed";
+export type BlueprintOwnerKind = import("../../../gen/BlueprintOwner").BlueprintOwner;
+export type BlueprintState = import("../../../gen/BlueprintState").BlueprintState;
+export type BlueprintStepState = import("../../../gen/BlueprintStepState").BlueprintStepState;
+export type BlueprintResultState = import("../../../gen/BlueprintResultState").BlueprintResultState;
 
-export interface BlueprintOwner {
-  kind: BlueprintOwnerKind;
-  tab_id: string | null;
-  team_id: string | null;
-}
+export type BlueprintOwner = import("../../../gen/BlueprintSnapshotOwner").BlueprintSnapshotOwner;
 
-export interface BlueprintStep {
-  source?: { repo?: string; org?: string; resource?: "run" | "jobs" | "pr_checks" | "runners"; id?: number; label?: string; url?: string; expected_status?: string; timeout_ms?: number } | null;
-  source_state?: string | null;
-  index: number;
-  name: string;
-  kind: import("./blueprint/kinds").BlueprintStepKind;
-  title: string;
-  state: BlueprintStepState;
-  outcome: string | null;
-  started_at_ms: number | null;
-  ended_at_ms: number | null;
-  result_summary: string | null;
-  reason: string | null;
-}
+export type BlueprintStep = import("../../../gen/BlueprintStep").BlueprintStep;
 
-export interface BlueprintResult {
-  target: { kind: "owner_tab" | "tab" | "team" | "notify"; id: string | null };
-  state: BlueprintResultState;
-  reason: string | null;
-  body_ref: string | null;
-}
+export type BlueprintResult = import("../../../gen/BlueprintSnapshotResult").BlueprintSnapshotResult;
 
-export interface BlueprintRunSnapshot extends BlueprintProjection {
-  id: string;
-  state: "idle" | "running" | "completed" | "failed" | "held";
-  closed: boolean;
-  started_at_ms: number;
-  last_event_at_ms: number | null;
-  current_step: number | null;
-  steps: readonly BlueprintStep[];
-  result: BlueprintResult;
-}
+export type BlueprintRunSnapshot = Omit<import("../../../gen/BlueprintRunSnapshot").BlueprintRunSnapshot, keyof BlueprintProjectionInput> & BlueprintProjectionInput;
 
-export interface BlueprintSnapshot extends BlueprintProjection {
-  plugin_hold?: {run:string;node:string;operation:string;state:string;reason:string} | null;
-  note?: string | null;
-  stopped_at?: number | null;
-  deletes_at?: number | null;
-  held_reason?: string | null;
-  runs?: readonly BlueprintRunSnapshot[];
-  id: string;
-  name: string;
-  owner?: BlueprintOwner;
-  state: BlueprintState;
-  run_id: string | null;
-  current_step: number | null;
-  last_event_at_ms: number | null;
-  trigger?: { type: "schedule" | "event" | "input"; summary: string };
-  steps?: readonly BlueprintStep[];
-  result?: BlueprintResult;
-}
+export type BlueprintSnapshot = Omit<OptionalFields<import("../../../gen/BlueprintSnapshot").BlueprintSnapshot, "owner" | "runs" | "steps" | "note" | "stopped_at" | "deletes_at">, keyof BlueprintProjectionInput | "runs"> & BlueprintProjectionInput & { runs?: readonly BlueprintRunSnapshot[] };
 
 export interface AutomationAttachment extends AutomationScope {
   connection_id: string;

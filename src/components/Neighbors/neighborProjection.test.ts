@@ -9,7 +9,7 @@ async function main() {
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: win.localStorage });
   const { projectionForPeer, readNeighborProjection } = await import("./neighborProjection");
   const { setRelayTarget, setTokenFor, selfHost, invalidateWebRequestContext } = await import("../../lib/webApi");
-  const blackstar = { pair: { tab_id: "remote-concierge", friend_display_name: "Opaque Friend" } };
+  const blackstar = { pair: { tab_id: "remote-concierge", friend_display_name: "Opaque Friend", friend_photo_url: null, paused: false, access: "paid" as const, receiver: null } };
   assert.deepEqual(projectionForPeer("blackstar", "blackstar", blackstar), blackstar);
   assert.deepEqual(projectionForPeer("eight", "blackstar", blackstar), {});
   assert.deepEqual(projectionForPeer(null, "blackstar", blackstar), {});

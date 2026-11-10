@@ -1,11 +1,10 @@
 import { listen } from "../../lib/bridge";
 import { localFetch } from "../../lib/webApi";
 
-export type NeighborDeliveryStatus = "pending" | "delivered" | "not_delivered";
-export type NeighborListenerState = "connecting" | "receiving" | "reconnecting" | "stopped";
-/** `not_receiving_reason` names why the chosen machine receives nothing now; its label then names that machine, never a receiver. */
-export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number; is_me?: boolean; not_receiving_reason?: "membership_expired" }
-export type NeighborListenerEvent = { friendship_id: string; status: NeighborListenerState } | (ReceiverState & { friendship_id?: string; friend_receivers_version?: number }) | { receiver_unavailable: true; friendship_id?: string; friend_receivers_version?: number };
+export type NeighborDeliveryStatus = import("../../../gen/DeliveryStatus").DeliveryStatus;
+export type NeighborListenerState = import("../../../gen/ListenerState").ListenerState;
+export type ReceiverState = import("../../../gen/NeighborReceiverState").NeighborReceiverState;
+export type NeighborListenerEvent = import("../../../gen/NeighborListenerEvent").NeighborListenerEvent;
 export type DeliveryRefusal = "receiver_moved" | "key_revoked" | "neighbor_daily_limit" | "rate_limited" | "aggregate_limited" | "aggregate_daily_limited" | "friends_locked" | "recipient_locked" | "recipient_not_receiving" | "recipient_paused";
 const DELIVERY_REFUSALS: readonly string[] = ["receiver_moved", "key_revoked", "neighbor_daily_limit", "rate_limited", "aggregate_limited", "aggregate_daily_limited", "friends_locked", "recipient_locked", "recipient_not_receiving", "recipient_paused"];
 export interface DeliveryResult {
@@ -16,42 +15,14 @@ export interface DeliveryResult {
   resets_at?: number;
   retry_after_seconds?: number;
 }
-export interface ChannelStatus {
-  machine_label?: string;
-  friend_receivers?: Record<string, ReceiverState>;
-  friend_receivers_version?: number;
-  listeners?: Record<string, NeighborListenerState>;
-  enrolled: boolean;
-  bindings: Record<string, string>;
-}
+export type ChannelStatus = import("../../../gen/NeighborChannelStatus").NeighborChannelStatus;
 /** Off until the daemon's permission accepts and enforces workspaces: the editor hides them and saves never send them. */
 export const PERMISSION_WORKSPACES = false as boolean;
 
 /** "none" is typed but no provider can honour it yet, so the editor never offers it; reads fall back to read only. */
-export type MachineAccess = "none" | "read_only" | "folder" | "full";
-export interface NeighborPermission {
-  allowed: boolean;
-  scope: string;
-  allow_tab_requests: boolean;
-  /** Off by default: their html and diagrams stay inert code. */
-  allow_interactive_content?: boolean;
-  /** On by default: their agents may ask yours about what your memory holds. */
-  allow_memory?: boolean;
-  /** Only these memory areas; null shares every area that is not secret. */
-  memory_areas?: string[] | null;
-  memory_write_areas?: string[];
-  /** Only these workspaces; null, the default, grants no workspace at all. */
-  workspaces?: string[] | null;
-  /** On by default: their agents may ask for files. */
-  allow_files?: boolean;
-  /** Where their concierge works; null means the friend's own folder. */
-  folder?: string | null;
-  /** How far their concierge may act on this machine; read only unless the owner widens it. */
-  machine_access?: MachineAccess;
-  /** Read-only: the folder actually in effect, and how much of it the platform enforces. */
-  effective_folder?: string;
-  folder_enforcement?: { writes: "provider_sandbox" | "pad_only" | "unrestricted" | "advisory"; reads: "not_confined"; network?: "disabled" | "not_confined"; note: string };
-}
+export type MachineAccess = import("../../../gen/MachineAccess").MachineAccess;
+export type NeighborPermission = import("../../../gen/NeighborPermission").NeighborPermission;
+export type NeighborPermissionDraft = Pick<NeighborPermission, "allowed" | "scope" | "allow_tab_requests"> & Partial<Omit<NeighborPermission, "allowed" | "scope" | "allow_tab_requests">>;
 export interface NeighborReceipt {
   message_id: string;
   status: NeighborDeliveryStatus;
@@ -101,7 +72,7 @@ export async function runtimeCall(command: Record<string, unknown>, signal?: Abo
     const failure: unknown = (() => {
       try { return JSON.parse(detail); } catch { return null; }
     })();
-    const reason = record(failure) && (["key_limit", "key_not_found", "key_revoked", "invalid_key", "entitlements_unavailable", "message_too_large", "tab_requests_not_allowed", "neighbor_permission_denied", "friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving", "reply_target_stopped", "receiving_elsewhere", "receiver_not_chosen", "receiver_status_unknown"] as const).find(reason => reason === failure.code);
+    const reason = record(failure) && (["key_inventory_pending", "key_limit", "key_not_found", "key_revoked", "invalid_key", "entitlements_unavailable", "message_too_large", "tab_requests_not_allowed", "neighbor_permission_denied", "friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving", "reply_target_stopped", "receiving_elsewhere", "receiver_not_chosen", "receiver_status_unknown"] as const).find(reason => reason === failure.code);
     const message = (record(failure) && typeof failure.message === "string" ? failure.message : detail);
     const limit = record(failure) && typeof failure.limit === "number" ? failure.limit : undefined;
     // A sending limit (HTTP 429) names its delivery reason and reset, which the conversation explains like a refused receipt.
@@ -114,7 +85,7 @@ export async function runtimeCall(command: Record<string, unknown>, signal?: Abo
   return response.json();
 }
 
-export type ReceiverRefusal = "key_limit" | "key_not_found" | "key_revoked" | "invalid_key" | "entitlements_unavailable" | "message_too_large" | "tab_requests_not_allowed" | "neighbor_permission_denied" | "friendship_ended" | "neighbor_forbidden" | "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "reply_target_stopped"
+export type ReceiverRefusal = "key_inventory_pending" | "key_limit" | "key_not_found" | "key_revoked" | "invalid_key" | "entitlements_unavailable" | "message_too_large" | "tab_requests_not_allowed" | "neighbor_permission_denied" | "friendship_ended" | "neighbor_forbidden" | "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "reply_target_stopped"
   /** Bind, Apply, ensure and create on a machine that is not this friendship's effective receiver (HTTP 409). */
   | "receiving_elsewhere" | "receiver_not_chosen" | "receiver_status_unknown" | "unavailable";
 /** Proven pre-send refusals that sending the same thing again cannot change, so no Retry is offered:

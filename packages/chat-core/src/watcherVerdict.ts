@@ -1,6 +1,8 @@
 /** TS mirror of `src-tauri/src/service/watcher/verdict.rs::parse_verdict`. */
 
-export type WatcherVerdictStatus = "ok" | "attention" | "stalled";
+import type { WatcherVerdictStatus } from "./gen/WatcherVerdictStatus";
+
+export type { WatcherVerdictStatus } from "./gen/WatcherVerdictStatus";
 
 export interface WatcherVerdictAction {
   kind: string;

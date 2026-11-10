@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_READ_FIELDS } from "../cards/fixtures.testdata";
 import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
@@ -22,7 +23,7 @@ import { useTeamMissionControl, type TeamMissionControlView } from "./useTeamMis
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const API: ApiConfig = {
+const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],
   enabled: true,
   host: "127.0.0.1",
   port: 7686,
@@ -98,6 +99,7 @@ function boardState({ output = 100, turns = 10, bounces = 1, allowance = 20, eve
     },
   };
   return {
+    ...FIXTURE_BOARD_READ_FIELDS,
     plan_id: PLAN_ID, revision: "1",
     task_counts: { pending: 0, in_progress: tasks, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: tasks },
     mission_control: mission,
@@ -518,8 +520,8 @@ function teamState(events: TeamMissionControlEvent[], nextCursor: string | null)
   return {
     team_id: "team-1",
     team: { id: "team-1" } as TeamMissionControlState["team"],
-    active_plan: PLAN,
-    archived_plans: [{ ...PLAN, id: "pl_old", status: "archived", updated_at: 3 }],
+    active_plan: { ...PLAN, team_id: PLAN.team_id ?? null, mode: PLAN.mode ?? "planning", planning_state: PLAN.planning_state ?? "drafting", goal: PLAN.goal ?? null, task_counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 0, ...PLAN.task_counts } },
+    archived_plans: [{ ...PLAN, id: "pl_old", status: "archived", updated_at: 3, team_id: PLAN.team_id ?? null, mode: PLAN.mode ?? "planning", planning_state: PLAN.planning_state ?? "drafting", goal: PLAN.goal ?? null, task_counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 0, ...PLAN.task_counts } }],
     events,
     next_cursor: nextCursor,
   };

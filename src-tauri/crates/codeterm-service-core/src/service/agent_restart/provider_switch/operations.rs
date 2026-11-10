@@ -5,15 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Clone, serde::Serialize)]
-pub struct ProviderSwitchStatus {
-    pub operation_id: String,
-    pub tab_id: String,
-    pub provider: String,
-    pub phase: String,
-    pub outcome: Option<ProviderSwitchOutcome>,
-    pub error: Option<String>,
-}
+pub use codeterm_wire::api_contracts::ProviderSwitchStatus;
 
 struct Operation {
     state: Mutex<ProviderSwitchStatus>,

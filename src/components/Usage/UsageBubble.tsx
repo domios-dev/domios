@@ -81,7 +81,7 @@ export function UsageBubble({
   const runtime = borrowedAccount ? null : ownRuntimeUsage(snapshot,tabId,threadId);
   const active = borrowedAccount ? accountUsageSnapshot(snapshot) : runtime || snapshot?.runtime_usage
     ? latestUsageSnapshot(snapshot, tabId, threadId)
-    : groupSnapshot ?? snapshot;
+    : groupSnapshot ?? latestUsageSnapshot(snapshot);
   // The reading whose account rows (credits, session resets) this popover shows; a borrowing tab shows the native tab's.
   const accountReading = borrowedAccount ? accountRuntimeUsage(snapshot) : runtime;
   const accountCreditsLabel = runtimeAccountCreditsLabel(accountReading?.account_credits);

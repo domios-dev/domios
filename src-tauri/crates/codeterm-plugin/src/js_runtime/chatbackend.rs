@@ -111,7 +111,7 @@ impl JsChatBackend {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 struct OpenOut {
     #[serde(default, rename = "sessionId", alias = "session_id")]
     session_id: Option<String>,
@@ -121,7 +121,7 @@ struct OpenOut {
 
 /// `poll` may return a bare `NormalizedChatMessage[]` (legacy/cursorless) or the
 /// cursor-delta envelope `{ messages, cursor }`.
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 #[serde(untagged)]
 enum PollOut {
     List(Vec<ChatMsg>),
@@ -135,7 +135,7 @@ enum PollOut {
     },
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 struct PluginModel {
     id: String,
     #[serde(default, rename = "displayName", alias = "display_name")]
@@ -543,3 +543,13 @@ impl ChatBackendProvider for JsChatBackend {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    PluginModel::export_all(config)?;
+    OpenOut::export_all(config)?;
+    PollOut::export_all(config)?;
+    Ok(())
+}

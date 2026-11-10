@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[derive(ts_rs::TS)]
 pub struct ExecutionSandboxPolicy {
     pub intent: ExecutionIntent,
     pub cwd: String,

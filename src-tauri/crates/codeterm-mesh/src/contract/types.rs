@@ -22,7 +22,7 @@ pub struct MeshIdentity {
     pub public_key: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct PeerAddress {
     pub ip: String,
     pub is_tailscale: bool,
@@ -122,7 +122,7 @@ pub const fn is_supported_relay_protocol(version: u16) -> bool {
     version >= RELAY_PROTOCOL_VERSION && version <= MAX_SUPPORTED_RELAY_PROTOCOL_VERSION
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(tag = "transport", rename_all = "snake_case")]
 pub enum WebUiEndpoint {
     TailscaleHttps { host: String, port: u16 },
@@ -130,7 +130,7 @@ pub enum WebUiEndpoint {
     LanHttp { ip: IpAddr, port: u16 },
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct WebUiAnnouncement {
     pub protocol_version: u16,
     pub endpoints: Vec<WebUiEndpoint>,
@@ -155,7 +155,7 @@ pub struct PeerAnnounce {
 
 // ── Paired peers ───────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct PairedPeer {
     pub instance_id: String,
     pub instance_name: String,
@@ -187,7 +187,7 @@ pub struct PairedPeer {
 
 // ── Access levels ──────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AccessLevel {
     #[default]
@@ -197,7 +197,7 @@ pub enum AccessLevel {
     Custom(Vec<Permission>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
     ReadTabs,
@@ -280,7 +280,7 @@ pub enum PeerStatus {
 
 // ── API response types ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct MeshStatus {
     pub enabled: bool,
     pub instance_id: String,
@@ -294,7 +294,7 @@ pub struct MeshStatus {
     pub web_ui: Option<WebUiAnnouncement>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct AccountInstallation {
     pub installation_id: String,
     pub name: String,
@@ -306,7 +306,7 @@ pub struct AccountInstallation {
     pub online: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct MeshPeersResponse {
     pub installations: Vec<AccountInstallation>,
     pub paired: Vec<PairedPeer>,

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct LocalRecordingTrigger {
     pub vendor_id: u16,
@@ -8,10 +8,11 @@ pub struct LocalRecordingTrigger {
     pub usage_page: u16,
     pub usage: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub button: Option<LocalRecordingButton>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct LocalRecordingButton {
     pub interface_number: u8,
@@ -48,7 +49,7 @@ impl LocalRecordingButton {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ReceiverStatusQuery {
     pub usage_page: u16,

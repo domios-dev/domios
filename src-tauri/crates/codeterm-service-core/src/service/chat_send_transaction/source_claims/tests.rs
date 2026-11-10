@@ -1,7 +1,7 @@
 use super::*;
 
 fn row(session: &str, start: u64) -> SourceRowRef {
-    SourceRowRef::jsonl(
+    crate::service::chat_send_transaction::jsonl_source_row(
         session,
         "incarnation-1",
         TurnPosition {
@@ -103,7 +103,7 @@ fn recreated_jsonl_row_can_confirm_a_new_send_after_restoring_the_old_claim() {
     assert!(restored
         .confirm_send_with_row(&second.send_id, Some(&source))
         .is_none());
-    let recreated = SourceRowRef::jsonl(
+    let recreated = crate::service::chat_send_transaction::jsonl_source_row(
         "own",
         "incarnation-2",
         TurnPosition {
@@ -134,7 +134,7 @@ fn recreated_jsonl_row_can_confirm_a_new_send_after_restoring_the_old_claim() {
     assert!(restored
         .confirm_send_with_row(&third.send_id, Some(&recreated))
         .is_none());
-    assert!(SourceRowRef::jsonl(
+    assert!(crate::service::chat_send_transaction::jsonl_source_row(
         "own",
         "",
         TurnPosition {
@@ -172,7 +172,7 @@ fn aggregate_claims_exclude_only_proven_other_jsonl_incarnations() {
         ledger.claimed_turn_anchors("tab", "own", "repeat", None),
         [anchor.clone()]
     );
-    let current = SourceRowRef::jsonl(
+    let current = crate::service::chat_send_transaction::jsonl_source_row(
         "own",
         "incarnation-2",
         TurnPosition {
@@ -214,7 +214,7 @@ fn rebuilt_source_registry_keeps_restored_claims_exclusive() {
         else {
             panic!("source incarnation");
         };
-        SourceRowRef::jsonl(
+        crate::service::chat_send_transaction::jsonl_source_row(
             "own",
             &incarnation.id,
             TurnPosition {
@@ -317,7 +317,8 @@ fn structured_row_requires_the_exact_thread_and_item() {
     assert!(ledger
         .confirm_send_with_row(&send.send_id, Some(&invalid))
         .is_none());
-    let source = SourceRowRef::structured("own", "item").unwrap();
+    let source =
+        crate::service::chat_send_transaction::structured_source_row("own", "item").unwrap();
     let status = ledger
         .confirm_send_with_row(&send.send_id, Some(&source))
         .unwrap();

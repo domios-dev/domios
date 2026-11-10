@@ -1,28 +1,12 @@
 use super::model::RuntimeFailure;
-use codeterm_plugin::agent_runtime::{
-    RuntimeQuestion, RuntimeQuestionAnswer, RuntimeQuestionResponse,
-};
+#[cfg(test)]
+use codeterm_plugin::agent_runtime::RuntimeQuestionResponse;
+use codeterm_plugin::agent_runtime::{RuntimeQuestion, RuntimeQuestionAnswer};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QuestionReceipt {
-    pub answers: Vec<RuntimeQuestionAnswer>,
-    pub send_id: String,
-    pub status: serde_json::Value,
-}
+pub use codeterm_plugin::api_contracts::QuestionReceipt;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QuestionRecord {
-    pub thread_id: String,
-    pub item_id: String,
-    pub questions: Vec<RuntimeQuestion>,
-    pub response: RuntimeQuestionResponse,
-    pub created_at: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolved: Option<QuestionReceipt>,
-}
+pub use codeterm_plugin::api_contracts::QuestionRecord;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct QuestionBook {

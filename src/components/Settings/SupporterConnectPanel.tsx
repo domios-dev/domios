@@ -1,12 +1,13 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "../shared/Button";
 import { UI_INPUT } from "../shared/design";
-import type { SupporterAdapter, SupporterMutation } from "./supporterTypes";
+import type { SupporterAdapter } from "./supporterTypes";
+import type { SupporterConnectionOutcome } from "./useDecisionToken";
 
 interface Props {
   adapters: SupporterAdapter[];
   busy: boolean;
-  connect: (adapter: string, model: string, token?: string) => Promise<SupporterMutation | null>;
+  connect: (adapter: string, model: string, token?: string) => Promise<SupporterConnectionOutcome | null>;
   finish: (adapter?: string, active?: boolean) => void;
 }
 

@@ -11,14 +11,17 @@ use crate::semantic_marker::{SemanticEvent, SemanticMarkerParser};
 
 /// One detected shell command. Built incrementally from prompt/command/finished
 /// marks; finalized (pushed to the list) at `CommandEnd`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ShellCommand {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub command_line: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cwd: Option<String>,
     /// Pre-exec `C` (output start) was observed. False in A/D-only degraded mode
     /// (e.g. Windows PSReadLine under WIN32_INPUT_MODE) — boundary+exit still valid.
@@ -26,23 +29,28 @@ pub struct ShellCommand {
 }
 
 /// Surfaced to chat (OSC4 renders these). One per meaningful capability change.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CommandLifecycle {
     /// Output began (`C`). Absent in A/D-only mode.
     Started {
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         command_line: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         cwd: Option<String>,
     },
     /// Command finished (`D`) — always emitted, even A/D-only.
     Finished {
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         command_line: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         exit_code: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         cwd: Option<String>,
     },
     /// cwd changed (OSC 7 or 633;P;Cwd), deduped to one source of truth.
@@ -298,11 +306,12 @@ impl ShellIntegration {
 }
 
 /// A read-only capability view for consumers (chat / OSC4 query path).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ShellCapabilitySnapshot {
     pub commands: Vec<ShellCommand>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cwd: Option<String>,
 }
 

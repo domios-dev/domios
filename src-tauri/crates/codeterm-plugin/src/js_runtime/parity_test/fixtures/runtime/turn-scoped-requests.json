@@ -1,5 +1,6 @@
 {
   "runtime": "stdio-jsonrpc",
+  "localImagePaths": true,
   "command": {"binary": "fixture-engine", "args": []},
   "requestMethods": {"initialize": ["initialize"], "submitTurn": ["opaque/prompt"]},
   "notificationMethods": ["opaque/update"],

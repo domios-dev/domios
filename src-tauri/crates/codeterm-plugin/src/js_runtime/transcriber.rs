@@ -20,7 +20,7 @@ impl JsTranscriber {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 struct TranscribeOut {
     #[serde(default)]
     text: Option<String>,
@@ -116,3 +116,11 @@ fn call_failure(
 mod deadline_tests;
 #[cfg(test)]
 mod tests;
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    TranscribeOut::export_all(config)?;
+    Ok(())
+}

@@ -17,15 +17,7 @@ export interface ClientRect {
   height: number;
 }
 
-export interface FrameMetadata {
-  deviceWidth: number;
-  deviceHeight: number;
-  offsetTop?: number;
-  pageScaleFactor?: number;
-  scrollOffsetX?: number;
-  scrollOffsetY?: number;
-  timestamp?: number;
-}
+export type FrameMetadata = Pick<import("../../../gen/FrameMetadata").FrameMetadata, "deviceWidth" | "deviceHeight"> & Partial<Omit<import("../../../gen/FrameMetadata").FrameMetadata, "deviceWidth" | "deviceHeight">>;
 
 export interface StreamViewport {
   w: number;

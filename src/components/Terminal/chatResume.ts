@@ -1,18 +1,8 @@
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
-export interface ChatResumeDelta {
-  messages: NormalizedChatMessage[];
-  start_offset: number;
-  offset: number;
-  cursor: string;
-  source_session_id: string;
-  session_binding_nonce: string | null;
-}
+export type ChatResumeDelta = Omit<import("../../../gen/ResumeDelta").ResumeDelta, "messages"> & {messages: NormalizedChatMessage[]};
 
-export type ChatResumeResult =
-  | { kind: "resumed"; deltas: ChatResumeDelta[]; caught_up: boolean }
-  | { kind: "reset_required"; reason: "epoch_changed" | "compacted" | "invalid_cursor" }
-  | { kind: "unsupported"; source_kind: "bytes" | "revision" | "items" };
+export type ChatResumeResult = Exclude<import("../../../gen/ChatResumeResult").ChatResumeResult, {kind: "resumed"}> | (Omit<Extract<import("../../../gen/ChatResumeResult").ChatResumeResult, {kind: "resumed"}>, "deltas"> & {deltas: ChatResumeDelta[]});
 
 export function isByteResumeCursor(token: string | null): token is string {
   if (token == null) return false;

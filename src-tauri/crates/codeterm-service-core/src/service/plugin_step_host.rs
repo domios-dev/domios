@@ -1,16 +1,7 @@
 use super::{step_agent_run::StepRunRequest, ServiceContext};
 use codeterm_plugin::blueprint_step::StepInputContext;
-use serde::Deserialize;
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct StartOptions {
-    prompt: String,
-    cwd: String,
-    model: Option<String>,
-    timeout_ms: u64,
-    sandbox: Option<String>,
-}
+use codeterm_wire::plugin_host::StepAgentStartOptions as StartOptions;
 
 impl ServiceContext {
     pub(super) fn plugin_step_agent_start(
@@ -58,8 +49,10 @@ impl ServiceContext {
             })
         };
         match start() {
-            Ok(run) => serde_json::json!({"run":run}).to_string(),
-            Err(error) => serde_json::json!({"error":error}).to_string(),
+            Ok(run) => serde_json::to_string(&codeterm_wire::plugin_host::HostRunStart { run })
+                .unwrap_or_else(|_| "null".into()),
+            Err(error) => serde_json::to_string(&codeterm_wire::plugin_host::HostError { error })
+                .unwrap_or_else(|_| "null".into()),
         }
     }
 }

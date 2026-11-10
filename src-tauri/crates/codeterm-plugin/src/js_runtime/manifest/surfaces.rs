@@ -10,7 +10,7 @@ const MAX_SURFACE_TITLE_CHARS: usize = 32;
 const MAX_SURFACE_ICON_BYTES: usize = 40;
 
 /// How core renders a surface tab: the sandboxed plugin view, or frames from a core runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum SurfaceRenderer {
     View,
@@ -27,7 +27,7 @@ impl SurfaceRenderer {
 }
 
 /// What a restored desk does with a surface tab.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum SurfaceRestore {
     #[default]
@@ -38,7 +38,7 @@ pub enum SurfaceRestore {
 }
 
 /// A plugin-declared app tab (`capabilities.surfaces[]`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SurfaceDecl {
     pub id: String,
@@ -50,12 +50,15 @@ pub struct SurfaceDecl {
     pub restore: SurfaceRestore,
     /// The core surface runtime a `stream` surface runs on; core branches on it, never on the plugin id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub runtime: Option<String>,
     /// Toolbar spec core passes through to the frontend untouched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub chrome: Option<serde_json::Value>,
     /// Lucide-style icon name for the surface's tab; an invalid name is dropped at load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub icon: Option<String>,
     /// View verbs callable through the authenticated host surface bridge.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -31,7 +31,7 @@ static DECISION_FETCH_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLo
         .map_err(|_| "decision HTTP client unavailable".into())
 });
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct FetchOpts {
     url: String,
@@ -43,6 +43,22 @@ struct FetchOpts {
     body: Option<String>,
     #[serde(default)]
     timeout_ms: Option<u64>,
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+struct FetchResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    headers: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    error: Option<String>,
 }
 
 #[derive(Default)]
@@ -61,7 +77,8 @@ static STREAM_JOBS: LazyLock<Mutex<HashMap<String, StreamJob>>> =
 static FETCH_CLIENT_BUILDS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn err(msg: &str) -> String {
-    serde_json::json!({ "error": msg }).to_string()
+    serde_json::to_string(&codeterm_wire::plugin_host::HostError { error: msg.into() })
+        .unwrap_or_else(|_| "null".into())
 }
 
 /// `host[:port]` of a URL, for the allowlist check. `None` if unparseable.
@@ -103,7 +120,8 @@ pub(super) fn start(plugin_id: &str, opts_json: &str) -> String {
         let _scope = observer.map(physical::RequestScope::enter);
         run_sync(&owned)
     }) {
-        Ok(job_id) => serde_json::json!({ "jobId": job_id }).to_string(),
+        Ok(job_id) => serde_json::to_string(&codeterm_wire::plugin_host::HostJobStart { job_id })
+            .unwrap_or_else(|_| "null".into()),
         Err(error) => err(&error),
     }
 }
@@ -127,7 +145,8 @@ pub(super) fn stream(plugin_id: &str, opts_json: &str) -> String {
         run_stream_worker(worker_job_id, owned)
     });
 
-    serde_json::json!({ "jobId": job_id }).to_string()
+    serde_json::to_string(&codeterm_wire::plugin_host::HostJobStart { job_id })
+        .unwrap_or_else(|_| "null".into())
 }
 
 pub(super) fn stream_poll(plugin_id: &str, job_id: &str) -> String {
@@ -310,10 +329,13 @@ async fn run_async(opts_json: &str) -> Result<String, String> {
                 body.extend_from_slice(&chunk);
             }
             let body = String::from_utf8_lossy(&body).into_owned();
-            Ok(
-                serde_json::json!({ "status": status, "headers": headers, "body": body })
-                    .to_string(),
-            )
+            Ok(serde_json::to_string(&FetchResult {
+                status: Some(status),
+                headers: Some(headers),
+                body: Some(body),
+                error: None,
+            })
+            .unwrap_or_else(|_| "null".into()))
         }
         Err(e) => Ok(err(&transport_error("request failed", e))),
     }
@@ -375,10 +397,13 @@ async fn run_stream_async(job_id: String, opts_json: String) -> Result<(), Strin
     Ok(())
 }
 
+#[derive(ts_rs::TS)]
 struct StreamPollResponse {
     chunks: Vec<String>,
     done: bool,
+    #[ts(optional)]
     status: Option<u16>,
+    #[ts(optional)]
     error: Option<String>,
 }
 
@@ -912,4 +937,14 @@ mod physical_tests {
         drop(scope);
         assert!(physical::current().is_none());
     }
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    FetchOpts::export_all(config)?;
+    FetchResult::export_all(config)?;
+    StreamPollResponse::export_all(config)?;
+    Ok(())
 }

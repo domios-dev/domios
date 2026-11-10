@@ -1,9 +1,4 @@
-export interface MemAuthor {
-  kind: "owner" | "neighbor" | "system";
-  account_uid?: string;
-  friendship_id?: string;
-  label?: string;
-}
+export type MemAuthor = import("../../../gen/MemAuthor").MemAuthor;
 
 export type MemKind =
   | "skill"
@@ -19,56 +14,21 @@ export type MemKind =
   | "summary"
   | string;
 
-export interface MemNode {
-  author?: MemAuthor | null;
+type MemNodeWire = import("../../../gen/MemNode").MemNode;
+export type MemNode = Omit<MemNodeWire, "author" | "importance" | "tags"> & Partial<Pick<MemNodeWire, "author">> & { [Field in "importance" | "tags"]: MemNodeWire[Field] | null } & {
   pinned?: boolean;
-  id: string;
-  kind: MemKind;
-  title: string;
-  summary: string | null;
-  area: string | null;
-  importance: number | null;
-  tags: string[] | null;
-  has_vector: boolean;
-  has_body: boolean;
   body?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   access_count?: number;
   recurrence_count?: number;
-}
+};
 
-export interface MemEdge {
-  from: string;
-  to: string;
-  rel: string;
-  confidence: number | null;
-  valid_from: string | null;
-  valid_to: string | null;
-}
+type MemEdgeWire = import("../../../gen/GraphEdge").GraphEdge;
+export type MemEdge = Omit<MemEdgeWire, "valid_from"> & { valid_from: MemEdgeWire["valid_from"] | null };
+export type GraphFullResponse = import("../../../gen/GraphFullResponse").GraphFullResponse;
 
-export interface GraphFullResponse {
-  nodes: MemNode[];
-  edges: MemEdge[];
-  stats: { node_count: number; edge_count: number };
-}
-
-export interface MemItemFull {
-  author?: MemAuthor | null;
-  id: string;
-  kind: string;
-  scope: string;
-  title: string;
-  summary: string | null;
-  area: string | null;
-  tags: string[];
-  body: string;
-  source: string | null;
-  importance: number;
-  created_at: string;
-  updated_at: string;
-  accessed_at: string | null;
-}
+export type MemItemFull = Pick<import("../../../gen/MemItem").MemItem, "id" | "kind" | "scope" | "title" | "summary" | "area" | "tags" | "body" | "source" | "importance" | "created_at" | "updated_at" | "accessed_at"> & {author?: import("../../../gen/MemItem").MemItem["author"] | null};
 
 export type NodeKind = "basic" | "expanded" | "image";
 

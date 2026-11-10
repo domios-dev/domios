@@ -252,18 +252,21 @@ pub(crate) fn boot_stage_event(
     stage: BootStage,
     reason: Option<&str>,
 ) -> serde_json::Value {
-    serde_json::json!({
-        "tab_id": tab_id,
-        "stage": stage,
-        "agent_booting": tab.agent_booting,
-        "session_bound": tab.agent_session_id.as_deref().is_some_and(|id| !id.trim().is_empty()),
-        "reason": stage.carries_reason().then_some(reason).flatten(),
-        "provisional_launch": tab.provisional_launch,
-        "launch_generation": {
-            "epoch": tab.lifecycle_epoch,
-            "operation_id": tab.lifecycle_operation_id,
-            "pty_id": tab.pty_id,
-            "binding_nonce": tab.session_binding_nonce,
+    serde_json::json!(codeterm_types::pty::TabBootStageEvent {
+        tab_id,
+        stage,
+        agent_booting: tab.agent_booting,
+        session_bound: tab
+            .agent_session_id
+            .as_deref()
+            .is_some_and(|id| !id.trim().is_empty()),
+        reason: stage.carries_reason().then_some(reason).flatten(),
+        provisional_launch: tab.provisional_launch.as_ref(),
+        launch_generation: codeterm_types::pty::TabLaunchGeneration {
+            epoch: tab.lifecycle_epoch,
+            operation_id: tab.lifecycle_operation_id.as_deref(),
+            pty_id: tab.pty_id.as_deref(),
+            binding_nonce: tab.session_binding_nonce.as_deref(),
         },
     })
 }

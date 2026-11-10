@@ -70,13 +70,24 @@ pub(super) fn error(error: ConnectionError) -> (StatusCode, Json<Value>) {
         "authentication_failed" => StatusCode::UNAUTHORIZED,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
-    (status, Json(json!({ "error": error })))
+    (
+        status,
+        Json(json!(
+            codeterm_service_core::service::supporter::responses::SupporterMutation::Failure {
+                error
+            }
+        )),
+    )
 }
 
 pub(super) async fn mutate<F>(state: ConnectionState, work: F) -> Result
 where
-    F: FnOnce(&mut ConnectionService<'_>) -> std::result::Result<Value, ConnectionError>
-        + Send
+    F: FnOnce(
+            &mut ConnectionService<'_>,
+        ) -> std::result::Result<
+            codeterm_service_core::service::supporter::responses::SupporterMutation,
+            ConnectionError,
+        > + Send
         + 'static,
 {
     tokio::task::spawn_blocking(move || {
@@ -96,7 +107,7 @@ where
     })
     .await
     .map_err(|_| error(ConnectionError::unavailable()))?
-    .map(Json)
+    .map(|value| Json(json!(value)))
     .map_err(error)
 }
 

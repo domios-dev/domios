@@ -2,14 +2,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum EndpointKind {
     OpenaiCompatible,
     Anthropic,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelProviderDefinition {
     pub id: String,
@@ -18,10 +18,13 @@ pub struct ModelProviderDefinition {
     #[serde(default)]
     pub models: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub key_env: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub secret_name: Option<String>,
 }
 
@@ -32,7 +35,7 @@ pub struct ConfigUpdate {
     pub conflicts: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct ModelPreset {
     pub name: String,
@@ -42,14 +45,17 @@ pub struct ModelPreset {
     pub params: PresetParams,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct PresetParams {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub temperature: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub top_p: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub steps: Option<u32>,
 }
 

@@ -2,7 +2,7 @@ use super::{PlanError, PlanStore};
 use serde::Deserialize;
 use serde_json::Value;
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskHistoryKind {
     Milestones,

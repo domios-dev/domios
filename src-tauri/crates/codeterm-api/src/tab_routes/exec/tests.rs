@@ -59,6 +59,13 @@ fn exec_output_with_an_evicted_front_reports_truncation() {
 #[test]
 fn exec_submission_uncertainty_is_never_a_prewrite_failure() {
     assert_eq!(
+        super::exec_submission_error("tab_busy_refused: shell command running"),
+        (
+            super::StatusCode::CONFLICT,
+            "tab_busy_refused: shell input is busy; nothing written",
+        )
+    );
+    assert_eq!(
         super::exec_submission_error("submit_unconfirmed: no command-start mark"),
         (
             super::StatusCode::CONFLICT,

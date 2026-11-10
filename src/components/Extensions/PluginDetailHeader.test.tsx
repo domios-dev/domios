@@ -162,7 +162,9 @@ async function pluginNameAppearsOnceOnTheDetailPage() {
   />);
   const host = document.createElement("div");
   host.innerHTML = markup;
-  assert.ok(host.querySelector('[data-testid="extensions-plugin-view"] [role="status"]'), "the embedded plugin view reports loading");
+  assert.equal(host.querySelector('[data-testid="extensions-plugin-view"]'), null, "the detail page embeds no plugin view");
+  const openInterface = [...host.querySelectorAll("button")].filter((button) => button.textContent === "Open interface");
+  assert.equal(openInterface.length, 1, "a plugin with a view offers one Open interface action");
   const occurrences = (host.textContent ?? "").split(telegram.displayName).length - 1;
   assert.equal(occurrences, 1, "the plugin name is shown once, in the page heading");
   assert.equal(host.querySelector("h2")?.textContent, telegram.displayName, "the heading carries the name");

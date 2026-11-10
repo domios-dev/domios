@@ -116,59 +116,13 @@ export function serveHint(port: number): string {
 const DEFAULT_HTTPS_PORT = 443;
 
 /** Backend `serve_setup::ServeStatus` (serde snake_case). */
-export interface ServeStatus {
-  installed: boolean;
-  active: boolean;
-  https_url?: string | null;
-  self_dns?: string | null;
-  platform?: string | null;
-  snapshot?: ServeReconcileSnapshot | null;
-}
+export type ServeStatus = Pick<import("../../gen/ServeStatus").ServeStatus, "installed" | "active"> & Partial<Omit<import("../../gen/ServeStatus").ServeStatus, "installed" | "active">>;
 
-export type ServeReconcileState =
-  | "ready"
-  | "setup_required"
-  | "operator_bootstrap_required"
-  | "conflict"
-  | "unhealthy";
+export type ServeReconcileState = import("../../gen/ServeReconcileState").ServeReconcileState;
 
-export interface ServeReconcileSnapshot {
-  state: ServeReconcileState;
-  url?: string | null;
-  api_port: number;
-  desired_https_port: number;
-  chosen_https_port?: number | null;
-  operator_bootstrap_required: boolean;
-  bootstrap_command?: string | null;
-  binary: {
-    installed: boolean;
-    path?: string | null;
-    cli_version?: string | null;
-    daemon_version?: string | null;
-    version_skew: boolean;
-    version_output?: string | null;
-    error?: string | null;
-  };
-  route?: ServeRouteSnapshot | null;
-  routes: ServeRouteSnapshot[];
-  conflict?: string | null;
-  health: {
-    checked_url?: string | null;
-    ok: boolean;
-    status?: number | null;
-    daemon_build?: string | null;
-    expected_build?: string | null;
-    build_matches?: boolean | null;
-    error?: string | null;
-  };
-}
+export type ServeReconcileSnapshot = import("../../gen/ServeReconcileSnapshot").ServeReconcileSnapshot;
 
-export interface ServeRouteSnapshot {
-  host?: string | null;
-  https_port: number;
-  proxy?: string | null;
-  ownership: "owned" | "conflict" | "free" | "unknown";
-}
+export type ServeRouteSnapshot = import("../../gen/ServeRouteSnapshot").ServeRouteSnapshot;
 
 export type ServeSetupState = "not-installed" | "active" | "port-collision" | "can-enable";
 

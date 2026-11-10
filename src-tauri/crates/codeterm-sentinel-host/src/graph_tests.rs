@@ -41,7 +41,7 @@ fn snapshot(store: &Store, mux: &MultiplexerState, owner: &Owner) -> graph::Snap
         store.list(),
         mux,
         &BTreeMap::new(),
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
@@ -62,14 +62,34 @@ fn sentinel_graph_named_scenario_has_one_root_and_reachable_internal_stage() {
     assert_eq!(graph.scenarios.len(), 1);
     assert_eq!(graph.scenarios[0].id, root.id);
     assert_eq!(graph.scenarios[0].root, graph::identity(&root));
-    assert_eq!(graph.nodes.len(), 2);
-    assert_eq!(graph.edges.len(), 1);
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
+    assert_eq!(
+        graph
+            .edges
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        1
+    );
     assert_eq!(
         store.get(&child.id).unwrap().scenario_id.as_deref(),
         Some(root.id.as_str())
     );
     assert_eq!(
-        graph.edges[0]["evidence"],
+        graph
+            .edges
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["evidence"],
         json!({"kind":"configured","route_id":"branch"})
     );
     let encoded = serde_json::to_string(&graph).unwrap();
@@ -77,6 +97,9 @@ fn sentinel_graph_named_scenario_has_one_root_and_reachable_internal_stage() {
     assert_eq!(
         graph
             .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
             .iter()
             .find(|n| n["identity"]["id"] == root.id)
             .unwrap()["blueprint_definition"],
@@ -105,7 +128,7 @@ fn sentinel_update_snapshot_exposes_read_only_definition_version_and_lineage() {
         &jobs,
         &mux,
         &BTreeMap::new(),
-        Value::Null,
+        None,
         1000,
         &Default::default(),
     )
@@ -113,6 +136,9 @@ fn sentinel_update_snapshot_exposes_read_only_definition_version_and_lineage() {
 
     let definition = graph
         .nodes
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
         .iter()
         .find(|node| node["identity"]["id"] == root.id)
         .unwrap()["blueprint_definition"]
@@ -144,8 +170,21 @@ fn sentinel_graph_shell_root_and_orphan_paused_nodes_are_visible() {
         ids,
         [root.id.as_str(), paused.id.as_str()].into_iter().collect()
     );
-    assert_eq!(graph.nodes.len(), 2);
-    assert!(graph.edges.is_empty());
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
+    assert!(graph
+        .edges
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
+        .is_empty());
 }
 
 #[test]
@@ -166,8 +205,24 @@ fn sentinel_graph_shared_targets_keep_two_entries_and_one_execution_identity() {
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 2);
-    assert_eq!(graph.nodes.len(), 3);
-    assert_eq!(graph.edges.len(), 2);
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        3
+    );
+    assert_eq!(
+        graph
+            .edges
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
     assert_ne!(first.id, second.id);
     assert_eq!(
         store.get(&child.id).unwrap().scenario_id.as_deref(),
@@ -176,6 +231,9 @@ fn sentinel_graph_shared_targets_keep_two_entries_and_one_execution_identity() {
     assert_eq!(
         graph
             .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
             .iter()
             .filter(|n| n["identity"]["id"] == child.id)
             .count(),
@@ -195,16 +253,28 @@ fn sentinel_graph_missing_exact_target_has_no_foreign_metadata() {
         &jobs,
         &mux,
         &BTreeMap::new(),
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
     .unwrap();
-    assert_eq!(graph.nodes.len(), 2);
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
     let missing = graph
         .nodes
         .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
+        .iter()
         .find(|n| n["identity"]["id"] == "missing-tab")
+        .cloned()
         .unwrap();
     assert_eq!(missing["availability"], "missing");
     assert_eq!(missing["hidden"], Value::Null);
@@ -217,7 +287,7 @@ fn sentinel_graph_missing_exact_target_has_no_foreign_metadata() {
         &jobs,
         &mux,
         &BTreeMap::new(),
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
@@ -225,6 +295,9 @@ fn sentinel_graph_missing_exact_target_has_no_foreign_metadata() {
     assert_eq!(
         graph
             .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
             .iter()
             .find(|n| n["identity"]["id"] == owner.creator_tab_id)
             .unwrap()["availability"],
@@ -243,7 +316,7 @@ fn sentinel_graph_missing_exact_target_has_no_foreign_metadata() {
         &jobs,
         &mux,
         &BTreeMap::new(),
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
@@ -251,7 +324,11 @@ fn sentinel_graph_missing_exact_target_has_no_foreign_metadata() {
     let missing = graph
         .nodes
         .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
+        .iter()
         .find(|node| node["identity"]["id"] == owner.creator_tab_id)
+        .cloned()
         .unwrap();
     assert_eq!(missing["availability"], "missing");
     assert_eq!(missing["name"], "Missing worker");
@@ -279,8 +356,22 @@ fn sentinel_graph_scope_and_host_stop_share_actual_store_authority() {
     assert!(stopped.machine.stopped);
     assert_eq!(stopped.last_reason.as_deref(), Some("stopped_by_host"));
     let graph = snapshot(&store, &mux, &owner);
-    assert_eq!(graph.nodes[0]["stop"]["allowed"], false);
-    assert_eq!(graph.nodes[0]["stop"]["reason"], "stopped_by_host");
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["stop"]["allowed"],
+        false
+    );
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["stop"]["reason"],
+        "stopped_by_host"
+    );
 }
 
 #[test]
@@ -363,17 +454,29 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
         store.list(),
         &mux,
         &connected,
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
     .unwrap();
     assert_eq!(snapshot.scenarios[0].id, root.id);
-    assert_eq!(snapshot.nodes.len(), 3);
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        3
+    );
     let node = snapshot
         .nodes
         .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
+        .iter()
         .find(|n| n["identity"]["id"] == worker)
+        .cloned()
         .unwrap();
     assert_eq!(node["hidden"], true);
     assert_eq!(node["executor"]["reported_model"], "reported-model");
@@ -381,7 +484,11 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
     let observed = snapshot
         .edges
         .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
+        .iter()
         .find(|e| e["evidence"]["kind"] == "observed")
+        .cloned()
         .unwrap();
     assert_eq!(
         observed["evidence"],
@@ -405,7 +512,7 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
         store.list(),
         &mux,
         &connected,
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
@@ -413,7 +520,11 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
     let node = missing
         .nodes
         .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
+        .iter()
         .find(|n| n["identity"]["id"] == worker)
+        .cloned()
         .unwrap();
     assert_eq!(node["availability"], "missing");
     assert_eq!(node["identity"], observed["target"]);
@@ -433,7 +544,7 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
         &historical_jobs,
         &mux,
         &retained,
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
@@ -442,6 +553,9 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
         retained_graph
             .edges
             .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .iter()
             .filter(|edge| edge["evidence"]["kind"] == "observed")
             .count(),
         1
@@ -449,6 +563,9 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
     assert_eq!(
         retained_graph
             .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
             .iter()
             .find(|node| node["identity"]["id"] == cron.id)
             .unwrap()["availability"],
@@ -462,13 +579,29 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
         store.list(),
         &mux,
         &no_tab,
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
     .unwrap();
-    assert_eq!(graph.nodes.len(), 2);
-    assert_eq!(graph.edges.len(), 1);
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
+    assert_eq!(
+        graph
+            .edges
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -554,14 +687,30 @@ fn sentinel_graph_cycles_terminate_and_disconnected_participants_stay_retained()
         &jobs,
         &mux,
         &BTreeMap::new(),
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
     .unwrap();
     assert_eq!(projected.scenarios.len(), 2);
-    assert_eq!(projected.nodes.len(), 3);
-    assert_eq!(projected.edges.len(), 2);
+    assert_eq!(
+        projected
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        3
+    );
+    assert_eq!(
+        projected
+            .edges
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -624,7 +773,15 @@ fn sentinel_graph_sharing_an_independent_scenario_does_not_absorb_its_root() {
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 2);
-    assert_eq!(graph.nodes.len(), 2);
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
     assert_ne!(parent.id, independent.id);
     assert_eq!(
         store.get(&independent.id).unwrap().scenario_id.as_deref(),
@@ -656,6 +813,9 @@ fn sentinel_graph_connected_worker_status_projects_actual_tracker_without_defaul
         graph
             .nodes
             .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()
+            .iter()
             .find(|node| node["identity"]["id"] == worker)
             .unwrap()["state"],
         Value::Null
@@ -669,7 +829,11 @@ fn sentinel_graph_connected_worker_status_projects_actual_tracker_without_defaul
     let node = graph
         .nodes
         .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
+        .iter()
         .find(|node| node["identity"]["id"] == worker)
+        .cloned()
         .unwrap();
     assert_eq!(node["state"], "working");
     assert_eq!(node["state_source"], "tab_status");
@@ -709,14 +873,32 @@ fn sentinel_graph_host_stop_fences_until_terminal_batch_while_actual_lease_is_li
         .unwrap()
         .unwrap();
     let graph = snapshot(&store, &mux, &owner);
-    assert_eq!(graph.nodes[0]["state"], "finishing");
-    assert_eq!(graph.nodes[0]["stop"]["allowed"], true);
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["state"],
+        "finishing"
+    );
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["stop"]["allowed"],
+        true
+    );
     crate::service_adapter::graph::host_stop(&mut store, &mux, &owner.workspace_id, None, &job.id)
         .unwrap();
     assert!(lease.cancelled.load(std::sync::atomic::Ordering::SeqCst));
     assert!(!store.action_permitted(&job, &outcome.evidence.evaluation_id));
     assert_eq!(
-        snapshot(&store, &mux, &owner).nodes[0]["stop"]["allowed"],
+        snapshot(&store, &mux, &owner)
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["stop"]["allowed"],
         false
     );
 }
@@ -731,7 +913,11 @@ fn sentinel_graph_terminal_lease_release_invalidates_with_committed_scope_revisi
     terminal.last_reason = Some("until".into());
     store.finish(&terminal).unwrap();
     assert_eq!(
-        snapshot(&store, &mux, &owner).nodes[0]["state"],
+        snapshot(&store, &mux, &owner)
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["state"],
         "finishing"
     );
     let revision = store
@@ -746,9 +932,20 @@ fn sentinel_graph_terminal_lease_release_invalidates_with_committed_scope_revisi
         changes[0],
         json!({"workspace_id":owner.workspace_id,"team_id":null,"revision":revision})
     );
-    assert_eq!(snapshot(&store, &mux, &owner).nodes[0]["state"], "stopped");
     assert_eq!(
-        snapshot(&store, &mux, &owner).nodes[0]["stop"]["allowed"],
+        snapshot(&store, &mux, &owner)
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["state"],
+        "stopped"
+    );
+    assert_eq!(
+        snapshot(&store, &mux, &owner)
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["stop"]["allowed"],
         false
     );
 }
@@ -757,7 +954,10 @@ fn sentinel_graph_terminal_lease_release_invalidates_with_committed_scope_revisi
 fn blueprint_snapshot_keeps_fallback_separate_from_execution() {
     let (_dir, mut store, mux, owner) = setup();
     create(&mut store, &owner, false, json!({}));
-    let fallback = json!({"adapter_id":"configured-adapter","model":"configured-model"});
+    let fallback = Some(codeterm_sentinel::graph_contracts::ConfiguredFallback {
+        adapter_id: "configured-adapter".into(),
+        model: Some("configured-model".into()),
+    });
     let graph = graph::project(
         &owner.workspace_id,
         None,
@@ -770,9 +970,28 @@ fn blueprint_snapshot_keeps_fallback_separate_from_execution() {
     )
     .unwrap();
     assert_eq!(graph.configured_fallback, fallback);
-    assert!(graph.nodes[0]["executor"].is_null());
-    assert_eq!(graph.nodes[0]["detail"]["version"], 1);
-    assert_eq!(graph.nodes[0]["detail"]["decisions"]["adapter_used"], false);
+    assert!(graph
+        .nodes
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()[0]["executor"]
+        .is_null());
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["detail"]["version"],
+        1
+    );
+    assert_eq!(
+        graph
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["detail"]["decisions"]["adapter_used"],
+        false
+    );
 }
 
 #[test]

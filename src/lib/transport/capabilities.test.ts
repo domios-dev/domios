@@ -14,6 +14,7 @@ function fixture(result: unknown = {}) {
       return structuredClone(result) as T;
     },
     currentToken: () => "client-token",
+    origin: () => "http://capability.fixture",
   };
   return { calls, transport: createCapabilitiesTransport(client), client };
 }

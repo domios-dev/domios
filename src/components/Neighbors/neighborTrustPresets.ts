@@ -1,4 +1,4 @@
-import type { MachineAccess, NeighborPermission } from "./neighborRuntimeClient";
+import type { MachineAccess, NeighborPermissionDraft } from "./neighborRuntimeClient";
 
 export type TrustPreset = "trusted" | "acquaintance" | "collaborator" | "custom";
 type NamedPreset = Exclude<TrustPreset, "custom">;
@@ -28,7 +28,7 @@ export const TRUST_OPTIONS: { value: TrustPreset; label: string }[] = [
 ];
 
 /** The preset these permissions and this daily limit match exactly; anything else, including server defaults, is Custom. */
-export function trustPresetOf(permission: NeighborPermission, dailyLimit: number | null): TrustPreset {
+export function trustPresetOf(permission: NeighborPermissionDraft, dailyLimit: number | null): TrustPreset {
   const memory = permission.allow_memory !== false;
   const match = (Object.keys(PRESETS) as NamedPreset[]).find(name => {
     const preset = PRESETS[name];
@@ -44,7 +44,7 @@ export function trustPresetOf(permission: NeighborPermission, dailyLimit: number
 }
 
 /** What applying a preset changes; folder access waits for a folder, so without one it stays read only for now. */
-export function applyTrustPreset(name: NamedPreset, permission: NeighborPermission): { patch: Partial<NeighborPermission>; dailyLimit: number; needsFolder: boolean } {
+export function applyTrustPreset(name: NamedPreset, permission: NeighborPermissionDraft): { patch: Partial<NeighborPermissionDraft>; dailyLimit: number; needsFolder: boolean } {
   const preset = PRESETS[name];
   const needsFolder = preset.machine_access === "folder" && !permission.folder;
   return {

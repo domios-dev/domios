@@ -1,9 +1,10 @@
 use std::fmt;
 use std::str::FromStr;
+use ts_rs::TS;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Channel {
     #[default]

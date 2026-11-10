@@ -3,7 +3,7 @@ import { readUsageOnEvent } from "../lib/usageEventReads";
 import { DEV_BUILD } from "../lib/devBuild";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
-import type { UsageSnapshot, UsageSnapshotEvent } from "../types/usage";
+import type { UsageSnapshot, UsageSnapshotEvent, UsageLatestView } from "../types/usage";
 import { nextResetAt, zeroExpiredResets } from "../components/Usage/cycle";
 
 // reset still fires without depending on one giant timer surviving that long.
@@ -18,7 +18,7 @@ export interface UseUsageSnapshotOptions {
 }
 
 export interface UseUsageSnapshotResult {
-  snapshot: UsageSnapshot | null;
+  snapshot: UsageLatestView | null;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -27,7 +27,7 @@ export interface UseUsageSnapshotResult {
 
 export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapshotResult {
   const { provider, accountId = null, enabled = true } = opts;
-  const [snapshot, setSnapshot] = useState<UsageSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<UsageLatestView | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   // Held apart from read errors: the read that follows a failed refresh must not erase its cause.
@@ -43,7 +43,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
     setLoading(true);
     setError(null);
     try {
-      const row = await readUsageOnEvent<UsageSnapshot | null>(event, "usage_latest", {
+      const row = await readUsageOnEvent<UsageLatestView | null>(event, "usage_latest", {
         provider,
         accountId: accountId ?? undefined,
       }, invoke);
@@ -93,7 +93,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
   }, [provider, accountId, enabled, refetch]);
 
   useEffect(() => {
-    if (!enabled || !snapshot) return;
+    if (!enabled || !snapshot || snapshot.parsed_ok === undefined) return;
     const due = nextResetAt(snapshot, Date.now());
     if (due == null) return;
     const delay = Math.min(Math.max(0, due - Date.now()) + 500, MAX_RESET_DELAY_MS);
@@ -187,36 +187,13 @@ export function useUsageHistory(opts: UseUsageHistoryOptions): UseUsageHistoryRe
   return { rows, loading, error, refetch };
 }
 
-export interface SessionProjection {
-  projected_pct: number;
-  rate_per_min: number;
-  will_exceed: boolean;
-}
+export type SessionProjection = import("../../gen/SessionProjection").SessionProjection;
 
-export interface DayActual {
-  day_start_ms: number;
-  pct: number | null;
-}
+export type DayActual = import("../../gen/DayActual").DayActual;
 
-export interface WeeklyProjection {
-  end_of_today_pct: number;
-  end_of_cycle_pct: number;
-  avg_weekday_spend: number;
-  avg_weekend_spend: number;
-  /** Per day-of-week projected spend (0=Sun..6=Sat). */
-  dow_estimates: number[];
-  rate_per_min_recent: number;
-  rest_of_today_est: number;
-  today_so_far: number;
-  confidence: "high" | "medium" | "low";
-  /** Per-day actuals for active cycle, oldest→newest. Authoritative — use this for past + today bars. */
-  day_actuals: DayActual[];
-}
+export type WeeklyProjection = import("../../gen/WeeklyProjection").WeeklyProjection;
 
-export interface ProjectionResponse {
-  session: SessionProjection | null;
-  weekly: WeeklyProjection | null;
-}
+export type ProjectionResponse = import("../../gen/ProjectionResponse").ProjectionResponse;
 
 export interface UseUsageProjectionOptions {
   provider: string;

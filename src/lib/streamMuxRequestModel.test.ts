@@ -1,5 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_MUX_POSTS, initialMuxRequest, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestPolicy, transitionMuxRequest } from "./streamMuxRequestModel";
+import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestPolicy, readWhenMuxCapacityAvailable, transitionMuxRequest } from "./streamMuxRequestModel";
+
+it("capacity waiters handle a release before registration, cancellation and origin closure", async () => {
+  const capacity = createMuxReadCapacity();
+  const late = capacity.capture();
+  capacity.released();
+  await late();
+  const controller = new AbortController();
+  const cancelled = capacity.capture()(controller.signal);
+  controller.abort();
+  await expect(cancelled).rejects.toMatchObject({name:"AbortError"});
+  const closed = capacity.capture();
+  capacity.close(new Error("origin ended"));
+  await expect(closed()).rejects.toThrow("origin ended");
+});
+
+it("opted-in reads wait for each capacity release and stop on dispatched failures", async () => {
+  const capacity = createMuxReadCapacity();
+  let attempts = 0;
+  let refused!: () => void;
+  const firstRefusal = new Promise<void>(resolve => { refused = resolve; });
+  const read = async () => {
+    attempts++;
+    if (attempts === 1) { refused(); throw {[MUX_READ_CAPACITY]:capacity.capture()}; }
+    throw new Error("dispatched failure");
+  };
+  const result = readWhenMuxCapacityAvailable(read,new AbortController().signal).catch(error=>error);
+  await firstRefusal;
+  expect(attempts).toBe(1);
+  capacity.released();
+  expect(await result).toMatchObject({message:"dispatched failure"});
+  capacity.released();
+  expect(attempts).toBe(2);
+});
 
 describe("mux request outcomes", () => {
   it("permits one repost only after a proven stale-session refusal", () => {

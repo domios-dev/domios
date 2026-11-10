@@ -6,7 +6,9 @@ pub enum LaunchSpecParams<'a> {
     Resume(&'a AgentResumeParams),
 }
 pub mod reply_relay;
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContextAttach {
     #[serde(default)]
@@ -15,7 +17,7 @@ pub struct ContextAttach {
     pub read_only: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AttachmentCapabilities {
     pub file_paths: bool,
@@ -40,7 +42,7 @@ pub use reply_relay::{
 pub(crate) mod update_prompt;
 pub use codeterm_provider_signals::{AuthStatus, SessionObservations};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatusProbe {
     pub args: Vec<String>,
@@ -57,7 +59,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct IntegrationInstallOptions {
     pub consent: bool,
     #[serde(default)]
@@ -73,7 +75,7 @@ pub enum IntegrationKind {
     None,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct PermissionHookCapability {
     pub protocol: String,
     pub options: Vec<codeterm_types::pty::PromptOption>,
@@ -81,7 +83,7 @@ pub struct PermissionHookCapability {
 
 pub use crate::directory_trust::DirectoryTrustPromptResponse;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "status", content = "reason", rename_all = "snake_case")]
 pub enum PreTrustOutcome {
     AlreadyTrusted,
@@ -112,7 +114,7 @@ pub struct ProviderPromptKeyStep {
 }
 
 /// Bind address for a provider's structured-prompt server (opencode SSE bus).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct StructuredPromptServer {
     pub hostname: String,
@@ -172,7 +174,7 @@ pub struct SessionMessage {
 // frontend for Settings, Sidebar, and command-palette rows.
 
 /// Severity flavor for `SettingField::Info` notes.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum NoteLevel {
     Info,
@@ -181,7 +183,7 @@ pub enum NoteLevel {
 }
 
 /// Visual style for status badges.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum BadgeStyle {
     Green,
@@ -191,7 +193,7 @@ pub enum BadgeStyle {
 }
 
 /// Single state in a polled status badge.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct BadgeVariant {
     /// Value returned by the query command (e.g. "installed", "missing", "update").
@@ -201,7 +203,7 @@ pub struct BadgeVariant {
 }
 
 /// Visual style for action buttons.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum ActionStyle {
     Primary,
@@ -210,7 +212,7 @@ pub enum ActionStyle {
 }
 
 /// What to do when the user clicks a `PathLink`.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PathOpenKind {
     OpenFolder,
@@ -253,7 +255,7 @@ pub use worker_lane_setting::*;
 ///
 /// `schema_version` lets us evolve the wire format without silently
 /// breaking external consumers. Bump it when fields are added/removed.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -261,10 +263,13 @@ pub struct ProviderDescriptor {
     #[serde(default)]
     pub attachments: AttachmentCapabilities,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cli_login: Option<CliLoginCapability>,
     #[serde(default)]
     pub supports_session_fork: bool,
@@ -274,16 +279,20 @@ pub struct ProviderDescriptor {
     pub neighbor_concierge: NeighborConciergeCapability,
     pub schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cli_status: Option<crate::provider_cli::ProviderCliStatus>,
     pub id: String,
     #[serde(default)]
     pub catalogue_version: u64,
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub icon_hint: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub icon_svg: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub icon_color: Option<String>,
     pub available_models: Vec<ModelInfo>,
     #[serde(default)]
@@ -294,6 +303,7 @@ pub struct ProviderDescriptor {
     #[serde(default)]
     pub model_groups: Vec<ModelGroup>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub default_model: Option<String>,
     /// Reasoning-effort levels this provider supports at launch. Empty ⇒ the
     /// provider exposes no effort selector and callers must not offer one.
@@ -301,6 +311,7 @@ pub struct ProviderDescriptor {
     pub reasoning_efforts: Vec<ReasoningEffortInfo>,
     /// Default effort id (must match one of `reasoning_efforts` when non-None).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub default_reasoning_effort: Option<String>,
     pub settings_schema: Vec<SettingField>,
     /// Schema rendered into the global Settings → Notifications tab,
@@ -322,17 +333,21 @@ pub struct ProviderDescriptor {
     /// Optional CLI installation metadata used by install surfaces. PTY launch
     /// availability is observed from `AgentProvider::binary_name()` instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cli_binary: Option<String>,
     /// Shell command for installing the CLI on the current platform. Frontend
     /// pipes it into a fresh terminal tab when the user clicks Install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub install_command: Option<String>,
     /// Short provider-declared note picker surfaces render beside the name,
     /// e.g. a free-tier offer. Keeps the claim with the provider that owns it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub badge: Option<String>,
     /// Shell command for updating the CLI on the current platform.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub update_command: Option<String>,
     /// How a live tab of this provider switches model; `unsupported` means the
     /// model is chosen only at spawn.
@@ -340,15 +355,18 @@ pub struct ProviderDescriptor {
     pub model_switch: ModelSwitchMode,
     /// Provider-declared command that starts a fresh context in the same tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub fresh_context_command: Option<String>,
     /// Provider-declared in-agent command that compacts (summarizes) context.
     /// Consumed capability-keyed by the orchestrator refresh cycle — never a
     /// provider-id literal. Absent means no compact capability (mode-B fallback).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub compact_command: Option<String>,
     /// Optional `integration.trust_grant` capability. Absent ⇒ integration
     /// install needs no provider-owned trust grant step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub integration_trust_grant: Option<IntegrationTrustGrantCapability>,
     /// `true` when this provider declares a stop sequence — UI shows
     /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
@@ -379,6 +397,7 @@ pub struct ProviderDescriptor {
     pub supports_watcher: bool,
     /// Maximum text body size accepted as an inline paste, when declared.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub paste_limit_bytes: Option<usize>,
     /// Trust status of the bundle backing this provider. `system` =
     /// shipped by CodeTerm, hash matched the build-time table, or was
@@ -411,7 +430,7 @@ pub struct ProviderDescriptor {
     pub availability: ProviderAvailability,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ProviderUpdateAvailability {
     pub current_version: String,

@@ -14,7 +14,6 @@ import { ChatPreprocessorPresetManager } from "./ChatPreprocessorPresetManager";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { AgentProviderScreen } from "../Settings/AgentsTab";
 import { SecretBackendDetail } from "./SecretBackendDetail";
-import { PluginView } from "./PluginView";
 import { MarkdownDescription } from "./MarkdownDescription";
 import { GroupLabel, type AppConfigShape } from "./shared";
 import { invoke } from "../../lib/bridge";
@@ -155,10 +154,14 @@ export function PluginDetailPanel({
         </div>
       )}
 
-      {entry.capabilities?.view && entry.installed && !entry.pendingReload && config && (
-        <section aria-label={`${entry.displayName} setup`} style={{ marginBottom: 18 }} data-testid="extensions-plugin-view" data-plugin-id={entry.id}>
-          <PluginView pluginId={entry.id} api={config.api} embedded />
-        </section>
+      {entry.capabilities?.view && entry.installed && !entry.pendingReload && (
+        <div className="mb-4">
+          <Button size="sm" onClick={() => window.dispatchEvent(new CustomEvent("codeterm:open-panel", {
+            detail: { panel: `view:${entry.id}` },
+          }))}>
+            Open interface
+          </Button>
+        </div>
       )}
 
       {(capKeys.length > 0 || perms.length > 0) && (

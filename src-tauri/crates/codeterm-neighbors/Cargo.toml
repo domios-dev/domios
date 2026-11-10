@@ -12,6 +12,8 @@ default = ["runtime"]
 runtime = ["dep:googleapis-tonic-google-firestore-v1", "dep:prost-types", "dep:tokio-stream", "dep:tonic", "dep:windows-sys", "dep:security-framework", "dep:secret-service"]
 
 [dependencies]
+codeterm-wire = { path = "../codeterm-wire" }
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 aes-gcm = "0.10"
 async-trait = "0.1"
 base64 = "0.22"

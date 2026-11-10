@@ -17,6 +17,14 @@ mod service;
 
 use protocol::Request;
 
+pub(in crate::js_runtime) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    Request::export_all(config)?;
+    Ok(())
+}
+
 pub(super) struct Failure {
     message: String,
     range: bool,

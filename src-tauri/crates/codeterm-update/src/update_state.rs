@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use codeterm_types::update::channel::Channel;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallMethod {
     Brew,
@@ -37,7 +37,7 @@ impl std::fmt::Display for InstallMethod {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum UpdatePhase {
     #[default]
@@ -96,20 +96,24 @@ impl UpdateState {
                 Some((self.downloaded_bytes as f64 / total as f64).min(1.0))
             }
         });
-        serde_json::json!({
-            "phase": self.phase.to_string(),
-            "last_error": self.last_error,
-            "error_revision": self.error_revision(),
-            "channel": self.channel.to_string(),
-            "install_method": self.install_method.to_string(),
-            "current_version": codeterm_build_info::version(),
-            "latest_known": self.last_check.as_ref().map(|i| i.latest_version.clone()),
-            "update_available": self.last_check.as_ref().map(|i| i.update_available).unwrap_or(false),
-            "check_path": self.last_check.as_ref().and_then(|i| i.check_path.clone()),
-            "phase_age_secs": self.phase_changed_at.map(|t| t.elapsed().as_secs()),
-            "downloaded_bytes": self.downloaded_bytes,
-            "download_total_bytes": self.download_total_bytes,
-            "download_progress": download_progress,
+        serde_json::json!(crate::contracts::RuntimeStatus {
+            phase: self.phase,
+            last_error: self.last_error.clone(),
+            error_revision: self.error_revision(),
+            channel: self.channel,
+            install_method: self.install_method.to_string(),
+            current_version: codeterm_build_info::version().to_owned(),
+            latest_known: self.last_check.as_ref().map(|i| i.latest_version.clone()),
+            update_available: self
+                .last_check
+                .as_ref()
+                .map(|i| i.update_available)
+                .unwrap_or(false),
+            check_path: self.last_check.as_ref().and_then(|i| i.check_path.clone()),
+            phase_age_secs: self.phase_changed_at.map(|t| t.elapsed().as_secs()),
+            downloaded_bytes: self.downloaded_bytes,
+            download_total_bytes: self.download_total_bytes,
+            download_progress,
         })
     }
 
@@ -231,7 +235,7 @@ pub fn detect_install_method() -> InstallMethod {
     InstallMethod::Unknown
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct UpdateInfo {
     pub availability: codeterm_plugins::AvailabilityItem,
     pub current_version: String,
@@ -249,6 +253,7 @@ pub struct UpdateInfo {
     pub published_at: Option<String>,
     /// Which path served this check: `direct` or `github_api`; absent when none was needed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub check_path: Option<String>,
 }
 

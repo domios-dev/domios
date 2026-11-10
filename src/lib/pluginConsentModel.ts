@@ -1,9 +1,4 @@
-export interface SensitivePermission {
-  key: string;
-  label: string;
-  allowed: boolean;
-  decided?: boolean;
-}
+export type SensitivePermission = Omit<import("../../gen/SensitivePermission").SensitivePermission, "decided"> & Partial<Pick<import("../../gen/SensitivePermission").SensitivePermission, "decided">>;
 
 export interface ConsentPlugin {
   id: string;

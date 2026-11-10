@@ -72,10 +72,12 @@ def inject_screen_text(api: "CodeTermAPI", tab_id: str, text: str) -> None:
     fd, path = tempfile.mkstemp(suffix=".txt", text=True)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
-    if IS_WINDOWS:
-        api.send_text(tab_id, text=f'Get-Content -Raw "{path}"')
-    else:
-        api.send_text(tab_id, text=f'cat "{path}"')
+    try:
+        command = shell_cmd(f'cat "{path}"', f'Get-Content -Raw "{path}"')
+        result = api.exec_cmd(tab_id, command)
+        assert result.get("exit_code") == 0, result
+    finally:
+        os.unlink(path)
 
 
 def unique_name(prefix: str = "e2e") -> str:
@@ -151,7 +153,6 @@ class CodeTermAPI:
         self,
         tab_id: str,
         text: str | None = None,
-        enter: bool = True,
         batch: list[dict] | None = None,
     ) -> dict:
         """POST /api/tabs/{id}/send — send text / batch to PTY."""
@@ -161,7 +162,6 @@ class CodeTermAPI:
         else:
             if text is not None:
                 body["text"] = text
-            body["enter"] = enter
         return self.post(f"/api/tabs/{tab_id}/send", json=body)
 
     def get_output(
@@ -223,6 +223,17 @@ class CodeTermAPI:
 
     def close_workspace(self, ws_id: str) -> dict:
         return self.post(f"/api/workspaces/{ws_id}/close")
+
+    def cleanup_workspace(self, ws_id: str) -> dict:
+        workspace = next(ws for ws in self.list_workspaces() if ws["id"] == ws_id)
+        for tab_id in workspace["tab_ids"]:
+            self.close_tab(tab_id)
+        return self.close_workspace(ws_id)
+
+    def inspect_tab(self, tab_id: str) -> dict:
+        tabs = self.get("/api/tabs/inspect", params={"tab_ids": tab_id})
+        assert len(tabs) == 1 and tabs[0]["id"] == tab_id, tabs
+        return tabs[0]
 
     def create_tab(self, ws_id: str, eager: bool = False) -> dict:
         body = {"eager": True} if eager else {}

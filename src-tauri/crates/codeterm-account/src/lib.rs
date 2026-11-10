@@ -40,7 +40,8 @@ impl std::fmt::Debug for Secret {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
+#[ts(rename = "AccountIdentity")]
 pub struct Identity {
     pub uid: String,
     pub email: Option<String>,
@@ -93,8 +94,9 @@ pub struct Tokens {
     pub refresh_token: Secret,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AccountError")]
 pub enum Error {
     Configuration,
     InvalidCallback,

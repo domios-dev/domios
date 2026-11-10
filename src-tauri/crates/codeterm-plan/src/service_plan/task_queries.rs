@@ -70,7 +70,7 @@ pub struct TaskDetail {
     pub task: Task,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ts_rs::TS)]
 pub struct TaskSection {
     pub id: String,
     pub title: String,

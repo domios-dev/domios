@@ -3,6 +3,54 @@ use friends::FriendReceiver;
 use std::collections::BTreeMap;
 
 impl ServiceContext {
+    pub(in crate::service::neighbors) async fn reconcile_neighbor_nonlocal_receivers(
+        &self,
+        metadata: &Metadata,
+        uid: &str,
+        installation: &str,
+        list: &Value,
+        generation: u64,
+    ) -> Result<(), String> {
+        let mut nonlocal = Vec::new();
+        for friend in list["friends"]
+            .as_array()
+            .ok_or("Invalid Neighbors response")?
+        {
+            let id = friend["friendship_id"]
+                .as_str()
+                .filter(|id| hex_id(id, 64))
+                .ok_or("Invalid Neighbor friendship")?;
+            let receiver = FriendReceiver::from_projection(
+                serde_json::from_value(friend["my_receiver"].clone())
+                    .map_err(|_| Error::InvalidEnvelope.to_string())?,
+                installation,
+            )?;
+            if !receiver.status.receiving_here() {
+                nonlocal.push((id.to_owned(), receiver));
+            }
+        }
+        for (friendship, receiver) in nonlocal {
+            let revision = receiver.status.receiver_revision;
+            let changes =
+                self.remember_neighbor_friend_receiver(&friendship, receiver, generation)?;
+            if changes.is_empty() {
+                self.reconcile_neighbor_concierge_receiver(
+                    metadata,
+                    uid,
+                    &friendship,
+                    false,
+                    revision,
+                    generation,
+                )
+                .await?;
+            } else {
+                self.publish_neighbor_friend_receiver_changes(metadata, uid, changes, generation)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
     pub(in crate::service::neighbors) async fn start_neighbor_listeners(
         &self,
         transport: Arc<FirebaseTransport>,
@@ -75,12 +123,21 @@ impl ServiceContext {
                         .map(|receiver| receiver.status.receiver_revision)
                 })
                 .unwrap_or(0);
-            let mut view = status
-                .map(|status| Self::receiver_view(status, &self.neighbor_lapsed_installations()))
-                .unwrap_or_else(|| json!({"receiver_unavailable":true}));
-            view["friendship_id"] = json!(change.friendship_id);
-            view["friend_receivers_version"] = json!(change.version);
-            self.ui.emit("neighbor-runtime-status", view);
+            let view = match status {
+                Some(status) => codeterm_neighbors::responses::NeighborListenerEvent::Receiver {
+                    receiver: Self::receiver_state(status, &self.neighbor_lapsed_installations()),
+                    friendship_id: change.friendship_id.clone(),
+                    friend_receivers_version: change.version,
+                },
+                None => codeterm_neighbors::responses::NeighborListenerEvent::Unavailable {
+                    receiver_unavailable: true,
+                    friendship_id: Some(change.friendship_id.clone()),
+                    friend_receivers_version: Some(change.version),
+                    reason: None,
+                    message: None,
+                },
+            };
+            self.ui.emit("neighbor-runtime-status", json!(view));
             if !here && status.is_some() {
                 self.reconcile_neighbor_concierge_receiver(
                     metadata,
@@ -198,7 +255,7 @@ impl ServiceContext {
                 {
                     let version = service.forget_neighbor_friend_receivers();
                     service.stop_neighbor_listeners();
-                    service.ui.emit("neighbor-runtime-status", json!({"receiver_unavailable":true,"friend_receivers_version":version}));
+                    service.ui.emit("neighbor-runtime-status", json!(codeterm_neighbors::responses::NeighborListenerEvent::Unavailable { receiver_unavailable: true, friendship_id: None, friend_receivers_version: Some(version), reason: None, message: None }));
                 }
                 log::debug!("[neighbors] current activation failed: {error}");
                 return Err(Error::Gateway);

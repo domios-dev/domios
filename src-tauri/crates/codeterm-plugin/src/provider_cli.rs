@@ -5,16 +5,17 @@ use std::path::PathBuf;
 mod prerequisites;
 pub use prerequisites::{missing_prerequisite_hint, CommandPrerequisite};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, ts_rs::TS)]
 pub struct ProviderCliUpdateJob {
     pub tab_id: String,
     pub state: String,
     pub summary: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, ts_rs::TS)]
 pub struct ProviderCliStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub launch_profiles: Option<Vec<ProviderLaunchProfileStatus>>,
     #[serde(default)]
     pub display_name: Option<String>,
@@ -170,7 +171,7 @@ pub fn manifest_cli_status(
     ))
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, ts_rs::TS)]
 pub struct ProviderLaunchProfileStatus {
     pub id: String,
     pub installed: Option<bool>,

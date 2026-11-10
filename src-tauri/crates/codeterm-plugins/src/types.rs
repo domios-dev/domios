@@ -86,9 +86,9 @@ pub(super) struct ChannelRecord {
     pub(super) kind: ChannelKind,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ChannelKind {
+pub enum ChannelKind {
     Local,
     Git,
     Archive,
@@ -104,9 +104,10 @@ pub(super) struct InstallRecord {
     pub(super) last_change: Option<LastChange>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub(super) enum InstallSource {
+#[ts(rename = "PluginInstallSource")]
+pub enum InstallSource {
     Dir { path: String },
     Channel { channel: String, path: String },
     SystemChannel { channel: String, path: String },
@@ -150,60 +151,113 @@ pub(super) struct ChannelPlugin {
     pub(super) min_codeterm: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct InstalledPluginRow {
-    pub(super) update: serde_json::Value,
-    pub(super) id: String,
-    pub(super) version: Option<String>,
-    pub(super) display_name: Option<String>,
-    pub(super) path: String,
-    pub(super) install_path: String,
-    pub(super) install_time: Option<String>,
-    pub(super) manifest_hash: Option<String>,
-    pub(super) verified: bool,
-    pub(super) last_change: Option<LastChange>,
-    pub(super) state: String,
-    pub(super) source: Option<InstallSource>,
-    pub(super) system: bool,
-    pub(super) removable: bool,
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ts_rs::TS)]
+#[serde(default)]
+#[ts(rename = "InstalledPlugin")]
+pub struct InstalledPluginRow {
+    pub id: String,
+    pub state: String,
+    pub system: bool,
+    pub removable: bool,
+    #[serde(flatten)]
+    pub metadata: crate::snapshot_contracts::Metadata,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub update: Option<crate::snapshot_contracts::PluginUpdate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub verified: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub dev: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub pending_reload: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::snapshot_contracts::present_nullable"
+    )]
+    #[ts(optional)]
+    pub install_path: Option<Option<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::snapshot_contracts::present_nullable"
+    )]
+    #[ts(optional)]
+    pub install_time: Option<Option<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::snapshot_contracts::present_nullable"
+    )]
+    #[ts(optional)]
+    pub manifest_hash: Option<Option<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::snapshot_contracts::present_nullable"
+    )]
+    #[ts(optional)]
+    pub last_change: Option<Option<LastChange>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::snapshot_contracts::present_nullable"
+    )]
+    #[ts(optional)]
+    pub source: Option<Option<InstallSource>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::snapshot_contracts::present_nullable"
+    )]
+    #[ts(optional)]
+    pub load_error: Option<Option<crate::snapshot_contracts::PluginLoadError>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct LastChange {
-    pub(super) kind: String,
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+pub struct LastChange {
+    pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) from_version: Option<String>,
+    pub from_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) to_version: Option<String>,
+    pub to_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) channel: Option<String>,
-    pub(super) time: String,
+    pub channel: Option<String>,
+    pub time: String,
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct ChannelDiffRow {
-    pub(super) availability: super::AvailabilityItem,
-    pub(super) payload_version: Option<String>,
-    pub(super) channel: String,
-    pub(super) id: String,
-    pub(super) local_version: Option<String>,
-    pub(super) remote_version: Option<String>,
-    pub(super) local_manifest_hash: Option<String>,
-    pub(super) remote_manifest_hash: Option<String>,
-    pub(super) drift: String,
-    pub(super) compatible: bool,
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(rename = "PluginDiffRow")]
+pub struct ChannelDiffRow {
+    pub availability: super::AvailabilityItem,
+    pub payload_version: Option<String>,
+    pub channel: String,
+    pub id: String,
+    pub local_version: Option<String>,
+    pub remote_version: Option<String>,
+    pub local_manifest_hash: Option<String>,
+    pub remote_manifest_hash: Option<String>,
+    pub drift: String,
+    pub compatible: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) blocked_reason: Option<String>,
+    pub blocked_reason: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct ChannelListRow {
-    pub(super) name: String,
-    pub(super) url: String,
-    pub(super) path: String,
-    pub(super) kind: ChannelKind,
-    pub(super) system: bool,
-    pub(super) removable: bool,
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(rename = "PluginChannelRecord")]
+pub struct ChannelListRow {
+    pub name: String,
+    pub url: String,
+    pub path: String,
+    pub kind: ChannelKind,
+    pub system: bool,
+    pub removable: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

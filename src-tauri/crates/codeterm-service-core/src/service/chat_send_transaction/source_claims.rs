@@ -1,31 +1,6 @@
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SourceRowRef {
-    pub source_session_id: String,
-    pub record: SourceRecord,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum SourceRecord {
-    Jsonl {
-        #[serde(default)]
-        incarnation: String,
-        record_start: u64,
-        record_row: u32,
-    },
-    Structured {
-        thread_id: String,
-        item_id: String,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct MatchedRow {
-    pub source: SourceRowRef,
-    pub ordinal: u32,
-}
+pub use codeterm_types::agent::delivery::{MatchedRow, SourceRecord, SourceRowRef};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SendRowClaim {
@@ -48,40 +23,42 @@ impl SendRowClaim {
     }
 }
 
-impl SourceRowRef {
-    pub(crate) fn jsonl(session: &str, incarnation: &str, position: TurnPosition) -> Option<Self> {
-        if incarnation.is_empty() {
-            return None;
-        }
-        Some(Self {
-            source_session_id: session.into(),
-            record: SourceRecord::Jsonl {
-                incarnation: incarnation.into(),
-                record_start: position.record_start?,
-                record_row: position.record_row,
-            },
-        })
+pub(crate) fn jsonl_source_row(
+    session: &str,
+    incarnation: &str,
+    position: TurnPosition,
+) -> Option<SourceRowRef> {
+    if incarnation.is_empty() {
+        return None;
     }
+    Some(SourceRowRef {
+        source_session_id: session.into(),
+        record: SourceRecord::Jsonl {
+            incarnation: incarnation.into(),
+            record_start: position.record_start?,
+            record_row: position.record_row,
+        },
+    })
+}
 
-    pub(crate) fn structured(session: &str, id: &str) -> Option<Self> {
-        (!id.is_empty()).then(|| Self {
-            source_session_id: session.into(),
-            record: SourceRecord::Structured {
-                thread_id: session.into(),
-                item_id: id.into(),
-            },
-        })
-    }
+pub(crate) fn structured_source_row(session: &str, id: &str) -> Option<SourceRowRef> {
+    (!id.is_empty()).then(|| SourceRowRef {
+        source_session_id: session.into(),
+        record: SourceRecord::Structured {
+            thread_id: session.into(),
+            item_id: id.into(),
+        },
+    })
+}
 
-    pub(crate) fn valid(&self) -> bool {
-        !self.source_session_id.is_empty()
-            && match &self.record {
-                SourceRecord::Jsonl { incarnation, .. } => !incarnation.is_empty(),
-                SourceRecord::Structured { thread_id, item_id } => {
-                    thread_id == &self.source_session_id && !item_id.is_empty()
-                }
+pub(crate) fn valid_source_row(source: &SourceRowRef) -> bool {
+    !source.source_session_id.is_empty()
+        && match &source.record {
+            SourceRecord::Jsonl { incarnation, .. } => !incarnation.is_empty(),
+            SourceRecord::Structured { thread_id, item_id } => {
+                thread_id == &source.source_session_id && !item_id.is_empty()
             }
-    }
+        }
 }
 
 impl ChatSendLedger {
@@ -90,7 +67,7 @@ impl ChatSendLedger {
         sends: &[String],
         source: &SourceRowRef,
     ) -> bool {
-        if !source.valid() || sends.is_empty() || sends.len() > u32::MAX as usize {
+        if !valid_source_row(source) || sends.is_empty() || sends.len() > u32::MAX as usize {
             return false;
         }
         if state.by_id.values().any(|status| {
@@ -161,7 +138,7 @@ impl ChatSendLedger {
     }
 
     pub(crate) fn restore_source_claim(&self, claim: &SendRowClaim) {
-        if !claim.matched_row.source.valid() || claim.matched_row.ordinal == 0 {
+        if !valid_source_row(&claim.matched_row.source) || claim.matched_row.ordinal == 0 {
             return;
         }
         {
@@ -259,10 +236,14 @@ pub(crate) fn delivered_turn_confirmations(
         let source_row = if let Some(provenance) = provenance {
             provenance.positions.get(index).and_then(|position| {
                 let incarnation = provenance.range.incarnation.as_ref()?;
-                SourceRowRef::jsonl(source_session_id, &incarnation.id, *position)
+                crate::service::chat_send_transaction::jsonl_source_row(
+                    source_session_id,
+                    &incarnation.id,
+                    *position,
+                )
             })
         } else {
-            SourceRowRef::structured(source_session_id, &msg.id)
+            crate::service::chat_send_transaction::structured_source_row(source_session_id, &msg.id)
         };
         let statuses = positioned
             .filter(|statuses| !statuses.is_empty())

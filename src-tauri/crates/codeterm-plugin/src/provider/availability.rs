@@ -10,7 +10,7 @@ use crate::js_runtime::{probe_bin, BinResolution};
 /// The three answers an observation can give. `Unknown` is what a probe that
 /// could not run reports: `Unavailable` means the ladder searched and found
 /// nothing, never that we failed to look.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderAvailability {
     Available,

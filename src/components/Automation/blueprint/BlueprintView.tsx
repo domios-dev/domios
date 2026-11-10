@@ -131,7 +131,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
     const nodes = new Map(path.model.nodes.map((node) => [node.key, node]));
     return { ...graph.layout, nodes: graph.layout.nodes.map((laid) => ({ ...laid, node: nodes.get(laid.node.key) ?? laid.node })) };
   }, [graph, path]);
-  const scopeTitles = [pipeline.name, ...trail.map((id, depth) => { const call = expandedCall(graphSource, trail.slice(0, depth), id); return call?.graph.name || call?.pin.id || id; })];
+  const scopeTitles = [pipeline.name, ...trail.map((id, depth) => { const call = expandedCall(graphSource, trail.slice(0, depth), id); return call?.graph?.name || call?.pin.id || id; })];
   const enter = (next: readonly string[]) => {
     setTrail(next);
     setSelected(blueprintCamera(next.length ? `${pipeline.id}|${JSON.stringify(next)}` : pipeline.id).selected);
@@ -241,14 +241,14 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
     </div>
     <div ref={body.ref} data-blueprint-body="" className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(46rem,80vh)] min-h-[30rem]"}`}>
       <div inert={sheetOpen || undefined} aria-hidden={sheetOpen || undefined} className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {shown && shown.historical_graph_available !== false && !error && !shown.projection_error && graph
+        {shown && shown.historical_graph_available !== false && !error && graph
           ? <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={shownLayout ?? graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={path?.wires ?? new Set()} litNodes={path?.nodes} historical={path?.dim} active={path?.active} callouts={replay.step === replayEvents.length ? callouts : []} values={path?.model ?? graph.model}
             notices={notices} crumbs={crumbs} panelOpen={selected !== null || diffOpen} toolbar={history ? runsToggle : undefined} />
           : <div className="bp-scope bp-canvas bp-stage relative flex min-h-[14rem] min-w-0 flex-1 flex-col items-start gap-3 p-4">
             {history && runsToggle}
             {!shown ? <p role="status" className="bp-notice">Selected run unavailable.</p>
               : shown.historical_graph_available === false ? <p role="status" aria-label="Historical graph unavailable" className="bp-notice">The graph for this run was not retained. Its journal is listed under Runs.</p>
-                : error || shown.projection_error ? <InlineErrorNotice error={error ?? shown.projection_error} operation="building this Blueprint graph" blocking />
+                : error ? <InlineErrorNotice error={error} operation="building this Blueprint graph" blocking />
                   : <p role="status" className="bp-notice">Building Blueprint graph…</p>}
             <CanvasNotices>{notices}</CanvasNotices>
           </div>}

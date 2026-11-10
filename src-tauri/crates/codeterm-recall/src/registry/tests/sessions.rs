@@ -144,7 +144,10 @@ fn small_session_pool_skips_model_and_preserves_first_stage() {
         output["supporter"],
         json!({ "status": "skipped", "reason": "small_pool", "sources": { "recall": 0, "graph": 0, "docs": 0, "sessions": 1 } })
     );
-    assert_eq!(backend.runtime.status(0)["calls_last_hour"], 0);
+    assert_eq!(
+        serde_json::json!(backend.runtime.status(0))["calls_last_hour"],
+        0
+    );
     assert!(output["hits"]
         .as_array()
         .unwrap()

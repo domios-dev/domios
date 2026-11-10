@@ -124,12 +124,19 @@ fn unexpected_shape(method: &str) -> SecretError {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
+#[ts(rename = "SecretEnvelope")]
 struct Envelope<T> {
     #[serde(default = "none")]
     ok: Option<T>,
     #[serde(default)]
     error: Option<SecretError>,
+}
+
+pub fn export_protocol_contracts(config: &ts_rs::Config) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    Envelope::<serde_json::Value>::export_all(config)?;
+    Ok(())
 }
 
 fn none<T>() -> Option<T> {

@@ -45,7 +45,7 @@ function daemon(refuse?: string) {
     }
     return { answered: standing, delivered: true } as T;
   };
-  const client: CapabilitiesClient = { json, localJson: json, currentToken: () => "token" };
+  const client: CapabilitiesClient = { json, localJson: json, currentToken: () => "token", origin: () => "http://notification.fixture" };
   return { posts, delivered, release, transport: createCapabilitiesTransport(client) };
 }
 

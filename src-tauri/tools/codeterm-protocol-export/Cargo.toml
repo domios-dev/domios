@@ -1,0 +1,39 @@
+[package]
+name = "codeterm-protocol-export"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+codeterm-supporter = { path = "../../crates/codeterm-supporter", default-features = false }
+codeterm-sentinel = { path = "../../crates/codeterm-sentinel", default-features = false }
+serde_json = "1"
+codeterm-update = { path = "../../crates/codeterm-update", default-features = false }
+codeterm-browser = { path = "../../crates/codeterm-browser", default-features = false }
+codeterm-keepawake = { path = "../../crates/codeterm-keepawake", default-features = false }
+codeterm-neighbors = { path = "../../crates/codeterm-neighbors", default-features = false }
+codeterm-notification-core = { path = "../../crates/codeterm-notification-core", default-features = false }
+codeterm-account = { path = "../../crates/codeterm-account", default-features = false }
+codeterm-usage = { path = "../../crates/codeterm-usage", default-features = false }
+codeterm-wire = { path = "../../crates/codeterm-wire", default-features = false }
+codeterm-secrets = { path = "../../crates/codeterm-secrets", default-features = false }
+codeterm-provider-signals = { path = "../../crates/codeterm-provider-signals", default-features = false }
+codeterm-local-recording = { path = "../../crates/codeterm-local-recording", default-features = false }
+codeterm-decision = { path = "../../crates/codeterm-decision", default-features = false }
+codeterm-blueprint-types = { path = "../../crates/codeterm-blueprint-types", default-features = false }
+codeterm-agent-detect = { path = "../../crates/codeterm-agent-detect", default-features = false }
+codeterm-plan = { path = "../../crates/codeterm-plan", default-features = false }
+codeterm-mem = { path = "../../crates/codeterm-mem", default-features = false }
+codeterm-agent-model = { path = "../../crates/codeterm-agent-model", default-features = false }
+codeterm-worker-services = { path = "../../crates/codeterm-worker-services", default-features = false }
+codeterm-storage = { path = "../../crates/codeterm-storage", default-features = false }
+codeterm-plugin = { path = "../../crates/codeterm-plugin" }
+codeterm-mesh = { path = "../../crates/codeterm-mesh" }
+codeterm-pty = { path = "../../crates/codeterm-pty" }
+codeterm-types = { path = "../../crates/codeterm-types" }
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
+workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }

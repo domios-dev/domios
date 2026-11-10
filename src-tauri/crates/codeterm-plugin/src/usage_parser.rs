@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[ts(rename = "ProviderUsageSnapshot")]
 pub struct UsageSnapshot {
     #[serde(default)]
     pub usage_details: Option<serde_json::Value>,

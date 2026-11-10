@@ -98,6 +98,7 @@ pub(crate) fn rotate_restart(
         return Err("Runtime restart authority changed".into());
     }
     let nonce = svc.rotate_session_binding_nonce(tab);
+    svc.carry_neighbor_restore_grant(tab, old_nonce, &nonce)?;
     record_spawn(svc, tab, provider, &nonce)?;
     Ok(nonce)
 }

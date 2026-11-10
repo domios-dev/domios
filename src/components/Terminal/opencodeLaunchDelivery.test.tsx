@@ -21,7 +21,7 @@ test("a lazy provider's ready composer ends Starting before a session exists", (
   const composerReady = {
     ...tab,
     boot_stage: "provider_ready" as const,
-    provisional_launch: {
+    provisional_launch: {first_turn_payload_written: false,
       pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
       awaiting_binding_ack: true, first_turn_input_ready: true,
     },
@@ -37,8 +37,8 @@ test("continuation status hydrates one bubble and never enables retry of uncerta
     state: "held", ledger_id: "ledger", sequence: 1, retained_from: 1, error: null,
     system_send: { content: "opaque", sent_at_ms: 1000 },
   };
-  observeDeliveryStatus(status);
-  observeDeliveryStatus({ ...status, state: "submit_unconfirmed", sequence: 2 });
+  await observeDeliveryStatus(status);
+  await observeDeliveryStatus({ ...status, state: "submit_unconfirmed", sequence: 2 });
   forgetChatSendsInMemory();
   await ensureChatSendTabHydrated(status.tab_id);
   const sends = readChatSends(status.tab_id);

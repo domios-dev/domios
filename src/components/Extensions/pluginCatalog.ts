@@ -59,7 +59,7 @@ export interface PrimaryAction {
   reason?: string;
 }
 
-function caps(c?: PluginCapabilities | null): PluginCapabilities {
+function caps(c?: PluginCapabilities | null): Partial<PluginCapabilities> {
   return c ?? {};
 }
 
@@ -114,7 +114,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     declaredNetworkAllow: p.declared_network_allow ?? [],
     networkAllow: p.network_allow ?? [],
     effectiveNetworkAllow: p.effective_network_allow ?? [],
-    settingsSchema: p.settings_schema ?? null,
+    settingsSchema: Array.isArray(p.settings_schema) ? p.settings_schema as SettingField[] : null,
     description: p.description ?? null,
     pitch: p.pitch ?? null,
     configHelp: p.config_help ?? null,

@@ -21,7 +21,7 @@ impl Clock for SystemClock {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ReembedState {
     #[default]
@@ -32,7 +32,7 @@ pub enum ReembedState {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct SwitchPlan {
     pub items: u64,
     pub entities: u64,
@@ -46,14 +46,14 @@ impl SwitchPlan {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct ItemProgress {
     pub id: String,
     pub done: usize,
     pub total: usize,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct ReembedProgress {
     pub state: ReembedState,
     pub target: Option<EmbedderIdentity>,

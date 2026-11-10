@@ -115,7 +115,7 @@ DEV_NOTIFY_TARGET_MESH="${DEV_NOTIFY_TARGET_MESH:-}"
 
 # Long operations stream one receipt through the shell's live Domios return route.
 case "$CMD" in
-  dev-server|process-probe|qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  dev-server|process-probe|qa-lock-storm|feature-cycle|lane-check|types-export|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -1367,15 +1367,27 @@ dev_target_record() {
   printf '%s\n' "$CT_DATA_DIR/dev-target-debug"
 }
 
+dev_physical_path() {
+  node -e 'process.stdout.write(require("node:fs").realpathSync.native(process.argv[1]).replaceAll("\\", "/") + "\n")' "$1"
+}
+
+prepare_dev_runtime_paths() {
+  [ -n "${CT_STABLE_BUILD_DRIVE_MAPPED:-}" ] || return 0
+  local name physical
+  for name in CARGO_TARGET_DIR CODETERM_WEB_DIST CODETERM_CLI_PATH; do
+    [ -n "${!name:-}" ] || continue
+    physical="$(dev_physical_path "${!name}")" || return
+    export "$name=$physical"
+  done
+}
+
 record_dev_target() {
-  local target="$1" target_win
+  local target="$1"
   mkdir -p "$(dirname "$(dev_target_record)")"
   # A fresh named --wait target has only release/ until tauri dev links debug/.
   mkdir -p "$target"
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
-    target_win="$(cd "$target" 2>/dev/null && pwd -W 2>/dev/null || true)"
-    [ -n "$target_win" ] || target_win="$(pwd -W 2>/dev/null || pwd)/$target"
-    printf '%s\n' "$target_win" > "$(dev_target_record)"
+    node -e 'process.stdout.write(require("node:fs").realpathSync.native(process.argv[1]) + "\n")' "$target" > "$(dev_target_record)"
   else
     (cd "$target" 2>/dev/null && pwd -P) > "$(dev_target_record)"
   fi
@@ -1588,6 +1600,7 @@ reload_dev_server() {
   write_dev_provenance "$build_sha"
   if named_dev_isolated; then write_named_dev_build_record "$build_sha"; fi
   CT_DEV_PROVENANCE_SHA="$build_sha" validate_dev_provenance
+  prepare_dev_runtime_paths
   release_stable_build_path
   complete_build_gateway_before_handoff
   export CODETERM_CLI_PATH="$(dev_cli_path)"
@@ -2163,7 +2176,9 @@ build_dev_client() {
 
 # Swaps only the server under a retained window, which shows Reconnecting and reattaches.
 swap_dev_server_keep_window() {
-  local split_logs="$1" build_sha="$2" receipt="$1/reload-server.json" listener
+  local split_logs build_sha="$2" receipt listener
+  split_logs="$(dev_physical_path "$1")" || return
+  receipt="$split_logs/reload-server.json"
   if node scripts/dev-server.mjs inspect "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"; then
     node scripts/dev-server.mjs stop "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"
   fi
@@ -2171,8 +2186,9 @@ swap_dev_server_keep_window() {
     "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
-  release_stable_build_path
   record_dev_target "$(tauri_debug_dir)"
+  prepare_dev_runtime_paths
+  release_stable_build_path
   complete_build_gateway_before_handoff
   export CODETERM_CLI_PATH="$(dev_cli_path)"
   # The retained window relaunches its server on detachment, so a refused start may only mean it won the race.
@@ -2234,8 +2250,9 @@ build_and_launch_dev() {
   fi
   retain_dev_pdb "$build_sha"
   dev_build_phase symbols.end
-  release_stable_build_path
   record_dev_target "$(tauri_debug_dir)"
+  prepare_dev_runtime_paths
+  release_stable_build_path
   complete_build_gateway_before_handoff
   dev_build_phase gateway-release.end
   if [ "${CT_DEV_BUILD_ONLY:-0}" = 1 ]; then
@@ -2790,6 +2807,7 @@ Domios build commands
   check-tests                 Compile app and CLI test profiles
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package>... [--tests] [--timings]  Type-check touched packages in one Cargo check with the shared Cargo job limit
+  types-export             Export protocol TypeScript through the serialized lane cache
   fmt [--base REF | --paths FILE...]  Format owned files or changed Rust/JS files
   dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
@@ -3007,6 +3025,12 @@ EOF
       enter_cargo_gateway "$CMD ${*:2}"
     fi
     lane_check "${@:2}"
+    ;;
+  types-export)
+    if [ "$CODETERM_BUILD_GATEWAY_MODE" = queue ]; then
+      enter_cargo_gateway "$CMD ${*:2}"
+    fi
+    lane_types_export "${@:2}"
     ;;
   dev-link-measure)
     if [ "${CODETERM_LINK_TIMING:-0}" = 1 ]; then

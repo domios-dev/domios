@@ -5,27 +5,20 @@ use codeterm_plugin::agent_runtime::{
     AgentRuntimeEvent, RuntimeContext, RuntimeGoalAction, RuntimeGoalCapability, RuntimeOperation,
     RuntimeResult,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GoalBinding {
-    pub thread_id: String,
-    pub binding_nonce: String,
-    pub epoch: u64,
-}
-impl GoalBinding {
-    fn capture(context: &RuntimeContext) -> Result<Self, String> {
-        Ok(Self {
-            thread_id: context
-                .thread_id
-                .clone()
-                .ok_or("Runtime thread unavailable")?,
-            binding_nonce: context.binding_nonce.clone(),
-            epoch: context.epoch,
-        })
-    }
+use codeterm_plugin::api_contracts::GoalSnapshot;
+pub use codeterm_types::agent::delivery::GoalBinding;
+fn capture_binding(context: &RuntimeContext) -> Result<GoalBinding, String> {
+    Ok(GoalBinding {
+        thread_id: context
+            .thread_id
+            .clone()
+            .ok_or("Runtime thread unavailable")?,
+        binding_nonce: context.binding_nonce.clone(),
+        epoch: context.epoch,
+    })
 }
 
 #[derive(Deserialize)]
@@ -81,7 +74,7 @@ pub async fn operate(
 ) -> Result<Value, String> {
     let Some(session) = engine::for_tab(tab) else {
         return if request.action == RuntimeGoalAction::Read {
-            Ok(json!({"supported":false}))
+            Ok(json!(GoalSnapshot::Unsupported { supported: false }))
         } else {
             Err("Runtime binding unavailable".into())
         };
@@ -95,7 +88,7 @@ pub async fn operate(
         .and_then(|cap| cap.goals);
     let Some(capability) = capability else {
         return if request.action == RuntimeGoalAction::Read {
-            Ok(json!({"supported":false}))
+            Ok(json!(GoalSnapshot::Unsupported { supported: false }))
         } else {
             Err("Goal controls unsupported by provider".into())
         };
@@ -104,7 +97,7 @@ pub async fn operate(
         .gate
         .try_acquire()
         .map_err(|_| "Runtime operation already in progress")?;
-    let binding = GoalBinding::capture(&session.context.lock())?;
+    let binding = capture_binding(&session.context.lock())?;
     authorize(&request, &capability, &binding)?;
     let process = session
         .process
@@ -138,7 +131,7 @@ pub async fn operate(
             return Err("Goal changed; refresh and confirm again".into());
         }
         engine::validate_binding(svc, &session).map_err(|e| e.to_string())?;
-        if GoalBinding::capture(&session.context.lock())? != binding {
+        if capture_binding(&session.context.lock())? != binding {
             return Err("Goal binding superseded".into());
         }
         result_intent(
@@ -147,7 +140,7 @@ pub async fn operate(
         )?
     };
     engine::validate_binding(svc, &session).map_err(|e| e.to_string())?;
-    if GoalBinding::capture(&session.context.lock())? != binding {
+    if capture_binding(&session.context.lock())? != binding {
         return Err("Goal binding superseded".into());
     }
     validate_outcome(request.action, &intent)?;
@@ -173,7 +166,12 @@ pub async fn operate(
     )
     .await
     .map_err(|e| e.to_string())?;
-    Ok(json!({"supported":true,"binding":binding,"intent":intent,"actions":capability.actions}))
+    Ok(json!(GoalSnapshot::Supported {
+        supported: true,
+        binding,
+        intent,
+        actions: capability.actions
+    }))
 }
 
 fn validate_outcome(

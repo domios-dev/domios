@@ -113,13 +113,37 @@ fn assert_retained(state: RetainedState) {
             ] {
                 assert_eq!(snapshot.scenarios.len(), 1);
                 assert_eq!(snapshot.scenarios[0].root, graph::identity(&job));
-                assert_eq!(snapshot.nodes.len(), 1);
-                let node = &snapshot.nodes[0];
+                assert_eq!(
+                    snapshot
+                        .nodes
+                        .iter()
+                        .map(|record| json!(record))
+                        .collect::<Vec<_>>()
+                        .len(),
+                    1
+                );
+                let node = &snapshot
+                    .nodes
+                    .iter()
+                    .map(|record| json!(record))
+                    .collect::<Vec<_>>()[0];
                 assert_eq!(node["availability"], "available");
                 assert_eq!(node["state"], node_state);
                 assert_eq!(node["detail"]["next_check_at_ms"], Value::Null);
-                assert_eq!(snapshot.blueprints.len(), 1);
-                let view = &snapshot.blueprints[0];
+                assert_eq!(
+                    snapshot
+                        .blueprints
+                        .iter()
+                        .map(|record| json!(record))
+                        .collect::<Vec<_>>()
+                        .len(),
+                    1
+                );
+                let view = &snapshot
+                    .blueprints
+                    .iter()
+                    .map(|record| json!(record))
+                    .collect::<Vec<_>>()[0];
                 assert_eq!(view["id"], job.id);
                 if matches!(state, RetainedState::Stopped) {
                     assert_eq!(view["state"], "stopped");
@@ -142,11 +166,29 @@ fn assert_retained(state: RetainedState) {
                 .automation_graph_workspace_snapshot(&workspace)
                 .unwrap();
             if pipeline && team_owned {
-                assert_eq!(after_owner_close.blueprints.len(), 1);
+                assert_eq!(
+                    after_owner_close
+                        .blueprints
+                        .iter()
+                        .map(|record| json!(record))
+                        .collect::<Vec<_>>()
+                        .len(),
+                    1
+                );
             } else {
                 assert!(after_owner_close.scenarios.is_empty());
-                assert!(after_owner_close.nodes.is_empty());
-                assert!(after_owner_close.blueprints.is_empty());
+                assert!(after_owner_close
+                    .nodes
+                    .iter()
+                    .map(|record| json!(record))
+                    .collect::<Vec<_>>()
+                    .is_empty());
+                assert!(after_owner_close
+                    .blueprints
+                    .iter()
+                    .map(|record| json!(record))
+                    .collect::<Vec<_>>()
+                    .is_empty());
             }
             if let Some(team) = &team {
                 fixture.service.mux.write().remove_team(team).unwrap();
@@ -155,8 +197,18 @@ fn assert_retained(state: RetainedState) {
                     .automation_graph_workspace_snapshot(&workspace)
                     .unwrap();
                 assert!(missing_team.scenarios.is_empty());
-                assert!(missing_team.nodes.is_empty());
-                assert!(missing_team.blueprints.is_empty());
+                assert!(missing_team
+                    .nodes
+                    .iter()
+                    .map(|record| json!(record))
+                    .collect::<Vec<_>>()
+                    .is_empty());
+                assert!(missing_team
+                    .blueprints
+                    .iter()
+                    .map(|record| json!(record))
+                    .collect::<Vec<_>>()
+                    .is_empty());
                 handle.remove_team(team).unwrap();
                 assert!(handle.store.lock().get(&job.id).is_none());
                 let after_team_cleanup = fixture
@@ -164,8 +216,18 @@ fn assert_retained(state: RetainedState) {
                     .automation_graph_workspace_snapshot(&workspace)
                     .unwrap();
                 assert!(after_team_cleanup.scenarios.is_empty());
-                assert!(after_team_cleanup.nodes.is_empty());
-                assert!(after_team_cleanup.blueprints.is_empty());
+                assert!(after_team_cleanup
+                    .nodes
+                    .iter()
+                    .map(|record| json!(record))
+                    .collect::<Vec<_>>()
+                    .is_empty());
+                assert!(after_team_cleanup
+                    .blueprints
+                    .iter()
+                    .map(|record| json!(record))
+                    .collect::<Vec<_>>()
+                    .is_empty());
             }
         }
     }

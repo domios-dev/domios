@@ -67,3 +67,33 @@ it("retains an accessible error when a permission operation fails", async () => 
     host.remove();
   }
 });
+
+it("opens a plugin interface through the host surface navigation", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const open = vi.fn();
+  window.addEventListener("codeterm:open-panel", open);
+  const render = async (patch: Partial<CatalogEntry>) => {
+    await act(async () => root.render(<PluginDetailPanel
+      entry={{ ...entry, capabilities: { view: true }, ...patch }} config={null} busy={null}
+      onAction={() => {}} onHostGrant={() => {}} onSave={async () => {}}
+      onUpdateFullConfig={() => {}} onGone={() => {}} activityDisplayMap={new Map()} />));
+  };
+  const interfaceButton = () => Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Open interface");
+  try {
+    await render({});
+    expect(interfaceButton()).toBeDefined();
+    await act(async () => interfaceButton()!.click());
+    expect(open).toHaveBeenCalledTimes(1);
+    expect((open.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: `view:${entry.id}` });
+    for (const patch of [{ installed: false }, { pendingReload: true }, { capabilities: {} }]) {
+      await render(patch);
+      expect(interfaceButton()).toBeUndefined();
+    }
+  } finally {
+    window.removeEventListener("codeterm:open-panel", open);
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

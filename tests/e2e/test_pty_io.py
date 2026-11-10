@@ -73,7 +73,7 @@ def test_special_characters(api: CodeTermAPI, shared_eager_tab: str):
 # -- send ------------------------------------------------------------------
 
 def test_send_with_enter_default(api: CodeTermAPI, shared_eager_tab: str):
-    """Send text without specifying enter (defaults true), verify execution."""
+    """Plain text submits the command and produces execution output."""
     cmd, marker = _echo_split("enter_default")
     api.send_text(shared_eager_tab, text=cmd)
     # Wait for output to contain the echoed text
@@ -82,40 +82,36 @@ def test_send_with_enter_default(api: CodeTermAPI, shared_eager_tab: str):
 
 
 def test_send_with_enter_true(api: CodeTermAPI, shared_eager_tab: str):
-    """Explicit enter=true, verify execution."""
+    """Plain text submits and produces execution output."""
     cmd, marker = _echo_split("enter_true")
-    api.send_text(shared_eager_tab, text=cmd, enter=True)
+    api.send_text(shared_eager_tab, text=cmd)
     output = api.wait_for_output(shared_eager_tab, pattern=marker, timeout=10)
     assert marker in output
 
 
-def test_send_with_enter_false(api: CodeTermAPI, shared_eager_tab: str):
-    """enter=false: text appears in terminal but does not execute."""
-    marker = f"NOEXEC_{int(time.time() * 1000)}"
-    left, right = marker[: len(marker) // 2], marker[len(marker) // 2 :]
-    cmd = shell_cmd(f"echo '{left}''{right}'", f"Write-Output ('{left}' + '{right}')")
-    api.send_text(shared_eager_tab, text=cmd, enter=False)
-
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        output = api.get_output(shared_eager_tab, strip_ansi_flag=True)
-        assert marker not in output["output"], (
-            f"enter=false unexpectedly executed command; marker={marker!r} "
-            f"tail={output['output'][-300:]!r}"
-        )
-        time.sleep(0.2)
-
-    api.post(f"/api/tabs/{shared_eager_tab}/send", json={"text": "", "enter": True, "raw": True})
-    output = api.wait_for_output(shared_eager_tab, pattern=marker, timeout=10)
+def test_raw_send_waits_for_enter_action(api: CodeTermAPI, fresh_tab: str):
+    """Raw input stays on the command line until an explicit Enter action."""
+    cmd, marker = _echo_split("noexec")
+    response = api.post(f"/api/tabs/{fresh_tab}/send", json={"text": cmd, "raw": True})
+    assert response["ok"] is True
+    api.wait_for_screen(fresh_tab, pattern=cmd[:12], timeout=10)
+    assert marker not in api.get_output(fresh_tab, strip_ansi_flag=True)["output"]
+    submitted = api.post(
+        f"/api/tabs/{fresh_tab}/send",
+        json={"actions": [{"type": "key", "key": "enter"}]},
+    )
+    assert submitted["ok"] is True
+    assert submitted["actions"] is True
+    output = api.wait_for_output(fresh_tab, pattern=marker, timeout=10)
     assert marker in output
 
 
 def test_send_empty_with_enter(api: CodeTermAPI, shared_eager_tab: str):
-    """Empty text + enter=true sends just Enter (empty command)."""
+    """An empty plain-text send submits an empty command."""
     before = api.get_output(shared_eager_tab)
     offset_before = before["offset"]
 
-    result = api.send_text(shared_eager_tab, text="", enter=True)
+    result = api.send_text(shared_eager_tab, text="")
     assert result.get("ok") is True
 
     # Should produce some output (new prompt line)

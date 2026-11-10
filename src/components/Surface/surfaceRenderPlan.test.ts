@@ -74,7 +74,7 @@ assert.deepEqual(
   },
   "valid items survive, malformed items and fields are dropped",
 );
-assert.deepEqual(parseChromeSpec(BROWSER_SURFACE_CHROME), BROWSER_SURFACE_CHROME, "the built-in chrome round-trips");
+assert.deepEqual(parseChromeSpec(JSON.parse(JSON.stringify(BROWSER_SURFACE_CHROME))), BROWSER_SURFACE_CHROME, "the built-in chrome round-trips");
 
 assert.deepEqual(parseChromeSpec({ screenshot: true, openExternal: true }), { toolbar: [], snip: true, openExternal: true }, "a legacy screenshot flag declares the snip camera");
 assert.deepEqual(parseChromeSpec({ screenshot: true, snip: false }), { toolbar: [], snip: false }, "an explicit snip flag wins");
