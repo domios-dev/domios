@@ -1,0 +1,71 @@
+{
+  "source": "Codex CLI 0.167.0 own-thread image probe; thread/read item captured 2026-11-10. IDs/path redacted; notification envelope reconstructed from that item; events projected by the installed byte-identical provider.",
+  "claim": {
+    "threadId": "own",
+    "sendId": "send",
+    "input": {
+      "text": "Describe the attached picture: name each shape, its color, and position. One sentence. <domios type=\"attachment\" kind=\"image\" path=\"C:/images/visual-probe.png\" label=\"image1\" />",
+      "attachments": [
+        {
+          "id": "attachment:C:/images/visual-probe.png",
+          "mimeType": "image/png",
+          "path": "C:/images/visual-probe.png"
+        }
+      ]
+    }
+  },
+  "notification": {
+    "kind": "notification",
+    "method": "item/completed",
+    "params": {
+      "threadId": "own",
+      "turnId": "turn",
+      "item": {
+        "type": "userMessage",
+        "id": "user-item",
+        "clientId": "send",
+        "content": [
+          {
+            "type": "text",
+            "text": "Describe the attached picture: name each shape, its color, and position. One sentence. <domios type=\"attachment\" kind=\"image\" path=\"C:/images/visual-probe.png\" label=\"image1\" />",
+            "text_elements": []
+          },
+          {
+            "type": "localImage",
+            "detail": null,
+            "path": "C:/images/visual-probe.png"
+          }
+        ],
+        "startedAtMs": 1794295870380,
+        "completedAtMs": 1794295870380
+      }
+    }
+  },
+  "events": [
+    {
+      "kind": "chatItem",
+      "threadId": "own",
+      "item": {
+        "id": "user-item",
+        "seq": 1,
+        "type": "user",
+        "content": "Describe the attached picture: name each shape, its color, and position. One sentence. <domios type=\"attachment\" kind=\"image\" path=\"C:/images/visual-probe.png\" label=\"image1\" />",
+        "attachments": [
+          {
+            "id": "user-item-image-1",
+            "mimeType": "image/png",
+            "path": "C:/images/visual-probe.png"
+          }
+        ],
+        "toolFlowId": "turn"
+      }
+    },
+    {
+      "kind": "sendEvidence",
+      "threadId": "own",
+      "sendId": "send",
+      "turnId": "turn",
+      "itemId": "user-item"
+    }
+  ]
+}

@@ -576,9 +576,22 @@ pub fn validated_evidence(
         let exact = item_id.is_none() || events.iter().any(|item| matches!(item,
             AgentRuntimeEvent::ChatItem { thread_id: own, item }
                 if own == thread_id && item_id.as_ref().is_none_or(|id| item.id == *id) && item.kind == "user" && item.content == claim.input.text
-                    && item.attachments.as_deref().unwrap_or_default() == claim.input.attachments.as_slice()));
+                    && attachment_inputs_match(item.attachments.as_deref().unwrap_or_default(), &claim.input.attachments)));
         exact.then(|| (send_id.clone(), item_id.clone()))
     }).collect()
+}
+
+fn attachment_inputs_match(
+    observed: &[codeterm_types::agent::chat_types::ChatAttachment],
+    expected: &[codeterm_types::agent::chat_types::ChatAttachment],
+) -> bool {
+    observed.len() == expected.len()
+        && observed.iter().zip(expected).all(|(observed, expected)| {
+            observed.mime_type == expected.mime_type
+                && observed.path == expected.path
+                && observed.data == expected.data
+                && observed.url == expected.url
+        })
 }
 
 pub fn accepts_turn_transition(

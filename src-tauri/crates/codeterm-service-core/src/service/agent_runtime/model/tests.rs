@@ -137,6 +137,87 @@ fn live_evidence_requires_the_exact_claimed_input_and_thread_in_the_same_reducti
 }
 
 #[test]
+fn live_image_evidence_matches_content_without_projection_ids() {
+    use codeterm_plugin::agent_runtime::{AgentRuntimeEvent, ClaimedSend};
+    let capture: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/codex-image-receipt.json")).unwrap();
+    let claim: ClaimedSend = serde_json::from_value(capture["claim"].clone()).unwrap();
+    let events: Vec<AgentRuntimeEvent> = serde_json::from_value(capture["events"].clone()).unwrap();
+    let AgentRuntimeEvent::ChatItem { item, .. } = &events[0] else {
+        panic!("captured user item missing")
+    };
+    assert_eq!(
+        claim.input.attachments[0].id,
+        "attachment:C:/images/visual-probe.png"
+    );
+    assert_eq!(
+        item.attachments.as_ref().unwrap()[0].id,
+        "user-item-image-1"
+    );
+    let receipt = ("send".into(), Some("user-item".into()));
+    assert!(validated_evidence(&[claim.clone()], &events).contains(&receipt));
+
+    let mut pair = claim.clone();
+    let mut other = pair.input.attachments[0].clone();
+    other.id = "second".into();
+    other.path = Some("C:/images/other.png".into());
+    pair.input.attachments.push(other.clone());
+    let mut ordered = events.clone();
+    let AgentRuntimeEvent::ChatItem { item, .. } = &mut ordered[0] else {
+        unreachable!()
+    };
+    item.attachments.as_mut().unwrap().push(other);
+    assert!(validated_evidence(&[pair.clone()], &ordered).contains(&receipt));
+    let AgentRuntimeEvent::ChatItem { item, .. } = &mut ordered[0] else {
+        unreachable!()
+    };
+    item.attachments.as_mut().unwrap().reverse();
+    assert!(validated_evidence(&[pair], &ordered).is_empty());
+
+    for changed in [
+        "path", "missing", "mime", "data", "url", "text", "item", "thread", "send", "turn",
+    ] {
+        let mut changed_events = events.clone();
+        let AgentRuntimeEvent::ChatItem { thread_id, item } = &mut changed_events[0] else {
+            unreachable!()
+        };
+        match changed {
+            "path" => {
+                item.attachments.as_mut().unwrap()[0].path = Some("C:/images/other.png".into())
+            }
+            "missing" => item.attachments = None,
+            "mime" => item.attachments.as_mut().unwrap()[0].mime_type = "image/jpeg".into(),
+            "data" => item.attachments.as_mut().unwrap()[0].data = Some("different".into()),
+            "url" => {
+                item.attachments.as_mut().unwrap()[0].url =
+                    Some("https://example.test/other.png".into())
+            }
+            "text" => item.content.push('!'),
+            "item" => item.id = "other-item".into(),
+            "thread" => *thread_id = "foreign".into(),
+            "send" | "turn" => {
+                let AgentRuntimeEvent::SendEvidence {
+                    send_id, turn_id, ..
+                } = &mut changed_events[1]
+                else {
+                    unreachable!()
+                };
+                if changed == "send" {
+                    *send_id = "other-send".into();
+                } else {
+                    turn_id.clear();
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            validated_evidence(&[claim.clone()], &changed_events).is_empty(),
+            "{changed}"
+        );
+    }
+}
+
+#[test]
 fn provider_context_excludes_credentials_but_retains_nonsecret_settings() {
     let config = serde_json::json!({"model":"m", "apiToken":"fixture", "nested":{"api_key":"fixture","effort":"high"}});
     assert_eq!(
