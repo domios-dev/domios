@@ -308,11 +308,6 @@ async fn snapshot_before_wait_and_idempotent_same_key_need_no_new_version() {
         Some(2)
     );
     assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 2);
-    service
-        .select_neighbor_receiver_for_test(&f.registry, &f.scope)
-        .await
-        .unwrap();
-    assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 3);
 }
 
 #[tokio::test(start_paused = true)]
@@ -369,6 +364,11 @@ async fn listener_owned_enrollment_is_pending_without_waiting_or_losing_candidat
         .await
         .unwrap();
     assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 2);
+    service
+        .select_neighbor_receiver_for_test(&f.registry, &f.scope)
+        .await
+        .unwrap();
+    assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 3);
 }
 
 #[tokio::test(start_paused = true)]
