@@ -2,7 +2,7 @@ use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
 #[tokio::test]
-async fn sidebar_projection_contains_only_bound_friend_names_and_tab_ids() {
+async fn sidebar_projection_contains_only_bound_friend_row_data() {
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let friendship = "a".repeat(64);
@@ -17,16 +17,35 @@ async fn sidebar_projection_contains_only_bound_friend_names_and_tab_ids() {
             },
         )
         .await;
-    fixture
-        .service
-        .remember_neighbor_names(&json!({"access":"paid", "friends":[
-            {"friendship_id": friendship, "displayName":"Opaque Friend", "private_key":"secret"},
-            {"friendship_id": "b".repeat(64), "displayName":"Unbound Friend"}
-        ]}));
+    let list = json!({"access":"paid", "friends":[
+        {"friendship_id": friendship, "displayName":"Opaque Friend", "photoURL":"https://example.test/avatar.png", "private_key":"secret"},
+        {"friendship_id": "b".repeat(64), "displayName":"Unbound Friend"}
+    ]});
+    fixture.service.remember_neighbor_names(&list);
+    fixture.service.remember_neighbor_registry(&list);
     assert_eq!(
         fixture.service.neighbor_sidebar_projection().await.unwrap(),
-        json!({friendship: {"tab_id":tab, "friend_display_name":"Opaque Friend"}})
+        json!({friendship: {"tab_id":tab, "friend_display_name":"Opaque Friend", "friend_photo_url":"https://example.test/avatar.png", "paused":false, "access":"paid"}})
     );
+    let session = fixture
+        .service
+        .account()
+        .await
+        .unwrap()
+        .session()
+        .await
+        .unwrap();
+    fixture
+        .service
+        .observe_neighbor_pause(&session.identity.uid, &friendship, true);
+    assert_eq!(
+        fixture.service.neighbor_sidebar_projection().await.unwrap()[&friendship]["paused"],
+        true
+    );
+    fixture.service.forget_neighbor_registry();
+    let projection = fixture.service.neighbor_sidebar_projection().await.unwrap();
+    assert!(projection[&friendship]["friend_photo_url"].is_null());
+    assert!(projection[&friendship]["access"].is_null());
 }
 
 #[test]

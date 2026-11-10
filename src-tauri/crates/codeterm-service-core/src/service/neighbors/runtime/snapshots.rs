@@ -12,6 +12,7 @@ impl ServiceContext {
             .settings()
             .await
             .map_err(|error| error.to_string())?;
+        let registry = self.neighbor_cell().registry_snapshot.lock().clone();
         let projection = {
             let names = self.neighbor_cell().names.lock();
             Value::Object(
@@ -20,9 +21,20 @@ impl ServiceContext {
                     .iter()
                     .filter_map(|(friendship, tab)| {
                         let name = names.get(friendship)?;
+                        let friend = registry.as_ref().and_then(|list| {
+                            list["friends"].as_array()?.iter().find(|friend| {
+                                friend["friendship_id"].as_str() == Some(friendship.as_str())
+                            })
+                        });
                         Some((
                             friendship.clone(),
-                            json!({"tab_id": tab, "friend_display_name": name}),
+                            json!({
+                                "tab_id": tab,
+                                "friend_display_name": name,
+                                "friend_photo_url": friend.and_then(|friend| friend["photoURL"].as_str()),
+                                "paused": self.neighbor_effective_pause(&settings, friendship),
+                                "access": registry.as_ref().and_then(|list| list["access"].as_str()),
+                            }),
                         ))
                     })
                     .collect(),
@@ -82,6 +94,7 @@ impl ServiceContext {
                     .take(48)
                     .collect();
                 let mut row = json!({"friendship_id":id,"displayName":name,"since":friend["since"].as_u64(),"my_paused":friend["my_paused"].as_bool().unwrap_or_else(|| self.neighbor_friend_paused(id)),"their_paused":friend["their_paused"].as_bool().unwrap_or(false)});
+                row["photoURL"] = json!(friend["photoURL"].as_str());
                 for field in ["my_receiver", "peer_receiver"] {
                     if let Some(value) = friend.get(field) { row[field] = value.clone(); }
                 }

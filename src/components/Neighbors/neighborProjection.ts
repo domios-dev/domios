@@ -7,7 +7,13 @@ import { resetNeighborReads } from "./neighborReads";
 import { listen } from "../../lib/bridge";
 import { onResync } from "../../lib/resync";
 
-export type NeighborProjection = Record<string, { tab_id: string; friend_display_name: string }>;
+export type NeighborProjection = Record<string, {
+  tab_id: string;
+  friend_display_name: string;
+  friend_photo_url: string | null;
+  paused: boolean;
+  access: "paid" | "locked" | null;
+}>;
 
 export function projectionForPeer(selected: string | null, source: string | null, projection: NeighborProjection): NeighborProjection {
   return selected === source ? projection : {};

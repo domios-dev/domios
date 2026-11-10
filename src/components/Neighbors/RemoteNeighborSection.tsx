@@ -7,9 +7,12 @@ import { focusTab, workspaceOfTab } from "./neighborAgent";
 import { useNeighborProjection } from "./neighborProjection";
 import { ConciergeRow, conciergeModelLine } from "./SidebarNeighborsSection";
 import { tabActivity } from "../../lib/tabActivity";
+import { FriendRow } from "./FriendRow";
+import { openNeighborPage } from "./neighborFocus";
+import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
-export function RemoteNeighborSection({ peer, touchMode, activeTabId, onNavigateToTab }: {
-  peer: string; touchMode: boolean; activeTabId?: string | null; onNavigateToTab?: () => void;
+export function RemoteNeighborSection({ peer, uiFontScale, touchMode, activeChat, activeTabId, onNavigateToTab }: {
+  peer: string; uiFontScale?: number; touchMode: boolean; activeChat?: string | null; activeTabId?: string | null; onNavigateToTab?: () => void;
 }) {
   const tabs = useMuxSelector(state => state.tabs);
   const workspaces = useMuxSelector(state => state.workspaces);
@@ -22,6 +25,8 @@ export function RemoteNeighborSection({ peer, touchMode, activeTabId, onNavigate
     return () => publishNeighborGateways({});
   }, [bindingKey]);
   const friends = Object.entries(projection).filter(([, value]) => tabs[value.tab_id]);
+  const text = touchMode ? pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"])
+    : pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   if (!friends.length) return null;
   return <section aria-label="Neighbors" className="sidebar-neighbors-section">
     <SidebarDisclosure expanded={expanded} touchMode={touchMode} onClick={() => setExpanded(value => !value)} className="sidebar-structural-header w-full">
@@ -29,10 +34,15 @@ export function RemoteNeighborSection({ peer, touchMode, activeTabId, onNavigate
     </SidebarDisclosure>
     {expanded && <ul aria-label="Your Neighbors">{friends.map(([id, value]) => {
       const tab = tabs[value.tab_id];
+      const paused = value.paused === true;
+      const line = paused ? "disabled" : value.access === "paid" ? "connected" : value.access === "locked" ? "paused by plan" : "concierge assigned";
       return <li key={id}><SurfaceOwnerBlock ownerId={`neighbor:${id}`} attachments={[tab]} compact={false}
-        renderOwner={() => <div className="sidebar-tab pl-4 pr-4 py-1.5">{value.friend_display_name}</div>}
-        renderAttachment={() => <ConciergeRow tab={tab} friendName={value.friend_display_name} text="text-xs" touchMode={touchMode}
-          active={tab.id === activeTabId} subline={conciergeModelLine(tab)} working={tabActivity(tab, statuses[tab.id]).active}
+        renderOwner={() => <FriendRow friendshipId={id} name={value.friend_display_name} photoURL={value.friend_photo_url ?? null}
+          uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === id} paused={paused} line={line}
+          tone={!paused && value.access === "paid" ? "ok" : "muted"}
+          items={[{ label: `${value.friend_display_name}'s settings`, onClick: () => openNeighborPage(id) }]} />}
+        renderAttachment={() => <ConciergeRow tab={tab} friendName={value.friend_display_name} text={text} touchMode={touchMode} paused={paused}
+          active={tab.id === activeTabId} subline={paused ? "disabled" : conciergeModelLine(tab)} working={!paused && tabActivity(tab, statuses[tab.id]).active}
           onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }} />} /></li>;
     })}</ul>}
   </section>;

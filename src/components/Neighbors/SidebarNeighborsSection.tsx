@@ -1,13 +1,11 @@
-import { createRef, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Bot, Pause } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Bot } from "lucide-react";
 import { AgentIcon } from "../AgentIcon";
 import { agentModelForBadge } from "../../lib/agentLabel";
 import { shortModelName } from "../../lib/agentModelName";
 import { ActiveTabPill } from "../Sidebar/ActiveTabPill";
 import type { Tab } from "../../lib/types";
 import { useAccount } from "../Settings/useAccount";
-import { AccountAvatar } from "../Titlebar/AccountAvatar";
-import { accountInitials } from "../Settings/accountModel";
 import { SidebarDisclosure } from "../Sidebar/SidebarDisclosure";
 import { SurfaceOwnerBlock } from "../Sidebar/SurfaceAttachments";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
@@ -19,7 +17,7 @@ import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { askGeneralAgent, focusTab, permissionInterviewTask, workspaceOfTab } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
-import { openNeighborPage, openNeighbor } from "./neighborFocus";
+import { openNeighborPage } from "./neighborFocus";
 import { publishNeighborGateways } from "./neighborGateways";
 import { listedPaused, neighborName } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
@@ -33,13 +31,14 @@ import { FriendReceiveConfirm, friendReceiveItems, friendReceivingLine, useFrien
 import { friendReceiverState } from "./useReceiverState";
 import { useNeighborPeer } from "./neighborProjection";
 import { RemoteNeighborSection } from "./RemoteNeighborSection";
+import { FriendRow } from "./FriendRow";
 
 const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
 
 /** Your connected Neighbors as sidebar rows, each with its concierge tucked under it; hidden until you have one. */
 export function SidebarNeighborsSection(props: Parameters<typeof LocalNeighborsSection>[0]) {
   const peer = useNeighborPeer();
-  return peer ? <RemoteNeighborSection key={peer} peer={peer} touchMode={props.touchMode} activeTabId={props.activeTabId} onNavigateToTab={props.onNavigateToTab} />
+  return peer ? <RemoteNeighborSection key={peer} peer={peer} uiFontScale={props.uiFontScale} activeChat={props.activeChat} touchMode={props.touchMode} activeTabId={props.activeTabId} onNavigateToTab={props.onNavigateToTab} />
     : <LocalNeighborsSection {...props} />;
 }
 
@@ -61,13 +60,6 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
   const isPaused = usePausedFriends(conciergeClient);
   const receive = useFriendReceiveRequest();
   const lastIdentity = useRef<string | null>(null);
-  // Each friend row is its menu's long-press and right-click target, as an ordinary tab row is.
-  const rowRefs = useRef(new Map<string, RefObject<HTMLDivElement | null>>());
-  const rowRef = (friendship: string) => {
-    let ref = rowRefs.current.get(friendship);
-    if (!ref) { ref = createRef<HTMLDivElement>(); rowRefs.current.set(friendship, ref); }
-    return ref;
-  };
   // Until the fresh list arrives, draw the friends this account had last time; an empty past keeps the section away.
   // While the account itself is unread, the one remembered account stands in, so the header never arrives after the list.
   const accountPending = model.kind === "pending";
@@ -115,7 +107,6 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
     detail => publishNotice({ kind: "toast", severity: "Error", id: `neighbor-pause:${friend.friendship_id}`, title: paused ? "Could not enable" : "Could not disable", detail }));
   const text = touchMode ? pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"])
     : pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
-  const rowPadding = touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-4 py-1.5";
   const editWithGeneral = (friend: CachedFriend) => {
     void askGeneralAgent({ workspaces, tabs }, permissionInterviewTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))
       .catch((failure: unknown) => publishNotice({ kind: "toast", severity: "Error", id: `neighbor-general:${friend.friendship_id}`,
@@ -147,28 +138,10 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
       const receiveItems = friendReceiveItems(receiver, operation => receive.open(friend.friendship_id, operation));
       return <li key={friend.friendship_id}>
         <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge ? [concierge] : []} compact={false}
-          renderOwner={() => <div ref={rowRef(friend.friendship_id)} className={`${ROW} ${rowPadding}`} data-active={activeChat === friend.friendship_id || undefined} data-paused={paused || undefined}>
-            <button type="button" className={`sidebar-tab-activation flex flex-1 items-center min-w-0 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
-              aria-label={`Open ${name}`} aria-current={activeChat === friend.friendship_id ? "page" : undefined}
-              onClick={() => openNeighbor(friend.friendship_id)}>
-              <span className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
-                <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon sidebar-neighbor-avatar" data-paused={paused || undefined}>
-                  <AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" />
-                  {paused && <span className="neighbor-pause-glyph" aria-hidden="true"><Pause size={8} /></span>}</span>
-                <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
-                  <span className={`${text} block truncate min-w-0 text-[var(--ct-fg)]`}>{name}</span>
-                </span>
-                <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3" title={line}>
-                  <span className="neighbor-dot" data-tone={paused || elsewhere ? "muted" : missing ? "progress" : !loading && enabled && paid ? "ok" : "muted"} aria-hidden="true" />
-                  {/* Touch has no hover tooltip, so the full reason wraps there instead of truncating. */}
-                  <span className={`min-w-0 ${touchMode ? "whitespace-normal [overflow-wrap:anywhere]" : "truncate"}`}>{line}</span>
-                </span>
-              </span>
-            </button>
-            <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={rowRef(friend.friendship_id)} menuLabel={`${name} actions`}
-              items={[pauseItem, ...receiveItems, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }]}
-              trigger={<RowMenuButton label={`Actions for ${name}`} title="Friend actions" touchMode={touchMode} />} />
-          </div>}
+          renderOwner={() => <FriendRow friendshipId={friend.friendship_id} name={name} photoURL={friend.photoURL}
+            uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === friend.friendship_id} paused={paused} line={line}
+            tone={paused || elsewhere ? "muted" : missing ? "progress" : !loading && enabled && paid ? "ok" : "muted"}
+            items={[pauseItem, ...receiveItems, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }]} />}
           renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode} paused={paused} pauseItem={pauseItem} active={tab.id === activeTabId}
             subline={paused ? "disabled" : conciergeModelLine(tab)} working={!paused && tabActivity(tab, tabStatuses[tab.id]).active}
             onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }}
