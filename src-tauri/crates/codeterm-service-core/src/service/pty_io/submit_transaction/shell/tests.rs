@@ -243,10 +243,12 @@ fn running_shell_send_is_admitted_and_payload_is_written_once() {
     let mut trace = ShellTrace::new("shell-busy-send-once", Some(1));
     trace.finish_after_start = false;
     trace.start(&trace.pty, "previous", "nonce");
-    assert!(crate::service::pty_io::utility_command::shell_command_running(
-        &trace.fixture.service,
-        &trace.pty,
-    ));
+    assert!(
+        crate::service::pty_io::utility_command::shell_command_running(
+            &trace.fixture.service,
+            &trace.pty,
+        )
+    );
     let result = run_shell(&trace, "opaque").unwrap();
     assert_eq!(result.bytes_written, b"opaque".len());
     assert!(result.submit_observed);
