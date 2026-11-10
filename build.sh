@@ -1367,6 +1367,20 @@ dev_target_record() {
   printf '%s\n' "$CT_DATA_DIR/dev-target-debug"
 }
 
+dev_physical_path() {
+  node -e 'process.stdout.write(require("node:fs").realpathSync.native(process.argv[1]).replaceAll("\\", "/") + "\n")' "$1"
+}
+
+prepare_dev_runtime_paths() {
+  [ -n "${CT_STABLE_BUILD_DRIVE_MAPPED:-}" ] || return 0
+  local name physical
+  for name in CARGO_TARGET_DIR CODETERM_WEB_DIST CODETERM_CLI_PATH; do
+    [ -n "${!name:-}" ] || continue
+    physical="$(dev_physical_path "${!name}")" || return
+    export "$name=$physical"
+  done
+}
+
 record_dev_target() {
   local target="$1"
   mkdir -p "$(dirname "$(dev_target_record)")"
@@ -1586,6 +1600,7 @@ reload_dev_server() {
   write_dev_provenance "$build_sha"
   if named_dev_isolated; then write_named_dev_build_record "$build_sha"; fi
   CT_DEV_PROVENANCE_SHA="$build_sha" validate_dev_provenance
+  prepare_dev_runtime_paths
   release_stable_build_path
   complete_build_gateway_before_handoff
   export CODETERM_CLI_PATH="$(dev_cli_path)"
@@ -2161,7 +2176,9 @@ build_dev_client() {
 
 # Swaps only the server under a retained window, which shows Reconnecting and reattaches.
 swap_dev_server_keep_window() {
-  local split_logs="$1" build_sha="$2" receipt="$1/reload-server.json" listener
+  local split_logs build_sha="$2" receipt listener
+  split_logs="$(dev_physical_path "$1")" || return
+  receipt="$split_logs/reload-server.json"
   if node scripts/dev-server.mjs inspect "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"; then
     node scripts/dev-server.mjs stop "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"
   fi
@@ -2170,6 +2187,7 @@ swap_dev_server_keep_window() {
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
   record_dev_target "$(tauri_debug_dir)"
+  prepare_dev_runtime_paths
   release_stable_build_path
   complete_build_gateway_before_handoff
   export CODETERM_CLI_PATH="$(dev_cli_path)"
@@ -2233,6 +2251,7 @@ build_and_launch_dev() {
   retain_dev_pdb "$build_sha"
   dev_build_phase symbols.end
   record_dev_target "$(tauri_debug_dir)"
+  prepare_dev_runtime_paths
   release_stable_build_path
   complete_build_gateway_before_handoff
   dev_build_phase gateway-release.end
