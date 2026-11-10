@@ -1,7 +1,9 @@
 import { type TransportClient } from "../transportClient";
+import { readPluginSnapshot } from "../pluginSnapshotRequest";
+import { relayTarget } from "../webApi";
 export type CapabilityArgs = Record<string, unknown>;
 export type CapabilityMapper = (args: CapabilityArgs) => Promise<unknown>;
-export type CapabilitiesClient = Pick<TransportClient, "json" | "localJson" | "currentToken">;
+export type CapabilitiesClient = Pick<TransportClient, "json" | "localJson" | "currentToken" | "origin">;
 const enc = encodeURIComponent;
 const s = (args: CapabilityArgs, key: string): string => String(args[key] ?? "");
 function previewTab(args: CapabilityArgs): string {
@@ -176,7 +178,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     plugin_bubble: (a) => webJson("POST", "/api/plugins/bubble", { pluginId: a.pluginId, ctx: a.ctx }, { signal: a.signal as AbortSignal | undefined }),
     plugin_glance: (a) => webJson("POST", "/api/plugins/glance", a),
     plugin_manager_action: (a) => webJson("POST", "/api/plugins/action", a.action),
-    plugin_manager_snapshot: (a) => webJson("GET", "/api/plugins/snapshot", undefined, { signal: a.signal as AbortSignal | undefined }),
+    plugin_manager_snapshot: (a) => readPluginSnapshot(client, { peerId: () => relayTarget()?.id ?? null, signal: a.signal as AbortSignal | undefined }),
     plugin_tab_menu: () => webJson("GET", "/api/plugins/tab-menu"),
     plugin_tab_menu_action: (a) => webJson("POST", "/api/plugins/tab-menu/action", a),
     plugin_remote_task_call: (a) => client.localJson("POST", "/api/plugins/remote-task-call", a),

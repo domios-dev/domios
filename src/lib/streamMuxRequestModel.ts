@@ -1,6 +1,53 @@
 export type MuxTraffic = "interactive" | "bulk";
 export interface MuxRequestPolicy { traffic: MuxTraffic; cancellable: boolean }
 export const MUX_REQUEST_TIMEOUT = Symbol("mux-request-timeout");
+export const MUX_READ_CAPACITY = Symbol("mux-read-capacity");
+type CapacityWait = (signal?: AbortSignal) => Promise<void>;
+
+export function createMuxReadCapacity() {
+  let revision = 0;
+  let closed = false;
+  let closeReason: unknown;
+  const waiters = new Set<{ resolve: () => void; reject: (reason: unknown) => void }>();
+  return {
+    capture(): CapacityWait {
+      const refusedAt = revision;
+      return (signal) => new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) { reject(signal.reason); return; }
+        if (closed) { reject(closeReason); return; }
+        if (revision !== refusedAt) { resolve(); return; }
+        const waiter = {
+          resolve: () => { detach(); resolve(); },
+          reject: (reason: unknown) => { detach(); reject(reason); },
+        };
+        const abort = () => waiter.reject(signal?.reason);
+        const detach = () => { waiters.delete(waiter); signal?.removeEventListener("abort", abort); };
+        waiters.add(waiter);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+    },
+    released() {
+      revision++;
+      for (const waiter of [...waiters]) waiter.resolve();
+    },
+    close(reason: unknown) {
+      closed = true;
+      closeReason = reason;
+      for (const waiter of [...waiters]) waiter.reject(reason);
+    },
+  };
+}
+
+export async function readWhenMuxCapacityAvailable<T>(read: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  for (;;) {
+    signal.throwIfAborted();
+    try { return await read(); }
+    catch (error) {
+      if (!error || typeof error !== "object" || !(MUX_READ_CAPACITY in error) || typeof error[MUX_READ_CAPACITY] !== "function") throw error;
+      await (error[MUX_READ_CAPACITY] as CapacityWait)(signal);
+    }
+  }
+}
 export type MuxRequestInit = RequestInit & { [MUX_REQUEST_TIMEOUT]?: number | null };
 
 const READ_POST = /^\/api\/(?:tabs\/[^/]+\/(?:preview\/(?:read|check)|chat-raw\/(?:start|history|backfill))|essence-maps)$/;

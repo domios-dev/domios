@@ -1,6 +1,7 @@
 import { scopedAutomationGraph } from "./model";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { sameJson } from "../../lib/sameJson";
+import { readWhenMuxCapacityAvailable } from "../../lib/streamMuxRequestModel";
 import { automationKey, type AutomationAttachment, type AutomationGraph, type AutomationGraphAdapter, type AutomationIdentity } from "./types";
 
 export interface AutomationSnapshot {
@@ -90,7 +91,7 @@ export class AutomationResource {
     const controller = new AbortController();
     this.controller = controller;
     try {
-      const graph = scopedAutomationGraph(await this.adapter.read(this.attachment, controller.signal), this.attachment);
+      const graph = scopedAutomationGraph(await readWhenMuxCapacityAvailable(() => this.adapter.read(this.attachment, controller.signal), controller.signal), this.attachment);
       if (generation === this.generation && !this.dirty) {
         // Graph events outpace graph changes; an identical read keeps the published snapshot for its subscribers.
         const same = sameJson(this.snapshot.graph, graph);
