@@ -57,7 +57,7 @@ import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
-import { hasCapsuleTokens } from "./composerCapsules";
+import { capsulesInDraft, hasCapsuleTokens } from "./composerCapsules";
 import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { composerSendPlan, resolveComposerSend } from "./composerSendPlan";
 import { recordDroppedUploads } from "./DroppedUploadNotice";
@@ -427,11 +427,12 @@ function ChatComposerImpl({
     const attachmentError = composerAttachmentError(provider?.attachments, text, allAttachments,
       recordedVoiceAttachments, capsules.registryRef.current, quoted);
     if (tabProvider && attachmentError) { flagComposerError(attachmentError); return; }
-    const dupKey = `${text} ${allAttachments.join("|")} ${quoted?.path ?? ""}`;
+    const registry = capsules.registryRef.current;
+    const dupKey = JSON.stringify([text, allAttachments, recordedVoiceAttachments,
+      capsulesInDraft(text, registry).map(({ kind, path, uploadId }) => [kind, path, uploadId]), quoted]);
     const duplicate = pendingDraftsRef.current.has(dupKey)
       || isDuplicateSend(lastSendRef.current, dupKey, Date.now());
     const portable = capsules.toPortable(text);
-    const registry = capsules.registryRef.current;
     setExpandedEditor(false);
     setInput("");
     if (textareaRef.current) textareaRef.current.value = "";

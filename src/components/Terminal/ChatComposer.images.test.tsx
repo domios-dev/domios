@@ -33,11 +33,13 @@ beforeEach(() => {
 afterEach(() => { __setInvokeForTest(null); __setListenForTest(null); });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-async function mount(tabId: string, requestFailure?: "admission" | "network" | "preflight") {
+async function mount(tabId: string, requestFailure?: "admission" | "network" | "preflight", sendGate?: Promise<void>) {
   const sent: string[] = [];
+  let bubbles = 0;
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (command === "chat_send_text") {
       sent.push(String(args?.text));
+      await sendGate;
       if (requestFailure === "admission") throw new Error("user send capacity: 32 unsettled admissions");
       if (requestFailure === "network") throw new TypeError("send connection interrupted");
       return { tab_id: tabId, send_id: "host-send", correlationId: "bubble", state: requestFailure === "preflight" ? "failed" : "delivered",
@@ -65,7 +67,7 @@ async function mount(tabId: string, requestFailure?: "admission" | "network" | "
       <ChatComposer tabId={tabId} tabProvider={null} currentPtyId={null} chatBackend pendingPrompt={null}
         attachments={[]} addAttachments={() => {}} removeAttachment={() => {}} clearAttachments={() => {}}
         handlePasteEvent={() => {}} onWillSendMessage={() => {}}
-        addOptimistic={content => { addChatSend(tabId, { id: "bubble", correlationId: "bubble", content, sentAtMs: 1 }); return "bubble"; }}
+        addOptimistic={content => { const id = ++bubbles === 1 ? "bubble" : `bubble-${bubbles}`; addChatSend(tabId, { id, correlationId: id, content, sentAtMs: bubbles }); return id; }}
         updateOptimistic={() => {}} observeChatSendStatus={() => {}} showComposerError={error => { throw new Error(error); }} />
     </ComposerIssuesProvider></MuxStateStoreContext.Provider></DraftStorageFixture>;
   }
@@ -112,6 +114,36 @@ it("waits for two screenshot-sized uploads and sends their Unicode paths through
     expect(capsuleSpans(view.sent[0])).toHaveLength(0);
     expect(readChatSends(tabId)).toHaveLength(1);
   } finally { await view.dispose(); }
+});
+
+it.each([false, true])("keeps distinct images with reused capsule labels while a send is pending (upload pending: %s)", async pending => {
+  const tabId = `distinct-images-${pending}`;
+  let finishSend!: () => void;
+  const sendGate = new Promise<void>(resolve => { finishSend = resolve; });
+  const uploadsToFinish: Array<() => void> = [];
+  let uploadIndex = 0;
+  uploads.store = async () => {
+    const path = `/opaque/image-${++uploadIndex}.png`;
+    if (pending) await new Promise<void>(resolve => uploadsToFinish.push(resolve));
+    return path;
+  };
+  const view = await mount(tabId, undefined, sendGate);
+  try {
+    for (let index = 0; index < 2; index++) {
+      await view.pick([new File(["pixels"], "shot.png", { type: "image/png" })]);
+      const editor = view.host.querySelector<HTMLTextAreaElement>("textarea")!;
+      await view.text(`${editor.value.trim()} inspect`);
+      await view.send();
+      expect(editor.value).toBe("");
+    }
+    expect(readChatSends(tabId).map(send => send.id)).toEqual(["bubble", "bubble-2"]);
+    await act(async () => { uploadsToFinish.forEach(finish => finish()); });
+    expect(view.sent.map(text => parseAttachmentMarkers(text).attachments.map(image => image.path)))
+      .toEqual([["/opaque/image-1.png"], ["/opaque/image-2.png"]]);
+  } finally {
+    await act(async () => { uploadsToFinish.forEach(finish => finish()); finishSend(); });
+    await view.dispose();
+  }
 });
 
 it.each([
