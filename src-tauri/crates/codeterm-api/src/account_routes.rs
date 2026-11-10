@@ -487,6 +487,7 @@ fn neighbor_failure(message: String) -> Response {
             | "receiving_elsewhere"
             | "receiver_not_chosen"
             | "receiver_status_unknown"
+            | "key_inventory_pending"
             | "key_revoked"
             | "friendship_ended"
             | "reply_target_stopped"

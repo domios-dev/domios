@@ -115,7 +115,9 @@ impl Calls {
         route: &str,
         data: Value,
     ) -> Result<Value> {
-        self.local_session().await?;
+        self.local_session()
+            .await
+            .map_err(|error| key_mutation_error(route, error))?;
         let result = self
             .service
             .neighbor_backend_read(
@@ -125,7 +127,9 @@ impl Calls {
                 self.invoke_owned(functions, route, data),
             )
             .await;
-        self.local_session().await?;
+        self.local_session()
+            .await
+            .map_err(|error| key_mutation_error(route, error))?;
         result
     }
     async fn invoke_owned(&self, functions: &str, route: &str, data: Value) -> Result<Value> {
@@ -170,7 +174,17 @@ impl Calls {
         if paid_route(route) {
             self.require_paid()?;
         }
-        let mut session = self.session().await?;
+        if route == "friendsEnrollVerifierKey"
+            && self
+                .service
+                .neighbor_key_inventory_pending(&self.uid, self.generation)
+        {
+            return Err(Error::KeyInventoryPending);
+        }
+        let mut session = self
+            .session()
+            .await
+            .map_err(|error| key_mutation_error(route, error))?;
         let mut response = transport
             .call_for_account(
                 &self.uid,
@@ -186,7 +200,10 @@ impl Calls {
             .await;
         if matches!(&response, Err(CallableFailure::Status { status: 401, body, .. }) if recoverable_authentication(body.as_ref()))
         {
-            session = self.recover_session(&session).await?;
+            session = self
+                .recover_session(&session)
+                .await
+                .map_err(|error| key_mutation_error(route, error))?;
             if matches!(
                 route,
                 "friendsList" | "friendsReceiverStatus" | "friendsOwnKeys"
@@ -228,15 +245,55 @@ impl Calls {
                     retry_after_seconds,
                 ));
             }
-            Err(CallableFailure::Retired) => return Err(Error::Revoked),
+            Err(CallableFailure::Retired) => return Err(key_mutation_error(route, Error::Revoked)),
             Err(_) => return Err(Error::Transport),
         };
-        self.validate_session(&session).await?;
+        let key_mutation = route == "friendsEnrollVerifierKey";
+        self.validate_session(&session).await.map_err(|error| {
+            if key_mutation {
+                Error::KeyInventoryPending
+            } else {
+                error
+            }
+        })?;
         let result = body.get("result").cloned().ok_or(Error::Transport)?;
+        if key_mutation {
+            let key = result["verifier_key_id"]
+                .as_str()
+                .filter(|key| codeterm_neighbors::wire::key_id(key))
+                .ok_or(Error::KeyInventoryPending)?;
+            self.service
+                .fence_neighbor_key_inventory(&self.uid, self.generation, key)?;
+            self.service
+                .invalidate_neighbor_list()
+                .await
+                .map_err(|_| Error::KeyInventoryPending)?;
+            if self.service.neighbor_registry_activation_active()
+                && self
+                    .service
+                    .neighbor_key_inventory_pending(&self.uid, self.generation)
+            {
+                return Err(Error::KeyInventoryPending);
+            }
+            let guard = PaidCallGuard {
+                calls: self,
+                expected: &session,
+                paid: true,
+            };
+            use codeterm_account::account_mesh::callable::CallableGuard;
+            tokio::select! {
+                biased;
+                _ = guard.retired() => return Err(Error::KeyInventoryPending),
+                confirmation = self.service.wait_neighbor_key_inventory(&self.uid, self.generation, key) => confirmation?,
+            }
+            self.validate_session(&session)
+                .await
+                .map_err(|_| Error::KeyInventoryPending)?;
+            return Ok(result);
+        }
         if matches!(
             route,
-            "friendsEnrollVerifierKey"
-                | "friendsRevokeVerifierKey"
+            "friendsRevokeVerifierKey"
                 | "friendsSetFriendReceiver"
                 | "friendsSetPaused"
                 | "friendsSetDailyLimit"
@@ -245,6 +302,19 @@ impl Calls {
             self.service.invalidate_neighbor_list().await?;
         }
         Ok(result)
+    }
+}
+
+fn key_mutation_error(route: &str, error: Error) -> Error {
+    if route == "friendsEnrollVerifierKey"
+        && matches!(
+            error,
+            Error::Revoked | Error::SessionRevoked | Error::Disabled
+        )
+    {
+        Error::KeyInventoryPending
+    } else {
+        error
     }
 }
 

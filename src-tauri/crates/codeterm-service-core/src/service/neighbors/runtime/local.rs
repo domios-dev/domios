@@ -122,11 +122,8 @@ impl ServiceContext {
                 let concierges = self.neighbor_concierge_views(&settings, &friends);
                 let notification_preferences =
                     Self::neighbor_notification_preferences(&settings, &friends);
-                let key = friend_receivers.keys().find_map(|id| {
-                    self.neighbor_friend_receiver(id)
-                        .filter(|receiver| receiver.receiving_here())
-                        .and_then(|receiver| receiver.receiver_encryption_key_id)
-                });
+                let installation = self.installation_id().await.map_err(|_| Error::Transport)?;
+                let enrolled = self.neighbor_published_installation_key(installation.as_str());
                 let states = self.neighbor_cell().states.lock().clone();
                 let failures = self.neighbor_cell().failures.lock().clone();
                 let permissions: std::collections::BTreeMap<
@@ -146,7 +143,7 @@ impl ServiceContext {
                     watches: self.neighbor_cell().watch_states.lock().clone(),
                     incoming_handling: self.neighbor_handling_status(),
                     enabled: self.configuration().neighbors.enabled,
-                    enrolled: key.is_some(),
+                    enrolled,
                     bindings: settings.bindings,
                     permissions,
                     concierges,

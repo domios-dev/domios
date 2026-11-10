@@ -44,7 +44,7 @@ impl CallableTransport for Transport {
     }
 }
 
-async fn fixture() -> (ServiceFixture, Arc<codeterm_account::Account>, Calls) {
+pub(super) async fn fixture() -> (ServiceFixture, Arc<codeterm_account::Account>, Calls) {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let account = Arc::new(codeterm_account::Account::new(
