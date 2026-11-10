@@ -1368,14 +1368,12 @@ dev_target_record() {
 }
 
 record_dev_target() {
-  local target="$1" target_win
+  local target="$1"
   mkdir -p "$(dirname "$(dev_target_record)")"
   # A fresh named --wait target has only release/ until tauri dev links debug/.
   mkdir -p "$target"
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
-    target_win="$(cd "$target" 2>/dev/null && pwd -W 2>/dev/null || true)"
-    [ -n "$target_win" ] || target_win="$(pwd -W 2>/dev/null || pwd)/$target"
-    printf '%s\n' "$target_win" > "$(dev_target_record)"
+    node -e 'process.stdout.write(require("node:fs").realpathSync.native(process.argv[1]) + "\n")' "$target" > "$(dev_target_record)"
   else
     (cd "$target" 2>/dev/null && pwd -P) > "$(dev_target_record)"
   fi
@@ -2171,8 +2169,8 @@ swap_dev_server_keep_window() {
     "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
-  release_stable_build_path
   record_dev_target "$(tauri_debug_dir)"
+  release_stable_build_path
   complete_build_gateway_before_handoff
   export CODETERM_CLI_PATH="$(dev_cli_path)"
   # The retained window relaunches its server on detachment, so a refused start may only mean it won the race.
@@ -2234,8 +2232,8 @@ build_and_launch_dev() {
   fi
   retain_dev_pdb "$build_sha"
   dev_build_phase symbols.end
-  release_stable_build_path
   record_dev_target "$(tauri_debug_dir)"
+  release_stable_build_path
   complete_build_gateway_before_handoff
   dev_build_phase gateway-release.end
   if [ "${CT_DEV_BUILD_ONLY:-0}" = 1 ]; then

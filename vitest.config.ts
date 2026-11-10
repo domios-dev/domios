@@ -15,6 +15,8 @@ const execArgv = process.allowedNodeEnvironmentFlags.has("--no-experimental-webs
 export default defineConfig({
   plugins: [react()],
   test: {
+    // Pathe drops the slash from drive roots; a rooted path keeps the current mapped drive.
+    root: process.platform === "win32" && /^[a-z]:[\\/]$/i.test(process.cwd()) ? "/" : undefined,
     environment: "happy-dom",
     include,
     testTimeout: 60_000,
