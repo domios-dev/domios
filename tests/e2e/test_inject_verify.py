@@ -1,18 +1,4 @@
-"""Regression coverage for the public PTY send contract.
-
-The public HTTP/socket send surface is intentionally fire-and-forget: callers
-get only ``{"ok": true}``. The internal verified injector may still observe
-echo/submit for agent delivery, but those fields are not response contract.
-
-What a caller can assert now:
-  1. the response contains only ``ok=true``;
-  2. execution is observable through tab output after sending with Enter;
-  3. ``enter=False`` does not execute until a later Enter is sent.
-
-The size cases keep the old boundary payload lengths, but prove execution with
-split markers so the assertion cannot be satisfied by terminal echo of the
-typed command itself.
-"""
+"""Public send receipts and execution, with a disposable PTY for each case."""
 from __future__ import annotations
 
 import string
@@ -91,14 +77,21 @@ CASES = [
 ]
 
 
+def _assert_shell_delivery(response: dict) -> None:
+    assert response["ok"] is True, response
+    assert response["delivery"] == "sent", response
+    assert response["bytes_written"] is True, response
+    assert response["send_id"] is None, response
+    assert response["pad_file"] is None or isinstance(response["pad_file"], str), response
+
+
 @pytest.mark.parametrize("label,builder", CASES, ids=[c[0] for c in CASES])
-def test_inject_verify_contract(api: CodeTermAPI, shared_eager_tab: str, label, builder) -> None:
+def test_inject_verify_contract(api: CodeTermAPI, fresh_tab: str, label, builder) -> None:
     text, marker = builder()
 
-    resp = api.send_text(shared_eager_tab, text=text, enter=True)
+    resp = api.send_text(fresh_tab, text=text)
 
-    # 1. Public send is fire-and-forget: no verified/echo/submit response fields.
-    assert resp == {"ok": True}, f"{label}: public send response changed: {resp}"
+    _assert_shell_delivery(resp)
 
     # 2. The Enter byte actually landed in the PTY. The marker is split in the
     #    typed command and exists only in real command output.
@@ -106,7 +99,7 @@ def test_inject_verify_contract(api: CodeTermAPI, shared_eager_tab: str, label, 
     output = ""
     prompt_after_marker = False
     while time.monotonic() < deadline:
-        data = api.get_output(shared_eager_tab, strip_ansi_flag=True)
+        data = api.get_output(fresh_tab, strip_ansi_flag=True)
         output = data.get("output", "")
         if marker in output:
             tail = output.rsplit(marker, 1)[-1]
@@ -126,38 +119,33 @@ def test_inject_verify_contract(api: CodeTermAPI, shared_eager_tab: str, label, 
     )
 
 
-def test_short_payload_execution_is_observable(api: CodeTermAPI, shared_eager_tab: str) -> None:
+def test_short_payload_execution_is_observable(api: CodeTermAPI, fresh_tab: str) -> None:
     """A clean short send returns the public ok contract and is observable in output."""
     marker, left, right = _split_marker("verifyok_")
     text = shell_cmd(f"echo '{left}''{right}'", f"Write-Output ('{left}' + '{right}')")
-    resp = api.send_text(shared_eager_tab, text=text, enter=True)
+    resp = api.send_text(fresh_tab, text=text)
 
-    assert resp == {"ok": True}, resp
-    output = api.wait_for_output(shared_eager_tab, pattern=marker, timeout=6)
+    _assert_shell_delivery(resp)
+    output = api.wait_for_output(fresh_tab, pattern=marker, timeout=6)
     assert marker in output
 
 
-def test_send_without_enter_still_ok(api: CodeTermAPI, shared_eager_tab: str) -> None:
-    """``enter=False`` accepts the paste but does not execute until Enter arrives."""
+def test_raw_text_waits_for_explicit_submit(api: CodeTermAPI, fresh_tab: str) -> None:
+    """Raw bytes type a command; an explicit Enter action executes it."""
     marker, left, right = _split_marker("noenter_")
     text = shell_cmd(f"echo '{left}''{right}'", f"Write-Output ('{left}' + '{right}')")
-    resp = api.send_text(shared_eager_tab, text=text, enter=False)
-    assert resp == {"ok": True}, resp
+    response = api.post(f"/api/tabs/{fresh_tab}/send", json={"text": text, "raw": True})
+    assert response["ok"] is True, response
+    assert response["delivery"] == "sent", response
+    api.wait_for_screen(fresh_tab, pattern=left, timeout=6)
+    assert marker not in api.get_output(fresh_tab, strip_ansi_flag=True)["output"]
 
-    deadline = time.monotonic() + 2.0
-    output = ""
-    while time.monotonic() < deadline:
-        output = api.get_output(shared_eager_tab, strip_ansi_flag=True).get("output", "")
-        assert marker not in output, (
-            f"enter=false unexpectedly executed command; marker={marker!r} "
-            f"tail={output[-400:]!r}"
-        )
-        time.sleep(0.2)
-
-    submit_resp = api.post(
-        f"/api/tabs/{shared_eager_tab}/send",
-        json={"text": "", "enter": True, "raw": True},
+    submitted = api.post(
+        f"/api/tabs/{fresh_tab}/send",
+        json={"actions": [{"type": "key", "key": "enter"}]},
     )
-    assert submit_resp == {"ok": True}, submit_resp
-    output = api.wait_for_output(shared_eager_tab, pattern=marker, timeout=6)
+    assert submitted["ok"] is True, submitted
+    assert submitted["actions"] is True, submitted
+    assert submitted["delivery"] == "sent", submitted
+    output = api.wait_for_output(fresh_tab, pattern=marker, timeout=6)
     assert marker in output

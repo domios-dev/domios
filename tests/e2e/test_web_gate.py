@@ -121,11 +121,17 @@ def test_web_gate_valid_codeterm_web_link_token_serves_spa_and_api(api_only):
     for marker in SPA_MARKERS:
         assert marker in spa.text
 
-    manifest = requests.get(
-        f"{api_only.base}/manifest.webmanifest",
-        params={"token": token},
+    browser = requests.Session()
+    bootstrap = browser.post(
+        f"{api_only.base}/manifest-bootstrap",
+        headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )
+    assert bootstrap.status_code == 200, bootstrap.text
+    assert browser.cookies.get("codeterm-web-token") == token
+    assert "HttpOnly" in bootstrap.headers["Set-Cookie"]
+    assert "SameSite=Lax" in bootstrap.headers["Set-Cookie"]
+    manifest = browser.get(f"{api_only.base}/manifest.webmanifest", timeout=10)
     assert manifest.status_code == 200
     assert manifest.headers["content-type"].startswith("application/manifest+json")
     assert manifest.json()["start_url"] == f"/#token={quote(token)}"
@@ -183,7 +189,7 @@ def test_manifest_bad_token_falls_back_without_leaking_expected_token(api_only):
 
     response = requests.get(
         f"{api_only.base}/manifest.webmanifest",
-        params={"token": "garbage-expired-token"},
+        cookies={"codeterm-web-token": "garbage-expired-token"},
         timeout=10,
     )
 

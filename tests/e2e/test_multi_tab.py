@@ -24,7 +24,7 @@ def three_tabs(api: CodeTermAPI):
     yield ws_id, tab_ids
     try:
         if len(api.list_workspaces()) > 1:
-            api.close_workspace(ws_id)
+            api.cleanup_workspace(ws_id)
     except Exception:
         pass
 
@@ -39,34 +39,30 @@ class TestMultiTabPrompts:
             "    2. No\n"
             "\nEsc to cancel \u00b7 Tab to amend\n"
         ))
-        time.sleep(0.5)
         api.post(f"/api/tabs/{tab_id}/hook/permission")
 
     def _tab(self, api, tab_id):
-        return next(p for p in api.list_tabs() if p["id"] == tab_id)
+        return api.inspect_tab(tab_id)
 
     def test_two_tabs_independent(self, api, three_tabs):
         """Two tabs can have prompts simultaneously."""
         _, tabs = three_tabs
         self._set_prompt(api, tabs[0])
         self._set_prompt(api, tabs[1])
-        time.sleep(0.5)
         tab_a = self._tab(api, tabs[0])
         tab_b = self._tab(api, tabs[1])
         assert tab_a.get("pending_prompt") is not None
         assert tab_b.get("pending_prompt") is not None
 
+    @pytest.mark.llm(reason="Respond requires a live rendered provider menu; no runnable interactive fixture exists.")
     def test_respond_one_doesnt_clear_other(self, api, three_tabs):
         """Responding in tab A should not affect tab B."""
         _, tabs = three_tabs
         self._set_prompt(api, tabs[0])
         self._set_prompt(api, tabs[1])
-        time.sleep(0.5)
         api.post(f"/api/tabs/{tabs[0]}/prompt/respond", json={"value": "1"})
-        time.sleep(0.5)
-        tab_list = api.list_tabs()
-        a = next(p for p in tab_list if p["id"] == tabs[0])
-        b = next(p for p in tab_list if p["id"] == tabs[1])
+        a = api.inspect_tab(tabs[0])
+        b = api.inspect_tab(tabs[1])
         assert a.get("pending_prompt") is None
         assert b.get("pending_prompt") is not None
 
@@ -74,8 +70,7 @@ class TestMultiTabPrompts:
         """Tab without hook call should have no prompt."""
         _, tabs = three_tabs
         api.post(f"/api/tabs/{tabs[0]}/hook/permission")
-        time.sleep(0.5)
-        c = next(p for p in api.list_tabs() if p["id"] == tabs[2])
+        c = api.inspect_tab(tabs[2])
         assert c.get("pending_prompt") is None
 
     def test_all_tabs_unique_ids(self, api, three_tabs):
@@ -83,10 +78,10 @@ class TestMultiTabPrompts:
         _, tab_ids = three_tabs
         assert len(set(tab_ids)) == 3
 
-    def test_all_tabs_are_orchestrators(self, api, three_tabs):
-        """All API-created tabs should be Orchestrators."""
+    def test_new_shell_tabs_have_no_role(self, api, three_tabs):
+        """Ordinary API-created shell tabs carry no agent role."""
         _, tab_ids = three_tabs
         tab_list = api.list_tabs()
         for pid in tab_ids:
             tab = next(p for p in tab_list if p["id"] == pid)
-            assert tab.get("role") == "Orchestrator"
+            assert tab.get("role") is None
