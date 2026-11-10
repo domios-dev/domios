@@ -19,6 +19,22 @@ pub(super) struct RestoreGrant {
     access: MachineAccess,
 }
 
+impl RestoreGrant {
+    fn matches(
+        &self,
+        authority: &crate::multiplexer::types::NeighborAuthority,
+        nonce: Option<&str>,
+        generation: u64,
+        bypass: bool,
+    ) -> bool {
+        self.generation == generation
+            && self.uid == authority.uid
+            && self.friendship == authority.friendship_id
+            && Some(self.nonce.as_str()) == nonce
+            && (self.access == MachineAccess::Full) == bypass
+    }
+}
+
 pub(super) async fn prepare_folder(
     metadata: &Metadata,
     friendship: &str,
@@ -169,15 +185,50 @@ impl ServiceContext {
             .and_then(|tab| tab.session_binding_nonce.as_deref());
         let grants = self.neighbor_cell().restore_grants.lock();
         if grants.get(root).is_some_and(|grant| {
-            grant.generation == self.neighbor_history_generation()
-                && grant.uid == authority.uid
-                && grant.friendship == authority.friendship_id
-                && Some(grant.nonce.as_str()) == nonce
-                && (grant.access == MachineAccess::Full) == bypass
+            grant.matches(authority, nonce, self.neighbor_history_generation(), bypass)
         }) {
             Ok(())
         } else {
             Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string())
+        }
+    }
+
+    pub(crate) fn carry_neighbor_restore_grant(
+        &self,
+        tab_id: &str,
+        old_nonce: &str,
+        new_nonce: &str,
+    ) -> std::result::Result<(), String> {
+        let mux = self.mux.read();
+        let tab = mux
+            .get_tab(tab_id)
+            .ok_or("Neighbor launch tab is missing")?;
+        let Some(authority) = &tab.neighbor_authority else {
+            return Ok(());
+        };
+        let bypass = tab.restorable_launch.permission_bypass_requested;
+        if authority.root_tab_id.is_some() {
+            drop(mux);
+            return self.require_neighbor_restore_grant(tab_id, bypass);
+        }
+        self.require_neighbor_concierge_receiver(&authority.friendship_id)
+            .map_err(|error| error.to_string())?;
+        let mut grants = self.neighbor_cell().restore_grants.lock();
+        let grant = grants.get_mut(tab_id).filter(|grant| {
+            tab.session_binding_nonce.as_deref() == Some(new_nonce)
+                && grant.matches(
+                    authority,
+                    Some(old_nonce),
+                    self.neighbor_history_generation(),
+                    bypass,
+                )
+        });
+        match grant {
+            Some(grant) => {
+                grant.nonce = new_nonce.into();
+                Ok(())
+            }
+            None => Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string()),
         }
     }
 
