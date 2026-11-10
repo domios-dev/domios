@@ -1,4 +1,6 @@
-"""Agent hierarchy tests — roles and reports without LLM providers."""
+"""Agent hierarchy tests and shell metadata coverage."""
+
+import pytest
 
 from helpers import CodeTermAPI, shell_cmd, unique_name
 
@@ -22,6 +24,7 @@ def test_create_api_tab(api_only: CodeTermAPI):
         api_only.close_tab(tab_id)
 
 
+@pytest.mark.llm(reason="Verified live sessions require a real provider; fixture-provider has no runnable plugin.")
 def test_set_role(api_only: CodeTermAPI, api_tab: str):
     """Set Orchestrator role on a tab."""
     result = api_only.post(
@@ -35,6 +38,7 @@ def test_set_role(api_only: CodeTermAPI, api_tab: str):
     assert status.get("role") == "Orchestrator"
 
 
+@pytest.mark.llm(reason="Verified live sessions require a real provider; fixture-provider has no runnable plugin.")
 def test_hierarchy(api_only: CodeTermAPI, api_tab: str):
     """Set orchestrator, spawn worker, verify hierarchy tree."""
     api_only.post(
@@ -60,6 +64,7 @@ def test_hierarchy(api_only: CodeTermAPI, api_tab: str):
         api_only.close_tab(worker_id)
 
 
+@pytest.mark.llm(reason="Verified live sessions require a real provider; fixture-provider has no runnable plugin.")
 def test_submit_report(api_only: CodeTermAPI, api_tab: str):
     """Worker reports to parent, verify in reports endpoint."""
     api_only.post(

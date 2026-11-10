@@ -1,8 +1,8 @@
 """Chat UI default config applies to daemon-spawned agents."""
 
 from pathlib import Path
+import os
 import subprocess
-import time
 
 from helpers import CodeTermAPI, IS_WINDOWS, unique_name
 
@@ -41,20 +41,27 @@ def _tab(api: CodeTermAPI, tab_id: str) -> dict:
     return tab
 
 
-def _restart_dev() -> None:
+def _restart_dev(api: CodeTermAPI) -> None:
+    assert api.base == "http://127.0.0.1:7686"
+    before = api.get("/api/health", timeout=10)
+    build_sha = before.get("build_sha")
+    assert build_sha, before
+    assert before.get("status") == "ok", before
+    assert before.get("startup", {}).get("state") == "ready", before
+
     bash = GIT_BASH if IS_WINDOWS else "bash"
-    subprocess.run([bash, "build.sh", "kill"], cwd=PROJECT_ROOT, check=True, timeout=60)
-    subprocess.run([bash, "build.sh", "dev", "--wait"], cwd=PROJECT_ROOT, check=True, timeout=180)
+    subprocess.run(
+        [bash, "build.sh", "dev-prebuilt", "--wait"],
+        cwd=PROJECT_ROOT,
+        env={**os.environ, "CODETERM_DEV_INSTANCE": "", "CODETERM_DEV_API_PORT": "7686"},
+        check=True,
+        timeout=180,
+    )
 
-
-def _wait_for_tab(api: CodeTermAPI, tab_id: str, timeout: float = 30) -> dict:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        tab = next((p for p in api.list_tabs() if p["id"] == tab_id), None)
-        if tab:
-            return tab
-        time.sleep(0.5)
-    raise AssertionError(f"tab {tab_id} did not restore within {timeout}s")
+    after = api.get("/api/health", timeout=10)
+    assert after.get("status") == "ok", after
+    assert after.get("startup", {}).get("state") == "ready", after
+    assert after.get("build_sha") == build_sha, (before, after)
 
 
 def test_chat_ui_default_on_sets_cli_spawned_agent_chat_view(api_only: CodeTermAPI):
@@ -81,9 +88,9 @@ def test_chat_ui_default_restores_on_same_agent_tab(api_only: CodeTermAPI):
         assert _tab(api_only, tab_id).get("chat_view") is True
         api_only.post("/api/session/save")
 
-        _restart_dev()
+        _restart_dev(api_only)
 
-        restored = _wait_for_tab(api_only, tab_id)
+        restored = _tab(api_only, tab_id)
         assert restored.get("chat_view") is True
     finally:
         _set_chat_default(api_only, False)
