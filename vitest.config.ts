@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
@@ -12,11 +12,15 @@ const execArgv = process.allowedNodeEnvironmentFlags.has("--no-experimental-webs
   ? ["--no-experimental-webstorage"]
   : [];
 
+const root = process.platform === "win32" && /^[a-z]:[\\/]$/i.test(process.cwd())
+  ? realpathSync.native(process.cwd())
+  : undefined;
+
 export default defineConfig({
   plugins: [react()],
   test: {
-    // Pathe drops the slash from drive roots; a rooted path keeps the current mapped drive.
-    root: process.platform === "win32" && /^[a-z]:[\\/]$/i.test(process.cwd()) ? "/" : undefined,
+    // Canonicalize drive roots before Pathe resolution and glob directory enumeration.
+    root,
     environment: "happy-dom",
     include,
     testTimeout: 60_000,
