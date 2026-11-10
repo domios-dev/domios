@@ -4,7 +4,10 @@ var failed=false,last='',pending;
 window.addEventListener('ct-bridge-ready',function(){if(pending&&window.ct&&ct.__reportUiState){ct.__reportUiState(pending);pending=undefined;}});
 function send(status,reason){var key=status+':'+(reason||'');if(key===last)return;last=key;var state={status:status,reason:reason};if(window.ct&&ct.__reportUiState)ct.__reportUiState(state);else pending=state;}
 function fail(reason){failed=true;send('error',reason);}
-window.addEventListener('error',function(e){fail(e.message||'Plugin UI script failed to load.');});
+window.addEventListener('error',function(e){
+ if(!e.error&&(e.message==='ResizeObserver loop completed with undelivered notifications.'||e.message==='ResizeObserver loop limit exceeded'))return;
+ fail(e.message||'Plugin UI script failed to load.');
+});
 window.addEventListener('unhandledrejection',function(e){fail(String(e.reason||'Plugin UI request failed.'));});
 document.addEventListener('securitypolicyviolation',function(e){if(e.effectiveDirective==='script-src-elem'||e.effectiveDirective==='script-src')fail('Plugin UI script was blocked by its security policy.');});
 function inspect(){

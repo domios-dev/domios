@@ -13,6 +13,23 @@ async function fixture(run: (win: Window, send: ReturnType<typeof vi.fn>) => Pro
 }
 
 describe("plugin document runtime reporting", () => {
+  it("keeps rendered content usable after browser resize delivery notifications", async () => {
+    await fixture(async (win, send) => {
+      for (const message of ["ResizeObserver loop completed with undelivered notifications.", "ResizeObserver loop limit exceeded"]) {
+        win.dispatchEvent(new win.ErrorEvent("error", { message }));
+      }
+      win.document.getElementById("ct-root")!.innerHTML = "<button>configuration</button>";
+      await new Promise<void>((resolve) => {
+        const observer = new win.MutationObserver(() => { observer.disconnect(); resolve(); });
+        observer.observe(win.document.body, { childList: true, subtree: true });
+        win.document.getElementById("ct-root")!.append("ready");
+      });
+      expect(send).toHaveBeenLastCalledWith({ __ctUiState: { status: "ready", reason: undefined } }, "*");
+      expect(send.mock.calls.some(([payload]) => payload.__ctUiState.status === "error")).toBe(false);
+      win.dispatchEvent(new win.ErrorEvent("error", { message: "ResizeObserver loop limit exceeded", error: new Error("script exception") }));
+      expect(send).toHaveBeenLastCalledWith({ __ctUiState: { status: "error", reason: "ResizeObserver loop limit exceeded" } }, "*");
+    });
+  });
   it("reports an empty builder mount instead of a silent blank frame", async () => {
     await fixture(async (_win, send) => {
       expect(send).toHaveBeenCalledWith({ __ctUiState: { status: "empty", reason: expect.stringContaining("#ct-root") } }, "*");
