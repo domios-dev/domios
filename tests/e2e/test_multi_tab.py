@@ -44,6 +44,7 @@ class TestMultiTabPrompts:
     def _tab(self, api, tab_id):
         return api.inspect_tab(tab_id)
 
+    @pytest.mark.llm(reason="Provider-classified detection requires an active provider menu; a completed shell print is transcript output.")
     def test_two_tabs_independent(self, api, three_tabs):
         """Two tabs can have prompts simultaneously."""
         _, tabs = three_tabs

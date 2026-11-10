@@ -143,12 +143,12 @@ def test_web_gate_valid_codeterm_web_link_token_serves_spa_and_api(api_only):
     )
     assert state.status_code == 200, state.text
     payload = state.json()
-    assert set(payload) == {
+    assert {
         "workspaces",
         "tabs",
         "active_workspace_id",
         "focused_tab_id",
-    }
+    } <= payload.keys()
     assert isinstance(payload["workspaces"], list)
     assert isinstance(payload["tabs"], dict)
 

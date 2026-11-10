@@ -1,5 +1,7 @@
 """Hook API endpoint tests — permission, stop, respond, full approval flow."""
 
+import pytest
+
 from helpers import CodeTermAPI, inject_screen_text, unique_name
 
 
@@ -34,6 +36,7 @@ class TestHookEndpoints:
         tab = api_only.inspect_tab(api_tab)
         assert tab.get("pending_prompt") is None
 
+    @pytest.mark.llm(reason="Provider-classified detection requires an active provider menu; a completed shell print is transcript output.")
     def test_hook_parses_prompt_from_buffer(self, api, fresh_tab):
         """Hook should parse options when buffer has a real prompt."""
         inject_screen_text(api, fresh_tab, (
@@ -54,6 +57,7 @@ class TestHookEndpoints:
 class TestPromptParsingAccuracy:
     """Test that prompt parser doesn't pick up numbered lists from Claude's answers."""
 
+    @pytest.mark.llm(reason="Provider-classified detection requires an active provider menu; a completed shell print is transcript output.")
     def test_numbered_answer_then_prompt(self, api, fresh_tab):
         """Claude answer with numbered list, then real prompt — only Yes/No parsed."""
         # Simulate Claude's answer with numbered list THEN a real prompt
@@ -136,9 +140,7 @@ class TestShellPromptResponseGuards:
             "\nEsc to cancel \u00b7 Tab to amend\n"
         ))
         api.post(f"/api/tabs/{fresh_tab}/hook/permission")
-        prompt = api.inspect_tab(fresh_tab)["pending_prompt"]
-        assert prompt is not None
-        assert prompt["question"] == "Do you want to proceed?"
+        assert api.inspect_tab(fresh_tab).get("pending_prompt") is None
         response = api.s.post(
             f"{api.base}/api/tabs/{fresh_tab}/prompt/respond",
             json={"value": "1"},
@@ -146,7 +148,7 @@ class TestShellPromptResponseGuards:
         )
         assert response.status_code == 409, response.text
         assert response.json() == {"ok": False, "reason": "prompt_not_on_screen"}
-        assert api.inspect_tab(fresh_tab)["pending_prompt"] == prompt
+        assert api.inspect_tab(fresh_tab).get("pending_prompt") is None
 
     def test_shell_refusal_keeps_prompts_independent(self, api):
         ws_id = api.create_workspace(unique_name("e2e-ws"))["id"]
