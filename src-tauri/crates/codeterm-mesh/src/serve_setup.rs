@@ -101,9 +101,9 @@ pub struct ServeStatus {
     pub installed: bool,
     /// Tailscale Serve already terminates HTTPS and proxies to THIS daemon.
     pub active: bool,
-    /// The live HTTPS base (`https://host.ts.net[:port]`) when `active`, else None.
+    /// The live HTTPS base URL when `active`, else None.
     pub https_url: Option<String>,
-    /// This node's MagicDNS name (`host.ts.net`) — what the serve URL will be.
+    /// This node's MagicDNS name used by the serve URL.
     pub self_dns: Option<String>,
     /// Host OS (`std::env::consts::OS`) — the UI needs it to show the macOS-only
     /// `tailscale cert` step in the exact-command confirmation preview.

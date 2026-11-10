@@ -14,11 +14,11 @@ installed: boolean,
  */
 active: boolean, 
 /**
- * The live HTTPS base (`https://host.ts.net[:port]`) when `active`, else None.
+ * The live HTTPS base URL when `active`, else None.
  */
 https_url: string | null, 
 /**
- * This node's MagicDNS name (`host.ts.net`) — what the serve URL will be.
+ * This node's MagicDNS name used by the serve URL.
  */
 self_dns: string | null, 
 /**

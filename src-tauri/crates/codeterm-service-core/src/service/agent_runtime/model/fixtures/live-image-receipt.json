@@ -1,5 +1,5 @@
 {
-  "source": "Codex CLI 0.167.0 own-thread image probe; thread/read item captured 2026-11-10. IDs/path redacted; notification envelope reconstructed from that item; events projected by the installed byte-identical provider.",
+  "source": "Provider CLI 0.167.0 own-thread image probe; thread/read item captured 2026-11-10. IDs/path redacted; notification envelope reconstructed from that item; events projected by the installed byte-identical provider.",
   "claim": {
     "threadId": "own",
     "sendId": "send",

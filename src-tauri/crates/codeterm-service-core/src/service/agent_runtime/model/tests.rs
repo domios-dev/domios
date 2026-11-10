@@ -140,7 +140,7 @@ fn live_evidence_requires_the_exact_claimed_input_and_thread_in_the_same_reducti
 fn live_image_evidence_matches_content_without_projection_ids() {
     use codeterm_plugin::agent_runtime::{AgentRuntimeEvent, ClaimedSend};
     let capture: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/codex-image-receipt.json")).unwrap();
+        serde_json::from_str(include_str!("fixtures/live-image-receipt.json")).unwrap();
     let claim: ClaimedSend = serde_json::from_value(capture["claim"].clone()).unwrap();
     let events: Vec<AgentRuntimeEvent> = serde_json::from_value(capture["events"].clone()).unwrap();
     let AgentRuntimeEvent::ChatItem { item, .. } = &events[0] else {
