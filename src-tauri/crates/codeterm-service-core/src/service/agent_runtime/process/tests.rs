@@ -202,13 +202,22 @@ async fn assert_tree_exit(action: &str) {
             })
         ));
     }
-    for member in members {
-        assert!(
-            member.exited().unwrap(),
-            "{action}: {} survived",
-            member.pid
-        );
-    }
+    let action = action.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        for member in members {
+            member
+                .wait_for_exit(deadline)
+                .unwrap_or_else(|error| panic!("{action}: {} did not exit: {error}", member.pid));
+            assert!(
+                member.exited().unwrap(),
+                "{action}: {} survived",
+                member.pid
+            );
+        }
+    })
+    .await
+    .unwrap();
 }
 #[tokio::test]
 async fn own_tab_environment_reaches_the_child_and_its_shell_commands() {
