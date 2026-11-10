@@ -6,6 +6,7 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ import path from "node:path";
 import { prepareHappyDomBundle } from "./ts-test-dependency-cache.mjs";
 import { prepareTestSources } from "./ts-test-source-cache.mjs";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = realpathSync.native(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
 const testWorkerBootstrap = `
 import { writeSync } from "node:fs";
 import { pathToFileURL } from "node:url";
