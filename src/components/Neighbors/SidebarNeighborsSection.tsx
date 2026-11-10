@@ -132,12 +132,12 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
       // A friend received on another machine says where; its concierge there, not here, is the one that answers.
       const receiver = enabled ? friendReceiverState(status, friend.friendship_id) : null;
       const elsewhere = receiver !== null && !receiver.receiving_here;
-      const line = loading ? "refreshing" : !enabled ? "off" : paused ? "disabled" : elsewhere ? friendReceivingLine(receiver)
+      const line = loading ? "refreshing" : !enabled ? "off" : elsewhere ? friendReceivingLine(receiver) : paused ? "disabled"
         : missing ? missingConciergeLine(missing).replace("No concierge on this machine", "no concierge here") : paid ? "connected" : "paused by plan";
       const pauseItem = { label: `${paused ? "Enable" : "Disable"} ${name}`, onClick: () => togglePaused(friend, paused) };
       const receiveItems = friendReceiveItems(receiver, operation => receive.open(friend.friendship_id, operation));
       return <li key={friend.friendship_id}>
-        <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge ? [concierge] : []} compact={false}
+        <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge && !elsewhere ? [concierge] : []} compact={false}
           renderOwner={() => <FriendRow friendshipId={friend.friendship_id} name={name} photoURL={friend.photoURL}
             uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === friend.friendship_id} paused={paused} line={line}
             tone={paused || elsewhere ? "muted" : missing ? "progress" : !loading && enabled && paid ? "ok" : "muted"}

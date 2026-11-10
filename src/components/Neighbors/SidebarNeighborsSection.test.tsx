@@ -42,7 +42,7 @@ async function expandSection() {
 it("groups the selected remote peer's concierge without reading or managing the origin account", async () => {
   const { setRelayTarget } = await import("../../lib/webApi");
   setRelayTarget("blackstar", "Blackstar");
-  transport.webJson.mockResolvedValue({ pair: { tab_id: "tab-gateway", friend_display_name: "Remote Friend", friend_photo_url: "https://example.test/friend.png", paused: false, access: "paid" } });
+  transport.webJson.mockResolvedValue({ pair: { tab_id: "tab-gateway", friend_display_name: "Remote Friend", friend_photo_url: "https://example.test/friend.png", paused: false, access: "paid", receiver: null } });
   const localClient: NeighborClient = { list: vi.fn(), apply: vi.fn() };
   const localRuntime = runtime({ pair: "tab-general" });
   const host = document.createElement("div"); document.body.append(host);
@@ -74,11 +74,25 @@ it("groups the selected remote peer's concierge without reading or managing the 
   expect(Array.from(document.querySelectorAll('[role="menuitem"]')).map(item => item.textContent)).toEqual(["Remote Friend's settings"]);
   await act(async () => { document.querySelector<HTMLElement>('[role="menuitem"]')!.click(); });
   expect(takeNeighborFocus()).toEqual({ id: "pair", section: null });
-  transport.webJson.mockResolvedValue({ pair: { tab_id: "tab-gateway", friend_display_name: "Remote Friend", friend_photo_url: null, paused: true, access: "paid" } });
+  transport.webJson.mockResolvedValue({ pair: { tab_id: "tab-gateway", friend_display_name: "Remote Friend", friend_photo_url: null, paused: true, access: "paid", receiver: null } });
   await act(async () => emit("neighbor-friend-paused", { friendship_id: "pair", paused: true }));
   expect(button("Open Remote Friend").querySelector("img")).toBeNull();
   expect(button("Open Remote Friend").textContent).toContain("RF");
   expect(button("Open Remote Friend").textContent).toContain("disabled");
+  const receiver = { receiving_here: false, receiver_machine_label: "air", receiving_enabled: true, revision: 2, is_me: false };
+  const moved = { tab_id: "tab-gateway", friend_display_name: "Remote Friend", friend_photo_url: null, paused: true, access: "paid", receiver };
+  transport.webJson.mockResolvedValue({ pair: moved });
+  await act(async () => emit("neighbor-runtime-status", { ...receiver, friendship_id: "pair", friend_receivers_version: 2 }));
+  expect(button("Open Remote Friend").textContent).toContain("receiving on air");
+  expect(hasButton("Open Remote Friend's concierge")).toBe(false);
+  const callsAfterMove = transport.webJson.mock.calls.length;
+  await act(async () => emit("neighbor-runtime-status", { friendship_id: "pair", status: "stopped" }));
+  expect(transport.webJson.mock.calls.length).toBe(callsAfterMove);
+  transport.webJson.mockResolvedValue({ pair: { ...moved, tab_id: null } });
+  await act(async () => emit("neighbor-agent-changed", { friendship_id: "pair", gateway_tab: null }));
+  expect(button("Open Remote Friend").textContent).toContain("receiving on air");
+  expect(hasButton("Open Remote Friend's concierge")).toBe(false);
+  expect(seen[seen.length - 1]?.size).toBe(0);
   transport.webJson.mockReturnValue(new Promise(() => {}));
   await act(async () => {
     window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset"));

@@ -6,13 +6,15 @@ import { resetPausedFriends } from "./neighborPause";
 import { resetNeighborReads } from "./neighborReads";
 import { listen } from "../../lib/bridge";
 import { onResync } from "../../lib/resync";
+import { receiverState, type ReceiverState } from "./neighborRuntimeClient";
 
 export type NeighborProjection = Record<string, {
-  tab_id: string;
+  tab_id: string | null;
   friend_display_name: string;
   friend_photo_url: string | null;
   paused: boolean;
   access: "paid" | "locked" | null;
+  receiver: ReceiverState | null;
 }>;
 
 export function projectionForPeer(selected: string | null, source: string | null, projection: NeighborProjection): NeighborProjection {
@@ -58,7 +60,11 @@ export function useNeighborProjection(peer: string, tabKey: string): NeighborPro
       }).catch(() => {});
     };
     const keep = (stop: () => void) => { if (live) stops.push(stop); else stop(); };
-    for (const event of ["neighbor-agent-changed", "neighbor-friend-paused", "neighbors-changed", "account-changed"]) void listen(event, load).then(keep);
+    for (const event of ["neighbor-agent-changed", "neighbor-friend-paused", "neighbors-changed", "account-changed", "account-mesh-changed"]) void listen(event, load).then(keep);
+    void listen<unknown>("neighbor-runtime-status", event => {
+      const value = event.payload;
+      if (receiverState(value) || (typeof value === "object" && value !== null && "receiver_unavailable" in value)) load();
+    }).then(keep);
     stops.push(onResync(load));
     load();
     return () => { live = false; controller?.abort(); stops.forEach(stop => stop()); };

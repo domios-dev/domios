@@ -67,10 +67,18 @@ async function choose(item: string) {
   await act(async () => entry.click());
 }
 
-it("the sidebar friend row says where that friend is received and receives only that friend here", async () => {
-  const runtimeClient = receiving(elsewhere);
-  await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
+it("the sidebar moves the receiving line from an existing event and receives only that friend here", async () => {
+  const runtimeClient = receiving(overridden);
+  const client = friends([neighbor]);
+  let receiverChanged: Parameters<NeighborRuntimeClient["subscribe"]>[0] | undefined;
+  vi.mocked(runtimeClient.subscribe).mockImplementation(async handler => { receiverChanged = handler; return () => {}; });
+  await mount(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} />);
+  expect(hasButton("Open Ada's concierge")).toBe(true);
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: { pair: elsewhere }, friend_receivers_version: 2 }));
+  await act(async () => receiverChanged!({ ...elsewhere, friendship_id: "pair", friend_receivers_version: 2 }));
   expect(document.body.textContent).toContain("receiving on Studio Mac");
+  expect(hasButton("Open Ada's concierge")).toBe(false);
+  expect(client.list).toHaveBeenCalledTimes(1);
   await openMenu("Actions for Ada");
   await choose("Receive this friend here");
   const confirm = button("Confirm receiving");
@@ -108,13 +116,13 @@ it("a local receiver offers stopping only that friend", async () => {
 });
 
 
-it("the concierge row's menu receives the same friend here", async () => {
-  const runtimeClient = receiving(elsewhere);
+it("the current concierge row's menu stops receiving the same friend here", async () => {
+  const runtimeClient = receiving(overridden);
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
   await openMenu("Actions for Ada's concierge");
-  await choose("Receive this friend here");
+  await choose("Stop receiving this friend");
   await act(async () => button("Confirm receiving").click());
-  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set");
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 3, "reset");
 });
 
 it("the conversation says where the friend is received and offers receiving them here without blocking the chat", async () => {

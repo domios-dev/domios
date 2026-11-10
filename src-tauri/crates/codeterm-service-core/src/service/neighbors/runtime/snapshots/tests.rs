@@ -2,7 +2,7 @@ use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
 #[tokio::test]
-async fn sidebar_projection_contains_only_bound_friend_row_data() {
+async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding() {
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let friendship = "a".repeat(64);
@@ -25,7 +25,8 @@ async fn sidebar_projection_contains_only_bound_friend_row_data() {
     fixture.service.remember_neighbor_registry(&list);
     assert_eq!(
         fixture.service.neighbor_sidebar_projection().await.unwrap(),
-        json!({friendship: {"tab_id":tab, "friend_display_name":"Opaque Friend", "friend_photo_url":"https://example.test/avatar.png", "paused":false, "access":"paid"}})
+        json!({(friendship.clone()): {"tab_id":tab, "friend_display_name":"Opaque Friend", "friend_photo_url":"https://example.test/avatar.png", "paused":false, "access":"paid",
+            "receiver":{"receiving_here":true,"receiver_machine_label":"Fixture","receiving_enabled":true,"revision":1,"is_me":true}}})
     );
     let session = fixture
         .service
@@ -42,6 +43,30 @@ async fn sidebar_projection_contains_only_bound_friend_row_data() {
         fixture.service.neighbor_sidebar_projection().await.unwrap()[&friendship]["paused"],
         true
     );
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&friendship, Some(false), 2);
+    let moved = fixture.service.neighbor_sidebar_projection().await.unwrap();
+    assert_eq!(
+        moved[&friendship]["receiver"],
+        json!({
+            "receiving_here":false,"receiver_machine_label":"Fixture","receiving_enabled":true,"revision":2,"is_me":false
+        })
+    );
+    let metadata = Metadata::new(
+        fixture.service.account_data_root().unwrap(),
+        &session.identity.uid,
+    );
+    let mut settings = metadata.settings().await.unwrap();
+    settings.bindings.remove(&friendship);
+    metadata.save_settings(settings).await.unwrap();
+    let unbound = fixture.service.neighbor_sidebar_projection().await.unwrap();
+    assert!(unbound[&friendship]["tab_id"].is_null());
+    assert_eq!(
+        unbound[&friendship]["receiver"],
+        moved[&friendship]["receiver"]
+    );
+    assert_eq!(unbound[&friendship]["friend_display_name"], "Opaque Friend");
     fixture.service.forget_neighbor_registry();
     let projection = fixture.service.neighbor_sidebar_projection().await.unwrap();
     assert!(projection[&friendship]["friend_photo_url"].is_null());
