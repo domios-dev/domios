@@ -58,7 +58,7 @@ export function useNeighborProjection(peer: string, tabKey: string): NeighborPro
       }).catch(() => {});
     };
     const keep = (stop: () => void) => { if (live) stops.push(stop); else stop(); };
-    for (const event of ["neighbor-agent-changed", "neighbors-changed", "account-changed"]) void listen(event, load).then(keep);
+    for (const event of ["neighbor-agent-changed", "neighbor-friend-paused", "neighbors-changed", "account-changed"]) void listen(event, load).then(keep);
     stops.push(onResync(load));
     load();
     return () => { live = false; controller?.abort(); stops.forEach(stop => stop()); };

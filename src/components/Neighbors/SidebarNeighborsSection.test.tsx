@@ -75,7 +75,7 @@ it("groups the selected remote peer's concierge without reading or managing the 
   await act(async () => { document.querySelector<HTMLElement>('[role="menuitem"]')!.click(); });
   expect(takeNeighborFocus()).toEqual({ id: "pair", section: null });
   transport.webJson.mockResolvedValue({ pair: { tab_id: "tab-gateway", friend_display_name: "Remote Friend", friend_photo_url: null, paused: true, access: "paid" } });
-  await act(async () => emit("neighbors-changed"));
+  await act(async () => emit("neighbor-friend-paused", { friendship_id: "pair", paused: true }));
   expect(button("Open Remote Friend").querySelector("img")).toBeNull();
   expect(button("Open Remote Friend").textContent).toContain("RF");
   expect(button("Open Remote Friend").textContent).toContain("disabled");
