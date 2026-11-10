@@ -1,14 +1,16 @@
 import type { NormalizedChatMessage,ShellCommandStatus } from "./types";
+import type { CommandLifecycle } from "./gen/CommandLifecycle";
+import type { ShellCapabilitySnapshot } from "./gen/ShellCapabilitySnapshot";
 
 /** Mirror of the Rust `ShellCommand` (serde camelCase) — one finished command. */
 export type ShellCommandSnapshotItem = import("./gen/ShellCommand").ShellCommand;
 
 /** Mirror of the Rust `ShellCapabilitySnapshot` returned by `shell_command_snapshot`. */
-export type ShellCommandSnapshot = import("./gen/ShellCapabilitySnapshot").ShellCapabilitySnapshot;
+export type ShellCommandSnapshot = ShellCapabilitySnapshot;
 
 /** Mirror of the Rust `CommandLifecycle` (serde tag "kind", camelCase) carried by
  *  the `shell-command-changed` event payload's `event` field. */
-export type CommandLifecycle = import("./gen/CommandLifecycle").CommandLifecycle;
+export type { CommandLifecycle } from "./gen/CommandLifecycle";
 
 const TYPE: NormalizedChatMessage["type"] = "shell_command";
 

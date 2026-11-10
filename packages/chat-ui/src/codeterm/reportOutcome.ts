@@ -1,4 +1,6 @@
-export type ReportOutcomeClass = import("../../../chat-core/src/gen/ReportOutcomeClass").ReportOutcomeClass;
+import type { ReportOutcomeClass } from "../../../chat-core/src/gen/ReportOutcomeClass";
+
+export type { ReportOutcomeClass } from "../../../chat-core/src/gen/ReportOutcomeClass";
 
 /** Task-transition truth of one accepted report, as decided by the daemon. */
 export interface ReportTaskOutcome {
