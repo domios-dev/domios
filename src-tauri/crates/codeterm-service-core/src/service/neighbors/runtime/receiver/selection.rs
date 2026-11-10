@@ -111,18 +111,24 @@ impl SelectionPort for RelaySelection<'_> {
         let keys = match existing {
             Some(keys) => {
                 let id = keys.verifier_key_id(&registry.uid);
-                refresh_registration(
-                    &mut registered,
-                    RegistrationBinding::new(
-                        registry,
-                        self.generation,
-                        session.login_generation,
-                        id,
-                    ),
+                let binding = RegistrationBinding::new(
                     registry,
-                    &keys,
-                )
-                .await?;
+                    self.generation,
+                    session.login_generation,
+                    id.clone(),
+                );
+                if registered.is_none()
+                    && self.service.neighbor_key_registration_confirmed(
+                        &registry.uid,
+                        session.login_generation,
+                        &id,
+                        &registry.installation_id,
+                        &registry.machine_label,
+                    )
+                {
+                    *registered = Some(binding.clone());
+                }
+                refresh_registration(&mut registered, binding, registry, &keys).await?;
                 keys
             }
             None => lifecycle.enroll(&mut rand::rngs::OsRng).await?,

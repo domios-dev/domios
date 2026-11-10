@@ -148,6 +148,34 @@ impl ServiceContext {
                 .unwrap_or(false)
     }
 
+    pub(super) fn neighbor_key_registration_confirmed(
+        &self,
+        uid: &str,
+        generation: u64,
+        key: &str,
+        installation: &str,
+        label: &str,
+    ) -> bool {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        state.authoritative
+            && !state.unavailable
+            && state.key_inventory_pending.is_empty()
+            && state.selected.as_ref() == Some(&(uid.to_owned(), generation))
+            && state
+                .snapshots
+                .read(uid, generation, "friendsOwnKeys", "", now_seconds())
+                .and_then(|keys| {
+                    keys.as_array().map(|keys| {
+                        keys.iter().any(|row| {
+                            row["verifier_key_id"] == key
+                                && row["installation_id"] == installation
+                                && row["machine_label"] == label
+                        })
+                    })
+                })
+                .unwrap_or(false)
+    }
+
     fn queue_neighbor_projection_version(&self, uid: &str, generation: u64, version: u64) -> bool {
         let mut state = self.extensions.get_or_init(Cell::default).state.lock();
         if state.selected.as_ref() != Some(&(uid.to_owned(), generation))

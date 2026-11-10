@@ -117,8 +117,46 @@ struct InventoryFixture {
     store: Arc<dyn KeyStore>,
 }
 
+#[derive(Default)]
+struct ImmediateProvider(codeterm_account::adapters::fake::Fake);
+
+#[async_trait]
+impl codeterm_account::IdentityProvider for ImmediateProvider {
+    fn id(&self) -> &str {
+        "fake"
+    }
+    fn needs_browser_callback(&self) -> bool {
+        false
+    }
+    async fn start_login(
+        &self,
+        _: &codeterm_account::LoginFlow,
+    ) -> codeterm_account::Result<codeterm_account::LoginStart> {
+        self.0
+            .refresh(&codeterm_account::Secret::new("fake-refresh"))
+            .await
+            .map(codeterm_account::LoginStart::Immediate)
+    }
+    async fn redeem(
+        &self,
+        _: codeterm_account::Redemption,
+    ) -> codeterm_account::Result<codeterm_account::Tokens> {
+        panic!("Immediate sign-in cannot use a callback")
+    }
+    async fn refresh(
+        &self,
+        token: &codeterm_account::Secret,
+    ) -> codeterm_account::Result<codeterm_account::Tokens> {
+        self.0.refresh(token).await
+    }
+    async fn revoke(&self, token: &codeterm_account::Secret) -> codeterm_account::Result<()> {
+        self.0.revoke(token).await
+    }
+}
+
 async fn fixture(snapshot_before_response: bool) -> InventoryFixture {
-    let (fixture, account, calls) = super::auth::fixture().await;
+    let (fixture, account, calls) =
+        super::auth::fixture_with_provider(Arc::new(ImmediateProvider::default())).await;
     fixture
         .service
         .ext::<crate::config::ConfigState>()
@@ -270,6 +308,11 @@ async fn snapshot_before_wait_and_idempotent_same_key_need_no_new_version() {
         Some(2)
     );
     assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 2);
+    service
+        .select_neighbor_receiver_for_test(&f.registry, &f.scope)
+        .await
+        .unwrap();
+    assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 3);
 }
 
 #[tokio::test(start_paused = true)]
@@ -314,6 +357,18 @@ async fn listener_owned_enrollment_is_pending_without_waiting_or_losing_candidat
         candidate.as_slice()
     );
     assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 1);
+
+    let mut renamed = f.registry.clone();
+    renamed.machine_label = "Renamed".into();
+    service
+        .select_neighbor_receiver_for_test(&renamed, &f.scope)
+        .await
+        .unwrap();
+    service
+        .select_neighbor_receiver_for_test(&renamed, &f.scope)
+        .await
+        .unwrap();
+    assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test(start_paused = true)]
@@ -442,8 +497,9 @@ async fn deadline_disable_account_switch_and_cancellation_keep_candidate_and_for
             }
             "account" => {
                 f.account.logout().await.unwrap();
-                f.account.refresh().await.unwrap();
+                f.account.login(Arc::new(NoBrowser)).await.unwrap();
                 let session = f.account.session().await.unwrap();
+                assert_ne!(session.login_generation, f.port.generation);
                 service
                     .select_neighbor_projection(&session.identity.uid, session.login_generation)
                     .await
