@@ -10,7 +10,7 @@ fn worker_spawn_sandbox_is_explicit_and_off_by_default() {
             "spawn",
             "codex",
             "--role",
-            "Worker",
+            "worker",
             "--plan",
             "pl",
             "--execution-intent",

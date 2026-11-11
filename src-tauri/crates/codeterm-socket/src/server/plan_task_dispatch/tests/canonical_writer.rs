@@ -518,12 +518,9 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
 
     for kind in ["qa", "release_manager"] {
         for task_id in [None, Some(task.id.as_str())] {
-            let profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
-                task.executor_role.as_deref(),
-                Some(kind),
-            )
-            .unwrap()
-            .unwrap();
+            let profile = codeterm_types::agent::role_kind::RoleType::parse(kind)
+                .unwrap()
+                .kind_id;
             let mut params = codeterm_service_core::service::SpawnAgentParams {
                 role: Some("Worker".into()),
                 role_profile: Some(profile),

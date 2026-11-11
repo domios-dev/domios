@@ -399,10 +399,11 @@ pub enum PlanTaskAction {
         #[arg(long, value_parser = ["shared", "lane"], conflicts_with = "canonical_writer")]
         placement: Option<String>,
         #[arg(
-            long = "kind",
-            help = "Select a built-in Worker prompt kind without changing the task's executor_role"
+            long = "role",
+            value_parser = crate::args::agent::parse_role_type,
+            help = "Worker type to launch (worker, qa, reviewer, release_manager or a Team-registered name); the task's executor_role is unchanged"
         )]
-        worker_kind: Option<String>,
+        role: Option<crate::args::agent::RoleType>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(

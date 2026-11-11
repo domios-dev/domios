@@ -27,11 +27,8 @@ pub(super) fn prepare(
             "Remote agents cannot claim local hierarchy or task authority".into(),
         ));
     }
-    let role = super::validate_spawn_role(
-        body.role.clone().or(Some("Worker".into())),
-        body.role_profile.clone(),
-    )
-    .map_err(|(status, message)| SpawnRejection::new(status, "bad_request", message))?;
+    let role = super::validate_spawn_role(body.role.as_deref().or(Some("worker")))
+        .map_err(|(status, message)| SpawnRejection::new(status, "bad_request", message))?;
     if role.role.as_deref() != Some("Worker") {
         return Err(SpawnRejection::new(
             StatusCode::FORBIDDEN,

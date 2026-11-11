@@ -399,7 +399,7 @@ mod tests {
         assert!(msg.contains("team-xyz"));
         assert!(msg.contains("pl_real42"));
         // A ready-to-run planner spawn bound to THIS tab and the real plan.
-        assert!(msg.contains("--parent-tab tab-abc --role Planner --plan pl_real42"));
+        assert!(msg.contains("--parent-tab tab-abc --role planner --plan pl_real42"));
         assert_no_placeholder_residue(&msg);
     }
 

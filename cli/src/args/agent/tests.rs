@@ -334,39 +334,46 @@ fn spawn_without_provider_keeps_model_routing_available() {
 }
 
 #[test]
-fn spawn_planner_role_maps_to_worker_profile() {
-    let cli = Cli::try_parse_from(["codeterm", "agent", "spawn", "claude", "--role", "Planner"])
-        .expect("planner role parses");
+fn spawn_role_is_a_type_and_structural_literals_are_refused() {
+    let cli = Cli::try_parse_from(["codeterm", "agent", "spawn", "claude", "--role", "planner"])
+        .expect("planner type parses");
     match cli.command {
         crate::Commands::Agent {
             action: AgentAction::Spawn { role, .. },
         } => {
             let role = role.expect("role set");
-            assert_eq!(role.as_str(), "Manager");
-            assert_eq!(role.role_profile(), Some("planner"));
+            assert_eq!(role.role.label(), "Manager");
+            assert_eq!(role.kind_id, "planner");
         }
         _ => panic!("expected agent spawn"),
+    }
+    for literal in ["Manager", "Worker", "Planner", "Orchestrator"] {
+        assert!(
+            Cli::try_parse_from(["codeterm", "agent", "spawn", "claude", "--role", literal])
+                .is_err(),
+            "{literal}"
+        );
     }
 }
 
 #[test]
-fn spawn_watcher_role_maps_to_manager_profile() {
+fn spawn_watcher_type_derives_the_manager_role() {
     let cli = Cli::try_parse_from([
         "codeterm",
         "agent",
         "spawn",
         "fixture-backend",
         "--role",
-        "Watcher",
+        "watcher",
     ])
-    .expect("watcher role parses");
+    .expect("watcher type parses");
     match cli.command {
         crate::Commands::Agent {
             action: AgentAction::Spawn { role, .. },
         } => {
             let role = role.expect("role set");
-            assert_eq!(role.as_str(), "Manager");
-            assert_eq!(role.role_profile(), Some("watcher"));
+            assert_eq!(role.role.label(), "Manager");
+            assert_eq!(role.kind_id, "watcher");
         }
         _ => panic!("expected agent spawn"),
     }
@@ -380,7 +387,7 @@ fn spawn_worker_plan_task_parses() {
         "spawn",
         "claude",
         "--role",
-        "Worker",
+        "worker",
         "--plan",
         "pl_test",
         "--plan-task",
@@ -397,7 +404,10 @@ fn spawn_worker_plan_task_parses() {
                     ..
                 },
         } => {
-            assert!(matches!(role, Some(SpawnRole::Worker)));
+            assert_eq!(
+                role.as_ref().map(|role| role.kind_id.as_str()),
+                Some("worker")
+            );
             assert_eq!(plan.as_deref(), Some("pl_test"));
             assert_eq!(plan_task.as_deref(), Some("my-task"));
         }
@@ -410,7 +420,7 @@ fn agent_spawn_unplanned_parses_reason() {
     let action = parse_spawn(&[
         "codex",
         "--role",
-        "Worker",
+        "worker",
         "--unplanned",
         "--reason",
         "urgent probe",
@@ -426,7 +436,10 @@ fn agent_spawn_unplanned_parses_reason() {
             reason,
             ..
         } => {
-            assert!(matches!(role, Some(SpawnRole::Worker)));
+            assert_eq!(
+                role.as_ref().map(|role| role.kind_id.as_str()),
+                Some("worker")
+            );
             assert!(unplanned);
             assert_eq!(tags, vec!["work:qa"]);
             assert_eq!(reason.as_deref(), Some("urgent probe"));
@@ -443,7 +456,7 @@ fn spawn_read_only_worker_parses_without_a_plan_task() {
     let action = parse_spawn(&[
         "codex",
         "--role",
-        "Worker",
+        "worker",
         "--plan",
         "pl_test",
         "--execution-intent",
@@ -463,7 +476,10 @@ fn spawn_read_only_worker_parses_without_a_plan_task() {
             authorized_gates,
             ..
         } => {
-            assert!(matches!(role, Some(SpawnRole::Worker)));
+            assert_eq!(
+                role.as_ref().map(|role| role.kind_id.as_str()),
+                Some("worker")
+            );
             assert_eq!(plan.as_deref(), Some("pl_test"));
             assert!(plan_task.is_none());
             assert_eq!(execution_intent.as_deref(), Some("read_only"));
@@ -484,8 +500,6 @@ fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
     let action = parse_spawn(&[
         "codex",
         "--role",
-        "Worker",
-        "--kind",
         "qa",
         "--parent-tab",
         "parent_tab",
@@ -496,7 +510,6 @@ fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
     match action {
         AgentAction::Spawn {
             role,
-            kind,
             parent,
             plan,
             plan_task,
@@ -504,8 +517,7 @@ fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
             authorized_gates,
             ..
         } => {
-            assert!(matches!(role, Some(SpawnRole::Worker)));
-            assert_eq!(kind.as_deref(), Some("qa"));
+            assert_eq!(role.as_ref().map(|role| role.kind_id.as_str()), Some("qa"));
             assert_eq!(parent.as_deref(), Some("parent_tab"));
             assert!(plan.is_none());
             assert!(plan_task.is_none());
@@ -521,8 +533,6 @@ fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
     let action = parse_spawn(&[
         "codex",
         "--role",
-        "Worker",
-        "--kind",
         "reviewer",
         "--parent-tab",
         "parent_tab",
@@ -532,14 +542,17 @@ fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
     .expect("task-less reviewer Worker spawn parses");
     match action {
         AgentAction::Spawn {
-            kind,
+            role,
             task,
             plan_task,
             bound_task,
             execution_intent,
             ..
         } => {
-            assert_eq!(kind.as_deref(), Some("reviewer"));
+            assert_eq!(
+                role.as_ref().map(|role| role.kind_id.as_str()),
+                Some("reviewer")
+            );
             assert_eq!(task.as_deref(), Some("Review the exact diff named here"));
             assert!(plan_task.is_none());
             assert!(bound_task.is_none());
@@ -557,7 +570,7 @@ fn execution_intent_no_longer_requires_a_plan_task_at_parse_time() {
     let action = parse_spawn(&[
         "codex",
         "--role",
-        "Worker",
+        "worker",
         "--execution-intent",
         "read_only",
     ])
@@ -582,7 +595,7 @@ fn spawn_provider_args_preserve_hyphen_values_after_codeterm_bindings() {
     let action = parse_spawn(&[
         "claude",
         "--role",
-        "Worker",
+        "worker",
         "--plan",
         "pl_x",
         "--task",
@@ -604,7 +617,10 @@ fn spawn_provider_args_preserve_hyphen_values_after_codeterm_bindings() {
             model,
             ..
         } => {
-            assert!(matches!(role, Some(SpawnRole::Worker)));
+            assert_eq!(
+                role.as_ref().map(|role| role.kind_id.as_str()),
+                Some("worker")
+            );
             assert_eq!(plan.as_deref(), Some("pl_x"));
             assert_eq!(task.as_deref(), Some("do x"));
             assert_eq!(
@@ -633,10 +649,13 @@ fn spawn_without_provider_args_is_unaffected() {
         _ => panic!("expected agent spawn"),
     }
 
-    let action = parse_spawn(&["claude", "--role", "Worker"]).expect("role should still parse");
+    let action = parse_spawn(&["claude", "--role", "worker"]).expect("role should still parse");
     match action {
         AgentAction::Spawn { role, args, .. } => {
-            assert!(matches!(role, Some(SpawnRole::Worker)));
+            assert_eq!(
+                role.as_ref().map(|role| role.kind_id.as_str()),
+                Some("worker")
+            );
             assert!(args.is_none());
         }
         _ => panic!("expected agent spawn"),
@@ -715,17 +734,20 @@ fn spawn_team_conflicts_with_plan_task() {
 /// role is refused later, by code, not by clap.
 #[test]
 fn spawn_team_parses_with_an_anchoring_role() {
-    let parsed = parse_spawn(&["claude", "--team", "team_alpha", "--role", "Orchestrator"])
-        .expect("--team --role Orchestrator parses");
+    let parsed = parse_spawn(&["claude", "--team", "team_alpha", "--role", "orchestrator"])
+        .expect("--team --role orchestrator parses");
     match parsed {
         AgentAction::Spawn { team, role, .. } => {
             assert_eq!(team.as_deref(), Some("team_alpha"));
-            assert!(matches!(role, Some(SpawnRole::Orchestrator)));
+            assert_eq!(
+                role.as_ref().map(|role| role.kind_id.as_str()),
+                Some("orchestrator")
+            );
         }
         _ => panic!("expected agent spawn"),
     }
     assert!(
-        parse_spawn(&["claude", "--team", "team_alpha", "--role", "Worker"]).is_ok(),
+        parse_spawn(&["claude", "--team", "team_alpha", "--role", "worker"]).is_ok(),
         "a non-anchoring role parses and is refused by the spawn verb, not by clap"
     );
 }
@@ -798,35 +820,36 @@ fn launch_commands_accept_provider_owned_speed() {
 }
 
 #[test]
-fn agent_spawn_profile_is_separate_from_worker_kind_and_model() {
-    for kind in ["--kind", "--role-profile"] {
-        let parsed = Cli::try_parse_from([
-            "domios",
-            "agent",
-            "spawn",
-            "acp",
-            "--profile",
-            "deepseek-harness",
-            kind,
-            "qa",
-        ])
-        .unwrap();
-        let crate::Commands::Agent {
-            action:
-                AgentAction::Spawn {
-                    agent,
-                    launch_profile,
-                    kind,
-                    model,
-                    ..
-                },
-        } = parsed.command
-        else {
-            panic!("expected spawn");
-        };
-        assert_eq!(agent.as_deref(), Some("acp"));
-        assert_eq!(launch_profile.as_deref(), Some("deepseek-harness"));
-        assert_eq!(kind.as_deref(), Some("qa"));
-        assert!(model.is_none());
+fn agent_spawn_profile_is_separate_from_role_type_and_model() {
+    let parsed = Cli::try_parse_from([
+        "domios",
+        "agent",
+        "spawn",
+        "acp",
+        "--profile",
+        "deepseek-harness",
+        "--role",
+        "qa",
+    ])
+    .unwrap();
+    let crate::Commands::Agent {
+        action:
+            AgentAction::Spawn {
+                agent,
+                launch_profile,
+                role,
+                model,
+                ..
+            },
+    } = parsed.command
+    else {
+        panic!("expected spawn");
+    };
+    assert_eq!(agent.as_deref(), Some("acp"));
+    assert_eq!(launch_profile.as_deref(), Some("deepseek-harness"));
+    assert_eq!(role.as_ref().map(|role| role.kind_id.as_str()), Some("qa"));
+    assert!(model.is_none());
+    for removed in ["--kind", "--role-profile"] {
+        assert!(Cli::try_parse_from(["domios", "agent", "spawn", "acp", removed, "qa"]).is_err());
     }
 }

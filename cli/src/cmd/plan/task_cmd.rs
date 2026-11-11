@@ -341,7 +341,7 @@ pub(super) fn run_dispatch(
         authorized_gates,
         canonical_writer,
         placement,
-        worker_kind,
+        role,
         model,
         launch_profile,
         speed,
@@ -375,8 +375,8 @@ pub(super) fn run_dispatch(
     } else if let Some(placement) = placement {
         params["placement"] = json!(placement);
     }
-    if let Some(kind) = worker_kind {
-        params["worker_kind"] = json!(kind);
+    if let Some(role) = role {
+        params["role"] = json!(role.kind_id);
     }
     if let Some(agent) = agent {
         params["agent"] = json!(agent);

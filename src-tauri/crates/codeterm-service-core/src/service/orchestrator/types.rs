@@ -139,7 +139,7 @@ pub struct SpawnAgentParams {
     pub remote_task_binding: Option<RemoteTaskBinding>,
     #[serde(default, skip)]
     pub plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
-    /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
+    /// Named plan task to bind when spawning `--role worker` (`--plan-task`).
     pub plan_task: Option<String>,
     /// Gate tokens a task-less Worker may claim as executed, rendered into its
     /// brief by the same writer the plan-task dispatch path uses.

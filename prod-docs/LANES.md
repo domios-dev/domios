@@ -62,7 +62,7 @@ Read-only attempts and non-repository tasks can report `in_review` without a
 checkout or commit SHA. Mutating repository attempts with neither a lane nor a
 recorded checkout receive the worktree refusal; ask the Orchestrator to
 re-dispatch with a worktree and report partial progress.
-For this canonical dispatch, add `--kind qa` or `--kind release_manager` to
+For this canonical dispatch, add `--role qa` or `--role release_manager` to
 select the built-in prompt profile without changing `task.executor_role`; the
 kind does not grant canonical placement.
 Direct `agent spawn --plan-task` cannot reserve a task attempt and remains refused

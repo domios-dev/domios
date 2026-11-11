@@ -94,7 +94,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
             authorized_gates: Vec::new(),
             canonical_writer: false,
             placement: None,
-            worker_kind: None,
+            role: None,
             speed: None,
             launch_profile: None,
             model: Some("gpt-9-bogus".into()),
@@ -139,7 +139,7 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         authorized_gates: Vec::new(),
         canonical_writer: false,
         placement: None,
-        worker_kind: None,
+        role: None,
         speed: None,
         launch_profile: None,
         model: None,
@@ -202,14 +202,14 @@ fn plan_task_dispatch_sends_explicit_description_override() {
 }
 
 #[test]
-fn plan_task_dispatch_sends_selected_worker_kind() {
+fn plan_task_dispatch_sends_the_selected_worker_type() {
     for kind in ["release_manager", "reviewer"] {
         let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
         let mut action = dispatch_action("lane");
-        let PlanTaskAction::Dispatch { worker_kind, .. } = &mut action else {
+        let PlanTaskAction::Dispatch { role, .. } = &mut action else {
             unreachable!()
         };
-        *worker_kind = Some(kind.into());
+        *role = Some(crate::args::agent::RoleType::parse(kind).expect("worker type"));
 
         let _ = run_dispatch(&mut client, true, action, None).expect("dispatch runs");
         let params = client
@@ -218,7 +218,7 @@ fn plan_task_dispatch_sends_selected_worker_kind() {
             .find(|(method, _)| method == "plan.task.dispatch")
             .and_then(|(_, params)| params.as_ref())
             .expect("dispatch params");
-        assert_eq!(params["worker_kind"], kind);
+        assert_eq!(params["role"], kind);
     }
 }
 

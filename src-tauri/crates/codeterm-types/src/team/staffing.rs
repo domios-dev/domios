@@ -23,7 +23,7 @@ pub const TEAM_WORKSPACE_UNRESOLVED: &str = "team_workspace_unresolved";
 /// `--team` was combined with a role that does not anchor a Team.
 pub const TEAM_SPAWN_ROLE_MUST_ANCHOR: &str = "team_spawn_role_must_anchor";
 
-/// `--team --role Orchestrator` was combined with a flag the staffing verb does
+/// `--team --role orchestrator` was combined with a flag the staffing verb does
 /// not carry; the flag is named rather than silently dropped.
 pub const TEAM_SPAWN_FLAG_UNSUPPORTED: &str = "team_spawn_flag_unsupported";
 

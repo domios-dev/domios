@@ -177,8 +177,6 @@ fn taskless_worker_kind_mesh_spawn_preserves_profile_and_read_only_intent() {
         "spawn",
         "claude",
         "--role",
-        "Worker",
-        "--kind",
         "qa",
         "--parent-tab",
         "parent-tab",
@@ -191,8 +189,8 @@ fn taskless_worker_kind_mesh_spawn_preserves_profile_and_read_only_intent() {
 
     assert_eq!(method, "POST");
     assert_eq!(path, "/api/agents/spawn");
-    assert_eq!(body["role"], "Worker");
-    assert_eq!(body["role_profile"], "qa");
+    assert_eq!(body["role"], "qa");
+    assert!(body.get("role_profile").is_none());
     assert_eq!(body["parent_tab_id"], "parent-tab");
     assert_eq!(body["execution_intent"], "read_only");
 }

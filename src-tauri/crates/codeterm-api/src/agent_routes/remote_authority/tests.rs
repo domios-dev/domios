@@ -14,8 +14,7 @@ fn remote_agent_spawn_retains_agent_ownership_without_local_hierarchy_authority(
     let mut body: SpawnAgentBody =
         serde_json::from_value(json!({"agent":"opaque-provider", "task":"opaque-task"})).unwrap();
     prepare(&agent(), &mut body).unwrap_or_else(|error| panic!("{}", error.body));
-    let role =
-        super::super::validate_spawn_role(body.role.clone(), body.role_profile.clone()).unwrap();
+    let role = super::super::validate_spawn_role(body.role.as_deref()).unwrap();
     let ownership = body.ownership.clone();
     let params = super::super::spawn_request::into_params(body, role, ownership);
     assert_eq!(params.role.as_deref(), Some("Worker"));
@@ -38,8 +37,8 @@ fn remote_agent_spawn_retains_agent_ownership_without_local_hierarchy_authority(
 #[test]
 fn remote_spawn_cannot_promote_or_claim_local_plan_and_team_authority() {
     for payload in [
-        json!({"role":"Orchestrator"}),
-        json!({"role":"Planner"}),
+        json!({"role":"orchestrator"}),
+        json!({"role":"planner"}),
         json!({"team_id":"local-team"}),
         json!({"plan_id":"local-plan"}),
         json!({"plan_task":"local-plan/task"}),

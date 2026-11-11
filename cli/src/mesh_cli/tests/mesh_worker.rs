@@ -10,7 +10,7 @@ fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
         "--cwd",
         "D:/peer/workspace",
         "--role",
-        "Worker",
+        "worker",
         "--task",
         "check out the repo, build it, serve it",
     ]));
@@ -19,7 +19,7 @@ fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
     assert_eq!(path, "/api/agents/spawn");
     let body: serde_json::Value =
         serde_json::from_str(&body.expect("agent spawn carries a body")).unwrap();
-    assert_eq!(body["role"], "Worker");
+    assert_eq!(body["role"], "worker");
     assert!(
         body.get("plan_task").is_none() && body.get("task_id").is_none(),
         "the mesh Worker owns no binding: {body}"

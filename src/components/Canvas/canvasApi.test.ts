@@ -36,8 +36,8 @@ async function run() {
     await spawnOrchestrator({} as ApiConfig, { providerId: selected, workspaceId: "workspace-1" });
     const payload = payloads[0] as Record<string, unknown>;
     assert(payload.agent === "ui-selected", "payload carries the UI-selected provider through the accepted agent field");
-    assert(payload.role === "Manager", "payload carries the structural Manager role");
-    assert(payload.role_profile === "orchestrator", "payload names the orchestrator kind");
+    assert(payload.role === "orchestrator", "payload names the orchestrator role type");
+    assert(payload.role_profile === undefined, "the structural pair derives from the type");
     assert(payload.workspace_id === "workspace-1", "payload carries workspace provenance");
     assert(!("task" in payload) && !("provider" in payload) && !("bootstrap" in payload), "payload contains only accepted provenance fields");
 

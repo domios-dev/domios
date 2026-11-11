@@ -809,7 +809,7 @@ fn bootstrap_agent_created_pair_keeps_parent_startup_handshake() {
 
 #[test]
 fn bootstrap_user_creation_origin_cannot_be_supplied_by_wire_input() {
-    let input = serde_json::json!({"user_created": true, "role": "Worker"});
+    let input = serde_json::json!({"user_created": true, "role": "worker"});
     assert!(
         !serde_json::from_value::<SpawnAgentParams>(input.clone())
             .unwrap()

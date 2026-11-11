@@ -232,7 +232,7 @@ impl ServiceContext {
         // Active-workspace fallback can silently land them in the wrong plan context.
         if params.spawns_anchor() && params.workspace_id.is_none() && params.parent_tab_id.is_none()
         {
-            return Err("--workspace is required when spawning --role Orchestrator \
+            return Err("--workspace is required when spawning --role orchestrator \
                  (orchestrators must be pinned to a workspace)"
                 .into());
         }

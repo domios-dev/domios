@@ -65,7 +65,7 @@ fn test_spawn_agent_params_from_json() {
     let json = serde_json::json!({
         "agent": "claude",
         "agent_name": "architect",
-        "role": "Conductor",
+        "role": "orchestrator",
         "can_spawn": true,
         "task": "do something",
         "args": ["--verbose"],
@@ -73,7 +73,7 @@ fn test_spawn_agent_params_from_json() {
     let params = SpawnAgentParams::from_json(&json).unwrap();
     assert_eq!(params.agent.as_deref(), Some("claude"));
     assert_eq!(params.agent_name.as_deref(), Some("architect"));
-    // Wire sugar resolves once: stored authority is the structural role plus kind.
+    // The wire names a type; stored authority is the structural role plus kind.
     assert_eq!(params.role.as_deref(), Some("Manager"));
     assert_eq!(
         params.role_profile.as_deref(),
@@ -137,7 +137,7 @@ fn spawn_agent_params_from_json_treats_empty_role_fields_as_absent() {
 fn spawn_agent_params_from_json_maps_planner_to_manager_profile() {
     let params = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",
-        "role": "Planner",
+        "role": "planner",
         "plan_id": "pl_test",
     }))
     .unwrap();
@@ -150,7 +150,7 @@ fn spawn_agent_params_from_json_maps_planner_to_manager_profile() {
 fn spawn_agent_params_from_json_maps_watcher_to_manager_profile() {
     let params = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "lmstudio",
-        "role": "Watcher",
+        "role": "watcher",
         "charter": "Observe.",
         "tick_interval_secs": 90,
         "nudge_cooldown_secs": 300,
@@ -169,7 +169,7 @@ fn spawn_agent_params_from_json_maps_watcher_to_manager_profile() {
 fn spawn_agent_params_from_json_maps_plan_task() {
     let params = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",
-        "role": "Worker",
+        "role": "worker",
         "plan_id": "pl_test",
         "plan_task": "my-task",
     }))
@@ -180,21 +180,14 @@ fn spawn_agent_params_from_json_maps_plan_task() {
 }
 
 #[test]
-fn manager_requires_named_extensible_profile() {
-    let missing = SpawnAgentParams::from_json(&serde_json::json!({
+fn the_structural_manager_literal_is_refused_on_the_wire() {
+    let refused = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",
         "role": "Manager",
+        "role_profile": "planner",
     }))
     .unwrap_err();
-    assert!(missing.contains("Manager requires a named role_profile"));
-
-    let custom = SpawnAgentParams::from_json(&serde_json::json!({
-        "agent": "claude",
-        "role": "Manager",
-        "role_profile": "Review Lead",
-    }))
-    .unwrap();
-    assert_eq!(custom.role_profile.as_deref(), Some("review_lead"));
+    assert!(refused.contains("structural role"), "{refused}");
 }
 
 #[test]
@@ -204,9 +197,8 @@ fn unknown_role_is_rejected() {
         "role": "Lead",
     }))
     .unwrap_err();
-    assert!(err.contains("Invalid role: Lead"));
-    assert!(err.contains("Planner"));
-    assert!(err.contains("Watcher"));
+    assert!(err.contains("Lead"), "{err}");
+    assert!(err.contains("role type"), "{err}");
 }
 
 #[test]
