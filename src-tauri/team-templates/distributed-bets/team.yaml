@@ -1,0 +1,129 @@
+# distributed-bets — Agentic Team Protocol (ATP) builtin package
+name: dev.domios/distributed-bets
+version: 1.0.0
+title: Distributed bets
+description: >-
+  Breaks a product into bets, distributes the work across independent agents, simulates
+  every bet in two waves and returns ranked bets, each scored 1-10 with its top three
+  assumptions and a kill criterion, plus a navigable map and an export.
+icon: assets/icon.svg
+authors:
+  - name: Domios
+    url: https://domios.dev
+license: Apache-2.0
+when:
+  - break a product into bets
+  - simulate and rank product bets
+  - plan a product roadmap as scored bets with kill criteria
+  - stress-test product bets with a two-wave simulation
+  - visualize bets, gates and dependencies as a navigable map
+
+project: required
+
+inputs:
+  product: The product or goal to break into bets
+  design_record: Where the product's design record lives and how to open one element of it
+  spec_style: The spec template and style gate every bet one-pager must pass
+  regions: The product regions bets are grouped into, with a short code for each
+  tracker:
+    description: The tracker and its conventions, read for context; nothing is written to it without the owner's request
+    required: false
+    default: none
+  repositories: The code repositories bets are audited and simulated against, read-only
+  bet_size:
+    description: What one bet is sized to
+    required: false
+    default: about three weeks of one to three engineers, with an outcome visible outside the team
+
+permissions:
+  network: true
+  repo_write: true
+  shell: true
+  browser: true
+
+files:
+  - path: assets/icon.svg
+    description: Package icon
+    content: |
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><circle cx="12" cy="13" r="1.5"/><path d="M12 7v4.5M11 14l-4.6 2.6M13 14l4.6 2.6"/></svg>
+  - path: docs/bet-card.md
+    description: The bet card, the scoring contract and the output every run returns
+
+memory:
+  - title: Bet inbox items must be able to turn a bet
+    kind: learning
+    body: >-
+      In distributed-bets runs, an inbox or open-question item is kept only when its answer
+      could change a bet's outcome, size, wave or kill criterion; anything else is noise and is dropped.
+    tags: [distributed-bets]
+  - title: Search for old bet codes after a renumbering
+    kind: learning
+    body: >-
+      After bets or regions are renumbered, search every card, spec, note and map data file for
+      the old codes; stale codes silently break dependency chains and the map.
+    tags: [distributed-bets]
+  - title: Bet specs never name sibling bets
+    kind: rule
+    body: >-
+      A bet's spec one-pager describes its own outcome and depends on others only through the
+      card's blockedBy codes; naming sibling bets in prose goes stale with every reshuffle.
+    tags: [distributed-bets]
+
+skills:
+  - path: skills/bet-map
+
+managers:
+  orchestrator:
+    name: Compass
+    files: [docs/bet-card.md]
+    instructions_file: managers/orchestrator.md
+
+  planner:
+    files: [docs/bet-card.md]
+    instructions_file: managers/planner.md
+
+workers:
+  stance:
+    description: Argues one stance in the consilium (architect, skeptic or consumer).
+    files: [docs/bet-card.md]
+    instructions_file: workers/stance.md
+
+  chair:
+    description: Turns the consilium's positions into one bet set with regions, hubs and gates.
+    files: [docs/bet-card.md]
+    instructions_file: workers/chair.md
+
+  writer:
+    description: Writes bet cards and spec one-pagers with file:line evidence.
+    files: [docs/bet-card.md]
+    instructions_file: workers/writer.md
+
+  cold_critic:
+    description: Reads the bets cold, opens every source itself and returns findings or CONVERGED.
+    files: [docs/bet-card.md]
+    instructions_file: workers/cold_critic.md
+
+  loss_critic:
+    description: Compares every rewrite with its preserved prior text and flags what was lost.
+    instructions_file: workers/loss_critic.md
+
+  auditor:
+    description: Audits the bets against one source, the design record or the code.
+    files: [docs/bet-card.md]
+    instructions_file: workers/auditor.md
+
+  pod:
+    description: Simulates one bet in one wave as the team that would build it.
+    files: [docs/bet-card.md]
+    instructions_file: workers/pod.md
+
+  sim_reviewer:
+    description: Verifies each simulation's findings and the honesty of its scoring.
+    files: [docs/bet-card.md]
+    instructions_file: workers/sim_reviewer.md
+
+  mapmaker:
+    description: Builds the navigable bet map, its validator and the export.
+    skills: [bet-map]
+    files: [docs/bet-card.md]
+    instructions_file: workers/mapmaker.md
