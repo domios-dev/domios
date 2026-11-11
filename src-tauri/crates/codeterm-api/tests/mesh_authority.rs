@@ -450,7 +450,7 @@ async fn registered_agent_operation_matrix_preserves_owner_local_remote_and_peer
         }
         // A deliberately unknown provider reaches ordinary validation after actor/delegation admission.
         let (status, spawn) = request(app.clone(), &token, "POST", "/api/agents/spawn", json!({
-            "agent":"authority-fixture-no-provider", "title":"Child", "description":"Authority fixture", "role":"Worker",
+            "agent":"authority-fixture-no-provider", "title":"Child", "description":"Authority fixture", "role":"worker",
         })).await;
         assert_ne!(status, StatusCode::FORBIDDEN, "{kind}: {spawn}");
         assert!(

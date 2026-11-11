@@ -518,12 +518,9 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
 
     for kind in ["qa", "release_manager"] {
         for task_id in [None, Some(task.id.as_str())] {
-            let profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
-                task.executor_role.as_deref(),
-                Some(kind),
-            )
-            .unwrap()
-            .unwrap();
+            let profile = codeterm_types::agent::role_kind::RoleType::parse(kind)
+                .unwrap()
+                .kind_id;
             let mut params = codeterm_service_core::service::SpawnAgentParams {
                 role: Some("Worker".into()),
                 role_profile: Some(profile),
@@ -545,11 +542,8 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
 
             assert_eq!(params.task_id.as_deref(), task_id);
             assert_eq!(preset.kind_id, kind);
-            assert!(preset.fragments.iter().any(|fragment| {
-                fragment.source
-                    == codeterm_service_core::service::role_preset::FragmentSource::Builtin
-                    && fragment.text == guidance
-            }));
+            assert_eq!(preset.fragments[0].source.label(), "builtin");
+            assert_eq!(preset.contract_guidance(), guidance);
         }
     }
 

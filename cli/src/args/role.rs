@@ -2,18 +2,22 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum RoleAction {
-    /// List every role kind the resolver can reach, with refused overlays
-    List,
-
-    /// Render the exact preset text a role kind receives at each delivery occasion
-    Show {
-        /// Structural role — Manager or Worker
-        #[arg(long, default_value = "Worker")]
-        role: String,
-        /// Role kind id (`orchestrator`, `planner`, a Worker subtype, ...)
+    /// List the role types a Team can launch, with the package each comes from
+    List {
+        /// Team whose registrations to include; without it, the builtin default package
         #[arg(long)]
-        kind: Option<String>,
-        /// Task-owned persona layered over the kind's base, as a dispatch supplies it
+        team: Option<String>,
+    },
+
+    /// Render the exact text a role type receives at each delivery occasion
+    Show {
+        /// Role type: orchestrator, planner, cartographer, curator, watcher or a worker type
+        #[arg(default_value = "worker")]
+        role_type: String,
+        /// Team whose registration of this type to render
+        #[arg(long)]
+        team: Option<String>,
+        /// Task-owned persona appended after the role's text, as a dispatch supplies it
         #[arg(long, allow_hyphen_values = true)]
         guidance: Option<String>,
         /// Render only this occasion
@@ -21,8 +25,11 @@ pub enum RoleAction {
         occasion: Option<String>,
     },
 
-    /// Re-read the overlay directory without restarting or rebuilding
-    Reload,
+    /// Re-read a Team's role registrations from disk
+    Reload {
+        #[arg(long)]
+        team: Option<String>,
+    },
 }
 
 #[cfg(test)]
@@ -34,15 +41,14 @@ mod tests {
     use super::RoleAction;
 
     #[test]
-    fn show_parses_role_kind_guidance_and_occasion() {
+    fn show_parses_a_role_type_team_guidance_and_occasion() {
         let parsed = Cli::try_parse_from([
             "codeterm",
             "role",
             "show",
-            "--role",
-            "Worker",
-            "--kind",
-            "rust-backend-dev",
+            "checker",
+            "--team",
+            "team_a",
             "--guidance",
             "You are Mira.",
             "--occasion",
@@ -53,14 +59,14 @@ mod tests {
             Commands::Role {
                 action:
                     RoleAction::Show {
-                        role,
-                        kind,
+                        role_type,
+                        team,
                         guidance,
                         occasion,
                     },
             } => {
-                assert_eq!(role, "Worker");
-                assert_eq!(kind.as_deref(), Some("rust-backend-dev"));
+                assert_eq!(role_type, "checker");
+                assert_eq!(team.as_deref(), Some("team_a"));
                 assert_eq!(guidance.as_deref(), Some("You are Mira."));
                 assert_eq!(occasion.as_deref(), Some("launch_assignment"));
             }
@@ -69,27 +75,25 @@ mod tests {
     }
 
     #[test]
-    fn show_defaults_to_the_worker_role_and_no_kind() {
+    fn show_defaults_to_the_worker_type_and_kind_is_gone() {
         let parsed = Cli::try_parse_from(["codeterm", "role", "show"]).expect("role show parses");
         match parsed.command {
             Commands::Role {
-                action: RoleAction::Show { role, kind, .. },
-            } => {
-                assert_eq!(role, "Worker");
-                assert!(kind.is_none());
-            }
+                action: RoleAction::Show { role_type, .. },
+            } => assert_eq!(role_type, "worker"),
             _ => panic!("expected role show"),
         }
+        assert!(Cli::try_parse_from(["codeterm", "role", "show", "--kind", "qa"]).is_err());
     }
 
     #[test]
-    fn list_and_reload_parse_and_persona_is_gone() {
+    fn list_and_reload_take_an_optional_team_and_persona_is_gone() {
         assert!(matches!(
-            Cli::try_parse_from(["codeterm", "role", "list"])
+            Cli::try_parse_from(["codeterm", "role", "list", "--team", "team_a"])
                 .expect("role list parses")
                 .command,
             Commands::Role {
-                action: RoleAction::List
+                action: RoleAction::List { team: Some(_) }
             }
         ));
         assert!(matches!(
@@ -97,7 +101,7 @@ mod tests {
                 .expect("role reload parses")
                 .command,
             Commands::Role {
-                action: RoleAction::Reload
+                action: RoleAction::Reload { team: None }
             }
         ));
         assert!(Cli::try_parse_from(["codeterm", "persona", "list"]).is_err());

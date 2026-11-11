@@ -51,11 +51,26 @@ const CLI_REFERENCE: &str = include_str!(concat!(
     "/../../../generated/cli/cli.md"
 ));
 
+macro_rules! doc_body {
+    ($name:literal) => {
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../prod-docs/",
+            $name,
+            ".md"
+        ))
+    };
+    ($name:literal, $path:literal) => {
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../", $path))
+    };
+}
+
+// A doc served from another source file names that repository path after `=>`.
 macro_rules! embedded_docs {
-    ($($name:literal),+ $(,)?) => {
+    ($($name:literal $(=> $path:literal)?),+ $(,)?) => {
         &[$(EmbeddedDoc {
             name: $name,
-            body: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../prod-docs/", $name, ".md")),
+            body: doc_body!($name $(, $path)?),
         }),+]
     };
 }
@@ -107,12 +122,12 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "ROUTING",
     "TEXT-HOOKS",
     "TRANSCRIBE",
-    "ORCHESTRATION",
+    "ORCHESTRATION" => "src-tauri/team-templates/default/managers/orchestrator.md",
     "ORCHESTRATION-TASKS",
     "ORCHESTRATION-OPERATIONS",
     "PLAN-EDITING",
     "LANES",
-    "PLANNER",
+    "PLANNER" => "src-tauri/team-templates/default/managers/planner.md",
     "BOUNCE",
     "TEST-AUTHORING",
     "ESSENCE-MAP",

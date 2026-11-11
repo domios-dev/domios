@@ -984,7 +984,11 @@ impl ChatBackendProvider for SpawnableChatBackend {
 fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
     let params = orchestrator_params(None);
     let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
-    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
+    assert!(prompt.contains(
+        crate::service::role_preset::builtin_guidance("orchestrator")
+            .unwrap()
+            .trim()
+    ));
     match SpawnTabSpec::from_agent_params(params.clone()).command {
         TabCommand::Agent(agent) => assert_eq!(agent.task, None),
         other => panic!("expected PTY agent route, got {other:?}"),

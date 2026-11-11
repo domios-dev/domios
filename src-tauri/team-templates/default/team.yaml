@@ -3,33 +3,33 @@ name: dev.domios/default
 version: 1.0.0
 title: Default team
 description: Orchestrator and Planner; every built-in worker available on demand.
+icon: icon.svg
 authors:
   - name: Domios
     url: https://domios.dev
 license: Apache-2.0
 
-managers:                       # fixed slots, each with its own duties
-  orchestrator:                 # exactly one; owns the goal, dispatch, review, integration
+managers:
+  orchestrator:
     start: with_team
     instructions_file: managers/orchestrator.md
-    # no model: the owner picks at start
 
-  planner:                      # shapes the plan and tasks
+  planner:
     start: with_team
     instructions_file: managers/planner.md
 
-  cartographer:                 # keeps product essences and the project map
+  cartographer:
     start: on_demand
     instructions_file: managers/cartographer.md
 
-  curator:                      # reviews team health, asks the orchestrator
+  curator:
     start:
       schedule: 45m..2h
     model:
-      same_as: orchestrator     # follows the orchestrator's resolved model
+      same_as: orchestrator
     instructions_file: managers/curator.md
 
-workers:                        # free names; the orchestrator spawns them on demand
+workers:
   worker:
     description: Implements one task in its lane.
     instructions_file: workers/worker.md

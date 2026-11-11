@@ -139,7 +139,7 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         Local::Socket,
         MeshRelay::Fallthrough,
         ApiVerdict::Unsupported(
-            "role inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
+            "role inspection is socket-only and answers for that daemon's own Team role registry — run it on the target machine",
         ),
     ),
     (

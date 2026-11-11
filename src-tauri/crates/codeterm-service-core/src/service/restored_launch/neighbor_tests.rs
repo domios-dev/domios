@@ -40,6 +40,6 @@ fn concierge_capture_persists_effective_initial_instructions_through_restore_ser
         serde_json::from_value(serde_json::to_value(&launch).unwrap()).unwrap();
     assert_eq!(restored.identity_instructions.as_deref(), Some(effective));
     let (_, restored_task) =
-        restored_launch_task(registry, "capture-concierge", None, None, &restored);
+        restored_launch_task(registry, "capture-concierge", None, None, None, &restored);
     assert!(restored_task.unwrap().contains(effective));
 }

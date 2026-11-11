@@ -13,6 +13,7 @@ import sys
 root = Path(sys.argv[1])
 docs = root / "src-tauri/prompts/00-README.md"
 prompts_dir = root / "src-tauri/prompts"
+templates_dir = root / "src-tauri/team-templates"
 prompts_rs = root / "src-tauri/crates/codeterm-prompts/src/prompts.rs"
 service_prompts_rs = root / "src-tauri/crates/codeterm-service-core/src/prompts.rs"
 plan_prompts_rs = root / "src-tauri/crates/codeterm-plan/src/service_plan/prompts_plan.rs"
@@ -25,6 +26,16 @@ for line in docs.read_text(encoding="utf-8").splitlines():
     m = re.match(r"\|\s*`([^`]+\.(?:md|json))`\s*\|\s*`([A-Z0-9_]+)`\s*\|", line)
     if m:
         doc_pairs[m.group(1)] = m.group(2)
+
+role_rows = set()
+for line in docs.read_text(encoding="utf-8").splitlines():
+    m = re.match(r"\|\s*`([a-z0-9_-]+/(?:managers|workers)/[^`]+\.md)`\s*\|", line)
+    if m:
+        role_rows.add(m.group(1))
+role_files = sorted(
+    p for p in templates_dir.rglob("*.md") if p.parent.name in {"managers", "workers"}
+)
+role_names = {p.relative_to(templates_dir).as_posix() for p in role_files}
 
 documentation_files = {docs}
 prompt_files = [p for p in prompts_dir.rglob("*") if p.suffix in {".md", ".json"} and p not in documentation_files]
@@ -53,7 +64,7 @@ for source in loader_sources:
 
 errors = []
 
-product_content = [*prompt_files, *(root / "prod-docs").glob("*.md"), *(root / "skills").rglob("*.md")]
+product_content = [*prompt_files, *role_files, *(root / "prod-docs").glob("*.md"), *(root / "skills").rglob("*.md")]
 repository_only = re.compile(
     r"build\.(?:sh|ps1)|src-tauri/|tests/playwright/|scripts/merge-stack-audit\.sh|"
     r"\.agents/skills/(?:orchestration|build|dev-run)/SKILL\.md|"
@@ -77,6 +88,21 @@ missing_doc = sorted(files - doc_pairs.keys())
 if missing_doc:
     errors.append("Prompt files missing from src-tauri/prompts/00-README.md:")
     errors.extend(f"  {name}" for name in missing_doc)
+
+missing_role_rows = sorted(role_names - role_rows)
+if missing_role_rows:
+    errors.append("Role files missing from the Role files table in src-tauri/prompts/00-README.md:")
+    errors.extend(f"  {name}" for name in missing_role_rows)
+
+stale_role_rows = sorted(role_rows - role_names)
+if stale_role_rows:
+    errors.append("Role files table rows without a role file under src-tauri/team-templates:")
+    errors.extend(f"  {name}" for name in stale_role_rows)
+
+placeholder = re.compile(r"\{[a-z_]+\}")
+for path in role_files:
+    if placeholder.search(path.read_text(encoding="utf-8")):
+        errors.append(f"Role prose carries a placeholder: {path.relative_to(root)}")
 
 stale_doc = sorted(doc_pairs.keys() - files)
 if stale_doc:
@@ -119,5 +145,5 @@ if errors:
     sys.exit(1)
 
 loader_count = sum(len(entries) for entries in loaders.values())
-print(f"Prompt docs in sync: {len(files)} files, {len(doc_pairs)} doc rows, {loader_count} loaders")
+print(f"Prompt docs in sync: {len(files)} files, {len(doc_pairs)} doc rows, {loader_count} loaders, {len(role_names)} role files")
 PY

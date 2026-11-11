@@ -131,7 +131,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         }
         Commands::Curator { .. } => socket_unsupported("Curator rounds are local to the owning Team"),
         Commands::Role { .. } => socket_unsupported(
-            "role inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
+            "role inspection is socket-only and answers for that daemon's own Team role registry — run it on the target machine",
         ),
         Commands::Tab { action: crate::TabAction::Timeout { .. } }
         | Commands::Tab { action: crate::TabAction::New { timeout: Some(_), .. } } =>

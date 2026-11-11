@@ -638,7 +638,6 @@ impl ServiceContext {
         let handoff_age = read.latest_handoff_at().map(|at| now.saturating_sub(at));
         let mut header=format!("plan {} | {:?} | control loop curator | orchestrator {} activity {:?} | open {} in_progress {} review {} blocked {} | lanes {} pressure {} | handoff_age_ms {:?} | round {}",plan.id,plan.mode,owner,self.resolved_tab_status(&tab),counts.pending,counts.in_progress,counts.in_review,counts.blocked,lanes,if lanes>CURATOR_HIGH_LANES {"high"}else if lanes>CURATOR_ELEVATED_LANES {"elevated"}else{"normal"},handoff_age,number);
         header.push_str(&format!("\nask: {}", super::ask::command(owner)));
-        let rubric = codeterm_prompts::prompts::CURATOR_RUBRIC;
         let real_rounds = read.real_rounds_started();
         let group_close = read.group_close().filter(|at| {
             plan.last_synthesis_group_close_at
@@ -651,7 +650,6 @@ impl ServiceContext {
         } else {
             "\nsynthesis: no"
         });
-        let header = format!("{header}\n\n{rubric}");
         let header = if synthesis {
             read.synthesis_context_header(&header)
                 .map_err(CuratorFireError::from)?

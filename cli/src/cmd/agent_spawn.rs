@@ -1,15 +1,15 @@
 use codeterm_types::team::staffing as team_codes;
 
-use crate::args::agent::{AgentAction, SpawnLocation, SpawnRole};
+use crate::args::agent::{AgentAction, RoleType, SpawnLocation};
 use crate::client::SocketClient;
+use codeterm_types::agent::role_kind::builtins;
 
 /// The flag combination an `agent spawn` was invoked with, as the validator
 /// needs to see it. A bag of bare booleans stopped being readable once the
 /// task-less verification Worker gave `--execution-intent` a meaning of its own.
 #[derive(Default)]
 pub(super) struct SpawnContext<'a> {
-    pub role: Option<&'a SpawnRole>,
-    pub kind: Option<&'a str>,
+    pub role: Option<RoleType>,
     pub has_workspace: bool,
     pub has_team: bool,
     pub has_parent: bool,
@@ -23,7 +23,21 @@ pub(super) struct SpawnContext<'a> {
 
 impl SpawnContext<'_> {
     fn is_worker(&self) -> bool {
-        matches!(self.role, Some(SpawnRole::Worker))
+        self.role.as_ref().is_some_and(RoleType::is_worker)
+    }
+
+    fn is(&self, kind_id: &str) -> bool {
+        self.role
+            .as_ref()
+            .is_some_and(|role| role.kind_id == kind_id)
+    }
+
+    /// A worker type other than the plain `worker`.
+    fn worker_type(&self) -> Option<&str> {
+        self.role
+            .as_ref()
+            .filter(|role| role.is_worker() && role.kind_id != builtins::WORKER)
+            .map(|role| role.kind_id.as_str())
     }
 
     fn task_bound(&self) -> bool {
@@ -55,27 +69,20 @@ const WORKER_SHAPES: &str = concat!(
 
 pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), String> {
     // A Team names the workspace its recovery Orchestrator lands in.
-    if matches!(ctx.role, Some(SpawnRole::Orchestrator))
-        && !ctx.has_workspace
-        && !ctx.has_parent
-        && !ctx.has_team
-    {
-        return Err("--workspace is required when spawning --role Orchestrator".into());
+    if ctx.is(builtins::ORCHESTRATOR) && !ctx.has_workspace && !ctx.has_parent && !ctx.has_team {
+        return Err("--workspace is required when spawning --role orchestrator".into());
     }
-    if matches!(ctx.role, Some(SpawnRole::Planner)) && !ctx.has_plan && !ctx.has_parent {
+    if ctx.is(builtins::PLANNER) && !ctx.has_plan && !ctx.has_parent {
         return Err(
-            "--plan <id> is required when spawning --role Planner (or pass --parent)".into(),
+            "--plan <id> is required when spawning --role planner (or pass --parent-tab)".into(),
         );
     }
-    if ctx.kind.is_some() && !ctx.is_worker() {
-        return Err("--kind is only valid with --role Worker".into());
-    }
-    if ctx.kind.is_some() && !ctx.has_parent {
-        return Err("Worker kinds require --parent-tab".into());
+    if ctx.worker_type().is_some() && !ctx.has_parent {
+        return Err("Worker types other than `worker` require --parent-tab".into());
     }
     if ctx.has_authorized_gates {
         if !ctx.is_worker() {
-            return Err("--authorized-gate is only valid with --role Worker".into());
+            return Err("--authorized-gate is only valid with a worker --role".into());
         }
         if ctx.task_bound() {
             return Err(concat!(
@@ -92,7 +99,7 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
         && !ctx.task_bound()
         && !ctx.read_only()
         && !ctx.unplanned
-        && ctx.kind.is_none()
+        && ctx.worker_type().is_none()
     {
         if ctx.execution_intent == Some(MUTATING) {
             return Err(format!(
@@ -101,7 +108,7 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
         }
         if ctx.has_plan {
             return Err(format!(
-                "--role Worker with --plan requires a task binding or read-only intent: \
+                "--role worker with --plan requires a task binding or read-only intent: \
                  {WORKER_SHAPES}. Omit --role/--plan for a roleless solo agent."
             ));
         }
@@ -129,17 +136,14 @@ pub(super) fn team_spawn_fields(
 
 /// `--team` accepts exactly one role: the one that anchors a Team. Anything
 /// else takes its Team from its own binding and is refused by code.
-pub(super) fn validate_team_spawn_role(role: Option<&SpawnRole>) -> Result<(), String> {
+pub(super) fn validate_team_spawn_role(role: Option<&RoleType>) -> Result<(), String> {
     match role {
-        None | Some(SpawnRole::Orchestrator) => Ok(()),
+        None => Ok(()),
+        Some(role) if role.kind_id == builtins::ORCHESTRATOR => Ok(()),
         Some(other) => Err(format!(
-            "{}: --team accepts --role Orchestrator only, got {}. A role-bound agent takes its Team from that binding.",
+            "{}: --team accepts --role orchestrator only, got {}. A role-bound agent takes its Team from that binding.",
             team_codes::TEAM_SPAWN_ROLE_MUST_ANCHOR,
-            match other {
-                SpawnRole::Planner => "Planner",
-                SpawnRole::Watcher => "Watcher",
-                _ => other.as_str(),
-            }
+            other.kind_id
         )),
     }
 }
@@ -147,8 +151,8 @@ pub(super) fn validate_team_spawn_role(role: Option<&SpawnRole>) -> Result<(), S
 /// The one `--team` + `--role` pair that is not a contradiction. It leaves the
 /// `agent.spawn` request entirely and calls the Team staffing verb instead, so
 /// the CLI and the UI add-member action reach the daemon the same way.
-pub(super) fn routes_to_team_staffing(role: Option<&SpawnRole>, team: Option<&str>) -> bool {
-    matches!(role, Some(SpawnRole::Orchestrator)) && team.is_some()
+pub(super) fn routes_to_team_staffing(role: Option<&RoleType>, team: Option<&str>) -> bool {
+    role.is_some_and(|role| role.kind_id == builtins::ORCHESTRATOR) && team.is_some()
 }
 
 /// Flags the Team staffing verb does not carry. Naming them is the refusal —
@@ -185,7 +189,7 @@ fn unplanned_dispatch_params(
 ) -> serde_json::Value {
     let mut params = serde_json::json!({
         "agent": agent,
-        "role": "Worker",
+        "role": "worker",
         "reason": reason,
         "brief": brief,
         "execution_intent": "mutating",
@@ -217,7 +221,6 @@ pub(super) fn handle(
         description,
         cwd,
         role,
-        kind,
         parent,
         plan,
         report_to,
@@ -294,10 +297,13 @@ pub(super) fn handle(
     } else {
         (agent, preset, None)
     };
-    let execution_intent = resolved_execution_intent(kind.as_deref(), execution_intent);
+    let worker_type = role
+        .as_ref()
+        .filter(|role| role.is_worker() && role.kind_id != builtins::WORKER)
+        .map(|role| role.kind_id.clone());
+    let execution_intent = resolved_execution_intent(worker_type.as_deref(), execution_intent);
     let context = SpawnContext {
-        role: role.as_ref(),
-        kind: kind.as_deref(),
+        role: role.clone(),
         has_workspace: workspace.is_some(),
         has_team: team.is_some(),
         has_parent: parent.is_some(),
@@ -316,7 +322,7 @@ pub(super) fn handle(
             .as_deref()
             .map(str::trim)
             .filter(|reason| !reason.is_empty());
-        if !matches!(role.as_ref(), Some(SpawnRole::Worker))
+        if !role.as_ref().is_some_and(RoleType::is_worker)
             || reason.is_none()
             || execution_intent
                 .as_deref()
@@ -326,7 +332,7 @@ pub(super) fn handle(
             || team.is_some()
             || !authorized_gates.is_empty()
         {
-            crate::cmd::print::fail(2, "--unplanned requires --role Worker and a non-empty --reason, and cannot combine with task bindings, --team, or --authorized-gate");
+            crate::cmd::print::fail(2, "--unplanned requires a worker --role and a non-empty --reason, and cannot combine with task bindings, --team, or --authorized-gate");
         }
     } else if reason.is_some() {
         crate::cmd::print::fail(2, "--reason requires --unplanned");
@@ -367,7 +373,7 @@ pub(super) fn handle(
             crate::cmd::print::fail(
                 1,
                 format!(
-                    "{}: --team --role Orchestrator does not carry {}",
+                    "{}: --team --role orchestrator does not carry {}",
                     team_codes::TEAM_SPAWN_FLAG_UNSUPPORTED,
                     unsupported.join(", ")
                 ),
@@ -479,7 +485,7 @@ pub(super) fn handle(
             crate::cmd::print::fail(1, e.to_string());
         }
     };
-    let is_worker = matches!(role, Some(crate::args::agent::SpawnRole::Worker));
+    let is_worker = role.as_ref().is_some_and(RoleType::is_worker);
     for hint in crate::cmd::hints::worker_spawn_hints(
         is_worker,
         parent.is_some() || report_to.is_some(),
@@ -519,14 +525,8 @@ pub(super) fn handle(
             caller_cwd.as_deref()
         ));
     }
-    if let Some(r) = role {
-        body["role"] = serde_json::json!(r.as_str());
-        if let Some(profile) = r.role_profile() {
-            body["role_profile"] = serde_json::json!(profile);
-        }
-    }
-    if let Some(kind) = kind {
-        body["role_profile"] = serde_json::json!(kind);
+    if let Some(role) = &role {
+        body["role"] = serde_json::json!(role.kind_id);
     }
     if let Some(p) = parent {
         body["parent_tab_id"] = serde_json::json!(p);

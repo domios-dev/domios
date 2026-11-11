@@ -157,7 +157,7 @@ second="$LAST_TAB"
 mkdir -p "$FOREIGN"
 foreign_title="ct-trust-foreign-$$"
 set +e
-dc agent spawn codex --role Orchestrator --workspace "$workspace" \
+dc agent spawn codex --role orchestrator --workspace "$workspace" \
   --cwd "$FOREIGN" --json --title "$foreign_title" >/dev/null 2>&1
 set -e
 wait_for "foreign tab creation" "[ -n \"\$(tab_by_title '$foreign_title')\" ]"

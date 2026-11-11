@@ -2110,15 +2110,14 @@ dependencies = [
  "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",
+ "codeterm-team-package",
  "codeterm-types",
  "dirs 6.0.0",
  "log",
- "parking_lot 0.12.5",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
- "toml 0.8.2",
  "workspace-hack",
 ]
 
@@ -2615,6 +2614,7 @@ version = "0.0.0"
 dependencies = [
  "codeterm-notify-types",
  "codeterm-provider-signals",
+ "codeterm-team-package",
  "codeterm-wire",
  "dirs 6.0.0",
  "serde",

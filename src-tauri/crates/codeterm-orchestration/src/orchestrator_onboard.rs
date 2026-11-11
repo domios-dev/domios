@@ -399,7 +399,7 @@ mod tests {
         assert!(msg.contains("team-xyz"));
         assert!(msg.contains("pl_real42"));
         // A ready-to-run planner spawn bound to THIS tab and the real plan.
-        assert!(msg.contains("--parent-tab tab-abc --role Planner --plan pl_real42"));
+        assert!(msg.contains("--parent-tab tab-abc --role planner --plan pl_real42"));
         assert_no_placeholder_residue(&msg);
     }
 
@@ -468,10 +468,13 @@ mod tests {
 
     #[test]
     fn methodology_lives_in_system_prompt_not_first_message() {
-        let doc = codeterm_service_core::prompts::ORCHESTRATION_DOC.trim();
+        let doc = codeterm_service_core::service::builtin_roles::builtin_prose("orchestrator")
+            .unwrap()
+            .trim();
         // System prompt path carries the manual; the first-message must not.
         assert!(
-            codeterm_service_core::prompts::orchestrator_suffix()
+            codeterm_service_core::service::role_preset::builtin_guidance("orchestrator")
+                .unwrap()
                 .matches(doc)
                 .count()
                 >= 1

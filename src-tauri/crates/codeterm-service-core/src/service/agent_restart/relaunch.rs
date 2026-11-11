@@ -42,6 +42,11 @@ pub(super) fn build_relaunch(
                 None,
                 snap.role.as_deref(),
                 snap.role_profile.as_deref(),
+                svc.mux
+                    .read()
+                    .get_tab(&snap.tab_id)
+                    .and_then(|tab| tab.team_id.clone())
+                    .as_deref(),
             )
         })
         .flatten();

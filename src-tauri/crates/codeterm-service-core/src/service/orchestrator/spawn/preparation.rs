@@ -158,6 +158,7 @@ pub(super) fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -
         assignment.as_deref(),
         params.role.as_deref(),
         params.role_profile.as_deref(),
+        params.team_id.as_deref(),
     )
 }
 

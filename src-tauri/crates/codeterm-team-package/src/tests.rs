@@ -507,3 +507,46 @@ fn authored_builtin_packages_are_indexed_and_valid() {
         assert!(loaded.icon().is_some(), "{folder} has no usable icon");
     }
 }
+
+#[test]
+fn the_default_package_has_four_manager_slots_four_workers_and_no_models_but_the_curator() {
+    let package = builtin::check("default", &CheckOptions::domios())
+        .and_then(|checked| checked.package)
+        .expect("default is a valid builtin");
+    let document = &package.document;
+    assert!(document
+        .managers
+        .iter()
+        .all(|(_, role)| role.instructions.is_none()));
+    assert_eq!(document.managers.iter().count(), 4);
+    assert_eq!(
+        document.workers.keys().collect::<Vec<_>>(),
+        ["worker", "qa", "reviewer", "release_manager"]
+    );
+    for (slot, role) in document.managers.iter() {
+        let expected_model = (slot == ManagerSlot::Curator).then(|| ModelPreference::SameAs {
+            same_as: "orchestrator".into(),
+        });
+        assert_eq!(role.model, expected_model, "{slot:?}");
+    }
+    assert!(document
+        .workers
+        .iter()
+        .all(|(_, role)| role.model.is_none()));
+    assert_eq!(
+        document
+            .managers
+            .curator
+            .as_ref()
+            .and_then(|role| role.start.clone()),
+        Some(RoleStart::Schedule {
+            schedule: "45m..2h".into()
+        })
+    );
+    assert!(matches!(package.icon(), Some((IconKind::Svg, _))));
+    for (_, name, _) in document.roles() {
+        let text = package.role_instructions(name).expect("role prose");
+        assert!(!text.trim().is_empty(), "{name}");
+        assert!(!text.contains("{plan_task_flags}"), "{name}");
+    }
+}

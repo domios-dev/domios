@@ -191,7 +191,12 @@ fn enrich_spawn_ownership(
 fn sanitize_cross_peer_parent(obj: &mut serde_json::Map<String, serde_json::Value>) {
     // Only a cross-mesh Worker is parentless on the target; other roles keep
     // their origin-local parent_tab_id.
-    if obj.get("role").and_then(|v| v.as_str()) != Some("Worker") {
+    let worker = obj
+        .get("role")
+        .and_then(|v| v.as_str())
+        .and_then(|role| codeterm_types::agent::role_kind::RoleType::parse(role).ok())
+        .is_some_and(|role| role.is_worker());
+    if !worker {
         return;
     }
     let nonempty = |v: Option<&serde_json::Value>| {

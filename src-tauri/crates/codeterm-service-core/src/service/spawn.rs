@@ -656,6 +656,11 @@ impl ServiceContext {
             spawn_input.provider_task,
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
+            self.mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.team_id.clone())
+                .as_deref(),
         );
         let role_suffixed_task =
             role_suffixed_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task));
@@ -980,6 +985,11 @@ impl ServiceContext {
             assignment.as_deref(),
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
+            self.mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.team_id.clone())
+                .as_deref(),
         );
         let wrapped_task = if self
             .agent_registry

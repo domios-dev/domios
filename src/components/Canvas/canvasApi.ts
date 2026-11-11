@@ -29,8 +29,7 @@ export async function spawnOrchestrator(api: ApiConfig, opts: SpawnOrchestratorO
     body: JSON.stringify({
       agent: opts.providerId,
       title: opts.title ?? "Canvas Orchestrator",
-      role: "Manager",
-      role_profile: "orchestrator",
+      role: "orchestrator",
       workspace_id: opts.workspaceId,
       activate: true,
     }),

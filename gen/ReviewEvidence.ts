@@ -4,6 +4,6 @@ import type { ReviewVerdict } from "./ReviewVerdict";
 
 /**
  * Evidence attached to the owning implementation task by a read-only review
- * pass. Never creates a task of its own; see prod-docs/ORCHESTRATION.md review section.
+ * pass. Never creates a task of its own; see the Orchestrator manual's review section.
  */
 export type ReviewEvidence = { id: string, from: OrchestratorRef, verdict: ReviewVerdict, note: string, at: number, changed_executable_surfaces: boolean, distinct_oracle: boolean, };

@@ -3,6 +3,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 pub mod general_agent_membership;
+pub mod role_registration;
 pub mod staffing;
 
 /// Team lifecycle from initial pairing through closure.

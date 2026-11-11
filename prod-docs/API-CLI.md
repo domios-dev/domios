@@ -2,7 +2,7 @@
 
 For connecting, configuring and authenticating ACP agents, read `domios docs ACP`.
 
-`--profile <id>` selects a provider-declared ACP launch profile, independently of `--model` and Worker `--kind`/`--role-profile`. Unknown, missing required, and uninstalled profiles refuse before creating a tab or attempt with `unknown_launch_profile`, `launch_profile_required`, and `launch_profile_not_installed`. Respawn inherits the selected attempt's profile when the flag is omitted and the provider stays the same. Profile selection on task dispatch/respawn is local-only; `agent spawn --mesh` carries it to the peer.
+`--profile <id>` selects a provider-declared ACP launch profile, independently of `--model` and `--role`. Unknown, missing required, and uninstalled profiles refuse before creating a tab or attempt with `unknown_launch_profile`, `launch_profile_required`, and `launch_profile_not_installed`. Respawn inherits the selected attempt's profile when the flag is omitted and the provider stays the same. Profile selection on task dispatch/respawn is local-only; `agent spawn --mesh` carries it to the peer.
 
 Every `--json` command returns one object with its payload under `result`: an array for a list/search, an object for a record, or a scalar/null. Optional `meta` retains list metadata, `next` carries pagination and `warnings` carries diagnostics. Failures also include `ok:false` and `error`; their daemon receipt is under `result`. Read `result` directly; do not guess `data`, `results`, `hits`, `tasks` or `tabs` envelopes.
 
@@ -83,9 +83,9 @@ Both read `GET /api/tabs/{id}/agent/runtime/usage`; a missing post-consume count
 `domios agent model --tab TAB_ID [MODEL]` switches the model; `--reasoning-effort` and `--runtime-mode` take catalogue values (omit `MODEL` to keep it); `--runtime-mode` belongs to the owner, and an agent caller gets `owner_required`. Unsupported values exit non-zero listing the choices; `--json` keeps `mode_used`, `model_confirmation`, `evidence`. `--speed TIER|default` and `--list-speeds` manage service tiers. Worker kinds work with or without `--plan-task`:
 
 ```bash
-domios agent spawn PROVIDER --role Worker --kind qa --parent-tab TAB_ID
-domios agent spawn PROVIDER --role Worker --kind release_manager --parent-tab TAB_ID
-domios agent spawn PROVIDER --role Worker --kind reviewer --parent-tab TAB_ID --task "exact review scope"
+domios agent spawn PROVIDER --role qa --parent-tab TAB_ID
+domios agent spawn PROVIDER --role release_manager --parent-tab TAB_ID
+domios agent spawn PROVIDER --role reviewer --parent-tab TAB_ID --task "exact review scope"
 ```
 
 Message and pad file options accept `-` as UTF-8 stdin, including `plan task remote-report --message-file -`, `send --from-file -`, and `--from-pad -`. For `plan create`, an implicit project path from a Team-bound caller is the caller Team workspace cwd; explicit `--project` remains an override.
@@ -174,7 +174,7 @@ Beyond PTY agents, a tab can host an **open agent shell** — a non-PTY chat tab
 
 - **Discover:** `GET /api/agents/providers` (CLI `domios agent providers`) lists installed shells alongside PTY agents, tagged `transport: "chat_backend"`. There is no hardcoded shell list — core enumerates the `chatBackend` registry. Every row carries `availability` (`available` / `unavailable` / `unknown`); the CLI marks the latter two inline, and the UI provider picker reads the same field. `cli_status.detected_version`, `version_probe`, and `compatibility` expose the cached CLI version and declared compatibility verdict with typed reasons. The first observation can be `pending` with an unknown verdict while a bounded worker probes the binary. Unknown versions never authorize a declared direct sqlite reader.
 - **Spawn:** `domios agent spawn <shell-id> [--system TEXT] [--preset ID] [--model M]` (or `POST /api/agents/spawn`) routes by capability to the shell. `--system` overrides the preset's system prompt for that session, `--preset` picks a preset, no flag → the plugin's `defaultPreset`. These and the watcher flags are refused for a PTY agent, which has no use for them.
-- **Watcher spawn:** `domios agent spawn <shell-id> --role Watcher --parent-tab <orchestrator-tab> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`. `--charter-file PATH` may be used instead of `--charter`. The REST body fields are `charter`, `tick_interval_secs`, `nudge_cooldown_secs`, and `max_actions_per_tick`. The host opens the shell with `mode: "watcher"` and `engine: { kind: "machine", charter, tickIntervalSecs }`, rejects direct sends into the watcher tab, schedules `watcherTick`, parses `watcher_verdict` messages, and executes only host-allowlisted verdict actions.
+- **Watcher spawn:** `domios agent spawn <shell-id> --role watcher --parent-tab <orchestrator-tab> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`. `--charter-file PATH` may be used instead of `--charter`. The REST body fields are `charter`, `tick_interval_secs`, `nudge_cooldown_secs`, and `max_actions_per_tick`. The host opens the shell with `mode: "watcher"` and `engine: { kind: "machine", charter, tickIntervalSecs }`, rejects direct sends into the watcher tab, schedules `watcherTick`, parses `watcher_verdict` messages, and executes only host-allowlisted verdict actions.
 - **Open directly:** `POST /api/tabs {chat_backend, system_prompt?, preset?, model?}`.
 - **Observe:** the shell emits a `system_prompt` marker message rendered as a collapsible "System prompt" card; tool-call / tool-result messages render via the existing chat-UI message rendering.
 
@@ -196,11 +196,11 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 
 | Command | RPC | Purpose |
 |---|---|---|
-| `domios role list` | `role.list` | Every reachable role kind with capability columns, plus refused overlays and why |
-| `domios role show --role <Manager\|Worker> [--kind <id>] [--guidance <text>] [--occasion <id>]` | `role.show` | The exact text each occasion emits, its fragments, and their provenance |
-| `domios role reload` | `role.reload` | Re-read `<data-dir>/role-presets/*.toml` without a restart or rebuild |
+| `domios role list [--team <team-id>]` | `role.list` | Every role type the Team can launch, with package provenance and capability columns |
+| `domios role show [<type>] [--team <team-id>] [--guidance <text>] [--occasion <id>]` | `role.show` | The exact text each occasion emits, its fragments, and their package provenance |
+| `domios role reload [--team <team-id>]` | `role.reload` | Re-read a Team's role registrations from disk |
 
-Overlay files add leaf kinds only; one that declares capability, claims an anchoring or Team-authority base, overrides a builtin kind, or owns a contract without the coordination core is refused with a reason and skipped.
+Role types resolve task > Team registration > the builtin default package. A registration replaces a role's prose only; it never changes the type's capability or authority.
 
 ## Account
 
@@ -231,4 +231,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 83 -->
+<!-- revision: 84 -->

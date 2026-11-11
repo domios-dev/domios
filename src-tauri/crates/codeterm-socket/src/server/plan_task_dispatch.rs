@@ -24,6 +24,7 @@ mod preflight;
 mod recovery;
 pub(super) mod remote;
 pub(crate) mod remote_recovery;
+mod role_params;
 mod routing;
 pub(crate) mod startup;
 mod tab_reservation;
@@ -454,7 +455,16 @@ where
         parent.as_deref(),
         caller_tab_id.as_deref(),
     )?;
-    let requested_model = owned_str(p, "model").or_else(|| task.model.clone());
+    let role = role_params::resolve(
+        svc,
+        p,
+        &parent_tab_id,
+        preparation.brief.executor_role.as_deref(),
+    )
+    .map_err(invalid_dispatch)?;
+    let requested_model = owned_str(p, "model")
+        .or_else(|| task.model.clone())
+        .or(role.model);
     let model_selection = codeterm_service_core::service::spawn::resolve_agent_model_selection(
         &svc.agent_registry,
         owned_str(p, "agent").as_deref(),
@@ -485,11 +495,7 @@ where
             })
             .map_err(plan_rpc_err)?,
     )?;
-    let worker_profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
-        preparation.brief.executor_role.as_deref(),
-        owned_str(p, "worker_kind").as_deref(),
-    )
-    .map_err(invalid_dispatch)?;
+    let worker_profile = role.profile;
     let allowance_capability = svc
         .agent_registry
         .with_provider(&resolved_provider, |provider| {

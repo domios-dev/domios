@@ -18,7 +18,7 @@ pub struct ReportGitMetadata {
 /// Asserted by name, not wording — codeterm#305.
 pub const UNBOUND_WORKER_BINDING_ADVISORY: &str = "UNBOUND WORKER BINDING";
 
-/// Shared by `agent spawn --role Worker` and `agent report`, so the two
+/// Shared by `agent spawn --role worker` and `agent report`, so the two
 /// entry points cannot drift apart — codeterm#305.
 pub fn worker_binding_resolved(has_plan_task: bool, has_plan: bool, has_task: bool) -> bool {
     has_plan_task || (has_plan && has_task)

@@ -78,9 +78,9 @@ pub(super) fn dispatch(
             "launch_profile selection is local-only for task dispatch; dispatch on the provider host or use agent spawn --mesh with --profile",
         ));
     }
-    if owned_str(p, "worker_kind").is_some() {
+    if owned_str(p, "role").is_some_and(|role| role != "worker") {
         return Err(invalid_dispatch(
-            "worker_kind overrides are local-only; mesh dispatch does not compose local Worker role prompts",
+            "--role worker types are local-only; mesh dispatch does not compose local Worker role prompts",
         ));
     }
     let peer_target = owned_str(p, "mesh_peer")

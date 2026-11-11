@@ -7,38 +7,11 @@ pub enum SpawnLocation {
     Cloud,
 }
 
-#[derive(clap::ValueEnum, Clone, Debug)]
-pub enum SpawnRole {
-    #[value(name = "Orchestrator")]
-    Orchestrator,
-    #[value(name = "Worker")]
-    Worker,
-    #[value(name = "Manager")]
-    Manager,
-    #[value(name = "Planner")]
-    Planner,
-    #[value(name = "Watcher")]
-    Watcher,
-}
+pub use codeterm_types::agent::role_kind::RoleType;
 
-impl SpawnRole {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SpawnRole::Orchestrator => "Orchestrator",
-            SpawnRole::Manager => "Manager",
-            SpawnRole::Worker => "Worker",
-            SpawnRole::Planner => "Manager",
-            SpawnRole::Watcher => "Manager",
-        }
-    }
-
-    pub fn role_profile(&self) -> Option<&'static str> {
-        match self {
-            SpawnRole::Planner => Some("planner"),
-            SpawnRole::Watcher => Some("watcher"),
-            _ => None,
-        }
-    }
+/// `--role` names a role type; the structural role derives from it.
+pub fn parse_role_type(value: &str) -> Result<RoleType, String> {
+    RoleType::parse(value).map_err(|error| error.to_string())
 }
 
 /// Worker-declared outcome for `agent report --status`. Lowercase value names
@@ -335,10 +308,10 @@ pub enum AgentAction {
     ///
     /// Two spawn shapes:
     ///   Worker (leaf task you own; reports back; never spawns further):
-    ///     spawn claude --role Worker --parent-tab $CODETERM_TAB_ID --task "...
+    ///     spawn claude --role worker --parent-tab $CODETERM_TAB_ID --task "...
     ///     when done: domios agent report '<summary>'"
     ///   Orchestrator (independent objective / separate workspace / remote):
-    ///     spawn codex --role Orchestrator --workspace WS_ID --task "..."
+    ///     spawn codex --role orchestrator --workspace WS_ID --task "..."
     ///
     /// The child lands in the parent's workspace, else in your own — never in
     /// the workspace the user has selected in the UI. Pass --workspace only to
@@ -362,17 +335,14 @@ pub enum AgentAction {
         /// absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths.
         #[arg(long)]
         cwd: Option<String>,
-        /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
-        #[arg(long)]
-        role: Option<SpawnRole>,
-        /// Worker prompt kind/profile, with or without a task: qa, release_manager or reviewer (read-only by default).
-        #[arg(long, alias = "role-profile")]
-        kind: Option<String>,
+        /// Role type: a manager slot (orchestrator, planner, cartographer, curator), watcher, or a worker type available to the Team (worker, qa, reviewer, release_manager or a registered name; reviewer is read-only by default).
+        #[arg(long, value_parser = parse_role_type)]
+        role: Option<RoleType>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved
         /// from --plan (its Orchestrator) when omitted.
         #[arg(long = "parent-tab")]
         parent: Option<String>,
-        /// Plan id to bind — required for `--role Planner` to auto-bind
+        /// Plan id to bind — required for `--role planner` to auto-bind
         /// Plan.planner and deliver the peer prompt naming the Orchestrator.
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
@@ -456,7 +426,7 @@ pub enum AgentAction {
         /// Bound task id.
         #[arg(long = "task-id", env = "CODETERM_TASK_ID")]
         bound_task: Option<String>,
-        /// Plan task to bind when spawning `--role Worker` (handle, id, or prefix).
+        /// Plan task to bind when spawning `--role worker` (handle, id, or prefix).
         #[arg(long = "plan-task")]
         plan_task: Option<String>,
         /// Create and dispatch a visible exceptional task for this Worker.
@@ -472,7 +442,7 @@ pub enum AgentAction {
         /// --team`. The calling tab (CODETERM_TAB_ID) must already belong to
         /// that Team. Rejected together with --plan-task, and with every --role
         /// but Orchestrator: a plan-bound agent takes its Team from that
-        /// binding. `--team <id> --role Orchestrator` is the recovery add for a
+        /// binding. `--team <id> --role orchestrator` is the recovery add for a
         /// Team whose Orchestrator is gone and carries no other spawn flag.
         #[arg(long, value_name = "TEAM_ID", conflicts_with = "plan_task")]
         team: Option<String>,

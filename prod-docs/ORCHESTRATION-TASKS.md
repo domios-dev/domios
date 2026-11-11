@@ -1,6 +1,6 @@
 # Orchestration task lifecycle
 
-`--profile <id>` selects a provider-declared ACP launch profile, independently of `--model` and Worker `--kind`/`--role-profile`. Unknown, missing required, and uninstalled profiles refuse before creating a tab or attempt with `unknown_launch_profile`, `launch_profile_required`, and `launch_profile_not_installed`. Respawn inherits the selected attempt's profile when the flag is omitted and the provider stays the same. Profile selection on task dispatch/respawn is local-only; `agent spawn --mesh` carries it to the peer.
+`--profile <id>` selects a provider-declared ACP launch profile, independently of `--model` and `--role`. Unknown, missing required, and uninstalled profiles refuse before creating a tab or attempt with `unknown_launch_profile`, `launch_profile_required`, and `launch_profile_not_installed`. Respawn inherits the selected attempt's profile when the flag is omitted and the provider stays the same. Profile selection on task dispatch/respawn is local-only; `agent spawn --mesh` carries it to the peer.
 
 State transitions, group closeout, and dispatch mechanics for the Orchestrator.
 
@@ -67,9 +67,9 @@ Before a wave:
 2. Define disjoint declared edit files, placement, expected output,
    focused oracle, and central gates requested.
 3. Run plan doctor.
-4. Default to an authored task and dispatch it through `domios plan task dispatch`; use `domios agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Supply `--tag work:<value>` or let the missing work tag be inferred with a warning. Shared checkout by default,
+4. Default to an authored task and dispatch it through `domios plan task dispatch`; use `domios agent spawn --role worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Supply `--tag work:<value>` or let the missing work tag be inferred with a warning. Shared checkout by default,
    `--placement lane` for isolation and `--canonical-writer` only for exclusive canonical work. Shared checkout is the default after file declaration; overlap or `build-breaking` automatically selects a lane. Add
-   `--kind qa` or `--kind release_manager` to a canonical dispatch when the
+   `--role qa` or `--role release_manager` to a canonical dispatch when the
    Worker needs that built-in prompt; it does not change `executor_role` or
    replace parent authorization. Direct task-bound spawn cannot reserve canonical.
 5. Wait for the pushed `worker_ack` described in Task lifecycle.

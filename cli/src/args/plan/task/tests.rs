@@ -197,7 +197,7 @@ fn canonical_writer_dispatch_flag_is_opt_in_and_off_by_default() {
 }
 
 #[test]
-fn plan_task_dispatch_accepts_a_worker_kind_override() {
+fn plan_task_dispatch_accepts_a_worker_type() {
     use clap::Parser;
     for kind in ["release_manager", "reviewer"] {
         let parsed = Cli::try_parse_from([
@@ -210,20 +210,20 @@ fn plan_task_dispatch_accepts_a_worker_kind_override() {
             "--execution-intent",
             "mutating",
             "--canonical-writer",
-            "--kind",
+            "--role",
             kind,
         ])
         .expect("dispatch kind parses");
         let crate::Commands::Plan {
             action:
                 crate::PlanAction::Task {
-                    action: super::PlanTaskAction::Dispatch { worker_kind, .. },
+                    action: super::PlanTaskAction::Dispatch { role, .. },
                 },
         } = parsed.command
         else {
             panic!("expected plan task dispatch")
         };
-        assert_eq!(worker_kind.as_deref(), Some(kind));
+        assert_eq!(role.map(|role| role.kind_id).as_deref(), Some(kind));
     }
 }
 

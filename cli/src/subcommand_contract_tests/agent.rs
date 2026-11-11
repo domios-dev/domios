@@ -121,7 +121,7 @@ fn execution_intent_parses_without_a_plan_task() {
         "spawn",
         "codex",
         "--role",
-        "Worker",
+        "worker",
         "--execution-intent",
         "read_only",
     ])

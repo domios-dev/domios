@@ -2,8 +2,6 @@
   "cases": [
     { "path": "valid/reference", "valid": true, "canonical": true },
     { "path": "valid/reference-inline.team.yaml", "valid": true, "canonical": true },
-    { "path": "valid/default.team.yaml", "valid": true, "canonical": true },
-    { "path": "valid/default-folder", "valid": true },
     { "path": "valid/role-extension.team.yaml", "valid": true, "canonical": true },
     {
       "path": "valid/unresolved-skill.team.yaml",

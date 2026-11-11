@@ -669,15 +669,6 @@ pub(crate) fn compose_observed(
         });
     }
 
-    let overlays = service::persona::overlay::reload();
-    for rejection in overlays.rejected() {
-        log::warn!(
-            "[role-preset] refused {} [{}] {}",
-            rejection.path,
-            rejection.reason.code(),
-            rejection.reason.detail()
-        );
-    }
     startup::start_background_tasks(&service_state, &states, bundles.clone());
     agent::state_reactor::start(service_state.clone());
     agent::live_state::start(service_state.clone());

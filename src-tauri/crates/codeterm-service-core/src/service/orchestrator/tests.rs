@@ -40,33 +40,38 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
 
 #[test]
 fn roleless_spawn_task_stays_plain() {
-    let task = role_onboarding_task(Some("inspect"), None, None).unwrap();
+    let task = role_onboarding_task(Some("inspect"), None, None, None).unwrap();
     assert!(task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert_eq!(task.matches("inspect").count(), 1);
     assert!(task.ends_with(crate::prompts::MEM_MANAGEMENT.trim()));
-    let primer = role_onboarding_task(None, None, None).unwrap();
+    let primer = role_onboarding_task(None, None, None, None).unwrap();
     assert!(primer.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(primer.contains(crate::prompts::RICH_RENDERING_GUIDANCE.trim()));
 }
 
 #[test]
 fn ordinary_tab_receives_primer_only_through_a_system_prompt_channel() {
-    let capable = role_launch_task(None, None, None, true).expect("system primer");
+    let capable = role_launch_task(None, None, None, None, true).expect("system primer");
     assert!(capable.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(capable.contains(crate::prompts::RICH_RENDERING_GUIDANCE.trim()));
-    assert_eq!(role_launch_task(None, None, None, false), None);
+    assert_eq!(role_launch_task(None, None, None, None, false), None);
 
-    let fallback = role_launch_task(Some("inspect"), None, None, false).expect("task");
+    let fallback = role_launch_task(Some("inspect"), None, None, None, false).expect("task");
     assert_eq!(fallback, "inspect");
     assert!(!fallback.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
 }
 
 #[test]
 fn team_assignment_keeps_codeterm_context_on_fallback_providers() {
-    let worker = role_launch_task(Some("repair delivery"), Some("Worker"), None, false).unwrap();
+    let worker =
+        role_launch_task(Some("repair delivery"), Some("Worker"), None, None, false).unwrap();
     assert!(worker.starts_with(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY));
     assert!(worker.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
-    assert!(worker.contains(crate::prompts::WORKER_SUFFIX.trim()));
+    assert!(worker.contains(
+        crate::service::builtin_roles::builtin_prose("worker")
+            .unwrap()
+            .trim()
+    ));
     assert_eq!(
         worker
             .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
@@ -74,7 +79,8 @@ fn team_assignment_keeps_codeterm_context_on_fallback_providers() {
         1
     );
 
-    let capable = role_launch_task(Some("repair delivery"), Some("Worker"), None, true).unwrap();
+    let capable =
+        role_launch_task(Some("repair delivery"), Some("Worker"), None, None, true).unwrap();
     assert_eq!(
         capable
             .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())
@@ -83,7 +89,11 @@ fn team_assignment_keeps_codeterm_context_on_fallback_providers() {
     );
     assert_eq!(
         capable
-            .matches(crate::prompts::WORKER_SUFFIX.trim())
+            .matches(
+                crate::service::builtin_roles::builtin_prose("worker")
+                    .unwrap()
+                    .trim()
+            )
             .count(),
         1
     );
@@ -103,6 +113,7 @@ fn every_team_role_receives_the_shared_primer_exactly_once() {
                 Some("team assignment"),
                 role,
                 profile,
+                None,
                 system_prompt_capable,
             )
             .unwrap();
@@ -125,19 +136,26 @@ fn every_team_role_receives_the_shared_primer_exactly_once() {
 
 #[test]
 fn worker_without_task_identity_still_leads_with_a_generic_identity() {
-    assert!(role_onboarding_task(Some("fix it"), Some("Worker"), None)
-        .unwrap()
-        .contains(crate::prompts::WORKER_SUFFIX.trim()));
-    let prompt = role_onboarding_task(None, Some("Worker"), None).unwrap();
+    assert!(
+        role_onboarding_task(Some("fix it"), Some("Worker"), None, None)
+            .unwrap()
+            .contains(
+                crate::service::builtin_roles::builtin_prose("worker")
+                    .unwrap()
+                    .trim()
+            )
+    );
+    let prompt = role_onboarding_task(None, Some("Worker"), None, None).unwrap();
     assert!(prompt.starts_with(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY));
     assert!(prompt.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
 }
 
 #[test]
 fn planner_profile_uses_planner_suffix() {
-    let task = role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner")).unwrap();
-    assert!(task.contains(&crate::prompts::planner_suffix()));
-    assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
+    let task =
+        role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner"), None).unwrap();
+    assert!(task.contains(&crate::service::role_preset::builtin_guidance("planner").unwrap()));
+    assert!(!task.contains(crate::service::builtin_roles::builtin_prose("worker").unwrap()));
     assert_eq!(
         task.matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
             .count(),
@@ -156,7 +174,7 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
         "You are Hopper — executor for: repair delivery",
         "# Repair delivery\n\nFix the ledger.",
     );
-    let task = role_onboarding_task(Some(&brief), Some("Worker"), None).unwrap();
+    let task = role_onboarding_task(Some(&brief), Some("Worker"), None, None).unwrap();
     let identity = task.find("You are Hopper").unwrap();
     let primer = task
         .find(crate::prompts::AGENT_CODETERM_PRIMER.trim())
@@ -178,24 +196,31 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
         1
     );
     assert!(!task.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
-    assert!(task
-        .trim_end()
-        .ends_with(crate::prompts::worker_suffix().trim_end()));
+    assert!(task.trim_end().ends_with(
+        crate::service::role_preset::builtin_guidance("worker")
+            .unwrap()
+            .trim_end()
+    ));
 }
 
 #[test]
 fn manager_watcher_does_not_get_worker_suffix() {
-    let task = role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher")).unwrap();
+    let task =
+        role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher"), None).unwrap();
     assert!(task.ends_with("watch it"));
-    assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
+    assert!(!task.contains(crate::service::builtin_roles::builtin_prose("worker").unwrap()));
 }
 
 #[test]
 fn plain_orchestrator_no_task_spawn_receives_primer_and_role_contract() {
     let prompt =
-        role_onboarding_task(None, Some("Orchestrator"), None).expect("orchestrator prompt");
+        role_onboarding_task(None, Some("Orchestrator"), None, None).expect("orchestrator prompt");
     assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
+    assert!(prompt.contains(
+        crate::service::role_preset::builtin_guidance("orchestrator")
+            .unwrap()
+            .trim()
+    ));
     assert_eq!(
         prompt
             .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
@@ -212,7 +237,11 @@ fn plain_orchestrator_no_task_spawn_receives_primer_and_role_contract() {
             .count(),
         1
     );
-    assert!(spawned.contains(crate::prompts::orchestrator_suffix().trim()));
+    assert!(spawned.contains(
+        crate::service::role_preset::builtin_guidance("orchestrator")
+            .unwrap()
+            .trim()
+    ));
 }
 
 #[test]
@@ -221,7 +250,11 @@ fn paired_orchestrator_starts_with_system_contract_without_a_synthetic_turn() {
     params.role = Some("Orchestrator".into());
     params.skip_orchestrator_onboarding = Some(true);
     let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
-    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
+    assert!(prompt.contains(
+        crate::service::role_preset::builtin_guidance("orchestrator")
+            .unwrap()
+            .trim()
+    ));
 }
 
 #[test]
@@ -234,7 +267,11 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
     assert!(
         task.find("inspect the launch path").unwrap()
             < task
-                .find(crate::prompts::orchestrator_suffix().trim())
+                .find(
+                    crate::service::role_preset::builtin_guidance("orchestrator")
+                        .unwrap()
+                        .trim()
+                )
                 .unwrap()
     );
 }

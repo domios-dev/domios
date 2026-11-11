@@ -54,7 +54,7 @@ A live roleless agent outside any Team can promote itself with `domios agent set
 
 **Worker discipline.** A task-bound Worker executes its one task, reports with `domios agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `partial` with the needed decomposition, so the Orchestrator splits it. A Worker `--status blocked` report proposes an owner decision for an external dependency, persists its reason and evidence, and leaves the task unchanged; only the Plan owner or Planner explicitly blocks the task.
 
-**Task-less Worker kinds.** `qa`, `release_manager` and `reviewer` are still Workers and always sit under their parent in the Team hierarchy, but they own no Plan task. Spawn with `domios agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. They cannot spawn children or gain filesystem write access from gate grants. They report to their parent without `--status`. A QA may accept or bounce only an exact in-review task its parent delegates with `domios plan review delegate`; its verdict requires an evidence note, and it cannot hold or dispatch tasks. A `reviewer` carries `read_only` execution intent unless the parent passes `--execution-intent mutating` for that exact assignment, and it never accepts work, closes a review, edits a Plan, publishes or releases.
+**Task-less Worker kinds.** `qa`, `release_manager` and `reviewer` are still Workers and always sit under their parent in the Team hierarchy, but they own no Plan task. Spawn with `domios agent spawn <provider> --role <type> --parent-tab <tab> [--authorized-gate <command>]`. They cannot spawn children or gain filesystem write access from gate grants. They report to their parent without `--status`. A QA may accept or bounce only an exact in-review task its parent delegates with `domios plan review delegate`; its verdict requires an evidence note, and it cannot hold or dispatch tasks. A `reviewer` carries `read_only` execution intent unless the parent passes `--execution-intent mutating` for that exact assignment, and it never accepts work, closes a review, edits a Plan, publishes or releases.
 
 **Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
 
@@ -91,7 +91,7 @@ TEAM_ID=$CODETERM_TEAM_ID
 domios agent unlink --tab $CODETERM_TAB_ID
 
 # Replace that missing Orchestrator while preserving the Team and Plan history
-domios agent spawn claude --team "$TEAM_ID" --role Orchestrator
+domios agent spawn claude --team "$TEAM_ID" --role orchestrator
 ```
 
 The `agent.report` webhook event fires when any agent sends a report, enabling async orchestration patterns.
@@ -102,13 +102,13 @@ The `task` field is baked into the launch command via the `-p` flag, so the agen
 
 ```bash
 # Spawn a Worker under the Orchestrator
-domios agent spawn claude --title "Worker-1" --description "Runs focused tests" --role Worker --parent-tab $CODETERM_TAB_ID --task "run tests"
+domios agent spawn claude --title "Worker-1" --description "Runs focused tests" --role worker --parent-tab $CODETERM_TAB_ID --task "run tests"
 
 # Spawn defaults to claude if no agent specified
-domios agent spawn --title "Helper" --description "Helps with repository work" --role Worker --parent-tab $CODETERM_TAB_ID
+domios agent spawn --title "Helper" --description "Helps with repository work" --role worker --parent-tab $CODETERM_TAB_ID
 
 # Cross-workspace spawn
-domios agent spawn claude --workspace WS_ID --title "Remote" --description "Audits the remote workspace" --role Worker --parent-tab $CODETERM_TAB_ID
+domios agent spawn claude --workspace WS_ID --title "Remote" --description "Audits the remote workspace" --role worker --parent-tab $CODETERM_TAB_ID
 ```
 
 Returns: tab_id, tab_id, pty_id, agent, title, role.
@@ -124,9 +124,9 @@ curl -X POST http://localhost:7685/api/batch \
   -H "Content-Type: application/json" \
   -d '{
     "commands": [
-      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "description": "Coordinates repository work", "role": "Orchestrator", "can_spawn": true}},
-      {"method": "spawn", "params": {"title": "W1", "description": "Analyzes the code", "role": "Worker", "parent_tab_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
-      {"method": "spawn", "params": {"title": "W2", "description": "Runs focused tests", "role": "Worker", "parent_tab_id": "$boss", "task": "run tests"}}
+      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "description": "Coordinates repository work", "role": "orchestrator", "can_spawn": true}},
+      {"method": "spawn", "params": {"title": "W1", "description": "Analyzes the code", "role": "worker", "parent_tab_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
+      {"method": "spawn", "params": {"title": "W2", "description": "Runs focused tests", "role": "worker", "parent_tab_id": "$boss", "task": "run tests"}}
     ]
   }'
 ```
@@ -182,4 +182,4 @@ While a turn runs, a successful result from these tools can end with an `Inbound
 
 The host supplies the tab-scoped credential, API URL and matching tab binding in the descriptor environment; Domios does not log or persist credential values. The agent receives this tab’s credential in session parameters and may store its session configuration. Missing credentials or a changed tab or binding nonce refuses MCP startup. If session creation or restoration fails with MCP offered, the host retries that session method once without tools and shows a “Domios tools are unavailable” notice; a second failure remains visible. ACP v1 requires stdio MCP support; `mcpCapabilities` advertises optional HTTP/SSE transports and does not gate this stdio server. Without a host descriptor, the agent receives no server.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

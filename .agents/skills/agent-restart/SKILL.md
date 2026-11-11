@@ -175,7 +175,7 @@ bindings replay. Coverage: `exit_clear_keeps_verified_binding_in_lineage`,
 `compaction_replay` tests. Refusals happen before acceptance with `exit_recovery_no_live_shell`,
 `exit_recovery_no_verified_session` or `exit_recovery_session_not_owned`; then
 spawn a fresh agent, or replace a missing Team Orchestrator through
-`domios agent spawn <provider> --team <team-id> --role Orchestrator`. The
+`domios agent spawn <provider> --team <team-id> --role orchestrator`. The
 General Agent keeps its own restart control. `tab restart` refuses an absent tab
 that still carries an agent role (`shell_restart_agent_member`): a hand-typed
 provider resume there bypasses the launch builder and starts the agent without
