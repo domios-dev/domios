@@ -33,6 +33,7 @@ export interface PickerModelGroup {
 
 export interface PickerSelection {
   model: string;
+  controls?: Record<string, string>;
   effort?: string;
   serviceTier?: ServiceTierSelection;
   runtimeMode?: string;
@@ -121,7 +122,7 @@ export function currentModelId(
   descriptor: ProviderDescriptor | undefined,
   candidates: Array<string | null | undefined>,
 ): string | undefined {
-  const candidate = candidates.find((candidate) => candidate?.trim())?.trim();
+  const candidate = candidates.find((candidate) => candidate?.trim() && !/^(unknown model|default)$/i.test(candidate.trim()))?.trim();
   const model = descriptor?.available_models.find((entry) => matchesModel(entry, candidate));
   return model?.id ?? candidate;
 }
@@ -198,8 +199,8 @@ export function planSelection(
   next: PickerSelection,
 ): PickerPlan {
   if (!gate.interactive) return { action: "none" };
-  const sameModel = current.model?.toLowerCase() === next.model.toLowerCase();
-  if (sameModel && current.serviceTier?.id === next.serviceTier?.id && (current.effort ?? undefined) === (next.effort ?? undefined) && current.runtimeMode === next.runtimeMode) return { action: "none" };
+  const sameModel = (current.model ?? "").toLowerCase() === next.model.toLowerCase();
+  if (sameModel && current.serviceTier?.id === next.serviceTier?.id && (current.effort ?? undefined) === (next.effort ?? undefined) && current.runtimeMode === next.runtimeMode && !Object.keys(next.controls ?? {}).length) return { action: "none" };
   return { action: gate.confirmRestart ? "confirm" : "apply", selection: next };
 }
 

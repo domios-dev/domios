@@ -5,7 +5,7 @@ use codeterm_types::agent::chat_types::ChatMsg;
 use serde_json::json;
 
 fn fixture_document() -> serde_json::Value {
-    json!({"format":"upgrade-restore-v1","sanitized":true,"plans":[],
+    json!({"format":super::FORMAT,"sanitized":true,"plans":[],
         "snapshot":{"version":"3","timestamp":1,"active_workspace_id":"ws",
             "workspaces":[{"id":"ws","name":"Fixture","active_tab_id":"tab",
                 "tabs":[{"id":"tab","title":"Fixture","split_tree":{"type":"Leaf","tab_id":"tab",
@@ -172,24 +172,107 @@ fn populated_snapshot_exports_unavailable_leaf_and_remaining_histories() {
     assert_eq!(histories[0]["transcript"]["status"], "unavailable");
     assert_eq!(histories[0]["transcript"]["backing_kind"], "chat_backend");
     assert_eq!(histories[0]["transcript"]["provider"], "fixture-provider");
-    assert_eq!(histories[0]["messages"], json!([]));
+    assert_eq!(histories[0]["shape"], json!([]));
     assert_eq!(histories[1]["transcript"]["status"], "captured");
-    assert_eq!(histories[1]["messages"][0]["id"], "message-readable");
     assert_eq!(
-        histories[1]["messages"][0]["content"],
-        "x".repeat("private message".len())
+        histories[1]["shape"],
+        json!([{"kind":"assistant","group":0,"bytes":"private message".len()}])
     );
     assert_eq!(histories[2]["transcript"]["status"], "captured");
-    assert_eq!(histories[2]["messages"], json!([]));
+    assert_eq!(histories[2]["shape"], json!([]));
     assert_eq!(histories[3]["transcript"]["status"], "not_applicable");
     assert_eq!(histories[3]["transcript"]["backing_kind"], "pty");
+    assert!(histories
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|history| history.get("messages").is_none()));
     assert_eq!(measurements.len(), 4);
     assert_eq!(measurements[1]["history_items"], 1);
     assert_eq!(
         measurements[1]["history_bytes"],
-        serde_json::to_vec(&histories[1]["messages"]).unwrap().len()
+        serde_json::to_vec(&[ChatMsg {
+            id: "message-readable".into(),
+            kind: "assistant".into(),
+            content: "private message".into(),
+            tool_flow_id: Some("turn-readable".into()),
+            ..Default::default()
+        }])
+        .unwrap()
+        .len()
     );
+    assert!(!histories.to_string().contains("message-readable"));
+    assert!(!histories.to_string().contains("turn-readable"));
     assert!(!safe.to_string().contains("private"));
+    assert!(!histories.to_string().contains("private"));
+}
+
+#[test]
+fn history_shape_keeps_restore_thresholds_at_a_size_independent_of_history_bytes() {
+    use codeterm_types::agent::chat_types::ChatAttachment;
+    let snapshot: SessionSnapshot = serde_json::from_value(json!({
+        "version":"1","timestamp":1,"active_workspace_id":"workspace",
+        "workspaces":[{"id":"workspace","name":"desk","active_tab_id":"long",
+            "tabs":[{"id":"long","title":"long","split_tree":{"type":"Leaf","tab_id":"long",
+                "cwd":"/private/project","agent_type":"opaque-agent","agent_session_id":"thread-long",
+                "agent_identity":{"agent_runtime_config":{"systemPrompt":"p".repeat(70 * 1024)}}}}]}]
+    }))
+    .unwrap();
+    let text = "private ".repeat(8 * 1024);
+    let messages: Vec<ChatMsg> = (0..320)
+        .map(|index| ChatMsg {
+            id: format!("private-{index}"),
+            kind: if index % 2 == 0 {
+                "assistant"
+            } else {
+                "tool_call"
+            }
+            .into(),
+            content: text.clone(),
+            tool_flow_id: (index % 2 == 1).then(|| format!("private-flow-{}", index % 6)),
+            tool_result: (index % 2 == 1).then(|| "private".into()),
+            attachments: (index == 319).then(|| {
+                vec![ChatAttachment {
+                    id: "private-image".into(),
+                    mime_type: "image/png".into(),
+                    data: Some("i".repeat(16384)),
+                    ..Default::default()
+                }]
+            }),
+            ..Default::default()
+        })
+        .collect();
+    let (safe, histories, measurements) =
+        capture_snapshot(&snapshot, |_| Ok(messages.clone())).unwrap();
+    let measure = &measurements[0];
+    assert!(measure["leaf_bytes"].as_u64().unwrap() > 64 * 1024);
+    assert_eq!(
+        measure["leaf_bytes"],
+        serde_json::to_vec(&safe["workspaces"][0]["tabs"][0]["split_tree"])
+            .unwrap()
+            .len()
+    );
+    assert_eq!(measure["history_items"], 320);
+    assert_eq!(measure["history_pages"], 4);
+    assert_eq!(measure["normalized_turn_groups"], 4);
+    assert_eq!(measure["image_items"], 1);
+    assert_eq!(measure["image_bytes"], 16384);
+    let history_bytes = measure["history_bytes"].as_u64().unwrap();
+    assert!(history_bytes > 16 * 1024 * 1024);
+    let shape = histories[0]["shape"].as_array().unwrap();
+    assert_eq!(shape.len(), 320);
+    assert_eq!(
+        shape[1],
+        json!({"kind":"tool_call","group":1,"bytes":text.len(),"result_bytes":7})
+    );
+    assert_eq!(shape[319]["image_bytes"], json!([16384]));
+    let first_page: u64 = shape[..100]
+        .iter()
+        .map(|row| row["bytes"].as_u64().unwrap())
+        .sum();
+    assert!(first_page > 256 * 1024);
+    let exported = serde_json::to_vec(&histories).unwrap().len();
+    assert!(exported < 64 * 1024, "shape export is {exported} bytes");
     assert!(!histories.to_string().contains("private"));
 }
 

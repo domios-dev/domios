@@ -25,9 +25,10 @@ export function ChatDeliveryState({ state, error, onRetry, onRemove, onEdit, res
   return <span role="status" aria-live="polite" aria-label={label}
     className={inline ? "ct-delivery ct-delivery--inline" : "ct-delivery"} data-state={state} title={label}>
     <span className="ct-delivery__dot" aria-hidden="true" />
-    <span className="ct-delivery__label">{label}</span>
+    {(inline || state === "failed" || state === "uncertain") && <span className="ct-delivery__label">{label}</span>}
+    {!inline && state === "queued" && queuedBehindTurn && <span className="ct-delivery__label">Queued</span>}
     {state === "failed" && onRetry && <button type="button" className="ct-delivery__retry" onClick={onRetry}>Retry</button>}
     {state === "uncertain" && onEdit && <button type="button" className="ct-delivery__retry" onClick={onEdit}>Edit and resend</button>}
-    {onRemove && <button type="button" className="ct-delivery__retry" onClick={onRemove}>Remove</button>}
+    {(state === "failed" || state === "uncertain") && onRemove && <button type="button" className="ct-delivery__retry" onClick={onRemove}>Remove</button>}
   </span>;
 }

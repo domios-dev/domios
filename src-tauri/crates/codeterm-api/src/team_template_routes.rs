@@ -1,24 +1,12 @@
 use axum::{
-    http::StatusCode,
     routing::{get, post},
-    Json, Router,
+    Router,
 };
-use codeterm_team_package::contracts::TemplateUnavailable;
-use serde_json::Value;
 
 use super::routes::AppState;
 
 mod exchange;
 mod template_start;
-
-pub(crate) type TemplateRouteResult = Result<Json<Value>, (StatusCode, Json<TemplateUnavailable>)>;
-
-/// Maps a service answer onto HTTP; an unimplemented operation is 501 with its typed body.
-pub(crate) fn answer(outcome: Result<Value, TemplateUnavailable>) -> TemplateRouteResult {
-    outcome
-        .map(Json)
-        .map_err(|unavailable| (StatusCode::NOT_IMPLEMENTED, Json(unavailable)))
-}
 
 pub fn router() -> Router<AppState> {
     Router::new()

@@ -21,6 +21,7 @@ pub(crate) mod instructions;
 mod launch_files;
 pub(crate) mod launch_lock;
 mod lifecycle;
+mod provider_choice;
 pub(crate) mod recovery;
 mod recovery_episode;
 pub(crate) mod session_contract;
@@ -47,6 +48,7 @@ pub use lifecycle::{
     claim_general_agent_tab_retry, restart_general_agent, restart_general_agent_tab,
     start_general_agent, start_general_agent_prepared, validate_general_agent_tab_retry,
 };
+pub use provider_choice::validate_general_agent_provider;
 pub use team_membership::{
     refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
 };

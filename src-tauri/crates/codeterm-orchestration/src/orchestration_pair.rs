@@ -128,11 +128,13 @@ fn validate_pair_provider(
     role_profile: Option<&str>,
     model: Option<&str>,
     reasoning_effort: Option<&str>,
+    launch_profile: Option<&str>,
 ) -> Result<(), String> {
     let spawn_params = SpawnAgentParams {
         agent: Some(provider.to_string()),
         model: model.map(str::to_string),
         reasoning_effort: reasoning_effort.map(str::to_string),
+        launch_profile: launch_profile.map(str::to_string),
         role: Some(role.to_string()),
         role_profile: role_profile.map(str::to_string),
         ..Default::default()
@@ -553,6 +555,7 @@ impl OrchestrationPairExt for ServiceContext {
             None,
             orchestrator_model.as_deref(),
             orchestrator_seat.effort.as_deref(),
+            params.orchestrator_launch_profile.as_deref(),
         )?;
         validate_pair_provider(
             self,
@@ -561,6 +564,7 @@ impl OrchestrationPairExt for ServiceContext {
             Some("planner"),
             planner_model.as_deref(),
             planner_seat.effort.as_deref(),
+            params.planner_launch_profile.as_deref(),
         )?;
         let claimed_orchestrator_pad_existed = if let Some(tab_id) = params.existing_tab_id.clone()
         {
@@ -687,6 +691,7 @@ impl OrchestrationPairExt for ServiceContext {
         ));
         let orch_params = SpawnAgentParams {
             agent: Some(orchestrator_seat.provider.clone()),
+            launch_profile: params.orchestrator_launch_profile.clone(),
             model: orchestrator_model.clone(),
             reasoning_effort: orchestrator_seat.effort.clone(),
             role: Some("Orchestrator".into()),
@@ -734,6 +739,7 @@ impl OrchestrationPairExt for ServiceContext {
         ));
         let planner_params = SpawnAgentParams {
             agent: Some(planner_seat.provider.clone()),
+            launch_profile: params.planner_launch_profile.clone(),
             model: planner_model.clone(),
             reasoning_effort: planner_seat.effort.clone(),
             title: Some(reserved.planner_name.clone()),

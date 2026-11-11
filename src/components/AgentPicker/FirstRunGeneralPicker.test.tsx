@@ -295,8 +295,11 @@ it("Welcome offers Codex's runtime and confirms the selected provider once", asy
     await act(async () => root.render(<FirstRunGeneralPicker providers={[
       provider("terminal-agent", "pty"),
       provider("codex", "chat_backend", "Codex"),
+      { ...provider("profile-adapter", "chat_backend", "Profile adapter"),
+        agent_runtime: { launchProfiles: {} } },
     ]} />));
     const buttons = () => Array.from(host.querySelectorAll("button"));
+    expect(buttons().some(button => button.getAttribute("aria-label")?.startsWith("Profile adapter:"))).toBe(false);
     const codex = buttons().find((button) => button.textContent?.includes("Codex"));
     expect(codex).toBeDefined();
     await act(async () => codex!.click());

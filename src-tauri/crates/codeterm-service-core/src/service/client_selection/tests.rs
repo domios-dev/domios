@@ -25,7 +25,8 @@ fn focus_events(fixture: &ServiceFixture) -> Vec<String> {
 
 #[test]
 fn a_client_selection_is_recorded_without_reaching_any_other_client() {
-    let (mux, _, other, other_tab) = two_workspaces();
+    let (mut mux, _, other, other_tab) = two_workspaces();
+    mux.get_tab_mut(&other_tab).unwrap().pty_id = Some("already-open-pty".into());
     let fixture = ServiceFixture::new(mux);
     let requests = || {
         fixture

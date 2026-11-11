@@ -8,6 +8,7 @@ import { TemplateReview } from "./TemplateReview";
 import { TemplateStartFields } from "./TemplateStartFields";
 import { TemplateExportDialog } from "./TemplateExportDialog";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
+import type { PairRoleControls } from "./TemplateManagers";
 
 /** The Team panel of the session dialog: today's pair form under the default, or a chosen template's simple form. */
 export function TeamTemplateSection({ choice, defaultForm, ...form }: {
@@ -18,6 +19,7 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
   pair: OrchestrationPairValues;
   onPairChange: (next: OrchestrationPairValues) => void;
   onInstallProvider: (providerId: string) => void;
+  roleControls?: PairRoleControls;
 }) {
   const [exporting, setExporting] = useState<TemplateSummary | null>(null);
   const view = choice.view;

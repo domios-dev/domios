@@ -13,6 +13,9 @@ import {
 } from "./localArtifactLoader";
 
 import { useLocalArtifactTabId } from "./LocalArtifactScope";
+import { localArtifactMemory, localArtifactMemoryKey } from "./localArtifactMemory";
+import { CodeBlock } from "./CodeBlock";
+import { knownLanguageFromPath } from "./codeLanguage";
 
 import type { LocalArtifactDirective } from "@codeterm/chat-core";
 export { parseLocalArtifactDirective } from "@codeterm/chat-core";
@@ -21,6 +24,20 @@ type LoadState =
   | { status: "loading"; file: null; error: "" }
   | { status: "ready"; file: LocalPreviewFile; error: "" }
   | { status: "error"; file: null; error: string };
+
+const LOADING: LoadState = { status: "loading", file: null, error: "" };
+
+function shownFile(current: LoadState, file: LocalPreviewFile | null): LoadState {
+  if (!file) return current.status === "loading" ? current : LOADING;
+  const same = current.status === "ready" && current.file.data === file.data && current.file.media_type === file.media_type;
+  return same ? current : { status: "ready", file, error: "" };
+}
+
+function DocumentText({ path, text }: { path: string; text: string }) {
+  const language = knownLanguageFromPath(path);
+  if (language === "text") return <pre className="whitespace-pre-wrap break-words">{text}</pre>;
+  return <CodeBlock text={text} language={language} maxHeight="none" wrapLines />;
+}
 
 interface LocalArtifactProps {
   directive: LocalArtifactDirective;
@@ -63,7 +80,10 @@ function LoadedLocalArtifact({
   const outerFullscreen = useFullscreenViewer();
   const tabId = useLocalArtifactTabId();
   const canReveal = localArtifactOpeningAvailable();
-  const [state, setState] = useState<LoadState>({ status: "loading", file: null, error: "" });
+  // A remount (the row re-entering the mounted window, a re-keyed message) shows the remembered file at once,
+  // so the transcript never sees the preview collapse to a placeholder and grow back.
+  const [state, setState] = useState<LoadState>(() =>
+    shownFile(LOADING, localArtifactMemory.get(localArtifactMemoryKey(directive.path, directive.kind, tabId))));
   const [fullscreen, setFullscreen] = useState(false);
   const fullscreenRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setFullscreen(false), []);
@@ -77,11 +97,14 @@ function LoadedLocalArtifact({
   const reload = useCallback(async () => {
     const request = generation.current + 1;
     generation.current = request;
-    setState({ status: "loading", file: null, error: "" });
+    const key = localArtifactMemoryKey(directive.path, directive.kind, tabId);
+    setState((current) => shownFile(current, localArtifactMemory.get(key)));
     try {
       const file = await loadLocalArtifact(directive.path, directive.kind, tabId);
-      if (generation.current === request) setState({ status: "ready", file, error: "" });
+      localArtifactMemory.set(key, file);
+      if (generation.current === request) setState((current) => shownFile(current, file));
     } catch (error) {
+      localArtifactMemory.delete(key);
       if (generation.current === request) {
         setState({
           status: "error",
@@ -105,8 +128,8 @@ function LoadedLocalArtifact({
     {state.status === "loading" && <p>Loading…</p>}
     {state.status === "error" && (renderError ? renderError(state.error) : <p role="alert">{state.error}</p>)}
     {state.status === "ready" && (state.file.media_type === "text/markdown" ? renderMarkdown(state.file.data)
-        : renderText ? renderText(state.file.data) : <pre className="whitespace-pre-wrap break-words">{state.file.data}</pre>)}
-  </>, [state, renderError, renderMarkdown, renderText]);
+        : renderText ? renderText(state.file.data) : <DocumentText path={directive.path} text={state.file.data} />)}
+  </>, [state, renderError, renderMarkdown, renderText, directive.path]);
   const reveal = () => void openLocalArtifact(directive.path).catch((error: unknown) => setState({ status: "error", file: null, error: String(error) }));
   return (
     <section ref={sectionRef}
