@@ -233,6 +233,10 @@ pub struct OrchestrationPairResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub budget_notice: Option<TabBudgetNotice>,
+    /// What the template start did: managers started, roles registered, start-time warnings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub template: Option<codeterm_team_package::contracts::TemplateStartResult>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, ts_rs::TS)]

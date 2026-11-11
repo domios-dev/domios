@@ -266,18 +266,63 @@ pub struct ControlLoop {
     pub observed_owner_answers: std::collections::BTreeSet<String>,
     pub save_candidates: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
     pub save_candidate_shapes: std::collections::BTreeMap<String, String>,
+    /// The Team's registered Curator schedule, clamped into the host bounds.
+    pub curator_window: Option<CuratorWindow>,
 }
 
-pub fn curator_delay(chosen: Option<u64>) -> u64 {
-    chosen
-        .unwrap_or(CURATOR_MIN_DELAY_SECS)
-        .clamp(CURATOR_MIN_DELAY_SECS, CURATOR_MAX_DELAY_SECS)
+/// The Curator's delay window in seconds; it never leaves the host bounds.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
+pub struct CuratorWindow {
+    pub min_secs: u64,
+    pub max_secs: u64,
+}
+
+impl Default for CuratorWindow {
+    fn default() -> Self {
+        Self::HOST
+    }
+}
+
+impl CuratorWindow {
+    pub const HOST: Self = Self {
+        min_secs: CURATOR_MIN_DELAY_SECS,
+        max_secs: CURATOR_MAX_DELAY_SECS,
+    };
+
+    /// A Team's `<min>..<max>` with each end clamped into the host bounds:
+    /// a narrower window narrows, a wider one clamps.
+    pub fn within_host(min_secs: u64, max_secs: u64) -> Self {
+        let clamp = |secs: u64| secs.clamp(CURATOR_MIN_DELAY_SECS, CURATOR_MAX_DELAY_SECS);
+        Self {
+            min_secs: clamp(min_secs.min(max_secs)),
+            max_secs: clamp(max_secs.max(min_secs)),
+        }
+    }
+
+    /// The chosen delay inside this window; none chosen is its minimum.
+    pub fn delay(self, chosen: Option<u64>) -> u64 {
+        // A stored window is re-clamped, so a hand-edited plan cannot escape the host bounds.
+        let window = Self::within_host(self.min_secs, self.max_secs);
+        chosen
+            .unwrap_or(window.min_secs)
+            .clamp(window.min_secs, window.max_secs)
+    }
 }
 
 impl ControlLoop {
+    /// The Team's Curator window, or the host window when the Team registers none.
+    pub fn window(&self) -> CuratorWindow {
+        self.curator_window.unwrap_or_default()
+    }
+
+    pub fn delay(&self, chosen: Option<u64>) -> u64 {
+        self.window().delay(chosen)
+    }
+
     pub fn defer(&mut self, now: u64, chosen: Option<u64>) {
-        self.next_at = (self.mode == ControlLoopMode::Curator)
-            .then(|| now.saturating_add(curator_delay(chosen) * 1000));
+        let delay = self.delay(chosen);
+        self.next_at =
+            (self.mode == ControlLoopMode::Curator).then(|| now.saturating_add(delay * 1000));
     }
 
     pub fn owner_heartbeat(&self) -> bool {

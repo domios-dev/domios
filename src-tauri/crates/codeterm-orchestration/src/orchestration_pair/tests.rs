@@ -248,16 +248,6 @@ fn pair_retry_command_preserves_provider_models_and_workspace() {
 }
 
 #[test]
-fn pair_without_model_does_not_promote_provider_defaults_to_explicit_requests() {
-    assert_eq!(explicit_pair_model(None), None);
-    assert_eq!(explicit_pair_model(Some("  ".into())), None);
-    assert_eq!(
-        explicit_pair_model(Some("gpt-6-sol".into())).as_deref(),
-        Some("gpt-6-sol")
-    );
-}
-
-#[test]
 fn planner_name_is_distinct_from_orchestrator_and_never_the_role_word() {
     for _ in 0..64 {
         let name = derive_planner_name(["Kepler", "Main"], "Kepler");

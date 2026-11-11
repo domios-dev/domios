@@ -919,6 +919,7 @@ impl ServiceContext {
                 .filter(|plan_id| !plan_id.is_empty())
                 .ok_or("Planner requires --plan <id> (or an explicit --parent)")?;
             self.place_planner_on_plan(tab_id, plan_id, None, false)?;
+            crate::service::team_roles::stamp_role_label(self, tab_id);
             return Ok(());
         }
         if emit_state_change {
@@ -938,6 +939,7 @@ impl ServiceContext {
             drop(mux);
             self.record_role_transition(tab_id);
         }
+        crate::service::team_roles::stamp_role_label(self, tab_id);
         if let Some(parent) = parent_tab_id {
             self.expect_spawn_parent_link(tab_id, parent)?;
         }

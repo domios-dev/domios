@@ -29,6 +29,24 @@ Without `--template` the standard pair starts from the default. Send the objecti
 - **Payload**: files land in the Team's knowledge directory (`<data dir>/teams/<team-id>/knowledge/`) and are listed with their descriptions in the roles that use them; memory is saved to mem with the Team as its source; skills become skills of the Team's plan; automation becomes the Team's Blueprints, imported stopped under its Orchestrator (start one when the Team needs it). The owner may opt out of any item in the preview.
 - A remote role runs on a paired peer Main that admits the start there; the owner consents on that peer.
 
+- `domios team template preview <name>` shows what a template starts, asks for and brings. When it needs consent it prints a `decision_id`.
+- `domios team template start <name> --orchestrator <provider[:model]> --planner <provider[:model]> [--input key=value] [--secret NAME=entry] [--opt-out item] [--decision <decision_id>]` starts it; `--team <team-id>` re-runs it on an existing Team and adds only missing registrations.
+
+A start that cannot begin changes nothing and answers `template_start` with a typed result:
+- `needs_choice`: a manager has no model. Ask the owner with `domios notify send "Choose a model" --level action_needed --choice "<harness:model>"` (one `--choice` per listed alternative), then start again with the chosen model.
+- `refused`: `missing_inputs` (pass them), `consent_required` (preview, show the owner what it asks for, start with the issued `decision_id` only after they agree), `not_found` or `invalid_package`.
+- `manager_failed`: a manager could not start; report the reason and choices to the owner. Nothing is retried for you.
+
+After the Orchestrator is up, anything else that fails reaches the Orchestrator once as a summary with a line per role.
+
+Good to know:
+- Consent decisions live in memory: after a Domios restart, preview the template again and start with the new `decision_id`.
+- A reasoning effort the chosen model does not offer runs at the nearest level it does offer instead of being refused.
+- Manager models are checked before anything is created: a harness that is not installed, signed in or within quota answers `needs_choice` and no Tab or Team appears.
+- A curator `start: {schedule: "<min>..<max>"}` sets how often the Curator visits, kept within 45m..2h; owner Auto, Heartbeat and Off modes still decide whether it runs.
+- Every Team starts with an Orchestrator and a Planner.
+- `domios team check <path>` validates a package; the format is `domios docs TEAM-FORMAT`.
+
 `domios role list --team <team-id>` shows the role types a Team can launch and the package each comes from. A Team keeps the template version it started from: saving or importing a newer version never changes an active Team.
 
 ## Bake a Team into a template
@@ -56,4 +74,4 @@ The bake keeps each role's instructions, models (a role without a model stays wi
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

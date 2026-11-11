@@ -55,6 +55,7 @@
       }
     ]
   },
+  "requires_harnesses": ["claude", "codex"],
   "where_needed": {
     "needs": [
       { "kind": "missing_harness", "harness": "codex" },

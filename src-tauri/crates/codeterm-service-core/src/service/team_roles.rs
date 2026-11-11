@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use codeterm_team_package::{is_role_name, ManagerSlot, TeamRoleGroup};
+use codeterm_team_package::{is_role_name, ManagerSlot, RoleStart, TeamRoleGroup};
 use codeterm_types::agent::role_kind::{builtins, RoleType, RoleTypeError};
 use codeterm_types::team::role_registration::{RoleRegistration, RoleRegistrationOutcome};
 use parking_lot::Mutex;
@@ -149,6 +149,24 @@ impl TeamRoleStore {
         Ok(RoleRegistrationOutcome::Created)
     }
 
+    /// Removes the registrations of a Team that never came up (a rolled-back pair mint).
+    pub fn forget(&self, team_id: &str) -> Result<(), String> {
+        let file = self.file(team_id)?;
+        let mut cache = self.cache.lock();
+        for path in std::iter::once(file.path().to_path_buf()).chain(file.backups()) {
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("remove {}: {error}", path.display())),
+            }
+        }
+        // Only empty folders go; anything else under the Team folder is not ours.
+        let _ = std::fs::remove_dir(file.backup_dir());
+        let _ = std::fs::remove_dir(self.root.join(team_id));
+        cache.remove(team_id);
+        Ok(())
+    }
+
     /// Drops cached registrations so the next read comes from disk.
     pub fn reload(&self, team_id: Option<&str>) {
         let mut cache = self.cache.lock();
@@ -188,6 +206,54 @@ pub fn registrations(team_id: Option<&str>) -> Vec<RoleRegistration> {
     team_id
         .filter(|team_id| valid_team_id(team_id).is_ok())
         .map(|team_id| TeamRoleStore::global().registrations(team_id))
+        .unwrap_or_default()
+}
+
+/// The label a tab shows for its registered role type: a display name the package declared,
+/// or the name of a type the host has no builtin label for. Builtin types keep the host label.
+pub fn role_label_for(
+    team: &[RoleRegistration],
+    role: codeterm_types::agent::AgentRole,
+    kind_id: &str,
+) -> Option<String> {
+    // A kind that borrows another role's prose (the Watcher) never borrows its label.
+    let registration = crate::service::role_preset::registration(team, role, kind_id)
+        .filter(|registration| registration.name == kind_id)?;
+    let declared = registration.label != registration.name;
+    (declared || !builtins::is_builtin(kind_id)).then(|| registration.label.clone())
+}
+
+/// Stamps a launched tab's role label from its Team's registrations, read outside the mux lock.
+pub fn stamp_role_label(svc: &crate::service::ServiceContext, tab_id: &str) {
+    let identity = svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        Some((
+            tab.team_id.clone(),
+            tab.role?,
+            tab.role_kind_id()?.to_string(),
+        ))
+    });
+    let Some((team_id, role, kind_id)) = identity else {
+        return;
+    };
+    let label = role_label_for(&registrations(team_id.as_deref()), role, &kind_id);
+    if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
+        tab.role_label = label;
+    }
+}
+
+/// The Curator window a Team's curator registration schedules, clamped into the host bounds.
+pub fn curator_window(team_id: Option<&str>) -> codeterm_types::plan::CuratorWindow {
+    window_of(&registrations(team_id))
+}
+
+fn window_of(team: &[RoleRegistration]) -> codeterm_types::plan::CuratorWindow {
+    team.iter()
+        .find(|registration| registration.slot() == Some(ManagerSlot::Curator))
+        .and_then(|registration| match &registration.start {
+            RoleStart::Schedule { schedule } => codeterm_team_package::schedule_window(schedule),
+            RoleStart::Mode(_) => None,
+        })
+        .map(|(min, max)| codeterm_types::plan::CuratorWindow::within_host(min, max))
         .unwrap_or_default()
 }
 

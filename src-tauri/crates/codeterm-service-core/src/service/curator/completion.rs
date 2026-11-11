@@ -151,7 +151,7 @@ impl ServiceContext {
                         "Curator execution ended without finish"
                     }
                     .into(),
-                    next_delay_secs: curator_delay(None),
+                    next_delay_secs: plan.control_loop.delay(None),
                     synthesis: run.synthesis,
                     digest_hash: run.digest_hash.clone(),
                     section_sizes: run.section_sizes.clone(),

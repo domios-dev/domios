@@ -492,11 +492,12 @@ impl ServiceContext {
         if profile.as_deref() == Some(codeterm_types::agent::role_kind::builtins::PLANNER) {
             if let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) {
                 self.place_planner_on_plan(tab_id, plan_id, parent, false)?;
+                super::team_roles::stamp_role_label(self, tab_id);
                 return Ok(());
             }
         }
         if emit_state_change {
-            self.set_tab_role_with_profile(tab_id, role, profile.as_deref(), parent, can_spawn)
+            self.set_tab_role_with_profile(tab_id, role, profile.as_deref(), parent, can_spawn)?;
         } else {
             let mut mux = self.mux.write();
             place_chatbackend_role_kind(
@@ -506,8 +507,10 @@ impl ServiceContext {
                 profile.as_deref(),
                 parent,
                 can_spawn,
-            )
+            )?;
         }
+        super::team_roles::stamp_role_label(self, tab_id);
+        Ok(())
     }
 
     pub(crate) fn prepare_chatbackend_runtime_launch(

@@ -77,6 +77,7 @@ impl MultiplexerState {
             managed: None,
             role: None,
             role_profile: None,
+            role_label: None,
             team_id: None,
             watcher: None,
             parent_tab_id: None,

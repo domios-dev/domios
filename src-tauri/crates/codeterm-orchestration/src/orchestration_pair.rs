@@ -7,6 +7,7 @@
 //! only sequences the two spawns and records the pending pair.
 
 use codeterm_service_core::service::MuxEmitCause;
+use codeterm_team_package::ManagerSlot;
 use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
 use codeterm_types::team::general_agent_membership::{CorrectiveShape, MembershipAttempt};
 
@@ -41,10 +42,6 @@ fn pair_retry_command(
         provider_spec(planner_agent, planner_model),
         workspace_id
     )
-}
-
-fn explicit_pair_model(model: Option<String>) -> Option<String> {
-    model.filter(|model| !model.trim().is_empty())
 }
 
 fn derive_planner_name<'a>(
@@ -143,12 +140,7 @@ fn validate_pair_provider(
     if service.classify_spawn_target_for_params(provider, &spawn_params)? {
         return Ok(());
     }
-    codeterm_service_core::service::spawn::validate_agent_model(
-        &service.agent_registry,
-        provider,
-        model,
-    )
-    .map_err(|error| error.to_string())?;
+    // The model was decided by the shared decision service in the template rail.
     codeterm_service_core::service::spawn::validate_agent_reasoning_effort(
         &service.agent_registry,
         provider,
@@ -452,6 +444,9 @@ fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> 
         let mut mux = service.mux.write();
         release_minted_pair_team(&mut mux, reserved);
     }
+    if reserved.team_minted {
+        crate::team::template_start::forget_minted(&reserved.team.id);
+    }
     service.forget_pair_startup_lease(&reserved.team.id);
     let mux = service.mux.read();
     let remaining_tabs: Vec<_> = created_member_tab_ids(reserved)
@@ -499,16 +494,6 @@ impl OrchestrationPairExt for ServiceContext {
         &self,
         params: OrchestrationPairParams,
     ) -> Result<OrchestrationPairResult, String> {
-        if let Some(template) = params.template.as_ref() {
-            crate::team::template_start::start(template)?;
-        }
-        if params.orchestrator_agent.trim().is_empty() {
-            return Err("orchestrator_agent is required".into());
-        }
-        if params.planner_agent.trim().is_empty() {
-            return Err("planner_agent is required".into());
-        }
-
         let startup_supervisor = params.spawned_by_tab_id.as_ref().and_then(|tab_id| {
             self.mux
                 .read()
@@ -523,6 +508,13 @@ impl OrchestrationPairExt for ServiceContext {
             params.spawned_by_tab_id.as_deref(),
             params.leaf_creation_acknowledged,
         )?;
+        if let Some(team_id) = params
+            .template
+            .as_ref()
+            .and_then(|template| template.team_id.clone())
+        {
+            return crate::team::template_start::rerun(self, &params, &team_id).await;
+        }
 
         let workspace_id = {
             let mux = self.mux.read();
@@ -548,23 +540,27 @@ impl OrchestrationPairExt for ServiceContext {
             .map(|workspace| workspace.name.clone())
             .unwrap_or_else(|| workspace_id.clone());
 
-        let orchestrator_model = explicit_pair_model(params.orchestrator_model.clone());
-        let planner_model = explicit_pair_model(params.planner_model.clone());
+        // The template rail: package, inputs, consent and manager models, before any creation.
+        let rail = crate::team::template_start::prepare(self, &params).await?;
+        let orchestrator_seat = rail.seat(ManagerSlot::Orchestrator)?.clone();
+        let planner_seat = rail.seat(ManagerSlot::Planner)?.clone();
+        let orchestrator_model = orchestrator_seat.model.clone();
+        let planner_model = planner_seat.model.clone();
         validate_pair_provider(
             self,
-            &params.orchestrator_agent,
+            &orchestrator_seat.provider,
             "Orchestrator",
             None,
             orchestrator_model.as_deref(),
-            params.orchestrator_reasoning_effort.as_deref(),
+            orchestrator_seat.effort.as_deref(),
         )?;
         validate_pair_provider(
             self,
-            &params.planner_agent,
+            &planner_seat.provider,
             "Manager",
             Some("planner"),
             planner_model.as_deref(),
-            params.planner_reasoning_effort.as_deref(),
+            planner_seat.effort.as_deref(),
         )?;
         let claimed_orchestrator_pad_existed = if let Some(tab_id) = params.existing_tab_id.clone()
         {
@@ -582,15 +578,15 @@ impl OrchestrationPairExt for ServiceContext {
         };
         let pair_fix_command = pair_retry_command(
             &workspace_id,
-            &params.orchestrator_agent,
+            &orchestrator_seat.provider,
             orchestrator_model.as_deref(),
-            &params.planner_agent,
+            &planner_seat.provider,
             planner_model.as_deref(),
         );
 
         let membership_shape = CorrectiveShape::in_workspace(Some(&workspace_id)).with_agents(
-            Some(&params.orchestrator_agent),
-            Some(&params.planner_agent),
+            Some(&orchestrator_seat.provider),
+            Some(&planner_seat.provider),
         );
         let gate = self.limit_gate();
         let reserved = {
@@ -612,6 +608,26 @@ impl OrchestrationPairExt for ServiceContext {
                 apply_reserved_team_title(&mut mux, &mut reserved, title)?;
             }
             reserved
+        };
+        // Registered before the managers spawn, so their prompts compose from the package roles.
+        let registrations = match crate::team::template_start::register(&reserved.team.id, &rail)
+            .await
+        {
+            Ok(registrations) => registrations,
+            Err(error) => {
+                let cleanup_errors = rollback_pair_tabs(self, &reserved);
+                let cleanup = if cleanup_errors.is_empty() {
+                    "Both reserved Tabs were rolled back.".to_string()
+                } else {
+                    format!(
+                        "Pair rollback was incomplete: {}.",
+                        cleanup_errors.join("; ")
+                    )
+                };
+                return Err(format!(
+                    "Failed to register the template roles ({error}). {cleanup} Retry with: {pair_fix_command}"
+                ));
+            }
         };
         let orchestrator_label = self
             .mux
@@ -663,19 +679,16 @@ impl OrchestrationPairExt for ServiceContext {
                 project.clone(),
                 &reserved.team,
             );
-        orchestrator_bootstrap.coordination = Some(
+        orchestrator_bootstrap.coordination = Some(rail.coordination(
             codeterm_service_core::service::spawn_factory::introduction_body(
                 &orch_counterpart,
                 &planner_counterpart,
             ),
-        );
+        ));
         let orch_params = SpawnAgentParams {
-            agent: Some(params.orchestrator_agent.clone()),
+            agent: Some(orchestrator_seat.provider.clone()),
             model: orchestrator_model.clone(),
-            reasoning_effort: params
-                .orchestrator_reasoning_effort
-                .clone()
-                .filter(|e| !e.trim().is_empty()),
+            reasoning_effort: orchestrator_seat.effort.clone(),
             role: Some("Orchestrator".into()),
             can_spawn: Some(true),
             workspace_id: Some(workspace_id.clone()),
@@ -713,19 +726,16 @@ impl OrchestrationPairExt for ServiceContext {
                 project,
                 &reserved.team,
             );
-        planner_bootstrap.coordination = Some(
+        planner_bootstrap.coordination = Some(rail.coordination(
             codeterm_service_core::service::spawn_factory::introduction_body(
                 &planner_counterpart,
                 &orch_counterpart,
             ),
-        );
+        ));
         let planner_params = SpawnAgentParams {
-            agent: Some(params.planner_agent.clone()),
+            agent: Some(planner_seat.provider.clone()),
             model: planner_model.clone(),
-            reasoning_effort: params
-                .planner_reasoning_effort
-                .clone()
-                .filter(|e| !e.trim().is_empty()),
+            reasoning_effort: planner_seat.effort.clone(),
             title: Some(reserved.planner_name.clone()),
             role: Some("Manager".into()),
             role_profile: Some("planner".into()),
@@ -766,6 +776,14 @@ impl OrchestrationPairExt for ServiceContext {
                 if reserved.team_minted {
                     self.record_product_feature(codeterm_analytics::Feature::TeamCreated);
                 }
+                let template = crate::team::template_start::finish(
+                    self,
+                    &rail,
+                    &reserved.team.id,
+                    &orch_tab_id,
+                    registrations,
+                )
+                .await;
                 Ok(OrchestrationPairResult {
                     plan_id: None,
                     orchestrator_tab_id: orch_tab_id,
@@ -777,6 +795,7 @@ impl OrchestrationPairExt for ServiceContext {
                         planner_result.warning,
                     ),
                     budget_notice,
+                    template: Some(template),
                 })
             }
             Err(error) => {

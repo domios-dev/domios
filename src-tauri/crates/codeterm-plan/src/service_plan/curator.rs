@@ -3,8 +3,8 @@ pub use super::store_db::hot_write::runtime::{
 };
 use super::{PlanError, PlanStore};
 use crate::plan::{
-    curator_delay, ControlLoop, ControlLoopMode, CuratorRound, HeartbeatLearning, Plan, PlanMode,
-    PlanStatus, CURATOR_IDLE_FLOOR_MS,
+    ControlLoop, ControlLoopMode, CuratorRound, HeartbeatLearning, Plan, PlanMode, PlanStatus,
+    CURATOR_IDLE_FLOOR_MS,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -167,7 +167,7 @@ impl PlanStore {
                 learn: note.learnings.clone(),
                 next_checks: note.next_checks.clone(),
                 ready: note.ready.clone(),
-                next_delay_secs: curator_delay(Some(note.next_secs)),
+                next_delay_secs: plan.control_loop.delay(Some(note.next_secs)),
                 reason: note.reason.clone(),
                 learnings: (note.retro.len() + note.learnings.len() + note.next_checks.len())
                     as u64,

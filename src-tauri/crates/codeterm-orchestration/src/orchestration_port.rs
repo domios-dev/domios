@@ -5,6 +5,7 @@ use codeterm_service_core::service::{
     ExtensionsBuilder, ServiceContext, ServiceState, TeamMutationCaller,
 };
 
+use crate::team::template_start::TemplateStartLocks;
 use crate::team::TeamExt;
 use crate::{CartographerAttachLocks, OrchestratorAttachLocks};
 
@@ -25,6 +26,7 @@ pub fn register_orchestration() {
             // Fail fast at install, as required() did: both lock keys are registered extensions.
             svc.ext::<CartographerAttachLocks>();
             svc.ext::<OrchestratorAttachLocks>();
+            svc.ext::<TemplateStartLocks>();
             Arc::new(OrchestrationPortImpl(Arc::downgrade(&svc)))
         },
         register_extensions,
@@ -34,6 +36,7 @@ pub fn register_orchestration() {
 fn register_extensions(extensions: &mut ExtensionsBuilder) {
     extensions.insert(CartographerAttachLocks(Default::default()));
     extensions.insert(OrchestratorAttachLocks(Default::default()));
+    extensions.insert(TemplateStartLocks(Default::default()));
 }
 
 impl OrchestrationPort for OrchestrationPortImpl {
