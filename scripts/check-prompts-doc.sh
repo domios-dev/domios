@@ -33,7 +33,7 @@ for line in docs.read_text(encoding="utf-8").splitlines():
     if m:
         role_rows.add(m.group(1))
 role_files = sorted(
-    p for p in templates_dir.rglob("*.md") if p.parent.name in {"managers", "workers"}
+    p for p in (templates_dir / "default").rglob("*.md") if p.parent.name in {"managers", "workers"}
 )
 role_names = {p.relative_to(templates_dir).as_posix() for p in role_files}
 
