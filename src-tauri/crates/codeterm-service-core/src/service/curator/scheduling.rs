@@ -158,13 +158,10 @@ fn reconcile_idle_loop(
         let wake = now.saturating_add(1000);
         state.next_at = Some(state.next_at.map_or(wake, |next| next.min(wake)));
     }
-    let bound = now.saturating_add(codeterm_types::plan::CURATOR_MAX_DELAY_SECS * 1000);
-    state.next_at = Some(
-        state
-            .next_at
-            .unwrap_or_else(|| now.saturating_add(curator_delay(None) * 1000))
-            .min(bound),
-    );
+    let window = state.window();
+    let bound = now.saturating_add(window.delay(Some(u64::MAX)) * 1000);
+    let first = now.saturating_add(window.delay(None) * 1000);
+    state.next_at = Some(state.next_at.unwrap_or(first).min(bound));
 }
 
 #[cfg(test)]
@@ -260,7 +257,7 @@ impl ServiceContext {
                     outcome: codeterm_types::plan::CuratorOutcome::Fallback,
                     summary: cause.unwrap_or(reason.as_str()).into(),
                     reason: reason.as_str().into(),
-                    next_delay_secs: curator_delay(None),
+                    next_delay_secs: state.delay(None),
                     ..Default::default()
                 };
                 plan.append_round(round.clone());
@@ -289,6 +286,11 @@ impl ServiceContext {
             suspended.is_some(),
         );
         let mut loop_state = plan.control_loop.clone();
+        // The Team's registered Curator schedule feeds every delay below and later rounds;
+        // the host window stays implicit so default Teams write nothing new.
+        let window = crate::service::team_roles::curator_window(plan.team_id.as_deref());
+        loop_state.curator_window =
+            (window != codeterm_types::plan::CuratorWindow::HOST).then_some(window);
         if eligible && loop_state.running.is_some() {
             loop_state.agent_states = super::movement_sources::observed_agents(
                 self,
@@ -343,7 +345,7 @@ impl ServiceContext {
                     },
                     reason: reason.into(),
                     summary: reason.into(),
-                    next_delay_secs: curator_delay(None),
+                    next_delay_secs: loop_state.delay(None),
                     digest_hash: run.digest_hash.clone(),
                     section_sizes: run.section_sizes.clone(),
                     turns: run.turns,
@@ -360,7 +362,7 @@ impl ServiceContext {
                 loop_state.consecutive_failures += 1;
                 loop_state.fallback_reason = Some(CuratorFailure::ConsecutiveFailures);
                 loop_state.last_real_round_at = Some(now);
-                loop_state.next_at = Some(now + curator_delay(None) * 1000);
+                loop_state.next_at = Some(now + loop_state.delay(None) * 1000);
                 let applied = self
                     .plan_store
                     .edit_curator_round(&plan.id, now, |p| {
@@ -500,7 +502,7 @@ impl ServiceContext {
                     outcome: codeterm_types::plan::CuratorOutcome::Fallback,
                     reason: reason.as_str().into(),
                     summary: mirror_cause.as_deref().unwrap_or(reason.as_str()).into(),
-                    next_delay_secs: curator_delay(None),
+                    next_delay_secs: loop_state.delay(None),
                     ..Default::default()
                 });
             let applied = self
@@ -564,8 +566,8 @@ impl ServiceContext {
         if occupied {
             self.plan_store
                 .edit_curator_state(&plan.id, now, |plan| {
-                    plan.control_loop.next_at =
-                        Some(now.saturating_add(curator_delay(None) * 1000));
+                    let delay = plan.control_loop.delay(None);
+                    plan.control_loop.next_at = Some(now.saturating_add(delay * 1000));
                     Ok(())
                 })
                 .map_err(|e| e.to_string())?;
@@ -701,7 +703,10 @@ impl ServiceContext {
                 },
                 reason: "no_activity".into(),
                 summary: "No activity in the window".into(),
-                next_delay_secs: curator_delay(None),
+                next_delay_secs: crate::service::team_roles::curator_window(
+                    plan.team_id.as_deref(),
+                )
+                .delay(None),
                 section_sizes: digest.section_sizes,
                 ..Default::default()
             };

@@ -54,6 +54,10 @@ fn rail(admitted: AdmittedTemplate, opt_out: &[&str]) -> TemplateRail {
     }
 }
 
+fn no_endpoints(_: &str, _: &str) -> Option<Result<(), Vec<String>>> {
+    None
+}
+
 fn probe_target(enforced_models: &[&str]) -> TargetCatalogue {
     let mut target = TargetCatalogue::default();
     target.harnesses.insert(
@@ -246,6 +250,7 @@ fn no_manager_pick_asks_for_a_choice_for_both_pair_managers() {
         &admitted.resolved,
         &BTreeMap::new(),
         &TargetCatalogue::default(),
+        &no_endpoints,
     ) else {
         panic!("a package without models needs a choice");
     };
@@ -266,7 +271,8 @@ fn owner_picks_go_through_the_decision_service() {
         ManagerSlot::Planner,
         OwnerPick::new("probe", Some("  "), None).unwrap(),
     );
-    let SeatPlan::Seats(seats) = plan_seats(&admitted.resolved, &picks, &target) else {
+    let SeatPlan::Seats(seats) = plan_seats(&admitted.resolved, &picks, &target, &no_endpoints)
+    else {
         panic!("both picks are eligible");
     };
     assert_eq!(
@@ -280,13 +286,71 @@ fn owner_picks_go_through_the_decision_service() {
         ManagerSlot::Orchestrator,
         OwnerPick::new("probe", Some("m2"), None).unwrap(),
     );
-    let SeatPlan::NeedsChoice(pickers) = plan_seats(&admitted.resolved, &picks, &target) else {
+    let SeatPlan::NeedsChoice(pickers) =
+        plan_seats(&admitted.resolved, &picks, &target, &no_endpoints)
+    else {
         panic!("an unknown model is refused, never replaced");
     };
     assert_eq!(pickers.len(), 1);
     assert!(matches!(
         pickers[0].decision.blocked,
         Some(ModelBlockedReason::UnknownModel { .. })
+    ));
+}
+
+/// The probe harness owns the `gateway` endpoint, which serves `gateway/m9` only.
+fn gateway_endpoint(provider: &str, model: &str) -> Option<Result<(), Vec<String>>> {
+    (provider == "probe" && model.starts_with("gateway/")).then(|| {
+        if model == "gateway/m9" {
+            Ok(())
+        } else {
+            Err(vec!["gateway/m9".to_string()])
+        }
+    })
+}
+
+#[test]
+fn a_custom_endpoint_model_is_accepted_as_spawn_validation_accepts_it() {
+    let admitted = default_admitted();
+    // The enforced harness catalogue does not list endpoint ids; the endpoint catalogue owns them.
+    let target = probe_target(&["m1"]);
+    let mut picks = BTreeMap::new();
+    for (slot, model) in [
+        (ManagerSlot::Orchestrator, "gateway/m9"),
+        (ManagerSlot::Planner, "probe:gateway/m9"),
+    ] {
+        picks.insert(
+            slot,
+            OwnerPick::new("probe", Some(model), Some("high")).unwrap(),
+        );
+    }
+    let SeatPlan::Seats(seats) = plan_seats(&admitted.resolved, &picks, &target, &gateway_endpoint)
+    else {
+        panic!("a configured endpoint model seats its manager");
+    };
+    assert_eq!(
+        seats[&ManagerSlot::Orchestrator].model.as_deref(),
+        Some("gateway/m9")
+    );
+    assert_eq!(
+        seats[&ManagerSlot::Planner].model.as_deref(),
+        Some("probe:gateway/m9")
+    );
+    assert_eq!(seats[&ManagerSlot::Planner].effort.as_deref(), Some("high"));
+
+    picks.insert(
+        ManagerSlot::Orchestrator,
+        OwnerPick::new("probe", Some("gateway/absent"), None).unwrap(),
+    );
+    let SeatPlan::NeedsChoice(pickers) =
+        plan_seats(&admitted.resolved, &picks, &target, &gateway_endpoint)
+    else {
+        panic!("an id the endpoint does not serve is refused");
+    };
+    assert!(matches!(
+        &pickers[0].decision.blocked,
+        Some(ModelBlockedReason::UnknownModel { suggestions, .. })
+            if suggestions == &vec!["probe:gateway/m9".to_string()]
     ));
 }
 
@@ -297,9 +361,12 @@ fn a_bare_provider_on_an_absent_harness_is_blocked() {
     for slot in [ManagerSlot::Orchestrator, ManagerSlot::Planner] {
         picks.insert(slot, OwnerPick::new("missing", None, None).unwrap());
     }
-    let SeatPlan::NeedsChoice(pickers) =
-        plan_seats(&admitted.resolved, &picks, &TargetCatalogue::default())
-    else {
+    let SeatPlan::NeedsChoice(pickers) = plan_seats(
+        &admitted.resolved,
+        &picks,
+        &TargetCatalogue::default(),
+        &no_endpoints,
+    ) else {
         panic!("an absent harness cannot seat a manager");
     };
     assert!(pickers.iter().all(|picker| matches!(

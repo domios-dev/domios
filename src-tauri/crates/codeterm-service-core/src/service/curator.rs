@@ -2,9 +2,7 @@ use super::{AuthenticatedPlanCaller, ServiceContext};
 use crate::cron::store::{commit, CronChange, CronCreateParams, CronJob, CronRunStatus, Prepared};
 #[cfg(test)]
 use crate::plan::Plan;
-use crate::plan::{
-    curator_delay, ControlLoop, CuratorGrant, CuratorRound, CuratorRun, PlanMode, PlanStatus,
-};
+use crate::plan::{ControlLoop, CuratorGrant, CuratorRound, CuratorRun, PlanMode, PlanStatus};
 use codeterm_plan::service_plan::curator::{self, digest, note, ControlLoopUpdate, DueAction};
 use codeterm_types::plan::control_loop::{
     CuratorFailure, CuratorSuspension, CURATOR_ELEVATED_LANES, CURATOR_HIGH_LANES,
@@ -85,6 +83,7 @@ impl ServiceContext {
             let result = service
                 .plan_store
                 .edit_curator_round(&plan_id, now, |plan| {
+                    let next_delay_secs = plan.control_loop.delay(None);
                     let Some(run) = plan
                         .control_loop
                         .running
@@ -114,7 +113,7 @@ impl ServiceContext {
                         }
                         .into(),
                         summary: "Curator round reached its resource cap".into(),
-                        next_delay_secs: curator_delay(None),
+                        next_delay_secs,
                         turns: run.turns,
                         output_tokens: tokens,
                         save_id: run.save_id.clone(),

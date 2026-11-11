@@ -1,6 +1,6 @@
 use super::*;
 use crate::cron::store::{commit, CronChange, CronRunInfo, CronRunStatus, CronStore, Prepared};
-use crate::plan::{curator_delay, CuratorFailure, PlanMode};
+use crate::plan::{CuratorFailure, CuratorWindow, PlanMode};
 use crate::service::curator::CuratorTabs;
 use crate::service::test_fixture::ServiceFixture;
 use crate::service::AuthenticatedPlanCaller;
@@ -211,7 +211,10 @@ fn concurrent_repairs(second: Repair, running_cron: bool) {
     });
     *boundary.0.lock() = None;
     let state = service.plan_store.get(&id).unwrap().control_loop;
-    assert_eq!(state.next_at, Some(NOW + curator_delay(None) * 1000));
+    assert_eq!(
+        state.next_at,
+        Some(NOW + CuratorWindow::HOST.delay(None) * 1000)
+    );
     assert!(state.cron_id.is_some());
     assert_eq!(state.last_round, before.last_round);
     assert_eq!(state.running, before.running);
@@ -296,7 +299,10 @@ fn curator_prepare_failure_keeps_fallback_and_rearms_protected_job() {
         state.fallback_reason,
         Some(CuratorFailure::MirrorUnavailable)
     );
-    assert_eq!(state.next_at, Some(NOW + curator_delay(None) * 1000));
+    assert_eq!(
+        state.next_at,
+        Some(NOW + CuratorWindow::HOST.delay(None) * 1000)
+    );
     let persisted = cron.lock().get(&job.id).unwrap().clone();
     assert!(persisted.enabled);
     assert_eq!(persisted.next_run, state.next_at);
@@ -408,7 +414,10 @@ fn curator_fire_on_an_unavailable_profile_falls_back_and_names_the_cause() {
         .is_none());
     let state = service.plan_store.get(&id).unwrap().control_loop;
     assert_named_profile_fallback(&state, "launch_profile_not_installed");
-    assert_eq!(state.next_at, Some(NOW + curator_delay(None) * 1000));
+    assert_eq!(
+        state.next_at,
+        Some(NOW + CuratorWindow::HOST.delay(None) * 1000)
+    );
     assert!(cron.lock().get(&job.id).unwrap().enabled);
 }
 

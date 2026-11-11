@@ -962,7 +962,7 @@ fn curator_failures_defer_with_injected_clock_and_public_toggles_are_absent() {
         assert!(job.enabled);
         assert_eq!(
             job.next_run,
-            Some(NOW + codeterm_types::plan::curator_delay(None) * 1000)
+            Some(NOW + codeterm_types::plan::CuratorWindow::HOST.delay(None) * 1000)
         );
     }
 }

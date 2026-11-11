@@ -748,6 +748,10 @@ pub struct Tab {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[ts(optional)]
     pub role_profile: Option<String>,
+    /// The registered role type's display name, stamped at launch from the Team's registration.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
+    pub role_label: Option<String>,
     /// Team membership. Roleless members are Team utility terminals; their
     /// creator is recorded in `spawned_by_tab_id`.
     #[serde(skip_serializing_if = "Option::is_none", default)]

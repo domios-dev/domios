@@ -417,6 +417,7 @@ impl MultiplexerState {
             managed: None,
             role: Some(AgentRole::Manager),
             role_profile: Some(role_kind::builtins::ORCHESTRATOR.to_string()),
+            role_label: None,
             team_id: None,
             watcher: None,
             parent_tab_id: None,

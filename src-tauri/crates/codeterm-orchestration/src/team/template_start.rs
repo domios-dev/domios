@@ -130,7 +130,7 @@ pub(crate) async fn prepare(
     }
     let target_svc = svc.clone();
     let target = blocking::run(move || Ok(TargetCatalogue::local(&target_svc))).await?;
-    match plan_seats(&admitted.resolved, &picks, &target) {
+    match plan_seats(&admitted.resolved, &picks, &target, &seats::local_endpoints) {
         SeatPlan::Seats(seats) => Ok(TemplateRail {
             opt_out: request
                 .map(|request| request.opt_out.clone())

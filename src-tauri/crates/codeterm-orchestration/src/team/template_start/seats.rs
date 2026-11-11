@@ -58,6 +58,15 @@ impl OwnerPick {
         Self::new(provider, Some(model), choice.reasoning_effort.as_deref())
     }
 
+    /// The model id without a leading `provider:`, as spawn validation reads it.
+    fn requested(&self) -> Option<&str> {
+        let model = self.model.as_deref()?;
+        Some(match model.split_once(':') {
+            Some((prefix, rest)) if prefix.eq_ignore_ascii_case(&self.provider) => rest.trim(),
+            _ => model,
+        })
+    }
+
     fn qualified(&self) -> Option<String> {
         let model = self.model.as_deref()?;
         let prefix = format!("{}:", self.provider);
@@ -67,6 +76,16 @@ impl OwnerPick {
             format!("{prefix}{model}")
         })
     }
+}
+
+/// A custom endpoint id (`<endpoint>/<model>`) belongs to its harness's endpoint catalogue:
+/// found, refused with that catalogue's ids, or `None` when the id names no endpoint.
+pub(crate) type EndpointLookup<'a> = &'a dyn Fn(&str, &str) -> Option<Result<(), Vec<String>>>;
+
+/// The live endpoint catalogues, the same seam spawn validation reads.
+pub(crate) fn local_endpoints(provider: &str, model: &str) -> Option<Result<(), Vec<String>>> {
+    codeterm_service_core::agent::model_catalog::resolve_endpoint_model(provider, model)
+        .map(|found| found.map(|_| ()))
 }
 
 /// Every with_team manager seat, or the pickers the owner must choose before anything starts.
@@ -119,6 +138,7 @@ fn decide_pick(
     slot: ManagerSlot,
     pick: &OwnerPick,
     target: &TargetCatalogue,
+    endpoints: EndpointLookup<'_>,
 ) -> Result<Seat, ModelDecision> {
     let as_given = || Seat {
         provider: pick.provider.clone(),
@@ -127,6 +147,21 @@ fn decide_pick(
     };
     if pick.outside_catalogue {
         return Ok(as_given());
+    }
+    if let Some(found) = pick
+        .requested()
+        .and_then(|requested| endpoints(&pick.provider, requested))
+    {
+        return match found {
+            Ok(()) => Ok(as_given()),
+            Err(valid) => Err(blocked(ModelBlockedReason::UnknownModel {
+                model: pick.qualified().unwrap_or_default(),
+                suggestions: valid
+                    .into_iter()
+                    .map(|id| format!("{}:{id}", pick.provider))
+                    .collect(),
+            })),
+        };
     }
     let Some(candidate) = pick.qualified() else {
         return match target.readiness(&pick.provider) {
@@ -192,6 +227,7 @@ pub(crate) fn plan_seats(
     resolved: &ResolvedTemplate,
     picks: &BTreeMap<ManagerSlot, OwnerPick>,
     target: &TargetCatalogue,
+    endpoints: EndpointLookup<'_>,
 ) -> SeatPlan {
     let mut inputs = TeamModelInputs::default();
     for (slot, pick) in picks {
@@ -218,7 +254,7 @@ pub(crate) fn plan_seats(
     let mut pickers = Vec::new();
     for slot in started_slots(resolved) {
         let outcome = match picks.get(&slot) {
-            Some(pick) => decide_pick(resolved, slot, pick, target),
+            Some(pick) => decide_pick(resolved, slot, pick, target, endpoints),
             None => {
                 let decision = package_decisions
                     .get(slot.as_str())

@@ -25,9 +25,16 @@ A start that cannot begin changes nothing and answers `template_start` with a ty
 - `manager_failed`: a manager could not start; report the reason and choices to the owner. Nothing is retried for you.
 
 After the Orchestrator is up, anything else that fails reaches the Orchestrator once as a summary with a line per role.
+
+Good to know:
+- Consent decisions live in memory: after a Domios restart, preview the template again and start with the new `decision_id`.
+- A reasoning effort the chosen model does not offer runs at the nearest level it does offer instead of being refused.
+- Manager models are checked before anything is created: a harness that is not installed, signed in or within quota answers `needs_choice` and no Tab or Team appears.
+- A curator `start: {schedule: "<min>..<max>"}` sets how often the Curator visits, kept within 45m..2h; owner Auto, Heartbeat and Off modes still decide whether it runs.
+- Every Team starts with an Orchestrator and a Planner.
 - `domios team check <path>` validates a package; the format is `domios docs TEAM-FORMAT`.
 - `domios team export <name> --format team` and `domios team import <path>` move packages; `domios team distill <team-id>` bakes a live Team.
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

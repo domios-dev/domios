@@ -133,3 +133,76 @@ fn reload_rereads_registrations_written_by_another_store() {
     reader.reload(Some("team_a"));
     assert_eq!(reader.registrations("team_a").len(), 1);
 }
+
+fn curator(schedule: &str) -> RoleRegistration {
+    RoleRegistration {
+        group: TeamRoleGroup::Manager,
+        name: "curator".into(),
+        start: RoleStart::Schedule {
+            schedule: schedule.into(),
+        },
+        ..worker("team_a", "curator", "fixture-prose")
+    }
+}
+
+#[test]
+fn a_curator_schedule_becomes_a_window_inside_the_host_bounds() {
+    use codeterm_types::plan::CuratorWindow;
+    assert_eq!(window_of(&[]), CuratorWindow::HOST);
+    assert_eq!(window_of(&[curator("45m..2h")]), CuratorWindow::HOST);
+    assert_eq!(
+        window_of(&[curator("1h..90m")]),
+        CuratorWindow {
+            min_secs: 3600,
+            max_secs: 5400
+        }
+    );
+    assert_eq!(window_of(&[curator("5m..12h")]), CuratorWindow::HOST);
+    // Workers never schedule the Curator.
+    assert_eq!(
+        window_of(&[worker("team_a", "checker", "fixture-prose")]),
+        CuratorWindow::HOST
+    );
+}
+
+#[test]
+fn a_tab_carries_a_declared_or_custom_role_label_and_builtins_keep_theirs() {
+    let custom = worker("team_a", "scout", "fixture-prose");
+    let builtin = worker("team_a", "qa", "fixture-prose");
+    let named = RoleRegistration {
+        label: "Gatekeeper".into(),
+        ..worker("team_a", "reviewer", "fixture-prose")
+    };
+    let team = [custom, builtin, named];
+    assert_eq!(
+        role_label_for(&team, AgentRole::Worker, "scout").as_deref(),
+        Some("scout")
+    );
+    assert_eq!(role_label_for(&team, AgentRole::Worker, "qa"), None);
+    assert_eq!(
+        role_label_for(&team, AgentRole::Worker, "reviewer").as_deref(),
+        Some("Gatekeeper")
+    );
+    assert_eq!(
+        role_label_for(&team, AgentRole::Worker, "unregistered"),
+        None
+    );
+}
+
+#[test]
+fn forgetting_a_team_drops_its_registrations_and_backups() {
+    let root = tempfile::tempdir().unwrap();
+    let store = TeamRoleStore::new(root.path());
+    for name in ["checker", "scout"] {
+        store
+            .register(worker("team_a", name, "fixture-prose"))
+            .unwrap();
+    }
+    store.forget("team_a").unwrap();
+    assert!(store.registrations("team_a").is_empty());
+    assert!(!store.path("team_a").exists());
+    assert!(TeamRoleStore::new(root.path())
+        .registrations("team_a")
+        .is_empty());
+    store.forget("team_never_registered").unwrap();
+}
