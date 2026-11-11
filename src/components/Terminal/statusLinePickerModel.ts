@@ -122,7 +122,7 @@ export function currentModelId(
   descriptor: ProviderDescriptor | undefined,
   candidates: Array<string | null | undefined>,
 ): string | undefined {
-  const candidate = candidates.find((candidate) => candidate?.trim())?.trim();
+  const candidate = candidates.find((candidate) => candidate?.trim() && !/^(unknown model|default)$/i.test(candidate.trim()))?.trim();
   const model = descriptor?.available_models.find((entry) => matchesModel(entry, candidate));
   return model?.id ?? candidate;
 }

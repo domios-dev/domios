@@ -618,6 +618,36 @@ test("providers without service tiers have no speed control", async () => {
   } finally { await view.unmount(); }
 });
 
+test("Advanced shows a chevron, toggles in place, and leaves Enter to the summary without applying", async () => {
+  const calls = recordSwitches();
+  const provider = { ...descriptor("next_turn"), agent_runtime: {
+    runtimeModes: [{ id: "full-access", displayName: "Full access" }],
+  } } as ProviderDescriptor;
+  const view = await mount(provider);
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => view.option("Fast").click());
+    assert.equal(button("Apply").disabled, false);
+    const details = view.picker()!.querySelector("details")!;
+    const summary = details.querySelector("summary")!;
+    assert.ok(summary.querySelector('svg[aria-hidden="true"]'));
+    assert.equal(details.open, false);
+    await act(async () => summary.click());
+    assert.equal(details.open, true);
+    summary.focus();
+    const enter = new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true });
+    await act(async () => summary.dispatchEvent(enter));
+    assert.equal(enter.defaultPrevented, false);
+    assert.deepEqual(calls, []);
+    assert.ok(view.picker());
+    await act(async () => summary.click());
+    assert.equal(details.open, false);
+  } finally {
+    await view.unmount();
+    __setTabModelApiForTest(null);
+  }
+});
+
 test("an account catalogue can enable Ultrafast for its selected model", async () => {
   const calls = recordSwitches();
   const provider = {...descriptor("next_turn"),agent_runtime:{serviceTiers:[{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"unknown"}]}};
@@ -693,7 +723,7 @@ test("catalogue-free runtime keeps unclassified choices inside a neutral model b
 });
 
 
-test("an unreported model stays unknown instead of borrowing the runtime mode", async () => {
+test("an unreported model uses the harness name instead of borrowing the runtime mode", async () => {
   const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{hostApprovals:true}} as unknown as ProviderDescriptor;
   const chip = async (runtimeState: "degraded" | "unloaded" | "loaded", config: Record<string, unknown>) => {
     const host = document.createElement("div");
@@ -709,10 +739,10 @@ test("an unreported model stays unknown instead of borrowing the runtime mode", 
     host.remove();
     return text;
   };
-  assert.equal(await chip("degraded", {sessionMode:"opaque-chosen", fullAccessMode:"opaque-declared"}), "Unknown model");
-  assert.equal(await chip("unloaded", {fullAccessMode:"opaque-declared"}), "Unknown model");
-  assert.equal(await chip("degraded", {}), "Unknown model");
-  assert.equal(await chip("loaded", {}), "Unknown model");
+  assert.equal(await chip("degraded", {sessionMode:"opaque-chosen", fullAccessMode:"opaque-declared"}), "Vendor");
+  assert.equal(await chip("unloaded", {fullAccessMode:"opaque-declared"}), "Vendor");
+  assert.equal(await chip("degraded", {}), "Vendor");
+  assert.equal(await chip("loaded", {}), "Vendor");
 });
 
 test("catalogue-free runtime stays neutral while model controls are unavailable", async () => {

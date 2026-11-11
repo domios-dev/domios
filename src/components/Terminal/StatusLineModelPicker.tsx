@@ -181,16 +181,16 @@ export function StatusLineModelPicker({
   commitRef.current = commit;
 
   const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }
-    : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor?.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) };
+    : applied ?? { model: currentModel ?? "", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor?.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) };
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
   const afterTurn = Boolean(pendingSelection);
   const confirmedModelName = modelName;
   const tierLabel = serviceTierLabel(descriptor, currentServiceTier);
   const selectionStatus = pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined;
-  const displayedLabel = tabMetaParts(confirmedModelName, tierLabel, selection.effort, selectionStatus).join(" · ");
   // The logo names the agent; the agent's reported name and version live only in the tooltip, never in the label.
   const providerName = descriptor?.display_name ?? label.split(" · ")[0];
+  const displayedLabel = tabMetaParts(confirmedModelName || providerName, tierLabel, selection.effort, selectionStatus).join(" · ");
   const harnessTitle = (tab ? runtimeAgentLabel(tab) : null) ?? runtimeAgentTooltip(runtimeIdentity) ?? providerName;
   const glyph = descriptor ? (
     <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessTitle}>
@@ -419,7 +419,7 @@ export function ModelPickerPopover({
       style={{ width: PICKER_WIDTH, maxHeight: "min(440px, calc(100dvh - 24px))", maxWidth: "100%", overflowY: "auto", ...(frozenHeight ? { height: frozenHeight } : {}) }}
       onKeyDown={(event) => {
         if (event.code !== "Escape" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
-        if (event.code !== "Escape" && (event.target as HTMLElement).closest("button")) return;
+        if (event.code !== "Escape" && (event.target as HTMLElement).closest("button, summary")) return;
         event.preventDefault();
         event.stopPropagation();
         if (event.code === "Escape") onClose();
@@ -539,9 +539,18 @@ export function ModelPickerPopover({
         <div className="ct-model-picker__settings">
           {showReasoning && effortSetting && stagedEffort && <PickerSettingSection section={{ ...effortSetting, current: stagedEffort }} busy={busy}
             onChange={effort => { if (staged && !busy) choose({ ...staged, effort }); }} />}
-          {extraSettings.length > 0 && <details className="ct-model-picker__extras">
-            <summary className="ct-menu-row">Advanced</summary>
-            {extraSettings.map(section => <PickerSettingSection key={`${section.applyTarget.kind}:${section.id}`} section={{ ...section, current: staged?.controls?.[section.id] ?? section.current }} busy={busy}
+          {extraSettings.length > 0 && <details className="ct-model-picker__extras" onToggle={event => {
+            const details = event.currentTarget;
+            if (details.open) requestAnimationFrame(() => {
+              if (details.isConnected && details.open) details.querySelector("summary")?.scrollIntoView({ block: "nearest" });
+            });
+          }}>
+            <summary className="ct-menu-row ct-model-picker__extras-summary">
+              <span className="ct-model-picker__extras-title">Advanced</span>
+              <ChevronDown aria-hidden size={14} strokeWidth={2} className="ct-model-picker__extras-chevron" />
+            </summary>
+            <div className="ct-model-picker__extras-rows">
+              {extraSettings.map(section => <PickerSettingSection key={`${section.applyTarget.kind}:${section.id}`} section={{ ...section, current: staged?.controls?.[section.id] ?? section.current }} busy={busy}
               onChange={value => {
                 if (busy) return;
                 if (section.applyTarget.kind === "mode") { if (staged) choose({ ...staged, runtimeMode: value }); }
@@ -553,6 +562,7 @@ export function ModelPickerPopover({
                   choose({ ...staged, controls });
                 }
               }} />)}
+            </div>
           </details>}
         </div>
       )}
