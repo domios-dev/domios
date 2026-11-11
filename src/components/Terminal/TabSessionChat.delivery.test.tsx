@@ -12,7 +12,7 @@ import {
 } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
-import { addChatSend, readChatSends, updateChatSendContent, failChatSendRequest, setChatSendDraft,
+import { addChatSend, readChatSends, failChatSendRequest, setChatSendDraft,
   __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState, forgetChatSendsInMemory,
   observeChatSendDismissal, observeDeliveryStatus } from "./chatSendStore";
 import { encodeChatSend } from "./chatSendDurableModel";

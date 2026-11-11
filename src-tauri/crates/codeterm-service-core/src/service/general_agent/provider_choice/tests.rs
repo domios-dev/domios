@@ -60,7 +60,8 @@ fn rejected_general_choices_leave_configuration_and_source_session_untouched() {
     assert!(fixture
         .service
         .switch_provider_in_place(&tab_id, "opaque-adapter", None, None, false)
-        .unwrap_err()
+        .err()
+        .expect("switch to an ineligible provider must refuse")
         .starts_with("general_agent_provider_ineligible:"));
     assert_eq!(
         serde_json::to_value(fixture.service.configuration()).unwrap(),
