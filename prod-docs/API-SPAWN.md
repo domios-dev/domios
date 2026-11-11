@@ -10,7 +10,7 @@ Creates a new tab in the parent's workspace, assigns its role and launches the p
 
 **Request body:**
 ```json
-{"agent":"opencode","title":"Reviewer","cwd":"C:/project","role":"Worker","parent_tab_id":"a3f1b2c7","task":"Review the changes","preset":"demo"}
+{"agent":"opencode","title":"Reviewer","cwd":"C:/project","role":"worker","parent_tab_id":"a3f1b2c7","task":"Review the changes","preset":"demo"}
 ```
 
 Optional `launch_profile` selects an ACP launch profile declared by the provider (`domios agent spawn acp --profile <id>`). It is separate from `model` and `role_profile`. Providers declaring launch profiles require one. Before tab, Team-member or attempt creation, unknown, missing required and uninstalled profiles return HTTP 422 with `error.code` `unknown_launch_profile`, `launch_profile_required` or `launch_profile_not_installed`, plus `provider`, `requested_profile` (null when missing), and `declared_profile_ids`. The CLI prints the code and exits non-zero. Local task dispatch accepts the same `--profile`; respawn inherits the source attempt's profile unless overridden or the provider changes.
@@ -141,4 +141,4 @@ text reason. Installed package files remain on disk. Deletion and CLI mutation
 share the same reservation. Terminal setup state is cleared on successful removal.
 These routes create no agent tab.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

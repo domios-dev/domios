@@ -212,10 +212,10 @@ spawn_member() {
   printf '%s' "$tab"
 }
 CLAUDE_WORKER="$(spawn_member spawn-claude-worker "$CLAUDE_MODEL" dc --as-tab "$ORCH" agent spawn claude \
-  --role Worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" \
+  --role worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" \
   --title rl-claude-worker ${CLAUDE_MODEL:+--model "$CLAUDE_MODEL"} --non-user-facing)" || exit 1
 CODEX_WORKER="$(spawn_member spawn-codex-worker "$CODEX_MODEL" dc --as-tab "$ORCH" agent spawn codex \
-  --role Worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" \
+  --role worker --parent-tab "$ORCH" --workspace "$WORKSPACE_ID" \
   --title rl-codex-worker ${CODEX_MODEL:+--model "$CODEX_MODEL"} --non-user-facing)" || exit 1
 STANDALONE="$(spawn_member spawn-standalone "$CLAUDE_MODEL" dc agent spawn claude \
   --workspace "$WORKSPACE_ID" --title rl-standalone \

@@ -185,7 +185,7 @@ fn remote_worker_record_body_builds_from_spawn_request_and_response() {
     let spawn_body = serde_json::json!({
         "agent": "claude",
         "report_to": "4d479b6c",
-        "role": "Worker",
+        "role": "worker",
         "model": "opus",
     });
     let spawn_data = serde_json::json!({

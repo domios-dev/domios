@@ -124,9 +124,9 @@ curl -X POST http://localhost:7685/api/batch \
   -H "Content-Type: application/json" \
   -d '{
     "commands": [
-      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "description": "Coordinates repository work", "role": "Orchestrator", "can_spawn": true}},
-      {"method": "spawn", "params": {"title": "W1", "description": "Analyzes the code", "role": "Worker", "parent_tab_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
-      {"method": "spawn", "params": {"title": "W2", "description": "Runs focused tests", "role": "Worker", "parent_tab_id": "$boss", "task": "run tests"}}
+      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "description": "Coordinates repository work", "role": "orchestrator", "can_spawn": true}},
+      {"method": "spawn", "params": {"title": "W1", "description": "Analyzes the code", "role": "worker", "parent_tab_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
+      {"method": "spawn", "params": {"title": "W2", "description": "Runs focused tests", "role": "worker", "parent_tab_id": "$boss", "task": "run tests"}}
     ]
   }'
 ```
@@ -182,4 +182,4 @@ While a turn runs, a successful result from these tools can end with an `Inbound
 
 The host supplies the tab-scoped credential, API URL and matching tab binding in the descriptor environment; Domios does not log or persist credential values. The agent receives this tab’s credential in session parameters and may store its session configuration. Missing credentials or a changed tab or binding nonce refuses MCP startup. If session creation or restoration fails with MCP offered, the host retries that session method once without tools and shows a “Domios tools are unavailable” notice; a second failure remains visible. ACP v1 requires stdio MCP support; `mcpCapabilities` advertises optional HTTP/SSE transports and does not gate this stdio server. Without a host descriptor, the agent receives no server.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

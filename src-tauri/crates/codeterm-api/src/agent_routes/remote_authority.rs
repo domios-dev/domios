@@ -27,7 +27,8 @@ pub(super) fn prepare(
             "Remote agents cannot claim local hierarchy or task authority".into(),
         ));
     }
-    let role = super::validate_spawn_role(body.role.as_deref().or(Some("worker")))
+    let role_type = body.role.clone().unwrap_or_else(|| "worker".into());
+    let role = super::validate_spawn_role(Some(&role_type))
         .map_err(|(status, message)| SpawnRejection::new(status, "bad_request", message))?;
     if role.role.as_deref() != Some("Worker") {
         return Err(SpawnRejection::new(
@@ -36,8 +37,7 @@ pub(super) fn prepare(
             "Remote agents may delegate Workers".into(),
         ));
     }
-    body.role = role.role;
-    body.role_profile = role.role_profile;
+    body.role = Some(role_type);
     body.can_spawn = Some(false);
     body.spawned_by_tab_id = None;
     body.creator_tab_id = None;

@@ -48,7 +48,7 @@ for tab in "$ORCH" "$PLANNER"; do
   dc send --tab "$tab" "Who are you? What team and project are you in?" >/dev/null
   REPLY="$(await_first "$tab")"; [[ "$REPLY" == *manager-bootstrap-eval* && "$REPLY" == *"not yet established"* ]]; case "$tab" in "$ORCH") [[ "$REPLY" == *Orchestrator* ]];; *) [[ "$REPLY" == *Planner* ]];; esac
 done
-WORKER_RESPONSE=$(capture_json dc agent spawn "$SYSTEM" --role Worker --parent "$ORCH" --workspace "$WS" --cwd "$ROOT" --title "manager-bootstrap-worker" --json)
+WORKER_RESPONSE=$(capture_json dc agent spawn "$SYSTEM" --role worker --parent "$ORCH" --workspace "$WS" --cwd "$ROOT" --title "manager-bootstrap-worker" --json)
 WORKER=$(spawned_tab_id <<<"$WORKER_RESPONSE")
 CREATED+=("$WORKER")
 dc send --tab "$WORKER" "Who are you?" >/dev/null

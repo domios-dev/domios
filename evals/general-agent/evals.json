@@ -10,7 +10,7 @@
       "expectations": [
         "Identifies itself as the machine-level General Agent outside Team hierarchy",
         "Contains `codeterm team list` before Team creation or delegation",
-        "Contains either `codeterm agent spawn ... --role Orchestrator --workspace ws_project --task ...` for a missing Team or `codeterm send ... --tab ...` to delegate to an existing Team Orchestrator",
+        "Contains either `codeterm agent spawn ... --role orchestrator --workspace ws_project --task ...` for a missing Team or `codeterm send ... --tab ...` to delegate to an existing Team Orchestrator",
         "Does NOT claim to be a Team Orchestrator, own the Team plan, dispatch plan tasks, or judge Team work"
       ]
     },

@@ -533,21 +533,21 @@ scenario_B_idle() {
 }
 
 # =====================================================================
-# C. ROLE SPAWN — agent spawn --role Orchestrator
+# C. ROLE SPAWN — agent spawn --role orchestrator
 # =====================================================================
 scenario_C_orch=""
 scenario_C_plan=""
 scenario_C() {
-  echo; echo "=== C. ROLE SPAWN — agent spawn --role Orchestrator ==="
+  echo; echo "=== C. ROLE SPAWN — agent spawn --role orchestrator ==="
   local out tab
-  out=$(dc agent spawn claude --role Orchestrator --workspace "$WS" \
+  out=$(dc agent spawn claude --role orchestrator --workspace "$WS" \
         --task "You are the Orchestrator for a real objective: add a CLI flag. Read codeterm docs ORCHESTRATION." --json 2>&1)
   SCENARIO_C_OUTPUT="$out"
   tab=$(js "$out" "d.get('tab_id','')")
   [ -z "$tab" ] && tab=$(echo "$out" | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1)
   if [ -z "$tab" ]; then
     FAILURE_ERROR_BODY="$out"
-    fail C "spawn --role Orchestrator returned no tab id"
+    fail C "spawn --role orchestrator returned no tab id"
     return
   fi
   CREATED_TABS+=("$tab"); scenario_C_orch="$tab"
@@ -628,7 +628,7 @@ scenario_D() {
 }
 
 # =====================================================================
-# E. PLANNER BIND — spawn --role Planner --plan <id> --parent-tab <orch>
+# E. PLANNER BIND — spawn --role planner --plan <id> --parent-tab <orch>
 # =====================================================================
 scenario_E() {
   echo; echo "=== E. PLANNER BIND — spawn Planner + nudge stops ==="
@@ -655,7 +655,7 @@ scenario_E() {
 
   # bind planner via role spawn
   local pout planner
-  pout=$(dc --as-tab "$orch" agent spawn claude --role Planner --plan "$plan" --parent-tab "$orch" --title "planner-E" --json 2>&1)
+  pout=$(dc --as-tab "$orch" agent spawn claude --role planner --plan "$plan" --parent-tab "$orch" --title "planner-E" --json 2>&1)
   planner=$(js "$pout" "d.get('tab_id','')")
   [ -z "$planner" ] && planner=$(echo "$pout" | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1)
   if [ -z "$planner" ]; then
@@ -826,24 +826,24 @@ scenario_G() {
 scenario_H() {
   echo; echo "=== H. NEGATIVES — actionable errors, zero leak ==="
 
-  # H1: spawn --role Orchestrator with NO --workspace
+  # H1: spawn --role orchestrator with NO --workspace
   local p_before p_after out rc
   p_before=$(tab_count)
-  out=$(dc agent spawn claude --role Orchestrator --task "no workspace given" --json 2>&1); rc=$?
+  out=$(dc agent spawn claude --role orchestrator --task "no workspace given" --json 2>&1); rc=$?
   p_after=$(tab_count)
   note "H1 rc=$rc tabs ${p_before}->${p_after} out=$(echo "$out" | head -c 160)"
   local leaked_tab
   leaked_tab=$(js "$out" "d.get('tab_id','')")
   if [ $rc -ne 0 ] && [ -n "$p_before" ] && [ "$p_before" = "$p_after" ]; then
     print_error_body "H1 spawn" "$out"
-    pass H1 "spawn --role Orchestrator w/o --workspace failed cleanly, zero tabs created"
+    pass H1 "spawn --role orchestrator w/o --workspace failed cleanly, zero tabs created"
   elif [ -n "$leaked_tab" ] || [ "$p_before" != "$p_after" ]; then
     # spawn fell back to active workspace and CREATED a tab
     [ -n "$leaked_tab" ] && CREATED_TABS+=("$leaked_tab")
-    finding H1 "spawn --role Orchestrator w/o --workspace did NOT fail — fell back to active workspace and created tab '$leaked_tab' (tabs ${p_before}->${p_after}); pinned expects an actionable error + zero tabs (bounce to spawn-validation lane)"
+    finding H1 "spawn --role orchestrator w/o --workspace did NOT fail — fell back to active workspace and created tab '$leaked_tab' (tabs ${p_before}->${p_after}); pinned expects an actionable error + zero tabs (bounce to spawn-validation lane)"
   else
     FAILURE_ERROR_BODY="$out"
-    fail H1 "spawn --role Orchestrator w/o --workspace: rc=$rc but tab count changed ${p_before}->${p_after}"
+    fail H1 "spawn --role orchestrator w/o --workspace: rc=$rc but tab count changed ${p_before}->${p_after}"
   fi
 
   # H2: a Worker-attributed pair is refused without the leaf acknowledgement.
@@ -854,7 +854,7 @@ scenario_H() {
     fail H2 "route C did not provide an Orchestrator parent for the Worker fixture"
     return
   fi
-  wout=$(dc --as-tab "$host_orch" agent spawn claude --role Worker --parent-tab "$host_orch" \
+  wout=$(dc --as-tab "$host_orch" agent spawn claude --role worker --parent-tab "$host_orch" \
     --workspace "$WS" --title "worker-H2" --json 2>&1)
   worker=$(js "$wout" "d.get('tab_id','')")
   [ -z "$worker" ] && worker=$(echo "$wout" | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1)

@@ -486,7 +486,7 @@ fn relay_spawn_tags_origin_peer() {
 fn relay_spawn_stamps_ownership_peer_from_signed_sender() {
     let mut body = serde_json::json!({
         "agent": "claude",
-        "role": "Worker",
+        "role": "worker",
         "report_to": "af5919cb",
         "ownership": {
             "controller_title": "Puccini",
@@ -529,7 +529,7 @@ fn relay_spawn_strips_origin_local_parent_and_promotes_to_report() {
     // validate it as a target-local hierarchy parent and orphan a tab.
     let mut body = serde_json::json!({
         "agent": "codex",
-        "role": "Worker",
+        "role": "worker",
         "parent_tab_id": "af5919cb"
     });
     tag_relay_spawn_source(
@@ -555,7 +555,7 @@ fn relay_spawn_strips_origin_local_parent_and_promotes_to_report() {
 #[test]
 fn relay_spawn_strips_parent_but_keeps_explicit_report_to() {
     let mut body = serde_json::json!({
-        "role": "Worker",
+        "role": "worker",
         "parent_tab_id": "af5919cb",
         "report_to": "main"
     });
@@ -578,8 +578,8 @@ fn relay_spawn_strips_parent_but_keeps_explicit_report_to() {
 fn relay_spawn_preserves_parent_for_non_worker_roles() {
     // Non-Worker roles keep parent_tab_id while still getting origin_peer stamped.
     for role in [
-        serde_json::json!("Manager"),
-        serde_json::json!("Orchestrator"),
+        serde_json::json!("orchestrator"),
+        serde_json::json!("planner"),
         serde_json::Value::Null,
     ] {
         let mut body = serde_json::json!({
@@ -612,7 +612,7 @@ fn relay_spawn_preserves_parent_for_non_worker_roles() {
 
 #[test]
 fn relay_spawn_ignores_blank_parent() {
-    let mut body = serde_json::json!({"role": "Worker", "parent_tab_id": "  "});
+    let mut body = serde_json::json!({"role": "worker", "parent_tab_id": "  "});
     tag_relay_spawn_source(
         &mut body,
         "POST",
