@@ -29,6 +29,9 @@ pub struct MeshWorkerDispatchRequest {
     #[serde(default)]
     task_description_managed: bool,
     brief: String,
+    /// The origin's credential-free remote URL; a missing project is cloned only on owner consent.
+    #[serde(default)]
+    clone_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -417,6 +420,7 @@ mod tests {
             description: None,
             task_description_managed: false,
             brief: String::new(),
+            clone_url: None,
         };
         let response = super::observed_worker_dispatch(&state, "peer-origin", &request)
             .unwrap()
@@ -545,6 +549,7 @@ mod tests {
             description: Some("remote task summary".into()),
             task_description_managed: true,
             brief: "remote brief".into(),
+            clone_url: None,
         };
         let mut params = super::remote_worker_spawn_params(
             request,
@@ -627,9 +632,13 @@ fn dispatch_authenticated_worker(
         Some((workspace_id, canonical_cwd, remote))
     });
     let Some((workspace_id, canonical_cwd, matching_remote)) = matched else {
+        let clone = request.clone_url.as_deref().map_or_else(
+            || "the dispatch named no clone URL".to_string(),
+            |url| super::template_hosting::ask_clone(&state, &origin_peer_id, url),
+        );
         return Err((
             StatusCode::CONFLICT,
-            "peer_missing_repo: no checkout identity matches the dispatching peer; nothing was cloned. Choose another placement (another --mesh peer or local dispatch), or have the owner of this peer open the project here first; older peers may require matching remote URLs".into(),
+            format!("peer_missing_repo: no checkout identity matches the dispatching peer; nothing was cloned ({clone}). Choose another placement (another --mesh peer or local dispatch); older peers may require matching remote URLs"),
         ));
     };
     if !codeterm_service_core::service::worker_lane::contains_commit(
@@ -693,7 +702,10 @@ fn dispatch_authenticated_worker(
         }
     };
     let lease_holder = format!("attempt:{}", request.attempt_id);
-    let keepawake = super::template_hosting::acquire_hosting_lease(&state, &lease_holder);
+    let keepawake = codeterm_service_core::service::team_template_remote::acquire_hosting_lease(
+        &state.svc,
+        &lease_holder,
+    );
     let spawn = remote_worker_spawn_params(
         request.clone(),
         workspace_id,

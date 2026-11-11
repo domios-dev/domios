@@ -11,6 +11,19 @@ pub enum TemplateAction {
     },
     /// Start a Team from a template on the standard pair primitive
     Start(TemplateStartArgs),
+    /// Send a template to the `--mesh` peer Main's My templates, unverified there
+    Transfer {
+        /// Template name (`name[@version]`)
+        name: String,
+        /// The peer tab that receives the package over the mesh attachment rail
+        #[arg(long)]
+        tab: String,
+    },
+    /// Read the outcome of a template start asked of the `--mesh` peer Main
+    Outcome {
+        /// The request id `team template start --mesh` returned
+        request: String,
+    },
 }
 
 #[derive(Args)]

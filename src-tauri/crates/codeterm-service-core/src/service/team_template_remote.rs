@@ -6,15 +6,21 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
 
-use codeterm_team_package::contracts::{
-    TemplateConsent, TemplatePreview, TemplateStartRefusal, TemplateStartRequest,
-};
+use codeterm_team_package::contracts::{TemplateStartRefusal, TemplateStartRequest};
 use codeterm_types::agent::AgentRole;
-use codeterm_types::team::role_registration::PinnedPackage;
 use parking_lot::Mutex;
 use serde_json::Value;
 
 use super::team_template_start::{admit, AdmittedTemplate, ConsentLedger};
+
+mod asks;
+mod hosting_awake;
+
+pub use asks::{
+    clone_destination, origin_clone_url, scrub_remote_url, PeerAsk, PeerAsks, PeerStartAsk,
+    CLONE_ACCEPT, PEER_ASK_DECLINE, PEER_ASK_PREFIX, START_ACCEPT,
+};
+pub use hosting_awake::{acquire_hosting_lease, restore_hosting_leases, HostingKeepAwake};
 
 /// Advertised by `identify` on a Domios that hosts template role types and peer starts.
 pub const TEMPLATE_HOSTING_FEATURE: &str = "template_hosting";
@@ -230,6 +236,8 @@ pub enum PeerStartRefusal {
     OriginTeam,
     /// The owner decision was already used for another mesh start.
     DecisionSpent,
+    /// This machine could not put the question to its owner.
+    OwnerUnreachable(String),
     Refused(TemplateStartRefusal),
 }
 
@@ -242,6 +250,9 @@ impl PeerStartRefusal {
             }
             Self::DecisionSpent => {
                 "this consent decision already started a Team; the owner must preview again on this machine".into()
+            }
+            Self::OwnerUnreachable(error) => {
+                format!("the owner of this machine could not be asked: {error}")
             }
             Self::Refused(refusal) => serde_json::to_string(refusal).unwrap_or_default(),
         }
@@ -286,24 +297,44 @@ pub fn admit_from_peer(
     Ok(admitted)
 }
 
-/// A local preview for a start a peer will request: the owner's decision is issued on this
-/// machine even when the package asks for nothing, since a mesh start always needs one.
-pub fn preview_for_mesh_start(
-    svc: &super::ServiceContext,
-    params: Option<&Value>,
-) -> Result<TemplatePreview, super::team_template_start::TemplateCallError> {
-    let mut preview = super::team_template_start::preview(svc, params)?;
-    if preview.consent.is_none() {
-        let identity = PinnedPackage {
-            name: preview.form.template.name.clone(),
-            version: preview.form.template.version.clone(),
-        };
-        preview.consent = Some(TemplateConsent {
-            decision_id: ConsentLedger::global().issue(&identity, &[]),
-            reasons: Vec::new(),
-        });
+/// The owner accepted a peer's start on this machine: the decision is recorded here, for this
+/// package identity and every current consent reason, and carried by the start it admits.
+pub fn record_owner_decision(
+    request: &TemplateStartRequest,
+    ledger: &ConsentLedger,
+) -> Result<TemplateStartRequest, TemplateStartRefusal> {
+    let resolved = super::team_template_start::resolve(Some(&request.template))?;
+    let reasons =
+        super::team_template_start::consent_reasons(&resolved.package, resolved.provenance);
+    let mut decided = request.clone();
+    decided.decision_id = Some(ledger.issue(&resolved.identity(), &reasons));
+    Ok(decided)
+}
+
+/// A mesh start before the owner decides: every gate except the decision itself.
+pub fn precheck_peer_start(
+    request: &TemplateStartRequest,
+    full_access: bool,
+    unbound: Vec<String>,
+) -> Result<(), PeerStartRefusal> {
+    if !full_access {
+        return Err(PeerStartRefusal::Forbidden);
     }
-    Ok(preview)
+    if request.team_id.is_some() {
+        return Err(PeerStartRefusal::OriginTeam);
+    }
+    let mut undecided = request.clone();
+    undecided.decision_id = None;
+    match admit(Some(&undecided), &ConsentLedger::default()) {
+        Ok(_) | Err(TemplateStartRefusal::ConsentRequired { .. }) => {}
+        Err(refusal) => return Err(PeerStartRefusal::Refused(refusal)),
+    }
+    if !unbound.is_empty() {
+        return Err(PeerStartRefusal::Refused(
+            TemplateStartRefusal::MissingInputs { inputs: unbound },
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -683,6 +683,10 @@ pub(super) fn create_router_with_preview_admission(
             post(mesh_routes::template_hosting::mesh_template_start),
         )
         .route(
+            "/api/mesh/peer-ask-outcome",
+            post(mesh_routes::template_hosting::mesh_peer_ask_outcome),
+        )
+        .route(
             "/api/mesh/worker-lane-bundle",
             post(mesh_routes::mesh_worker_lane_bundle),
         )

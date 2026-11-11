@@ -261,6 +261,7 @@ pub(super) fn dispatch(
         "description": description,
         "task_description_managed": description_override.is_none(),
         "brief": brief,
+        "clone_url": team_template_remote::origin_clone_url(&canonical_cwd),
     });
     let Some(client) = peer_client else {
         return Err(remote_failure(

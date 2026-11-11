@@ -183,3 +183,84 @@ fn a_mesh_start_needs_one_local_owner_decision_even_without_asks() {
         PeerStartRefusal::DecisionSpent
     );
 }
+
+#[test]
+fn the_owner_tap_records_the_decision_a_mesh_start_needs() {
+    let ledger = ConsentLedger::default();
+    let spent = SpentDecisions::default();
+    let start = request("default");
+    assert!(precheck_peer_start(&start, true, Vec::new()).is_ok());
+    assert!(matches!(
+        precheck_peer_start(&start, true, vec!["secret:token".into()]),
+        Err(PeerStartRefusal::Refused(
+            TemplateStartRefusal::MissingInputs { .. }
+        ))
+    ));
+    assert_eq!(
+        precheck_peer_start(&start, false, Vec::new()).unwrap_err(),
+        PeerStartRefusal::Forbidden
+    );
+    let decided = record_owner_decision(&start, &ledger).unwrap();
+    assert!(admit_from_peer(&decided, true, &ledger, &spent, Vec::new()).is_ok());
+}
+
+#[test]
+fn a_peer_ask_runs_at_most_once() {
+    let asks = PeerAsks::default();
+    let request = asks.open(PeerAsk::Clone {
+        origin_peer: "origin".into(),
+        url: "https://example.test/o/r.git".into(),
+        path: std::path::PathBuf::from("r"),
+    });
+    assert!(request.starts_with(PEER_ASK_PREFIX));
+    assert_eq!(
+        asks.open_clone("https://example.test/o/r.git").as_deref(),
+        Some(request.as_str())
+    );
+    assert_eq!(asks.outcome(&request).unwrap()["state"], "awaiting_owner");
+    assert!(asks.take(&request).is_some());
+    assert!(asks.take(&request).is_none());
+    assert!(asks.outcome(&request).is_none());
+    asks.finish(&request, json!({"state": "declined"}));
+    assert_eq!(asks.outcome(&request).unwrap()["state"], "declined");
+}
+
+#[test]
+fn clone_urls_never_carry_credentials() {
+    assert_eq!(
+        scrub_remote_url("https://x-access-token:SECRET-FRAGMENT@github.com/o/r.git?x=1#f")
+            .as_deref(),
+        Some("https://github.com/o/r.git")
+    );
+    assert_eq!(
+        scrub_remote_url("ssh://git:SECRET-FRAGMENT@host.test:22/o/r.git").as_deref(),
+        Some("ssh://git@host.test:22/o/r.git")
+    );
+    assert_eq!(
+        scrub_remote_url("git@github.com:o/r.git").as_deref(),
+        Some("git@github.com:o/r.git")
+    );
+    for refused in [
+        "",
+        "/home/me/repo",
+        "file:///home/me/repo",
+        "user:SECRET-FRAGMENT@host:o/r",
+        "https://github.com/",
+    ] {
+        assert_eq!(scrub_remote_url(refused), None, "{refused}");
+    }
+}
+
+#[test]
+fn a_clone_lands_under_the_root_by_repository_name() {
+    let root = std::path::Path::new("root");
+    assert_eq!(
+        clone_destination(root, "https://github.com/o/repo.git"),
+        Some(root.join("repo"))
+    );
+    assert_eq!(
+        clone_destination(root, "git@github.com:o/repo"),
+        Some(root.join("repo"))
+    );
+    assert_eq!(clone_destination(root, "https://github.com/o/.."), None);
+}

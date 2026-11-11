@@ -27,7 +27,7 @@ Without `--template` the standard pair starts from the default. Send the objecti
 - **The simple local form** comes first: the template, the manager models and the inputs. Where a role runs and what the template asks for (network, repo writes, shell, browser, secrets, tools, scripts) appear only when the template declares them or this machine lacks something.
 - **Consent** is the owner's: an unverified template (imported, shared by a friend) or one that asks for new grants starts only with the owner's recorded decision from its preview. A received template has zero grants and never starts by itself.
 - **Payload**: files land in the Team's knowledge directory (`<data dir>/teams/<team-id>/knowledge/`) and are listed with their descriptions in the roles that use them; memory is saved to mem with the Team as its source; skills become skills of the Team's plan; automation becomes the Team's Blueprints, imported stopped under its Orchestrator (start one when the Team needs it). The owner may opt out of any item in the preview.
-- A remote role runs on a paired peer Main that admits the start there; the owner consents on that peer.
+- A remote role runs on a paired peer Main that admits the start there; the owner consents on that peer (see *Peer Mains*).
 
 - `domios team template preview <name>` shows what a template starts, asks for and brings. When it needs consent it prints a `decision_id`.
 - `domios team template start <name> --orchestrator <provider[:model]> --planner <provider[:model]> [--input key=value] [--secret NAME=entry] [--opt-out item] [--decision <decision_id>]` starts it; `--team <team-id>` re-runs it on an existing Team and adds only missing registrations.
@@ -48,6 +48,29 @@ Good to know:
 - `domios team check <path>` validates a package; the format is `domios docs TEAM-FORMAT`.
 
 `domios role list --team <team-id>` shows the role types a Team can launch and the package each comes from. A Team keeps the template version it started from: saving or importing a newer version never changes an active Team.
+
+## Peer Mains
+
+A paired peer with Full access can host a Team or a role type. Its version comes from its own `identify`; a peer without template hosting (Domios 1.20.0 or newer) is refused up front with the version to install.
+
+**Deploy a template on a peer** (for example "bake this Team and deploy it on Air"):
+
+```
+domios team distill <team-id> --name <owner/slug> --version 1.0.0 --description "<what it does>" --runbook-file <pad-file> --save
+domios team template transfer <owner/slug> --mesh <peer> --tab <peer-tab-id>
+domios team template start <owner/slug> --mesh <peer> [--orchestrator <provider[:model]>] [--planner <provider[:model]>] [--input key=value] [--secret NAME=entry]
+```
+
+- `transfer` exports a `.team` through the one exporter, carries it over the mesh attachment rail to `<peer-tab-id>` (a tab on that peer, chosen by the owner) and imports it there into My templates as unverified.
+- `start --mesh` asks the peer; nothing starts until the owner taps **Start here** on that peer's action_needed notification. It returns `awaiting_owner` with a `request_id` at once; the outcome (`started`, `declined`, `refused` with a typed result, or `failed`) arrives in this tab once the owner answers. `domios team template outcome <request_id> --mesh <peer>` reads it again.
+- The peer becomes the managers' home: the Team is new there, secrets bind from the peer's own vault by entry name (`--secret NAME=entry` names the peer's entry), and no Team state, plan or secret value travels. Each owner answer starts at most one Team.
+- A refusal before the question (`missing_inputs`, `invalid_package`, `not_found`) comes back typed, as for a local start.
+
+**Dispatch a role type to a peer**: `domios plan task dispatch <task> --role <type> --mesh <peer>`. The Worker is an ordinary remote member (report over mesh, `plan task merge-remote-lane`, close and restore). A peer offline before or during the run leaves an explicit state on the attempt; dispatch again elsewhere, never blindly to the same attempt.
+
+**Missing project on the peer**: the dispatch is refused with `peer_missing_repo` and a choice of placement. When the origin's remote URL is known, the peer asks its owner "Clone <url> into <path>?" with the credentials removed from the URL; it clones only after **Clone**, then opens the checkout as a workspace. Dispatch again after that.
+
+**Keep awake**: a peer holds itself awake while it hosts a role and lets go when the Worker's tab closes or the launch fails. Known V1 limit: Domios has one keepawake session with no owner, so if the owner starts their own keepawake while a hosted role holds one, the last release also ends the owner's session. A hosting keepawake also ends on its own after 12 hours.
 
 ## Bake a Team into a template
 
@@ -74,4 +97,4 @@ The bake keeps each role's instructions, models (a role without a model stays wi
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
