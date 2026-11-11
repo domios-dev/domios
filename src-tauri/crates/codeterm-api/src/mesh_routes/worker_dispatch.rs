@@ -629,7 +629,7 @@ fn dispatch_authenticated_worker(
     let Some((workspace_id, canonical_cwd, matching_remote)) = matched else {
         return Err((
             StatusCode::CONFLICT,
-            "peer_missing_repo: no checkout identity matches the dispatching peer; older peers may require matching remote URLs".into(),
+            "peer_missing_repo: no checkout identity matches the dispatching peer; nothing was cloned. Choose another placement (another --mesh peer or local dispatch), or have the owner of this peer open the project here first; older peers may require matching remote URLs".into(),
         ));
     };
     if !codeterm_service_core::service::worker_lane::contains_commit(
@@ -692,6 +692,8 @@ fn dispatch_authenticated_worker(
             ));
         }
     };
+    let lease_holder = format!("attempt:{}", request.attempt_id);
+    let keepawake = super::template_hosting::acquire_hosting_lease(&state, &lease_holder);
     let spawn = remote_worker_spawn_params(
         request.clone(),
         workspace_id,
@@ -702,6 +704,9 @@ fn dispatch_authenticated_worker(
     let result = match state.svc.spawn_agent_sync(spawn) {
         Ok(result) => result,
         Err(error) => {
+            codeterm_service_core::service::team_template_remote::release_hosting_lease(
+                &lease_holder,
+            );
             let cleanup = lane.cleanup();
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -714,14 +719,22 @@ fn dispatch_authenticated_worker(
             ));
         }
     };
-    let nonce = state
+    codeterm_service_core::service::team_template_remote::HostingLeases::global()
+        .transfer(&lease_holder, &result.tab_id);
+    let worker_tab = state
         .svc
         .mux
         .read()
         .get_tab(&result.tab_id)
-        .and_then(|tab| tab.session_binding_nonce.clone());
+        .map(|tab| tab.session_binding_nonce.clone());
+    // A Worker tab that closed before the lease moved onto it never sees its own close.
+    if worker_tab.is_none() {
+        codeterm_service_core::service::team_template_remote::release_hosting_lease(&result.tab_id);
+    }
+    let nonce = worker_tab.flatten();
     Ok(Json(serde_json::json!({
         "session_binding_nonce": nonce,
+        "keepawake": keepawake,
         "state": "awaiting_worker_ack",
         "peer_id": state.mesh.lock().ident.identity.instance_id,
         "worker_tab_id": result.tab_id,

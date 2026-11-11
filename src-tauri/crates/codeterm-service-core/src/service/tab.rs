@@ -409,6 +409,7 @@ impl ServiceContext {
             crate::service::tab_chat::closed_transcript::forget_evicted(self);
         }
         let pty_ids = close_result?;
+        super::team_template_remote::release_hosting_lease(&canonical_tab_id);
         if let Err(error) = self.settle_closed_durable_deliveries(&canonical_tab_id) {
             log::error!("[agent-delivery] closed recipient settlement failed tab={canonical_tab_id}: {error}");
         }

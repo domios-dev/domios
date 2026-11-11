@@ -6,6 +6,11 @@ fn identify_advertises_remote_task_dispatch_capability() {
 }
 
 #[test]
+fn identify_advertises_template_hosting_capability() {
+    assert!(IDENTIFY_FEATURES.contains(&super::TEMPLATE_HOSTING_FEATURE));
+}
+
+#[test]
 fn identify_advertises_delayed_recurrence_capability() {
     assert!(IDENTIFY_FEATURES.contains(&"delayed_recurrence"));
 }

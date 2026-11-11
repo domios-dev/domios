@@ -679,6 +679,10 @@ pub(super) fn create_router_with_preview_admission(
             post(mesh_routes::mesh_worker_dispatch_status),
         )
         .route(
+            "/api/mesh/template-start",
+            post(mesh_routes::template_hosting::mesh_template_start),
+        )
+        .route(
             "/api/mesh/worker-lane-bundle",
             post(mesh_routes::mesh_worker_lane_bundle),
         )
