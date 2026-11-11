@@ -70,6 +70,19 @@ pub(crate) fn initialize(service: &ServiceState) {
         },
     );
 
+    let templates_service = service.clone();
+    spawn_memory_task(
+        "background: team template recall spawn",
+        "background: team template recall index",
+        move || {
+            if let Err(error) =
+                codeterm_service_core::service::team_template_recall::reindex(&templates_service)
+            {
+                log::warn!("[team-templates] startup recall index: {error}");
+            }
+        },
+    );
+
     {
         let _step = super::StartupStep::logged("background: log store");
         let log_store =

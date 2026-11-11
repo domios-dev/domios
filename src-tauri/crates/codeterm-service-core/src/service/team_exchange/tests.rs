@@ -169,6 +169,10 @@ fn the_scrub_rewrites_private_bindings_and_keeps_the_prose() {
         clean,
         "the scrub is idempotent"
     );
+    assert_eq!(
+        scrubber.text("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENG", "aws"),
+        "AWS_SECRET_ACCESS_KEY=[secret AWS_SECRET_ACCESS_KEY]"
+    );
 }
 
 #[test]

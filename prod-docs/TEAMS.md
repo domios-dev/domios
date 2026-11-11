@@ -26,7 +26,7 @@ Without `--template` the standard pair starts from the default. Send the objecti
 - **Workers without a model** use the normal Worker defaults when they are dispatched.
 - **The simple local form** comes first: the template, the manager models and the inputs. Where a role runs and what the template asks for (network, repo writes, shell, browser, secrets, tools, scripts) appear only when the template declares them or this machine lacks something.
 - **Consent** is the owner's: an unverified template (imported, shared by a friend) or one that asks for new grants starts only with the owner's recorded decision from its preview. A received template has zero grants and never starts by itself.
-- **Payload**: files land in the Team's knowledge directory (`<data dir>/teams/<team-id>/knowledge/`) and are listed with their descriptions in the roles that use them; memory is saved to mem with the Team as its source; skills become skills of the Team's plan; automation becomes Blueprints. The owner may opt out of any item in the preview.
+- **Payload**: files land in the Team's knowledge directory (`<data dir>/teams/<team-id>/knowledge/`) and are listed with their descriptions in the roles that use them; memory is saved to mem with the Team as its source; skills become skills of the Team's plan; automation becomes the Team's Blueprints, imported stopped under its Orchestrator (start one when the Team needs it). The owner may opt out of any item in the preview.
 - A remote role runs on a paired peer Main that admits the start there; the owner consents on that peer.
 
 `domios role list --team <team-id>` shows the role types a Team can launch and the package each comes from. A Team keeps the template version it started from: saving or importing a newer version never changes an active Team.
@@ -56,4 +56,4 @@ The bake keeps each role's instructions, models (a role without a model stays wi
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
