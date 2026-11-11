@@ -259,6 +259,7 @@
   "src/lib/teamTemplates/exchangeModel.test.ts",
   "src/components/TeamTemplates/SaveTemplateDialog.test.tsx",
   "src/components/TeamTemplates/TemplateShareCardView.test.tsx",
+  "src/components/TeamTemplates/TemplateExportDialog.test.tsx",
   "src/lib/frontendUpdate/model.test.ts",
   "src/lib/frontendUpdate/checkpoint.test.ts",
   "src/lib/frontendUpdate/client.test.ts",

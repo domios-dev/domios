@@ -66,7 +66,7 @@ export function TemplateStartFields({ choice, preview, providers, disabledProvid
           {workers.map((role) => <span key={role.role} className="ct-small-pill">{role.label}</span>)}
         </div>
       )}
-      <TemplateBrings payload={preview.payload ?? []} optOut={choice.optOut} onToggle={choice.setKept} />
+      <TemplateBrings payload={preview.payload ?? []} optOut={choice.optOut} onToggle={choice.setKept} template={preview.form.template} />
       <TemplateAsks asks={preview.asks ?? []} secrets={{ bindings: choice.secrets, vault: choice.vault, onBind: choice.setSecret }} />
       {needs.length > 0 && (
         <section aria-label="Where" className="flex flex-col gap-1 text-[12px]" data-testid="template-where">

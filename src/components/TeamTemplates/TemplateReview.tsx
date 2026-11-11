@@ -127,7 +127,7 @@ export function TemplateReview({ choice, preview, mode, onExport, onInstallProvi
             <RoleList title="Workers on demand" roles={preview.form.roles.filter((role) => role.group === "worker")} preview={preview} />
           </div>
           <div className="flex flex-col gap-3">
-            <TemplateBrings payload={preview.payload ?? []} optOut={consent ? choice.optOut : new Set()} onToggle={consent ? choice.setKept : undefined} collapsible={false} />
+            <TemplateBrings payload={preview.payload ?? []} optOut={consent ? choice.optOut : new Set()} onToggle={consent ? choice.setKept : undefined} collapsible={false} template={summary} />
             <TemplateAsks asks={preview.asks ?? []} />
           </div>
         </div>

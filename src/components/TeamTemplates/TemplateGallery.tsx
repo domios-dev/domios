@@ -27,7 +27,7 @@ function SourceTag({ summary }: { summary: TemplateSummary }) {
   );
 }
 
-export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoice; onExport: (summary: TemplateSummary) => void }) {
+export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoice; onExport: (summary: TemplateSummary, share?: boolean) => void }) {
   const [filter, setFilter] = useState<GalleryFilter>("all");
   const [query, setQuery] = useState("");
   const current = choice.chosen?.form.template ?? choice.defaultSummary;
@@ -70,7 +70,10 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
               {summary.provenance !== "builtin" && (
                 <DropdownMenu menuLabel={`${templateTitle(summary)} actions`} items={[
                   { label: "Details", onClick: () => choice.showSummaryDetails(summary) },
-                  ...(summary.provenance === "saved" ? [{ label: "Export…", onClick: () => onExport(summary) }] : []),
+                  ...(summary.provenance === "saved" ? [
+                    { label: "Export…", onClick: () => onExport(summary) },
+                    { label: "Share to Neighborhood…", onClick: () => onExport(summary, true) },
+                  ] : []),
                   { label: "Delete", onClick: () => setConfirming(summary) },
                 ]} trigger={<Button variant="icon" aria-label={`More actions for ${templateTitle(summary)}`} aria-haspopup="menu"><KebabGlyph /></Button>} />
               )}

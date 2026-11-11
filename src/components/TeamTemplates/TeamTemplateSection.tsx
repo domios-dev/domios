@@ -21,13 +21,13 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
   onInstallProvider: (providerId: string) => void;
   roleControls?: PairRoleControls;
 }) {
-  const [exporting, setExporting] = useState<TemplateSummary | null>(null);
+  const [exporting, setExporting] = useState<{ summary: TemplateSummary; share: boolean } | null>(null);
   const view = choice.view;
   const body = view.kind === "gallery"
-    ? <TemplateGallery choice={choice} onExport={setExporting} />
+    ? <TemplateGallery choice={choice} onExport={(summary, share = false) => setExporting({ summary, share })} />
     : view.kind === "review"
       ? <TemplateReview choice={choice} preview={view.preview} mode={view.mode} onInstallProvider={form.onInstallProvider}
-        onExport={() => setExporting(view.preview.form.template)} />
+        onExport={() => setExporting({ summary: view.preview.form.template, share: false })} />
       : choice.chosen
         ? <TemplateStartFields choice={choice} preview={choice.chosen} {...form} />
         : <div className="flex flex-col gap-3">
@@ -36,6 +36,6 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
         </div>;
   return <>
     {body}
-    {exporting && <TemplateExportDialog summary={exporting} onClose={() => setExporting(null)} />}
+    {exporting && <TemplateExportDialog summary={exporting.summary} share={exporting.share} onClose={() => setExporting(null)} />}
   </>;
 }

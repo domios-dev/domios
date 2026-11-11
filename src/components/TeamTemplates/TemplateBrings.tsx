@@ -3,21 +3,26 @@ import { ChevronDown } from "lucide-react";
 import { LiquidToggle } from "../shared/LiquidToggle";
 import { bringsSummary, PAYLOAD_GROUPS } from "../../lib/teamTemplates/startModel";
 import { usedByLine } from "../../lib/teamTemplates/exchangeModel";
+import { TemplateFileDialog } from "./TemplateFileDialog";
 
 type TemplatePayloadItem = import("../../../gen/TemplatePayloadItem").TemplatePayloadItem;
+type TemplateRef = import("../../../gen/TemplateRef").TemplateRef;
 
 const AMBER = "var(--ct-yellow,#d97706)";
 
 /** What a package brings; every item starts on and the owner may opt out. Without `onToggle` it is read-only. */
-export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, defaultOpen = !collapsible, title = "Brings" }: {
+export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, defaultOpen = !collapsible, title = "Brings", template }: {
   payload: readonly TemplatePayloadItem[];
   optOut: ReadonlySet<string>;
   onToggle?: (id: string, kept: boolean) => void;
   collapsible?: boolean;
   defaultOpen?: boolean;
   title?: string;
+  /** The resolved package whose scripts can be read; a live Team being saved has none yet. */
+  template?: TemplateRef;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [viewing, setViewing] = useState<string | null>(null);
   if (payload.length === 0) return null;
   const summary = bringsSummary(payload, optOut);
   return (
@@ -50,6 +55,8 @@ export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, 
                       <div className="flex items-center gap-1.5 text-[11px]" data-executable="true">
                         <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: AMBER }} />
                         {item.script_path ? <>Runs <span className="font-mono">{item.script_path}</span></> : "Runs scripts"}
+                        {item.script_path && template && <button type="button" className="text-[var(--ct-accent)] hover:underline"
+                          aria-label={`View ${item.script_path}`} onClick={() => setViewing(item.script_path ?? null)}>View</button>}
                       </div>
                     )}
                   </div>
@@ -60,6 +67,7 @@ export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, 
           </div>
         );
       })}
+      {viewing && template && <TemplateFileDialog template={template} path={viewing} onClose={() => setViewing(null)} />}
     </section>
   );
 }

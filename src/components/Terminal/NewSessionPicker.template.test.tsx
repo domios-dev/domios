@@ -30,6 +30,7 @@ const fixture = vi.hoisted(() => {
       delete: vi.fn(),
       card: vi.fn(),
       distill: vi.fn(),
+      file: vi.fn(),
     },
     vault: vi.fn(async () => ["SEARCH_API_KEY"]),
   };
@@ -230,6 +231,19 @@ describe("Team template start in the session dialog", () => {
     await renderPicker();
     expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
     expect(dialog().querySelector('[data-testid="template-update-diff"]')?.textContent).toContain("Roles added: editor");
+    expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
+  });
+
+  it("reads a script inside the package before the owner keeps it", async () => {
+    const payload = (templatePreviewFixture.payload ?? []).map((item) => item.id === "skill:source-check" ? { ...item, script_path: "source-check/scripts/fetch.py" } : item);
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, payload });
+    fixture.templates.file.mockResolvedValue({ path: "source-check/scripts/fetch.py", text: "print('fetch')" });
+    await renderPicker();
+    await chooseResearchDesk();
+    await click(button("View source-check/scripts/fetch.py"));
+    expect(fixture.templates.file).toHaveBeenCalledWith({ name: "com.example/research-desk", version: "2.1.0" }, "source-check/scripts/fetch.py", expect.anything());
+    const viewer = Array.from(document.body.querySelectorAll('[role="dialog"]')).pop()!;
+    expect(viewer.querySelector('[aria-label="source-check/scripts/fetch.py"]')?.textContent).toBe("print('fetch')");
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 });

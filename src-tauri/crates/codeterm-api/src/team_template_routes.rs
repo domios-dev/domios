@@ -17,5 +17,6 @@ pub fn router() -> Router<AppState> {
         .route("/api/team-templates/import", post(exchange::import))
         .route("/api/team-templates/delete", post(exchange::delete))
         .route("/api/team-templates/card", post(exchange::card))
+        .route("/api/team-templates/file", post(exchange::file))
         .route("/api/teams/{team_id}/distill", post(exchange::distill))
 }
