@@ -1,13 +1,47 @@
 .ct-delivery {
-  position: relative;
+  position: absolute;
+  right: calc(100% + 8px);
+  bottom: 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 100%;
+  width: max-content;
+  max-width: var(--ct-delivery-space);
+  flex-direction: row-reverse;
   flex-wrap: wrap;
-  margin-top: 6px;
   color: var(--ct-muted-fg);
   font-size: 11px;
+}
+
+.ct-chat-message-row--user .ct-chat-message-column {
+  container-type: inline-size;
+}
+
+.ct-user-bubble-row:has(.ct-user-bubble-anchor > .ct-delivery) {
+  --ct-delivery-space: 7px;
+  max-width: calc(100% - var(--ct-delivery-space) - 8px);
+}
+
+.ct-user-bubble-row:has(.ct-user-bubble-anchor > .ct-delivery[data-state="queued"] .ct-delivery__label) {
+  --ct-delivery-space: 60px;
+}
+
+.ct-user-bubble-row:has(.ct-user-bubble-anchor > .ct-delivery:is([data-state="failed"], [data-state="uncertain"])) {
+  --ct-delivery-space: min(320px, 45cqi);
+}
+
+.ct-delivery:not(.ct-delivery--inline) .ct-delivery__label {
+  min-width: 0;
+  max-width: calc(var(--ct-delivery-space) - 13px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-delivery:not(.ct-delivery--inline) .ct-delivery__retry {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Ring and fill are pseudo layers so the pulse animates only transform and opacity on the compositor. */
@@ -68,6 +102,8 @@
 /* Inside a card header the state reads as text after its dot. */
 .ct-delivery--inline {
   position: static;
+  width: auto;
+  margin-top: 6px;
   flex-direction: row;
   flex-shrink: 0;
   max-width: 100%;

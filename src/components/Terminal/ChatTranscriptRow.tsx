@@ -169,10 +169,12 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             streaming={streaming}
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
-            userFooter={deliverySend ? <>
-              {transcriptionFailed ? <TranscriberSetupAction reason={error!} /> : pendingDelivery && <ChatDeliveryState state={deliveryView} error={error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />}
+            userDelivery={!transcriptionFailed && pendingDelivery
+              ? <ChatDeliveryState state={deliveryView} error={error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} /> : undefined}
+            userFooter={deliverySend ? <div className="mt-1.5 min-w-0 break-words empty:hidden">
+              {transcriptionFailed && <TranscriberSetupAction reason={error!} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
-            </> : undefined}
+            </div> : undefined}
             noticeStatus={transcriptionFailed ? <TranscriberSetupAction reason={error!} /> : pendingDelivery
               ? <ChatDeliveryState inline state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />
               : undefined}
