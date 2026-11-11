@@ -5,9 +5,9 @@ title: Distributed bets
 description: Breaks a product goal into bets, simulates them in parallel, ranks and visualizes them.
 icon: assets/icon.svg
 authors:
-  - name: Andrey
-    url: https://github.com/rollacode
+  - name: Example Author
     role: maintainer
+  - name: Example Contributor
 links:
   repository: https://github.com/domios-dev/teams
 license: Apache-2.0

@@ -4,7 +4,7 @@ version: 1.0.0
 title: Release train
 description: Qualifies a release candidate, runs CI and gates, publishes after owner GO.
 authors:
-  - name: Andrey
+  - name: Example Author
 license: Apache-2.0
 when:
   - ship a release

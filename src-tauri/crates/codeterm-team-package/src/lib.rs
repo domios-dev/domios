@@ -88,11 +88,33 @@ impl CheckOptions {
             host: Some(HostProfile::domios()),
         }
     }
+
+    /// Options for a named host profile: `none` checks the format alone, `domios` adds Domios's roles.
+    pub fn for_profile(name: &str) -> Option<Self> {
+        match name {
+            "none" => Some(Self::default()),
+            "domios" => Some(Self::domios()),
+            _ => None,
+        }
+    }
 }
 
-/// The JSON Schema of `team.yaml`, generated from [`TeamDocument`].
-pub fn schema() -> serde_json::Value {
-    serde_json::to_value(schemars::schema_for!(TeamDocument)).unwrap_or_default()
+/// The names [`CheckOptions::for_profile`] accepts.
+pub const HOST_PROFILES: [&str; 2] = ["none", "domios"];
+
+/// The published `$id` of the `team.yaml` schema for one spec version.
+pub fn schema_id(spec_version: &str) -> String {
+    format!("https://atp.domios.dev/schema/{spec_version}/team.schema.json")
+}
+
+/// The JSON Schema (draft-07, as schemars 0.8 emits it) of `team.yaml`, generated from
+/// [`TeamDocument`] with its published `$id`.
+pub fn schema_document(spec_version: &str) -> serde_json::Value {
+    let mut root = schemars::gen::SchemaSettings::draft07()
+        .into_generator()
+        .into_root_schema_for::<TeamDocument>();
+    root.schema.metadata().id = Some(schema_id(spec_version));
+    serde_json::to_value(root).unwrap_or_default()
 }
 
 #[cfg(test)]
