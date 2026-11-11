@@ -71,6 +71,7 @@ interface MessageBubbleProps {
   onContentLayout?: () => void;
   showTimestamp?: boolean;
   userFooter?: React.ReactNode;
+  userDelivery?: React.ReactNode;
   /** A system notice's own send state, shown in its header while the body stays collapsed. */
   noticeStatus?: React.ReactNode;
   userProgress?: React.ReactNode;
@@ -126,7 +127,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming, onContentLayout, userFooter, noticeStatus, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming, onContentLayout, userFooter, userDelivery, noticeStatus, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
   const dsScope = useContext(DsRenderContext);
   const sourceIdentity = `${dsScope.authority}:${message.sourceSessionId ?? ""}:${message.sourceMessageId ?? message.id}:${message.contextEpoch ?? 0}`;
   const source = useMemo(() => ({ authority: sourceIdentity, text: message.content }), [sourceIdentity, message.content]);
@@ -390,7 +391,8 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           <div className="group flex w-full min-w-0">
             <div className="relative min-w-0 w-full">
               {originHeader}
-              <div data-testid="user-bubble-row" className="relative ml-auto w-fit max-w-full min-w-0">
+              <div data-testid="user-bubble-row" className="ct-user-bubble-row relative ml-auto w-fit max-w-full min-w-0">
+                <div className="ct-user-bubble-anchor relative min-w-0">
                 <BoundedMessageContent
                   collapsedHeight={`${LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`}
                   role="group"
@@ -399,6 +401,8 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
                 >
                   <DsRenderContext.Provider value={{ authority: sourceIdentity, trusted: dsScope.trusted && effectiveOrigin?.kind !== "neighbor", streaming: streaming ?? dsScope.streaming, cancelled: dsScope.cancelled }}>{userBubbleInner}</DsRenderContext.Provider>
                 </BoundedMessageContent>
+                {userDelivery}
+                </div>
                 {userFooter}
               </div>
             </div>
