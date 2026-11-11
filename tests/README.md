@@ -9,6 +9,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 
 | Id | Kind | Lang | Tier | Instance | Live agent | Budget (s) | Discovery | Runner | Owner doc |
 |---|---|---|---|---|---|---|---|---|---|
+| `ci-build-cancellation` | integration | js | manual | no | no | 90 | glob `scripts/ci-build-cancellation.test.mjs` | `node --test scripts/ci-build-cancellation.test.mjs` | `.agents/skills/github-release/SKILL.md` |
 | `release-promotion` | unit | js | manual | no | no | 30 | glob `scripts/release-promote.test.mjs` | `node --test scripts/release-promote.test.mjs` | `.agents/skills/github-release/SKILL.md` |
 | `windows-installer-preflight` | integration | mixed | manual | no | no | 90 | glob `tests/windows/*.Tests.ps1` | `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows/installer-preflight.Tests.ps1` | `.agents/skills/testing/SKILL.md` |
 | `qualification-receipt` | guard | js | release | no | no | 300 | single | `node scripts/ci-qualification.mjs record "$SOURCE_SHA" qualification-rust` | `.agents/skills/github-release/SKILL.md` |

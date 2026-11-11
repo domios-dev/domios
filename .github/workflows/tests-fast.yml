@@ -466,7 +466,7 @@ jobs:
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Check Rust generated TypeScript types
         id: ci-8
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-step.mjs ts-generated-types --ci
+        run: exec node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-step.mjs ts-generated-types --ci
       - name: Collect hosted compiler warnings
         if: always()
         continue-on-error: true

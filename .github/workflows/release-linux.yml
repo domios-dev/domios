@@ -240,7 +240,7 @@ jobs:
       - name: Build release bundle inputs
         id: compile
         shell: bash
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh release-inputs --for-bundle
+        run: exec node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh release-inputs --for-bundle
 
       # Build and sign only. tauri-action's uploader reports a bare "Error saving
       # asset" with no status, body or asset name, which cost 1.11.3 four runs.
@@ -254,7 +254,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Cargo's raw domios-server file occupies the resource directory name during compilation.
         run: >-
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pnpm tauri build --no-bundle --target "$TARGET" --config '{"bundle":{"resources":[],"externalBin":[]}}'
+          exec node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pnpm tauri build --no-bundle --target "$TARGET" --config '{"bundle":{"resources":[],"externalBin":[]}}'
 
       - name: Stage final pair resources and bundle without compilation
         shell: bash

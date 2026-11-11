@@ -219,7 +219,10 @@ jobs:
         run: |
           rm -rf "$ART"
           mkdir -p "$ART"
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash .agents/skills/github-release/scripts/mac-bundle.sh "${{ steps.ver.outputs.ver }}" "${{ matrix.arch }}" "$ART"
+          exec node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash .agents/skills/github-release/scripts/mac-bundle.sh "${{ steps.ver.outputs.ver }}" "${{ matrix.arch }}" "$ART"
+
+      - name: Copy signed macOS disk image
+        run: |
           if [ "${{ matrix.arch }}" = arm64 ]; then root=src-tauri/target/release; else root=src-tauri/target/x86_64-apple-darwin/release; fi
           cp "$root/bundle/dmg/Domios_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.dmg" "$ART/"
 
