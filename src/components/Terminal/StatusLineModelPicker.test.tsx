@@ -666,10 +666,10 @@ test("catalogue-free runtime lists only the bound agent model declaration", asyn
     {id:"other",name:"Other",currentValue:"unrelated",options:[{value:"unrelated",name:"Unrelated"}]},
   ]});
   try {
-    assert.equal(view.trigger()!.textContent, "First declared");
+    assert.equal(view.trigger()!.textContent, "First declared · high");
     await act(async () => view.trigger()!.click());
     assert.deepEqual(Array.from(document.body.querySelectorAll('[role="option"]')).map(row => row.textContent?.includes("declared")), [true,true]);
-    assert.equal(document.body.querySelector('[aria-label="Refresh models"]'), null);
+    assert.ok(document.body.querySelector('[aria-label="Refresh models"]'));
     assert.equal(view.option("Deep"), undefined);
     assert.equal(view.option("Unrelated"), undefined);
     // Applying a declared model goes through the runtime controls API, never the catalogue switch
@@ -684,8 +684,8 @@ test("catalogue-free runtime keeps unclassified choices inside a neutral model b
     {id:"model",name:"Model",currentValue:"undeclared",options:[{value:"undeclared",name:"Undeclared"}]},
   ]});
   try {
-    assert.equal(view.trigger()?.textContent, "Default");
-    assert.doesNotMatch(view.host.textContent!, /Undeclared|deep/);
+    assert.equal(view.trigger()?.textContent, "deep · high");
+    assert.doesNotMatch(view.host.textContent!, /Undeclared|Default/);
     await act(async () => view.trigger()!.click());
     assert.ok(document.body.querySelector('button[aria-label="Model: Undeclared"]'));
     assert.equal(view.option("Undeclared"), undefined);
@@ -693,7 +693,7 @@ test("catalogue-free runtime keeps unclassified choices inside a neutral model b
 });
 
 
-test("a runtime that is down shows the chosen mode or says it is unknown, never a live-looking Default", async () => {
+test("an unreported model stays unknown instead of borrowing the runtime mode", async () => {
   const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{hostApprovals:true}} as unknown as ProviderDescriptor;
   const chip = async (runtimeState: "degraded" | "unloaded" | "loaded", config: Record<string, unknown>) => {
     const host = document.createElement("div");
@@ -709,10 +709,10 @@ test("a runtime that is down shows the chosen mode or says it is unknown, never 
     host.remove();
     return text;
   };
-  assert.equal(await chip("degraded", {sessionMode:"opaque-chosen", fullAccessMode:"opaque-declared"}), "opaque-chosen");
-  assert.equal(await chip("unloaded", {fullAccessMode:"opaque-declared"}), "opaque-declared");
-  assert.equal(await chip("degraded", {}), "Unknown while recovering");
-  assert.equal(await chip("loaded", {}), "Default");
+  assert.equal(await chip("degraded", {sessionMode:"opaque-chosen", fullAccessMode:"opaque-declared"}), "Unknown model");
+  assert.equal(await chip("unloaded", {fullAccessMode:"opaque-declared"}), "Unknown model");
+  assert.equal(await chip("degraded", {}), "Unknown model");
+  assert.equal(await chip("loaded", {}), "Unknown model");
 });
 
 test("catalogue-free runtime stays neutral while model controls are unavailable", async () => {
@@ -721,9 +721,26 @@ test("catalogue-free runtime stays neutral while model controls are unavailable"
     const view = await mount(provider, undefined, undefined, undefined, controls);
     try {
       assert.equal(view.trigger(), null);
-      assert.equal(view.host.textContent, "Vendor");
-      assert.doesNotMatch(view.host.textContent!, /declared no model|deep|high|launch-only/);
+      assert.equal(view.host.textContent, `${controls?.model ?? "deep"} · high`);
+      assert.doesNotMatch(view.host.textContent!, /Default/);
       assert.equal(view.picker(), null);
     } finally { await view.unmount(); }
   }
+});
+
+test("an empty runtime catalogue preserves the tab model and exposes catalogue refresh", async () => {
+  const provider = { ...descriptor("live"), available_models: [], transport: "chat_backend", agent_runtime: {
+    runtimeModes: [{ id: "full-access", displayName: "Full access" }],
+  } } as ProviderDescriptor;
+  const view = await mount(provider);
+  try {
+    assert.equal(view.trigger()!.textContent, "deep · high");
+    await act(async () => view.trigger()!.click());
+    assert.ok(view.option("deep"));
+    assert.ok(document.body.querySelector('[aria-label="Refresh models"]'));
+    const advanced = document.body.querySelector("details")!;
+    assert.equal(advanced.open, false);
+    assert.equal(advanced.querySelector("summary")?.textContent, "Advanced");
+    assert.equal(button("Apply").disabled, true);
+  } finally { await view.unmount(); }
 });
