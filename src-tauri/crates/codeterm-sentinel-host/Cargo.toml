@@ -36,7 +36,7 @@ chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 hmac = "0.12"
 regex = "1"
-cron = "0.13"
+cron = "0.17"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
 tempfile = "3"
 libc = "0.2"
