@@ -19,7 +19,7 @@ use super::team_template_start::{admit, AdmittedTemplate, ConsentLedger};
 /// Advertised by `identify` on a Domios that hosts template role types and peer starts.
 pub const TEMPLATE_HOSTING_FEATURE: &str = "template_hosting";
 /// The first Domios release that ships template hosting.
-pub const TEMPLATE_HOSTING_MIN_VERSION: &str = "1.19.3";
+pub const TEMPLATE_HOSTING_MIN_VERSION: &str = "1.20.0";
 
 fn release_triple(version: &str) -> Option<(u64, u64, u64)> {
     let version = semver::Version::parse(version.trim().trim_start_matches('v')).ok()?;
