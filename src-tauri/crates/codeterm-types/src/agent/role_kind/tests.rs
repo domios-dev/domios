@@ -189,16 +189,6 @@ const UNKNOWN_PROFILES: &[&str] = &[
     "planner_v2",
 ];
 
-const OVERLAY_IDS: &[&str] = &[
-    ORCHESTRATOR,
-    GENERAL_AGENT,
-    PLANNER,
-    REVIEWER,
-    "worker_gpu",
-    "../../escape",
-    "",
-];
-
 fn caps(capability: RoleKindCapability) -> Caps {
     (
         capability.anchors_team(),
@@ -549,7 +539,7 @@ fn capability_fallback_is_leaf_not_all_false() {
 // so a kind outside the builtin table can only resolve to leaf capability.
 #[test]
 fn non_builtin_kinds_resolve_to_leaf_capability() {
-    for id in OVERLAY_IDS.iter().copied() {
+    for id in ["worker_gpu", "../../escape", ""] {
         assert!(builtins::lookup(id).is_none(), "{id}");
         assert_eq!(
             builtins::capability_for(id),
