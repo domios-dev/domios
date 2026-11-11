@@ -16,10 +16,10 @@ export type TemplateShareCard = import("../../../gen/TemplateShareCard").Templat
 export type TemplateDistillRequest = import("../../../gen/TemplateDistillRequest").TemplateDistillRequest;
 export type TemplateDistillResult = import("../../../gen/TemplateDistillResult").TemplateDistillResult;
 
-export type TeamTemplatesClient = Pick<TransportClient, "json">;
+export type TemplateFileRequest = import("../../../gen/TemplateFileRequest").TemplateFileRequest;
+export type TemplateFileText = import("../../../gen/TemplateFileText").TemplateFileText;
 
-/** One text file from inside a package, as `POST /api/team-templates/file` returns it. */
-export interface TemplateFileText { path: string; text: string }
+export type TeamTemplatesClient = Pick<TransportClient, "json">;
 
 /** Team templates over the shared REST contracts; starting goes through the ordinary pair request with `template`. */
 export function createTeamTemplatesTransport(client: TeamTemplatesClient) {
@@ -35,8 +35,8 @@ export function createTeamTemplatesTransport(client: TeamTemplatesClient) {
       client.json<TemplateImportResult>("POST", "/api/team-templates/import", { path }, opts),
     delete: (template: TemplateRef, opts?: { signal?: AbortSignal }) =>
       client.json<TemplateDeleteResult>("POST", "/api/team-templates/delete", { template }, opts),
-    file: (template: TemplateRef, path: string, opts?: { signal?: AbortSignal }) =>
-      client.json<TemplateFileText>("POST", "/api/team-templates/file", { template, path }, opts),
+    file: (request: TemplateFileRequest, opts?: { signal?: AbortSignal }) =>
+      client.json<TemplateFileText>("POST", "/api/team-templates/file", request, opts),
     card: (fileId: string, path: string, opts?: { signal?: AbortSignal }) =>
       client.json<TemplateShareCard>("POST", "/api/team-templates/card", { file_id: fileId, path }, opts),
     distill: ({ team_id: teamId, ...request }: TemplateDistillRequest, opts?: { signal?: AbortSignal }) =>

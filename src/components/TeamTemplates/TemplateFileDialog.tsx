@@ -18,7 +18,7 @@ export function TemplateFileDialog({ template, path, onClose, transport = teamTe
   const { name, version } = template;
   useEffect(() => {
     const controller = new AbortController();
-    transport().file({ name, version }, path, { signal: controller.signal })
+    transport().file({ template: { name, version }, path }, { signal: controller.signal })
       .then((file) => setText(file.text), (failure: unknown) => { if (!controller.signal.aborted) setError(startErrorView(failure).message); });
     return () => controller.abort();
   }, [name, version, path, transport]);

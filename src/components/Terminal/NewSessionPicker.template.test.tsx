@@ -241,7 +241,7 @@ describe("Team template start in the session dialog", () => {
     await renderPicker();
     await chooseResearchDesk();
     await click(button("View source-check/scripts/fetch.py"));
-    expect(fixture.templates.file).toHaveBeenCalledWith({ name: "com.example/research-desk", version: "2.1.0" }, "source-check/scripts/fetch.py", expect.anything());
+    expect(fixture.templates.file).toHaveBeenCalledWith({ template: { name: "com.example/research-desk", version: "2.1.0" }, path: "source-check/scripts/fetch.py" }, expect.anything());
     const viewer = Array.from(document.body.querySelectorAll('[role="dialog"]')).pop()!;
     expect(viewer.querySelector('[aria-label="source-check/scripts/fetch.py"]')?.textContent).toBe("print('fetch')");
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();

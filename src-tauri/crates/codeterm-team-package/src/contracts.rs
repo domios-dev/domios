@@ -491,6 +491,20 @@ pub struct TemplateDeleteResult {
     pub removed: Vec<String>,
 }
 
+/// Read one file inside a builtin or saved package, by its package-relative path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateFileRequest {
+    pub template: TemplateRef,
+    pub path: String,
+}
+
+/// One package file as text, for review before the owner keeps it; nothing runs it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateFileText {
+    pub path: String,
+    pub text: String,
+}
+
 /// Send a checked package to a paired peer Main's My templates over the mesh.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TemplateTransferRequest {

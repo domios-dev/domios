@@ -7,9 +7,8 @@ use codeterm_service_core::service::team_exchange::{
     self, ExchangeError, INVALID_REQUEST, NOT_FOUND,
 };
 use codeterm_service_core::service::team_template_recall;
-use codeterm_team_package::contracts::TemplateRef;
+use codeterm_team_package::contracts::{TemplateFileRequest, TemplateFileText};
 use codeterm_team_package::{Package, PackageSkill};
-use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::routes::AppState;
@@ -92,12 +91,6 @@ const FILE_TEXT_LIMIT: usize = 256 * 1024;
 const TOO_LARGE: &str = "too_large";
 const NOT_TEXT: &str = "not_text";
 
-#[derive(Deserialize)]
-struct FileParams {
-    template: TemplateRef,
-    path: String,
-}
-
 fn refusal(code: &'static str, message: impl Into<String>) -> ExchangeError {
     ExchangeError {
         code,
@@ -141,8 +134,9 @@ fn package_file(package: &Package, path: &str) -> Option<Vec<u8>> {
 }
 
 fn read_file(params: Option<&Value>) -> Result<Value, ExchangeError> {
-    let request: FileParams = serde_json::from_value(params.cloned().unwrap_or(Value::Null))
-        .map_err(|error| ExchangeError::invalid(error.to_string()))?;
+    let request: TemplateFileRequest =
+        serde_json::from_value(params.cloned().unwrap_or(Value::Null))
+            .map_err(|error| ExchangeError::invalid(error.to_string()))?;
     if !package_relative(&request.path) {
         return Err(ExchangeError::invalid(
             "`path` must be a path inside the package",
@@ -173,7 +167,11 @@ fn read_file(params: Option<&Value>) -> Result<Value, ExchangeError> {
         .ok()
         .filter(|text| !text.contains('\0'))
         .ok_or_else(|| refusal(NOT_TEXT, format!("`{}` is not a text file", request.path)))?;
-    Ok(json!({ "path": request.path, "text": text }))
+    serde_json::to_value(TemplateFileText {
+        path: request.path,
+        text,
+    })
+    .map_err(|error| ExchangeError::invalid(error.to_string()))
 }
 
 /// One package file as text, for reviewing a script before the owner keeps it.
