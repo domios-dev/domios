@@ -499,6 +499,9 @@ impl OrchestrationPairExt for ServiceContext {
         &self,
         params: OrchestrationPairParams,
     ) -> Result<OrchestrationPairResult, String> {
+        if let Some(template) = params.template.as_ref() {
+            crate::team::template_start::start(template)?;
+        }
         if params.orchestrator_agent.trim().is_empty() {
             return Err("orchestrator_agent is required".into());
         }

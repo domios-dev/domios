@@ -3,26 +3,49 @@ use serde_json::{json, Value};
 use crate::args::team::TeamAction;
 use crate::client::{RpcClient, SocketCallError};
 
+pub mod check;
+pub mod exchange;
+pub mod template_start;
+
 pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction) {
-    if let TeamAction::Pair {
-        orchestrator,
-        planner,
-        workspace,
-        title,
-        acknowledge_leaf,
-    } = action
-    {
-        handle_pair(
-            client,
-            json_output,
-            &orchestrator,
-            &planner,
+    let action = match action {
+        TeamAction::Pair {
+            orchestrator,
+            planner,
             workspace,
             title,
             acknowledge_leaf,
-        );
-        return;
-    }
+            template,
+        } => {
+            let params = pair_params(
+                &orchestrator,
+                &planner,
+                workspace,
+                title,
+                acknowledge_leaf,
+                template.as_deref(),
+            );
+            handle_pair(client, json_output, params);
+            return;
+        }
+        TeamAction::Template { action } => {
+            template_start::handle(client, json_output, action);
+            return;
+        }
+        TeamAction::Distill(args) => {
+            exchange::distill(client, json_output, args);
+            return;
+        }
+        TeamAction::Export(args) => {
+            exchange::export(client, json_output, args);
+            return;
+        }
+        TeamAction::Import(args) => {
+            exchange::import(client, json_output, args);
+            return;
+        }
+        other => other,
+    };
     let caller_tab_id = (!client.is_remote())
         .then(|| crate::nonempty_env("CODETERM_TAB_ID"))
         .flatten();
@@ -83,7 +106,12 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
                     )),
                 )
             }),
-        TeamAction::Pair { .. } => unreachable!("pair returns before the socket verbs"),
+        TeamAction::Pair { .. }
+        | TeamAction::Template { .. }
+        | TeamAction::Distill(_)
+        | TeamAction::Export(_)
+        | TeamAction::Import(_) => unreachable!("these verbs return before the socket verbs"),
+        TeamAction::Check { .. } => unreachable!("team check runs before socket discovery"),
     };
     match result {
         Ok(value) => {
@@ -110,16 +138,22 @@ pub(crate) fn render_daemon_error(error: &SocketCallError) -> String {
     crate::cmd::model_error::render_socket_error(error)
 }
 
-fn handle_pair(
-    client: &mut dyn RpcClient,
-    json_output: bool,
-    orchestrator: &str,
-    planner: &str,
-    workspace: Option<String>,
-    title: Option<String>,
-    acknowledge_leaf: bool,
-) {
-    let params = pair_params(orchestrator, planner, workspace, title, acknowledge_leaf);
+/// Prints a template or exchange verb's daemon answer.
+pub(crate) fn finish(json_output: bool, result: Result<Value, SocketCallError>) {
+    match result {
+        Ok(value) => {
+            crate::cmd::print::exit_if_cli_refusal(json_output, &value);
+            if json_output {
+                crate::cmd::print::print_json(&value);
+            } else {
+                crate::cmd::print::print_human(&value);
+            }
+        }
+        Err(error) => crate::cmd::model_error::exit_with_socket_error(json_output, error),
+    }
+}
+
+fn handle_pair(client: &mut dyn RpcClient, json_output: bool, params: Value) {
     match client.call_detailed("orchestration.new", Some(params)) {
         Ok(value) => {
             crate::cmd::print::exit_if_cli_refusal(json_output, &value);
@@ -158,6 +192,7 @@ pub(crate) fn pair_params(
     workspace: Option<String>,
     title: Option<String>,
     acknowledge_leaf: bool,
+    template: Option<&str>,
 ) -> Value {
     let (orchestrator_agent, orchestrator_model) = split_provider_model(orchestrator);
     let (planner_agent, planner_model) = split_provider_model(planner);
@@ -185,6 +220,9 @@ pub(crate) fn pair_params(
     }
     if acknowledge_leaf {
         params["leaf_creation_acknowledged"] = json!(true);
+    }
+    if let Some(template) = template {
+        params["template"] = template_start::start_request(template);
     }
     params
 }

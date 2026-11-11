@@ -134,12 +134,12 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ),
     ),
     (
-        "persona",
-        &["codeterm", "persona", "list"],
+        "role",
+        &["codeterm", "role", "list"],
         Local::Socket,
         MeshRelay::Fallthrough,
         ApiVerdict::Unsupported(
-            "persona inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
+            "role inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
         ),
     ),
     (
@@ -606,6 +606,14 @@ fn no_wildcard_arm_in_transport_match() {
 }
 
 #[test]
+fn team_check_runs_locally_before_socket_discovery() {
+    let check = parse(&["codeterm", "team", "check", "research.team.yaml"]);
+    let declared = transport_for(&check);
+    assert_eq!(declared.local, Local::PreSocket);
+    assert!(!crate::mesh_cli::is_socket_relayed(&check));
+}
+
+#[test]
 fn team_pair_exception_is_declared() {
     let pair = parse(&[
         "codeterm",
@@ -635,6 +643,24 @@ fn team_pair_exception_is_declared() {
         vec!["codeterm", "team", "rename", "team_1", "name"],
         vec!["codeterm", "team", "close", "team_1"],
         vec!["codeterm", "team", "adopt-plan", "team_1", "pl_1"],
+        vec!["codeterm", "team", "template", "list"],
+        vec![
+            "codeterm",
+            "team",
+            "template",
+            "preview",
+            "dev.domios/default",
+        ],
+        vec!["codeterm", "team", "distill", "team_1", "--format", "team"],
+        vec![
+            "codeterm",
+            "team",
+            "export",
+            "dev.domios/default",
+            "--format",
+            "folder",
+        ],
+        vec!["codeterm", "team", "import", "research.team"],
         vec![
             "codeterm",
             "team",

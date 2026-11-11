@@ -1,0 +1,13 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+managers:
+  orchestrator:
+    instructions: |
+      Lead.
+  planner:
+    model:
+      same_as: curator
+  curator:
+    model:
+      same_as: planner

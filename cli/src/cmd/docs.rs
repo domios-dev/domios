@@ -286,6 +286,16 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "Source-backed essence map generation and validation",
         "../../../prod-docs/ESSENCE-MAP.md"
     ),
+    doc!(
+        "TEAM-FORMAT",
+        "Agentic Team Protocol package format: forms, fields, roles and validation",
+        "../../../prod-docs/TEAM-FORMAT.md"
+    ),
+    doc!(
+        "TEAMS",
+        "Starting, previewing, baking and sharing Team templates",
+        "../../../prod-docs/TEAMS.md"
+    ),
 ];
 
 // Historical names are append-only; targets always name a registered whole document.

@@ -1,7 +1,7 @@
 use clap::Subcommand;
 
 #[derive(Subcommand)]
-pub enum PersonaAction {
+pub enum RoleAction {
     /// List every role kind the resolver can reach, with refused overlays
     List,
 
@@ -31,13 +31,13 @@ mod tests {
 
     use crate::args::cli::{Cli, Commands};
 
-    use super::PersonaAction;
+    use super::RoleAction;
 
     #[test]
     fn show_parses_role_kind_guidance_and_occasion() {
         let parsed = Cli::try_parse_from([
             "codeterm",
-            "persona",
+            "role",
             "show",
             "--role",
             "Worker",
@@ -48,11 +48,11 @@ mod tests {
             "--occasion",
             "launch_assignment",
         ])
-        .expect("persona show parses");
+        .expect("role show parses");
         match parsed.command {
-            Commands::Persona {
+            Commands::Role {
                 action:
-                    PersonaAction::Show {
+                    RoleAction::Show {
                         role,
                         kind,
                         guidance,
@@ -64,42 +64,42 @@ mod tests {
                 assert_eq!(guidance.as_deref(), Some("You are Mira."));
                 assert_eq!(occasion.as_deref(), Some("launch_assignment"));
             }
-            _ => panic!("expected persona show"),
+            _ => panic!("expected role show"),
         }
     }
 
     #[test]
     fn show_defaults_to_the_worker_role_and_no_kind() {
-        let parsed =
-            Cli::try_parse_from(["codeterm", "persona", "show"]).expect("persona show parses");
+        let parsed = Cli::try_parse_from(["codeterm", "role", "show"]).expect("role show parses");
         match parsed.command {
-            Commands::Persona {
-                action: PersonaAction::Show { role, kind, .. },
+            Commands::Role {
+                action: RoleAction::Show { role, kind, .. },
             } => {
                 assert_eq!(role, "Worker");
                 assert!(kind.is_none());
             }
-            _ => panic!("expected persona show"),
+            _ => panic!("expected role show"),
         }
     }
 
     #[test]
-    fn list_and_reload_parse() {
+    fn list_and_reload_parse_and_persona_is_gone() {
         assert!(matches!(
-            Cli::try_parse_from(["codeterm", "persona", "list"])
-                .expect("persona list parses")
+            Cli::try_parse_from(["codeterm", "role", "list"])
+                .expect("role list parses")
                 .command,
-            Commands::Persona {
-                action: PersonaAction::List
+            Commands::Role {
+                action: RoleAction::List
             }
         ));
         assert!(matches!(
-            Cli::try_parse_from(["codeterm", "persona", "reload"])
-                .expect("persona reload parses")
+            Cli::try_parse_from(["codeterm", "role", "reload"])
+                .expect("role reload parses")
                 .command,
-            Commands::Persona {
-                action: PersonaAction::Reload
+            Commands::Role {
+                action: RoleAction::Reload
             }
         ));
+        assert!(Cli::try_parse_from(["codeterm", "persona", "list"]).is_err());
     }
 }

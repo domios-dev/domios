@@ -1,5 +1,8 @@
 use clap::Subcommand;
 
+pub mod exchange;
+pub mod template_start;
+
 #[derive(Subcommand)]
 pub enum TeamAction {
     /// List registered Teams
@@ -76,7 +79,26 @@ pub enum TeamAction {
         /// an intermediary shell.
         #[arg(long)]
         acknowledge_leaf: bool,
+        /// Start from this team template (`name[@version]`); omitted keeps the standard pair
+        #[arg(long)]
+        template: Option<String>,
     },
+    /// Validate an ATP team package: a `name.team.yaml` file, a `name.team` archive or a package folder
+    Check {
+        /// Package path
+        path: String,
+    },
+    /// Team templates: list, preview and start
+    Template {
+        #[command(subcommand)]
+        action: template_start::TemplateAction,
+    },
+    /// Distill a live Team into a checked template package (procedure: `domios docs TEAMS`)
+    Distill(exchange::DistillArgs),
+    /// Export a template as `yaml`, `team` or `folder`
+    Export(exchange::ExportArgs),
+    /// Import a template package into My templates
+    Import(exchange::ImportArgs),
 }
 
 #[cfg(test)]

@@ -17,6 +17,7 @@ pub(super) fn team_pair_to_api(
     workspace: &Option<String>,
     title: &Option<String>,
     acknowledge_leaf: bool,
+    template: Option<&str>,
 ) -> (String, String, Option<String>) {
     let (orchestrator_agent, orchestrator_model) = split_provider_model(orchestrator);
     let (planner_agent, planner_model) = split_provider_model(planner);
@@ -39,6 +40,9 @@ pub(super) fn team_pair_to_api(
     // Inert today: `spawned_by_tab_id` stays local, so no remote leaf-gate check can ever consult it — carried anyway to keep the body shape in lockstep with the local `pair_params` contract.
     if acknowledge_leaf {
         body["leaf_creation_acknowledged"] = json!(true);
+    }
+    if let Some(template) = template {
+        body["template"] = crate::cmd::team::template_start::start_request(template);
     }
     (
         "POST".into(),

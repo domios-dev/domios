@@ -1317,6 +1317,7 @@ dependencies = [
  "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-storage",
+ "codeterm-team-package",
  "codeterm-types",
  "codeterm-update",
  "codeterm-usage",
@@ -1457,6 +1458,7 @@ dependencies = [
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-process-identity",
+ "codeterm-team-package",
  "codeterm-types",
  "codeterm-util",
  "codeterm-wire",
@@ -1964,6 +1966,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-sentinel",
  "codeterm-service-core",
+ "codeterm-team-package",
  "codeterm-types",
  "codeterm-wire",
  "log",
@@ -2143,6 +2146,7 @@ dependencies = [
  "codeterm-sentinel",
  "codeterm-storage",
  "codeterm-supporter",
+ "codeterm-team-package",
  "codeterm-types",
  "codeterm-update",
  "codeterm-usage",
@@ -2406,6 +2410,7 @@ dependencies = [
  "codeterm-storage",
  "codeterm-supporter",
  "codeterm-surface",
+ "codeterm-team-package",
  "codeterm-types",
  "codeterm-update",
  "codeterm-usage",
@@ -2502,6 +2507,7 @@ dependencies = [
  "codeterm-sentinel",
  "codeterm-sentinel-host",
  "codeterm-service-core",
+ "codeterm-team-package",
  "codeterm-types",
  "codeterm-util",
  "interprocess",
@@ -2591,6 +2597,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-team-package"
+version = "0.0.0"
+dependencies = [
+ "include_dir",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "ts-rs",
+ "yaml-rust2",
+ "zip",
+]
+
+[[package]]
 name = "codeterm-types"
 version = "0.0.0"
 dependencies = [
@@ -2677,6 +2696,7 @@ dependencies = [
 name = "codeterm-wire"
 version = "0.0.0"
 dependencies = [
+ "codeterm-team-package",
  "serde",
  "serde_json",
  "ts-rs",
@@ -11961,6 +11981,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaeb7f16d2605b49aef586996ded29e65642fab7259a3077e537351df6d80426"
 dependencies = [
  "crc32fast",
+ "flate2",
  "getrandom 0.4.2",
  "indexmap 2.13.0",
  "libc",

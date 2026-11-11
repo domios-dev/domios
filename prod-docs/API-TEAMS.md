@@ -120,4 +120,17 @@ Team staffing and closing use the authority and confirmation rules above.
 | POST | `/api/teams/{team_id}/members` | Add a Team member. |
 | POST | `/api/teams/{team_id}/rename` | Rename a Team. |
 
-<!-- revision: 13 -->
+## Team templates
+
+`POST /api/orchestration/new` takes an optional `template` (a `TemplateStartRequest`); without it the standard pair starts. The package format is `domios docs TEAM-FORMAT` and the procedure `domios docs TEAMS`. Until an operation is available in a build, it answers HTTP 501 with `{code: "template_unavailable", operation, message}` and changes nothing.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| GET | `/api/team-templates` | List builtin and saved templates as `{templates}`. |
+| POST | `/api/team-templates/preview` | `{template}` → the start form, asks, payload with opt-out ids, warnings and consent decision. |
+| POST | `/api/team-templates/recall` | `{query}` → best matches first and the default fallback. |
+| POST | `/api/team-templates/export` | `{template, format: yaml\|team\|folder, out?}` → checked package and scrub report. |
+| POST | `/api/team-templates/import` | `{path}` → validate a package and save it to My templates, unverified. |
+| POST | `/api/teams/{team_id}/distill` | `{format, out?}` → distill a live Team into a checked package. |
+
+<!-- revision: 14 -->

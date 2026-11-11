@@ -16,6 +16,8 @@ pub enum AgentRole {
 pub struct RestoredRole {
     pub role: AgentRole,
     pub role_profile: Option<String>,
+    /// The Team-registered display label (manager name or worker type), once a registration fills it.
+    pub role_label: Option<String>,
 }
 
 impl RestoredRole {
@@ -23,6 +25,7 @@ impl RestoredRole {
         Self {
             role,
             role_profile: role_profile.map(str::to_string),
+            role_label: None,
         }
     }
 }

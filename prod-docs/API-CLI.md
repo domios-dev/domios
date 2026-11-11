@@ -196,9 +196,9 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 
 | Command | RPC | Purpose |
 |---|---|---|
-| `domios persona list` | `persona.list` | Every reachable role kind with capability columns, plus refused overlays and why |
-| `domios persona show --role <Manager\|Worker> [--kind <id>] [--guidance <text>] [--occasion <id>]` | `persona.show` | The exact text each occasion emits, its fragments, and their provenance |
-| `domios persona reload` | `persona.reload` | Re-read `<data-dir>/role-presets/*.toml` without a restart or rebuild |
+| `domios role list` | `role.list` | Every reachable role kind with capability columns, plus refused overlays and why |
+| `domios role show --role <Manager\|Worker> [--kind <id>] [--guidance <text>] [--occasion <id>]` | `role.show` | The exact text each occasion emits, its fragments, and their provenance |
+| `domios role reload` | `role.reload` | Re-read `<data-dir>/role-presets/*.toml` without a restart or rebuild |
 
 Overlay files add leaf kinds only; one that declares capability, claims an anchoring or Team-authority base, overrides a builtin kind, or owns a contract without the coordination core is refused with a reason and skipped.
 
@@ -231,4 +231,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 82 -->
+<!-- revision: 83 -->

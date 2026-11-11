@@ -144,9 +144,9 @@ pub(super) fn dispatch(
                 "agent.report",
                 "agent.ack",
                 "orchestration.new",
-                "persona.list",
-                "persona.show",
-                "persona.reload",
+                "role.list",
+                "role.show",
+                "role.reload",
                 "team.list",
                 "team.show",
                 "team.rename",
@@ -154,6 +154,13 @@ pub(super) fn dispatch(
                 "team.adopt_plan",
                 "team.adopt_agent",
                 "team.add_member",
+                "team.template.list",
+                "team.template.preview",
+                "team.template.start",
+                "team.template.recall",
+                "team.distill",
+                "team.export",
+                "team.import",
                 "orchestrator.refresh",
                 "plan.create",
                 "plan.control_loop.show",
@@ -424,6 +431,10 @@ pub(super) fn dispatch(
     }
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, svc),
+        "team" if team_template_start::handles(method) => {
+            team_template_start::dispatch(method, &params, svc)
+        }
+        "team" if team_exchange::handles(method) => team_exchange::dispatch(method, &params, svc),
         "team" => team::dispatch(method, &params, mux, svc),
         "tab" | "agents" => tab::dispatch(method, &params, mux, svc),
         "notification" => notification::dispatch(method, &params, svc),
@@ -431,7 +442,7 @@ pub(super) fn dispatch(
         "model_provider" => model_providers::dispatch(method, params, svc),
         "orchestration" => orchestration::dispatch(method, &params, svc),
         "orchestrator" => orchestrator::dispatch(method, &params, svc),
-        "persona" => persona::dispatch(method, &params),
+        "role" => role::dispatch(method, &params),
         "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, svc),
         "plan" | "task" => plan::dispatch(method, &params, svc),
         "radar" => radar::dispatch(method, &params, svc),

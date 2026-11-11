@@ -167,7 +167,7 @@ fn general_agent_team_guard_refusal_reaches_the_cli_unedited() {
 
 #[test]
 fn general_agent_team_guard_pair_params_carry_the_workspace_the_refusal_teaches() {
-    let params = pair_params("alpha", "beta", Some("ws_7".into()), None, false);
+    let params = pair_params("alpha", "beta", Some("ws_7".into()), None, false, None);
     assert_eq!(params["orchestrator_agent"], "alpha");
     assert_eq!(params["planner_agent"], "beta");
     assert_eq!(params["workspace_id"], "ws_7");
@@ -177,17 +177,55 @@ fn general_agent_team_guard_pair_params_carry_the_workspace_the_refusal_teaches(
 /// carries through to the daemon only when the caller actually passed it.
 #[test]
 fn pair_params_omit_leaf_declaration_unless_the_flag_was_passed() {
-    let params = pair_params("alpha", "beta", None, None, false);
+    let params = pair_params("alpha", "beta", None, None, false, None);
     assert!(params.get("leaf_creation_acknowledged").is_none());
 
-    let params = pair_params("alpha", "beta", None, None, true);
+    let params = pair_params("alpha", "beta", None, None, true, None);
     assert_eq!(params["leaf_creation_acknowledged"], true);
 }
 
 #[test]
 fn pair_params_preserve_requested_team_title() {
-    let params = pair_params("alpha", "beta", None, Some("Research Team".into()), false);
+    let params = pair_params(
+        "alpha",
+        "beta",
+        None,
+        Some("Research Team".into()),
+        false,
+        None,
+    );
     assert_eq!(params["title"], "Research Team");
+}
+
+#[test]
+fn pair_params_carry_a_template_only_when_named() {
+    assert!(pair_params("alpha", "beta", None, None, false, None)
+        .get("template")
+        .is_none());
+    let params = pair_params(
+        "alpha",
+        "beta",
+        None,
+        None,
+        false,
+        Some("dev.domios/release-train@1.0.0"),
+    );
+    assert_eq!(
+        params["template"],
+        serde_json::json!({ "template": { "name": "dev.domios/release-train", "version": "1.0.0" } })
+    );
+    let unpinned = pair_params(
+        "alpha",
+        "beta",
+        None,
+        None,
+        false,
+        Some("dev.domios/default"),
+    );
+    assert_eq!(
+        unpinned["template"],
+        serde_json::json!({ "template": { "name": "dev.domios/default" } })
+    );
 }
 
 #[test]

@@ -1,0 +1,22 @@
+{
+  "format": "yaml",
+  "valid": false,
+  "diagnostics": [
+    {
+      "code": "removed_field",
+      "severity": "error",
+      "file": "team.yaml",
+      "path": "managers.orchestrator.kind",
+      "line": 6,
+      "column": 5,
+      "message": "`kind` was removed from ATP: the group and the manager slot decide a role's kind"
+    },
+    {
+      "code": "unreferenced_entry",
+      "severity": "error",
+      "file": "notes.txt",
+      "path": "",
+      "message": "the package carries a file that team.yaml never references"
+    }
+  ]
+}

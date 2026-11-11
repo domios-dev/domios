@@ -52,6 +52,7 @@ codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-local-recording = { path = "../codeterm-local-recording" }
 codeterm-wire = { path = "../codeterm-wire" }
 codeterm-sentinel = { path = "../codeterm-sentinel" }
+codeterm-team-package = { path = "../codeterm-team-package" }
 codeterm-decision = { path = "../codeterm-decision" }
 codeterm-provider-signals = { path = "../codeterm-provider-signals" }
 codeterm-events = { path = "../codeterm-events" }

@@ -1,0 +1,8 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+managers:
+  orchestrator:
+    includes: [core]
+    instructions: |
+      Lead.

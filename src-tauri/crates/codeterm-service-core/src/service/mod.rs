@@ -89,6 +89,7 @@ pub mod mesh_attachment;
 pub mod message_gateway;
 pub mod messenger;
 pub(crate) mod model_defaults;
+pub mod model_decision;
 pub mod model_providers;
 pub mod notification;
 mod notification_desktop;
@@ -258,7 +259,13 @@ pub mod tab_transport;
 pub mod tab_transport_chat;
 pub mod task_lane_guard;
 pub mod team_core;
+pub mod team_exchange;
 pub mod team_membership;
+pub mod team_roles;
+pub mod team_template_payload;
+pub mod team_template_recall;
+pub mod team_template_remote;
+pub mod team_template_start;
 pub use task_lane_guard::{
     canonical_path_of, classify_mutating_lane, live_canonical_writer, recorded_lane_matches,
     UnsafeMutatingLane,

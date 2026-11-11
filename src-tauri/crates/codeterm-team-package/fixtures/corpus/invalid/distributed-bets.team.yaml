@@ -1,0 +1,81 @@
+# distributed-bets.team.yaml — Agentic Team Protocol (ATP)
+name: dev.domios/distributed-bets
+version: 1.0.0
+title: Distributed bets
+description: Breaks a product goal into bets, simulates them in parallel, ranks and visualizes them.
+icon: assets/icon.svg
+authors:
+  - name: Andrey
+    url: https://github.com/rollacode
+    role: maintainer
+links:
+  repository: https://github.com/domios-dev/teams
+license: Apache-2.0
+when:
+  - break a product into bets
+  - simulate and rank product bets
+
+inputs:
+  product_goal: What product or goal to break down
+  horizon_weeks: Planning horizon in weeks (default 6)
+permissions:
+  network: true
+  repo_write: false
+  shell: true
+  browser: false
+secrets:
+  - name: MARKET_DATA_KEY
+    purpose: Read access for the market-data MCP server
+requires:
+  harnesses: [claude, codex]
+
+skills:
+  - path: skills/bet-simulation
+files:
+  - path: assets/icon.svg
+    description: Package icon
+    content: |
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+  - path: docs/rubric.md
+    description: Scoring rubric every bet is judged against
+automation:
+  - path: blueprints/bets-digest.yaml
+    description: Posts a progress digest while bets are simulated
+
+managers:
+  orchestrator:
+    name: Guide
+    start: with_team
+    model: [claude:opus]
+    reasoning: high
+    instructions: |
+      How this team works: you frame the goal with the owner, Atlas plans one
+      task per bet plus a ranking task, Oracles simulate bets in parallel (one
+      per bet) and Skeptic attacks the top three; you rank, visualize and
+      recommend. Never publish or share results without the owner's approval.
+      You never simulate bets yourself; dispatch one Oracle per bet in parallel.
+
+  planner:
+    name: Atlas
+    start: with_team
+    instructions: |
+      Each bet task carries docs/rubric.md as its acceptance.
+
+workers:
+  oracle:
+    description: Simulates one bet against the rubric.
+    model: [claude:sonnet, codex:gpt-6.1-sol]
+    reasoning: medium
+    skills: [bet-simulation]
+    tools: [mcp:io.github.example/market-data]
+    files:
+      - path: docs/rubric.md
+        description: Read before scoring
+    instructions: |
+      Simulate exactly one bet: assumptions, risks, score 1-10, kill criterion.
+
+  skeptic:
+    description: Attacks the top three bets.
+    model: [claude:opus]
+    instructions: |
+      For each of the top three bets, name its weakest assumption and how it fails.

@@ -1,0 +1,84 @@
+name: com.example/research-desk
+version: 2.1.0
+title: Research desk
+description: >-
+  Researches a market question in parallel, cross-checks sources and writes a cited report.
+icon: assets/icon.svg
+authors:
+  - name: Jane Doe
+    email: jane@example.com
+    url: https://github.com/janedoe
+    role: maintainer
+license: Apache-2.0
+when:
+  - research a market question
+derived_from:
+  name: com.example/research-desk
+  version: 2.0.3
+
+project: required
+requires:
+  harnesses: [claude, codex]
+
+inputs:
+  question: The market question to research
+
+permissions:
+  network: [api.example.com, "*.wikipedia.org"]
+  repo_write: false
+
+secrets:
+  - name: SEARCH_API_KEY
+    purpose: Web search for the researcher role
+
+files:
+  - path: assets/icon.svg
+    description: Package icon
+    content: |
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+  - path: data/competitors.csv
+    description: Known competitors with segments
+    content: |
+      name,segment
+      Acme,enterprise
+
+skills:
+  - name: market-sizing
+    description: Size a market from cited figures.
+    content: |
+      ---
+      name: market-sizing
+      description: Size a market from cited figures.
+      ---
+      Normalise every figure to one year and currency.
+
+automation:
+  - name: research-digest
+    description: Posts a progress digest every hour while research runs
+    content: |
+      schema_version: 2
+      name: research-digest
+
+managers:
+  orchestrator:
+    name: Lead
+    model: [claude:opus]
+    instructions: |
+      Agree the question with the owner, then merge findings and cite every claim.
+
+  curator:
+    model:
+      same_as: orchestrator
+
+workers:
+  researcher:
+    description: Researches one angle of the question.
+    skills: [market-sizing]
+    files: [data/competitors.csv]
+    instructions: |
+      Research exactly one angle. Every claim gets a source link and a date.
+
+  checker:
+    description: Verifies every claim in a researcher's report.
+    instructions: |
+      Verify every claim against its cited source.

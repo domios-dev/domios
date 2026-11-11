@@ -11,7 +11,7 @@ set -u
 # Full JSON view for one (role, kind, task-persona) triple.
 preset_show() {
   local role="$1" kind="${2:-}" guidance="${3:-}"
-  local args=( persona show --role "$role" --json )
+  local args=( role show --role "$role" --json )
   [ -n "$kind" ] && args+=( --kind "$kind" )
   [ -n "$guidance" ] && args+=( --guidance "$guidance" )
   dc "${args[@]}"
@@ -75,7 +75,7 @@ assert_manager_kinds_resolve() {
 # A Planner keeps Team authority and a Worker never gains it.
 assert_planner_team_authority() {
   local listing
-  listing="$(dc persona list --json)"
+  listing="$(dc role list --json)"
   python3 - "$listing" <<'PY'
 import json, sys
 kinds = {k["kind_id"]: k for k in json.loads(sys.argv[1])["result"]["kinds"]}

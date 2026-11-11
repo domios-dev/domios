@@ -1,6 +1,3 @@
-//! `persona.*` JSON-RPC handlers — read-only inspection of the shared role
-//! preset resolver plus an explicit overlay reload.
-
 use serde_json::Value;
 
 use codeterm_types::agent::AgentRole;
@@ -36,9 +33,9 @@ fn field<'a>(params: &'a Option<Value>, key: &str) -> Option<&'a str> {
 
 pub(super) fn dispatch(method: &str, params: &Option<Value>) -> Result<Value, JsonRpcError> {
     match method {
-        "persona.list" => encode(inspect::list(overlay::ambient().as_ref())),
-        "persona.reload" => encode(inspect::list(overlay::reload().as_ref())),
-        "persona.show" => {
+        "role.list" => encode(inspect::list(overlay::ambient().as_ref())),
+        "role.reload" => encode(inspect::list(overlay::reload().as_ref())),
+        "role.show" => {
             let role = field(params, "role").unwrap_or("Worker");
             let role = AgentRole::from_str_compat(role)
                 .ok_or_else(|| invalid(format!("unknown role `{role}`")))?;
