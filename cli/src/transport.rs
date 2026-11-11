@@ -230,7 +230,9 @@ fn team_transport(action: &TeamAction) -> Transport {
         | TeamAction::Template { .. }
         | TeamAction::Distill(_)
         | TeamAction::Export(_)
-        | TeamAction::Import(_) => socket_rpc_relayed(TEAM_LOCAL_ONLY),
+        | TeamAction::Import(_)
+        | TeamAction::Recall(_)
+        | TeamAction::DeleteTemplate(_) => socket_rpc_relayed(TEAM_LOCAL_ONLY),
     }
 }
 

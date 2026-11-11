@@ -55,6 +55,18 @@ impl<V> OrderedMap<V> {
     pub fn keys(&self) -> impl Iterator<Item = &str> {
         self.0.iter().map(|(key, _)| key.as_str())
     }
+
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut V> {
+        self.0
+            .iter_mut()
+            .find(|(candidate, _)| candidate == key)
+            .map(|(_, value)| value)
+    }
+
+    /// Values in authoring order; keys stay fixed so the order never changes.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&str, &mut V)> {
+        self.0.iter_mut().map(|(key, value)| (key.as_str(), value))
+    }
 }
 
 impl<V: Serialize> Serialize for OrderedMap<V> {

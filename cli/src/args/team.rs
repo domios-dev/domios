@@ -99,6 +99,10 @@ pub enum TeamAction {
     Export(exchange::ExportArgs),
     /// Import a template package into My templates
     Import(exchange::ImportArgs),
+    /// Recall the templates that fit a goal, best first; the default is always offered
+    Recall(exchange::RecallArgs),
+    /// Remove a saved template from My templates
+    DeleteTemplate(exchange::DeleteArgs),
 }
 
 #[cfg(test)]

@@ -1,0 +1,89 @@
+{
+  "distill_request": {
+    "team_id": "team_7",
+    "name": "ada/research-desk",
+    "version": "1.0.0",
+    "description": "Researches a market question and writes a cited report.",
+    "license": "MIT",
+    "runbook": "Split the question by angle; merge only checked claims.",
+    "opt_out": ["memory:1"],
+    "format": "yaml",
+    "save": true
+  },
+  "distill_result": {
+    "yaml": "name: ada/research-desk\nversion: 1.0.0\n",
+    "includes": [
+      {
+        "id": "file:notes/brief.md",
+        "kind": "file",
+        "label": "notes/brief.md",
+        "description": "The brief every researcher reads",
+        "executable": false,
+        "used_by": ["orchestrator", "researcher"]
+      },
+      {
+        "id": "skill:source-check",
+        "kind": "skill",
+        "label": "source-check",
+        "description": "Verify a claim against its cited source.",
+        "executable": true,
+        "used_by": ["checker"],
+        "script_path": "source-check/scripts/fetch.py"
+      }
+    ],
+    "check": { "format": "yaml", "valid": true, "name": "ada/research-desk", "version": "1.0.0", "diagnostics": [] },
+    "scrub": {
+      "machines_removed": 2,
+      "paths_generalized": 3,
+      "secret_values_removed": 1,
+      "secret_asks_added": 1,
+      "history_removed": 4,
+      "secret_names": ["SEARCH_API_KEY"]
+    },
+    "path": "/data/team-exports/ada-research-desk-1.0.0.team.yaml",
+    "saved": {
+      "name": "ada/research-desk",
+      "version": "1.0.0",
+      "description": "Researches a market question and writes a cited report.",
+      "provenance": "saved",
+      "derived_from": { "name": "dev.domios/default", "version": "1.0.0" },
+      "authors": [{ "name": "Ada" }],
+      "links": { "homepage": "https://example.com/desk" },
+      "license": "MIT"
+    }
+  },
+  "import_result": {
+    "template": {
+      "name": "ada/research-desk",
+      "version": "1.1.0",
+      "description": "Researches a market question and writes a cited report.",
+      "provenance": "imported"
+    },
+    "check": { "format": "team", "valid": true, "name": "ada/research-desk", "version": "1.1.0", "diagnostics": [] },
+    "update": {
+      "name": "ada/research-desk",
+      "from_version": "1.0.0",
+      "to_version": "1.1.0",
+      "roles_added": ["editor"],
+      "roles_changed": ["checker"],
+      "payload_removed": ["memory:1"],
+      "asks_added": [{ "kind": "network", "hosts": ["api.example.com"] }]
+    }
+  },
+  "delete_request": { "template": { "name": "ada/research-desk", "version": "1.0.0" } },
+  "delete_result": { "removed": ["ada/research-desk@1.0.0"] },
+  "transfer_request": { "template": { "name": "ada/research-desk" }, "peer": "air", "format": "team" },
+  "share_card": {
+    "file_id": "f_91",
+    "template": {
+      "name": "ada/research-desk",
+      "version": "1.1.0",
+      "description": "Researches a market question and writes a cited report.",
+      "provenance": "imported"
+    },
+    "roles": 6,
+    "asks": [{ "kind": "secret", "name": "SEARCH_API_KEY", "purpose": "Web search", "required": true }, { "kind": "script", "item": "skill:source-check" }],
+    "state": "unverified"
+  },
+  "share_actions": ["preview", "dismiss"]
+}

@@ -44,6 +44,14 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             exchange::import(client, json_output, args);
             return;
         }
+        TeamAction::Recall(args) => {
+            exchange::recall(client, json_output, args);
+            return;
+        }
+        TeamAction::DeleteTemplate(args) => {
+            exchange::delete(client, json_output, args);
+            return;
+        }
         other => other,
     };
     let caller_tab_id = (!client.is_remote())

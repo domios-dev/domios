@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::document::{PackageAutomation, PackageSkill};
+use crate::document::{PackageAutomation, PackageSkill, TeamRole};
 use crate::paths::within;
 use crate::Package;
 
@@ -28,6 +28,12 @@ pub struct TemplatePayloadItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub executable: bool,
+    /// The roles whose `files` or `skills` name this item.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub used_by: Vec<String>,
+    /// The first runnable path the item carries, shown beside its script ask.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_path: Option<String>,
 }
 
 /// True for content a host would run: a shebang, a script or binary extension, or a `scripts/`/`bin/` folder.
@@ -46,31 +52,49 @@ pub fn is_executable(path: &str, content: &[u8]) -> bool {
             .any(|component| component == "scripts" || component == "bin")
 }
 
-fn skill_executable(package: &Package, skill: &PackageSkill) -> bool {
+fn skill_script(package: &Package, skill: &PackageSkill) -> Option<String> {
     match skill {
         PackageSkill::Inline(inline) => inline
             .files
             .iter()
-            .any(|file| is_executable(&file.path, file.content.as_bytes())),
+            .find(|file| is_executable(&file.path, file.content.as_bytes()))
+            .map(|file| format!("{}/{}", inline.name, file.path)),
         PackageSkill::Path { path } => package
             .entries
             .iter()
             .filter(|(entry, _)| within(entry, path))
-            .any(|(entry, data)| is_executable(entry, data)),
+            .find(|(entry, data)| is_executable(entry, data))
+            .map(|(entry, _)| entry.clone()),
     }
+}
+
+/// The roles that list `name` through `pick` (their files or their skills), in document order.
+fn used_by(package: &Package, name: &str, pick: fn(&TeamRole) -> &[String]) -> Vec<String> {
+    package
+        .document
+        .roles()
+        .into_iter()
+        .filter(|(_, _, role)| pick(role).iter().any(|entry| entry == name))
+        .map(|(_, role, _)| role.to_string())
+        .collect()
 }
 
 /// The payload list a preview shows, in document order with stable ids.
 pub fn payload_items(package: &Package) -> Vec<TemplatePayloadItem> {
     let document = &package.document;
-    let files = document.files.iter().map(|file| TemplatePayloadItem {
-        id: format!("file:{}", file.path),
-        kind: PayloadKind::File,
-        label: file.path.clone(),
-        description: file.description.clone(),
-        executable: package
+    let files = document.files.iter().map(|file| {
+        let executable = package
             .file_bytes(&file.path)
-            .is_some_and(|bytes| is_executable(&file.path, bytes)),
+            .is_some_and(|bytes| is_executable(&file.path, bytes));
+        TemplatePayloadItem {
+            id: format!("file:{}", file.path),
+            kind: PayloadKind::File,
+            label: file.path.clone(),
+            description: file.description.clone(),
+            executable,
+            used_by: used_by(package, &file.path, |role| role.files.as_slice()),
+            script_path: executable.then(|| file.path.clone()),
+        }
     });
     let memory = document
         .memory
@@ -82,21 +106,27 @@ pub fn payload_items(package: &Package) -> Vec<TemplatePayloadItem> {
             label: item.title.clone(),
             description: None,
             executable: false,
+            used_by: Vec::new(),
+            script_path: None,
         });
     let skills = document.skills.iter().map(|skill| {
         let key = match skill {
             PackageSkill::Path { path } => path.clone(),
             PackageSkill::Inline(inline) => inline.name.clone(),
         };
+        let label = package.skill_name(skill).unwrap_or_else(|| key.clone());
+        let script_path = skill_script(package, skill);
         TemplatePayloadItem {
             id: format!("skill:{key}"),
             kind: PayloadKind::Skill,
-            label: package.skill_name(skill).unwrap_or(key),
+            used_by: used_by(package, &label, |role| role.skills.as_slice()),
+            label,
             description: match skill {
                 PackageSkill::Inline(inline) => Some(inline.description.clone()),
                 PackageSkill::Path { .. } => None,
             },
-            executable: skill_executable(package, skill),
+            executable: script_path.is_some(),
+            script_path,
         }
     });
     let automation = document.automation.iter().map(|automation| {
@@ -112,6 +142,8 @@ pub fn payload_items(package: &Package) -> Vec<TemplatePayloadItem> {
             label: key,
             description,
             executable: false,
+            used_by: Vec::new(),
+            script_path: None,
         }
     });
     files

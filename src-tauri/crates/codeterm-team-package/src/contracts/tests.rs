@@ -30,6 +30,30 @@ struct ExportExchange {
     result: TemplateExportResult,
 }
 
+/// Bake, import, update, delete, transfer and the Neighborhood share card.
+#[derive(Serialize, Deserialize)]
+struct Exchange {
+    distill_request: TemplateDistillRequest,
+    distill_result: TemplateDistillResult,
+    import_result: TemplateImportResult,
+    delete_request: TemplateDeleteRequest,
+    delete_result: TemplateDeleteResult,
+    transfer_request: TemplateTransferRequest,
+    share_card: TemplateShareCard,
+    share_actions: Vec<TemplateShareAction>,
+}
+
+#[test]
+fn exchange_fixtures_match_the_rust_contracts() {
+    let exchange: Exchange = round_trip(fixture("exchange.json"));
+    assert_eq!(exchange.distill_request.format, PackageFormat::Yaml);
+    assert!(exchange.distill_request.save && !exchange.distill_request.dry_run);
+    assert_eq!(
+        exchange.distill_result.includes[1].script_path.as_deref(),
+        Some("source-check/scripts/fetch.py")
+    );
+}
+
 #[test]
 fn shared_ui_fixtures_match_the_rust_contracts() {
     round_trip::<TemplatePreview>(fixture("preview.json"));
@@ -81,6 +105,26 @@ fn portable_projections_come_from_the_package_alone() {
     assert!(items
         .iter()
         .any(|item| item.id == "skill:skills/market-sizing" && item.label == "market-sizing"));
+    let item = |id: &str| {
+        items
+            .iter()
+            .find(|item| item.id == id)
+            .expect("payload item")
+    };
+    assert_eq!(
+        item("skill:skills/market-sizing").used_by,
+        vec!["researcher"]
+    );
+    assert!(item("file:essences/how-we-research.md")
+        .used_by
+        .contains(&"orchestrator".to_string()));
+    assert_eq!(
+        item("skill:source-check").script_path.as_deref(),
+        Some("source-check/scripts/fetch.py")
+    );
+    assert!(item("memory:0").used_by.is_empty() && item("memory:0").script_path.is_none());
+    assert_eq!(summary.license.as_deref(), Some("Apache-2.0"));
+    assert_eq!(summary.authors[0].name, "Jane Doe");
 
     let roles = role_summaries(&package);
     let curator = roles
