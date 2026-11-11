@@ -1,7 +1,9 @@
 use std::sync::OnceLock;
 
 use codeterm_team_package::contracts::{TemplateProvenance, TemplateRef, TemplateStartRefusal};
-use codeterm_team_package::{builtin, CheckOptions, Checked, Package, PackageDiagnostic};
+use codeterm_team_package::{
+    builtin, check_entries, CheckOptions, Checked, Package, PackageDiagnostic, PackageFormat,
+};
 use codeterm_types::team::role_registration::PinnedPackage;
 
 use crate::service::builtin_roles::DEFAULT_PACKAGE;
@@ -87,18 +89,40 @@ pub fn builtin_templates() -> impl Iterator<Item = &'static ResolvedTemplate> {
     builtins().iter().map(|builtin| &builtin.template)
 }
 
-/// An absent template is the builtin default; a named one is a builtin by package or folder name.
+/// A builtin folder name (`default`, `release-train`) names its package.
+fn package_name(template: &TemplateRef) -> TemplateRef {
+    builtins()
+        .iter()
+        .find(|builtin| builtin.answers(template))
+        .map_or_else(
+            || template.clone(),
+            |builtin| TemplateRef {
+                name: builtin.template.package.document.name.clone(),
+                version: template.version.clone(),
+            },
+        )
+}
+
+/// The one package lookup start, preview and re-run use: an absent template is the builtin
+/// default; a name resolves through the exchange store (builtins first, then My templates)
+/// and is checked again by the one parser so its warnings travel with the start.
 pub fn resolve(template: Option<&TemplateRef>) -> Result<ResolvedTemplate, TemplateStartRefusal> {
     let default_ref = TemplateRef {
         name: DEFAULT_PACKAGE.to_string(),
         version: None,
     };
-    let template = template.unwrap_or(&default_ref);
-    builtins()
-        .iter()
-        .find(|builtin| builtin.answers(template))
-        .map(|builtin| builtin.template.clone())
+    let requested = template.unwrap_or(&default_ref);
+    let (package, provenance) = crate::service::team_exchange::resolve(&package_name(requested))
         .ok_or_else(|| TemplateStartRefusal::NotFound {
-            template: template.clone(),
-        })
+            template: requested.clone(),
+        })?;
+    ResolvedTemplate::from_checked(
+        check_entries(
+            PackageFormat::Folder,
+            package.archive_entries(),
+            Vec::new(),
+            &CheckOptions::domios(),
+        ),
+        provenance,
+    )
 }

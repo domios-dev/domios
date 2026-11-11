@@ -3,12 +3,11 @@
 
 use codeterm_service_core::service::builtin_roles::builtin_prose;
 use codeterm_service_core::service::team_roles::TeamRoleStore;
+use codeterm_service_core::service::team_template_payload::role_file_refs;
 use codeterm_service_core::service::team_template_start::AdmittedTemplate;
 use codeterm_team_package::contracts::{TemplateItemState, TemplateStartItem};
 use codeterm_team_package::{ManagerSlot, TeamRoleGroup};
-use codeterm_types::team::role_registration::{
-    RoleFileRef, RoleRegistration, RoleRegistrationOutcome,
-};
+use codeterm_types::team::role_registration::{RoleRegistration, RoleRegistrationOutcome};
 
 /// The registrations one start asks for, in package order (managers first).
 pub(crate) fn registrations_for(
@@ -32,19 +31,8 @@ pub(crate) fn registrations_for(
                 .role_instructions(name)
                 .or_else(|| builtin_prose(name))?
                 .to_string();
-            let files = role
-                .files
-                .iter()
-                .map(|path| RoleFileRef {
-                    path: path.clone(),
-                    description: package
-                        .document
-                        .files
-                        .iter()
-                        .find(|file| &file.path == path)
-                        .and_then(|file| file.description.clone()),
-                })
-                .collect();
+            // The payload leaf owns where a role's files live once applied.
+            let files = role_file_refs(team_id, package, name);
             Some(RoleRegistration {
                 team_id: team_id.to_string(),
                 group,

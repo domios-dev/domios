@@ -222,11 +222,9 @@ async fn apply_payload(
     let (package, opt_out) = payload_request(rail)?;
     let svc = svc.clone();
     let team_id = team_id.to_string();
-    let applied = blocking::run(move || {
-        team_template_payload::apply(&svc, &team_id, &package, &opt_out)
-            .map_err(|unavailable| unavailable.to_string())
-    })
-    .await;
+    let applied =
+        blocking::run(move || team_template_payload::apply(&svc, &team_id, &package, &opt_out))
+            .await;
     Some(match applied {
         Ok(result) => PostStartStatus::ok("payload", payload_detail(&result)),
         Err(reason) => PostStartStatus::failed("payload", reason),
