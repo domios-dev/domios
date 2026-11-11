@@ -69,7 +69,7 @@ impl fmt::Display for InvalidModelError {
         };
         write!(
             formatter,
-            "model id '{}' is not available from provider '{}'; valid model ids: {}",
+            "model id '{}' is not available from provider '{}'; closest valid model ids: {}",
             self.requested_model, self.provider_id, suggestions
         )
     }
@@ -113,44 +113,62 @@ pub fn catalogue_lookup_model(requested: &str, catalogue: &[ModelInfo]) -> Strin
     }
 }
 
+/// The selectable entry a requested id names: by id or display name, after short-id canonicalization.
+pub(crate) fn find_catalogue_model<'a>(
+    requested: &str,
+    catalogue: &'a [ModelInfo],
+) -> Option<&'a ModelInfo> {
+    let lookup = catalogue_lookup_model(requested, catalogue);
+    catalogue.iter().find(|model| {
+        model.available != Some(false)
+            && (model.id.eq_ignore_ascii_case(&lookup)
+                || model.display_name.eq_ignore_ascii_case(&lookup))
+    })
+}
+
+/// The live snapshot, else the static list unless the provider requires live discovery.
+fn launch_catalogue(registry: &AgentRegistry, provider_id: &str) -> Option<Vec<ModelInfo>> {
+    if crate::agent::model_catalog::has_live_snapshot(provider_id) {
+        crate::agent::model_catalog::resolve_live_models(provider_id)
+    } else if model_catalogue_capability(registry, provider_id).live_discovery_required {
+        None
+    } else {
+        Some(crate::agent::model_catalog::resolve_models(provider_id))
+    }
+}
+
+/// The list a requested id must appear in; `None` leaves the id to the provider.
+pub(crate) fn enforced_catalogue(
+    registry: &AgentRegistry,
+    provider_id: &str,
+) -> Option<Vec<ModelInfo>> {
+    let authoritative = model_catalogue_capability(registry, provider_id).authority
+        == ModelCatalogueAuthority::Authoritative;
+    if !authoritative && !crate::agent::model_catalog::has_live_snapshot(provider_id) {
+        return None;
+    }
+    launch_catalogue(registry, provider_id)
+}
+
 pub fn catalogue_models_match(
     registry: &AgentRegistry,
     provider_id: &str,
     left: &str,
     right: &str,
 ) -> bool {
-    let capability = model_catalogue_capability(registry, provider_id);
-    let live = crate::agent::model_catalog::has_live_snapshot(provider_id);
-    let catalogue = if live {
-        crate::agent::model_catalog::resolve_live_models(provider_id)
-    } else if capability.live_discovery_required {
-        None
-    } else {
-        Some(crate::agent::model_catalog::resolve_models(provider_id))
-    };
-    let Some(catalogue) = catalogue else {
+    let Some(catalogue) = launch_catalogue(registry, provider_id) else {
         return false;
     };
-    let left = catalogue_model_identity(provider_id, left, &catalogue, live);
-    let right = catalogue_model_identity(provider_id, right, &catalogue, live);
+    let left = catalogue_model_identity(left, &catalogue);
+    let right = catalogue_model_identity(right, &catalogue);
     matches!((left, right), (Some(left), Some(right)) if left.eq_ignore_ascii_case(&right))
 }
 
-fn catalogue_model_identity(
-    provider_id: &str,
-    requested: &str,
-    catalogue: &[ModelInfo],
-    live: bool,
-) -> Option<String> {
-    let lookup = catalogue_lookup_model(requested, catalogue);
-    let resolved = if live {
-        crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &lookup)
-    } else {
-        crate::agent::model_catalog::resolve_catalog_model(provider_id, &lookup)
-    };
-    if let Some(model) = resolved {
-        return Some(model.id);
+fn catalogue_model_identity(requested: &str, catalogue: &[ModelInfo]) -> Option<String> {
+    if let Some(model) = find_catalogue_model(requested, catalogue) {
+        return Some(model.id.clone());
     }
+    let lookup = catalogue_lookup_model(requested, catalogue);
     let requested_leaf = lookup.rsplit('/').next().unwrap_or(lookup.as_str());
     let matches = catalogue
         .iter()
@@ -352,8 +370,8 @@ fn validate_provider_model(
             .map(|_| ())
             .map_err(|valid_model_ids| InvalidModelError {
                 provider_id: provider_id.to_string(),
+                valid_model_ids: close_model_ids(&requested, &valid_model_ids),
                 requested_model: requested,
-                valid_model_ids,
                 provider_mismatch: None,
                 ambiguous_providers: Vec::new(),
             });
@@ -364,48 +382,77 @@ fn validate_provider_model(
     {
         return Ok(());
     }
-    let live = crate::agent::model_catalog::has_live_snapshot(provider_id);
-    if capability.authority != ModelCatalogueAuthority::Authoritative && !live {
+    let Some(models) = enforced_catalogue(registry, provider_id) else {
+        return Ok(());
+    };
+    if find_catalogue_model(&requested, &models).is_some() {
         return Ok(());
     }
-    let models = if live {
-        let Some(models) = crate::agent::model_catalog::resolve_live_models(provider_id) else {
-            return Ok(());
-        };
-        models
-    } else if capability.live_discovery_required {
-        return Ok(());
-    } else {
-        crate::agent::model_catalog::resolve_models(provider_id)
-    };
-    let lookup = catalogue_lookup_model(&requested, &models);
-    let resolved = if live {
-        crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &lookup)
-    } else {
-        crate::agent::model_catalog::resolve_catalog_model(provider_id, &lookup)
-    };
-    if resolved.is_some() {
-        return Ok(());
-    }
-    let valid_model_ids = valid_catalogue_ids(&models);
     Err(InvalidModelError {
         provider_id: provider_id.to_string(),
+        valid_model_ids: close_catalogue_ids(&requested, &models),
         requested_model: requested,
-        valid_model_ids,
         provider_mismatch: None,
         ambiguous_providers: Vec::new(),
     })
 }
 
-fn valid_catalogue_ids(catalogue: &[ModelInfo]) -> Vec<String> {
-    let mut ids: Vec<String> = Vec::new();
-    for model in catalogue
+/// How many close ids a refusal suggests; `agent models` lists the rest.
+pub(crate) const CLOSE_ID_LIMIT: usize = 5;
+
+/// Selectable catalogue ids ranked by closeness to a renamed or mistyped request.
+pub(crate) fn close_catalogue_ids(requested: &str, catalogue: &[ModelInfo]) -> Vec<String> {
+    let selectable = catalogue
         .iter()
         .filter(|model| model.available != Some(false))
-    {
-        if !ids.iter().any(|id| id.eq_ignore_ascii_case(&model.id)) {
-            ids.push(model.id.clone());
+        .map(|model| model.id.clone())
+        .collect::<Vec<_>>();
+    close_model_ids(requested, &selectable)
+}
+
+/// Closest first: edit distance, then longer shared prefix, then catalogue order.
+pub(crate) fn close_model_ids(requested: &str, ids: &[String]) -> Vec<String> {
+    let requested = requested.trim().to_ascii_lowercase();
+    let mut unique: Vec<&String> = Vec::new();
+    for id in ids {
+        if !unique.iter().any(|seen| seen.eq_ignore_ascii_case(id)) {
+            unique.push(id);
         }
     }
-    ids
+    let mut ranked = unique
+        .into_iter()
+        .enumerate()
+        .map(|(order, id)| {
+            let candidate = id.to_ascii_lowercase();
+            let shared = requested
+                .bytes()
+                .zip(candidate.bytes())
+                .take_while(|(left, right)| left == right)
+                .count();
+            let distance = edit_distance(&requested, &candidate);
+            ((distance, std::cmp::Reverse(shared), order), id)
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| left.0.cmp(&right.0));
+    ranked
+        .into_iter()
+        .take(CLOSE_ID_LIMIT)
+        .map(|(_, id)| id.clone())
+        .collect()
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (row, left_char) in left.chars().enumerate() {
+        let mut current = vec![row + 1; right.len() + 1];
+        for (column, right_char) in right.iter().enumerate() {
+            let substitution = previous[column] + usize::from(left_char != *right_char);
+            current[column + 1] = substitution
+                .min(previous[column + 1] + 1)
+                .min(current[column] + 1);
+        }
+        previous = current;
+    }
+    previous[right.len()]
 }

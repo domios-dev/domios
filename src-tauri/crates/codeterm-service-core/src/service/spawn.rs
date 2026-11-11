@@ -22,7 +22,7 @@ pub(crate) use super::spawn_params::validate_watcher_spawn_target;
 #[path = "spawn_model.rs"]
 mod spawn_model;
 #[path = "spawn_model_catalogue.rs"]
-mod spawn_model_catalogue;
+pub(crate) mod spawn_model_catalogue;
 pub use spawn_model::attach_planned_model;
 pub use spawn_model::normalize_session_model;
 pub use spawn_model::persist_model_launch_identity;
