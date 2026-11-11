@@ -1051,6 +1051,15 @@ fn manifest_accepts_a_one_line_pitch() {
 }
 
 #[test]
+fn manifest_accepts_an_spdx_license() {
+    let manifest = PluginManifest::from_json_str(
+        r#"{"id": "git", "version": "0.1.9", "displayName": "Git", "license": "PolyForm-Shield-1.0.0"}"#,
+    )
+    .expect("license is a known manifest field");
+    assert_eq!(manifest.license.as_deref(), Some("PolyForm-Shield-1.0.0"));
+}
+
+#[test]
 fn launch_profile_icons_load_only_sanitized_bundle_assets() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(
