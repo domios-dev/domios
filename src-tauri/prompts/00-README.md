@@ -125,7 +125,7 @@ Builtin role prose lives once in the default package. `check-prompts-doc.sh` req
 | `default/workers/reviewer.md` | Worker type `reviewer` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
 | `default/workers/release_manager.md` | Worker type `release_manager` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
 
-Every role then receives the Team's worker types with their descriptions, plus its own registered files and skills.
+Managers then receive the Team's worker types with their descriptions; every role receives its own registered files and skills.
 
 ## Role presets — one resolver, one composition table
 
@@ -145,7 +145,7 @@ with a blank line in this order:
 | `builtin` | the default package role file | Prose for a builtin role type |
 | `team_registration` | the Team's `roles.json` | Prose pinned to the registering package |
 | `inherited_base` | `default/workers/worker.md` | The base an unregistered Worker type reads |
-| `host` | `src-tauri/prompts/` | Host runtime text per group and manager slot, then the Team's worker types |
+| `host` | `src-tauri/prompts/` | Host runtime text per group and manager slot, then the Team's worker types (managers only) |
 | `task_overlay` | The dispatch | Task personality, `role_guidance`, and `executor_role` for this one delivery |
 
 `service/persona/occasion.rs` holds the single declarative table mapping a

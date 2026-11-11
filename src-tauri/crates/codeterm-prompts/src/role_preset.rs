@@ -132,8 +132,33 @@ pub fn host_fragments(role: AgentRole, kind_id: &str) -> Vec<&'static str> {
     }
 }
 
-/// The Team's worker names and descriptions plus this role's own files and skills.
-pub fn team_context(team: &[RoleRegistration], own: Option<&RoleRegistration>) -> String {
+/// A manager's view of the Team's worker types, plus any role's own files and skills.
+/// Workers dispatch nobody, so their launch carries only their own files and skills.
+pub fn team_context(
+    team: &[RoleRegistration],
+    role: AgentRole,
+    own: Option<&RoleRegistration>,
+) -> String {
+    let mut lines = match role {
+        AgentRole::Manager => worker_type_lines(team),
+        AgentRole::Worker => Vec::new(),
+    };
+    if let Some(own) = own {
+        if !own.files.is_empty() {
+            lines.push("Your files:".to_string());
+            lines.extend(own.files.iter().map(|file| match &file.description {
+                Some(description) => format!("- `{}`: {description}", file.path),
+                None => format!("- `{}`", file.path),
+            }));
+        }
+        if !own.skills.is_empty() {
+            lines.push(format!("Your skills: {}", own.skills.join(", ")));
+        }
+    }
+    lines.join("\n")
+}
+
+fn worker_type_lines(team: &[RoleRegistration]) -> Vec<String> {
     let mut workers = builtin_roles::builtin_workers();
     for registration in team
         .iter()
@@ -153,19 +178,7 @@ pub fn team_context(team: &[RoleRegistration], own: Option<&RoleRegistration>) -
         Some(description) => format!("- `{name}`: {description}"),
         None => format!("- `{name}`"),
     }));
-    if let Some(own) = own {
-        if !own.files.is_empty() {
-            lines.push("Your files:".to_string());
-            lines.extend(own.files.iter().map(|file| match &file.description {
-                Some(description) => format!("- `{}`: {description}", file.path),
-                None => format!("- `{}`", file.path),
-            }));
-        }
-        if !own.skills.is_empty() {
-            lines.push(format!("Your skills: {}", own.skills.join(", ")));
-        }
-    }
-    lines.join("\n")
+    lines
 }
 
 /// Resolves with the builtin default package only.
@@ -238,10 +251,13 @@ pub fn resolve_in(
                     text: text.trim().to_string(),
                 }),
         );
-        fragments.push(PresetFragment {
-            source: FragmentSource::Host,
-            text: team_context(team, registered),
-        });
+        let context = team_context(team, resolved_role, registered);
+        if !context.is_empty() {
+            fragments.push(PresetFragment {
+                source: FragmentSource::Host,
+                text: context,
+            });
+        }
     }
     if let Some(overlay) = task_guidance
         .map(str::trim)

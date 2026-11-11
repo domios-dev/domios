@@ -222,7 +222,7 @@ fn an_unregistered_worker_type_inherits_the_builtin_worker_prose() {
 }
 
 #[test]
-fn team_context_names_team_workers_and_the_roles_own_files_and_skills() {
+fn managers_see_team_worker_types_and_every_role_its_own_files_and_skills() {
     let mut own = registration(TeamRoleGroup::Worker, "checker", TEAM_PROSE);
     own.files = vec![codeterm_types::team::role_registration::RoleFileRef {
         path: "data/fixture.csv".into(),
@@ -230,10 +230,21 @@ fn team_context_names_team_workers_and_the_roles_own_files_and_skills() {
     }];
     own.skills = vec!["fixture-skill".into()];
     let team = [own];
-    let preset = resolve_in(&team, Some(AgentRole::Worker), Some("checker"), None).unwrap();
-    let guidance = preset.guidance();
-    assert!(guidance.contains("`checker`: checker-description"));
-    assert!(guidance.contains("`worker`"));
-    assert!(guidance.contains("`data/fixture.csv`: fixture-file-description"));
-    assert!(guidance.contains("fixture-skill"));
+    let worker = resolve_in(&team, Some(AgentRole::Worker), Some("checker"), None)
+        .unwrap()
+        .guidance();
+    assert!(worker.contains("`data/fixture.csv`: fixture-file-description"));
+    assert!(worker.contains("fixture-skill"));
+    assert!(!worker.contains("`checker`: checker-description"));
+    let orchestrator = resolve_in(
+        &team,
+        Some(AgentRole::Manager),
+        Some(builtins::ORCHESTRATOR),
+        None,
+    )
+    .unwrap()
+    .guidance();
+    assert!(orchestrator.contains("`checker`: checker-description"));
+    assert!(orchestrator.contains("`worker`"));
+    assert!(!orchestrator.contains("fixture-skill"));
 }
