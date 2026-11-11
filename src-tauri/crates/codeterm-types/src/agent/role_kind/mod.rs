@@ -140,7 +140,6 @@ impl Default for RoleKindCapability {
 #[serde(rename_all = "snake_case")]
 pub enum RoleKindOrigin {
     Builtin,
-    Overlay,
 }
 
 /// Structural declaration of one role kind. Fields are private and the type is
@@ -208,19 +207,6 @@ impl RoleKindDescriptor {
             origin: RoleKindOrigin::Builtin,
             taskless_worker: true,
             read_only_by_default: true,
-        }
-    }
-
-    /// The only public constructor. Capability is hard-coded leaf and is not a
-    /// parameter, so a runtime-defined kind can never anchor a Team or spawn.
-    pub fn overlay(id: impl Into<String>, label: impl Into<String>) -> Self {
-        Self {
-            id: Cow::Owned(id.into()),
-            label: Cow::Owned(label.into()),
-            capability: RoleKindCapability::LEAF,
-            origin: RoleKindOrigin::Overlay,
-            taskless_worker: false,
-            read_only_by_default: false,
         }
     }
 

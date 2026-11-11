@@ -370,7 +370,6 @@ pub enum TemplateOperation {
     ApplyPayload,
     CollectPayload,
     RemoteStart,
-    Roles,
     ModelDecision,
 }
 

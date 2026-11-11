@@ -281,7 +281,6 @@ fn only_the_reviewer_kind_launches_read_only_by_default() {
     for profile in [None, Some(QA), Some(RELEASE_MANAGER), Some("code-reviewer")] {
         assert!(!query::read_only_by_default(role, profile), "{profile:?}");
     }
-    assert!(!RoleKindDescriptor::overlay(REVIEWER, "Forged").is_read_only_by_default());
 }
 
 #[test]
@@ -546,34 +545,19 @@ fn capability_fallback_is_leaf_not_all_false() {
     assert!(!leaf.release());
 }
 
-// `overlay` is the only public constructor and takes no capability argument;
-// fields are private and the type is deliberately not `Deserialize`.
+// Descriptors are embedded only: fields are private and the type is not `Deserialize`,
+// so a kind outside the builtin table can only resolve to leaf capability.
 #[test]
-fn non_builtin_descriptors_are_leaf_by_construction() {
+fn non_builtin_kinds_resolve_to_leaf_capability() {
     for id in OVERLAY_IDS.iter().copied() {
-        let descriptor = RoleKindDescriptor::overlay(id, "Overlay Kind");
-        assert!(!descriptor.anchors_team(), "{id}");
-        assert!(!descriptor.manages(), "{id}");
-        assert!(!descriptor.can_spawn(), "{id}");
-        assert!(!descriptor.has_team_authority(), "{id}");
-        assert!(!descriptor.plan_approval(), "{id}");
-        assert!(!descriptor.plan_edit(), "{id}");
-        assert!(!descriptor.release(), "{id}");
-        assert!(descriptor.requires_parent(), "{id}");
-        assert_eq!(descriptor.capability(), RoleKindCapability::LEAF);
-        assert_eq!(descriptor.origin(), RoleKindOrigin::Overlay, "{id}");
-        assert!(!descriptor.is_builtin(), "{id}");
-        assert_eq!(descriptor.id(), id);
+        assert!(builtins::lookup(id).is_none(), "{id}");
+        assert_eq!(
+            builtins::capability_for(id),
+            RoleKindCapability::LEAF,
+            "{id}"
+        );
     }
-}
-
-#[test]
-fn an_overlay_kind_cannot_shadow_an_embedded_builtin() {
-    let forged = RoleKindDescriptor::overlay(ORCHESTRATOR, "Forged");
     let embedded = builtins::lookup(ORCHESTRATOR).expect("builtin");
-
-    assert_ne!(forged.capability(), embedded.capability());
-    assert!(!forged.is_builtin());
     assert!(embedded.anchors_team());
     assert!(embedded.can_spawn());
     assert_eq!(embedded.label(), "Orchestrator");
