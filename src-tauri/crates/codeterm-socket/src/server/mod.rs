@@ -19,7 +19,6 @@ mod model_providers;
 mod notification;
 mod orchestration;
 mod orchestrator;
-mod persona;
 pub(crate) mod plan;
 mod plan_archive;
 mod plan_attachments;
@@ -56,12 +55,15 @@ mod remote_worker_policy;
 #[cfg(test)]
 mod request_arrival_tests;
 pub(crate) mod rest_api;
+mod role;
 mod safety_nudge;
 mod services;
 mod spec;
 mod tab;
 mod tab_todos;
 mod team;
+mod team_exchange;
+mod team_template_start;
 mod workspace;
 
 pub(crate) use dispatch::{dispatch_mesh_rpc, dispatch_service_rpc};

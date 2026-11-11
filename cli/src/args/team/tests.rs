@@ -87,6 +87,7 @@ fn pair_parses_provider_model_specs_and_optional_fields() {
                     workspace,
                     title,
                     acknowledge_leaf,
+                    template,
                 },
         } => {
             assert_eq!(orchestrator, "claude:fable");
@@ -94,6 +95,7 @@ fn pair_parses_provider_model_specs_and_optional_fields() {
             assert_eq!(workspace.as_deref(), Some("ws1"));
             assert_eq!(title.as_deref(), Some("My Plan"));
             assert!(!acknowledge_leaf, "the flag defaults to false when absent");
+            assert!(template.is_none(), "no template keeps the standard pair");
         }
         _ => panic!("expected team pair"),
     }

@@ -155,7 +155,7 @@ manager kind resolves, and only the `worker_launch_identity` occasion places it.
 ### Runtime overlays
 
 Files in `<data-dir>/role-presets/*.toml` add leaf kinds without a rebuild
-(`domios persona reload` re-reads them):
+(`domios role reload` re-reads them):
 
 ```toml
 id = "rust-backend-dev"
@@ -166,7 +166,7 @@ guidance = "Stay inside src-tauri/."
 
 An overlay may add a kind id, a label, and layered guidance. It may never do
 anything else, and each refusal has its own reason, reported by
-`domios persona list`:
+`domios role list`:
 
 | Reason | Trigger |
 |---|---|
@@ -182,8 +182,8 @@ spawn, or hold Team authority.
 
 ### Inspecting the resolver
 
-`domios persona list` shows every reachable kind with its capability columns
-and the refused overlays. `domios persona show --role Worker --kind
+`domios role list` shows every reachable kind with its capability columns
+and the refused overlays. `domios role show --role Worker --kind
 rust-backend-dev --guidance "You are Mira."` renders the exact text each
 occasion emits, which fragment supplied it, and whether the declared fallback
 was used. The text comes from the shared resolver, so what it prints is what the

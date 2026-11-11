@@ -1,0 +1,9 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+files:
+  - path: docs/rubric.md
+managers:
+  orchestrator:
+    instructions: |
+      Lead.

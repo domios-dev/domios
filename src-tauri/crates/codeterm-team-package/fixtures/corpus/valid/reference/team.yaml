@@ -1,0 +1,173 @@
+name: com.example/research-desk
+version: 2.1.0
+title: Research desk
+description: >-
+  Researches a market question in parallel, cross-checks sources and writes a cited report.
+icon: assets/icon.svg
+authors:
+  - name: Jane Doe
+    email: jane@example.com
+    url: https://github.com/janedoe
+    role: maintainer
+  - name: Example Labs
+    url: https://example.com
+links:
+  homepage: https://example.com/teams/research-desk
+  repository: https://github.com/example/teams
+  issues: https://github.com/example/teams/issues
+  docs: https://example.com/docs/research-desk
+license: Apache-2.0
+when:
+  - research a market question
+  - write a cited competitive report
+derived_from:
+  name: com.example/research-desk
+  version: 2.0.3
+
+project: required
+requires:
+  harnesses: [claude, codex]
+
+inputs:
+  question: The market question to research
+  depth:
+    description: How deep to go
+    required: false
+    default: standard
+    choices: [quick, standard, deep]
+
+permissions:
+  network: [api.example.com, "*.wikipedia.org"]
+  repo_write: true
+  shell: true
+  browser: false
+
+secrets:
+  - name: SEARCH_API_KEY
+    purpose: Web search for the researcher role
+    required: true
+  - name: SLACK_WEBHOOK
+    purpose: Optional digest to a channel
+    required: false
+
+files:
+  - path: assets/icon.svg
+    description: Package icon
+    content: |
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15l6 6" stroke="currentColor" stroke-width="2"/></svg>
+  - path: essences/how-we-research.md
+    description: Our research method; read before planning
+    content: |
+      # How we research
+      Primary sources first. Every claim gets a link and a date.
+  - path: templates/report.md
+    description: Shape of the final report
+    content: |
+      # {Question}
+      ## Findings
+      ## Sources
+  - path: data/competitors.csv
+    description: Known competitors with segments
+  - path: assets/logo.png
+    description: Logo for the report cover
+
+memory:
+  - title: Prefer filings over press releases
+    kind: rule
+    body: When a filing and a press release disagree, trust the filing and note the conflict.
+    tags: [sources]
+  - title: Market sizes older than two years mislead
+    kind: learning
+    body: Past reports cited stale sizes; always state the year and flag figures older than two years.
+
+skills:
+  - name: source-check
+    description: Verify a claim against its cited source.
+    content: |
+      ---
+      name: source-check
+      description: Verify a claim against its cited source.
+      ---
+      1. Open the source. 2. Quote the exact sentence. 3. Mark verified, partial or wrong.
+    files:
+      - path: scripts/fetch.py
+        content: |
+          import sys, urllib.request
+          print(urllib.request.urlopen(sys.argv[1]).read()[:2000])
+  - path: skills/market-sizing
+
+automation:
+  - path: blueprints/digest.yaml
+    description: Posts a progress digest every hour while research runs
+  - name: stale-task-nudge
+    description: Nudges the lead when a task has been idle for two hours
+    content: |
+      trigger: { idle_task: 2h }
+      action: { notify: orchestrator }
+
+managers:
+  orchestrator:
+    name: Lead
+    start: with_team
+    model: [claude:opus, codex:gpt-6.1-sol]
+    reasoning: high
+    skills: [source-check]
+    tools: [mcp:io.github.example/search]
+    files: [essences/how-we-research.md, templates/report.md]
+    instructions: |
+      How this team works: you frame the question with the owner, Atlas splits
+      it into one task per angle, researchers work in parallel and the checker
+      verifies every claim against its source.
+      Agree the question with the owner before planning. Merge findings into
+      templates/report.md and cite every claim.
+      Never publish outside the project without the owner's approval.
+
+  planner:
+    name: Atlas
+    start: with_team
+    instructions: |
+      Split the question into one task per angle.
+      Start with the three biggest competitors, then widen.
+
+  cartographer:
+    start: on_demand
+    model: [claude:sonnet]
+
+  curator:
+    start:
+      schedule: 45m..2h
+    model:
+      same_as: orchestrator
+
+workers:
+  researcher:
+    description: Researches one angle of the question.
+    model: [claude:sonnet, codex:gpt-6.1-sol]
+    reasoning: medium
+    skills: [market-sizing]
+    tools: [mcp:io.github.example/search]
+    files: [data/competitors.csv]
+    instructions: |
+      Research exactly one angle. Every claim gets a source link and a date.
+
+  checker:
+    description: Verifies every claim in a researcher's report.
+    model: [codex:gpt-6.1-sol]
+    reasoning: high
+    skills: [source-check]
+    instructions_file: workers/checker.md
+
+  qa:
+    description: Checks the final report renders and every link resolves.
+    model: [claude:haiku]
+    instructions: |
+      Open the report, follow every link, list broken ones.
+
+  writer:
+    description: Turns merged findings into the final report.
+    start: on_demand
+    instructions: |
+      Use templates/report.md. Plain language, no hype.
+
+x-domios:
+  min_version: "1.20"

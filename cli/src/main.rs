@@ -400,7 +400,7 @@ fn main_impl() {
 
         Commands::Curator { action } => cmd::curator::handle(&mut client, action),
 
-        Commands::Persona { action } => match cmd::persona::handle(&mut client, cli.json, action) {
+        Commands::Role { action } => match cmd::role::handle(&mut client, cli.json, action) {
             Ok(Some(value)) => Ok(value),
             Ok(None) => return,
             Err(e) => Err(e),

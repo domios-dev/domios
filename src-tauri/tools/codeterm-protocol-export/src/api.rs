@@ -1,6 +1,7 @@
 use ts_rs::{Config, TS};
 
 pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    codeterm_team_package::contracts::export_typescript(config)?;
     codeterm_usage::contract::UsageSnapshotRow::export_all(config)?;
     codeterm_wire::api_contracts::LocalPreviewFile::export_all(config)?;
     codeterm_wire::api_contracts::IngestRequest::export_all(config)?;

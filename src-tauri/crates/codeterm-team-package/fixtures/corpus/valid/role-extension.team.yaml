@@ -1,0 +1,17 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+
+managers:
+  orchestrator:
+    instructions: |
+      Lead.
+    x-acme:
+      color: blue
+
+workers:
+  qa:
+    description: Uses the host's builtin QA instructions.
+
+x-domios:
+  min_version: "1.20"

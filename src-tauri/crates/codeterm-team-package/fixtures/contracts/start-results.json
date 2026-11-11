@@ -1,0 +1,40 @@
+[
+  {
+    "status": "started",
+    "team_id": "team_3f2a",
+    "managers": [
+      { "group": "manager", "role": "orchestrator", "state": "created" },
+      { "group": "manager", "role": "planner", "state": "already_present" }
+    ],
+    "registrations": [
+      { "group": "manager", "role": "cartographer", "state": "created" },
+      { "group": "worker", "role": "researcher", "state": "pinned_to_other_version" }
+    ],
+    "warnings": [
+      {
+        "code": "unresolved_skill",
+        "severity": "warning",
+        "file": "team.yaml",
+        "path": "workers.researcher.skills[0]",
+        "message": "skill `market-sizing` is not in this package; the role starts without it until it is installed"
+      }
+    ]
+  },
+  {
+    "status": "needs_choice",
+    "choices": [
+      {
+        "slot": "orchestrator",
+        "label": "Lead",
+        "decision": { "reason": "needs_choice", "alternatives": [{ "model": "claude:opus" }], "amber": false }
+      }
+    ]
+  },
+  {
+    "status": "manager_failed",
+    "failure": { "slot": "planner", "reason": "codex is not signed in", "choices": ["Sign in to codex", "Use claude:sonnet"] }
+  },
+  { "status": "refused", "refusal": { "code": "consent_required", "reasons": ["new_grants"] } },
+  { "status": "refused", "refusal": { "code": "missing_inputs", "inputs": ["question"] } },
+  { "status": "refused", "refusal": { "code": "not_found", "template": { "name": "dev.example/missing" } } }
+]

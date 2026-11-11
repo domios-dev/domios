@@ -363,6 +363,9 @@ pub struct OrchestrationPairParams {
     /// declaring tab itself.
     #[serde(default)]
     pub leaf_creation_acknowledged: bool,
+    /// Start from this team template; absent keeps the standard pair.
+    #[serde(default)]
+    pub template: Option<codeterm_team_package::contracts::TemplateStartRequest>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]

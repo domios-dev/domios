@@ -25,6 +25,7 @@ codeterm-provider-signals = { path = "../../crates/codeterm-provider-signals", d
 codeterm-local-recording = { path = "../../crates/codeterm-local-recording", default-features = false }
 codeterm-decision = { path = "../../crates/codeterm-decision", default-features = false }
 codeterm-blueprint-types = { path = "../../crates/codeterm-blueprint-types", default-features = false }
+codeterm-team-package = { path = "../../crates/codeterm-team-package" }
 codeterm-agent-detect = { path = "../../crates/codeterm-agent-detect", default-features = false }
 codeterm-plan = { path = "../../crates/codeterm-plan", default-features = false }
 codeterm-mem = { path = "../../crates/codeterm-mem", default-features = false }

@@ -1,0 +1,12 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+icon: assets/icon.svg
+files:
+  - path: assets/icon.svg
+    content: |
+      <svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>
+managers:
+  orchestrator:
+    instructions: |
+      Lead.

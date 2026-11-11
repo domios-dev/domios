@@ -12,6 +12,7 @@
     "codeterm-process-identity",
     "codeterm-provider-signals",
     "codeterm-shutdown",
+    "codeterm-team-package",
     "codeterm-types",
     "codeterm-update",
     "codeterm-util",

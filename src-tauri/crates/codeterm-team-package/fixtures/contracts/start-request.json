@@ -1,0 +1,8 @@
+{
+  "template": { "name": "com.example/research-desk", "version": "2.1.0" },
+  "team_id": "team_3f2a",
+  "inputs": { "depth": "deep", "question": "How big is the EU heat-pump market?" },
+  "opt_out": ["memory:1", "automation:stale-task-nudge"],
+  "decision_id": "tcd_7f3a2c",
+  "manager_models": { "cartographer": { "model": "claude:sonnet", "reasoning_effort": "medium" } }
+}

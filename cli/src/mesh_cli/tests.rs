@@ -288,23 +288,23 @@ fn update_install_local_only_options_are_rejected_over_mesh() {
     assert!(b.is_none());
 }
 
-/// Persona reads the serving daemon's compiled prompts and its own overlay
+/// Role inspection reads the serving daemon's compiled prompts and its own overlay
 /// directory, so a mesh call must refuse rather than answer from local state.
 #[test]
-fn persona_inspection_is_refused_over_mesh_for_every_subcommand() {
-    use crate::args::persona::PersonaAction;
+fn role_inspection_is_refused_over_mesh_for_every_subcommand() {
+    use crate::args::role::RoleAction;
 
     for action in [
-        PersonaAction::List,
-        PersonaAction::Reload,
-        PersonaAction::Show {
+        RoleAction::List,
+        RoleAction::Reload,
+        RoleAction::Show {
             role: "Worker".into(),
             kind: Some("rust-backend-dev".into()),
             guidance: None,
             occasion: None,
         },
     ] {
-        let (m, reason, b) = cli_command_to_api(&Commands::Persona { action });
+        let (m, reason, b) = cli_command_to_api(&Commands::Role { action });
         assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
         assert!(reason.contains("socket-only"), "reason: {reason}");
         assert!(

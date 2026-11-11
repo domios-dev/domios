@@ -1,0 +1,20 @@
+{
+  "matches": [
+    {
+      "name": "dev.domios/release-train",
+      "version": "1.0.0",
+      "title": "Release train",
+      "description": "Qualifies a release candidate, runs CI and gates, publishes after owner GO.",
+      "when": ["ship a release"],
+      "provenance": "builtin"
+    }
+  ],
+  "fallback": {
+    "name": "dev.domios/default",
+    "version": "1.0.0",
+    "title": "Default team",
+    "description": "Orchestrator and Planner; every built-in worker available on demand.",
+    "provenance": "builtin"
+  },
+  "recall_available": true
+}

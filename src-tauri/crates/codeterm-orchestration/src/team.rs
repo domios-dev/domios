@@ -16,6 +16,7 @@ mod close_busy;
 mod member_commit;
 pub use member_commit::commit_team_member_prepared;
 mod storage_teardown;
+pub(crate) mod template_start;
 mod validation;
 #[cfg(any(test, feature = "test-support"))]
 pub use close::close_team_with_state_change;

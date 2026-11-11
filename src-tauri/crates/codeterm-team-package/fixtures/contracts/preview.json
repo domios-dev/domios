@@ -1,0 +1,108 @@
+{
+  "form": {
+    "template": {
+      "name": "com.example/research-desk",
+      "version": "2.1.0",
+      "title": "Research desk",
+      "description": "Researches a market question in parallel, cross-checks sources and writes a cited report.",
+      "when": ["research a market question"],
+      "provenance": "imported",
+      "icon": { "media_type": "image/svg+xml", "data_url": "data:image/svg+xml;base64,PHN2Zy8+" },
+      "derived_from": { "name": "com.example/research-desk", "version": "2.0.3" }
+    },
+    "pickers": [
+      {
+        "slot": "orchestrator",
+        "label": "Lead",
+        "decision": {
+          "choice": { "model": "codex:gpt-6.1-sol" },
+          "reason": "within_list_fallback",
+          "alternatives": [{ "model": "claude:sonnet" }],
+          "amber": true,
+          "effort": { "requested": "xhigh", "applied": "high", "reason": "codex:gpt-6.1-sol supports up to high" }
+        }
+      },
+      {
+        "slot": "planner",
+        "label": "Atlas",
+        "decision": {
+          "reason": "needs_choice",
+          "alternatives": [{ "model": "claude:opus" }, { "model": "codex:gpt-6.1-sol" }],
+          "amber": false
+        }
+      }
+    ],
+    "roles": [
+      { "group": "manager", "role": "orchestrator", "label": "Lead", "start": "with_team" },
+      { "group": "manager", "role": "cartographer", "label": "cartographer", "start": "on_demand" },
+      { "group": "manager", "role": "curator", "label": "curator", "start": { "schedule": "45m..2h" } },
+      {
+        "group": "worker",
+        "role": "researcher",
+        "label": "researcher",
+        "description": "Researches one angle of the question.",
+        "start": "on_demand"
+      }
+    ],
+    "inputs": [
+      { "key": "question", "description": "The market question to research", "required": true },
+      {
+        "key": "depth",
+        "description": "How deep to go",
+        "required": false,
+        "default": "standard",
+        "choices": ["quick", "standard", "deep"]
+      }
+    ]
+  },
+  "where_needed": {
+    "needs": [
+      { "kind": "missing_harness", "harness": "codex" },
+      { "kind": "missing_tool", "tool": "mcp:io.github.example/search" }
+    ]
+  },
+  "asks": [
+    { "kind": "network", "hosts": ["api.example.com", "*.wikipedia.org"] },
+    { "kind": "repo_write" },
+    { "kind": "shell" },
+    { "kind": "secret", "name": "SEARCH_API_KEY", "purpose": "Web search for the researcher role", "required": true },
+    { "kind": "tool", "role": "orchestrator", "tool": "mcp:io.github.example/search" },
+    { "kind": "script", "item": "skill:source-check" }
+  ],
+  "payload": [
+    {
+      "id": "file:essences/how-we-research.md",
+      "kind": "file",
+      "label": "essences/how-we-research.md",
+      "description": "Our research method; read before planning",
+      "executable": false
+    },
+    { "id": "memory:0", "kind": "memory", "label": "Prefer filings over press releases", "executable": false },
+    {
+      "id": "skill:source-check",
+      "kind": "skill",
+      "label": "source-check",
+      "description": "Verify a claim against its cited source.",
+      "executable": true
+    },
+    {
+      "id": "automation:blueprints/digest.yaml",
+      "kind": "automation",
+      "label": "blueprints/digest.yaml",
+      "description": "Posts a progress digest every hour while research runs",
+      "executable": false
+    }
+  ],
+  "warnings": [
+    {
+      "code": "unresolved_skill",
+      "severity": "warning",
+      "file": "team.yaml",
+      "path": "workers.researcher.skills[0]",
+      "line": 152,
+      "column": 15,
+      "message": "skill `market-sizing` is not in this package; the role starts without it until it is installed"
+    }
+  ],
+  "consent": { "decision_id": "tcd_7f3a2c", "reasons": ["unverified_package", "new_grants"] }
+}

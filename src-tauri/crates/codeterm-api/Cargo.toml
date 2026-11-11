@@ -41,6 +41,7 @@ codeterm-bridge = { path = "../codeterm-bridge" }
 codeterm-pty = { path = "../codeterm-pty" }
 codeterm-plugin = { path = "../codeterm-plugin" }
 codeterm-storage = { path = "../codeterm-storage" }
+codeterm-team-package = { path = "../codeterm-team-package" }
 codeterm-usage = { path = "../codeterm-usage" }
 codeterm-build-info = { path = "../codeterm-build-info" }
 log = { version = "0.4", features = ["release_max_level_info"] }

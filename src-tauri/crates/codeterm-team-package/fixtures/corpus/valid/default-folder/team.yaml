@@ -1,0 +1,47 @@
+# default.team.yaml — Agentic Team Protocol (ATP)
+name: dev.domios/default
+version: 1.0.0
+title: Default team
+description: Orchestrator and Planner; every built-in worker available on demand.
+authors:
+  - name: Domios
+    url: https://domios.dev
+license: Apache-2.0
+
+managers:                       # fixed slots, each with its own duties
+  orchestrator:                 # exactly one; owns the goal, dispatch, review, integration
+    start: with_team
+    instructions_file: managers/orchestrator.md
+    # no model: the owner picks at start
+
+  planner:                      # shapes the plan and tasks
+    start: with_team
+    instructions_file: managers/planner.md
+
+  cartographer:                 # keeps product essences and the project map
+    start: on_demand
+    instructions_file: managers/cartographer.md
+
+  curator:                      # reviews team health, asks the orchestrator
+    start:
+      schedule: 45m..2h
+    model:
+      same_as: orchestrator     # follows the orchestrator's resolved model
+    instructions_file: managers/curator.md
+
+workers:                        # free names; the orchestrator spawns them on demand
+  worker:
+    description: Implements one task in its lane.
+    instructions_file: workers/worker.md
+
+  qa:
+    description: Verifies live on DEV, then tests.
+    instructions_file: workers/qa.md
+
+  reviewer:
+    description: Read-only code review of a lane diff.
+    instructions_file: workers/reviewer.md
+
+  release_manager:
+    description: Runs CI, qualification and the release PR.
+    instructions_file: workers/release_manager.md

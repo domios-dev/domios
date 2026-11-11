@@ -1,0 +1,8 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+name: dev.example/again
+managers:
+  orchestrator:
+    instructions: |
+      Lead.

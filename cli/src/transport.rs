@@ -130,8 +130,8 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
             socket_unsupported("orchestrator handoff is local-only — run it on the target machine")
         }
         Commands::Curator { .. } => socket_unsupported("Curator rounds are local to the owning Team"),
-        Commands::Persona { .. } => socket_unsupported(
-            "persona inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
+        Commands::Role { .. } => socket_unsupported(
+            "role inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
         ),
         Commands::Tab { action: crate::TabAction::Timeout { .. } }
         | Commands::Tab { action: crate::TabAction::New { timeout: Some(_), .. } } =>
@@ -211,18 +211,26 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
     }
 }
 
-/// `team pair` is the one Team action that reaches a peer over REST; the other
-/// actions relay as socket RPCs, which makes their recorded verdict unreachable.
+/// `team pair` is the one Team action that reaches a peer over REST; `team check`
+/// reads local files; the other actions relay as socket RPCs, which makes their
+/// recorded verdict unreachable.
 fn team_transport(action: &TeamAction) -> Transport {
     match action {
         TeamAction::Pair { .. } => socket_rest(),
+        TeamAction::Check { .. } => pre_socket_unsupported(
+            "team check validates a local package — run it on the machine that holds the files",
+        ),
         TeamAction::List
         | TeamAction::Show { .. }
         | TeamAction::Rename { .. }
         | TeamAction::Close { .. }
         | TeamAction::AdoptPlan { .. }
         | TeamAction::AdoptAgent { .. }
-        | TeamAction::AttachCartographer { .. } => socket_rpc_relayed(TEAM_LOCAL_ONLY),
+        | TeamAction::AttachCartographer { .. }
+        | TeamAction::Template { .. }
+        | TeamAction::Distill(_)
+        | TeamAction::Export(_)
+        | TeamAction::Import(_) => socket_rpc_relayed(TEAM_LOCAL_ONLY),
     }
 }
 

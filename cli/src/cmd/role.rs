@@ -1,20 +1,17 @@
-//! `domios persona` — inspect the shared role preset resolver. The daemon
-//! owns the text; this surface only asks for it and prints it verbatim.
-
 use serde_json::{json, Value};
 
-use crate::args::persona::PersonaAction;
+use crate::args::role::RoleAction;
 use crate::client::SocketClient;
 
 pub fn handle(
     client: &mut SocketClient,
     json_output: bool,
-    action: PersonaAction,
+    action: RoleAction,
 ) -> Result<Option<Value>, String> {
     match action {
-        PersonaAction::List => catalog(client, json_output, "persona.list"),
-        PersonaAction::Reload => catalog(client, json_output, "persona.reload"),
-        PersonaAction::Show {
+        RoleAction::List => catalog(client, json_output, "role.list"),
+        RoleAction::Reload => catalog(client, json_output, "role.reload"),
+        RoleAction::Show {
             role,
             kind,
             guidance,
@@ -32,7 +29,7 @@ fn catalog(
     if json_output {
         return Ok(Some(result));
     }
-    if method == "persona.list" && !crate::cmd::output::verbose() {
+    if method == "role.list" && !crate::cmd::output::verbose() {
         print!("{}", crate::cmd::output::compact_list(&result, None));
     } else {
         println!("{}", render_list(&result));
@@ -58,7 +55,7 @@ fn show(
     if let Some(occasion) = occasion {
         params["occasion"] = json!(occasion);
     }
-    let result = client.call("persona.show", Some(params))?;
+    let result = client.call("role.show", Some(params))?;
     if json_output {
         return Ok(Some(result));
     }

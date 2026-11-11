@@ -1,0 +1,10 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+derived_from:
+  name: Research Desk
+  version: two
+managers:
+  orchestrator:
+    instructions: |
+      Lead.
