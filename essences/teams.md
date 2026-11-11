@@ -21,3 +21,11 @@ Packages received from others stay unverified with no default grants. Starting a
 ## Scope
 
 Version one has no plan, spec or task templates and never exports plans.
+
+```map
+anchors:
+  - core:plans-and-orchestration
+  - capability:teams-and-roles
+  - capability:task-fitted-personality
+  - capability:memory-and-skills
+```
