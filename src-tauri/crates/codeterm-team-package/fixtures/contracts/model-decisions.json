@@ -22,5 +22,7 @@
     "amber": false
   },
   { "reason": "blocked", "blocked": { "kind": "same_as_unavailable", "role": "orchestrator" }, "amber": false },
+  { "reason": "blocked", "blocked": { "kind": "no_reasoning_effort", "model": "claude:haiku" }, "amber": false },
+  { "reason": "blocked", "blocked": { "kind": "missing_tool", "tool": "mcp:github" }, "amber": false },
   { "reason": "needs_choice", "blocked": { "kind": "preferences_exhausted" }, "amber": false }
 ]

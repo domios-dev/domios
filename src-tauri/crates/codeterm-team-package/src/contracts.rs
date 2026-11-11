@@ -113,6 +113,13 @@ pub enum ModelBlockedReason {
     SameAsUnavailable {
         role: String,
     },
+    /// The role sets an effort and the model offers no reasoning effort at all.
+    NoReasoningEffort {
+        model: String,
+    },
+    MissingTool {
+        tool: String,
+    },
     PreferencesExhausted,
 }
 
