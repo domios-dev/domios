@@ -6,7 +6,7 @@ import {
   bringsSummary, buildStartRequest, decisionNotice, effortNote, exportFormats, galleryEntries, pickerSeed, roleTiming, startBlocker, startErrorView,
 } from "./startModel";
 
-const [firstPreference, sameAs, normalDefault, , unknownModel, absentHarness, notSignedIn, quota, sameAsUnavailable, exhausted] = modelDecisionFixtures;
+const [firstPreference, sameAs, normalDefault, , unknownModel, absentHarness, notSignedIn, quota, sameAsUnavailable, noReasoningEffort, missingTool, exhausted] = modelDecisionFixtures;
 
 describe("template start model", () => {
   it("prefills decided managers and leaves undecided ones to the owner", () => {
@@ -34,6 +34,8 @@ describe("template start model", () => {
     ]);
     expect(decisionNotice(sameAsUnavailable)?.tone).toBe("blocked");
     expect(decisionNotice(exhausted)?.tone).toBe("blocked");
+    expect(decisionNotice(noReasoningEffort)).toMatchObject({ tone: "blocked", actions: [] });
+    expect(decisionNotice(missingTool)?.actions).toEqual([{ kind: "connect_tool", tool: "mcp:github" }]);
   });
 
   it("says when non-starting roles join", () => {

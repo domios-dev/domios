@@ -35,6 +35,26 @@ function withPairSeat(slot: "orchestrator" | "planner", values: OrchestrationPai
     : { ...values, plannerProviderId: seat.providerId, plannerModelId: seat.modelId, plannerEffortId: seat.effortId };
 }
 
+function actionKey(action: DecisionAction): string {
+  switch (action.kind) {
+    case "install": case "sign_in": return `${action.kind}:${action.harness}`;
+    case "connect_tool": return `${action.kind}:${action.tool}`;
+    case "substitute": return `${action.kind}:${action.model}`;
+    case "wait": return action.kind;
+  }
+}
+
+function DecisionActionView({ action, onAction }: { action: DecisionAction; onAction: (action: DecisionAction) => void }) {
+  const hint = "text-[var(--ct-muted-fg)]";
+  switch (action.kind) {
+    case "wait": return <span className={hint}>or wait for its quota</span>;
+    case "sign_in": return <span className={hint}>Sign in to {action.harness}, or</span>;
+    case "connect_tool": return <span className={hint}>Connect {action.tool}, or</span>;
+    case "install": return <button type="button" className={ACTION} onClick={() => onAction(action)}>Install {action.harness}</button>;
+    case "substitute": return <button type="button" className={ACTION} onClick={() => onAction(action)}>Use {action.model}</button>;
+  }
+}
+
 function DecisionLines({ picker, onAction }: { picker: ManagerModelPicker; onAction: (action: DecisionAction) => void }) {
   const notice = decisionNotice(picker.decision);
   const effort = effortNote(picker.decision);
@@ -42,13 +62,7 @@ function DecisionLines({ picker, onAction }: { picker: ManagerModelPicker; onAct
   return (
     <div className="flex flex-wrap items-center gap-2 text-[10px]" data-decision={notice?.tone ?? "effort"}>
       {notice && <span style={{ color: notice.tone === "amber" ? "var(--ct-yellow,#d97706)" : "var(--ct-red)" }}>{notice.text}</span>}
-      {notice?.actions.map((action) => action.kind === "wait"
-        ? <span key="wait" className="text-[var(--ct-muted-fg)]">or wait for its quota</span>
-        : action.kind === "sign_in"
-          ? <span key="sign-in" className="text-[var(--ct-muted-fg)]">Sign in to {action.harness}, or</span>
-          : <button key={`${action.kind}:${"model" in action ? action.model : action.harness}`} type="button" className={ACTION} onClick={() => onAction(action)}>
-            {action.kind === "install" ? `Install ${action.harness}` : `Use ${action.model}`}
-          </button>)}
+      {notice?.actions.map((action) => <DecisionActionView key={actionKey(action)} action={action} onAction={onAction} />)}
       {effort && <span className="text-[var(--ct-muted-fg)]" title={effort} tabIndex={0} aria-label={effort}>Effort adjusted</span>}
     </div>
   );

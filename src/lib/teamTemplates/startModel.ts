@@ -40,6 +40,7 @@ export function pickerSeed(decision: ModelDecision): PickerSeed | null {
 export type DecisionAction =
   | { kind: "install"; harness: string }
   | { kind: "sign_in"; harness: string }
+  | { kind: "connect_tool"; tool: string }
   | { kind: "substitute"; model: string }
   | { kind: "wait" };
 
@@ -66,6 +67,10 @@ export function decisionNotice(decision: ModelDecision): DecisionNotice | null {
       return { tone: "blocked", text: `${blocked.harness} is out of quota`, actions: [...substitutes(alternatives), { kind: "wait" }] };
     case "unknown_model":
       return { tone: "blocked", text: `${blocked.model} isn't a known model`, actions: substitutes(blocked.suggestions) };
+    case "no_reasoning_effort":
+      return { tone: "blocked", text: `${blocked.model} has no reasoning effort setting, so choose another model`, actions: substitutes(alternatives) };
+    case "missing_tool":
+      return { tone: "blocked", text: `${blocked.tool} isn't connected`, actions: [{ kind: "connect_tool", tool: blocked.tool }, ...substitutes(alternatives)] };
     case "same_as_unavailable":
       return { tone: "blocked", text: `The ${kindDisplayName(blocked.role)}'s model isn't available, so choose one`, actions: substitutes(alternatives) };
     case "preferences_exhausted":
