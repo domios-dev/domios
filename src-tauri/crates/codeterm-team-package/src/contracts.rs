@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    payload_items, IconKind, ManagerSlot, Package, PackageCheckReport, PackageDiagnostic,
-    PackageFormat, PackageLineage, PackageNetwork, PayloadKind, RoleStart, TeamRoleGroup,
-    TemplatePayloadItem,
+    payload_items, IconKind, ManagerSlot, Package, PackageAuthor, PackageCheckReport,
+    PackageDiagnostic, PackageFormat, PackageLineage, PackageLinks, PackageNetwork, PayloadKind,
+    RoleStart, TeamRoleGroup, TemplatePayloadItem,
 };
 
 /// Names one template: a builtin or saved package, optionally pinned to a version.
@@ -48,6 +48,12 @@ pub struct TemplateSummary {
     pub icon: Option<TemplateIcon>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derived_from: Option<PackageLineage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<PackageAuthor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links: Option<PackageLinks>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -338,6 +344,9 @@ pub struct ScrubReport {
     pub secret_values_removed: u32,
     pub secret_asks_added: u32,
     pub history_removed: u32,
+    /// The secret names kept as asks; their values never travel.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secret_names: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -347,6 +356,9 @@ pub struct TemplateExportRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template: Option<TemplateRef>,
     pub format: PackageFormat,
+    /// Absolute destination; without it the package lands in the exports folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub out: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -354,6 +366,143 @@ pub struct TemplateExportResult {
     pub format: PackageFormat,
     pub check: PackageCheckReport,
     pub scrub: ScrubReport,
+    /// Where the package was written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The exact `team.yaml` text, for review before sharing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yaml: Option<String>,
+}
+
+/// Bake a live Team: the package identity the owner chose plus the coordinator's runbook.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateDistillRequest {
+    pub team_id: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<PackageAuthor>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub when: Vec<String>,
+    /// Written into the orchestrator's instructions; there is no top-level brief.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runbook: Option<String>,
+    /// Payload item ids (from the Includes list) the owner leaves out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub opt_out: Vec<String>,
+    #[serde(default = "default_format")]
+    pub format: PackageFormat,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub out: Option<String>,
+    /// Save the checked package to My templates.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub save: bool,
+    /// Review only: return the exact YAML and Includes list without writing anything.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dry_run: bool,
+}
+
+fn default_format() -> PackageFormat {
+    PackageFormat::Yaml
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateDistillResult {
+    /// The exact `team.yaml` text.
+    pub yaml: String,
+    /// Everything the package brings, each with its opt-out id.
+    pub includes: Vec<TemplatePayloadItem>,
+    pub check: PackageCheckReport,
+    pub scrub: ScrubReport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved: Option<TemplateSummary>,
+}
+
+/// What changes between the saved version of a template and an incoming one.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateUpdateDiff {
+    pub name: String,
+    pub from_version: String,
+    pub to_version: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles_added: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles_removed: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles_changed: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payload_added: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payload_removed: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asks_added: Vec<TemplateAsk>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateImportResult {
+    pub template: TemplateSummary,
+    pub check: PackageCheckReport,
+    /// Present when My templates already holds another version; active Teams keep theirs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update: Option<TemplateUpdateDiff>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateDeleteRequest {
+    pub template: TemplateRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateDeleteResult {
+    /// The `name@version` entries removed from My templates.
+    pub removed: Vec<String>,
+}
+
+/// Send a checked package to a paired peer Main's My templates over the mesh.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateTransferRequest {
+    pub template: TemplateRef,
+    pub peer: String,
+    #[serde(default = "default_transfer_format")]
+    pub format: PackageFormat,
+}
+
+fn default_transfer_format() -> PackageFormat {
+    PackageFormat::Team
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateShareState {
+    Unverified,
+    Previewed,
+    Dismissed,
+}
+
+/// The Neighborhood chat card for a received `.team.yaml` or `.team` attachment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateShareCard {
+    pub file_id: String,
+    pub template: TemplateSummary,
+    pub roles: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asks: Vec<TemplateAsk>,
+    pub state: TemplateShareState,
+}
+
+/// A card action: Preview validates and adds the package to My templates; Dismiss drops the card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateShareAction {
+    Preview,
+    Dismiss,
 }
 
 /// Start applies the opted-in payload; bake collects it back through the same mapping.
@@ -378,6 +527,9 @@ pub enum TemplateOperation {
     CollectPayload,
     RemoteStart,
     ModelDecision,
+    Delete,
+    Transfer,
+    Share,
 }
 
 /// What a registered-but-unimplemented template operation answers; it never mutates state.
@@ -453,6 +605,9 @@ impl TemplateSummary {
                 .icon()
                 .map(|(kind, bytes)| TemplateIcon::new(kind, bytes)),
             derived_from: document.derived_from.clone(),
+            authors: document.authors.clone(),
+            links: document.links.clone(),
+            license: document.license.clone(),
         }
     }
 }
@@ -555,6 +710,14 @@ pub fn export_typescript(config: &ts_rs::Config) -> Result<(), ts_rs::ExportErro
     TemplateRecall::export_all(config)?;
     TemplateExportRequest::export_all(config)?;
     TemplateExportResult::export_all(config)?;
+    TemplateDistillRequest::export_all(config)?;
+    TemplateDistillResult::export_all(config)?;
+    TemplateImportResult::export_all(config)?;
+    TemplateDeleteRequest::export_all(config)?;
+    TemplateDeleteResult::export_all(config)?;
+    TemplateTransferRequest::export_all(config)?;
+    TemplateShareCard::export_all(config)?;
+    TemplateShareAction::export_all(config)?;
     PayloadApplyResult::export_all(config)?;
     TemplateUnavailable::export_all(config)?;
     ModelDecision::export_all(config)?;

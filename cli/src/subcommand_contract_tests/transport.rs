@@ -651,7 +651,18 @@ fn team_pair_exception_is_declared() {
             "preview",
             "dev.domios/default",
         ],
-        vec!["codeterm", "team", "distill", "team_1", "--format", "team"],
+        vec![
+            "codeterm",
+            "team",
+            "distill",
+            "team_1",
+            "--name",
+            "me/research",
+            "--description",
+            "Researches",
+            "--format",
+            "team",
+        ],
         vec![
             "codeterm",
             "team",
@@ -661,6 +672,8 @@ fn team_pair_exception_is_declared() {
             "folder",
         ],
         vec!["codeterm", "team", "import", "research.team"],
+        vec!["codeterm", "team", "recall", "ship a release"],
+        vec!["codeterm", "team", "delete-template", "me/research@1.0.0"],
         vec![
             "codeterm",
             "team",

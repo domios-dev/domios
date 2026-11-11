@@ -158,6 +158,8 @@ pub(super) fn dispatch(
                 "team.template.preview",
                 "team.template.start",
                 "team.template.recall",
+                "team.template.delete",
+                "team.template.card",
                 "team.distill",
                 "team.export",
                 "team.import",

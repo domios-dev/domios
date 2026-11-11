@@ -129,8 +129,12 @@ Team staffing and closing use the authority and confirmation rules above.
 | GET | `/api/team-templates` | List builtin and saved templates as `{templates}`. |
 | POST | `/api/team-templates/preview` | `{template}` → the start form, asks, payload with opt-out ids, warnings and consent decision. |
 | POST | `/api/team-templates/recall` | `{query}` → best matches first and the default fallback. |
-| POST | `/api/team-templates/export` | `{template, format: yaml\|team\|folder, out?}` → checked package and scrub report. |
-| POST | `/api/team-templates/import` | `{path}` → validate a package and save it to My templates, unverified. |
-| POST | `/api/teams/{team_id}/distill` | `{format, out?}` → distill a live Team into a checked package. |
+| POST | `/api/team-templates/export` | `{template, format: yaml\|team\|folder, out?}` → checked package, scrub report, written `path` and exact `yaml`. |
+| POST | `/api/team-templates/import` | `{path}` → validate a package and save it to My templates, unverified; `update` lists changes from a saved version. |
+| POST | `/api/team-templates/delete` | `{template}` → remove a saved template (one version or all) from My templates and recall. |
+| POST | `/api/team-templates/card` | `{file_id, path}` → the Neighborhood share card for a received package file; nothing is saved. |
+| POST | `/api/teams/{team_id}/distill` | `{name, version, description, title?, license?, authors?, when?, runbook?, opt_out?, format, out?, save?, dry_run?}` → exact `yaml`, `includes`, check, scrub report, `path` and `saved`. |
 
-<!-- revision: 14 -->
+Exchange errors are HTTP 400 (bad request), 404 (unknown template) or 422 (refused package) with `{code, message, diagnostics?}`.
+
+<!-- revision: 15 -->
