@@ -1,7 +1,7 @@
 import {readFileSync, writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
-import {measurements} from './model.mjs';
+import {FORMAT, measurements} from './model.mjs';
 import {leafSessionIdKey} from './snapshot-contract.mjs';
 
 export function worstCases(root, cwd, now = Date.now()) {
@@ -36,14 +36,13 @@ export function worstCases(root, cwd, now = Date.now()) {
       },
     },
   }));
-  const histories = tabs.map(tab => ({tab_id: tab.id, page_size: 100, messages: tab.id === 'fixture-long-history'
-    ? Array.from({length: 320}, (_, index) => ({id: `message-${index}`, seq: index + 1,
-      type: index === 319 ? 'user' : 'assistant', content: 'x'.repeat(4096),
-      ...(index === 319 ? {attachments: [{id: 'fixture-image', mimeType: 'image/png', data: 'x'.repeat(16384)}]} : {})})) : []}));
+  const histories = tabs.map(tab => ({tab_id: tab.id, page_size: 100, shape: tab.id === 'fixture-long-history'
+    ? Array.from({length: 320}, (_, index) => ({kind: index === 319 ? 'user' : 'assistant', group: 0, bytes: 4096,
+      ...(index === 319 ? {image_bytes: [16384]} : {})})) : []}));
   const snapshot = {version: '1.14.7', timestamp: 1, active_workspace_id: 'workspace_fixture',
     teams: [{id: 'team_fixture', workspace_id: 'workspace_fixture', lifecycle: 'active', created_at: 1}],
     workspaces: [{id: 'workspace_fixture', name: 'Fixture', cwd, active_tab_id: tabs[0].id, tabs}]};
-  return {format: 'upgrade-restore-v1', sanitized: true, snapshot, histories,
+  return {format: FORMAT, sanitized: true, snapshot, histories,
     measurements: measurements(snapshot, histories),
     live_tab_metadata: [{tab_id: 'fixture-imported-worker', hidden: false, show_in_tabbar: true}],
     plans: [{id: 'plan_fixture', title: 'Fixture', status: 'active', mode: 'execution',

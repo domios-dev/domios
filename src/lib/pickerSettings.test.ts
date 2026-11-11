@@ -186,3 +186,14 @@ describe("the host full-access notice", () => {
     expect(sections[1]).toMatchObject({ current: "Full access (host)", options: [] });
   });
 });
+
+it("keeps the live provider catalogue and effort when session model controls are empty or partial", () => {
+  const sections = pickerSections({ descriptor: native, model: "native-model", effort: "high", controls: { configOptions: [
+    { id: "partial", name: "Model", category: "model", currentValue: "", options: [] },
+    { id: "partial-effort", name: "Thinking", category: "thought_level", currentValue: "", options: [] },
+  ] } });
+  expect(sections.find(section => section.category === "model")).toMatchObject({
+    current: "native-model", applyTarget: { kind: "model" }, options: [{ value: "native-model", label: "Native model" }],
+  });
+  expect(sections.find(section => section.category === "effort")).toMatchObject({ current: "high", options: [{ value: "high", label: "High" }] });
+});

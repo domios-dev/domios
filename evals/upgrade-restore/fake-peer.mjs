@@ -1,7 +1,7 @@
 import {readFileSync, appendFileSync} from 'node:fs';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
-import {leaves} from './model.mjs';
+import {leaves, synthesizeMessage} from './model.mjs';
 
 function item(row) {
   if (row.type === 'user') return {id: row.id, type: 'userMessage', content: [
@@ -20,17 +20,19 @@ function item(row) {
   throw new Error(`History item ${row.id} has no fake backing for type ${row.type}`);
 }
 
+// Turns keep shape indexes; item text is synthesized per page so a large desk never materializes at once.
 export function peer(document) {
-  const histories = new Map(document.histories.map(history => [history.tab_id, history.messages]));
+  const histories = new Map(document.histories.map(history => [history.tab_id, history.shape]));
   const threads = new Map(leaves(document).filter(tab => tab.agent_type).map(tab => {
+    const shape = histories.get(tab.tab_id) ?? [];
     const groups = new Map();
-    for (const row of histories.get(tab.tab_id) ?? []) {
-      const turn = row.toolFlowId ?? 'fixture-turn';
-      const rows = groups.get(turn) ?? [];
-      rows.push(item(row));
-      groups.set(turn, rows);
-    }
-    return [tab.claude_session_id ?? tab.agent_session_id, [...groups].map(([id, items]) => ({id, status: 'completed', items}))];
+    shape.forEach((row, index) => {
+      const turn = `turn-${row.group}`;
+      groups.set(turn, [...groups.get(turn) ?? [], index]);
+    });
+    const render = index => item(synthesizeMessage(shape[index], index));
+    return [tab.claude_session_id ?? tab.agent_session_id,
+      [...groups].map(([id, rows]) => ({id, status: 'completed', rows, render}))];
   }));
   function page(values, cursor, limit) {
     const start = Number(cursor ?? 0);
@@ -48,13 +50,15 @@ export function peer(document) {
     switch (request.method) {
       case 'thread/resume': case 'thread/read':
         return {thread: {id: params.threadId, source: 'cli', threadSource: 'user',
-          turns: params.includeTurns ? turns : []}, model: params.model ?? 'fixture-model',
+          turns: params.includeTurns ? turns.map(({id, status, rows, render}) => ({id, status, items: rows.map(render)})) : []},
+          model: params.model ?? 'fixture-model',
           cwd: params.cwd, approvalPolicy: params.approvalPolicy, sandbox: params.sandbox};
-      case 'thread/turns/list': return page(turns.map(({items, ...turn}) => turn), params.cursor, params.limit);
+      case 'thread/turns/list': return page(turns.map(({id, status}) => ({id, status})), params.cursor, params.limit);
       case 'thread/items/list': {
         const turn = turns.find(turn => turn.id === params.turnId);
         if (!turn) throw new Error(`Fixture has no turn ${params.turnId}`);
-        return page(turn.items, params.cursor, params.limit);
+        const rows = page(turn.rows, params.cursor, params.limit);
+        return {...rows, data: rows.data.map(turn.render)};
       }
       case 'thread/goal/get': return {goal: null};
       default: throw new Error(`Unsupported fixture method ${request.method}`);

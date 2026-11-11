@@ -6,6 +6,8 @@ import { GeneralAgentProviderChoice } from "./GeneralAgentProviderChoice";
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [
   { id: "first", display_name: "First", transport: "pty", availability: "available" },
   { id: "second", display_name: "Second", transport: "pty", availability: "available" },
+  { id: "adapter", display_name: "Profile adapter", transport: "chat_backend", availability: "available",
+    agent_runtime: { launchProfiles: {} } },
 ] }) }));
 
 it("both settings entrypoints can reuse a choice that cancels without writes and confirms once", async () => {
@@ -32,6 +34,7 @@ it("both settings entrypoints can reuse a choice that cancels without writes and
   });
   try {
     await act(async () => root.render(<GeneralAgentProviderChoice current="first" enabled onSwitch={change} />));
+    expect([...host.querySelectorAll("button")].some(button => button.getAttribute("aria-label")?.startsWith("Profile adapter:"))).toBe(false);
     await clickButton("Second");
     expect(change).not.toHaveBeenCalled();
     await clickButton("Cancel");

@@ -70,6 +70,12 @@ impl ServiceContext {
             .agent_type
             .as_deref()
             .ok_or("provider_switch_no_agent: tab has no provider")?;
+        if crate::service::general_agent::is_general_agent(&tab) {
+            crate::service::general_agent::validate_general_agent_provider(
+                &self.agent_registry,
+                target,
+            )?;
+        }
         let route = self.provider_switch_route(source, target, &tab)?;
         let _general_claim = self.claim_general_provider_switch(&tab)?;
         model::require_idle(

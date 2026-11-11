@@ -8,5 +8,9 @@ if (!out) throw new Error('Usage: node scripts/capture-upgrade-desk.mjs OUT [TIM
 console.error('THIS IS PROD: read-only sanitized desk export through the CLI; no instance state is changed.');
 execFileSync(cli, ['sessions', 'backups', 'export', name, '--sanitize', '--out', out],
   {stdio: 'inherit', timeout: 90_000});
-const tabs = validateCapture(JSON.parse(readFileSync(out, 'utf8')));
-console.log(`Captured ${tabs.length} desk leaves with verified byte sizes.`);
+const bytes = readFileSync(out);
+const document = JSON.parse(bytes);
+const tabs = validateCapture(document);
+const historyBytes = document.measurements.reduce((sum, row) => sum + row.history_bytes, 0);
+console.log(`Captured ${tabs.length} desk leaves with verified sizes: export ${bytes.length} bytes, `
+  + `compact ${Buffer.byteLength(JSON.stringify(document))} bytes, described history ${historyBytes} bytes.`);

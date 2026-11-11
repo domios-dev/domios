@@ -396,6 +396,59 @@ it("shows Cloud only under Codex and explains its unavailable environment state"
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
 });
 
+it("creates a Team with independent ready profiles, models and efforts through the pair API", async () => {
+  fixture.providers.providers = [
+    {id: "opaque-runtime", display_name: "Runtime", transport: "chat_backend", available_models: [],
+      agent_runtime: {launchProfiles: {alpha: {binary: "alpha", args: []}, beta: {binary: "beta", args: []}, missing: {binary: "missing", args: []}}}},
+  ] as never[];
+  const configOptions = [
+    {id: "model", name: "Model", category: "model", currentValue: "small", options: [{value: "small", name: "Small"}, {value: "large", name: "Large"}]},
+    {id: "effort", name: "Effort", category: "thought_level", currentValue: "low", options: [{value: "low", name: "Low"}, {value: "high", name: "High"}]},
+  ];
+  vi.mocked(invoke).mockImplementation(async command => command === "provider_launch_profiles" ? [
+    {id: "alpha", install: "installed", auth: "unknown", canInstall: false, ownerConfigured: false, configOptions},
+    {id: "beta", install: "detected", auth: "unknown", canInstall: false, ownerConfigured: false, configOptions},
+    {id: "missing", install: "not_installed", auth: "unknown", canInstall: false, ownerConfigured: false},
+  ] : undefined);
+  await renderPicker();
+  await act(async () => buttonNamed("Team")!.click());
+  const start = () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!;
+  const pick = async (scope: ParentNode, testId: string, option: string) => {
+    const trigger = scope.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger.dispatchEvent(new window.Event("pointerdown", {bubbles: true, cancelable: true})));
+    await act(async () => document.body.querySelector<HTMLElement>(`[data-testid="${testId}-option-${option}"]`)!.click());
+  };
+  const orchestrator = dialog().querySelector('[data-testid="orchestration-role-orchestrator"]')!;
+  const planner = dialog().querySelector('[data-testid="orchestration-role-planner"]')!;
+  expect(start().disabled).toBe(true);
+  expect(buttonNamed("Orchestrator provider")?.textContent).toContain("Runtime");
+  expect(buttonNamed("Planner provider")?.textContent).toContain("Runtime");
+  await pick(orchestrator, "picker-profile-orchestrator", "alpha");
+  expect(start().disabled).toBe(true);
+  await pick(planner, "picker-profile-planner", "missing");
+  expect(start().disabled).toBe(true);
+  await act(async () => start().click());
+  expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
+  await pick(planner, "picker-profile-planner", "beta");
+  expect(start().disabled).toBe(false);
+  await pick(orchestrator, "picker-profile-model", "large");
+  await pick(orchestrator, "picker-profile-effort", "high");
+  await pick(planner, "picker-profile-model", "small");
+  await pick(planner, "picker-profile-effort", "low");
+  await pick(orchestrator, "picker-profile-orchestrator", "beta");
+  expect(orchestrator.querySelector('[data-testid="picker-profile-model"]')?.textContent).toContain("Default");
+  expect(planner.querySelector('[data-testid="picker-profile-model"]')?.textContent).toContain("Small");
+  await pick(orchestrator, "picker-profile-orchestrator", "alpha");
+  await pick(orchestrator, "picker-profile-model", "large");
+  await pick(orchestrator, "picker-profile-effort", "high");
+  await act(async () => start().click());
+  expect(fixture.actions.createOrchestrationPair).toHaveBeenCalledExactlyOnceWith({
+    orchestratorAgent: "opaque-runtime", orchestratorLaunchProfile: "alpha", orchestratorModel: "large", orchestratorReasoningEffort: "high",
+    plannerAgent: "opaque-runtime", plannerLaunchProfile: "beta", plannerModel: "small", plannerReasoningEffort: "low", workspaceId: "workspace",
+  });
+});
+
 describe("NewSessionPicker launch profiles", () => {
   it("offers one ACP provider with a labelled nested choice and passes the chosen profile once", async () => {
     fixture.providers.providers = [

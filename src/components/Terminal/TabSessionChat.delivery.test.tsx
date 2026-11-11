@@ -12,7 +12,7 @@ import {
 } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
-import { addChatSend, readChatSends, updateChatSendContent, failChatSendRequest, setChatSendDraft,
+import { addChatSend, readChatSends, failChatSendRequest, setChatSendDraft,
   __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState, forgetChatSendsInMemory,
   observeChatSendDismissal, observeDeliveryStatus } from "./chatSendStore";
 import { encodeChatSend } from "./chatSendDurableModel";
@@ -148,7 +148,7 @@ function muxActions(): MultiplexerActionsContextType {
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
 async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string,
-  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[] } = {}): Promise<{
+  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[]; general?: boolean } = {}): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
@@ -191,7 +191,12 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const store = createMuxStateStore(() => tabState(tabId, runtimeState, seed.working));
+  const state = tabState(tabId, runtimeState, seed.working);
+  if (seed.general) {
+    state.tabs.general = { ...state.tabs[tabId], id: "general", protected: true };
+    state.workspaces = [{ id: "general-workspace", protected: true, tabs: ["general"] }] as ExtendedState["workspaces"];
+  }
+  const store = createMuxStateStore(() => state);
   await act(async () => {
     root.render(
       <MuxStateStoreContext.Provider value={store}>
@@ -618,10 +623,13 @@ test("a held send waits after the running turn's live operation and becomes its 
     assert(!host.querySelector('[role="separator"]'), "an untimestamped turn gains no day divider from the held send");
     const queued = held.querySelector<HTMLElement>('[role="status"][data-state="queued"]');
     assert(queued?.getAttribute("aria-label"), "queued state exposes its reason");
-    assert([...held.querySelectorAll("button")].some(button => button.textContent === "Remove"), "queued input can be cancelled");
+    assert(queued?.textContent === "Queued", "held input shows only the short queued label");
+    assert(!queued.querySelector("button"), "held input has no delivery controls");
 
     latest = status("written", 2);
     await act(async () => dispatch("chat-send-status", latest));
+    const written = held.querySelector('[role="status"][aria-label="Awaiting confirmation"]');
+    assert(written?.textContent === "" && !written.querySelector("button"), "written input keeps a quiet accessible indicator");
     assert(live[0].compareDocumentPosition(held) & Node.DOCUMENT_POSITION_FOLLOWING,
       "a written send keeps its place after the turn it waited behind");
     latest = status("delivered", 3);
@@ -795,7 +803,18 @@ for (const reducedMotion of [false, true]) {
       dispatchEvent: () => true,
     });
     const tabId = `voice-progress-${reducedMotion}`;
-    const { host, root } = await renderChat(tabId);
+    const { host, root } = await renderChat(tabId, undefined, undefined, undefined, { general: true });
+    const { __setInvokeForTest } = await import("../../lib/bridge");
+    const { prepareChatDelivery } = await import("./chatDeliveryPreparation");
+    const sends: Array<{ tabId: string; text: string }> = [];
+    let focused: unknown;
+    const onFocus = (event: Event) => { focused = (event as CustomEvent).detail; };
+    window.addEventListener("codeterm:focus-tab", onFocus);
+    __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
+      if (command === "transcribe_voice_attachment") throw new Error("transcriber is unavailable");
+      if (command === "chat_send_text") sends.push(args as { tabId: string; text: string });
+      return [] as T;
+    });
     try {
       await act(async () => {
         addChatSend(tabId, {
@@ -810,15 +829,29 @@ for (const reducedMotion of [false, true]) {
       assert(progress?.getAttribute("aria-label"), "progress has an accessible name");
       assert(progress?.getAttribute("data-motion") === (reducedMotion ? "reduced" : "animated"), "motion preference reaches progress");
       await act(async () => {
-        updateChatSendContent(tabId, "voice", "opaque-failure");
-        failChatSendRequest(tabId, "voice");
+        await prepareChatDelivery(tabId, readChatSends(tabId).find(send => send.id === "voice")!, text => ({ kind: "expanded", text }))
+          .then(() => { throw new Error("transcription should fail"); }, () => {});
       });
       assert(!bubble.querySelector('[aria-busy="true"]'), "failure removes progress from the same bubble");
-      assert(bubble.querySelector('button'), "failed voice retains its retry control");
+      const status = bubble.querySelector('[role="status"]');
+      const buttons = [...(status?.querySelectorAll("button") ?? [])];
+      assert(buttons.length === 1 && buttons[0].textContent === "Set up transcriber", "transcription failure offers only setup");
+      assert(status?.textContent?.includes("transcriber is unavailable"), "transcription reason remains visible");
+      await act(async () => buttons[0].click());
+      assert(sends.length === 1 && sends[0].tabId === "general" && sends[0].text.includes("transcriber"), "setup sends one request to General");
+      assert((focused as { tabId: string; workspaceId: string })?.tabId === "general"
+        && (focused as { workspaceId: string })?.workspaceId === "general-workspace", "setup brings General forward");
+      assert(readChatSends(tabId).find(send => send.id === "voice")?.requestFailed, "setup leaves original failure unreplayed");
+      await act(async () => failChatSendRequest(tabId, "voice", "Transport unavailable"));
+      const transportControls = [...(bubble.querySelector('[role="status"]')?.querySelectorAll("button") ?? [])].map(button => button.textContent);
+      assert(transportControls.includes("Retry") && transportControls.includes("Remove")
+        && !transportControls.includes("Set up transcriber"), "ordinary voice send failures retain delivery recovery");
     } finally {
       await act(async () => root.unmount());
       host.remove();
       window.matchMedia = originalMatchMedia;
+      window.removeEventListener("codeterm:focus-tab", onFocus);
+      __setInvokeForTest(null);
     }
   });
 }

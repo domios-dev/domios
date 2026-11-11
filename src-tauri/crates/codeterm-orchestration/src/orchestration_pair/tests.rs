@@ -1060,8 +1060,12 @@ fn pair_params_carry_reasoning_effort_for_both_roles() {
     let body = serde_json::json!({
         "orchestrator_agent": "opencode",
         "orchestrator_reasoning_effort": "high",
+        "orchestrator_launch_profile": "alpha",
+        "orchestrator_model": "large",
         "planner_agent": "opencode",
         "planner_reasoning_effort": "low",
+        "planner_launch_profile": "beta",
+        "planner_model": "small",
     });
     let params: OrchestrationPairParams = serde_json::from_value(body).unwrap();
 
@@ -1070,4 +1074,44 @@ fn pair_params_carry_reasoning_effort_for_both_roles() {
         Some("high")
     );
     assert_eq!(params.planner_reasoning_effort.as_deref(), Some("low"));
+    assert_eq!(params.orchestrator_launch_profile.as_deref(), Some("alpha"));
+    assert_eq!(params.planner_launch_profile.as_deref(), Some("beta"));
+    assert_eq!(params.orchestrator_model.as_deref(), Some("large"));
+    assert_eq!(params.planner_model.as_deref(), Some("small"));
+}
+
+#[test]
+fn pair_preflight_validates_each_roles_launch_profile_before_reservation() {
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let fixture = crate::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        codeterm_service_core::agent::test_provider::MockProvider::new("pair-native")
+            .with_launch_binary(if cfg!(windows) { "cmd.exe" } else { "sh" }),
+    ));
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let teams_before = fixture.service.mux.read().team_count();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    for orchestrator in [true, false] {
+        let params = OrchestrationPairParams {
+            orchestrator_agent: "pair-native".into(),
+            planner_agent: "pair-native".into(),
+            orchestrator_launch_profile: orchestrator.then(|| "alpha".into()),
+            planner_launch_profile: (!orchestrator).then(|| "beta".into()),
+            workspace_id: Some(workspace_id.clone()),
+            ..Default::default()
+        };
+        let error = runtime
+            .block_on(fixture.service.create_orchestration_pair(params))
+            .expect_err(
+                "a native provider must reject launch profiles before reserving either role",
+            );
+        assert!(error.contains("launch profile"), "{error}");
+        let mux = fixture.service.mux.read();
+        assert_eq!(mux.snapshot().tabs.len(), tabs_before);
+        assert_eq!(mux.team_count(), teams_before);
+    }
 }

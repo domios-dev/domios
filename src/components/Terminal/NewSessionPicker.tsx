@@ -32,8 +32,7 @@ import { createPortal } from "react-dom";
 import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import {remoteProvider, remoteSpawnSelection, type ExecutionLocation} from "../../lib/remoteExecution";
 import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
-import {LaunchProfileModelRow, LaunchProfilePicker, LaunchProfileSelect} from "./LaunchProfilePicker";
-import {useLaunchProfiles} from "./useLaunchProfiles";
+import {useLaunchProfileSelection} from "./useLaunchProfileSelection";
 import {cloudExecution} from "./cloudExecution";
 import { TeamTemplateSection } from "../TeamTemplates/TeamTemplateSection";
 import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
@@ -72,14 +71,13 @@ export function NewSessionPicker({
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const localId = choice.mode === "single" ? choice.providerId : "";
   const selectedProvider = visibleProviders.find(provider => provider.id === localId);
-  const profileCatalog = useLaunchProfiles(selectedProvider);
-  const [profileSelection, setProfileSelection] = useState({providerId: "", id: ""});
-  const launchProfile = profileSelection.providerId === localId ? profileSelection.id : "";
-  const profileReady = !selectedProvider?.agent_runtime?.launchProfiles || profileCatalog.profiles.some(profile => profile.id === launchProfile && ["installed", "detected"].includes(profile.install));
-  const readyProfile = selectedProvider?.agent_runtime?.launchProfiles && profileReady ? profileCatalog.profiles.find(profile => profile.id === launchProfile) : undefined;
-  // A profile's model and effort start at the agent's own default; they belong to that one profile.
-  const [profileChoice, setProfileChoice] = useState({profile: "", model: "", effort: ""});
-  const profileModel = profileChoice.profile === `${localId}:${launchProfile}` ? profileChoice : {model: "", effort: ""};
+  const singleProfile = useLaunchProfileSelection(selectedProvider, "picker-profile-single");
+  const {profile: launchProfile, ready: profileReady} = singleProfile;
+  const profileModel = singleProfile;
+  const orchestratorProfile = useLaunchProfileSelection(visibleProviders.find(provider =>
+    choice.mode === "pair" && provider.id === choice.orchestratorProviderId), "picker-profile-orchestrator");
+  const plannerProfile = useLaunchProfileSelection(visibleProviders.find(provider =>
+    choice.mode === "pair" && provider.id === choice.plannerProviderId), "picker-profile-planner");
   const remote = cloudExecution.enabled && section === "workspace" ? remoteProvider(menuProviders, localId) : undefined;
   const location = remote && execution.providerId === localId ? execution.location : "local";
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
@@ -275,7 +273,8 @@ export function NewSessionPicker({
   }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort]);
 
   const runPairSpawn = useCallback(async () => {
-    if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")) return;
+    if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")
+      || !orchestratorProfile.ready || !plannerProfile.ready) return;
     if (
       disabledProviderIds.has(choice.orchestratorProviderId)
       || disabledProviderIds.has(choice.plannerProviderId)
@@ -284,11 +283,13 @@ export function NewSessionPicker({
     }
     const pair = {
       orchestratorAgent: choice.orchestratorProviderId,
-      orchestratorModel: choice.orchestratorModelId,
-      orchestratorReasoningEffort: choice.orchestratorEffortId,
+      orchestratorModel: orchestratorProfile.profile ? orchestratorProfile.model || undefined : choice.orchestratorModelId,
+      orchestratorReasoningEffort: orchestratorProfile.profile ? orchestratorProfile.effort || undefined : choice.orchestratorEffortId,
+      orchestratorLaunchProfile: orchestratorProfile.profile || undefined,
       plannerAgent: choice.plannerProviderId,
-      plannerModel: choice.plannerModelId,
-      plannerReasoningEffort: choice.plannerEffortId,
+      plannerModel: plannerProfile.profile ? plannerProfile.model || undefined : choice.plannerModelId,
+      plannerReasoningEffort: plannerProfile.profile ? plannerProfile.effort || undefined : choice.plannerEffortId,
+      plannerLaunchProfile: plannerProfile.profile || undefined,
       workspaceId,
     };
     const template = templates.startRequest();
@@ -310,7 +311,7 @@ export function NewSessionPicker({
     } finally {
       setBusy(false);
     }
-  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, templates, selectTabByTab, onClose]);
+  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, orchestratorProfile, plannerProfile, templates, selectTabByTab, onClose]);
 
   const handleStart = useCallback(() => {
     if (busy || dismissing || selectedWorkspace?.cwd_missing) return;
@@ -342,9 +343,6 @@ export function NewSessionPicker({
           effortId: prev.mode === "pair" ? prev.orchestratorEffortId : prev.effortId,
         };
       }
-      if (prev.mode === "single" && visibleProviders.find(provider => provider.id === prev.providerId)?.agent_runtime?.launchProfiles) {
-        return defaultNewSessionChoice(visibleProviders.filter(provider => !provider.agent_runtime?.launchProfiles));
-      }
       return {
         mode: "pair",
         orchestratorProviderId: prev.mode === "single" ? prev.providerId : prev.orchestratorProviderId,
@@ -365,6 +363,7 @@ export function NewSessionPicker({
       && choice.plannerProviderId.length > 0
       && !disabledProviderIds.has(choice.orchestratorProviderId)
       && !disabledProviderIds.has(choice.plannerProviderId)
+      && orchestratorProfile.ready && plannerProfile.ready
       && templates.blocker === null;
   const templateStep = choice.mode === "pair" && templates.view.kind !== "form";
 
@@ -453,21 +452,14 @@ export function NewSessionPicker({
                   onEffortChange={(effortId) => setChoice({ ...choice, effortId })}
                   effortTestId="picker-effort-single"
                   onInstallProvider={handleInstallProvider}
-                  modelSlot={selectedProvider?.agent_runtime?.launchProfiles && <LaunchProfileSelect provider={selectedProvider}
-                    profiles={profileCatalog.profiles} selected={launchProfile} testId="picker-profile-single"
-                    onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})} />}
+                  modelSlot={singleProfile.modelSlot}
                 />
-                {readyProfile && <LaunchProfileModelRow profile={readyProfile} model={profileModel.model} effort={profileModel.effort}
-                  onModel={model => setProfileChoice({...profileModel, profile: `${localId}:${launchProfile}`, model})}
-                  onEffort={effort => setProfileChoice({...profileModel, profile: `${localId}:${launchProfile}`, effort})} />}
-                {selectedProvider?.agent_runtime?.launchProfiles && <LaunchProfilePicker key={`${selectedProvider.id}:${launchProfile}`} list={false}
-                  provider={selectedProvider} profiles={profileCatalog.profiles} selected={launchProfile}
-                  onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})}
-                  onRefresh={profileCatalog.refresh} error={profileCatalog.error} />}</>
+                {singleProfile.details}</>
               ) : (
                 <TeamTemplateSection
                   choice={templates}
-                  providers={visibleProviders.filter(provider => !provider.agent_runtime?.launchProfiles)}
+                  providers={visibleProviders}
+                  roleControls={{orchestrator: orchestratorProfile, planner: plannerProfile}}
                   disabledProviderIds={disabledProviderIds}
                   pair={{
                     orchestratorProviderId: choice.orchestratorProviderId,
@@ -492,7 +484,8 @@ export function NewSessionPicker({
                     Tell the Orchestrator what you need. It plans and brings in the agents.
                   </p>
                   <OrchestrationPairForm
-                    providers={visibleProviders.filter(provider => !provider.agent_runtime?.launchProfiles)}
+                    providers={visibleProviders}
+                    roleControls={{orchestrator: orchestratorProfile, planner: plannerProfile}}
                     values={{
                       orchestratorProviderId: choice.orchestratorProviderId,
                       orchestratorModelId: choice.orchestratorModelId ?? "",

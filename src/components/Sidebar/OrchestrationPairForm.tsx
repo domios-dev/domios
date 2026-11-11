@@ -22,6 +22,7 @@ interface RoleRowProps {
   modelControls?: boolean;
   /** Takes the model's place beside the provider pill, e.g. an ACP profile pill. */
   modelSlot?: ReactNode;
+  details?: ReactNode;
   label: string;
   providers: ProviderDescriptor[];
   providerId: string;
@@ -46,6 +47,7 @@ interface RoleRowProps {
 export function OrchestrationRoleRow({
   modelControls = true,
   modelSlot,
+  details,
   label,
   providers,
   providerId,
@@ -126,6 +128,7 @@ export function OrchestrationRoleRow({
           />
         </div>
       )}
+      {details}
       {providerDisabled && (
         <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
           <span>{provider?.display_name ?? "This harness"}'s CLI isn't installed</span>
@@ -155,6 +158,7 @@ export function OrchestrationPairForm({
   titleField,
   pairAffordanceTestId,
   roleTestIds,
+  roleControls,
   onInstallProvider,
 }: {
   providers: ProviderDescriptor[];
@@ -164,6 +168,10 @@ export function OrchestrationPairForm({
   layout?: "team" | "stack";
   titleField?: ReactNode;
   pairAffordanceTestId?: string;
+  roleControls?: {
+    orchestrator?: Pick<RoleRowProps, "modelSlot" | "details">;
+    planner?: Pick<RoleRowProps, "modelSlot" | "details">;
+  };
   roleTestIds?: {
     orchestratorProvider?: string;
     orchestratorModel?: string;
@@ -200,6 +208,9 @@ export function OrchestrationPairForm({
   const orchestratorRow = (
     <OrchestrationRoleRow
       label="Orchestrator"
+      modelSlot={roleControls?.orchestrator?.modelSlot}
+      details={roleControls?.orchestrator?.details}
+      modelControls={!roleControls?.orchestrator?.modelSlot}
       providers={providers}
       providerId={values.orchestratorProviderId}
       modelId={values.orchestratorModelId}
@@ -225,6 +236,9 @@ export function OrchestrationPairForm({
   const plannerRow = (
     <OrchestrationRoleRow
       label="Planner"
+      modelSlot={roleControls?.planner?.modelSlot}
+      details={roleControls?.planner?.details}
+      modelControls={!roleControls?.planner?.modelSlot}
       providers={providers}
       providerId={values.plannerProviderId}
       modelId={values.plannerModelId}
