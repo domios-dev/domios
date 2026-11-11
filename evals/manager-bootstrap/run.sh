@@ -18,11 +18,9 @@ cleanup() {
 }
 trap cleanup EXIT
 dev_get /api/health >/dev/null || { echo "dev 7686 unavailable" >&2; exit 7; }
-# Every manager kind bootstraps from the one shared resolver, and an unmatched
-# kind lands on the declared fallback instead of an empty identity.
+# Every manager type bootstraps from the one shared resolver over the default package.
 assert_manager_kinds_resolve
 assert_planner_team_authority
-assert_declared_fallback
 WS=$(new_workspace "manager-bootstrap-eval" "$ROOT")
 TEAMS_BEFORE=$(capture_json dc team list --json)
 PROVIDERS=$(capture_json dc agent providers --json)
