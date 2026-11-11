@@ -3,4 +3,8 @@
 /**
  * What an export removed or generalized.
  */
-export type ScrubReport = { machines_removed: number, paths_generalized: number, secret_values_removed: number, secret_asks_added: number, history_removed: number, };
+export type ScrubReport = { machines_removed: number, paths_generalized: number, secret_values_removed: number, secret_asks_added: number, history_removed: number, 
+/**
+ * The secret names kept as asks; their values never travel.
+ */
+secret_names?: Array<string>, };

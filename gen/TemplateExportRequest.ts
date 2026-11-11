@@ -2,4 +2,8 @@
 import type { PackageFormat } from "./PackageFormat";
 import type { TemplateRef } from "./TemplateRef";
 
-export type TemplateExportRequest = { team_id?: string | null, template?: TemplateRef | null, format: PackageFormat, };
+export type TemplateExportRequest = { team_id?: string | null, template?: TemplateRef | null, format: PackageFormat, 
+/**
+ * Absolute destination; without it the package lands in the exports folder.
+ */
+out?: string | null, };

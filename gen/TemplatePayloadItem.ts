@@ -4,4 +4,12 @@ import type { PayloadKind } from "./PayloadKind";
 /**
  * One thing a package brings; the owner may opt out of it by `id` at start.
  */
-export type TemplatePayloadItem = { id: string, kind: PayloadKind, label: string, description?: string | null, executable: boolean, };
+export type TemplatePayloadItem = { id: string, kind: PayloadKind, label: string, description?: string | null, executable: boolean, 
+/**
+ * The roles whose `files` or `skills` name this item.
+ */
+used_by?: Array<string>, 
+/**
+ * The first runnable path the item carries, shown beside its script ask.
+ */
+script_path?: string | null, };

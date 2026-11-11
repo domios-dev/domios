@@ -156,6 +156,10 @@ role?: AgentRole,
  */
 role_profile?: string, 
 /**
+ * The registered role type's display name, stamped at launch from the Team's registration.
+ */
+role_label?: string, 
+/**
  * Team membership. Roleless members are Team utility terminals; their
  * creator is recorded in `spawned_by_tab_id`.
  */

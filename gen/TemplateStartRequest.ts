@@ -16,6 +16,10 @@ team_id?: string | null, inputs?: { [key in string]: string },
  */
 opt_out?: Array<string>, decision_id?: string | null, 
 /**
+ * Secret name to the local vault entry that supplies it; values never travel.
+ */
+secret_bindings?: { [key in string]: string }, 
+/**
  * Choices for with_team managers beyond the pair's own Orchestrator and Planner fields.
  */
 manager_models?: { [key in ManagerSlot]?: ManagerModelChoice }, };
