@@ -278,7 +278,7 @@ export function OrchestrationPairForm({
   );
 }
 
-function TeamRosterMember({ role, icon, children }: { role: string; icon: ReactNode; children: ReactNode }) {
+export function TeamRosterMember({ role, icon, children }: { role: string; icon: ReactNode; children: ReactNode }) {
   return (
     <div className="team-roster-member" role="listitem" data-pair-role={role}>
       <span className="team-roster-avatar">{icon}</span>

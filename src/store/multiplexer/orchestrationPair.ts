@@ -1,11 +1,12 @@
 import { freeLimitGate, precheckFreeLimit, raiseFreeLimit } from "../../components/billing/freeLimitGate";
 import { freeLimitBlocked } from "../../components/billing/freeLimitModel";
+import { withTemplate } from "../../lib/transport/teamTemplates";
 import type { OrchestrationPairInput, OrchestrationPairResult } from "../../lib/types";
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
-function orchestrationPairParams(input: OrchestrationPairInput) {
-  return {
+export function orchestrationPairParams(input: OrchestrationPairInput) {
+  return withTemplate({
     orchestrator_agent: input.orchestratorAgent,
     orchestrator_model: input.orchestratorModel,
     orchestrator_reasoning_effort: input.orchestratorReasoningEffort,
@@ -15,7 +16,7 @@ function orchestrationPairParams(input: OrchestrationPairInput) {
     workspace_id: input.workspaceId,
     title: input.title,
     existing_tab_id: input.existingTabId,
-  };
+  }, input.template);
 }
 
 /** A pair mints a Team and up to two tabs; a full limit opens the plans modal and rejects with the coded refusal. */
