@@ -694,6 +694,16 @@ fn foreign_checkout_report_uses_its_own_branch_sha_and_base_scope() {
     assert!(crate::cmd::report_guard::enrich_ready_report(
         Some(&scope),
         Some(ReportStatusArg::InReview),
+        None,
+        Some(head(project.path())),
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .is_err());
+    assert!(crate::cmd::report_guard::enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
         Some("wrong-project-branch".into()),
         Some(sha),
         ReportBase::default(),

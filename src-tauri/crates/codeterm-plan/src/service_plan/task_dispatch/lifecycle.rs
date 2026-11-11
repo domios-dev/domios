@@ -77,7 +77,17 @@ impl PlanStore {
                     crate::plan::WorkerPlacement::Shared
                         | crate::plan::WorkerPlacement::CanonicalWriter
                 ) {
-                    attempt.worktree_path = Some(canonical_checkout);
+                    attempt.worktree_path = Some(match attempt.placement {
+                        crate::plan::WorkerPlacement::Shared => {
+                            attempt.checkout_path.clone().ok_or_else(|| {
+                                Self::task_readback_error(
+                                    "task_dispatch_finish",
+                                    "shared attempt has no checkout binding",
+                                )
+                            })?
+                        }
+                        _ => canonical_checkout,
+                    });
                     attempt.base = None;
                 }
                 if attempt.acknowledged_at.is_some() {

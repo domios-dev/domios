@@ -94,6 +94,36 @@ pub(super) fn resolve_placement(
             "placement must be shared, lane or canonical_writer",
         ));
     }
+    if *intent == ExecutionIntent::Mutating && task.execution_intent.requires_repository() {
+        if let Some(cwd) = p
+            .and_then(|params| params.get("cwd"))
+            .and_then(Value::as_str)
+            .filter(|cwd| !cwd.trim().is_empty())
+        {
+            let checkout = verify_worker_lane(cwd, cwd, None, None, LaneProtection::Enforced)
+                .map_err(checkout_required)?;
+            let canonical = if task.canonical_project_path.trim().is_empty() {
+                &task.project_path
+            } else {
+                &task.canonical_project_path
+            };
+            if !codeterm_service_core::service::same_path(&checkout.worktree_path, canonical) {
+                return match requested {
+                    None | Some("lane" | PLACEMENT_ISOLATED_LANE) => Ok((
+                        WorkerPlacement::IsolatedLane,
+                        "explicit checkout outside the shared integration checkout".into(),
+                    )),
+                    Some("shared") => Err(invalid_dispatch(
+                        "shared placement requires the integration checkout; use lane placement for an explicit foreign checkout",
+                    )),
+                    Some(PLACEMENT_CANONICAL_WRITER) => Err(invalid_dispatch(
+                        "canonical writer placement conflicts with the explicit checkout; no Worker was spawned",
+                    )),
+                    Some(value) => Err(invalid_dispatch(format!("unknown placement '{value}'"))),
+                };
+            }
+        }
+    }
     if *intent == ExecutionIntent::Mutating
         && task.execution_intent.requires_repository()
         && requested != Some(PLACEMENT_CANONICAL_WRITER)

@@ -65,3 +65,127 @@ fn explicit_cwd_that_is_not_a_checkout_never_falls_back_to_the_workspace() {
     assert!(error.message.contains(explicit), "{}", error.message);
     assert!(!error.message.contains(workspace), "{}", error.message);
 }
+
+#[test]
+fn foreign_checkout_binding_records_git_root_and_refuses_rebinding_or_fallback() {
+    use codeterm_service_core::plan::{ExecutionIntent, OrchestratorRef};
+    use codeterm_service_core::service::plan::{NewTask, PlanStore};
+
+    let (root, canonical) = git_project();
+    let (_foreign_root, foreign) = git_project();
+    let nested = foreign.join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let plan = store
+        .create_plan_for_team(
+            "checkout binding".into(),
+            canonical.display().to_string(),
+            OrchestratorRef::from_tab("owner"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "binding".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let attempt = store
+        .begin_task_dispatch_with_policy(
+            &plan.id,
+            &task,
+            "worker",
+            "Finch",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::Mutating,
+            None,
+            None,
+            3,
+        )
+        .unwrap();
+    assert!(store
+        .record_attempt_checkout(
+            &plan.id,
+            &task,
+            "worker",
+            &attempt,
+            root.path().join("missing").display().to_string(),
+            4
+        )
+        .is_err());
+    assert!(store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task
+        .execution_attempts[0]
+        .checkout_path
+        .is_none());
+    store
+        .record_attempt_checkout(
+            &plan.id,
+            &task,
+            "worker",
+            &attempt,
+            nested.display().to_string(),
+            5,
+        )
+        .unwrap();
+    let bound = store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task
+        .execution_attempts[0]
+        .clone();
+    assert_eq!(
+        std::fs::canonicalize(bound.checkout_path.unwrap()).unwrap(),
+        std::fs::canonicalize(&foreign).unwrap()
+    );
+    assert_eq!(
+        bound.shared_start_sha.unwrap(),
+        codeterm_service_core::service::worker_lane::git_value(
+            foreign.to_str().unwrap(),
+            ["rev-parse", "HEAD"]
+        )
+        .unwrap()
+    );
+    assert!(store
+        .record_attempt_checkout(
+            &plan.id,
+            &task,
+            "worker",
+            &attempt,
+            canonical.display().to_string(),
+            6
+        )
+        .is_err());
+    assert!(store
+        .record_attempt_checkout(
+            &plan.id,
+            &task,
+            "other",
+            &attempt,
+            foreign.display().to_string(),
+            7
+        )
+        .is_err());
+    assert_eq!(
+        std::fs::canonicalize(
+            store
+                .inspect_task_for_test(&task)
+                .unwrap()
+                .task
+                .execution_attempts[0]
+                .checkout_path
+                .as_ref()
+                .unwrap()
+        )
+        .unwrap(),
+        std::fs::canonicalize(&foreign).unwrap()
+    );
+}
