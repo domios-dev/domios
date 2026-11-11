@@ -11,6 +11,7 @@ import { ChatDeliveryState } from "./ChatDeliveryState";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
+import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 import { canRetryChatSend, canDeleteChatSend, canEditChatSend, deliveryError, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import { editChatDelivery } from "./chatDeliveryComposer";
 import type { EnrichedChatEntry } from "./chatEnrichment";
@@ -134,8 +135,10 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
   const pendingDelivery = deliverySend && deliveryView && deliveryView !== "delivered";
+  const error = deliverySend ? deliveryError(deliverySend) : null;
+  const transcriptionFailed = deliveryView === "failed" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length) && isTranscriptionFailure(error);
   const onRetry = deliverySend && canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined;
-  const onRemove = deliverySend && canDeleteChatSend(deliverySend) ? () => context.deleteSend(deliverySend.id) : undefined;
+  const onRemove = !transcriptionFailed && deliverySend && canDeleteChatSend(deliverySend) ? () => context.deleteSend(deliverySend.id) : undefined;
   const onEdit = deliverySend && canEditChatSend(deliverySend) ? () => editChatDelivery(context.tabId, deliverySend) : undefined;
   const resendWithCli = Boolean(deliverySend && resendsWithCli(deliverySend));
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
@@ -167,10 +170,10 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />}
+              {transcriptionFailed ? <TranscriberSetupAction reason={error!} /> : pendingDelivery && <ChatDeliveryState state={deliveryView} error={error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
             </> : undefined}
-            noticeStatus={pendingDelivery
+            noticeStatus={transcriptionFailed ? <TranscriberSetupAction reason={error!} /> : pendingDelivery
               ? <ChatDeliveryState inline state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />
               : undefined}
             item={item.kind === "tool" ? item : undefined}
