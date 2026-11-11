@@ -18,6 +18,6 @@ export function PickerSettingSection({ section, busy, onChange }: {
     <span className="ct-model-picker__label" title={section.label}>{section.label}</span>
     {section.options.length ? <DropdownSelect aria-label={section.label} disabled={busy} value={section.current}
       options={[...options]} onChange={onChange} className="min-w-0 !py-1" />
-      : <output aria-label={section.label}>{section.current}</output>}
+      : <output aria-label={section.label} className="pl-3">{section.current}</output>}
   </div>;
 }
