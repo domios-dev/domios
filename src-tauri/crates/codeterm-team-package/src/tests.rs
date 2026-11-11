@@ -482,3 +482,28 @@ fn builtin_packages_are_valid_folder_packages() {
         );
     }
 }
+
+#[test]
+fn authored_builtin_packages_are_indexed_and_valid() {
+    let options = CheckOptions::domios();
+    let names = builtin::names();
+    for (folder, package) in [
+        ("release-train", "dev.domios/release-train"),
+        ("qa-sweep", "dev.domios/qa-sweep"),
+        ("distributed-bets", "dev.domios/distributed-bets"),
+    ] {
+        assert!(
+            names.iter().any(|name| name == folder),
+            "{folder} missing from {names:?}"
+        );
+        let checked = builtin::check(folder, &options).expect("indexed builtin has entries");
+        assert!(
+            checked.report.valid,
+            "{folder}: {:#?}",
+            checked.report.diagnostics
+        );
+        let loaded = checked.package.expect("a valid package loads");
+        assert_eq!(loaded.document.name, package);
+        assert!(loaded.icon().is_some(), "{folder} has no usable icon");
+    }
+}
