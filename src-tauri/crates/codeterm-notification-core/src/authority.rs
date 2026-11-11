@@ -57,7 +57,7 @@ pub fn tap_proof(admission: &AnswerAdmission) -> Option<TapProof> {
 
 /// What an offer may turn on. Core owns the set and spells no channel: a
 /// channel is the service id the registry resolved.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(tag = "surface", rename_all = "snake_case")]
 pub enum SurfaceTarget {
     /// The OS notification centre.
@@ -81,7 +81,7 @@ impl SurfaceTarget {
 /// An agent's offer to be louder: the surface it would turn on, and the one
 /// offered label that turns it on. Daemon-constructed — no `Deserialize`, so
 /// no payload on any transport can mint one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct SurfaceOffer {
     #[serde(flatten)]
     pub target: SurfaceTarget,

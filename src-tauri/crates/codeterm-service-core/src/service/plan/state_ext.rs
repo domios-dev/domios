@@ -27,13 +27,12 @@ impl ServiceContext {
             &read.team_id,
             read.complete,
         );
-        read.value["control_loop"]["suspended_reason"] = serde_json::json!(suspended);
+        read.value.control_loop.suspended_reason = Some(suspended);
         if suspended.is_some() {
-            read.value["control_loop"]["next_at"] = serde_json::Value::Null;
+            read.value.control_loop.next_at = None;
         }
-        read.value["mission_control"]["spend"] =
-            serde_json::json!(super::mission_control_ext::machine_spend(self));
-        Ok(read.value)
+        read.value.mission_control.spend = Some(super::mission_control_ext::machine_spend(self));
+        serde_json::to_value(read.value).map_err(|error| PlanError::Io(error.to_string()))
     }
 
     pub fn build_plan_state(

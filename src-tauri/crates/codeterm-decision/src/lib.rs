@@ -53,7 +53,7 @@ pub trait DecisionModel: Send + Sync {
     ) -> Result<DecisionAnswer, DecisionError>;
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(default)]
 pub struct DecisionMetadata {
     pub display_name: Option<String>,
@@ -62,7 +62,7 @@ pub struct DecisionMetadata {
     pub settings_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum TokenMode {
     Required,
@@ -71,20 +71,20 @@ pub enum TokenMode {
     None,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct DecisionModelInfo {
     pub id: String,
     pub display_name: String,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct DecisionPrimitives {
     pub choice: bool,
     pub noul: bool,
     pub score: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum DecisionQuestion {
     Choice { options: BTreeMap<String, String> },
@@ -92,7 +92,7 @@ pub enum DecisionQuestion {
     Score { levels: Vec<String> },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct NoulCriteria {
     #[serde(rename = "true")]
     pub true_def: String,
@@ -100,20 +100,20 @@ pub struct NoulCriteria {
     pub false_def: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct DecisionRequest {
     pub state: Value,
     pub instructions: String,
     pub question: DecisionQuestion,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct NamedDecisionQuestion {
     pub instructions: String,
     pub question: DecisionQuestion,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct DecisionQuestionsRequest {
     pub state: Value,
     pub questions: BTreeMap<String, NamedDecisionQuestion>,
@@ -121,13 +121,13 @@ pub struct DecisionQuestionsRequest {
 
 pub type DecisionAnswers = BTreeMap<String, DecisionAnswer>;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct DecisionUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct DecisionPricing {
     pub display_name: String,
     pub input_usd_per_million: f64,
@@ -150,7 +150,7 @@ impl DecisionPricing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct DecisionResponse {
     pub answers: DecisionAnswers,
     pub usage: Option<DecisionUsage>,
@@ -247,7 +247,7 @@ impl DecisionQuestion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum DecisionAnswer {
     Choice {

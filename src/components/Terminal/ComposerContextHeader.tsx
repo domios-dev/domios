@@ -131,8 +131,6 @@ function stateTone(state: string): string {
 }
 
 function delayedWhen(message: DelayedMessage): string {
-  if (message.turnRetry?.kind === "rate_limited_until") return `Retrying at ${formatClock(message.scheduledAtMs)} when the limit resets`;
-  if (message.turnRetry) return `Retrying in 10s (attempt ${message.turnRetry.attempt}/10)`;
   if (message.state === "stashed") return "stashed";
   return message.state === "failed" ? "failed" : formatScheduledTime(message.scheduledAtMs);
 }
@@ -271,7 +269,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       tone={stateTone(blueprint.state)}
       onOpen={() => requestOpenJob({ workspaceId: ownerWorkspace, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id }, returnTo: workspaceId ? { workspaceId, tabId } : undefined })}
     >
-      <StateBody title={blueprint.name} state={blueprint.state} />
+      <StateBody title={pipeline.name} state={blueprint.state} />
     </ContextBubble>
   );
 
@@ -319,7 +317,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
 
   const fallbackTitle = () => {
     const owned = blueprints[0];
-    if (owned) return <ContextTitle kind="blueprints" prefix="Blueprint:" primary={owned.blueprint.name} secondary={jobStateLabel(owned.blueprint.state)} />;
+    if (owned) return <ContextTitle kind="blueprints" prefix="Blueprint:" primary={owned.pipeline.name} secondary={jobStateLabel(owned.blueprint.state)} />;
     const job = blueprintChips[0] ?? cronChips[0];
     if (job) return <ContextTitle kind={job.kind === "cron" ? "crons" : "blueprints"} prefix={job.kind === "cron" ? "Cron:" : "Blueprint:"} primary={job.title} secondary={jobStateLabel(job.state)} />;
     const next = delayed.filter((message) => message.state !== "stashed").sort((a, b) => a.scheduledAtMs - b.scheduledAtMs)[0];
@@ -398,12 +396,6 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         {!phone && linkedChips}
       </div>
       {phone && linkedChips}
-      {delayed.filter(message => message.turnRetry).map(message => (
-        <div key={message.id} role={message.state === "failed" ? undefined : "status"}>
-          {message.state === "failed" ? <InlineErrorNotice error={message.error} operation="retrying the turn" /> : <span>{delayedWhen(message)}</span>}
-          <button type="button" onClick={() => onDeleteDelayed(message.id)}>Cancel</button>
-        </div>
-      ))}
       {heartbeat && <SystemHeartbeatDetail message={heartbeat} busy={false} onClose={() => setHeartbeatId(null)} />}
       {open && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>

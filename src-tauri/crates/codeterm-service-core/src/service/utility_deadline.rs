@@ -117,16 +117,6 @@ impl ServiceContext {
         remove_deadline(self, tab_id, &mut armed)
     }
 
-    pub fn prepare_utility_command(&self, tab_id: &str, _command: &str) {
-        {
-            let mut mux = self.mux.write();
-            if let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| tab.is_utility_shell()) {
-                tab.utility_command_pending = true;
-                tab.shell_command_state = Default::default();
-            }
-        }
-    }
-
     pub(crate) fn utility_command_started(&self, tab_id: &str, command: Option<&str>) {
         if !self
             .mux

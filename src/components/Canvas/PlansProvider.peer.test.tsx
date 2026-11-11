@@ -24,7 +24,7 @@ async function main() {
   const { __setListenForTest } = await import("../../lib/bridge");
   const { setRelayTarget, clearRelayTarget, invalidateWebRequestContext } = await import("../../lib/webApi");
   const { PlansProvider, usePlanIndex, usePlanSummaries } = await import("./PlansProvider");
-  const API: ApiConfig = { enabled: true, host: "gateway", port: 7685, token: "token", cors: true };
+  const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "gateway", port: 7685, token: "token", cors: true };
   type Handler = (event: { payload: unknown }) => void;
   const handlers = new Map<string, Set<Handler>>();
   __setListenForTest(async (name, handler) => {

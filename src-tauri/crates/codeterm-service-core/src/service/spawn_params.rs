@@ -362,13 +362,11 @@ pub fn chatbackend_spawn_config(
         let charter = charter.unwrap_or_default().trim();
         config.insert("mode".into(), serde_json::json!("watcher"));
         if !charter.is_empty() {
-            let mut engine = serde_json::Map::new();
-            engine.insert("kind".into(), serde_json::json!("machine"));
-            engine.insert("charter".into(), serde_json::json!(charter));
-            if let Some(value) = tick_interval_secs {
-                engine.insert("tickIntervalSecs".into(), serde_json::json!(value));
-            }
-            config.insert("engine".into(), serde_json::Value::Object(engine));
+            let engine = codeterm_wire::plugin_host::CoreMachineEngine::Machine {
+                charter: charter.into(),
+                tick_interval_secs,
+            };
+            config.insert("engine".into(), serde_json::json!(engine));
         }
     }
     serde_json::Value::Object(config)

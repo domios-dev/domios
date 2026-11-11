@@ -54,9 +54,9 @@ async function main() {
   const pipeline = viewerPipeline();
   const build = (value: PipelineView = pipeline, expansion: ReadonlySet<string> = new Set()) => buildIncrementally(buildBlueprintGraph(value, expansion), async () => {}, new AbortController().signal);
   for (const reason of ["command_failed", "deadline"]) {
-    const failed = { ...pipeline, state: "failed", nodes: [{ ...pipeline.nodes[0], key: "step-0", kind: "step" as const,
-      state: "failed", reason, resultSummary: reason }], nested_run: { id: pipeline.runId!, nodes: [
-      { step_index: 0, step_name: "probe", state: "done", outcome: "unchanged" },
+    const failed = { ...pipeline, state: "failed" as const, nodes: [{ ...pipeline.nodes[0], key: "step-0", kind: "step" as const,
+      state: "failed" as const, reason, resultSummary: reason }], nested_run: { id: pipeline.runId!, nodes: [
+      { step_index: 0, step_name: "probe", state: "done" as const, outcome: "unchanged" },
     ] } };
     const rows = blueprintJournalNodes(failed);
     assert.equal(rows[0].state, "failed");
@@ -97,7 +97,7 @@ async function main() {
   assert.equal(child.evidence?.journal?.reason, "contract_violation");
   assert.equal(child.evidence?.journal?.call_stack?.[0].hash, call.pin.hash);
   assert(graph.wires.some((wire) => wire.from.node === key([], "invoke") && wire.from.pin === "callee" && wire.to.node === key(["invoke"], "return-count")), "an expanded call wires into its callee");
-  assert.equal(graph.scopes.find((scope) => scope.call === key([], "invoke"))?.title, call.graph.name);
+  assert.equal(graph.scopes.find((scope) => scope.call === key([], "invoke"))?.title, call.graph!.name);
   assert.equal(blueprintPipelineOutcome(run)?.step_name, "return-count");
   assert.equal(blueprintPipelineOutcome(pipeline), null);
   assert.equal(blueprintPipelineOutcome({ ...run, nested_run: pipeline.nested_run }), null);
@@ -114,12 +114,12 @@ async function main() {
   const fields = blueprintDiffModel(diff).map((row) => row.field);
   for (const field of ["node", "routes", "out", "caps", "code", "imports", "call", "in", "inputs", "result"]) assert(fields.includes(field));
   assert(fields.some((field) => field.startsWith("call pin:")));
-  const repeated = { ...run, call_graph: { ...document, steps: [document.steps[2]] }, expanded_calls: [{ ...call, graph: { ...call.graph, steps: [{ ...call.graph.steps[0], id: "invoke" }] } }],
+  const repeated = { ...run, call_graph: { ...document, steps: [document.steps[2]] }, expanded_calls: [{ ...call, graph: { ...call.graph!, steps: [{ ...call.graph!.steps[0], id: "invoke" }] } }],
     nested_run: { id: run.runId!, nodes: [
-      { step_index: 1, parent_step_index: 0, step_name: "invoke", state: "failed", reason: "contract_violation", call_stack: [{ node: "invoke", ...call.pin }] },
-      { step_index: 0, parent_step_index: null, step_name: "invoke", state: "done", call_stack: [{ node: "invoke", ...call.pin }] },
+      { step_index: 1, parent_step_index: 0, step_name: "invoke", state: "failed" as const, reason: "contract_violation", call_stack: [{ node: "invoke", ...call.pin }] },
+      { step_index: 0, parent_step_index: null, step_name: "invoke", state: "done" as const, call_stack: [{ node: "invoke", ...call.pin }] },
     ] } };
-  assert.equal(blueprintPipelineOutcome({ ...repeated, nested_run: { ...repeated.nested_run, nodes: [...repeated.nested_run.nodes].reverse().map((row) => ({ ...row, state: "failed" })) } })?.step_index, 1);
+  assert.equal(blueprintPipelineOutcome({ ...repeated, nested_run: { ...repeated.nested_run, nodes: [...repeated.nested_run.nodes].reverse().map((row) => ({ ...row, state: "failed" as const })) } })?.step_index, 1);
   assert.equal(blueprintPipelineOutcome({ ...run, state: "idle" }), null);
   const repeatedGraph = await build(repeated, new Set(expanded));
   assert.equal(repeatedGraph.nodes.find((node) => node.key === key([], "invoke"))?.evidence?.state, "done");
@@ -135,18 +135,18 @@ async function main() {
   const afterCall = await build({ ...run, graph_definition_version: 1,
     call_graph: { ...document, steps: [...document.steps, { id: "after-call", run: { lit: "printf final" } }] },
     nested_run: { id: run.runId!, definition_version: 1, nodes: [
-      { step_index: 4, parent_step_index: null, definition_version: 1, step_name: "after-call", state: "done" },
+      { step_index: 4, parent_step_index: null, definition_version: 1, step_name: "after-call", state: "done" as const },
     ] } });
   assert.equal(afterCall.nodes.find((node) => node.id === "after-call")?.evidence?.state, "done");
-  const unproven = await build({ ...run, nodes: run.nodes.map((node) => ({ ...node, state: "failed", resultSummary: "unrelated marker" })), nested_run: { id: run.runId!, nodes: [] } });
+  const unproven = await build({ ...run, nodes: run.nodes.map((node) => ({ ...node, state: "failed" as const, resultSummary: "unrelated marker" })), nested_run: { id: run.runId!, nodes: [] } });
   assert.equal(unproven.mode, "unavailable");
   assert(unproven.nodes.every((node) => node.evidence === null), "unproven runs say evidence is unavailable instead of waiting");
   const finished = await build({ ...run, state: "idle", nested_run: { id: run.runId!, nodes: [
-    { step_index: -1, parent_step_index: null, step_name: "$run", state: "done" },
-    { step_index: -1, parent_step_index: null, step_name: "$result", state: "done", result_summary: "result delivered" },
-    { step_index: 0, parent_step_index: null, step_name: "probe", state: "done", outcome: "done" },
-    { step_index: 2, parent_step_index: null, step_name: "invoke", state: "done" },
-    { step_index: 3, parent_step_index: 2, step_name: "return-count", state: "held", reason: "uncertain_pipeline_claim", call_stack: [{ node: "invoke", ...call.pin }] },
+    { step_index: -1, parent_step_index: null, step_name: "$run", state: "done" as const },
+    { step_index: -1, parent_step_index: null, step_name: "$result", state: "done" as const, result_summary: "result delivered" },
+    { step_index: 0, parent_step_index: null, step_name: "probe", state: "done" as const, outcome: "done" },
+    { step_index: 2, parent_step_index: null, step_name: "invoke", state: "done" as const },
+    { step_index: 3, parent_step_index: 2, step_name: "return-count", state: "held" as const, reason: "uncertain_pipeline_claim", call_stack: [{ node: "invoke", ...call.pin }] },
   ] } }, new Set(expanded));
   const state = (path: string[], id: string) => finished.nodes.find((node) => node.key === key(path, id))?.evidence;
   assert.equal(state([], "$trigger")?.state, "done");

@@ -26,7 +26,8 @@ impl Default for EmbedderSelection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[ts(rename = "EmbedderModelDescriptor")]
 pub struct ModelDescriptor {
     pub model: String,
     pub dimension: usize,
@@ -36,7 +37,8 @@ pub struct ModelDescriptor {
     pub default: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[ts(rename = "EmbedderProviderDescriptor")]
 pub struct ProviderDescriptor {
     pub id: String,
     pub label: String,

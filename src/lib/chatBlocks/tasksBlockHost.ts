@@ -5,7 +5,7 @@ import type { PlanTarget } from "../../components/Canvas/teamViewNavigation";
 import type { TaskStatus } from "../../components/Canvas/types";
 import { dsTaskProgressLabel, dsTaskRowsForSpec, groupDsTaskRows } from "../../components/Terminal/dsTasks/dsTasksModel";
 import { formatModelBadge } from "../formatModelBadge";
-import type { PlanProjection } from "../../components/Canvas/planProjection";
+import type { PlanRead } from "../../components/Canvas/planProjection";
 import type { ScopedPlanBlockRead } from "./scopedPlanBlockRead";
 import type { ValueFeed } from "./valueFeed";
 
@@ -38,7 +38,7 @@ export function tasksBlockState(snapshot: PlansSnapshot, spec: TasksBlockSpec): 
   return { kind: "ready", title: plan.title, total: rows.length, groups };
 }
 
-export function createTasksBlockHost(plans: ValueFeed<PlansSnapshot>, navigate: (target: PlanTarget) => void, scoped?: ScopedPlanBlockRead<PlanProjection>): TasksBlockHost {
+export function createTasksBlockHost(plans: ValueFeed<PlansSnapshot>, navigate: (target: PlanTarget) => void, scoped?: ScopedPlanBlockRead<PlanRead>): TasksBlockHost {
   let cachedFor: PlansSnapshot | null = null;
   const states = new Map<string, TasksBlockState>();
   const scopedStates=new WeakMap<object,TasksBlockState>();

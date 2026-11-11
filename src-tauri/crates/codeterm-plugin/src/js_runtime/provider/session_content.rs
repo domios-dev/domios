@@ -5,7 +5,7 @@ use super::wire::SerdeSessionMessage;
 use super::JsProvider;
 use crate::provider::{SessionContent, SessionContentQuery, SessionContentSource, SessionMessage};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct WireSessionContent {
     #[serde(default)]
@@ -59,4 +59,12 @@ impl JsProvider {
             truncated: wire.truncated,
         })
     }
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    WireSessionContent::export_all(config)?;
+    Ok(())
 }

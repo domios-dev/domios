@@ -256,7 +256,11 @@ impl InstallationKeys<'_> {
                 return Err(Error::InvalidKey);
             }
             drop(candidate);
-            return self.reconcile().await?.ok_or(Error::LocalKeyUnavailable);
+            return self
+                .reconcile()
+                .await?
+                .filter(|keys| keys.verifier_key_id(self.uid) == id)
+                .ok_or(Error::KeyInventoryPending);
         }
         Err(Error::Revoked)
     }

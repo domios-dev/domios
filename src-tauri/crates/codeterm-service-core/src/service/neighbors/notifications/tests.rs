@@ -1,5 +1,6 @@
 use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+use serde_json::json;
 
 fn incoming(id: u64) -> Entry {
     Entry {
@@ -42,10 +43,10 @@ fn notification_preference_defaults_to_in_app_and_accepts_only_the_three_modes()
         );
         settings.notifications.insert("friend".into(), mode);
         assert_eq!(
-            ServiceContext::neighbor_notification_preferences(
+            json!(ServiceContext::neighbor_notification_preferences(
                 &settings,
                 &json!({"friends":[{"friendship_id":"friend"}]})
-            )["friend"],
+            ))["friend"],
             wire
         );
     }

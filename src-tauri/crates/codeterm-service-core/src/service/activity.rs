@@ -1,6 +1,6 @@
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
-use serde::{Deserialize, Serialize};
+
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -8,111 +8,84 @@ const MAX_ROWS: usize = 10_000;
 const MAX_AGE_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 const EVICT_EVERY: usize = 100;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ActivitySource {
-    Push,
-    Health,
-    Peer,
-    Cron,
+pub use codeterm_wire::api_contracts::ActivitySource;
+
+pub use codeterm_wire::api_contracts::ActivityLevel;
+
+pub use codeterm_wire::api_contracts::ActivityEvent;
+
+pub fn push(service_id: &str, tab_id: &str, body_preview: &str) -> ActivityEvent {
+    ActivityEvent {
+        id: None,
+        occurred_at: now_ms(),
+        source: ActivitySource::Push,
+        source_id: Some(service_id.into()),
+        target: Some(tab_id.into()),
+        source_peer: None,
+        level: ActivityLevel::Info,
+        message: format!(
+            "{} → Tab {}: {}",
+            service_id,
+            tab_id,
+            body_preview.chars().take(80).collect::<String>()
+        ),
+        meta: serde_json::json!({"body_preview": body_preview}),
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ActivityLevel {
-    Info,
-    Warn,
-    Error,
+pub fn peer(source_id: &str, level_str: &str, message: &str) -> ActivityEvent {
+    let level = match level_str {
+        "warn" => ActivityLevel::Warn,
+        "error" => ActivityLevel::Error,
+        _ => ActivityLevel::Info,
+    };
+    ActivityEvent {
+        id: None,
+        occurred_at: now_ms(),
+        source: ActivitySource::Peer,
+        source_id: Some(source_id.into()),
+        target: None,
+        source_peer: None,
+        level,
+        message: message.into(),
+        meta: serde_json::json!({}),
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActivityEvent {
-    pub id: Option<i64>,
-    pub occurred_at: i64,
-    pub source: ActivitySource,
-    pub source_id: Option<String>,
-    pub target: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_peer: Option<String>,
-    pub level: ActivityLevel,
-    pub message: String,
-    pub meta: serde_json::Value,
+pub fn peer_relay(
+    peer_id: &str,
+    peer_name: &str,
+    target_tab: &str,
+    body_preview: &str,
+) -> ActivityEvent {
+    ActivityEvent {
+        id: None,
+        occurred_at: now_ms(),
+        source: ActivitySource::Push,
+        source_id: Some(peer_id.into()),
+        target: Some(target_tab.into()),
+        source_peer: Some(peer_name.into()),
+        level: ActivityLevel::Info,
+        message: format!("{} → Tab {}: {}", peer_name, target_tab, body_preview),
+        meta: serde_json::json!({"kind": "mesh_relay", "body_preview": body_preview}),
+    }
 }
 
-impl ActivityEvent {
-    pub fn push(service_id: &str, tab_id: &str, body_preview: &str) -> Self {
-        Self {
-            id: None,
-            occurred_at: now_ms(),
-            source: ActivitySource::Push,
-            source_id: Some(service_id.into()),
-            target: Some(tab_id.into()),
-            source_peer: None,
-            level: ActivityLevel::Info,
-            message: format!(
-                "{} → Tab {}: {}",
-                service_id,
-                tab_id,
-                body_preview.chars().take(80).collect::<String>()
-            ),
-            meta: serde_json::json!({"body_preview": body_preview}),
-        }
-    }
-
-    pub fn peer(source_id: &str, level_str: &str, message: &str) -> Self {
-        let level = match level_str {
-            "warn" => ActivityLevel::Warn,
-            "error" => ActivityLevel::Error,
-            _ => ActivityLevel::Info,
-        };
-        Self {
-            id: None,
-            occurred_at: now_ms(),
-            source: ActivitySource::Peer,
-            source_id: Some(source_id.into()),
-            target: None,
-            source_peer: None,
-            level,
-            message: message.into(),
-            meta: serde_json::json!({}),
-        }
-    }
-
-    pub fn peer_relay(
-        peer_id: &str,
-        peer_name: &str,
-        target_tab: &str,
-        body_preview: &str,
-    ) -> Self {
-        Self {
-            id: None,
-            occurred_at: now_ms(),
-            source: ActivitySource::Push,
-            source_id: Some(peer_id.into()),
-            target: Some(target_tab.into()),
-            source_peer: Some(peer_name.into()),
-            level: ActivityLevel::Info,
-            message: format!("{} → Tab {}: {}", peer_name, target_tab, body_preview),
-            meta: serde_json::json!({"kind": "mesh_relay", "body_preview": body_preview}),
-        }
-    }
-
-    pub fn health(service_id: &str, transition: (&str, &str)) -> Self {
-        Self {
-            id: None,
-            occurred_at: now_ms(),
-            source: ActivitySource::Health,
-            source_id: Some(service_id.into()),
-            target: None,
-            source_peer: None,
-            level: if transition.1 == "down" {
-                ActivityLevel::Error
-            } else {
-                ActivityLevel::Info
-            },
-            message: format!("{}: {} → {}", service_id, transition.0, transition.1),
-            meta: serde_json::json!({"from": transition.0, "to": transition.1}),
-        }
+pub fn health(service_id: &str, transition: (&str, &str)) -> ActivityEvent {
+    ActivityEvent {
+        id: None,
+        occurred_at: now_ms(),
+        source: ActivitySource::Health,
+        source_id: Some(service_id.into()),
+        target: None,
+        source_peer: None,
+        level: if transition.1 == "down" {
+            ActivityLevel::Error
+        } else {
+            ActivityLevel::Info
+        },
+        message: format!("{}: {} → {}", service_id, transition.0, transition.1),
+        meta: serde_json::json!({"from": transition.0, "to": transition.1}),
     }
 }
 

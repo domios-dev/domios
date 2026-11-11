@@ -69,4 +69,4 @@ def test_socket_eager_create_then_immediate_list_returns(api_only, tmp_path):
         assert any(w["id"] == ws_id for w in json.loads(listed.stdout)["result"])
     finally:
         if ws_id:
-            api_only.close_workspace(ws_id)
+            api_only.cleanup_workspace(ws_id)

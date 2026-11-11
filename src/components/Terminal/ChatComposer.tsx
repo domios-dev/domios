@@ -18,6 +18,7 @@ import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { useComposerRecall } from "./useComposerRecall";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
+import { useChatDeliveryComposer } from "./chatDeliveryComposer";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { classifyComposerDevice, composerEnterIntent, isComposerEnterKey } from "./composerKeyboard";
 import {
@@ -50,13 +51,12 @@ import {
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 import { failChatSendRequest, readChatSends, setChatSendDraft } from "./chatSendStore";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
-import { TranscriptionStatus, useTranscriptionStatus } from "./voice/TranscriptionStatus";
 import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
-import { hasCapsuleTokens } from "./composerCapsules";
+import { capsulesInDraft, hasCapsuleTokens } from "./composerCapsules";
 import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { composerSendPlan, resolveComposerSend } from "./composerSendPlan";
 import { recordDroppedUploads } from "./DroppedUploadNotice";
@@ -68,9 +68,10 @@ import { ReplyQuote } from "@codeterm/chat-ui";
 import type { ComposerReply } from "./composerReply";
 import { useComposerReply } from "./useComposerReply";
 import { useStartupSend } from "./useStartupSend";
+import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
-const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
+const VOICE_TRANSCRIBE_ERROR = "Voice transcription failed";
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
   "/config",
@@ -263,6 +264,7 @@ function ChatComposerImpl({
   const [delayedBusyId, setDelayedBusyId] = useState<string | null>(null);
   const [delayedModal, setDelayedModal] = useState<DelayedModalTarget | null>(null);
   const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [transcriptionFailure, setTranscriptionFailure] = useState<string | null>(null);
   // Screen-reader-visible mirror of showComposerError: the field's current
   // content was rejected, until the user edits it again.
   const [composerInvalid, setComposerInvalid] = useState(false);
@@ -276,8 +278,12 @@ function ChatComposerImpl({
   const provider = useAgentDescriptor(tabProvider);
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError,
     keepTextInline: Boolean(tabProvider && !provider?.attachments?.filePaths) });
+  useChatDeliveryComposer(tabId, text => {
+    const existing = textareaRef.current?.value ?? input;
+    setInput(capsules.fromPortable([existing, text].filter(Boolean).join("\n")));
+    textareaRef.current?.focus({ preventScroll: true });
+  });
   const [composing, setComposing] = useState(false);
-  const transcription = useTranscriptionStatus();
   const capsulesActive = !composing && hasCapsuleTokens(input);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
   const commands = useMuxSelector(useLatestCallback(state => state.tabs[tabId]?.agent_runtime_state?.controls?.commands !== undefined
@@ -421,11 +427,12 @@ function ChatComposerImpl({
     const attachmentError = composerAttachmentError(provider?.attachments, text, allAttachments,
       recordedVoiceAttachments, capsules.registryRef.current, quoted);
     if (tabProvider && attachmentError) { flagComposerError(attachmentError); return; }
-    const dupKey = `${text} ${allAttachments.join("|")} ${quoted?.path ?? ""}`;
+    const registry = capsules.registryRef.current;
+    const dupKey = JSON.stringify([text, allAttachments, recordedVoiceAttachments,
+      capsulesInDraft(text, registry).map(({ kind, path, uploadId }) => [kind, path, uploadId]), quoted]);
     const duplicate = pendingDraftsRef.current.has(dupKey)
       || isDuplicateSend(lastSendRef.current, dupKey, Date.now());
     const portable = capsules.toPortable(text);
-    const registry = capsules.registryRef.current;
     setExpandedEditor(false);
     setInput("");
     if (textareaRef.current) textareaRef.current.value = "";
@@ -447,22 +454,27 @@ function ChatComposerImpl({
     let composed: string;
     try {
       const send = readChatSends(tabId).find((item) => item.id === optimisticId)
-        ?? { id: optimisticId, content: portable, sentAtMs: Date.now(), draft: deliveryDraft };
+        ?? { id: optimisticId, correlationId: optimisticId, content: portable, sentAtMs: Date.now(), draft: deliveryDraft };
       const results = await Promise.all(capturedUploads.map(async item => ({ ...item, path: await item.result })));
       const resolved = resolveComposerSend(text, registry, new Map(results.map(item => [item.upload.id, item.path])));
       recordDroppedUploads(tabId, optimisticId, results.filter(item => !item.path).map(item => item.upload));
+      if (!resolved.text.trim() && !allAttachments.length && !quoted) {
+        const dropped = readChatSends(tabId).find(item => item.id === optimisticId)?.droppedUploads;
+        throw new Error(dropped?.length ? `No message was sent because its attachments failed: ${dropped.join(", ")}`
+          : "No message was sent because the prepared message is empty.");
+      }
       const readyDraft = { ...deliveryDraft, ...resolved };
       setChatSendDraft(tabId, optimisticId, readyDraft);
       const delivery = prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
-      composed = await (recordedVoiceAttachments.length > 0 ? transcription.track(delivery) : delivery);
+      composed = await delivery;
       if (!composed.trim()) {
-        failChatSendRequest(tabId, optimisticId);
+        failChatSendRequest(tabId, optimisticId, "No message was sent because the prepared message is empty.");
         pendingDraftsRef.current.delete(dupKey);
         return;
       }
       updateOptimistic(optimisticId, composed);
-    } catch {
-      failChatSendRequest(tabId, optimisticId);
+    } catch (error) {
+      failChatSendRequest(tabId, optimisticId, error);
       pendingDraftsRef.current.delete(dupKey);
       return;
     }
@@ -495,6 +507,7 @@ function ChatComposerImpl({
       draft.recordedVoiceAttachments, capsules.registryRef.current, draft.quoted);
     if (tabProvider && attachmentError) { flagComposerError(attachmentError); return; }
     setScheduleBusy(true);
+    setTranscriptionFailure(null);
     try {
       const pendingDraft = composeDraft(
         body,
@@ -502,10 +515,10 @@ function ChatComposerImpl({
         draft.recordedVoiceAttachments,
         draft.quoted,
       );
-      const { composed, transcribeFailed } = await (draft.recordedVoiceAttachments.length > 0
-        ? transcription.track(pendingDraft) : pendingDraft);
+      const { composed, transcribeFailed } = await pendingDraft;
       if (transcribeFailed) {
-        flagComposerError(VOICE_TRANSCRIBE_ERROR);
+        setDelayedModal(null);
+        setTranscriptionFailure(VOICE_TRANSCRIBE_ERROR);
         return;
       }
 
@@ -517,7 +530,12 @@ function ChatComposerImpl({
       setDelayedModal(null);
       await refreshDelayedMessages();
     } catch (e) {
-      flagComposerError(e instanceof Error ? e.message : String(e));
+      const reason = e instanceof Error ? e.message : String(e);
+      if (isTranscriptionFailure(reason)) {
+        setDelayedModal(null);
+        setTranscriptionFailure(reason);
+      }
+      else flagComposerError(reason);
     } finally {
       setScheduleBusy(false);
       refocusComposer();
@@ -577,6 +595,7 @@ function ChatComposerImpl({
         {attachments.length > 0 && <ComposerBubbleRow attachments={attachments} onRemove={removeAttachment} />}
       </>}
     >
+      {transcriptionFailure && <TranscriberSetupAction reason={transcriptionFailure} />}
       <SlashPicker
         suggestions={pickerOpen ? suggestions : NO_SUGGESTIONS}
         highlighted={pickerHighlight}
@@ -588,7 +607,6 @@ function ChatComposerImpl({
         onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
       {plansSink}
       {!startupSend.bound && <span role="status">Connecting to chat — sending is unavailable</span>}
-      <TranscriptionStatus since={transcription.since} />
       <ComposerCapsuleField
         tabId={tabId}
         value={input}

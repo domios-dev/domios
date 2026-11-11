@@ -8,14 +8,14 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
     Active,
     Archived,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanMode {
     #[default]
@@ -26,7 +26,7 @@ pub enum PlanMode {
     Complete,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Pending,
@@ -38,7 +38,7 @@ pub enum TaskStatus {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewStage {
     #[default]
@@ -46,7 +46,7 @@ pub enum ReviewStage {
     Qa,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum QaState {
     Queued,
@@ -82,7 +82,7 @@ impl TaskStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskPriority {
     P0,
@@ -92,7 +92,7 @@ pub enum TaskPriority {
     P3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum LoopStatus {
     Running,
@@ -101,7 +101,7 @@ pub enum LoopStatus {
     Stopped,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct ElementCanvas {
     pub x: Option<f64>,
     pub y: Option<f64>,
@@ -109,7 +109,7 @@ pub struct ElementCanvas {
     pub collapsed: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct OrchestratorRef {
     pub tab_id: Option<String>,
     pub session_id: Option<String>,
@@ -128,14 +128,16 @@ impl OrchestratorRef {
 pub type AgentRef = OrchestratorRef;
 
 /// Planner binding on a plan. None = unset; Waived = explicitly solo.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlannerRef {
     Tab {
         tab_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         title: Option<String>,
     },
     Waived {
@@ -143,7 +145,7 @@ pub enum PlannerRef {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlannerRequestState {
     Queued,
@@ -153,7 +155,7 @@ pub enum PlannerRequestState {
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlannerDeliveryPhase {
     #[default]
@@ -164,14 +166,14 @@ pub enum PlannerDeliveryPhase {
     DeliveryUncertain,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlannerDeliveryTransport {
     PtyAgent,
     ChatBackend,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct PlannerInboxEntry {
     pub request_id: String,
     #[serde(default)]
@@ -189,7 +191,7 @@ pub struct PlannerInboxEntry {
     pub updated_at: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlannerRequest {
     pub request_id: String,
     pub payload: String,
@@ -219,7 +221,7 @@ pub struct PlannerRequest {
     pub delivered_with_binding_nonce: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TransferRecord {
     pub from: OrchestratorRef,
     pub to: OrchestratorRef,
@@ -227,7 +229,7 @@ pub struct TransferRecord {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlanLifecycleEvent {
     #[serde(default)]
     pub id: String,
@@ -240,7 +242,7 @@ pub struct PlanLifecycleEvent {
 /// pending regression gates so frontier dispatch may proceed. A waiver only
 /// applies while `ts >= group completion` — reopening/reclosing a group re-arms
 /// its gate past the waiver, so an override never silently outlives its scope.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct RegressionGateOverride {
     pub actor: AgentRef,
     pub reason: String,
@@ -248,21 +250,21 @@ pub struct RegressionGateOverride {
     pub ts: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct MilestoneKind {
     pub key: String,
     pub label: String,
     pub color: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TaskGroup {
     pub key: String,
     pub label: String,
     pub color: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TagFacetValue {
     pub v: String,
     #[serde(default)]
@@ -271,7 +273,7 @@ pub struct TagFacetValue {
     pub color: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TagFacet {
     pub key: String,
     #[serde(default)]
@@ -363,7 +365,7 @@ fn compact_tag_facet_value(raw: &str) -> Result<TagFacetValue, String> {
     })
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct Goal {
     pub vector: String,
     #[serde(default)]
@@ -374,7 +376,7 @@ pub struct Goal {
     pub postulates: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct HeartbeatLearning {
     pub id: String,
     pub text: String,
@@ -383,7 +385,7 @@ pub struct HeartbeatLearning {
     pub tag: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct OrchestratorHeartbeat {
     #[serde(default)]
     pub current_focus: Option<String>,
@@ -395,7 +397,7 @@ pub struct OrchestratorHeartbeat {
     pub learnings: Vec<HeartbeatLearning>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct Section {
     pub id: String,
     #[serde(alias = "name")]
@@ -414,7 +416,7 @@ pub struct Section {
     pub attachments: Vec<AttachmentRef>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct AttachmentRef {
     pub id: String,
     pub name: String,
@@ -424,9 +426,10 @@ pub struct AttachmentRef {
     pub created_at: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct Milestone {
     pub id: String,
+    #[serde(default)]
     pub from: AgentRef,
     pub kind: String,
     #[serde(default)]
@@ -442,7 +445,7 @@ pub struct Milestone {
     pub attachments: Vec<AttachmentRef>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct Task {
     #[serde(default)]
     pub files: super::TaskFiles,
@@ -452,6 +455,7 @@ pub struct Task {
     pub kind: String,
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub speed: Option<String>,
     pub model_rationale: Option<String>,
     #[serde(default)]
@@ -493,6 +497,7 @@ pub struct Task {
     #[serde(default)]
     pub handle: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub key: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
@@ -535,14 +540,14 @@ pub struct Task {
     pub attachments: Vec<AttachmentRef>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum IdentityProvenance {
     UserSupplied,
     Suggested,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct LoopSpec {
     pub id: String,
     pub target: String,
@@ -559,7 +564,7 @@ pub struct LoopSpec {
     pub last_iteration_at: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct CanvasElement {
     pub id: String,
     pub kind: String,
@@ -571,33 +576,33 @@ pub struct CanvasElement {
     pub links: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct Viewport {
     pub pan_x: f64,
     pub pan_y: f64,
     pub scale: f64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlanCanvas {
     pub viewport: Option<Viewport>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct SpecLink {
     pub spec_id: String,
     pub spec_section_id: String,
     pub plan_section_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum EffortLinkRel {
     Follows,
     Supersedes,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct EffortLink {
     pub to: String,
     pub rel: EffortLinkRel,
@@ -621,7 +626,7 @@ pub struct Spec {
     pub canvas: PlanCanvas,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct Plan {
     pub id: String,
     pub title: String,
@@ -637,6 +642,7 @@ pub struct Plan {
     pub owner: OrchestratorRef,
     /// Optional 1:1 team binding; None keeps legacy plans teamless.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub team_id: Option<String>,
     pub project_path: String,
     #[serde(default)]
@@ -700,6 +706,7 @@ pub struct Plan {
     #[serde(default)]
     pub regression_gate_overrides: Vec<RegressionGateOverride>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub orphaned: Option<super::PlanOrphan>,
 }
 

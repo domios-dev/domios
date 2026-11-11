@@ -47,10 +47,13 @@ impl codeterm_client_shell::application_host::NativeUpdateApply for super::Nativ
         let mut result = match result {
             Ok(result) => result,
             Err(NativeHostRejection::QueueFull) => {
-                return Ok(serde_json::json!({
-                    "status": single_flight::ALREADY_IN_FLIGHT,
-                    "message": "An update is already being applied.",
-                }))
+                return Ok(serde_json::json!(
+                    codeterm_update::contracts::InstallResponse {
+                        status: codeterm_update::contracts::InstallStatus::AlreadyInFlight,
+                        message: Some(("An update is already being applied.").to_owned()),
+                        ..Default::default()
+                    }
+                ))
             }
             Err(NativeHostRejection::UpdateAdmission { reason }) => return Err(reason.error()),
             Err(reason) => {
@@ -61,10 +64,22 @@ impl codeterm_client_shell::application_host::NativeUpdateApply for super::Nativ
         };
         loop {
             match result.phase {
-                Phase::NoUpdate => return Ok(serde_json::json!({ "status": "up_to_date" })),
+                Phase::NoUpdate => {
+                    return Ok(serde_json::json!(
+                        codeterm_update::contracts::InstallResponse {
+                            status: codeterm_update::contracts::InstallStatus::UpToDate,
+                            ..Default::default()
+                        }
+                    ))
+                }
                 Phase::Failed { message } => return Err(message),
                 Phase::Relaunching | Phase::Verified { .. } => {
-                    return Ok(serde_json::json!({ "status": single_flight::UPDATING }))
+                    return Ok(serde_json::json!(
+                        codeterm_update::contracts::InstallResponse {
+                            status: codeterm_update::contracts::InstallStatus::Updating,
+                            ..Default::default()
+                        }
+                    ))
                 }
                 _ => {}
             }

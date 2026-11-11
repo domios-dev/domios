@@ -18,7 +18,7 @@ const RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
 const MAX_CACHE_ENTRIES: usize = 128;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ProbeStatus {
     #[default]

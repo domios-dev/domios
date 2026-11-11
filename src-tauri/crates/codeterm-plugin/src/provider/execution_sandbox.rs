@@ -1,7 +1,7 @@
 use codeterm_types::plan::ExecutionIntent;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ExecutionSandboxCapability {
     pub platforms: Vec<String>,
@@ -12,7 +12,7 @@ pub struct ExecutionSandboxCapability {
     pub forbidden_argument_prefixes: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ExecutionSandboxMode {
     pub launch_args: Vec<String>,

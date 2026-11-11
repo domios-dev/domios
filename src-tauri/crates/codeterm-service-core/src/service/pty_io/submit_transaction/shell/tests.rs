@@ -77,13 +77,30 @@ impl SubmitTransport for ShellTrace {
     fn retry_active(&self) -> bool {
         self.claim.is_current()
     }
+    fn prewrite_guard(&self) -> Result<(), InjectionError> {
+        let (wake_tx, wake_rx) = mpsc::sync_channel(1);
+        ShellTransport {
+            svc: &self.fixture.service,
+            pty_id: &self.pty,
+            payload: b"opaque",
+            expected: "opaque",
+            claim: self.claim.clone(),
+            wake_tx,
+            wake_rx,
+            waiter: RefCell::new(None),
+            queued: None,
+        }
+        .prewrite_guard()
+    }
     fn write_paste(&self, text: &str, _: Instant) -> Result<usize, InjectionError> {
+        self.prewrite_guard()?;
         *self.waiter.borrow_mut() = Some(ExecWaiter::for_command(&self.pty, text));
         self.claim.enqueue_test_payload();
         self.writes.borrow_mut().push(text.into());
         Ok(text.len())
     }
     fn write_submit_key(&self, key: &[u8], _: Instant) -> Result<(), InjectionError> {
+        self.prewrite_guard()?;
         assert_eq!(key, b"\r");
         let count = self.keys.get() + 1;
         self.keys.set(count);
@@ -159,10 +176,13 @@ fn newer_shell_payload_cancels_prior_recovery_without_rewriting_it() {
 #[test]
 fn echoed_unsubmitted_line_never_claims_running_until_authenticated_command_start() {
     let trace = ShellTrace::new("shell-unsubmitted-state", None);
-    trace
-        .fixture
-        .service
-        .prepare_utility_command(&trace.tab, "opaque");
+    let admission = crate::service::pty_io::utility_command::UtilityCommandAdmission::begin(
+        &trace.fixture.service,
+        &trace.pty,
+    )
+    .unwrap();
+    admission.mark_written();
+    drop(admission);
     trace.fixture.service.process_pty_output(
         &trace.pty,
         b"\x1b]633;A\x07PS> opaque\x1b]633;E;opaque;nonce\x07",
@@ -216,4 +236,22 @@ fn utility_dispatch_separates_submit_key_from_payload_and_keeps_exact_command() 
             (payload.as_bytes().to_vec(), expected.into())
         );
     }
+}
+
+#[test]
+fn running_shell_send_is_admitted_and_payload_is_written_once() {
+    let mut trace = ShellTrace::new("shell-busy-send-once", Some(1));
+    trace.finish_after_start = false;
+    trace.start(&trace.pty, "previous", "nonce");
+    assert!(
+        crate::service::pty_io::utility_command::shell_command_running(
+            &trace.fixture.service,
+            &trace.pty,
+        )
+    );
+    let result = run_shell(&trace, "opaque").unwrap();
+    assert_eq!(result.bytes_written, b"opaque".len());
+    assert!(result.submit_observed);
+    assert_eq!(result.submit_key_writes, 1);
+    assert_eq!(*trace.writes.borrow(), ["opaque", "enter"]);
 }

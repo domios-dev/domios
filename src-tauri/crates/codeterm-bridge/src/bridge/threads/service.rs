@@ -45,31 +45,11 @@ pub struct TabText {
     pub buttons: Option<InlineKeyboard>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TopicsState {
-    Available,
-    Unavailable,
-    Unknown,
-}
+pub use codeterm_wire::api_contracts::TopicsState;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ThreadMenuState {
-    pub bridge_active: bool,
-    pub topics: TopicsState,
-    pub bound: bool,
-    pub link: Option<String>,
-}
+pub use codeterm_wire::api_contracts::ThreadMenuState;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct OpenedThread {
-    pub tab_id: String,
-    pub chat_id: i64,
-    pub thread_id: i64,
-    pub topic_name: String,
-    pub link: Option<String>,
-    pub created: bool,
-}
+pub use codeterm_wire::api_contracts::OpenedThread;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]

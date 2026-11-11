@@ -26,7 +26,7 @@ impl JsConverter {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 struct ConvertOut {
     #[serde(default)]
     text: Option<String>,
@@ -91,3 +91,11 @@ impl Converter for JsConverter {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    ConvertOut::export_all(config)?;
+    Ok(())
+}

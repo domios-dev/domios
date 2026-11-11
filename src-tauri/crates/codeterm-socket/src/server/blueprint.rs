@@ -286,10 +286,7 @@ pub(super) fn dispatch(
                     &svc.ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>(),
                 )
                 .map_err(error)?;
-                if let (Some(value), Some(fields)) = (value.as_object_mut(), projection.as_object())
-                {
-                    value.extend(fields.clone());
-                }
+                add_retained_projection(&mut value, projection);
             }
             Ok(value)
         }
@@ -494,6 +491,40 @@ fn exposed_definition(value: Value) -> Value {
 
 #[cfg(test)]
 mod tests;
+
+fn add_retained_projection(
+    value: &mut Value,
+    projection: codeterm_sentinel::blueprint_snapshot::Projection,
+) {
+    let codeterm_sentinel::blueprint_snapshot::Projection {
+        plugin_nodes,
+        historical_graph_available,
+        graph_definition_version,
+        call_graph,
+        expanded_calls,
+        nested_run,
+    } = projection;
+    if let Some(value) = value.as_object_mut() {
+        for (name, field) in [
+            ("plugin_nodes", plugin_nodes.map(|field| json!(field))),
+            (
+                "historical_graph_available",
+                historical_graph_available.map(|field| json!(field)),
+            ),
+            (
+                "graph_definition_version",
+                graph_definition_version.map(|field| json!(field)),
+            ),
+            ("call_graph", call_graph),
+            ("expanded_calls", expanded_calls.map(|field| json!(field))),
+            ("nested_run", nested_run.map(|field| json!(field))),
+        ] {
+            if let Some(field) = field {
+                value.insert(name.into(), field);
+            }
+        }
+    }
+}
 
 fn local_callees(
     params: &Option<Value>,

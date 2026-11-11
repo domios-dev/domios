@@ -11,8 +11,9 @@ use super::probe::{
 
 pub use codeterm_blueprint_types::blueprint_watch::CommandParameters as Parameters;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "SentinelCommandStatus")]
 pub enum Status {
     Success,
     Nonzero,
@@ -22,16 +23,18 @@ pub enum Status {
     Unconfirmed,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
+#[ts(rename = "SentinelCommandCapture")]
 pub struct Capture {
     pub total_bytes: u64,
     pub retained_bytes: u64,
     pub truncated: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
+#[ts(rename = "SentinelCommandResultMetadata")]
 pub struct ResultMetadata {
     pub status: Status,
     pub exit_code: Option<i32>,

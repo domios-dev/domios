@@ -4,7 +4,7 @@ use crate::{Error, Result};
 use async_trait::async_trait;
 use serde::Serialize;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ListenerState {
     Connecting,

@@ -7,7 +7,7 @@ import {
 } from "./outputStream";
 import { configureRemoteTabTransport } from "./remoteTabTransport";
 
-const PRELOAD = { enabled: true, host: "127.0.0.1", port: 7685, token: null, cors: false };
+const PRELOAD = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7685, token: null, cors: false };
 const LOADED = { ...PRELOAD, token: "loaded-token" };
 
 const authOf = (call: unknown[]): string => {

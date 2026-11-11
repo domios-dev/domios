@@ -61,7 +61,18 @@ fn agent_guide_from_manifest(manifest: &super::PluginManifest) -> Option<String>
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+struct AgentCommandCtx<'a> {
+    session_id: &'a str,
+    verb: &'a str,
+    args: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    body: Option<&'a str>,
+}
+
+#[derive(Deserialize, ts_rs::TS)]
 struct AgentCommandOut {
     #[serde(default)]
     result: Option<String>,
@@ -94,10 +105,12 @@ impl AgentCommandProvider for JsAgentCommandHandler {
         args: &[String],
         body: Option<&str>,
     ) -> Result<crate::agent_commands::AgentCommandResult, String> {
-        let mut ctx = json!({ "sessionId": session_id, "verb": verb, "args": args });
-        if let Some(body) = body {
-            ctx["body"] = body.into();
-        }
+        let ctx = json!(AgentCommandCtx {
+            session_id,
+            verb,
+            args,
+            body
+        });
         let _caller = super::host_surface::AgentCallerScope::enter(session_id);
         match call_json::<AgentCommandOut>(&self.vm, "onAgentCommand", &[ctx]) {
             Ok(out) => {
@@ -135,3 +148,12 @@ impl AgentCommandProvider for JsAgentCommandHandler {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    AgentCommandOut::export_all(config)?;
+    AgentCommandCtx::export_all(config)?;
+    Ok(())
+}

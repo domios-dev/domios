@@ -5,7 +5,7 @@ use super::super::JsProvider;
 use crate::provider::AgentProvider;
 
 /// `usageSources` wire row: a path plus the session that scopes a shared log.
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct WireUsageSource {
     pub(super) path: String,
@@ -19,4 +19,12 @@ impl JsProvider {
             .flatten()
             .map(|model| crate::model_catalog::resolve_observed_model(self.id(), model))
     }
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    WireUsageSource::export_all(config)?;
+    Ok(())
 }

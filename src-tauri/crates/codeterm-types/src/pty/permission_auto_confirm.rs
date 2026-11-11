@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Most recent auto-confirmations kept on a tab for the Chat UI; the durable
 /// audit lives in the tab lifecycle journal.
 pub const MAX_RECENT_AUTO_CONFIRMATIONS: usize = 20;
 
 /// One provider permission prompt answered by a tab's opt-in auto-confirm.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct AutoConfirmedPrompt {
     pub tool_name: String,
     pub option_label: String,
@@ -14,6 +15,7 @@ pub struct AutoConfirmedPrompt {
     pub options: Vec<String>,
     pub prompt_fingerprint: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub session_id: Option<String>,
     pub confirmed_at_ms: u64,
 }

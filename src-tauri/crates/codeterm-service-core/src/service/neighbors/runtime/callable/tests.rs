@@ -297,6 +297,7 @@ fn callable_failure_preserves_structured_delivery_limits() {
 }
 
 mod auth;
+mod inventory;
 
 #[test]
 fn http_status_body_matrix_keeps_permanent_failures_out_of_recovery() {

@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_READ_FIELDS } from "./cards/fixtures.testdata";
 import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
@@ -488,7 +489,7 @@ describe("temporary task segment through show full", () => {
   });
 });
 
-const API: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
+const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
 
 function missionState(): MissionControlState {
   return {
@@ -529,6 +530,7 @@ function missionState(): MissionControlState {
 }
 
 const BOARD_STATE: PlanBoardState = {
+  ...FIXTURE_BOARD_READ_FIELDS,
   revision: "1",
   plan_id: TEAM_PLAN.id,
   task_counts: { pending: 2, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 2 },

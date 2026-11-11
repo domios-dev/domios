@@ -1,17 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum State {
-    DeliveredToConcierge,
-    Working,
-    Answered,
-    Refused,
-    NoReply,
-    Failed,
-    Waiting,
-    Stopped,
-}
+pub(crate) use codeterm_wire::api_contracts::State;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(in crate::service::neighbors) struct Owner {

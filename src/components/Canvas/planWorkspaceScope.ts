@@ -1,6 +1,5 @@
 import type { PlanView as Plan, PlanTaskView as Task } from "./planProjection";
 import type { Workspace } from "../../lib/types";
-import type { TaskLaneMetadata } from "./types";
 
 export interface PlanWorkspaceScope {
   ownerWorkspaceId: string | null;
@@ -38,7 +37,7 @@ function candidateKey(candidate: WorkspaceCandidate): string {
   return candidate.id ? `id:${candidate.id}` : `label:${candidate.label.toLowerCase()}`;
 }
 
-function laneWorkspace(lane?: TaskLaneMetadata): WorkspaceCandidate | null {
+function laneWorkspace(lane: Task["lane"]): WorkspaceCandidate | null {
   const id = clean(lane?.workspace_id);
   const label = clean(lane?.workspace_name) ?? id;
   return label ? { id, label } : null;

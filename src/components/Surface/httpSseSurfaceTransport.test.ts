@@ -151,7 +151,7 @@ test("a refused stream stops with a notice and never retries", async () => {
   const { events, handlers } = recordHandlers();
   const disconnect = createHttpSseSurfaceTransport({ baseUrl: base, token: "", tabId: "t1", fetch: fake.fetch, retrySignal: retry.retrySignal }).connect(viewport, handlers);
   const [notice] = await events.until(1);
-  assert.deepEqual(notice, { type: "notice", value: { text: "Live view unavailable: Tab t1 is not a stream surface", tone: "error" } });
+  assert.deepEqual(notice, { type: "notice", value: { text: "Live view unavailable: Tab t1 is not a stream surface", tone: "error", kind: "unavailable" } });
   retry.fire();
   assert.equal(fake.calls.items.length, 1, "a reachability signal does not revive a refused stream");
   disconnect();

@@ -56,6 +56,75 @@ fn replay_cwd(node: &mut SplitNodeSnapshot, directory: &str) {
     }
 }
 
+const FORMAT: &str = "upgrade-restore-v2";
+const PAGE_SIZE: usize = 100;
+
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+struct HistoryShape {
+    rows: Vec<Value>,
+    groups: usize,
+    image_items: usize,
+    image_bytes: usize,
+}
+
+/// Replay synthesizes text from these sizes, so the export grows with message count, not history bytes.
+fn history_shape(messages: &[codeterm_types::agent::chat_types::ChatMsg]) -> HistoryShape {
+    let mut groups = std::collections::HashMap::new();
+    let mut image_items = 0;
+    let mut image_bytes = 0;
+    let rows = messages
+        .iter()
+        .map(|message| {
+            let next = groups.len();
+            let group = *groups
+                .entry(message.tool_flow_id.as_deref())
+                .or_insert(next);
+            let mut row = json!({"kind":message.kind,"group":group,"bytes":message.content.len()});
+            if let Some(result) = &message.tool_result {
+                row["result_bytes"] = json!(result.len());
+            }
+            if let Some(input) = &message.tool_input {
+                row["input_bytes"] = json!(input.to_string().len());
+            }
+            let images: Vec<usize> = message
+                .attachments
+                .iter()
+                .flatten()
+                .map(|image| image.data.as_ref().map_or(0, String::len))
+                .collect();
+            image_items += images.len();
+            image_bytes += images.iter().sum::<usize>();
+            if !images.is_empty() {
+                row["image_bytes"] = json!(images);
+            }
+            if let Some(data) = &message.image_data {
+                image_items += 1;
+                image_bytes += data.len();
+                row["image_data_bytes"] = json!(data.len());
+            }
+            row
+        })
+        .collect();
+    HistoryShape {
+        rows,
+        groups: groups.len(),
+        image_items,
+        image_bytes,
+    }
+}
+
 fn capture_snapshot(
     snapshot: &SessionSnapshot,
     mut capture: impl FnMut(
@@ -113,33 +182,14 @@ fn capture_snapshot(
             } else {
                 (Vec::new(), "not_applicable", None)
             };
-        let history = serde_json::to_value(&messages).map_err(|e| e.to_string())?;
-        let turns = messages
-            .iter()
-            .map(|message| message.tool_flow_id.as_deref().unwrap_or("fixture-turn"))
-            .collect::<std::collections::HashSet<_>>()
-            .len();
-        let images = messages
-            .iter()
-            .flat_map(|message| message.attachments.iter().flatten());
-        let image_items = images.clone().count()
-            + messages
-                .iter()
-                .filter(|message| message.image_data.is_some())
-                .count();
-        let image_bytes = images
-            .map(|image| image.data.as_ref().map_or(0, String::len))
-            .sum::<usize>()
-            + messages
-                .iter()
-                .filter_map(|message| message.image_data.as_ref())
-                .map(String::len)
-                .sum::<usize>();
+        let shape = history_shape(&messages);
+        let mut history_bytes = ByteCount(0);
+        serde_json::to_writer(&mut history_bytes, &messages).map_err(|e| e.to_string())?;
         measurements.push(json!({"tab_id":tab_id,"leaf_bytes":serde_json::to_vec(&leaf).map_err(|e| e.to_string())?.len(),
-            "prompt_bytes":prompt.len(),"identity_bytes":identity.len(),"history_bytes":serde_json::to_vec(&history).map_err(|e| e.to_string())?.len(),
-            "history_pages":messages.len().div_ceil(100),"history_items":messages.len(),"normalized_turn_groups":turns,
-            "image_items":image_items,"image_bytes":image_bytes}));
-        histories.push(json!({"tab_id":tab_id,"page_size":100,"messages":history,
+            "prompt_bytes":prompt.len(),"identity_bytes":identity.len(),"history_bytes":history_bytes.0,
+            "history_pages":messages.len().div_ceil(PAGE_SIZE),"history_items":messages.len(),
+            "normalized_turn_groups":shape.groups,"image_items":shape.image_items,"image_bytes":shape.image_bytes}));
+        histories.push(json!({"tab_id":tab_id,"page_size":PAGE_SIZE,"shape":shape.rows,
             "transcript":{"status":status,"backing_kind":backing,"provider":provider,"reason":reason}}));
     }
     let safe_snapshot =
@@ -199,7 +249,7 @@ pub async fn export(
             }
             live_tab_metadata.push(metadata);
         }
-        Ok::<_, String>(json!({"format":"upgrade-restore-v1","sanitized":true,
+        Ok::<_, String>(json!({"format":FORMAT,"sanitized":true,
             "snapshot":safe_snapshot,"histories":safe_histories,"measurements":measurements,
             "plans":plans,"live_tab_metadata":live_tab_metadata}))
     })
@@ -270,8 +320,8 @@ pub async fn import(
 fn fixture_document(
     document: &Value,
 ) -> Result<(SessionSnapshot, Vec<codeterm_types::plan::Plan>), String> {
-    if document["sanitized"] != true || document["format"] != "upgrade-restore-v1" {
-        return Err("Import requires an upgrade-restore-v1 sanitized document".into());
+    if document["sanitized"] != true || document["format"] != FORMAT {
+        return Err(format!("Import requires an {FORMAT} sanitized document"));
     }
     let snapshot: SessionSnapshot =
         serde_json::from_value(document["snapshot"].clone()).map_err(|error| error.to_string())?;

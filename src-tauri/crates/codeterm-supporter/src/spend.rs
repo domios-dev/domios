@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::responses::SupporterSpend;
 use codeterm_decision::{DecisionError, DecisionPricing, DecisionUsage};
 use codeterm_notification_core::contract::NotifyLevel;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 
 use super::storage;
 
@@ -18,12 +18,7 @@ pub struct SpendAlert {
     pub event_key: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct Totals {
-    input_tokens: u64,
-    output_tokens: u64,
-    estimated_usd: Option<f64>,
-}
+pub use crate::responses::Totals;
 
 impl Default for Totals {
     fn default() -> Self {
@@ -171,14 +166,27 @@ impl SpendBook {
         Ok(alerts)
     }
 
-    pub fn status(&self, adapter: &str, now: i64) -> Value {
+    pub fn status(&self, adapter: &str, now: i64) -> SupporterSpend {
         let state = self.state.lock();
         let mut account = state.accounts.get(adapter).cloned().unwrap_or_default();
         account.rollover(now);
-        json!({ "today": account.today, "month": account.monthly, "exhausted": account.exhausted,
-            "next_probe_at": account.next_probe_at.map(|at| (at + 999) / 1000), "storage_ready": state.storage_ready })
+        SupporterSpend {
+            today: account.today,
+            month: account.monthly,
+            exhausted: account.exhausted,
+            next_probe_at: account.next_probe_at.map(|at| (at + 999) / 1000),
+            storage_ready: state.storage_ready,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    Totals::export_all(config)?;
+    Ok(())
+}

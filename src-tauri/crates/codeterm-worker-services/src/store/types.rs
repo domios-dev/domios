@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceKind {
     Cron,
     Daemon,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum HealthMode {
     Http,
@@ -16,7 +16,7 @@ pub enum HealthMode {
     Script,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum HealthStatus {
     Healthy,
@@ -31,7 +31,7 @@ impl Default for HealthStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ts_rs::TS)]
 pub struct HealthSnapshot {
     pub status: HealthStatus,
     pub probed_at: Option<i64>,
@@ -42,12 +42,12 @@ pub struct HealthSnapshot {
     pub extra: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ts_rs::TS)]
 pub struct FieldMapping {
     pub mappings: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct Service {
     pub id: String,
     pub name: String,
@@ -55,37 +55,51 @@ pub struct Service {
     #[serde(default)]
     pub protected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub host: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub port: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub process_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub script_path: Option<String>,
     pub health_mode: HealthMode,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub health_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub health_json_field: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub health_ok_values: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub health_degraded_values: Option<Vec<String>>,
     pub health_interval: u32,
     pub health_ttl: u32,
     pub health: HealthSnapshot,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub field_mapping: Option<FieldMapping>,
     pub push_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub schedule: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub next_run: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub last_run_status: Option<String>,
     pub registered_at: i64,
     pub updated_at: i64,

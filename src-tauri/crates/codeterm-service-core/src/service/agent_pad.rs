@@ -7,23 +7,15 @@ const TOMBSTONE_PREFIX: &str = ".revoked-";
 const POINTER_TEMPLATE: &str = "Read and follow the message in {path}";
 const INBOX_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
-#[derive(serde::Serialize)]
-pub struct ChatSendResult {
-    #[serde(flatten)]
-    pub status: crate::service::chat_send_transaction::ChatSendStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pad_file: Option<String>,
-}
+pub use codeterm_types::agent::delivery::ChatSendResult;
 
-impl ChatSendResult {
-    pub fn new(
-        status: crate::service::chat_send_transaction::ChatSendStatus,
-        pad_file: Option<PathBuf>,
-    ) -> Self {
-        Self {
-            status,
-            pad_file: pad_file.map(|path| path.display().to_string()),
-        }
+pub fn chat_send_result(
+    status: crate::service::chat_send_transaction::ChatSendStatus,
+    pad_file: Option<PathBuf>,
+) -> ChatSendResult {
+    ChatSendResult {
+        status,
+        pad_file: pad_file.map(|path| path.display().to_string()),
     }
 }
 

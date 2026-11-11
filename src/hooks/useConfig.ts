@@ -8,6 +8,18 @@ import { DEFAULT_THEME, readCachedTheme } from "../lib/themeCss";
 
 export function defaultConfig(): AppConfig {
   return {
+    browser_upload_folders: {},
+    restore: { active_window_hours: 48 },
+    tab_sleep: { enabled: true, idle_minutes: 60 },
+    account: {},
+    billing: {},
+    plugins: {},
+    utility_tabs: { max_per_team: { build: null, dev: null, qa: null, deploy: null, logs: null, db: null, shell: null } },
+    usage: { enabled: true, heartbeat: true, freshness_secs: 180, standalone_cadence_secs: 0 },
+    updater: { channel: "stable", allow_provider_updates_in_non_prod: false, auto_update_provider_clis: true },
+    runaway: { enabled: true, test_binary_max_secs: 900 },
+    kpi: { enabled: true, default_applied: true },
+    model_defaults: { replaced: {} },
     neighbors: { enabled: true },
     theme: readCachedTheme() ?? DEFAULT_THEME,
     font: {
@@ -16,6 +28,7 @@ export function defaultConfig(): AppConfig {
       ligatures: true,
     },
     terminal: {
+      default_shell: null,
       cursor_style: "block",
       cursor_blink: true,
       scrollback: 10000,
@@ -23,6 +36,7 @@ export function defaultConfig(): AppConfig {
     },
     diagnostics: {
       terminal_transport: false,
+      protocol_recording: false,
     },
     notifications: {
       // Off until someone opts in; until the daemon answers, nothing interrupts.
@@ -38,11 +52,16 @@ export function defaultConfig(): AppConfig {
       agent_levels: [],
     },
     keybindings: {
+      new_tab: "Ctrl+T", close_tab: "Ctrl+W", prev_tab: "Ctrl+Shift+Tab", new_workspace: "Ctrl+Shift+N",
+      copy: "Ctrl+Shift+C", paste: "Ctrl+Shift+V", search: "Ctrl+Shift+F", zoom_in: "Ctrl+=", zoom_out: "Ctrl+-", zoom_reset: "Ctrl+0", open_settings: "Ctrl+,",
       reopen_tab: "Ctrl+Shift+T",
       next_tab: "Ctrl+Tab",
     },
     socket: { path: null },
     agent: {
+      reply_relay_max_hops: 8,
+      continue_after_restart: true,
+      sandbox_ceiling: null,
       poll_interval_ms: 500,
       idle_timeout_s: 30,
       resume_sessions: true,
@@ -54,9 +73,14 @@ export function defaultConfig(): AppConfig {
       token: null,
       cors: false,
       cors_allow_origins: [],
+      preview_secret_paths: [],
+      mesh_tailnet_host: null,
     },
     agents: {},
     general_agent: {
+      capability_hints: true,
+      model: null,
+      reasoning_effort: null,
       enabled: true,
       agent_provider: "claude",
       auto_restart: true,
@@ -65,6 +89,10 @@ export function defaultConfig(): AppConfig {
       first_run_complete: false,
     },
     memory: {
+      backend: "sqlite", workers_per_provider: 3, dreaming_timeout_seconds: 1800, librarian_enabled: true,
+      l1_budget_tokens: 300, dreaming_telegram_notify: true,
+      dream_hygiene: { stale_archive: false, stale_archive_cap: 20, merge_cap: 10 },
+      embedder: { provider: "local", model: "", dimension: 0, remote_opt_in: false },
       extraction_agent: "",
       extraction_model: "",
       auto_extract: true,
@@ -77,7 +105,6 @@ export function defaultConfig(): AppConfig {
       file_sync_interval_minutes: 60,
     },
     supporter: {
-      adapter: null,
       connections: {},
       deadline_ms: 3000,
       calls_per_hour: null,
@@ -92,6 +119,8 @@ export function defaultConfig(): AppConfig {
       },
     },
     integrations: {
+      voice_transcribe: { enabled: false, daemon_url: "http://127.0.0.1:7891", timeout_ms: 60000, language: "", fallback_raw_on_error: true, health_check_ttl_secs: 60, active: "transcriber" },
+      text_hooks: { enabled: false, daemon_url: "http://127.0.0.1:7892", timeout_ms: 2000, health_check_ttl_secs: 60, fallback_on_error: "forward" },
       telegram_enabled: false,
       telegram_allowed_users: [],
       discord_enabled: false,
@@ -100,6 +129,7 @@ export function defaultConfig(): AppConfig {
       webhook_port: 9090,
       secrets: {
         backend: "bitwarden",
+        bitwarden: { server_url: "https://vault.bitwarden.com" },
         default_organization: "",
         default_collection: "",
       },
@@ -113,6 +143,8 @@ export function defaultConfig(): AppConfig {
       mesh_tab_enabled: true,
     },
     orchestration: {
+      reflect: { every_gates: 0 }, digests: { enabled: false, rules: [] }, map: { enabled: false },
+      refresh: { after_reflection: false, handoff_timeout_secs: 60, settle_timeout_secs: 120, reorient_timeout_secs: 30, verify_timeout_secs: 180 },
       plan_reminders: true,
       nudge_interval_secs: 1800,
     },

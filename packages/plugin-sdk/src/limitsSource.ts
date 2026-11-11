@@ -1,9 +1,6 @@
+import type {OptionalWireFields} from "./wireViews";
 /** Where a launch profile's account limits come from; hosts branch only on `kind`. */
-export type RuntimeProfileLimitsSource =
-  | {kind:"account"; provider:string}
-  | {kind:"balance"; reader:string; credentialEnv:string}
-  | {kind:"quota"; reader:string}
-  | {kind:"unavailable"; reason:string};
+export type RuntimeProfileLimitsSource = import("./gen/RuntimeProfileLimitsSource").RuntimeProfileLimitsSource;
 
 export const maxUnavailableReasonChars = 240;
 
@@ -27,7 +24,7 @@ function reason(value:unknown): boolean {
 const owns = (map:Readonly<Record<string,unknown>> | undefined, key:string) => !!map && Object.prototype.hasOwnProperty.call(map, key);
 
 /** Declarations a profile installed from a registry id inherits unless it declares its own. */
-export interface RuntimeRegistryDefaults {limitsSource?:RuntimeProfileLimitsSource; fullAccessMode?:string}
+export type RuntimeRegistryDefaults = OptionalWireFields<import("./gen/RuntimeRegistryDefaults").RuntimeRegistryDefaults, "limitsSource" | "fullAccessMode">;
 
 /** An agent session mode id a launch profile declares; bounded and free of control characters. */
 export function validSessionMode(mode:unknown): mode is string {

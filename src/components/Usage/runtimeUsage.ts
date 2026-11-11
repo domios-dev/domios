@@ -1,4 +1,4 @@
-import type {UsageSnapshot, RuntimeUsageProjection} from "../../types/usage";
+import type {UsageSnapshot, UsageLatestView, RuntimeUsageProjection} from "../../types/usage";
 import type {RuntimeAccountCredits} from "@codeterm/plugin-sdk";
 
 export function runtimeAccountCreditsLabel(credits:RuntimeAccountCredits|null|undefined): string|null {
@@ -17,40 +17,40 @@ export function formatAccountCredits(balance: string): string {
   return `${match[1] && cents > 0n ? "−" : ""}${whole}${decimals ? `.${decimals}` : ""}`;
 }
 
-export function latestUsageSnapshot(snapshot: UsageSnapshot | null, tabId?: string, threadId?: string | null): UsageSnapshot | null {
+export function latestUsageSnapshot(snapshot: UsageLatestView | null, tabId?: string, threadId?: string | null): UsageSnapshot | null {
   if (!snapshot) return null;
   const runtime = ownRuntimeUsage(snapshot, tabId, threadId);
-  if (!runtime) return snapshot.runtime_usage ? null : snapshot;
+  if (!runtime) return snapshot.runtime_usage || snapshot.parsed_ok === undefined ? null : snapshot;
   const own = runtimeLimitsSnapshot(snapshot, runtime);
   if (runtime.billing_mode !== "subscription" || !snapshot.parsed_ok || snapshot.captured_at < (runtime.rate_limits?.captured_at ?? 0)) return own;
   return {...snapshot, resets: own.resets};
 }
 
 /** The native tab's reading that speaks for the account: its freshest subscription limits. */
-export function accountRuntimeUsage(snapshot: UsageSnapshot | null): RuntimeUsageProjection | null {
+export function accountRuntimeUsage(snapshot: UsageLatestView | null): RuntimeUsageProjection | null {
   return (snapshot?.runtime_usage ?? [])
     .filter(row => row.billing_mode === "subscription" && row.rate_limits)
     .reduce<RuntimeUsageProjection | null>((latest, row) => !latest || (row.rate_limits?.captured_at ?? 0) > (latest.rate_limits?.captured_at ?? 0) ? row : latest, null);
 }
 
 /** A tab borrowing a native account shows that account's limits, resolved as its own tabs resolve them. */
-export function accountUsageSnapshot(snapshot: UsageSnapshot | null): UsageSnapshot | null {
-  if (!snapshot?.runtime_usage?.length) return snapshot;
+export function accountUsageSnapshot(snapshot: UsageLatestView | null): UsageSnapshot | null {
+  if (!snapshot?.runtime_usage?.length) return snapshot?.parsed_ok === undefined ? null : snapshot;
   const reading = accountRuntimeUsage(snapshot);
   if (reading) return latestUsageSnapshot(snapshot, reading.tab_id, reading.thread_id);
   return snapshot.parsed_ok ? {...snapshot, runtime_usage: undefined} : null;
 }
 
-export function ownRuntimeUsage(snapshot: UsageSnapshot | null, tabId?:string, threadId?:string | null): RuntimeUsageProjection | null {
+export function ownRuntimeUsage(snapshot: UsageLatestView | null, tabId?:string, threadId?:string | null): RuntimeUsageProjection | null {
   return snapshot?.runtime_usage?.find(row => row.tab_id === tabId && row.thread_id === threadId) ?? null;
 }
 
-export function runtimeLimitsSnapshot(snapshot:UsageSnapshot, reading:RuntimeUsageProjection): UsageSnapshot {
+export function runtimeLimitsSnapshot(snapshot:UsageLatestView, reading:RuntimeUsageProjection): UsageSnapshot {
   const windows = reading.billing_mode === "subscription" ? reading.rate_limits?.value ?? [] : [];
   const primary = windows.find(window => window.window === "primary") ?? windows[0];
   const secondary = windows.find(window => window.window === "secondary") ?? windows[1];
-  return {...snapshot,id:0,provider:snapshot.provider,account_id:null,
-    captured_at:reading.rate_limits?.captured_at ?? reading.token_usage?.captured_at ?? reading.captured_at ?? snapshot.captured_at,
+  return {...snapshot,id:0,provider:snapshot.provider,account_id:null,usage_details:snapshot.usage_details,
+    captured_at:reading.rate_limits?.captured_at ?? reading.token_usage?.captured_at ?? reading.captured_at ?? snapshot.captured_at ?? 0,
     resets:reading.resets,
     parsed_ok:true,billing_mode:reading.billing_mode,limits_reported:windows.length > 0,
     session_pct:primary?.usedPercent ?? null,session_resets_at:primary?.resetsAt ?? null,

@@ -21,23 +21,8 @@ import { hasLocalInstanceName, localInstanceLabel, onMeshPeersLoaded, rememberLo
 
 let nextPeerSwitchId = 0;
 
-interface PeerAddress {
-  ip: string;
-  is_tailscale: boolean;
-}
-interface PairedPeer {
-  instance_id: string;
-  instance_name: string;
-  addresses: PeerAddress[];
-  api_port: number;
-  online: boolean;
-  relay_protocol_version: number;
-  last_active_ms?: number | null;
-}
-interface MeshPeers {
-  paired: PairedPeer[];
-  local_instance_name: string;
-}
+type PairedPeer = Pick<import("../../../gen/PairedPeer").PairedPeer, "instance_id" | "instance_name" | "addresses" | "api_port" | "online" | "relay_protocol_version" | "last_active_ms">;
+type MeshPeers = Omit<Pick<import("../../../gen/MeshPeersResponse").MeshPeersResponse, "paired" | "local_instance_name">, "paired"> & {paired: PairedPeer[]};
 
 /**
  * Web-mirror peer switcher (top-left). Lists the LOCAL daemon's paired mesh

@@ -1,3 +1,4 @@
+import { blueprintProjectionView } from "../../lib/blueprintProjectionView";
 import type { BlueprintProjection, BlueprintIrNode, BlueprintJournalNode } from "../../lib/blueprintApi";
 import { type BlueprintOwner, type BlueprintSnapshot } from "./types";
 
@@ -63,8 +64,8 @@ function targetSummary(blueprint: BlueprintSnapshot): string {
 
 function sourceSummary(step: NonNullable<BlueprintSnapshot["steps"]>[number]): string {
   const source = step.source;
-  if (step.kind === "http" && source?.url) return `${source.url} · expected ${source.expected_status ?? "2xx"}`;
-  if (step.kind !== "github" || !source) return step.name;
+  if (step.kind === "http" && source && "url" in source && source.url) return `${source.url} · expected ${source.expected_status ?? "2xx"}`;
+  if (step.kind !== "github" || !source || !("resource" in source)) return step.name;
   const scope = source.repo ?? source.org ?? "GitHub";
   return source.resource === "runners" ? `${scope} · runners · ${source.label ?? "all labels"}` : `${scope} · ${source.resource} ${source.id}`;
 }
@@ -120,24 +121,18 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
     label: node.kind === "step" ? node.outcome : null,
   }));
   return {
-    runs: blueprint.runs?.map((run) => ({
-      id: run.id, at: run.started_at_ms, state: run.state,
+    runs: blueprint.runs?.filter((run) => run.id !== null).map((run) => ({
+      id: run.id!, at: run.started_at_ms ?? 0, state: run.state,
       pipeline: pipelineModel({ ...blueprint, runs: undefined, run_id: run.id,
         state: run.state === "completed" ? "idle" : run.state, current_step: run.current_step,
         last_event_at_ms: run.last_event_at_ms, steps: run.steps, result: run.result,
-        call_graph: run.call_graph, expanded_calls: run.expanded_calls, plugin_nodes: run.plugin_nodes, nested_run: run.nested_run, projection_error: run.projection_error,
+        call_graph: run.call_graph, expanded_calls: run.expanded_calls, plugin_nodes: run.plugin_nodes, nested_run: run.nested_run,
         historical_graph_available: run.historical_graph_available, graph_definition_version: run.graph_definition_version }),
     })),
-    historical_graph_available: blueprint.historical_graph_available,
-    graph_definition_version: blueprint.graph_definition_version,
-    call_graph: blueprint.call_graph,
-    expanded_calls: blueprint.expanded_calls,
-    plugin_nodes: blueprint.plugin_nodes,
-    nested_run: blueprint.nested_run,
-    projection_error: blueprint.projection_error,
+    ...blueprintProjectionView(blueprint),
     runId: blueprint.run_id,
     id: blueprint.id,
-    name: blueprint.name,
+    name: blueprint.name ?? blueprint.id,
     note: blueprint.note,
     heldReason: blueprint.held_reason,
     deletesAt: blueprint.deletes_at,

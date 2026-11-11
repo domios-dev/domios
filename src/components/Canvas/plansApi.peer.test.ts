@@ -13,7 +13,7 @@ async function main() {
   const { fetchPlanBoardState, fetchTeamMissionControlState } = await import("./missionControl/missionControlState");
   const { fetchTeamSpend } = await import("./missionControl/teamSpend");
   const { createCanvasPlanRequest, spawnOrchestrator } = await import("./canvasApi");
-  const API: ApiConfig = { enabled: true, host: "peer", port: 7685, token: "unused-peer-token", cors: true };
+  const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "peer", port: 7685, token: "unused-peer-token", cors: true };
   setTokenFor("http://gateway:7685", "gateway-token");
 
   type Request = { method: string; path: string; body: unknown; target_peer_id?: string };

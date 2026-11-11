@@ -121,6 +121,8 @@ export function meshFailureToast(operation: string, failure: AccountMeshFailure)
 
 export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD, retryAt?: number, retrying = false): string {
   switch (failure.reason) {
+    case "installation_unverified": return "This installation could not be verified.";
+    case "cutoff_after_current_session": return "Mesh access ends after the current session.";
     case "key_conflict": return "This machine has a different installation key from the account registry. Rejoin mesh.";
     case "generation_mismatch": return "This machine's key is out of date. Rejoin mesh.";
     case "challenge_invalid": return "The installation challenge was rejected. Try enrolling this machine again.";

@@ -1,78 +1,26 @@
 // Snapshot graph types — mirror src-tauri/src/mem/graph_layout/snapshot.rs serde shapes.
 
-export interface SnapshotNode {
-  id: string;
-  x: number;
-  y: number;
-  kind: string;
-  importance: number;
-  cluster_id: number;
-  has_vector: boolean;
-  pinned: boolean;
-}
+export type SnapshotNode = import("../../../gen/SnapshotNode").SnapshotNode;
 
-export interface ClusterAgg {
-  id: number;
-  x: number;
-  y: number;
-  size: number;
-}
+export type ClusterAgg = import("../../../gen/ClusterAgg").ClusterAgg;
 
-export interface ClusterEdge {
-  from: number;
-  to: number;
-  weight: number;
-}
+export type ClusterEdge = import("../../../gen/ClusterEdge").ClusterEdge;
 
-export interface SnapshotStats {
-  node_count: number;
-  cluster_count: number;
-  edge_count: number;
-  vectorized_without_position: number;
-}
+export type SnapshotStats = import("../../../gen/SnapshotStats").SnapshotStats;
 
-export interface GraphSnapshot {
-  layout_version: number;
-  computed_at: string;
-  seq: number;
-  nodes: SnapshotNode[];
-  clusters: ClusterAgg[];
-  cluster_edges: ClusterEdge[];
-  stats: SnapshotStats;
-}
+export type GraphSnapshot = import("../../../gen/Snapshot").Snapshot;
 
-export interface DeltaNode {
-  id: string;
-  x: number;
-  y: number;
-  cluster_id: number;
-}
+export type DeltaNode = import("../../../gen/DeltaNode").DeltaNode;
 
-export interface DeltaUnchanged {
-  layout_version: number;
-  unchanged: true;
-}
+export type DeltaUnchanged = Extract<import("../../../gen/DeltaResponse").DeltaResponse, { unchanged: boolean }> & { unchanged: true };
 
-export interface DeltaChanged {
-  layout_version: number;
-  seq: number;
-  added_or_moved: DeltaNode[];
-  removed: string[];
-}
+export type DeltaChanged = Extract<import("../../../gen/DeltaResponse").DeltaResponse, { seq: number }>;
 
 export type DeltaResponse = DeltaUnchanged | DeltaChanged | GraphSnapshot;
 
-export interface LabelRow {
-  id: string;
-  title: string;
-}
+export type LabelRow = import("../../../gen/LabelRow").LabelRow;
 
-export interface SnapshotEdge {
-  from: string;
-  to: string;
-  rel: string;
-  confidence: number;
-}
+export type SnapshotEdge = import("../../../gen/EdgeRow").EdgeRow;
 
 export function isUnchanged(d: DeltaResponse): d is DeltaUnchanged {
   return (d as DeltaUnchanged).unchanged === true;

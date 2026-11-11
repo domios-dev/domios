@@ -7,25 +7,16 @@ import {
   capsulesInDraft,
   EMPTY_CAPSULES,
   serializeCapsuleDraft,
+  requireCapsulePaths,
   type CapsuleRegistry,
   type ComposerCapsule,
 } from "./composerCapsules";
 
-export type MeshAttachmentKind = "voice" | "file";
+export type MeshAttachmentKind = import("../../../gen/MeshAttachmentKind").MeshAttachmentKind;
 
-export interface MeshAttachmentTransferRequest extends Record<string, unknown> {
-  ordinaryTabId: string;
-  peerId: string;
-  path: string;
-  kind: MeshAttachmentKind;
-}
+export type MeshAttachmentTransferRequest = Record<string, unknown> & {ordinaryTabId: import("../../../gen/MeshAttachmentTransferBody").MeshAttachmentTransferBody["ordinary_tab_id"]; peerId: import("../../../gen/MeshAttachmentTransferBody").MeshAttachmentTransferBody["peer_id"]; path: import("../../../gen/MeshAttachmentTransferBody").MeshAttachmentTransferBody["path"]; kind: import("../../../gen/MeshAttachmentTransferBody").MeshAttachmentTransferBody["kind"]};
 
-export interface TransferredAttachment {
-  path: string;
-  kind: MeshAttachmentKind;
-  size: number;
-  reference?: string | null;
-}
+export type TransferredAttachment = Omit<import("../../../gen/MeshIngestedAttachment").MeshIngestedAttachment, "reference"> & Partial<Pick<import("../../../gen/MeshIngestedAttachment").MeshIngestedAttachment, "reference">>;
 
 export interface AttachmentHandoffDeps {
   /** Peer the web mirror relays tab traffic to; its tab ids are peer-local. */
@@ -96,6 +87,7 @@ export async function composeAttachmentDraft(
   capsules: CapsuleRegistry = EMPTY_CAPSULES,
   reply: ComposerReply | null = null,
 ): Promise<AttachmentDraft> {
+  requireCapsulePaths(text, capsules);
   const target = attachmentHostTarget(tabId, deps.relayPeerId());
   const inline = capsulesInDraft(text, capsules);
   const markers = await resolveCapsuleMarkers(target, inline, deps);
@@ -207,10 +199,10 @@ export function assertNoSourceAttachmentPaths(
 }
 
 function requireVoiceTranscript(reference: string | null | undefined): string {
-  if (!reference?.trim()) throw new Error("The target host returned no voice transcript");
+  if (!reference?.trim()) throw new Error("Voice transcription failed: The target host returned no voice transcript");
   const marker = parseMarker(reference);
   if (marker?.kind === "voice" && marker.attrs.status === "untranscribed") {
-    throw new Error(marker.payload.trim() || "The target host could not transcribe the voice note");
+    throw new Error(`Voice transcription failed: ${marker.payload.trim() || "The target host could not transcribe the voice note"}`);
   }
   return reference;
 }

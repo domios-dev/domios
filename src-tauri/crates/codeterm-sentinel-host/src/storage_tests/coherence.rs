@@ -93,14 +93,7 @@ fn storage_sentinel_graph_projects_one_committed_scope_with_configured_and_obser
     let project = |jobs: &[Sentinel]| {
         let connected = connected_crons(&crons, jobs, &workspace, None);
         graph::project(
-            &workspace,
-            None,
-            jobs,
-            &mux,
-            &connected,
-            Value::Null,
-            1000,
-            &leases,
+            &workspace, None, jobs, &mux, &connected, None, 1000, &leases,
         )
         .expect("projection")
     };
@@ -122,8 +115,8 @@ fn storage_sentinel_graph_projects_one_committed_scope_with_configured_and_obser
         committed
             .edges
             .iter()
-            .find(|edge| edge["handler_id"] == handler)
-            .cloned()
+            .find(|edge| edge.handler_id == handler)
+            .map(|edge| json!(edge))
             .expect("projected edge")
     };
     assert_eq!(edge("branch")["evidence"]["kind"], "configured");
@@ -135,9 +128,12 @@ fn storage_sentinel_graph_projects_one_committed_scope_with_configured_and_obser
     let missing = committed
         .nodes
         .iter()
-        .find(|node| node["identity"]["id"] == "absent-worker")
+        .find(|node| node.identity.id == "absent-worker")
         .expect("unknown target keeps its exact identity");
-    assert_eq!(missing["availability"], "missing");
+    assert_eq!(
+        missing.availability,
+        codeterm_sentinel::graph_contracts::Availability::Missing
+    );
     assert_eq!(
         Some(committed.revision.as_str()),
         store.lock().committed_revision(&workspace, None)

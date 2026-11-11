@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, OnceLock};
+use ts_rs::TS;
 
 mod command;
 mod detection;
@@ -10,7 +11,7 @@ pub use integration::apply_profile;
 pub use paths::{windows_to_wsl, wsl_to_windows};
 pub use powershell::powershell_utility_command;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ShellProfile {
     pub id: String,
     pub name: String,

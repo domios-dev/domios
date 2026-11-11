@@ -33,7 +33,7 @@ function workerAgent(configured: string | undefined, fallback: string): string {
 export function modelDefaultRows(config: AppConfig): ModelDefaultRow[] {
   const replaced = config.model_defaults?.replaced ?? {};
   const rows: ModelDefaultRow[] = [];
-  const push = (key: string, subject: string, provider: string, model: string | undefined) => {
+  const push = (key: string, subject: string, provider: string, model: string | null | undefined) => {
     const value = model?.trim();
     if (!value) return;
     const record = replaced[key];

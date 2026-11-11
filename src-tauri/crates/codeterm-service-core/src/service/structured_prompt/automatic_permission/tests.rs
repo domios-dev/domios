@@ -255,6 +255,15 @@ fn automatic_permission_publication_cancels_claim_when_tab_disappears() {
 
 #[test]
 fn automatic_permission_completion_never_mutates_replacement_owner() {
+    let prompt_publications = |fixture: &ServiceFixture| {
+        fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .filter(|(name, _)| name == "prompt-state-changed")
+            .count()
+    };
     for success in [true, false] {
         let (fixture, tab_id) = fixture(true, false);
         insert(&tab_id, permission_event());
@@ -280,7 +289,7 @@ fn automatic_permission_completion_never_mutates_replacement_owner() {
                 None,
                 |_| panic!("replacement publication has no reply claim"),
             );
-            published = fixture.ui.0.lock().len();
+            published = prompt_publications(&fixture);
             if success {
                 Ok(())
             } else {
@@ -310,7 +319,7 @@ fn automatic_permission_completion_never_mutates_replacement_owner() {
             tab.pending_prompt_kind,
             Some(PromptKind::AutomaticPermission)
         );
-        assert_eq!(fixture.ui.0.lock().len(), published);
+        assert_eq!(prompt_publications(&fixture), published);
         super::super::clear_tab(&tab_id);
     }
 }

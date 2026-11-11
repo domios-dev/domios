@@ -1,3 +1,4 @@
+import { FIXTURE_BOARD_READ_FIELDS } from "../cards/fixtures.testdata";
 import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
@@ -15,7 +16,7 @@ import { planForDetail } from "./planDetailTarget";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const API: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
+const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
 
 const WS_ID = "ws-test";
 const WORKSPACES: Workspace[] = [{ id: WS_ID, name: "Test", tabs: ["orch-1"], active_tab_id: null, cwd: null }];
@@ -62,7 +63,8 @@ function missionState(openGates: OpenDecisionGate[] = []): MissionControlState {
 }
 
 function boardState(openGates: OpenDecisionGate[] = []): PlanBoardState {
-  return { plan_id: ACTIVE.id, revision: "1", task_counts: COUNTS, mission_control: missionState(openGates) };
+  return {
+    ...FIXTURE_BOARD_READ_FIELDS, plan_id: ACTIVE.id, revision: "1", task_counts: COUNTS, mission_control: missionState(openGates) };
 }
 
 async function mount(ui: ReactElement) {

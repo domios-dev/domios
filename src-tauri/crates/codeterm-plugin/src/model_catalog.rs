@@ -107,7 +107,7 @@ pub struct RegisteredDefaults {
     pub default: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct ModelCatalogueChanged {
     pub provider: String,
     pub version: u64,

@@ -1,3 +1,4 @@
+import { channelStatus, permissionResponse } from "./neighborRuntime.testdata";
 import { createRoot } from "react-dom/client";
 import { afterEach, vi } from "vitest";
 import { act } from "react";
@@ -47,8 +48,8 @@ function emit(event: string, payload: unknown = null) {
 
 function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
   return {
-    subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => ({ enrolled: false, bindings, friend_receivers: {} })), receiveFriend: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
-    permission: vi.fn(async () => ({ allowed: false, scope: "", allow_tab_requests: false })), send: vi.fn(), deliveryStatus: vi.fn(), retry: vi.fn(async () => {}),
+    subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => channelStatus({ enrolled: false, bindings, friend_receivers: {} })), receiveFriend: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
+    permission: vi.fn(async () => permissionResponse()), send: vi.fn(), deliveryStatus: vi.fn(), retry: vi.fn(async () => {}),
   };
 }
 

@@ -11,7 +11,9 @@ import { ChatDeliveryState } from "./ChatDeliveryState";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
-import { canRetryChatSend, canDeleteChatSend, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
+import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
+import { canRetryChatSend, canDeleteChatSend, canEditChatSend, deliveryError, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
+import { editChatDelivery } from "./chatDeliveryComposer";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
 type MessageBubbleProps = React.ComponentProps<typeof MessageBubble>;
@@ -133,7 +135,11 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
   const pendingDelivery = deliverySend && deliveryView && deliveryView !== "delivered";
+  const error = deliverySend ? deliveryError(deliverySend) : null;
+  const transcriptionFailed = deliveryView === "failed" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length) && isTranscriptionFailure(error);
   const onRetry = deliverySend && canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined;
+  const onRemove = !transcriptionFailed && deliverySend && canDeleteChatSend(deliverySend) ? () => context.deleteSend(deliverySend.id) : undefined;
+  const onEdit = deliverySend && canEditChatSend(deliverySend) ? () => editChatDelivery(context.tabId, deliverySend) : undefined;
   const resendWithCli = Boolean(deliverySend && resendsWithCli(deliverySend));
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
   const turnId = msg.toolFlowId;
@@ -148,7 +154,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
           deliveryState={deliveryView}
           sourceOrdinal={sourceOrdinal}
           ariaLabel={ariaLabel}
-          onDelete={deliverySend && canDeleteChatSend(deliverySend) ? () => context.deleteSend(deliverySend.id) : undefined}
+          onDelete={onRemove}
           onForkFromHere={turnId && forkable ? () => context.forkFrom(turnId) : undefined}
           onRevertToHere={turnId && revertible ? () => context.revertTo(turnId) : undefined}
           selected={selected}
@@ -164,11 +170,14 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} resendWithCli={resendWithCli} />}
+              {!transcriptionFailed && pendingDelivery && <ChatDeliveryState state={deliveryView} error={error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />}
+              <div className="mt-1.5 min-w-0 break-words empty:hidden">
+              {transcriptionFailed && <TranscriberSetupAction reason={error!} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
+              </div>
             </> : undefined}
-            noticeStatus={pendingDelivery
-              ? <ChatDeliveryState inline state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} resendWithCli={resendWithCli} />
+            noticeStatus={transcriptionFailed ? <TranscriberSetupAction reason={error!} /> : pendingDelivery
+              ? <ChatDeliveryState inline state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />
               : undefined}
             item={item.kind === "tool" ? item : undefined}
             isLatestFailedToolCall={latestFailedToolCall}

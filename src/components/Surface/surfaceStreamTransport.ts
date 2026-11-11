@@ -6,16 +6,12 @@ export interface StreamFrame {
   metadata: FrameMetadata;
 }
 
-export const NOTICE_KIND = { previewPaused: "preview_paused" } as const;
+export const NOTICE_KIND = { previewPaused: "preview_paused", unavailable: "unavailable" } as const;
 
-export type SurfaceNoticeKind = (typeof NOTICE_KIND)[keyof typeof NOTICE_KIND];
+export type SurfaceNoticeKind = import("../../../gen/SurfaceNoticeKind").SurfaceNoticeKind | typeof NOTICE_KIND.unavailable;
 
-export interface SurfaceNotice {
-  text: string;
-  tone?: "info" | "warn" | "error";
-  kind?: SurfaceNoticeKind;
-  detail?: string;
-}
+// Reconnect failures add a client-only kind to the native notice.
+export type SurfaceNotice = Omit<import("../../../gen/SurfaceNotice").SurfaceNotice, "kind"> & {kind?: SurfaceNoticeKind};
 
 /** A recurring condition the canvas shows in place; it never belongs in the notice bar. */
 export function isPreviewPaused(notice: SurfaceNotice | null | undefined): notice is SurfaceNotice & { kind: "preview_paused" } {

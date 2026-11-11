@@ -10,7 +10,7 @@ import { ChatSetupState } from "../components/Terminal/ChatSetupState";
 import { clearTranscriptWindows } from "../components/Terminal/transcriptStore";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { __resetStreamMuxesForTest, OutcomeUnknown, RetryableMuxError, withStreamMux } from "./streamMux";
-import { MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
+import { MUX_REQUEST_TIMEOUT, readWhenMuxCapacityAvailable, type MuxRequestInit } from "./streamMuxRequestModel";
 import type { TransportOptions } from "./transportClient";
 
 interface Posted { id: string; session: string; path: string; method: string; init: RequestInit }
@@ -330,6 +330,28 @@ it("does not declare the healthy browser gateway unavailable for a local admissi
   await f.next();
   await expect(f.client.localJson("GET", "/api/one-more-read")).rejects.toBeInstanceOf(RetryableMuxError);
   expect(gateway.mock.calls.some(([available]) => available === false)).toBe(false);
+});
+
+it.each([200, 503])("reissues an opted-in, never-dispatched read once on released capacity; dispatched HTTP %s settles", async (status) => {
+  const f = fixture();
+  const attempts = vi.fn(() => f.client.localJson("GET", "/api/mesh/peers"));
+  f.reply(async post => {
+    if (post.path === "/api/mesh/peers") {
+      f.head(post, status); f.text(post, '{"paired":[]}'); f.end(post);
+    }
+    return Response.json({ accepted: true }, { status: 202 });
+  });
+  for (let index = 0; index < 48; index++) void f.client.localJson("GET", `/api/read-${index}`).catch(() => {});
+  const first = await f.next();
+  const result = readWhenMuxCapacityAvailable(attempts, new AbortController().signal).catch(error => error);
+  expect(attempts).toHaveBeenCalledTimes(1);
+  expect(f.posted.some(post => post.path === "/api/mesh/peers")).toBe(false);
+  f.head(first); f.text(first, '{}'); f.end(first);
+  const settled = await result;
+  if (status === 200) expect(settled).toEqual({paired:[]});
+  else expect(settled).toMatchObject({status:503});
+  expect(attempts).toHaveBeenCalledTimes(2);
+  expect(f.posted.filter(post => post.path === "/api/mesh/peers")).toHaveLength(1);
 });
 
 it("expires an undispatched queued action as safe to retry without later sending it", async () => {

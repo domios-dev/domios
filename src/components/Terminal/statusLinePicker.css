@@ -360,10 +360,78 @@ button.ct-status-identity:focus-visible {
   }
 }
 
-.ct-model-picker__extras {
+.ct-menu-row.ct-model-picker__extras-summary {
+  list-style: none;
+  padding-right: var(--ct-model-picker-inset);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ct-model-picker__extras-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ct-model-picker__extras-summary::marker {
+  content: "";
+}
+
+.ct-model-picker__extras-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.ct-model-picker__extras-chevron {
+  flex: 0 0 auto;
+  color: var(--ct-muted-fg);
+  transition: transform var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    color var(--ct-duration-fast) var(--ct-ease-liquid-settle);
+}
+
+.ct-model-picker__extras-summary:hover,
+.ct-model-picker__extras-summary:focus-visible,
+.ct-model-picker__extras[open] > summary,
+.ct-model-picker__extras-summary:hover .ct-model-picker__extras-chevron,
+.ct-model-picker__extras-summary:focus-visible .ct-model-picker__extras-chevron,
+.ct-model-picker__extras[open] > summary .ct-model-picker__extras-chevron {
+  color: var(--ct-fg);
+}
+
+.ct-model-picker__extras[open] > summary .ct-model-picker__extras-chevron {
+  transform: rotate(180deg);
+}
+
+.ct-model-picker__extras-rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
+  padding-top: 2px;
+}
+
+.ct-model-picker__extras[open] .ct-model-picker__extras-rows {
+  animation: ct-model-picker-extras-open var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+
+@keyframes ct-model-picker-extras-open {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-model-picker__extras-chevron {
+    transition: none;
+  }
+  .ct-model-picker__extras[open] .ct-model-picker__extras-rows {
+    animation: none;
+  }
 }
 
 .ct-model-picker__setting {
@@ -371,8 +439,23 @@ button.ct-status-identity:focus-visible {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  min-height: 28px;
+  min-height: 30px;
   padding-inline: var(--ct-model-picker-inset);
+}
+
+.ct-model-picker__extras .ct-model-picker__label {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ct-fg);
+}
+
+.ct-model-picker__setting > :last-child {
+  justify-self: stretch;
+}
+
+.ct-model-picker__setting > output {
+  font-size: 12px;
+  color: var(--ct-muted-fg);
 }
 
 .ct-model-picker__setting > .ct-model-picker__label,

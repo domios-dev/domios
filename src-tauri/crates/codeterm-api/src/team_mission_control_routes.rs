@@ -6,8 +6,11 @@ use axum::{
     Json,
 };
 use base64::Engine;
+pub use codeterm_plan::service_plan::team_mission_control::{
+    TeamMissionControlEvent, TeamMissionControlQuery, TeamMissionControlState, TeamPlanGoal,
+    TeamPlanSummary,
+};
 use codeterm_types::{plan::PlanLifecycleEvent, plan::PlanStatus, team::Team};
-use serde::{Deserialize, Serialize};
 
 use crate::routes::AppState;
 use codeterm_service_core::service::plan::{
@@ -17,68 +20,22 @@ use codeterm_service_core::service::plan::{
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 100;
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct TeamMissionControlQuery {
-    #[serde(default)]
-    limit: Option<usize>,
-    #[serde(default)]
-    cursor: Option<String>,
+trait TeamMissionControlQueryExt {
+    fn bounded_limit(&self) -> usize;
 }
 
-impl TeamMissionControlQuery {
+impl TeamMissionControlQueryExt for TeamMissionControlQuery {
     fn bounded_limit(&self) -> usize {
         self.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct TeamMissionControlEvent {
-    pub id: String,
-    pub plan_id: String,
-    pub plan_title: String,
-    pub ts: u64,
-    pub last_ts: u64,
-    pub count: usize,
-    pub kind: String,
-    pub author: String,
-    pub author_tab_id: Option<String>,
-    pub task_id: Option<String>,
-    pub task_name: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub linked_tasks: Vec<codeterm_plan::service_plan::state::mission_control::LinkedEventTask>,
-    pub text: String,
+trait TeamPlanSummaryRead {
+    fn from_read(input: &TeamPlanRead) -> Self;
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct TeamMissionControlState {
-    pub team_id: String,
-    pub team: Team,
-    pub active_plan: Option<TeamPlanSummary>,
-    pub archived_plans: Vec<TeamPlanSummary>,
-    pub events: Vec<TeamMissionControlEvent>,
-    pub next_cursor: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct TeamPlanSummary {
-    pub id: String,
-    pub title: String,
-    pub team_id: Option<String>,
-    pub status: PlanStatus,
-    pub mode: codeterm_types::plan::PlanMode,
-    pub planning_state: codeterm_types::plan::PlanningState,
-    pub goal: Option<TeamPlanGoal>,
-    pub updated_at: u64,
-    pub task_counts: codeterm_plan::service_plan::state::TaskCounts,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct TeamPlanGoal {
-    pub vector: String,
-}
-
-impl From<&TeamPlanRead> for TeamPlanSummary {
-    fn from(input: &TeamPlanRead) -> Self {
+impl TeamPlanSummaryRead for TeamPlanSummary {
+    fn from_read(input: &TeamPlanRead) -> Self {
         let plan = &input.metadata;
         Self {
             id: plan.id.clone(),
@@ -216,11 +173,11 @@ pub(crate) fn project_team_state(
     let active_plan = plans
         .iter()
         .find(|plan| plan.metadata.status == PlanStatus::Active)
-        .map(TeamPlanSummary::from);
+        .map(TeamPlanSummary::from_read);
     let archived_plans = plans
         .iter()
         .filter(|plan| plan.metadata.status == PlanStatus::Archived)
-        .map(TeamPlanSummary::from)
+        .map(TeamPlanSummary::from_read)
         .collect();
 
     let decoded_cursor = cursor.map(decode_cursor).transpose()?;

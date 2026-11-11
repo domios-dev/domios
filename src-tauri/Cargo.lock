@@ -1148,7 +1148,7 @@ checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
 name = "codeterm"
-version = "1.19.1"
+version = "1.19.2"
 dependencies = [
  "async-trait",
  "codeterm-build-info",
@@ -1208,6 +1208,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "ts-rs",
  "url",
  "windows-sys 0.61.2",
  "workspace-hack",
@@ -1227,6 +1228,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "ts-rs",
  "vt100",
  "workspace-hack",
 ]
@@ -1258,6 +1260,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.8.2",
+ "ts-rs",
  "ulid",
  "uuid",
  "vt100",
@@ -1375,6 +1378,7 @@ dependencies = [
  "serde_yaml",
  "sha2 0.10.9",
  "shell-words",
+ "ts-rs",
  "url",
  "uuid",
  "windows-sys 0.61.2",
@@ -1423,6 +1427,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+ "ts-rs",
  "url",
  "uuid",
  "workspace-hack",
@@ -1437,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-cli"
-version = "1.19.1"
+version = "1.19.2"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -1600,6 +1605,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "ts-rs",
  "workspace-hack",
 ]
 
@@ -1706,6 +1712,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "ts-rs",
  "workspace-hack",
 ]
 
@@ -1754,6 +1761,7 @@ name = "codeterm-local-recording"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "ts-rs",
  "workspace-hack",
 ]
 
@@ -1773,6 +1781,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-types",
  "codeterm-util",
+ "codeterm-wire",
  "hf-hub",
  "hnsw_rs",
  "libc",
@@ -1792,6 +1801,7 @@ dependencies = [
  "tempfile",
  "tokenizers 0.22.2",
  "tokio",
+ "ts-rs",
  "ulid",
  "uuid",
  "windows-sys 0.61.2",
@@ -1862,6 +1872,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "ts-rs",
  "uuid",
  "workspace-hack",
 ]
@@ -1873,6 +1884,7 @@ dependencies = [
  "aes-gcm",
  "async-trait",
  "base64 0.22.1",
+ "codeterm-wire",
  "ed25519-dalek",
  "googleapis-tonic-google-firestore-v1",
  "hkdf 0.12.4",
@@ -1888,6 +1900,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic",
+ "ts-rs",
  "windows-sys 0.61.2",
  "workspace-hack",
  "x25519-dalek",
@@ -1905,6 +1918,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "ts-rs",
  "uuid",
  "workspace-hack",
 ]
@@ -1937,6 +1951,7 @@ name = "codeterm-notify-types"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "ts-rs",
  "workspace-hack",
 ]
 
@@ -1950,6 +1965,7 @@ dependencies = [
  "codeterm-sentinel",
  "codeterm-service-core",
  "codeterm-types",
+ "codeterm-wire",
  "log",
  "parking_lot 0.12.5",
  "serde",
@@ -1990,6 +2006,7 @@ dependencies = [
  "serde_yaml",
  "sha2 0.10.9",
  "tempfile",
+ "ts-rs",
  "uuid",
  "workspace-hack",
 ]
@@ -2036,6 +2053,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.8.2",
+ "ts-rs",
  "uuid",
  "wait-timeout",
  "workspace-hack",
@@ -2062,6 +2080,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "ts-rs",
  "uuid",
  "workspace-hack",
 ]
@@ -2101,6 +2120,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-protocol-export"
+version = "0.0.0"
+dependencies = [
+ "codeterm-account",
+ "codeterm-agent-detect",
+ "codeterm-agent-model",
+ "codeterm-blueprint-types",
+ "codeterm-browser",
+ "codeterm-decision",
+ "codeterm-keepawake",
+ "codeterm-local-recording",
+ "codeterm-mem",
+ "codeterm-mesh",
+ "codeterm-neighbors",
+ "codeterm-notification-core",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-provider-signals",
+ "codeterm-pty",
+ "codeterm-secrets",
+ "codeterm-sentinel",
+ "codeterm-storage",
+ "codeterm-supporter",
+ "codeterm-types",
+ "codeterm-update",
+ "codeterm-usage",
+ "codeterm-wire",
+ "codeterm-worker-services",
+ "serde_json",
+ "ts-rs",
+ "workspace-hack",
+]
+
+[[package]]
 name = "codeterm-provider-ops"
 version = "0.0.0"
 dependencies = [
@@ -2129,6 +2182,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "ts-rs",
  "workspace-hack",
 ]
 
@@ -2156,6 +2210,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "ts-rs",
  "ulid",
  "uuid",
  "vt100",
@@ -2218,6 +2273,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "ts-rs",
  "workspace-hack",
  "zeroize",
 ]
@@ -2245,6 +2301,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "ts-rs",
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
@@ -2473,6 +2530,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "ts-rs",
  "windows-sys 0.61.2",
  "workspace-hack",
 ]
@@ -2498,6 +2556,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "toml 0.8.2",
+ "ts-rs",
  "uuid",
  "workspace-hack",
 ]
@@ -2516,6 +2575,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-plugin",
  "codeterm-util",
+ "codeterm-wire",
  "futures-core",
  "futures-util",
  "image",
@@ -2570,6 +2630,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "ts-rs",
  "uuid",
  "workspace-hack",
 ]
@@ -2584,6 +2645,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "ts-rs",
  "workspace-hack",
 ]
 
@@ -2635,6 +2697,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "ts-rs",
  "url",
  "uuid",
  "workspace-hack",
@@ -10174,6 +10237,7 @@ version = "12.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756050066659291d47a554a9f558125db17428b073c5ffce1daf5dcb0f7231d8"
 dependencies = [
+ "chrono",
  "serde_json",
  "thiserror 2.0.21",
  "ts-rs-macros",

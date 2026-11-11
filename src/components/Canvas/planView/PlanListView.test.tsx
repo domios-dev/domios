@@ -500,7 +500,7 @@ test("live list requests a visible cursor window and keeps filter focus while re
     return page(0,25,true);
   });
   const {host,unmount}=await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]}
-    api={{enabled:true,host:"localhost",port:7686,token:"fixture",cors:true}} />);
+    api={{mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [], enabled:true,host:"localhost",port:7686,token:"fixture",cors:true}} />);
   try {
     assert(host.querySelectorAll('[data-testid="plan-list-task"]').length===25,"opening list materializes one window");
     assert(requests.length===1,"list never acquires hidden pages automatically");

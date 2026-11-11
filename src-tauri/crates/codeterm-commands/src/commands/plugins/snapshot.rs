@@ -1,3 +1,7 @@
+use codeterm_plugins::snapshot_contracts::{
+    MarketplaceRow, Metadata, PluginLoadError, PluginUpdate, Snapshot,
+};
+use codeterm_plugins::{ChannelDiffRow, ChannelListRow, InstalledPluginRow};
 use serde_json::Value;
 
 use super::cli::{read_audit_events, run_plugin_cli};
@@ -34,20 +38,7 @@ pub(super) fn scan_plugin_manifests(
     map
 }
 
-/// Derive `capabilities` (snake_case) + `granted_permissions` + `settings_schema`
-/// from a plugin manifest. Absent `capabilities` ⇒ agent provider (mirrors
-/// `default_capabilities`). `dir` resolves the relative settings-schema path.
-#[cfg(test)]
-fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
-    enrich_from_manifest_with_icon(entry, dir, m, None);
-}
-
-fn enrich_from_manifest_with_icon(
-    entry: &mut Value,
-    dir: &std::path::Path,
-    m: &Value,
-    icon_svg: Option<&str>,
-) {
+fn enrich_metadata(entry: &mut Metadata, dir: &std::path::Path, m: &Value, icon_svg: Option<&str>) {
     let caps = m.get("capabilities");
     let agent_provider = match caps {
         Some(c) => c
@@ -68,18 +59,18 @@ fn enrich_from_manifest_with_icon(
         caps.and_then(|c| c.get(key))
             .is_some_and(|v| v.as_bool().unwrap_or(v.is_object()))
     };
-    let cap_obj = serde_json::json!({
-        "agent_provider": agent_provider,
-        "secret_backend": cap_enabled("secretBackend"),
-        "transcriber": cap_bool("transcriber"),
-        "glance_view": cap_bool("glanceView"),
-        "status_bubble": cap_bool("statusBubble"),
-        "view": cap_bool("view"),
-        "chat_backend": cap_bool("chatBackend") || cap_present("chatBackend"),
-        "chat_preprocessor": cap_bool("chatPreprocessor") || cap_present("chatPreprocessor"),
-        "graph_nodes": cap_enabled("graphNodes"),
-        "local_recording_trigger": cap_present("localRecordingTrigger"),
-    });
+    let cap_obj = codeterm_plugins::snapshot_contracts::Capabilities {
+        agent_provider,
+        secret_backend: cap_enabled("secretBackend"),
+        transcriber: cap_bool("transcriber"),
+        glance_view: cap_bool("glanceView"),
+        status_bubble: cap_bool("statusBubble"),
+        view: cap_bool("view"),
+        chat_backend: cap_bool("chatBackend") || cap_present("chatBackend"),
+        chat_preprocessor: cap_bool("chatPreprocessor") || cap_present("chatPreprocessor"),
+        graph_nodes: cap_enabled("graphNodes"),
+        local_recording_trigger: cap_present("localRecordingTrigger"),
+    };
     // Persisted grants.yaml override wins over the manifest request. Keys are canonical snake_case, camelCase accepted as fallback.
     let grants = codeterm_service_core::plugin::js_runtime::grants::load_grants(dir);
     let mut granted: Vec<&str> = Vec::new();
@@ -161,100 +152,57 @@ fn enrich_from_manifest_with_icon(
         .and_then(|rel| std::fs::read_to_string(dir.join(rel)).ok())
         .and_then(|t| serde_json::from_str::<Value>(&t).ok());
 
-    if let Some(obj) = entry.as_object_mut() {
-        remove_untrusted_plugin_icons(obj);
-        obj.insert("capabilities".into(), cap_obj);
-        obj.insert(
-            "sensitive_permissions".into(),
-            super::permissions::permission_states(m, &grants),
-        );
-        obj.insert("granted_permissions".into(), serde_json::json!(granted));
-        obj.insert(
-            "network_requested".into(),
-            serde_json::json!(network_requested),
-        );
-        obj.insert(
-            "declared_network_allow".into(),
-            serde_json::json!(declared_network_allow),
-        );
-        obj.insert(
-            "network_allow".into(),
-            serde_json::json!(grants.network_allow),
-        );
-        obj.insert(
-            "effective_network_allow".into(),
-            serde_json::json!(effective_network_allow),
-        );
-        // Static manifest flag; the live "waiting on reload now" signal is `pending_reload`, set by build_snapshot.
-        obj.insert(
-            "requires_reload".into(),
-            serde_json::json!(m
-                .get("requiresReload")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)),
-        );
-        if let Some(schema) = settings_schema {
-            obj.insert("settings_schema".into(), schema);
-        }
-        if let Some(icon_svg) = icon_svg {
-            obj.insert("icon_svg".into(), serde_json::json!(icon_svg));
-        }
-        if let Some(color) = m
-            .get("iconColor")
-            .and_then(Value::as_str)
-            .and_then(codeterm_plugin::plugin_icon::sanitize_plugin_icon_color)
-        {
-            obj.insert("icon_color".into(), serde_json::json!(color));
-        }
-        if obj.get("display_name").map(|v| v.is_null()).unwrap_or(true) {
-            if let Some(dn) = m.get("displayName") {
-                obj.insert("display_name".into(), dn.clone());
-            }
-        }
-        if obj.get("version").map(|v| v.is_null()).unwrap_or(true) {
-            if let Some(v) = m.get("version") {
-                obj.insert("version".into(), v.clone());
-            }
-        }
-        // Static default model from the manifest; live `available_models` are joined separately.
-        if let Some(default_model) = m.get("defaultModel") {
-            obj.insert("default_model".into(), default_model.clone());
-        }
-        // Doc surface for the detail tab: description/homepage strings + a bounded README markdown blob.
-        if let Some(desc) = m.get("description").and_then(|v| v.as_str()) {
-            obj.insert("description".into(), serde_json::json!(desc));
-        }
-        if let Some(pitch) = m.get("pitch").and_then(|v| v.as_str()) {
-            obj.insert("pitch".into(), serde_json::json!(pitch));
-        }
-        // Configure-with-AI is opt-in. A description alone does not imply configurability.
-        if let Some(help) = m.get("configHelp").and_then(|v| v.as_str()) {
-            obj.insert("config_help".into(), serde_json::json!(help));
-        }
-        if let Some(hp) = m.get("homepage").and_then(|v| v.as_str()) {
-            obj.insert("homepage".into(), serde_json::json!(hp));
-        }
-        let readme_rel = m
-            .get("readme")
-            .and_then(|v| v.as_str())
-            .unwrap_or("README.md");
-        if let Some(md) = read_bounded_text(&dir.join(readme_rel)) {
-            obj.insert("readme_markdown".into(), serde_json::json!(md));
-        }
+    entry.icon_svg = icon_svg.map(str::to_owned);
+    entry.icon_color = m
+        .get("iconColor")
+        .and_then(Value::as_str)
+        .and_then(codeterm_plugin::plugin_icon::sanitize_plugin_icon_color);
+    entry.capabilities = Some(cap_obj);
+    entry.sensitive_permissions = Some(super::permissions::permission_states(m, &grants));
+    entry.granted_permissions = Some(granted.into_iter().map(str::to_owned).collect());
+    entry.network_requested = Some(network_requested);
+    entry.declared_network_allow = Some(declared_network_allow);
+    entry.network_allow = Some(grants.network_allow.clone());
+    entry.effective_network_allow = Some(effective_network_allow);
+    entry.requires_reload = Some(
+        m.get("requiresReload")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    );
+    if let Some(schema) = settings_schema {
+        entry.settings_schema = Some(schema);
     }
-}
-
-fn remove_untrusted_plugin_icons(entry: &mut serde_json::Map<String, Value>) {
-    for key in [
-        "icon",
-        "icon_svg",
-        "iconSvg",
-        "icon_color",
-        "iconColor",
-        "icon_hint",
-        "iconHint",
-    ] {
-        entry.remove(key);
+    if entry.display_name.is_none() {
+        entry.display_name = m
+            .get("displayName")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+    }
+    if entry.version.is_none() {
+        entry.version = m.get("version").and_then(Value::as_str).map(str::to_owned);
+    }
+    entry.default_model = m
+        .get("defaultModel")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    if let Some(value) = m.get("description").and_then(Value::as_str) {
+        entry.description = Some(value.into());
+    }
+    if let Some(value) = m.get("pitch").and_then(Value::as_str) {
+        entry.pitch = Some(value.into());
+    }
+    if let Some(value) = m.get("configHelp").and_then(Value::as_str) {
+        entry.config_help = Some(value.into());
+    }
+    if let Some(value) = m.get("homepage").and_then(Value::as_str) {
+        entry.homepage = Some(value.into());
+    }
+    let readme_rel = m
+        .get("readme")
+        .and_then(Value::as_str)
+        .unwrap_or("README.md");
+    if let Some(value) = read_bounded_text(&dir.join(readme_rel)) {
+        entry.readme_markdown = Some(value);
     }
 }
 
@@ -286,244 +234,195 @@ pub(super) fn build_snapshot(
     _chatbackends: Option<&codeterm_service_core::chatbackend::ChatBackendRegistry>,
 ) -> Result<Value, String> {
     let started = std::time::Instant::now();
-    let mut plugins = run_plugin_cli(&["plugin", "list", "--json"])?;
+    let listed = run_plugin_cli(&["plugin", "list", "--json"])?;
+    let mut plugins: Vec<InstalledPluginRow> = serde_json::from_value(
+        listed
+            .get("plugins")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+    )
+    .map_err(|error| error.to_string())?;
     let manifests = scan_plugin_manifests();
-    // Plugins installed post-start that declared requiresReload and are waiting to activate.
     let pending_reload: std::collections::HashSet<String> =
         codeterm_service_core::plugin::js_runtime::pending_reload_ids()
             .into_iter()
             .collect();
-    if let Some(arr) = plugins.get_mut("plugins").and_then(|p| p.as_array_mut()) {
-        let mut seen = std::collections::HashSet::new();
-        for entry in arr.iter_mut() {
-            if let Some(id) = entry.get("id").and_then(|v| v.as_str()).map(String::from) {
-                seen.insert(id.clone());
-                if let Some(obj) = entry.as_object_mut() {
-                    remove_untrusted_plugin_icons(obj);
-                }
-                if let Some((dir, m, icon_svg)) = manifests.get(&id) {
-                    enrich_from_manifest_with_icon(entry, dir, m, icon_svg.as_deref());
-                }
-                // the plugin VM mutex and can block tab/session loading.
-                if let Some(obj) = entry.as_object_mut() {
-                    obj.insert(
-                        "pending_reload".into(),
-                        serde_json::json!(pending_reload.contains(&id)),
-                    );
-                }
-            }
+    let mut seen = std::collections::HashSet::new();
+    for entry in &mut plugins {
+        seen.insert(entry.id.clone());
+        entry.metadata.icon_svg = None;
+        entry.metadata.icon_color = None;
+        if let Some((dir, m, icon_svg)) = manifests.get(&entry.id) {
+            enrich_metadata(&mut entry.metadata, dir, m, icon_svg.as_deref());
         }
-        // Surface plugins the daemon loaded from disk but the CLI didn't list (dev workspace plugins), so the view is honest.
-        for (id, (dir, m, icon_svg)) in &manifests {
-            if seen.contains(id) {
-                continue;
-            }
-            // From the workspace source tree, not data_dir: not removable (a remove just reloads), flagged `dev`.
-            let mut entry = serde_json::json!({
-                "id": id,
-                "state": "active",
-                "system": false,
-                "removable": false,
-                "dev": true,
-                "install_path": dir.to_string_lossy(),
-            });
-            enrich_from_manifest_with_icon(&mut entry, dir, m, icon_svg.as_deref());
-            arr.push(entry);
-        }
-        attach_load_errors(
-            arr,
-            codeterm_service_core::plugin::js_runtime::plugin_load_errors(),
-        );
+        entry.pending_reload = Some(pending_reload.contains(&entry.id));
     }
-    // Best-effort register the default channel so its plugins surface as available; offline failures retry next snapshot.
-    let _ = run_plugin_cli(&["plugin", "channel", "ensure-default", "--json"]);
-    let channels = run_plugin_cli(&["plugin", "channel", "list", "--json"])?;
-    // Cold completion stays inside the blocking snapshot worker.
-    let diff = super::diff_cache::cached_diff(fetch_channel_diff);
-
-    let mut plugins_arr = plugins
-        .get("plugins")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-    let channels_arr = channels
-        .get("channels")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-    let diff_arr = diff
-        .get("diff")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-
-    reconcile_update_availability(&mut plugins_arr, &diff_arr);
-
-    let installed_ids: std::collections::HashSet<String> = plugins_arr
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|p| p.get("id").and_then(|v| v.as_str()).map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    let marketplace = build_marketplace(
-        diff_arr.as_array().map(Vec::as_slice).unwrap_or(&[]),
-        channels_arr.as_array().map(Vec::as_slice).unwrap_or(&[]),
-        &installed_ids,
+    for (id, (dir, m, icon_svg)) in &manifests {
+        if seen.contains(id) {
+            continue;
+        }
+        let mut entry = InstalledPluginRow {
+            id: id.clone(),
+            state: "active".into(),
+            system: false,
+            removable: false,
+            dev: Some(true),
+            install_path: Some(Some(dir.to_string_lossy().into_owned())),
+            ..Default::default()
+        };
+        enrich_metadata(&mut entry.metadata, dir, m, icon_svg.as_deref());
+        plugins.push(entry);
+    }
+    attach_errors(
+        &mut plugins,
+        codeterm_service_core::plugin::js_runtime::plugin_load_errors(),
     );
-
+    let _ = run_plugin_cli(&["plugin", "channel", "ensure-default", "--json"]);
+    let channel_result = run_plugin_cli(&["plugin", "channel", "list", "--json"])?;
+    let channels: Vec<ChannelListRow> = serde_json::from_value(
+        channel_result
+            .get("channels")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+    )
+    .map_err(|error| error.to_string())?;
+    let diff_result = super::diff_cache::cached_diff(fetch_channel_diff);
+    let diff: Vec<ChannelDiffRow> = serde_json::from_value(
+        diff_result
+            .get("diff")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+    )
+    .map_err(|error| error.to_string())?;
+    reconcile_updates(&mut plugins, &diff);
+    let installed_ids = plugins.iter().map(|plugin| plugin.id.clone()).collect();
+    let marketplace = marketplace_rows(&diff, &channels, &installed_ids);
     let audit = read_audit_events(80);
     log::debug!(
         "[plugin-snapshot] build_snapshot in {}ms",
         started.elapsed().as_millis()
     );
-    Ok(serde_json::json!({
-        "plugins": plugins_arr,
-        "channels": channels_arr,
-        "diff": diff_arr,
-        "marketplace": marketplace,
-        "audit": audit,
-        "lastOutput": last_output,
+    Ok(serde_json::json!(Snapshot {
+        plugins,
+        channels,
+        diff,
+        marketplace,
+        audit,
+        last_output
     }))
 }
 
-/// Joins live watcher load failures onto plugin rows; a plugin with no row (its manifest is
-/// not even JSON) gets a minimal one so the failure stays visible.
-fn attach_load_errors(
-    arr: &mut Vec<Value>,
-    errors: Vec<codeterm_service_core::plugin::js_runtime::PluginLoadError>,
-) {
-    let mut errors: std::collections::HashMap<String, Value> = errors
+fn attach_errors(plugins: &mut Vec<InstalledPluginRow>, errors: Vec<PluginLoadError>) {
+    let mut errors: std::collections::HashMap<_, _> = errors
         .into_iter()
-        .map(|error| {
-            let id = error.id.clone();
-            (id, serde_json::to_value(error).unwrap_or(Value::Null))
-        })
+        .map(|error| (error.id.clone(), error))
         .collect();
-    for entry in arr.iter_mut() {
-        let Some(obj) = entry.as_object_mut() else {
-            continue;
-        };
-        let Some(id) = obj.get("id").and_then(Value::as_str).map(String::from) else {
-            continue;
-        };
-        obj.insert(
-            "load_error".into(),
-            errors.remove(&id).unwrap_or(Value::Null),
-        );
+    for entry in plugins.iter_mut() {
+        entry.load_error = Some(errors.remove(&entry.id));
     }
-    let mut orphans: Vec<(String, Value)> = errors.into_iter().collect();
+    let mut orphans: Vec<_> = errors.into_iter().collect();
     orphans.sort_by(|a, b| a.0.cmp(&b.0));
     for (id, error) in orphans {
-        let install_path = error["path"]
-            .as_str()
-            .map(std::path::Path::new)
-            .and_then(std::path::Path::parent)
+        let install_path = error
+            .path
+            .parent()
             .map(|dir| dir.to_string_lossy().into_owned());
-        arr.push(serde_json::json!({
-            "id": id,
-            "state": "error",
-            "system": false,
-            "removable": false,
-            "dev": true,
-            "install_path": install_path,
-            "load_error": error,
-        }));
+        plugins.push(InstalledPluginRow {
+            id,
+            state: "error".into(),
+            system: false,
+            removable: false,
+            dev: Some(true),
+            install_path: Some(install_path),
+            load_error: Some(Some(error)),
+            ..Default::default()
+        });
     }
 }
 
-fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
-    use codeterm_plugins::{update_availability, AvailabilityItem, UpdateOffer, UpdateSource};
-    let Some(plugins) = plugins.as_array_mut() else {
-        return;
+fn reconcile_updates(plugins: &mut [InstalledPluginRow], diff: &[ChannelDiffRow]) {
+    use codeterm_plugins::{
+        update_availability, AvailabilityItem, InstallSource, UpdateOffer, UpdateSource,
     };
     for plugin in plugins {
-        let id = plugin["id"].as_str().unwrap_or_default();
-        let source = &plugin["source"];
-        let channel = source["channel"].as_str();
-        let update_source = match (plugin["state"].as_str(), source["kind"].as_str()) {
-            (_, Some("dir")) => UpdateSource::Local,
-            (_, Some("channel" | "system_channel")) => channel
+        let source = plugin.source.as_ref().and_then(Option::as_ref);
+        let channel = match source {
+            Some(
+                InstallSource::Channel { channel, .. }
+                | InstallSource::SystemChannel { channel, .. },
+            ) => Some(channel.as_str()),
+            _ => None,
+        };
+        let update_source = match source {
+            Some(InstallSource::Dir { .. }) => UpdateSource::Local,
+            _ => channel
                 .map(UpdateSource::Channel)
                 .unwrap_or(UpdateSource::Unknown),
-            _ => UpdateSource::Unknown,
         };
         let row = diff
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|row| row["id"].as_str() == Some(id) && row["channel"].as_str() == channel);
-        let offer = row.and_then(|row| {
-            Some(UpdateOffer {
-                channel: row["channel"].as_str()?,
-                version: row["remote_version"].as_str(),
-                payload_version: row["payload_version"].as_str(),
-                compatible: row["compatible"].as_bool() == Some(true),
-            })
+            .iter()
+            .find(|row| row.id == plugin.id && Some(row.channel.as_str()) == channel);
+        let offer = row.map(|row| UpdateOffer {
+            channel: &row.channel,
+            version: row.remote_version.as_deref(),
+            payload_version: row.payload_version.as_deref(),
+            compatible: row.compatible,
         });
-        let decision = update_availability(plugin["version"].as_str(), update_source, offer);
-        let core = plugin["system"].as_bool() == Some(true);
+        let decision =
+            update_availability(plugin.metadata.version.as_deref(), update_source, offer);
         let availability = AvailabilityItem::plugin(
-            id,
-            plugin["version"].as_str(),
-            row.and_then(|r| r["remote_version"].as_str()),
+            &plugin.id,
+            plugin.metadata.version.as_deref(),
+            row.and_then(|row| row.remote_version.as_deref()),
             channel,
-            row.is_some_and(|r| r["compatible"].as_bool() == Some(true)),
-            core,
+            row.is_some_and(|row| row.compatible),
+            plugin.system,
             &decision,
         );
-        let update = serde_json::json!({
-            "available": decision.available && !core,
-            "availability": availability,
-            "reason": decision.reason,
-            "channel": channel,
-            "remote_version": row.and_then(|row| row["remote_version"].as_str()),
-            "basis": "channel_diff",
+        plugin.update = Some(PluginUpdate {
+            available: decision.available && !plugin.system,
+            availability,
+            reason: decision.reason.into(),
+            channel: channel.map(str::to_owned),
+            remote_version: row.and_then(|row| row.remote_version.clone()),
+            basis: "channel_diff".into(),
         });
-        plugin["update"] = update;
     }
 }
 
-/// Build marketplace rows from the channel diff: each keeps its diff fields, gains
-/// an honest `installed` flag, and is enriched from the channel-cache manifest via
-/// `enrich_from_manifest` (the single capability-derivation path).
-fn build_marketplace(
-    diff: &[Value],
-    channels: &[Value],
+fn marketplace_rows(
+    diff: &[ChannelDiffRow],
+    channels: &[ChannelListRow],
     installed_ids: &std::collections::HashSet<String>,
-) -> Vec<Value> {
-    let mut out = Vec::with_capacity(diff.len());
-    for row in diff {
-        let id = row.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-        let channel = row
-            .get("channel")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
-        let mut entry = row.clone();
-        if let Some(obj) = entry.as_object_mut() {
-            remove_untrusted_plugin_icons(obj);
-            obj.insert(
-                "installed".into(),
-                serde_json::json!(installed_ids.contains(id)),
-            );
-        }
-        if let Some((dir, m, icon_svg)) = channel_plugin_manifest(channels, channel, id) {
-            enrich_from_manifest_with_icon(&mut entry, &dir, &m, icon_svg.as_deref());
-        }
-        out.push(entry);
-    }
-    out
+) -> Vec<MarketplaceRow> {
+    diff.iter()
+        .map(|row| {
+            let mut metadata = Metadata::default();
+            if let Some((dir, manifest, icon_svg)) =
+                channel_plugin_manifest(channels, &row.channel, &row.id)
+            {
+                enrich_metadata(&mut metadata, &dir, &manifest, icon_svg.as_deref());
+            }
+            MarketplaceRow {
+                diff: row.clone(),
+                installed: installed_ids.contains(&row.id),
+                metadata,
+            }
+        })
+        .collect()
 }
 
 /// Locate a channel plugin's on-disk dir + parsed manifest from the channel cache.
 /// Reads `<channel.path>/channel.json` to map the plugin id → its relative path.
 fn channel_plugin_manifest(
-    channels: &[Value],
+    channels: &[ChannelListRow],
     channel: &str,
     id: &str,
 ) -> Option<(std::path::PathBuf, Value, Option<String>)> {
     let channel_path = channels
         .iter()
-        .find(|c| c.get("name").and_then(|v| v.as_str()) == Some(channel))
-        .and_then(|c| c.get("path").and_then(|v| v.as_str()))
+        .find(|c| c.name == channel)
+        .map(|c| c.path.as_str())
         .filter(|p| !p.is_empty())?;
     let root = std::path::PathBuf::from(channel_path);
     let manifest_text = std::fs::read_to_string(root.join("channel.json")).ok()?;
@@ -559,491 +458,106 @@ fn manifest_icon_svg(dir: &std::path::Path, manifest: &Value) -> Option<String> 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn load_errors_attach_to_their_row_and_orphans_get_a_row() {
-        let mut arr = vec![
-            serde_json::json!({"id": "claude", "state": "active"}),
-            serde_json::json!({"id": "healthy", "state": "active"}),
-        ];
-        let error =
-            |id: &str, path: &str| codeterm_service_core::plugin::js_runtime::PluginLoadError {
-                id: id.to_string(),
-                path: std::path::PathBuf::from(path),
-                message: "parse: unknown field `prompt`".to_string(),
-                at_ms: 7,
-                kept_previous: true,
-            };
-        attach_load_errors(
-            &mut arr,
-            vec![
-                error("claude", "/p/provider-claude/plugin.json"),
-                error("broken", "/p/broken/plugin.json"),
-            ],
-        );
-        assert_eq!(
-            arr[0]["load_error"]["message"],
-            "parse: unknown field `prompt`"
-        );
-        assert_eq!(arr[0]["load_error"]["at_ms"], 7);
-        assert!(arr[1]["load_error"].is_null());
-        assert_eq!(arr.len(), 3);
-        assert_eq!(arr[2]["id"], "broken");
-        assert_eq!(arr[2]["state"], "error");
-        assert!(arr[2]["install_path"]
-            .as_str()
-            .is_some_and(|path| path.ends_with("broken")));
-    }
-
-    #[test]
-    fn update_reconciliation_uses_current_install_and_owning_channel() {
-        let mut plugins = serde_json::json!([
-            {"id":"demo", "version":"1.0.0", "source":{"kind":"channel", "channel":"store"}},
-            {"id":"local", "version":"1.0.0", "source":{"kind":"dir"}},
-            {"id":"workspace", "version":"1.0.0", "dev":true},
-            {"id":"unknown", "version":"1.0.0"}
-        ]);
-        let diff = serde_json::json!([
-            {"id":"demo", "channel":"store", "local_version":"0.1.0", "remote_version":"1.0.0", "payload_version":"1.0.0", "compatible":true, "drift":"update_available"},
-            {"id":"demo", "channel":"other", "remote_version":"9.0.0", "payload_version":"9.0.0", "compatible":true},
-            {"id":"local", "channel":"store", "remote_version":"9.0.0", "payload_version":"9.0.0", "compatible":true}
-        ]);
-        reconcile_update_availability(&mut plugins, &diff);
-        assert_eq!(plugins[0]["update"]["reason"], "same_version");
-        assert_eq!(plugins[1]["update"]["reason"], "local_install");
-        assert_eq!(plugins[2]["update"]["reason"], "unknown_source");
-        assert_eq!(plugins[3]["update"]["reason"], "unknown_source");
-        for plugin in plugins.as_array().unwrap() {
-            assert_eq!(plugin["update"]["available"], false);
-        }
-        plugins[0]["version"] = serde_json::json!("0.1.0");
-        reconcile_update_availability(&mut plugins, &diff);
-        assert_eq!(plugins[0]["update"]["available"], true);
-        assert_eq!(plugins[0]["update"]["remote_version"], "1.0.0");
-    }
-
-    #[test]
-    fn plugin_icon_svg_manifest_the_strict_loader_rejects_still_enriches() {
-        let root = std::env::temp_dir().join(format!("ct-snapshot-lenient-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
-            root.join("icon.svg"),
-            r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="7"/></svg>"#,
-        )
-        .unwrap();
-        let manifest = serde_json::json!({
-            "id": "lenient",
-            "version": "0.1.0",
-            "displayName": "Lenient",
-            "description": "Still described",
-            "icon": "icon.svg",
-            "capabilities": { "view": true },
-            "futureManifestField": true,
-        });
-        std::fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
-        assert!(
-            codeterm_service_core::plugin::js_runtime::PluginManifest::load(
-                &root.join("plugin.json")
-            )
-            .is_err()
-        );
-
-        let icon_svg = manifest_icon_svg(&root, &manifest);
-        assert!(icon_svg
-            .as_deref()
-            .is_some_and(|svg| svg.contains("circle")));
-        let mut entry = serde_json::json!({ "id": "lenient" });
-        enrich_from_manifest_with_icon(&mut entry, &root, &manifest, icon_svg.as_deref());
-        assert_eq!(entry["description"], "Still described");
-        assert_eq!(entry["capabilities"]["view"], true);
-        assert!(entry["icon_svg"]
-            .as_str()
-            .is_some_and(|svg| svg.contains("circle")));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn plugin_icon_svg_snapshot_carries_only_the_sanitized_asset() {
-        let root = std::env::temp_dir().join(format!("ct-snapshot-icon-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
-            root.join("icon.svg"),
-            r#"<svg viewBox="0 0 1 1" fill="currentColor"><path d="M0 0"/></svg>"#,
-        )
-        .unwrap();
-        std::fs::write(
-            root.join("plugin.json"),
-            serde_json::json!({
-                "id": "demo",
-                "version": "0.1.0",
-                "displayName": "Demo",
-                "icon": "icon.svg",
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-        let manifest = codeterm_service_core::plugin::js_runtime::PluginManifest::load(
-            &root.join("plugin.json"),
-        )
-        .unwrap();
-        let mut entry = serde_json::json!({ "id": "demo" });
-        enrich_from_manifest_with_icon(
-            &mut entry,
-            &root,
-            &serde_json::json!({ "id": "demo", "displayName": "Demo" }),
-            manifest.icon_svg.as_deref(),
-        );
-        assert_eq!(entry["icon_svg"], serde_json::json!(manifest.icon_svg));
-        entry["iconSvg"] = serde_json::json!("<svg>raw</svg>");
-        entry["icon"] = serde_json::json!("https://example.test/icon.svg");
-        entry["icon_color"] = serde_json::json!("#f00");
-        entry["icon_hint"] = serde_json::json!("raw");
-        enrich_from_manifest_with_icon(&mut entry, &root, &serde_json::json!({}), None);
-        assert!(entry.get("icon").is_none());
-        assert!(entry.get("icon_svg").is_none());
-        assert!(entry.get("iconSvg").is_none());
-        assert!(entry.get("icon_color").is_none());
-        assert!(entry.get("icon_hint").is_none());
-        enrich_from_manifest_with_icon(
-            &mut entry,
-            &root,
-            &serde_json::json!({ "iconColor": "#d97757" }),
-            None,
-        );
-        assert_eq!(entry["icon_color"], serde_json::json!("#d97757"));
-        enrich_from_manifest_with_icon(
-            &mut entry,
-            &root,
-            &serde_json::json!({ "iconColor": "red; background: url(x)" }),
-            None,
-        );
-        assert!(entry.get("icon_color").is_none());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn enrich_separates_declared_network_from_extra_grants() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("grants.yaml"),
-            "network_allow:\n  - extra.example.test\n",
-        )
-        .unwrap();
-        let mut entry = serde_json::json!({ "id": "demo" });
-        enrich_from_manifest(
-            &mut entry,
-            dir.path(),
-            &serde_json::json!({
-                "permissions": { "network": { "allow": ["declared.example.test"] } }
-            }),
-        );
-        assert_eq!(entry["network_requested"], true);
-        assert_eq!(
-            entry["declared_network_allow"],
-            serde_json::json!(["declared.example.test"])
-        );
-        assert_eq!(
-            entry["effective_network_allow"],
-            serde_json::json!(["declared.example.test", "extra.example.test"])
-        );
-        enrich_from_manifest(&mut entry, dir.path(), &serde_json::json!({}));
-        assert_eq!(entry["network_requested"], false);
-        assert_eq!(entry["declared_network_allow"], serde_json::json!([]));
-    }
-
-    #[test]
-    fn enrich_reads_description_homepage_and_readme() {
-        let dir = std::env::temp_dir().join(format!("ct-enrich-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let manifest = serde_json::json!({
-            "id": "demo",
-            "version": "0.2.0",
-            "displayName": "Demo",
-            "description": "Does a demo thing.",
-            "pitch": "Demo things happen for you.",
-            "homepage": "https://example.com/demo",
-            "capabilities": { "statusBubble": true },
-        });
-        std::fs::write(dir.join("README.md"), "# Demo\n\nUseful docs here.").unwrap();
-
-        let mut entry = serde_json::json!({ "id": "demo" });
-        enrich_from_manifest(&mut entry, &dir, &manifest);
-
-        assert_eq!(
-            entry["description"],
-            serde_json::json!("Does a demo thing.")
-        );
-        assert_eq!(
-            entry["pitch"],
-            serde_json::json!("Demo things happen for you.")
-        );
-        assert_eq!(
-            entry["homepage"],
-            serde_json::json!("https://example.com/demo")
-        );
-        assert!(entry["readme_markdown"]
-            .as_str()
-            .unwrap()
-            .contains("Useful docs here."));
-        assert_eq!(
-            entry["capabilities"]["status_bubble"],
-            serde_json::json!(true)
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn enrich_exposes_only_explicit_config_help() {
-        let dir = std::env::temp_dir().join(format!("ct-confhelp-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-
-        // configHelp present → carried verbatim as config_help.
-        let with_help = serde_json::json!({
-            "id": "local-shell",
-            "description": "Local LLM via LM Studio.",
-            "configHelp": "Set `baseUrl` and `model` to point at your LM Studio server.",
-        });
-        let mut entry = serde_json::json!({ "id": "local-shell" });
-        enrich_from_manifest(&mut entry, &dir, &with_help);
-        assert_eq!(
-            entry["config_help"],
-            serde_json::json!("Set `baseUrl` and `model` to point at your LM Studio server.")
-        );
-
-        // Description-only plugins are not AI-configurable.
-        let no_help = serde_json::json!({
-            "id": "git",
-            "description": "Shows git status in the Tab bubble.",
-        });
-        let mut entry2 = serde_json::json!({ "id": "git" });
-        enrich_from_manifest(&mut entry2, &dir, &no_help);
-        assert!(entry2.get("config_help").is_none());
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn enrich_emits_chat_caps_and_snake_case_grants() {
-        let dir = std::env::temp_dir().join(format!("ct-caps-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let manifest = serde_json::json!({
-            "id": "codeterm-npc",
-            "version": "0.1.0",
-            "displayName": "Dread NPCs",
-            "capabilities": { "chatBackend": true, "chatPreprocessor": { "match": "text" } },
-            "permissions": {
-                "manage_workspaces": true,
-                "spawn_agents": true,
-                "agent_commands": true,
-                "secrets": true,
-                "analytics": true
-            }
-        });
-        let mut entry = serde_json::json!({ "id": "codeterm-npc" });
-        enrich_from_manifest(&mut entry, &dir, &manifest);
-
-        assert_eq!(
-            entry["capabilities"]["chat_backend"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            entry["capabilities"]["chat_preprocessor"],
-            serde_json::json!(true),
-            "object-form chatPreprocessor still reads as enabled"
-        );
-        let granted: Vec<String> = entry["granted_permissions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap().to_string())
-            .collect();
-        for want in [
-            "manage_workspaces",
-            "spawn_agents",
-            "agent_commands",
-            "secrets",
-            "analytics",
-        ] {
-            assert!(
-                granted.contains(&want.to_string()),
-                "missing {want}: {granted:?}"
-            );
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn enrich_granted_permissions_reflect_grants_yaml() {
-        let dir = std::env::temp_dir().join(format!("ct-grant-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        // User revoked spawn_agents (manifest requested it) → snapshot must honor it.
-        std::fs::write(dir.join("grants.yaml"), "spawn_agents: false\n").unwrap();
-        let manifest = serde_json::json!({
-            "id": "codeterm-npc",
-            "version": "0.1.0",
-            "displayName": "Dread NPCs",
-            "permissions": { "manage_workspaces": true, "spawn_agents": true }
-        });
-        let mut entry = serde_json::json!({ "id": "codeterm-npc" });
-        enrich_from_manifest(&mut entry, &dir, &manifest);
-        let granted: Vec<String> = entry["granted_permissions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap().to_string())
-            .collect();
-        assert!(granted.contains(&"manage_workspaces".to_string()));
-        assert!(
-            !granted.contains(&"spawn_agents".to_string()),
-            "revoked grant must not appear: {granted:?}"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn enrich_exposes_default_model_from_manifest() {
-        let dir = std::env::temp_dir().join(format!("ct-defmodel-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let manifest = serde_json::json!({
-            "id": "lmstudio",
-            "displayName": "LM Studio",
-            "defaultModel": "qwen-2.5",
-            "capabilities": { "chatBackend": { "spawnable": true } },
-        });
-        let mut entry = serde_json::json!({ "id": "lmstudio" });
-        enrich_from_manifest(&mut entry, &dir, &manifest);
-        assert_eq!(entry["default_model"], serde_json::json!("qwen-2.5"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn marketplace_marks_installed_and_pulls_channel_metadata() {
-        let root = std::env::temp_dir().join(format!("ct-mp-{}", std::process::id()));
-        let plugin_dir = root.join("demo");
-        std::fs::create_dir_all(&plugin_dir).unwrap();
-        std::fs::write(
-            root.join("channel.json"),
-            serde_json::json!({
-                "schemaVersion": 1,
-                "name": "demochan",
-                "plugins": [{ "id": "demo", "path": "demo", "version": "1.0.0" }],
-            })
-            .to_string(),
-        )
-        .unwrap();
-        std::fs::write(
-            plugin_dir.join("plugin.json"),
-            serde_json::json!({
-                "id": "demo",
-                "version": "1.0.0",
-                "displayName": "Demo Plugin",
-                "description": "A marketplace demo.",
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-        let channels = vec![serde_json::json!({
-            "name": "demochan",
-            "path": root.to_string_lossy(),
-        })];
-        let diff = vec![
-            serde_json::json!({ "channel": "demochan", "id": "demo", "drift": "not_installed", "compatible": true }),
-            serde_json::json!({ "channel": "demochan", "id": "other", "drift": "update_available", "compatible": true }),
-        ];
-        let installed: std::collections::HashSet<String> =
-            ["other".to_string()].into_iter().collect();
-
-        let market = build_marketplace(&diff, &channels, &installed);
-        assert_eq!(market.len(), 2);
-        assert_eq!(market[0]["id"], serde_json::json!("demo"));
-        assert_eq!(market[0]["installed"], serde_json::json!(false));
-        assert_eq!(market[0]["display_name"], serde_json::json!("Demo Plugin"));
-        assert_eq!(
-            market[0]["description"],
-            serde_json::json!("A marketplace demo.")
-        );
-        // Second row isn't in the channel cache → still present, installed flag honest.
-        assert_eq!(market[1]["installed"], serde_json::json!(true));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn enrich_reports_graph_nodes_capability() {
-        let dir = std::env::temp_dir().join(format!("ct-graph-nodes-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let manifest = serde_json::json!({
-            "id": "grapher",
-            "version": "1.0.0",
-            "displayName": "Grapher",
-            "capabilities": {
-                "graphNodes": {
-                    "converters": [{ "from": "video", "to": "audio" }],
-                    "eventSources": [{ "kind": "fixture.event", "title": "Fixture" }]
-                }
-            },
-        });
-        let mut entry = serde_json::json!({ "id": "grapher" });
-        enrich_from_manifest_with_icon(&mut entry, &dir, &manifest, None);
-        assert_eq!(
-            entry["capabilities"]["graph_nodes"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            entry["capabilities"]["agent_provider"],
-            serde_json::json!(false)
-        );
-
-        let plain =
-            serde_json::json!({ "id": "plain", "version": "1.0.0", "displayName": "Plain" });
-        let mut plain_entry = serde_json::json!({ "id": "plain" });
-        enrich_from_manifest_with_icon(&mut plain_entry, &dir, &plain, None);
-        assert_eq!(
-            plain_entry["capabilities"]["graph_nodes"],
-            serde_json::json!(false)
-        );
-
-        let disabled = serde_json::json!({
-            "id": "off",
-            "version": "1.0.0",
-            "displayName": "Off",
-            "capabilities": { "graphNodes": false },
-        });
-        let mut disabled_entry = serde_json::json!({ "id": "off" });
-        enrich_from_manifest_with_icon(&mut disabled_entry, &dir, &disabled, None);
-        assert_eq!(
-            disabled_entry["capabilities"]["graph_nodes"],
-            serde_json::json!(false)
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+mod tests;
 
 #[cfg(test)]
-mod availability_regressions {
-    use super::*;
+mod availability_regressions;
 
-    #[test]
-    fn same_versions_and_core_plugins_never_offer_actions() {
-        let mut plugins = serde_json::json!([
-            {"id":"lark", "version":"0.1.3", "system":false, "source":{"kind":"channel","channel":"store"}, "update":{"available":true}},
-            {"id":"core", "version":"0.1.2", "system":true, "state":"bundled", "source":{"kind":"system_channel","channel":"official"}, "update":{"available":true}}
-        ]);
-        let diff = serde_json::json!([
-            {"id":"lark","channel":"store","remote_version":"0.1.3","payload_version":"0.1.3","compatible":true,"drift":"hash_drift"},
-            {"id":"core","channel":"official","remote_version":"0.1.3","payload_version":"0.1.3","compatible":true,"drift":"update_available"}
-        ]);
-        reconcile_update_availability(&mut plugins, &diff);
-        assert_eq!(plugins[0]["update"]["available"], false);
-        assert_eq!(plugins[0]["update"]["availability"]["state"], "up_to_date");
-        assert_eq!(plugins[1]["update"]["available"], false);
-        assert_eq!(plugins[1]["update"]["availability"]["state"], "core_silent");
+#[cfg(test)]
+fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, manifest: &Value) {
+    enrich_from_manifest_with_icon(entry, dir, manifest, None);
+}
+#[cfg(test)]
+fn enrich_from_manifest_with_icon(
+    entry: &mut Value,
+    dir: &std::path::Path,
+    manifest: &Value,
+    icon: Option<&str>,
+) {
+    let mut row: InstalledPluginRow = serde_json::from_value(entry.clone()).unwrap();
+    enrich_metadata(&mut row.metadata, dir, manifest, icon);
+    *entry = serde_json::json!(row);
+}
+#[cfg(test)]
+fn fixture_plugins(value: &Value) -> Vec<InstalledPluginRow> {
+    let mut value = value.clone();
+    for row in value.as_array_mut().unwrap() {
+        if let Some(source) = row.get_mut("source").and_then(Value::as_object_mut) {
+            source.entry("path").or_insert(serde_json::json!(""));
+        }
     }
+    serde_json::from_value(value).unwrap()
+}
+#[cfg(test)]
+fn fixture_diff(value: &Value) -> Vec<ChannelDiffRow> {
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| ChannelDiffRow {
+            id: row["id"].as_str().unwrap_or_default().into(),
+            channel: row["channel"].as_str().unwrap_or_default().into(),
+            local_version: row["local_version"].as_str().map(str::to_owned),
+            remote_version: row["remote_version"].as_str().map(str::to_owned),
+            payload_version: row["payload_version"].as_str().map(str::to_owned),
+            local_manifest_hash: None,
+            remote_manifest_hash: None,
+            drift: row["drift"].as_str().unwrap_or_default().into(),
+            compatible: row["compatible"].as_bool().unwrap_or(false),
+            blocked_reason: row["blocked_reason"].as_str().map(str::to_owned),
+            availability: codeterm_plugins::AvailabilityItem::plugin(
+                "fixture",
+                None,
+                None,
+                None,
+                false,
+                false,
+                &codeterm_plugins::UpdateAvailability {
+                    available: false,
+                    reason: "fixture",
+                },
+            ),
+        })
+        .collect()
+}
+#[cfg(test)]
+fn attach_load_errors(rows: &mut Vec<Value>, errors: Vec<PluginLoadError>) {
+    let mut typed = fixture_plugins(&serde_json::json!(rows));
+    attach_errors(&mut typed, errors);
+    *rows = typed
+        .into_iter()
+        .map(|row| serde_json::json!(row))
+        .collect();
+}
+#[cfg(test)]
+fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
+    let mut typed = fixture_plugins(plugins);
+    reconcile_updates(&mut typed, &fixture_diff(diff));
+    *plugins = serde_json::json!(typed);
+}
+#[cfg(test)]
+fn build_marketplace(
+    diff: &[Value],
+    channels: &[Value],
+    installed: &std::collections::HashSet<String>,
+) -> Vec<Value> {
+    let channels = channels
+        .iter()
+        .map(|row| ChannelListRow {
+            name: row["name"].as_str().unwrap_or_default().into(),
+            url: String::new(),
+            path: row["path"].as_str().unwrap_or_default().into(),
+            kind: codeterm_plugins::ChannelKind::Local,
+            system: false,
+            removable: false,
+        })
+        .collect::<Vec<_>>();
+    marketplace_rows(
+        &fixture_diff(&serde_json::json!(diff)),
+        &channels,
+        installed,
+    )
+    .into_iter()
+    .map(|row| serde_json::json!(row))
+    .collect()
 }

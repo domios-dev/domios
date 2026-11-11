@@ -1,9 +1,11 @@
 use super::read_projections::column;
 use super::{db_error, PlanDatabase};
 use crate::plan::{PlanOrphan, PlanStatus};
+use crate::service_plan::ui_projections::task_reads::*;
 use crate::service_plan::PlanError;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 const BOARD_COLUMNS: [&str; 5] = ["pending", "in_progress", "in_review", "blocked", "done"];
 const PAGE_SIZE_LIMIT: usize = 50;
@@ -37,51 +39,51 @@ struct TaskBoardRow {
     group_color: Option<String>,
     section_title: Option<String>,
     latest_note: Option<String>,
-    historical_executor: Option<Value>,
-    competition_badge: Option<Value>,
-    loop_badge: Option<Value>,
+    historical_executor: Option<PlanTaskHistoricalExecutor>,
+    competition_badge: Option<PlanTaskCompetitionBadge>,
+    loop_badge: Option<PlanTaskLoopBadge>,
 }
 
 impl TaskBoardRow {
-    fn into_json(self) -> Value {
-        json!({
-            "id": self.task_id,
-            "position": self.position,
-            "name": self.name,
-            "status": self.status,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "status_changed_at": self.status_changed_at,
-            "activity_at": self.activity_at,
-            "handle": self.handle,
-            "key": self.key,
-            "assigned_tab_id": self.assigned_tab_id,
-            "lane": {
-                "tab_id": self.lane_tab_id,
-                "branch": self.lane_branch,
+    fn into_summary(self) -> Result<PlanTaskBoardSummary, PlanError> {
+        Ok(PlanTaskBoardSummary {
+            id: self.task_id,
+            status: serde_json::from_value(json!(self.status)).map_err(super::json_error)?,
+            position: self.position,
+            name: self.name,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            status_changed_at: self.status_changed_at,
+            activity_at: self.activity_at,
+            handle: self.handle,
+            key: self.key,
+            assigned_tab_id: self.assigned_tab_id,
+            taken_by_role: self.taken_by_role,
+            pause_reason: self.pause_reason,
+            model: self.model,
+            peer: self.peer,
+            review_stage: self.review_stage,
+            qa_state: self.qa_state,
+            status_label: self.status_label,
+            qa_queue_position: self.qa_queue_position,
+            latest_note: self.latest_note,
+            historical_executor: self.historical_executor,
+            competition_badge: self.competition_badge,
+            loop_badge: self.loop_badge,
+            lane: PlanTaskBoardLane {
+                tab_id: self.lane_tab_id,
+                branch: self.lane_branch,
             },
-            "taken_by_role": self.taken_by_role,
-            "pause_reason": self.pause_reason,
-            "model": self.model,
-            "peer": self.peer,
-            "review_stage": self.review_stage,
-            "qa_state": self.qa_state,
-            "status_label": self.status_label,
-            "qa_queue_position": self.qa_queue_position,
-            "locator": if self.group_key.is_some() || self.section_title.is_some() {
-                json!({
-                    "groupKey": self.group_key,
-                    "groupLabel": self.group_label,
-                    "groupColor": self.group_color,
-                    "section": self.section_title,
+            locator: if self.group_key.is_some() || self.section_title.is_some() {
+                Some(PlanTaskBoardLocator {
+                    group_key: self.group_key,
+                    group_label: self.group_label,
+                    group_color: self.group_color,
+                    section: self.section_title,
                 })
             } else {
-                Value::Null
+                None
             },
-            "latest_note": self.latest_note,
-            "historical_executor": self.historical_executor,
-            "competition_badge": self.competition_badge,
-            "loop_badge": self.loop_badge,
         })
     }
 }
@@ -98,21 +100,30 @@ struct TaskStatusCounts {
 }
 
 impl TaskStatusCounts {
-    fn as_json(&self) -> Value {
+    fn summary(&self) -> PlanTaskBoardCounts {
         let pending = self.pending + self.paused;
-        json!({
-            "pending": pending,
-            "in_progress": self.in_progress,
-            "in_review": self.in_review,
-            "blocked": self.blocked,
-            "done": self.done,
-            "cancelled": self.cancelled,
-            "total": pending + self.in_progress + self.in_review + self.blocked + self.done + self.cancelled,
-        })
+        PlanTaskBoardCounts {
+            pending,
+            in_progress: self.in_progress,
+            in_review: self.in_review,
+            blocked: self.blocked,
+            done: self.done,
+            cancelled: self.cancelled,
+            total: pending
+                + self.in_progress
+                + self.in_review
+                + self.blocked
+                + self.done
+                + self.cancelled,
+        }
     }
 }
 
-fn task_loop_badge(loops: Option<&Value>, task_id: &str, handle: Option<&str>) -> Option<Value> {
+fn task_loop_badge(
+    loops: Option<&Value>,
+    task_id: &str,
+    handle: Option<&str>,
+) -> Option<PlanTaskLoopBadge> {
     let matches: Vec<&Value> = loops?
         .as_array()?
         .iter()
@@ -204,27 +215,33 @@ fn task_loop_badge(loops: Option<&Value>, task_id: &str, handle: Option<&str>) -
     let visible_loops = matches
         .iter()
         .take(LOOP_DETAILS_LIMIT)
-        .map(|loop_spec| {
-            json!({
-                "id": bounded_text(loop_spec.get("id").and_then(Value::as_str), 96).unwrap_or_else(|| "loop".to_string()),
-                "target": bounded_text(loop_spec.get("target").and_then(Value::as_str), 96).unwrap_or_default(),
-                "budget": loop_spec.get("budget").and_then(Value::as_u64).unwrap_or_default(),
-                "count": loop_spec.get("count").and_then(Value::as_u64).unwrap_or_default(),
-                "stop_when": bounded_text(loop_spec.get("stop_when").and_then(Value::as_str), 160),
-                "status": "running",
-                "stagnation": loop_spec.get("stagnation").and_then(Value::as_u64),
-            })
+        .map(|loop_spec| PlanTaskLoopSummary {
+            id: bounded_text(loop_spec.get("id").and_then(Value::as_str), 96)
+                .unwrap_or_else(|| "loop".to_string()),
+            target: bounded_text(loop_spec.get("target").and_then(Value::as_str), 96)
+                .unwrap_or_default(),
+            budget: loop_spec
+                .get("budget")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            count: loop_spec
+                .get("count")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            stop_when: bounded_text(loop_spec.get("stop_when").and_then(Value::as_str), 160),
+            status: crate::plan::LoopStatus::Running,
+            stagnation: loop_spec.get("stagnation").and_then(Value::as_u64),
         })
         .collect::<Vec<_>>();
-    Some(json!({
-        "count": count,
-        "budget": budget,
-        "status": "running",
-        "stopWhen": stop_when,
-        "warning": warning,
-        "tooltip": tooltip,
-        "loops": visible_loops,
-    }))
+    Some(PlanTaskLoopBadge {
+        count,
+        budget,
+        status: crate::plan::LoopStatus::Running,
+        stop_when,
+        warning,
+        tooltip,
+        loops: visible_loops,
+    })
 }
 
 fn bounded_text(value: Option<&str>, max_chars: usize) -> Option<String> {
@@ -240,18 +257,18 @@ fn competition_badge(
     judge_hint: Option<String>,
     models: Vec<String>,
     live_count: u64,
-    live_attempts: Vec<Value>,
-) -> Option<Value> {
+    live_attempts: Vec<PlanTaskCompetitionAttemptSummary>,
+) -> Option<PlanTaskCompetitionBadge> {
     if !enabled {
         return None;
     }
-    Some(json!({
-        "count": count,
-        "live_count": live_count,
-        "judge_hint": judge_hint,
-        "models": models,
-        "live_attempts": live_attempts,
-    }))
+    Some(PlanTaskCompetitionBadge {
+        count,
+        live_count,
+        judge_hint,
+        models,
+        live_attempts,
+    })
 }
 
 impl PlanDatabase {
@@ -334,27 +351,32 @@ impl PlanDatabase {
         let loops = header.get("loops");
         if let Some(status) = status {
             let rows = load_column(&connection, plan_id, status, page_size, after, loops)?;
-            let page = json!({
-                "plan_id": plan_id,
-                "revision": revision,
-                "column": page_value(status, rows, page_size),
-            });
+            let page = serde_json::to_value(PlanTaskBoardPage {
+                plan_id: plan_id.into(),
+                revision,
+                counts: None,
+                columns: None,
+                column: Some(page_value(status, rows, page_size)?),
+            })
+            .map_err(super::json_error)?;
             connection.commit().map_err(db_error)?;
             return Ok(page);
         }
 
         let counts = load_counts(&connection, plan_id)?;
-        let mut columns = Map::new();
+        let mut columns = BTreeMap::new();
         for column in BOARD_COLUMNS {
             let rows = load_column(&connection, plan_id, column, page_size, None, loops)?;
-            columns.insert(column.to_string(), page_value(column, rows, page_size));
+            columns.insert(column.to_string(), page_value(column, rows, page_size)?);
         }
-        let page = json!({
-            "plan_id": plan_id,
-            "revision": revision,
-            "counts": counts.as_json(),
-            "columns": columns,
-        });
+        let page = serde_json::to_value(PlanTaskBoardPage {
+            plan_id: plan_id.into(),
+            revision,
+            counts: Some(counts.summary()),
+            columns: Some(columns),
+            column: None,
+        })
+        .map_err(super::json_error)?;
         connection.commit().map_err(db_error)?;
         Ok(page)
     }
@@ -386,19 +408,13 @@ impl PlanDatabase {
             None,
             super::task_read_queries::TASK_ATTEMPT_LIMIT,
         )?;
-        let history =
-            json!({ "milestones": milestones.next_cursor, "attempts": attempts.next_cursor });
-        let fields = task
-            .as_object_mut()
-            .ok_or_else(|| quarantined_task(plan_id, "task row is not an object"))?;
-        fields.insert("milestones".into(), Value::Array(milestones.items));
-        fields.insert("execution_attempts".into(), Value::Array(attempts.items));
-
-        let section_ids = fields
-            .get("section_ids")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new()));
-        let sections = load_task_sections(&connection, plan_id, &section_ids)?;
+        let history = PlanTaskHistoryCursors {
+            milestones: milestones.next_cursor,
+            attempts: attempts.next_cursor,
+        };
+        task.milestones = milestones.items;
+        task.execution_attempts = attempts.items;
+        let sections = load_task_sections(&connection, plan_id, &task.section_ids)?;
         let has_open_subtasks: bool = connection
             .query_row(
                 "SELECT EXISTS(
@@ -411,29 +427,27 @@ impl PlanDatabase {
                 |row| column(row, 0),
             )
             .map_err(db_error)?;
-        let loop_badge = task_loop_badge(
-            header.get("loops"),
-            task_id,
-            fields.get("handle").and_then(Value::as_str),
-        );
-        let context = json!({
-            "plan_id": plan_id,
-            "title": header.get("title").cloned().unwrap_or(Value::Null),
-            "status": header.get("status").cloned().unwrap_or(Value::Null),
-            "team_id": header.get("team_id").cloned().unwrap_or(Value::Null),
-            "owner": header.get("owner").cloned().unwrap_or(Value::Null),
-            "sections": sections,
-            "has_open_subtasks": has_open_subtasks,
-        });
-        let detail = json!({
-            "plan_id": plan_id,
-            "revision": super::change_feed::revision(&connection, plan_id)?.to_string(),
-            "task_id": task_id,
-            "task": task,
-            "context": context,
-            "loop_badge": loop_badge,
-            "history": history,
-        });
+        let loop_badge = task_loop_badge(header.get("loops"), task_id, task.handle.as_deref());
+        let context = PlanTaskDetailContext {
+            plan_id: plan_id.into(),
+            title: serde_json::from_value(header["title"].clone()).map_err(super::json_error)?,
+            status: serde_json::from_value(header["status"].clone()).map_err(super::json_error)?,
+            team_id: serde_json::from_value(header["team_id"].clone())
+                .map_err(super::json_error)?,
+            owner: serde_json::from_value(header["owner"].clone()).map_err(super::json_error)?,
+            sections,
+            has_open_subtasks,
+        };
+        let detail = serde_json::to_value(PlanTaskDetail {
+            plan_id: plan_id.into(),
+            revision: super::change_feed::revision(&connection, plan_id)?.to_string(),
+            task_id: task_id.into(),
+            task,
+            context,
+            loop_badge,
+            history,
+        })
+        .map_err(super::json_error)?;
         connection.commit().map_err(db_error)?;
         Ok(detail)
     }
@@ -506,7 +520,7 @@ fn load_task_row(
     connection: &Connection,
     plan_id: &str,
     task_id: &str,
-) -> Result<Value, PlanError> {
+) -> Result<crate::plan::Task, PlanError> {
     let task: Option<String> = connection
         .query_row(
             "SELECT row_json FROM plan_tasks WHERE plan_id = ?1 AND task_id = ?2",
@@ -518,15 +532,14 @@ fn load_task_row(
     let Some(task) = task else {
         return Err(PlanError::TaskNotFound);
     };
-    super::super::store_sync::parse(&task)
-        .map_err(|error| quarantined_task(plan_id, &format!("task row is invalid JSON: {error}")))
+    super::read_projections::decode(plan_id, &task)
 }
 
 fn load_task_sections(
     connection: &Connection,
     plan_id: &str,
-    section_ids: &Value,
-) -> Result<Vec<Value>, PlanError> {
+    section_ids: &[String],
+) -> Result<Vec<crate::service_plan::task_queries::TaskSection>, PlanError> {
     let section_ids = serde_json::to_string(section_ids).map_err(|error| {
         quarantined_task(plan_id, &format!("task section ids are invalid: {error}"))
     })?;
@@ -540,7 +553,10 @@ fn load_task_sections(
         .map_err(db_error)?;
     let rows = statement
         .query_map(params![plan_id, section_ids], |row| {
-            Ok(json!({ "id": column::<String>(row, 0)?, "title": column::<String>(row, 1)? }))
+            Ok(crate::service_plan::task_queries::TaskSection {
+                id: column(row, 0)?,
+                title: column(row, 1)?,
+            })
         })
         .map_err(db_error)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(db_error)
@@ -737,7 +753,7 @@ fn load_column(
         let status_changed_at = column::<i64>(row, 6).map_err(db_error)?.max(0) as u64;
         let historical_executor = column::<Option<String>>(row, 24)
             .map_err(db_error)?
-            .map(|raw| super::read_projections::decode::<Value>(plan_id, &raw))
+            .map(|raw| super::read_projections::decode::<PlanTaskHistoricalExecutor>(plan_id, &raw))
             .transpose()?;
         let competition_enabled = column::<i64>(row, 25).map_err(db_error)? != 0;
         let competition_attempts = column::<i64>(row, 26).map_err(db_error)?.max(2) as u64;
@@ -750,7 +766,11 @@ fn load_column(
         let live_competition_count = column::<i64>(row, 29).map_err(db_error)?.max(0) as u64;
         let live_competition_attempts = column::<Option<String>>(row, 30)
             .map_err(db_error)?
-            .map(|raw| super::read_projections::decode::<Vec<Value>>(plan_id, &raw))
+            .map(|raw| {
+                super::read_projections::decode::<Vec<PlanTaskCompetitionAttemptSummary>>(
+                    plan_id, &raw,
+                )
+            })
             .transpose()?
             .unwrap_or_default();
         let qa_queue_position = column::<i64>(row, 31).map_err(db_error)?.max(0) as u64;
@@ -820,23 +840,28 @@ fn load_column(
     Ok(result)
 }
 
-fn page_value(status: &str, mut rows: Vec<TaskBoardRow>, page_size: usize) -> Value {
+fn page_value(
+    status: &str,
+    mut rows: Vec<TaskBoardRow>,
+    page_size: usize,
+) -> Result<PlanTaskBoardColumnPage, PlanError> {
     let has_more = rows.len() > page_size;
     rows.truncate(page_size);
     let next_cursor = has_more
         .then(|| {
-            rows.last().map(|last| {
-                json!({
-                    "created_at": last.created_at,
-                    "position": last.position,
-                    "task_id": last.task_id,
-                })
+            rows.last().map(|last| PlanTaskBoardCursor {
+                created_at: last.created_at,
+                position: last.position,
+                task_id: last.task_id.clone(),
             })
         })
         .flatten();
-    json!({
-        "status": status,
-        "items": rows.into_iter().map(TaskBoardRow::into_json).collect::<Vec<_>>(),
-        "next_cursor": next_cursor,
+    Ok(PlanTaskBoardColumnPage {
+        status: status.into(),
+        items: rows
+            .into_iter()
+            .map(TaskBoardRow::into_summary)
+            .collect::<Result<_, _>>()?,
+        next_cursor,
     })
 }

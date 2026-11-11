@@ -1,3 +1,6 @@
+mod authored;
+pub use authored::AuthoredSchema;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -9,7 +12,7 @@ pub const MAX_VALUE_BYTES: usize = 65_536;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginSchema {
-    wire: Value,
+    wire: AuthoredSchema,
     node: SchemaNode,
 }
 
@@ -55,10 +58,12 @@ impl PluginSchema {
         let mut wire = wire.clone();
         let mut nodes = 0;
         let node = parse(&mut wire, 0, &mut nodes)?;
+        let wire = serde_json::from_value(wire)
+            .map_err(|error| format!("invalid authored schema: {error}"))?;
         Ok(Self { wire, node })
     }
     pub fn to_value(&self) -> Value {
-        self.wire.clone()
+        serde_json::json!(self.wire)
     }
     pub fn validate_instance(&self, value: &Value) -> Result<(), String> {
         if value.to_string().len() > MAX_VALUE_BYTES {

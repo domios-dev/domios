@@ -437,7 +437,10 @@ fn tab_state_no_call_without_token() {
     .is_none());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(host.reads.load(Ordering::SeqCst), 0);
-    assert_eq!(host.runtime.status(0)["calls_last_hour"], 0);
+    assert_eq!(
+        serde_json::json!(host.runtime.status(0))["calls_last_hour"],
+        0
+    );
     assert!(!host._journal_dir.path().join("journal.jsonl").exists());
 }
 

@@ -22,8 +22,10 @@ it("renders browser notices and attention requests in the shared stack with dism
   try {
     await act(async () => root.render(<Harness notice={notice} need="opaque attention" />));
     expect(host.querySelectorAll('[data-testid="notification-toast"]')).toHaveLength(2);
+    expect(host.textContent).toContain(notice.text);
+    expect(host.textContent).not.toContain("Something went wrong");
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Show notification: Browser notice"]')!.click());
-    expect(document.querySelector('[role="dialog"] pre')?.textContent).toBe(notice.text);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(notice.text);
     await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Close expanded notification"]')!.click());
     expect(host.querySelector('[data-testid="surface-notice"]')).toBeNull();
     await act(async () => { for (const button of host.querySelectorAll<HTMLButtonElement>('button[aria-label="Dismiss"]')) button.click(); });

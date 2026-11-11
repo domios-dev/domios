@@ -85,7 +85,7 @@ async function mountResolver(responses: ResolvedBody[], additionalRefs: PlanRefD
     deliver(Response.json(body));
   });
 
-  const api = { enabled: true, host: "127.0.0.1", port: 7686, token: null, cors: false };
+  const api = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: null, cors: false };
   const refs: PlanRefDescriptor[] = [{ planId: "pl_test", targetId: "task_test", targetKind: "task" }, ...additionalRefs];
   const snapshots: Array<{ title?: string; state?: string }> = [];
 

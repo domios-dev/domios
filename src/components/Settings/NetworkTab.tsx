@@ -11,13 +11,7 @@ import {
   type WebAccessNetworkInfo,
 } from "../../lib/webAccess";
 
-interface ServeResult {
-  ok: boolean;
-  code: string;
-  https_url?: string | null;
-  used_fallback?: boolean;
-  warning?: string | null;
-}
+type ServeResult = import("../../../gen/ServeResult").ServeResult;
 
 export function NetworkTab() {
   return (
@@ -57,11 +51,7 @@ export function NetworkTab() {
   );
 }
 
-interface RestApiStatus {
-  generation: number;
-  phase: "starting" | "listening" | "failed";
-  message?: string | null;
-}
+type RestApiStatus = import("../../../gen/RestApiStatus").RestApiStatus;
 
 function RestApiListenerStatus() {
   const [status, setStatus] = useState<RestApiStatus | null>(null);

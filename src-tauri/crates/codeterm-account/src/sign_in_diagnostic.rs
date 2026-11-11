@@ -2,7 +2,7 @@ use crate::{Error, Result};
 use serde::Serialize;
 use std::future::Future;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum SignInStage {
     #[default]
@@ -47,7 +47,7 @@ pub(crate) fn log_callback_rejection(error: Error) {
     log::info!(target: "codeterm_account::sign_in", "sign_in callback outcome=rejected stage={} error_kind={}", SignInStage::Callback.name(), error_kind(error));
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct SignInFailure {
     pub stage: SignInStage,
     pub error: Error,

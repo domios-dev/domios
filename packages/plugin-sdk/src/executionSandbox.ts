@@ -1,13 +1,4 @@
-export interface ExecutionSandboxMode {
-  launchArgs: string[];
-  runtimeMode: string | null;
-}
+import type {OptionalWireFields} from "./wireViews";
+export type ExecutionSandboxMode = import("./gen/ExecutionSandboxMode").ExecutionSandboxMode;
 
-export interface ExecutionSandboxCapability {
-  platforms?: string[];
-  readOnly?: ExecutionSandboxMode | null;
-  runtimeReadOnlyWritableRootsMode?: string | null;
-  mutating?: ExecutionSandboxMode | null;
-  unsupportedReason?: string | null;
-  forbiddenArgumentPrefixes?: string[];
-}
+export type ExecutionSandboxCapability = OptionalWireFields<import("./gen/ExecutionSandboxCapability").ExecutionSandboxCapability, "platforms" | "readOnly" | "runtimeReadOnlyWritableRootsMode" | "mutating" | "unsupportedReason" | "forbiddenArgumentPrefixes">;

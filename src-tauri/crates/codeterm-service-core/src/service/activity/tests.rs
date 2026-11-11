@@ -36,11 +36,7 @@ fn record_push_event_persists_with_source_metadata() {
     let store = ServicesStore::open_in_memory().unwrap();
     let activity = ActivityWriter::new(store.conn());
     activity
-        .record(ActivityEvent::push(
-            "svc_voice",
-            "tab_a3f1",
-            "transcript: hello",
-        ))
+        .record(push("svc_voice", "tab_a3f1", "transcript: hello"))
         .unwrap();
     let events = activity.list(None, None, Some(10)).unwrap();
     assert_eq!(events.len(), 1);
@@ -55,7 +51,7 @@ fn eviction_keeps_recent_drops_old() {
     let activity = ActivityWriter::new(store.conn());
     for i in 0..10003 {
         activity
-            .record(ActivityEvent::peer("svc", "info", &format!("e{}", i)))
+            .record(peer("svc", "info", &format!("e{}", i)))
             .unwrap();
     }
     activity.evict_if_needed().unwrap();
@@ -67,12 +63,8 @@ fn eviction_keeps_recent_drops_old() {
 fn list_filters_by_source() {
     let store = ServicesStore::open_in_memory().unwrap();
     let activity = ActivityWriter::new(store.conn());
-    activity
-        .record(ActivityEvent::push("svc1", "tab1", "x"))
-        .unwrap();
-    activity
-        .record(ActivityEvent::peer("peer1", "info", "msg"))
-        .unwrap();
+    activity.record(push("svc1", "tab1", "x")).unwrap();
+    activity.record(peer("peer1", "info", "msg")).unwrap();
     let pushes = activity
         .list(Some(ActivitySource::Push), None, None)
         .unwrap();

@@ -1,5 +1,7 @@
 [
+  "src/components/Titlebar/KeepAwakeTray.test.tsx",
   "packages/chat-core/src/airTranscript.test.ts",
+  "src/components/Terminal/ChatComposer.images.test.tsx",
   "src/components/Terminal/useChatSession.air.test.tsx",
   "src/components/Terminal/useChatSession.oversized.test.tsx",
   "src/lib/daemonRequestCallers.test.tsx",
@@ -387,7 +389,6 @@
   "src/components/WebGate/WebGate.wiring.test.tsx",
   "src/components/Jobs/BlueprintPlanLock.test.tsx",
   "src/components/Terminal/ChatComposer.attachments.test.tsx",
-  "src/components/Terminal/voice/TranscriptionStatus.test.tsx",
   "src/components/Terminal/composerAttachmentAdmission.test.ts",
   "src/components/MeshPanel/networkTransport.test.ts",
   "src/components/MeshPanel/enrollmentRefusal.test.ts",
@@ -414,5 +415,6 @@
   "src/components/Sidebar/WorkspaceNavigationActions.live.test.tsx",
   "src/components/Sidebar/TeamStatusTally.test.tsx",
   "src/components/Sidebar/useSidebarScrollAnchor.test.tsx",
-  "src/components/Jobs/TeamJobsUnit.test.tsx"
+  "src/components/Jobs/TeamJobsUnit.test.tsx",
+  "src/components/Terminal/voice/TranscriberSetupAction.test.tsx"
 ]

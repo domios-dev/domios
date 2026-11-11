@@ -26,7 +26,10 @@ pub(super) fn restore_value(config: &Value, thread: &str) -> Value {
     } else {
         Vec::new()
     };
-    json!({"instructions":config["systemPrompt"].as_str(),"additionalContext":entries})
+    json!(codeterm_plugin::agent_runtime::RuntimeRestoreContext {
+        instructions: config["systemPrompt"].as_str().map(str::to_owned),
+        additional_context: entries
+    })
 }
 
 fn retain(config: &mut Value, thread: &str, value: &Value) {

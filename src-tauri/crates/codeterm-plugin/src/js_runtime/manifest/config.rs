@@ -564,7 +564,7 @@ pub fn substitute_template(template: &str, values: &[(&str, &str)]) -> String {
 }
 
 /// CamelCase-friendly mirror of `ModelInfo` for plugin.json authors.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SerdeModelInfo {
     pub id: String,
@@ -618,7 +618,7 @@ impl From<&SerdeModelInfo> for ModelInfo {
 }
 
 /// CamelCase-friendly mirror of `ReasoningEffortInfo` for plugin.json authors.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SerdeReasoningEffortInfo {
     pub id: String,

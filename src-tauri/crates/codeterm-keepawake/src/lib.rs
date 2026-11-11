@@ -46,16 +46,19 @@ struct ProcessSnapshot {
 
 static CHILD_REGISTRY: OnceLock<Mutex<Vec<KeepAwakeChild>>> = OnceLock::new();
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, ts_rs::TS)]
 pub struct KeepAwakeStatus {
     pub active: bool,
     pub display: bool,
     pub expires_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub diagnostic: Option<KeepAwakeDiagnostic>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
     pub warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
     pub admin_commands: Vec<String>,
     #[serde(default)]
     pub gnome_policy: bool,
@@ -63,7 +66,7 @@ pub struct KeepAwakeStatus {
     pub system_block: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq, ts_rs::TS)]
 pub struct KeepAwakeDiagnostic {
     pub runtime_inhibit_active: bool,
     pub display_inhibit_active: bool,
@@ -71,8 +74,10 @@ pub struct KeepAwakeDiagnostic {
     pub systemd_hard_block_active: Option<bool>,
     pub systemd_daemon_reload_needed: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
     pub unsafe_gnome_settings: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
     pub missing_systemd_masks: Vec<String>,
 }
 

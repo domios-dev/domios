@@ -19,6 +19,8 @@ vi.mock("./usePluginDocument", () => ({ usePluginDocument: () => ({ channel: con
   invoke: (method: string, args: unknown) => invoke("plugin_view_call", {pluginId:"fixture",method,args}),
 }) }));
 vi.mock("../../lib/daemonBootstrap", () => ({ baseDaemonTransport: () => ({
+  origin: () => "http://consent.fixture",
+  currentToken: () => "consent-token",
   localJson: (_method: string, path: string, action: unknown) => invoke(path.endsWith("snapshot") ? "plugin_manager_snapshot" : "plugin_manager_action", {action}),
 }) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

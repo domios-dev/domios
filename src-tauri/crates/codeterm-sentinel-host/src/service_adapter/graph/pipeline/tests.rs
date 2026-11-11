@@ -14,7 +14,7 @@ fn owner() -> Owner {
 }
 
 fn project(job: &Sentinel) -> Value {
-    project_snapshot(job, &BTreeMap::new()).blueprints.remove(0)
+    json!(project_snapshot(job, &BTreeMap::new()).blueprints.remove(0))
 }
 
 fn project_snapshot(
@@ -27,10 +27,13 @@ fn project_snapshot(
         all_teams: false,
         revision: "revision".into(),
         scenarios: Vec::new(),
-        nodes: vec![json!({"identity":graph::identity(job)})],
+        nodes: vec![codeterm_sentinel::graph_contracts::Node {
+            identity: graph::identity(job),
+            ..Default::default()
+        }],
         edges: Vec::new(),
         truncated: false,
-        configured_fallback: Value::Null,
+        configured_fallback: None,
         quarantined: Vec::new(),
         runs: vec![],
         blueprints: vec![],
@@ -126,6 +129,9 @@ fn blueprint_delivery_read_model_projects_reason_and_body_reference() {
     };
     let node = project_snapshot(&job, &BTreeMap::from([(job.id.clone(), vec![journal])]))
         .blueprints
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
         .remove(0);
 
     assert_eq!(node["result"]["state"], "failed");
@@ -206,12 +212,23 @@ fn pipeline_closed_run_is_idle_with_no_current_step() {
         &BTreeSet::from([job.id.clone()]),
         &codeterm_plugin::graph_events::SubscriptionTable::new(),
     );
-    let blueprint = &snapshot.blueprints[0];
+    let blueprint = &snapshot
+        .blueprints
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()[0];
     assert_eq!(blueprint["state"], "idle");
     assert!(blueprint["current_step"].is_null());
     assert_eq!(blueprint["steps"][0]["state"], "done");
     assert_eq!(blueprint["runs"][0]["state"], "completed");
-    assert_eq!(snapshot.nodes[0]["state"], "idle");
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["state"],
+        "idle"
+    );
 }
 
 #[test]
@@ -224,9 +241,30 @@ fn pipeline_newest_step_row_wins_over_old_running_rows() {
         row(1, -1, "$run", "running", None),
     ];
     let snapshot = project_snapshot(&job, &BTreeMap::from([(job.id.clone(), rows)]));
-    assert_eq!(snapshot.blueprints[0]["current_step"], 1);
-    assert_eq!(snapshot.blueprints[0]["steps"][0]["state"], "done");
-    assert_eq!(snapshot.blueprints[0]["steps"][1]["state"], "running");
+    assert_eq!(
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["current_step"],
+        1
+    );
+    assert_eq!(
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["steps"][0]["state"],
+        "done"
+    );
+    assert_eq!(
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["steps"][1]["state"],
+        "running"
+    );
 }
 
 #[test]
@@ -246,8 +284,14 @@ fn pipeline_contract_golden_json() {
         name: "Echo pipeline".into(),
         root: graph::identity(&job),
     });
-    snapshot.nodes[0]["stop"] = json!({"allowed":true,"reason":null});
-    let value = serde_json::to_value(snapshot).unwrap();
+    snapshot.nodes[0].stop = codeterm_sentinel::graph_contracts::Stop {
+        allowed: true,
+        reason: None,
+    };
+    let mut value = serde_json::to_value(snapshot).unwrap();
+    value["nodes"][0].as_object_mut().unwrap().retain(|key, _| {
+        ["identity", "state", "held_reason", "stop", "blueprint"].contains(&key.as_str())
+    });
     assert_eq!(value["blueprints"][0]["steps"][1]["name"], "match");
     assert!(value["nodes"][0].get("blueprint").is_none());
     let path = codeterm_service_core::test_support::fixture_manifest_dir()
@@ -286,7 +330,12 @@ fn pipeline_fanin_contract_golden_json() {
         &codeterm_plugin::graph_nodes::GraphNodeRegistry::default(),
     )
     .unwrap();
-    let value = snapshot.blueprints.remove(0);
+    let value = snapshot
+        .blueprints
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
+        .remove(0);
     assert_eq!(
         value["call_graph"]["steps"][2]["bind"],
         json!({"a":"first.out","b":"second.out"})
@@ -315,15 +364,44 @@ fn pipeline_retained_runs_keep_distinct_newest_step_states() {
     next.run_id = "run-next".into();
     rows.push(next);
     let snapshot = project_snapshot(&job, &BTreeMap::from([(job.id.clone(), rows)]));
-    assert_eq!(snapshot.blueprints[0]["state"], "running");
-    assert_eq!(snapshot.blueprints[0]["runs"][0]["id"], "run-next");
     assert_eq!(
-        snapshot.blueprints[0]["runs"][0]["steps"][0]["state"],
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["state"],
         "running"
     );
-    assert_eq!(snapshot.blueprints[0]["runs"][1]["id"], "run-echo");
     assert_eq!(
-        snapshot.blueprints[0]["runs"][1]["steps"][0]["state"],
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["runs"][0]["id"],
+        "run-next"
+    );
+    assert_eq!(
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["runs"][0]["steps"][0]["state"],
+        "running"
+    );
+    assert_eq!(
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["runs"][1]["id"],
+        "run-echo"
+    );
+    assert_eq!(
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["runs"][1]["steps"][0]["state"],
         "done"
     );
 }
@@ -357,7 +435,7 @@ fn blueprint_pipeline_github_source_exposes_scope_without_command_text() {
             timeout_ms: 60000,
         },
     };
-    let view = pipeline_step_view(0, "Check CI", &kind, None, None);
+    let view = json!(pipeline_step_view(0, "Check CI", &kind, None, None));
     assert_eq!(view["kind"], "github");
     assert_eq!(
         view["source"],
@@ -390,13 +468,13 @@ fn source_cards_project_retained_observation_states_and_sanitized_http_scope() {
         let mut event = row(1, 0, "check", "done", Some(state));
         event.result_summary = Some(summary.into());
         let event_ref = &event;
-        let view = pipeline_step_view(
+        let view = json!(pipeline_step_view(
             0,
             "Renamed imported step",
             &kind,
             Some(&event_ref),
             Some(&event_ref),
-        );
+        ));
         assert_eq!(view["source_state"], state);
         assert_eq!(view["result_summary"], summary);
         assert_eq!(view["kind"], kind.name());
@@ -418,17 +496,41 @@ fn held_pipeline_projects_why_it_is_held() {
         row(9, -1, "$run", "held", None),
     ];
     let snapshot = project_snapshot(&job, &BTreeMap::from([(job.id.clone(), rows)]));
-    assert_eq!(snapshot.blueprints[0]["state"], "held");
     assert_eq!(
-        snapshot.blueprints[0]["held_reason"],
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["state"],
+        "held"
+    );
+    assert_eq!(
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["held_reason"],
         "uncertain_pipeline_claim"
     );
 
     let mut paused = contract_job();
     paused.machine.paused = true;
     let snapshot = project_snapshot(&paused, &BTreeMap::new());
-    assert_eq!(snapshot.blueprints[0]["held_reason"], "paused");
+    assert_eq!(
+        snapshot
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["held_reason"],
+        "paused"
+    );
 
     let idle = project_snapshot(&contract_job(), &BTreeMap::new());
-    assert!(idle.blueprints[0].get("held_reason").is_none());
+    assert!(idle
+        .blueprints
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()[0]
+        .get("held_reason")
+        .is_none());
 }

@@ -1,14 +1,6 @@
-use serde::{Deserialize, Serialize};
-
 pub const MIN_INTERVAL_MS: u64 = 60_000;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct RecurrenceRule {
-    pub every_ms: u64,
-    pub until_ms: Option<u64>,
-    pub count: Option<u32>,
-}
+pub use codeterm_wire::api_contracts::RecurrenceRule;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NextOccurrence {

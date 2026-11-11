@@ -1,3 +1,4 @@
+import {dollarCredits} from "./usageDetailsModel";
 import type {ResetCredits} from "@codeterm/plugin-sdk";
 import type {UsageDetails} from "../../types/usage";
 import {availableResetCredits} from "./resetCreditsModel";
@@ -18,5 +19,5 @@ export function hasExpiringCredits(resets: ResetCredits | null | undefined, deta
   const resetAlert = !!resets && resets.availableCount > 0 && (
     availableResetCredits(resets).some(credit => creditExpiryHint(credit.expiresAt, now) !== null)
     || ((resets.credits === null || resets.credits.length < resets.availableCount) && creditExpiryHint(resets.nextExpiry, now) !== null));
-  return resetAlert || !!details?.dollar_credits.some(credit => credit.remaining_dollars > 0 && creditExpiryHint(credit.resets_at, now) !== null);
+  return resetAlert || dollarCredits(details).some(credit => credit.remaining_dollars > 0 && creditExpiryHint(credit.resets_at, now) !== null);
 }

@@ -30,3 +30,5 @@ pub use role_kind::{RoleKindCapability, RoleKindDescriptor, RoleKindOrigin};
 pub mod capability_probe;
 pub mod launch_spec;
 pub use launch_spec::LaunchSpec;
+
+pub mod delivery;

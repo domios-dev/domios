@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum InventoryOperation {
     Get,
@@ -42,7 +42,7 @@ impl InventoryOperation {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum InventoryFreshness {
     Fresh,
@@ -50,7 +50,7 @@ pub enum InventoryFreshness {
     Offline,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum InventoryUnavailableReason {
     NotAuthorized,
@@ -62,10 +62,11 @@ pub enum InventoryUnavailableReason {
     ProtectedResource,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct InventoryCapability {
     pub allowed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub unavailable_reason: Option<InventoryUnavailableReason>,
 }
 
@@ -85,12 +86,13 @@ impl InventoryCapability {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct InventoryProvenance {
     pub freshness: InventoryFreshness,
     pub offline: bool,
     pub fetched_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub partial_error: Option<String>,
 }
 
@@ -116,4 +118,24 @@ mod tests {
             "not_authorized"
         );
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+pub struct MeshInventoryResource<S> {
+    #[serde(flatten)]
+    pub service: S,
+    pub resource_id: String,
+    pub machine_id: String,
+    pub machine_name: String,
+    pub provenance: InventoryProvenance,
+    pub capabilities: BTreeMap<InventoryOperation, InventoryCapability>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+pub struct MeshInventoryView<S> {
+    pub contract_version: u16,
+    pub machine_id: String,
+    pub machine_name: String,
+    pub resources: Vec<MeshInventoryResource<S>>,
+    pub provenance: InventoryProvenance,
 }

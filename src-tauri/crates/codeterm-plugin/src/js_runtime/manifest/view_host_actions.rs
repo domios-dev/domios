@@ -6,7 +6,7 @@ use super::Capabilities;
 
 /// A user-gesture action a plugin view may ask the host to perform (`capabilities.viewHostActions`).
 /// The plugin only names it; the host checks the gesture, resolves any media handle and acts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum ViewHostAction {
     /// Put plain text on the clipboard.
@@ -23,7 +23,7 @@ pub const MAX_VIEW_INPUT_FILES: u8 = 8;
 
 /// What `pickFile` may bring into the plugin (`capabilities.viewInputs`): passive media of the
 /// listed kinds, each at most `maxBytes`, at most `maxFiles` per pick.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ViewInputs {
     pub accept: Vec<crate::media_delivery::MediaType>,

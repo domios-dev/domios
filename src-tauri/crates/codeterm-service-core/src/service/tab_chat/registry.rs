@@ -239,8 +239,10 @@ impl JsonlSource {
         };
         let identity_changed = state.current.is_some()
             && state.current_identity.as_ref().is_some_and(|identity| {
-                source_file_identity(path, identity.held_offset)
-                    .map_or(true, |observed| observed != *identity)
+                source_file_identity(path, identity.held_offset).map_or(true, |mut observed| {
+                    observed.prefix.truncate(identity.prefix.len());
+                    observed != *identity
+                })
             });
         if state.pending_absence.is_some()
             || state.current.is_none()

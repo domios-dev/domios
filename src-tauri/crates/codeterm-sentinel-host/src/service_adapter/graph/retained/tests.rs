@@ -37,12 +37,15 @@ fn snapshot(job: &Sentinel) -> Snapshot {
         team_id: job.team_id.clone(),
         all_teams: false,
         revision: "revision".into(),
-        nodes: vec![json!({"identity":graph::identity(job)})],
+        nodes: vec![codeterm_sentinel::graph_contracts::Node {
+            identity: graph::identity(job),
+            ..Default::default()
+        }],
         scenarios: vec![],
         edges: vec![],
         runs: vec![],
         blueprints: vec![],
-        configured_fallback: Value::Null,
+        configured_fallback: None,
         quarantined: Vec::new(),
         truncated: false,
     }
@@ -90,7 +93,11 @@ fn blueprint_v2_project_each_run_uses_its_immutable_callee_and_own_journal() {
         &Default::default(),
     )
     .unwrap();
-    let root = &view.blueprints[0];
+    let root = &view
+        .blueprints
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()[0];
     assert_eq!(root["graph_definition_version"], 2);
     assert_eq!(
         root["expanded_calls"][0]["graph"]["steps"][0]["run"]["lit"],
@@ -124,6 +131,7 @@ fn blueprint_v2_project_each_run_uses_its_immutable_callee_and_own_journal() {
             &Default::default(),
         )
         .unwrap();
+        let expected = json!(expected);
         for field in [
             "call_graph",
             "expanded_calls",
@@ -172,11 +180,40 @@ fn blueprint_v2_project_watch_and_unstarted_pipeline_have_current_graph_without_
             &codeterm_plugin::graph_nodes::GraphNodeRegistry::default(),
         )
         .unwrap();
-        assert_eq!(view.blueprints[0]["call_graph"]["kind"], source["kind"]);
-        assert_eq!(view.blueprints[0]["historical_graph_available"], true);
-        assert!(view.blueprints[0]["nested_run"]["id"].is_null());
-        assert_eq!(view.blueprints[0]["nested_run"]["nodes"], json!([]));
-        assert_eq!(view.blueprints[0]["runs"], json!([]));
+        assert_eq!(
+            view.blueprints
+                .iter()
+                .map(|record| json!(record))
+                .collect::<Vec<_>>()[0]["call_graph"]["kind"],
+            source["kind"]
+        );
+        assert_eq!(
+            view.blueprints
+                .iter()
+                .map(|record| json!(record))
+                .collect::<Vec<_>>()[0]["historical_graph_available"],
+            true
+        );
+        assert!(view
+            .blueprints
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["nested_run"]["id"]
+            .is_null());
+        assert_eq!(
+            view.blueprints
+                .iter()
+                .map(|record| json!(record))
+                .collect::<Vec<_>>()[0]["nested_run"]["nodes"],
+            json!([])
+        );
+        assert_eq!(
+            view.blueprints
+                .iter()
+                .map(|record| json!(record))
+                .collect::<Vec<_>>()[0]["runs"],
+            json!([])
+        );
     }
 }
 
@@ -221,7 +258,8 @@ fn blueprint_v2_project_loads_retained_definition_history_before_projection() {
             retained.get(&job.id),
             &codeterm_plugin::graph_nodes::GraphNodeRegistry::default()
         )
-        .unwrap()["graph_definition_version"],
-        1
+        .unwrap()
+        .graph_definition_version,
+        Some(Some(1))
     );
 }

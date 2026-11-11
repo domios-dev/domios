@@ -9,31 +9,34 @@ use crate::capability::CapabilityRegistry;
 use crate::js_runtime::manifest::WebhookReceiverKind;
 use crate::js_runtime::VmError;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct WebhookReceiveContext {
     pub payload: Value,
     pub received_at: String,
     /// Present only when an audio-capable receiver was sent an audio part; the bytes stay with the host.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub audio: Option<WebhookAudio>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct WebhookAudio {
     pub media_type: String,
     pub size: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct WebhookDelivery {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub event_id: Option<String>,
     /// The sender's own transcript, rendered by the host beside its own transcription.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub transcript: Option<String>,
 }
 

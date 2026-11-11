@@ -18,11 +18,11 @@ fn list_and_update_agree_and_equal_hash_drift_never_reinstalls() {
             channel_diff(Some("store")).unwrap()["diff"][0]["drift"],
             "hash_drift"
         );
-        let status = installed_update_status(
+        let status = serde_json::json!(installed_update_status(
             "demo",
             Some("1.0.0"),
             Some(&read_install_record("demo").unwrap().source),
-        );
+        ));
         assert_eq!(status["available"], false);
         assert_eq!(status["reason"], "same_version");
         assert!(update_one("demo").unwrap_err().contains("same_version"));
@@ -51,11 +51,11 @@ fn list_and_update_agree_and_equal_hash_drift_never_reinstalls() {
             Some("1.1.0")
         );
         assert_eq!(
-            installed_update_status(
+            serde_json::json!(installed_update_status(
                 "demo",
                 Some("1.1.0"),
                 Some(&read_install_record("demo").unwrap().source)
-            )["reason"],
+            ))["reason"],
             "same_version"
         );
     });
@@ -75,7 +75,11 @@ fn local_and_unknown_channel_installs_are_not_updatable() {
         .unwrap();
         let record = read_install_record("demo").unwrap();
         assert_eq!(
-            installed_update_status("demo", Some("1.0.0"), Some(&record.source))["reason"],
+            serde_json::json!(installed_update_status(
+                "demo",
+                Some("1.0.0"),
+                Some(&record.source)
+            ))["reason"],
             "local_install"
         );
         assert!(update_one("demo").unwrap_err().contains("local_install"));
@@ -84,7 +88,11 @@ fn local_and_unknown_channel_installs_are_not_updatable() {
             path: "demo".into(),
         };
         assert_eq!(
-            installed_update_status("demo", Some("1.0.0"), Some(&source))["reason"],
+            serde_json::json!(installed_update_status(
+                "demo",
+                Some("1.0.0"),
+                Some(&source)
+            ))["reason"],
             "channel_unavailable"
         );
         let record = InstallRecord { source, ..record };
@@ -201,11 +209,11 @@ fn dev_fixture_refresh_update_and_persisted_up_to_date() {
         manifest["plugins"][0]["version"] = "1.0.1".into();
         fs::write(channel, manifest.to_string()).unwrap();
         assert_eq!(
-            installed_update_status(
+            serde_json::json!(installed_update_status(
                 "lark",
                 Some("1.0.0"),
                 Some(&read_install_record("lark").unwrap().source)
-            )["availability"]["state"],
+            ))["availability"]["state"],
             "up_to_date"
         );
         refresh_channel(Some("store")).unwrap();
@@ -235,8 +243,11 @@ fn dev_fixture_refresh_update_and_persisted_up_to_date() {
             Some("1.0.1")
         );
         assert_eq!(
-            installed_update_status("lark", Some("1.0.1"), Some(&record.source))["availability"]
-                ["state"],
+            serde_json::json!(installed_update_status(
+                "lark",
+                Some("1.0.1"),
+                Some(&record.source)
+            ))["availability"]["state"],
             "up_to_date"
         );
     });

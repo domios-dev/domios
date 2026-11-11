@@ -107,48 +107,21 @@ export interface FileDiff {
   hunks: FileDiffHunk[];
 }
 
-export interface ChatAttachment {
-  id: string;
-  mimeType: string;
-  data?: string;
-  url?: string;
-  path?: string;
-}
+export type ChatAttachment = import("./gen/ChatAttachment").ChatAttachment;
 
-export interface InteractiveOption {
-  value?: string;
-  label: string;
-  description?: string;
-}
+export type InteractiveOption = import("./gen/InteractiveOption").InteractiveOption;
 
 /** A question prompt (AskUserQuestion) surfaced by the provider for in-chat answering. */
-export interface InteractiveQuestion {
-  type: "question";
-  id: string;
-  toolUseId: string;
-  prompt: string;
-  header?: string;
-  options: InteractiveOption[];
-  multiSelect: boolean;
-  allowFreeText?: boolean;
-}
+export type InteractiveQuestion = Extract<import("./gen/InteractiveElement").InteractiveElement, {type: "question"}> & { allowFreeText?: boolean };
 
-export type ChatTimelineMarker =
-  | { kind: "queued" }
-  | { kind: "external_edit"; path: string }
-  | { kind: "context_compaction" }
-  | { kind: "history_gap"; source: "provider_session" | "chat_backend"; session_id: string; before_offset: number };
+export type ChatTimelineMarker = import("./gen/ChatTimelineMarker").ChatTimelineMarker;
 
-export interface ChatSessionIntent {
-  title?: string;
-  goal?: string;
-  goalStatus?: string;
-}
+export type ChatSessionIntent = import("./gen/ChatSessionIntent").ChatSessionIntent;
 
 /** Discriminated union, open for future interactive session-event kinds. */
-export type InteractiveElement = InteractiveQuestion;
+export type InteractiveElement = import("./gen/InteractiveElement").InteractiveElement;
 
-export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg" | "segments"> {
+export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg" | "segments" | "inheritedFromSessionId"> {
   id: string;
   /** An explicit source identity supplied by a projection adapter. */
   sourceMessageId?: string;

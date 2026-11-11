@@ -20,7 +20,7 @@ pub(crate) fn rejected_before_write(error: &DeliveryError) -> bool {
 fn before_write(tab: &str, error: RuntimeFailure) -> DeliveryError {
     DeliveryError::TabBusyRefused {
         tab: tab.into(),
-        detail: error.to_string(),
+        detail: format!("runtime_preflight_before_write: {error}"),
     }
 }
 
@@ -169,9 +169,16 @@ pub(super) fn runtime_input(
     }
 }
 
-fn load_image_bytes(mut input: TurnInput) -> Result<TurnInput, RuntimeFailure> {
+fn prepare_image_input(
+    mut input: TurnInput,
+    local_paths: bool,
+) -> Result<TurnInput, RuntimeFailure> {
     use base64::Engine;
-    let mut remaining = MAX_RUNTIME_VALUE_BYTES as u64;
+    let mut remaining = if local_paths {
+        crate::attachments::CHAT_UPLOAD_CACHE_BYTES
+    } else {
+        MAX_RUNTIME_VALUE_BYTES as u64
+    };
     for attachment in &mut input.attachments {
         if attachment.data.is_some() || !attachment.mime_type.starts_with("image/") {
             continue;
@@ -179,13 +186,19 @@ fn load_image_bytes(mut input: TurnInput) -> Result<TurnInput, RuntimeFailure> {
         let path = attachment.path.as_deref().ok_or_else(|| {
             RuntimeFailure::Refused("Image attachment path is unavailable".into())
         })?;
-        let bytes = crate::attachments::read_complete_file(std::path::Path::new(path), remaining)
-            .map_err(RuntimeFailure::Refused)?;
-        remaining = remaining.saturating_sub(bytes.len() as u64);
-        attachment.data = Some(base64::prelude::BASE64_STANDARD.encode(bytes));
+        let path = std::path::Path::new(path);
+        let fail = |reason| RuntimeFailure::Refused(format!("Image was not sent: {reason}"));
+        if local_paths {
+            let size = crate::attachments::validate_complete_file(path, remaining).map_err(fail)?;
+            remaining = remaining.saturating_sub(size);
+        } else {
+            let bytes = crate::attachments::read_complete_file(path, remaining).map_err(fail)?;
+            remaining = remaining.saturating_sub(bytes.len() as u64);
+            attachment.data = Some(base64::prelude::BASE64_STANDARD.encode(bytes));
+        }
     }
     validate_runtime_size(&input, MAX_RUNTIME_VALUE_BYTES)
-        .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+        .map_err(|_| RuntimeFailure::Refused("Images are too large for this agent's inline input limit. Send fewer or smaller images.".into()))?;
     Ok(input)
 }
 
@@ -236,7 +249,13 @@ pub(crate) async fn submit_loaded(
     let input = if input.attachments.is_empty() {
         input
     } else {
-        crate::async_runtime::spawn_blocking(move || load_image_bytes(input))
+        let local_paths = session
+            .adapter
+            .lock()
+            .as_ref()
+            .and_then(|adapter| adapter.agent_runtime())
+            .is_some_and(|capability| capability.local_image_paths);
+        crate::async_runtime::spawn_blocking(move || prepare_image_input(input, local_paths))
             .await
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))
             .and_then(|result| result)

@@ -9,7 +9,7 @@ use super::{ActionStyle, BadgeVariant, ModelInfo, NoteLevel, PathOpenKind};
 ///
 /// **Schema completeness rule:** if a real plugin needs a UI pattern not
 /// covered here, ADD A NEW VARIANT — never carve out an escape hatch.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SettingField {
     // ── Grouping ─────────────────────────────────────────────────
@@ -17,6 +17,7 @@ pub enum SettingField {
     Section {
         title: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
         fields: Vec<SettingField>,
     },
@@ -28,28 +29,36 @@ pub enum SettingField {
         label: String,
         default: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
     },
     Text {
         key: String,
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         default: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         placeholder: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
     },
     Number {
         key: String,
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         default: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         min: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         max: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
     },
     Select {
@@ -58,18 +67,23 @@ pub enum SettingField {
         /// `(value, display)` pairs.
         options: Vec<(String, String)>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         default: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
     },
     Array {
         key: String,
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         item_label: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         default: Option<Vec<serde_json::Map<String, serde_json::Value>>>,
         item: ArraySettingItem,
     },
@@ -78,6 +92,7 @@ pub enum SettingField {
         env_var: String,
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         link: Option<String>,
     },
 
@@ -85,6 +100,7 @@ pub enum SettingField {
     /// Static documentation block. Body supports inline `code` and links.
     Info {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         title: Option<String>,
         body: String,
         #[serde(default = "NoteLevel::default_info")]
@@ -103,6 +119,7 @@ pub enum SettingField {
     Badge {
         query_command: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         query_args: Option<serde_json::Value>,
         variants: Vec<BadgeVariant>,
     },
@@ -118,10 +135,13 @@ pub enum SettingField {
         label: String,
         command: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         state_query: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         args: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         confirm: Option<String>,
         #[serde(default = "ActionStyle::default_primary")]
         style: ActionStyle,
@@ -136,53 +156,65 @@ pub enum SettingField {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ArraySettingItem {
     Object { fields: Vec<ObjectSettingField> },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ObjectSettingField {
     Text {
         key: String,
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         default: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         placeholder: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
     },
     Textarea {
         key: String,
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         default: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         placeholder: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
     },
     Number {
         key: String,
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         default: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         min: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         max: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
     },
     Json {
         key: String,
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         default: Option<serde_json::Map<String, serde_json::Value>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         description: Option<String>,
     },
 }

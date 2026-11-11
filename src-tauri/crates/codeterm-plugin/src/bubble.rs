@@ -27,18 +27,21 @@ impl std::fmt::Display for BubbleError {
 impl std::error::Error for BubbleError {}
 
 /// A status pill. `tone` reuses the shared [`Tone`] token set.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct BubbleData {
     pub label: String,
     #[serde(default)]
     pub tone: Tone,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub icon: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub tooltip: Option<String>,
     /// Click behaviour. Reserved ids (`openPanel:<id>`, `settings`) open a host
     /// view directly; absent ⇒ the bubble opens the plugin's glance popover.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub action: Option<String>,
 }
 

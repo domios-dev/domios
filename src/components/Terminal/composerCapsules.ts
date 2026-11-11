@@ -203,10 +203,20 @@ export function capsulesInDraft(text: string, registry: CapsuleRegistry): Compos
 }
 
 export function capsuleMarker(capsule: ComposerCapsule): string {
-  return capsule.uploadId === undefined ? formatAttachmentMarker(capsule.path, capsule.kind, capsule.label) : capsule.label;
+  return capsule.uploadId === undefined ? formatAttachmentMarker(capsule.path, capsule.kind, capsule.label) : capsuleToken(capsule.label);
 }
 
-/** The text an agent receives: every capsule becomes its tag with an absolute path; an unknown token keeps its label. */
+export function requireCapsulePaths(text: string, registry: CapsuleRegistry, allowPendingUploads = false): void {
+  for (const { label } of capsuleSpans(text)) {
+    const capsule = registry[label];
+    if (!capsule) throw new Error(`Attachment "${label}" is unavailable. Reattach it before sending.`);
+    if (capsule.uploadId !== undefined && allowPendingUploads) continue;
+    if (capsule.uploadId !== undefined || !capsule.path.trim()) {
+      throw new Error(`Attachment "${label}" has no completed upload. Reattach it before sending.`);
+    }
+  }
+}
+
 export function serializeCapsuleDraft(
   text: string,
   registry: CapsuleRegistry,
@@ -217,7 +227,7 @@ export function serializeCapsuleDraft(
   for (const span of capsuleSpans(text)) {
     out += text.slice(cursor, span.start);
     const capsule = registry[span.label];
-    out += capsule ? markerFor(capsule) : span.label;
+    out += capsule ? markerFor(capsule) : text.slice(span.start, span.end);
     cursor = span.end;
   }
   return out + text.slice(cursor);

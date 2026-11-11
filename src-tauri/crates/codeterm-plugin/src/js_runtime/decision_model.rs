@@ -178,11 +178,27 @@ impl DecisionModel for JsDecisionModel {
     }
 }
 
+#[derive(serde::Deserialize, ts_rs::TS)]
+struct DecisionFailure {
+    error: String,
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    DecisionFailure::export_all(config)?;
+    Ok(())
+}
+
 fn decode_result<T: serde::de::DeserializeOwned>(
     value: serde_json::Value,
 ) -> Result<T, DecisionError> {
-    if let Some(error) = value.get("error").and_then(serde_json::Value::as_str) {
-        return Err(match error {
+    let failure = value
+        .as_object()
+        .and_then(|_| <DecisionFailure as serde::Deserialize>::deserialize(&value).ok());
+    if let Some(DecisionFailure { error }) = failure {
+        return Err(match error.as_str() {
             "unavailable" => DecisionError::Unavailable("plugin_unavailable".into()),
             "timeout" => DecisionError::Deadline,
             "transport" => DecisionError::Transport("plugin_decide_failed".into()),
@@ -432,3 +448,6 @@ mod questions_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod wire_tests;

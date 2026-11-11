@@ -8,7 +8,7 @@ async function main() {
   Object.assign(globalThis, { window: win, localStorage: win.localStorage, sessionStorage: win.sessionStorage });
   const { setTokenFor } = await import("../../lib/webApi");
   const { deleteTask, fetchPlanControlLoop, setPlanControlLoop, runPlanControlLoop } = await import("./plansApi");
-  const api: ApiConfig = { enabled: true, host: "localhost", port: 7686, token: "fixture", cors: true };
+  const api: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "localhost", port: 7686, token: "fixture", cors: true };
   setTokenFor("http://localhost:7686", "fixture");
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const stored = { mode: "heartbeat", heartbeat_interval_secs: 1800, next_at: null, last_round: null, fallback_reason: null, suspended_reason: "paused", counts_7d: { rounds: 0, quiet: 0, nudged: 0, learnings: 0, saves: 0, fallbacks: 0 } };

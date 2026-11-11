@@ -1,49 +1,54 @@
-"""Notification endpoint tests."""
+"""Notification admission and independent level/severity fields."""
+
+import pytest
 
 from helpers import CodeTermAPI, unique_name
 
 
-def test_create_notification(api_only: CodeTermAPI):
-    """Create a notification and verify it appears in the list."""
+LIVE_CALLER_REQUIRED = "Bell notifications require notify send from a live agent caller tab"
+
+
+def _create_unattributed(api, **fields):
     title = unique_name("notif")
-    result = api_only.post("/api/notifications", json={"title": title, "body": "test body"})
-    assert "id" in result
-
-    notifs = api_only.get("/api/notifications")
-    assert isinstance(notifs, list)
-    titles = [n["title"] for n in notifs]
-    assert title in titles
-
-    # Cleanup
-    api_only.post("/api/notifications/clear")
+    response = api.s.post(
+        f"{api.base}/api/notifications",
+        json={"title": title, "body": "test body", **fields},
+        timeout=10,
+    )
+    return title, response
 
 
-def test_notification_levels(api_only: CodeTermAPI):
-    """Create notifications with different levels: info, warning, error."""
-    created_ids = []
-    for level in ("info", "warning", "error"):
-        title = unique_name(f"notif-{level}")
-        result = api_only.post(
-            "/api/notifications",
-            json={"title": title, "level": level},
-        )
-        assert "id" in result
-        created_ids.append(result["id"])
+def test_create_notification_requires_live_caller(api_only: CodeTermAPI):
+    title, response = _create_unattributed(api_only)
+    assert response.status_code == 400, response.text
+    assert response.text == LIVE_CALLER_REQUIRED
+    assert all(n["title"] != title for n in api_only.get("/api/notifications"))
 
-    notifs = api_only.get("/api/notifications")
-    found_levels = {n["level"].lower() for n in notifs if n["id"] in created_ids}
-    assert "info" in found_levels
-    assert "warning" in found_levels
-    assert "error" in found_levels
 
-    api_only.post("/api/notifications/clear")
+@pytest.mark.parametrize("level", ["verbose", "action_needed", "failure"])
+@pytest.mark.parametrize("severity", ["info", "warning", "error"])
+def test_notification_levels_and_severities_require_live_caller(api_only, level, severity):
+    _, response = _create_unattributed(api_only, level=level, severity=severity)
+    assert response.status_code == 400, response.text
+    assert response.text == LIVE_CALLER_REQUIRED
+
+
+@pytest.mark.parametrize("level", ["info", "warning", "error", "unknown"])
+def test_notification_rejects_invalid_level(api_only, level):
+    _, response = _create_unattributed(api_only, level=level, severity="info")
+    assert response.status_code == 400, response.text
+    assert "Unknown notification level" in response.text
+    for supported in ("verbose", "action_needed", "failure"):
+        assert supported in response.text
+
+
+def test_notification_severity_requires_string(api_only):
+    _, response = _create_unattributed(api_only, level="verbose", severity=123)
+    assert response.status_code == 422, response.text
+    assert "severity" in response.text
 
 
 def test_clear_notifications(api_only: CodeTermAPI):
-    """Create then clear all notifications."""
-    api_only.post("/api/notifications", json={"title": "to-clear"})
     result = api_only.post("/api/notifications/clear")
-    assert result.get("ok") is True
-
-    notifs = api_only.get("/api/notifications")
-    assert len(notifs) == 0
+    assert result["ok"] is True
+    assert api_only.get("/api/notifications") == []

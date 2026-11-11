@@ -78,7 +78,7 @@ pub struct LinkCommitReply {
 }
 
 /// Paired-edge view for the account Mesh snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct AccountMeshPair {
     pub instance_id: String,
     pub installation_id: Option<String>,

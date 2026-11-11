@@ -225,7 +225,7 @@ impl crate::service::ServiceContext {
                 .chat_send_ledger
                 .status(&reservation.send_id)
                 .ok_or("admission_unknown: original token has no retained ledger result")?;
-            return Ok(super::super::agent_pad::ChatSendResult::new(status, None));
+            return Ok(super::super::agent_pad::chat_send_result(status, None));
         }
         if original.len() > MAX_PREPARED_BYTES {
             return Err("user original exceeds 4 MiB storage bound".into());
@@ -263,7 +263,7 @@ impl crate::service::ServiceContext {
         {
             self.local_recordings.retire_write_ticket(&send_id);
         }
-        result.map(|(status, owned)| super::super::agent_pad::ChatSendResult::new(status, owned))
+        result.map(|(status, owned)| super::super::agent_pad::chat_send_result(status, owned))
     }
 
     fn capture_prepared_user_body(

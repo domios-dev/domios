@@ -20,7 +20,7 @@ pub const MAX_ID_CHARS: usize = 256;
 pub const MACHINE_SCOPE: &str = "machine";
 const WEEK_DAYS: i64 = 7;
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct AnalyticsQuery {
     pub range: AnalyticsRange,
@@ -33,7 +33,7 @@ pub struct AnalyticsQuery {
 }
 
 /// Local calendar days, both ends inclusive, in the caller's IANA time zone.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct AnalyticsRange {
     pub from: String,
@@ -41,7 +41,7 @@ pub struct AnalyticsRange {
     pub tz: String,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalyticsBucket {
     Day,
@@ -50,7 +50,7 @@ pub enum AnalyticsBucket {
 
 /// Choices inside one list widen the selection; lists narrow each other. An empty
 /// list selects nothing extra and reads as no filter. `null` selects the null key.
-#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct AnalyticsFilters {
     #[serde(default)]
@@ -79,14 +79,14 @@ fn active<T>(values: &Option<Vec<T>>) -> bool {
     values.as_ref().is_some_and(|values| !values.is_empty())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct ModelKey {
     pub provider: String,
     pub model: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalyticsGroupBy {
     ProviderModel,
@@ -95,7 +95,7 @@ pub enum AnalyticsGroupBy {
     Plan,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct AnalyticsScopeRequest {
     pub kind: String,
@@ -103,7 +103,7 @@ pub struct AnalyticsScopeRequest {
     pub includes_mesh_peers: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalyticsRefusalKind {
     InvalidQuery,
@@ -113,7 +113,7 @@ pub enum AnalyticsRefusalKind {
     ForeignScope,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct AnalyticsRefusal {
     pub error: AnalyticsRefusalKind,
     pub message: String,
@@ -365,7 +365,7 @@ pub struct DirectoryPlan {
     pub team_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct AnalyticsSnapshot {
     pub scope: AnalyticsScope,
     pub as_of: u64,
@@ -379,13 +379,13 @@ pub struct AnalyticsSnapshot {
     pub money: MoneyBlock,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct AnalyticsScope {
     pub kind: &'static str,
     pub includes_mesh_peers: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum RecordingState {
     Recording,
@@ -393,7 +393,7 @@ pub enum RecordingState {
     Unavailable,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct RecordingBlock {
     pub state: RecordingState,
     /// Verbatim host text, present only when the ledger is unavailable.
@@ -405,7 +405,7 @@ pub struct RecordingBlock {
     pub workspace_recorded_since: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct Totals {
     pub new_input: u64,
     pub generated: u64,
@@ -429,7 +429,7 @@ impl Totals {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Coverage {
     Recorded,
@@ -437,7 +437,7 @@ pub enum Coverage {
     NotRecorded,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct TokenBlock {
     /// `None` when no bucket in range was recorded; a missing figure is never zero.
     pub totals: Option<Totals>,
@@ -445,7 +445,7 @@ pub struct TokenBlock {
     pub groups: Vec<GroupRow>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct TokenBucket {
     pub start: u64,
     pub end: u64,
@@ -455,23 +455,24 @@ pub struct TokenBucket {
     pub groups: Vec<GroupTotals>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct GroupTotals {
     pub key: GroupKey,
     pub totals: Totals,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct GroupRow {
     pub key: GroupKey,
     /// The name the host holds for this id; `None` when it holds none.
     pub label: Option<String>,
     pub totals: Totals,
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<GroupRow>>", optional)]
     pub children: Vec<GroupRow>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Dimension {
     Provider,
@@ -481,7 +482,7 @@ pub enum Dimension {
     Plan,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum KeyReason {
     ProviderNotReported,
@@ -494,19 +495,21 @@ pub enum KeyReason {
     TeamDeleted,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord, ts_rs::TS)]
 pub struct GroupKey {
     pub dimension: Dimension,
     pub id: Option<String>,
     /// Set on model keys only: a model id is scoped to the provider that reported it.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub provider: Option<String>,
     /// Why the id is null, or why a present id has no record behind it.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub reason: Option<KeyReason>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TabsCreatedState {
     Counted,
@@ -515,7 +518,7 @@ pub enum TabsCreatedState {
     NotAttributed,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct TabsCreatedBlock {
     pub state: TabsCreatedState,
     pub counted_since: Option<u64>,
@@ -524,13 +527,13 @@ pub struct TabsCreatedBlock {
     pub series: Vec<TabBucket>,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct TabKindCounts {
     pub agent: u64,
     pub terminal: u64,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct TabBucket {
     pub start: u64,
     pub end: u64,
@@ -541,14 +544,14 @@ pub struct TabBucket {
 
 /// Allowance is reported per provider account and is never split across models,
 /// workspaces, teams or plans.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct AllowanceEntry {
     pub provider: String,
     pub allowance: ProviderAllowance,
     pub attribution: AllowanceAttribution,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct AllowanceAttribution {
     pub model: &'static str,
     pub workspace: &'static str,
@@ -565,7 +568,7 @@ impl AllowanceAttribution {
     };
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct MoneyBlock {
     pub state: &'static str,
 }

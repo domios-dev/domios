@@ -1,4 +1,3 @@
-/* Delivery state sits beside the user bubble as one quiet liquid dot. */
 .ct-delivery {
   position: absolute;
   right: calc(100% + 8px);
@@ -7,7 +6,51 @@
   align-items: center;
   gap: 6px;
   width: max-content;
+  max-width: var(--ct-delivery-space);
   flex-direction: row-reverse;
+  flex-wrap: wrap;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+}
+
+.ct-chat-message-row--user .ct-chat-message-column {
+  container-type: inline-size;
+}
+
+.ct-user-bubble-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ct-user-bubble-row > .ct-delivery {
+  grid-area: 1 / 1 / 2 / 2;
+}
+
+.ct-user-bubble-row:has(> .ct-delivery) {
+  --ct-delivery-space: 7px;
+  max-width: calc(100% - var(--ct-delivery-space) - 8px);
+}
+
+.ct-user-bubble-row:has(> .ct-delivery[data-state="queued"] .ct-delivery__label) {
+  --ct-delivery-space: 60px;
+}
+
+.ct-user-bubble-row:has(> .ct-delivery:is([data-state="failed"], [data-state="uncertain"])) {
+  --ct-delivery-space: min(320px, 45cqi);
+}
+
+.ct-delivery:not(.ct-delivery--inline) .ct-delivery__label {
+  min-width: 0;
+  max-width: calc(var(--ct-delivery-space) - 13px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-delivery:not(.ct-delivery--inline) .ct-delivery__retry {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Ring and fill are pseudo layers so the pulse animates only transform and opacity on the compositor. */
@@ -15,6 +58,7 @@
   --ct-delivery-fill: var(--ct-accent);
   --ct-delivery-duration: 1.6s;
   position: relative;
+  flex-shrink: 0;
   width: 7px;
   height: 7px;
   border-radius: 999px;
@@ -67,15 +111,15 @@
 /* Inside a card header the state reads as text after its dot. */
 .ct-delivery--inline {
   position: static;
+  width: auto;
+  margin-top: 6px;
   flex-direction: row;
   flex-shrink: 0;
-  max-width: 50%;
+  max-width: 100%;
 }
 
 .ct-delivery--inline .ct-delivery__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
   color: var(--ct-muted-fg);
   font-size: 11px;
 }

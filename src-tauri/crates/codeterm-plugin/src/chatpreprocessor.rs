@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::capability::CapabilityRegistry;
 
 /// Send-time text stage context (mirrors SDK `chatPreprocess(ctx)`).
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PreprocessCtx {
     pub tab_id: String,

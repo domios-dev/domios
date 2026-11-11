@@ -4,7 +4,7 @@ import { SharedRead } from "../../lib/sharedRead";
 import { receiverState, type ChannelStatus, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 
 /** The runtime status every Neighbors surface shares: one read, then events keep it current. */
-export type NeighborStatusSnapshot = ChannelStatus & { concierges?: Record<string, unknown> };
+export type NeighborStatusSnapshot = Omit<ChannelStatus, "concierges"> & { concierges?: Record<string, unknown> };
 
 let stores = new WeakMap<NeighborRuntimeClient, StatusStore>();
 const activeStores = new Set<StatusStore>();

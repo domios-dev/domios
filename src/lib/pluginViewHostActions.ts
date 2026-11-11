@@ -12,14 +12,9 @@
 
 export const VIEW_HOST_ACTIONS = ["copyText", "saveAs", "reveal", "pickFile"] as const;
 export type ViewHostActionName = (typeof VIEW_HOST_ACTIONS)[number];
-export type ViewHostRefusalCode = "denied" | "unavailable" | "invalid";
-export type ViewHostRefusal = { ok: false; code: ViewHostRefusalCode; reason: string };
-/** One file the user picked, as the view sees it: an opaque frame handle, never a path. */
-export interface PickedInput { handle: string; fileName: string; contentType: string; size: number }
-export type ViewHostResult =
-  | { ok: true }
-  | { ok: true; inputs: PickedInput[]; skipped: { fileName: string; code: ViewHostRefusalCode; reason: string }[] }
-  | ViewHostRefusal;
+import type {PickedInput, PickFileResult, ViewHostAvailability, ViewHostRefusal, ViewHostRefusalCode, ViewHostResult as ActionResult} from "../../packages/plugin-sdk/src/viewHost";
+export type {PickedInput, ViewHostRefusal, ViewHostRefusalCode} from "../../packages/plugin-sdk/src/viewHost";
+export type ViewHostResult = ActionResult | PickFileResult;
 
 /** Longest text a view may put on the clipboard in one call. */
 export const MAX_COPY_TEXT = 100_000;
@@ -52,7 +47,7 @@ export interface ViewHostDeps {
 
 const refused = (code: ViewHostRefusalCode, reason: string): ViewHostRefusal => ({ ok: false, code, reason });
 
-export type ViewHostSupport = Record<ViewHostActionName, boolean>;
+export type ViewHostSupport = ViewHostAvailability;
 
 /**
  * What this app instance can perform for a view, sent once when the frame is ready so a view can

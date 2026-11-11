@@ -9,4 +9,4 @@ id: string,
 /**
  * Source AskUserQuestion tool_use id — answer-routing correlation.
  */
-toolUseId: string, prompt: string, header?: string | null, options: Array<InteractiveOption>, multiSelect: boolean, };
+toolUseId: string, prompt: string, header?: string, options: Array<InteractiveOption>, multiSelect: boolean, };

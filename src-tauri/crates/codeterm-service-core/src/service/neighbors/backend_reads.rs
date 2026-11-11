@@ -174,7 +174,14 @@ impl ServiceContext {
             return Ok(value);
         }
         if matches!(route, "friendsOwnKeys" | "friendsReceiverStatus") {
-            return Err(Error::Transport);
+            return Err(
+                if route == "friendsOwnKeys" && self.neighbor_key_inventory_pending(uid, generation)
+                {
+                    Error::KeyInventoryPending
+                } else {
+                    Error::Transport
+                },
+            );
         }
         let locked = self.neighbor_access_locked().await && route != "friendsList";
         let reads = self.extensions.get_or_init(Reads::default);

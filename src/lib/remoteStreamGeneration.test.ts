@@ -8,7 +8,7 @@ import {
   remoteOutputSinceCursor,
 } from "./outputStream";
 
-configureRemoteTabTransport({ enabled: true, host: "127.0.0.1", port: 7685, token: "fixture", cors: false });
+configureRemoteTabTransport({mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7685, token: "fixture", cors: false });
 
 const encoder = new TextEncoder();
 const frame = (body: Record<string, unknown>): Uint8Array =>

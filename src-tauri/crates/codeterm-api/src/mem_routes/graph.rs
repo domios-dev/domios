@@ -6,6 +6,7 @@ use axum::{
 
 use crate::routes::AppState;
 use codeterm_service_core::mem::graph::{Entity, Relation};
+use codeterm_service_core::mem::graph_view::{GraphFullResponse, MemNode};
 use codeterm_service_core::mem_ops::graph::*;
 
 pub async fn mem_graph_relate(
@@ -189,45 +190,26 @@ pub async fn mem_graph_full(
             .mem
             .graph_full()
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-        let nodes: Vec<serde_json::Value> = dump
+        let nodes = dump
             .nodes
-            .iter()
-            .map(|n| {
-                serde_json::json!({
-                    "id": n.id,
-                    "kind": n.kind,
-                    "title": n.title,
-                    "summary": n.summary,
-                    "area": n.area,
-                    "importance": n.importance,
-                    "tags": n.tags,
-                    "has_vector": n.has_vector,
-                    "has_body": n.has_body,
-                    "author": n.author,
-                })
+            .into_iter()
+            .map(|n| MemNode {
+                id: n.id,
+                kind: n.kind,
+                title: n.title,
+                summary: n.summary,
+                area: n.area,
+                importance: n.importance,
+                tags: n.tags,
+                has_vector: n.has_vector,
+                has_body: n.has_body,
+                author: n.author,
             })
             .collect();
-        let edges: Vec<serde_json::Value> = dump
-            .edges
-            .iter()
-            .map(|e| {
-                serde_json::json!({
-                    "from": e.from,
-                    "to": e.to,
-                    "rel": e.rel,
-                    "confidence": e.confidence,
-                    "valid_from": e.valid_from,
-                    "valid_to": e.valid_to,
-                })
-            })
-            .collect();
-        Ok(Json(serde_json::json!({
-            "nodes": nodes,
-            "edges": edges,
-            "stats": {
-                "node_count": dump.stats.node_count,
-                "edge_count": dump.stats.edge_count,
-            }
+        Ok(Json(serde_json::json!(GraphFullResponse {
+            nodes,
+            edges: dump.edges,
+            stats: dump.stats,
         })))
     })
     .await

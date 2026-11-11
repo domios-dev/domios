@@ -2,26 +2,31 @@ use serde::{Deserialize, Serialize};
 
 pub const PROBE_RUNTIME_MS: u64 = 60_000;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct GithubProbe {
     #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[ts(as = "Option<String>", optional)]
     pub repo: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub org: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub label: Option<String>,
     #[serde(
         default = "default_timeout",
         skip_serializing_if = "is_default_timeout"
     )]
+    #[ts(as = "Option<u64>", optional)]
     pub timeout_ms: u64,
     pub resource: GithubResource,
     #[serde(default, skip_serializing_if = "is_zero")]
+    #[ts(as = "Option<u64>", optional)]
     pub id: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum GithubResource {
     Run,

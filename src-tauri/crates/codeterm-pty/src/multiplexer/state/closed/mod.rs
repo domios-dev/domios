@@ -2,6 +2,8 @@
 //! re-materializes tabs with the same backing, marking each
 //! `restored_from_snapshot` so the existing restore machinery takes over.
 
+mod summary;
+pub use summary::ClosedTabSummary;
 mod restore_plan;
 mod store;
 mod structure;
@@ -43,10 +45,10 @@ fn new_group_id() -> String {
 }
 
 /// A closed tab enriched for the sidebar: per-workspace reopen `index`, `orphaned` flag, and owning group.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct ClosedTabView {
-    #[serde(flatten, serialize_with = "super::wire_snapshot::closed_tab")]
-    pub tab: ClosedTab,
+    #[serde(flatten)]
+    pub tab: ClosedTabSummary,
     pub index: usize,
     pub orphaned: bool,
     pub group_id: String,
@@ -515,7 +517,7 @@ impl MultiplexerState {
                         orphaned,
                         group_id,
                         group_kind: group_kind.as_str().to_string(),
-                        tab,
+                        tab: tab.into(),
                     }
                 },
             )

@@ -18,20 +18,8 @@ export interface GraphScope {
   workspaceId: string;
   teamId: string | null;
 }
-export interface ThreadState {
-  bridge_active: boolean;
-  topics: "available" | "unavailable" | "unknown";
-  bound: boolean;
-  link: string | null;
-}
-export interface OpenedThread {
-  tab_id: string;
-  chat_id: number;
-  thread_id: number;
-  topic_name: string;
-  link: string | null;
-  created: boolean;
-}
+export type ThreadState = import("../../../gen/ThreadMenuState").ThreadMenuState;
+export type OpenedThread = import("../../../gen/OpenedThread").OpenedThread;
 
 const enc = encodeURIComponent;
 function required(value: string, name: string): string {

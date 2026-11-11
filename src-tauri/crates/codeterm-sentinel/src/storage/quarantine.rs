@@ -8,7 +8,8 @@ pub const INVALID_DEFINITION: &str = "blueprint_quarantined_invalid_definition";
 pub const ORPHANED_STAGE: &str = "blueprint_quarantined_scenario_root_unavailable";
 
 /// A committed Blueprint refused at load; it stays in Storage untouched and never runs.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[ts(rename = "QuarantinedBlueprint")]
 pub struct Quarantined {
     pub id: String,
     pub name: Option<String>,

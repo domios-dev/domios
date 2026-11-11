@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::converter::ConversionCancellation;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentTaskInput {
     pub run_id: String,
@@ -24,7 +24,7 @@ pub struct AgentTaskRequest {
     pub cancellation: ConversionCancellation,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentTaskStatus {
     Done,
@@ -33,12 +33,13 @@ pub enum AgentTaskStatus {
     DeadlineExceeded,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentTaskResult {
     pub status: AgentTaskStatus,
     pub output: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub error: Option<String>,
 }
 

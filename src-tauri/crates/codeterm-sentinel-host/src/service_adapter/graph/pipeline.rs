@@ -1,5 +1,8 @@
 use super::*;
 use codeterm_blueprint_types::blueprint_journal::{JournalMarker, JournalOutcome, JournalState};
+use codeterm_sentinel::blueprint_snapshot::{
+    self as views, BlueprintResultState, BlueprintRunState, BlueprintState, BlueprintStepState,
+};
 
 pub(super) fn project_pipeline_contract(
     snapshot: &mut Snapshot,
@@ -57,10 +60,11 @@ pub(super) fn project_pipeline_contract(
     }
     snapshot.blueprints.clear();
     for job in jobs.iter().filter(|job| graph::is_snapshot_root(job)) {
-        let Some(node) = snapshot.nodes.iter_mut().find(|node| {
-            node.pointer("/identity/id").and_then(Value::as_str) == Some(job.id.as_str())
-                && node.pointer("/identity/kind").and_then(Value::as_str) == Some("blueprint")
-        }) else {
+        let Some(node) = snapshot
+            .nodes
+            .iter_mut()
+            .find(|node| node.identity.id == job.id && node.identity.kind == "blueprint")
+        else {
             continue;
         };
         let Some(spec) = job.pipeline() else {
@@ -105,10 +109,10 @@ pub(super) fn project_pipeline_contract(
             )
         {
             "held"
-        } else if latest["closed"] == true {
-            if latest["state"] == "failed" {
+        } else if latest.closed {
+            if latest.state == BlueprintRunState::Failed {
                 "failed"
-            } else if latest["state"] == "held" {
+            } else if latest.state == BlueprintRunState::Held {
                 "held"
             } else {
                 "idle"
@@ -116,7 +120,12 @@ pub(super) fn project_pipeline_contract(
         } else if live_leases.contains(&job.id) {
             "running"
         } else {
-            latest["state"].as_str().unwrap_or("idle")
+            match latest.state {
+                BlueprintRunState::Running => "running",
+                BlueprintRunState::Failed => "failed",
+                BlueprintRunState::Held => "held",
+                _ => "idle",
+            }
         };
         let (owner_kind, owner_tab) = match spec.owner {
             codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab => {
@@ -124,18 +133,41 @@ pub(super) fn project_pipeline_contract(
             }
             codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team => ("team", None),
         };
-        let mut blueprint = json!({
-            "id":job.id,"name":spec.name,"note":job.note,"stopped_at":job.cleanup.stopped_at,"deletes_at":job.cleanup.deletes_at,
-            "owner":{"kind":owner_kind,"tab_id":owner_tab,"team_id":job.team_id},
-            "state":state,"run_id":latest["id"],"current_step":latest["current_step"],
-            "last_event_at_ms":latest["last_event_at_ms"],"trigger":trigger_view(&spec.trigger),
-            "steps":latest["steps"],"result":latest["result"],"runs":runs
-        });
+        let mut blueprint = views::Snapshot {
+            id: job.id.clone(),
+            name: Some(spec.name.clone()),
+            note: job.note.clone(),
+            stopped_at: job.cleanup.stopped_at,
+            deletes_at: job.cleanup.deletes_at,
+            owner: views::Owner {
+                kind: owner_kind.into(),
+                tab_id: owner_tab.map(str::to_owned),
+                team_id: job.team_id.clone(),
+            },
+            state: match state {
+                "stopped" => BlueprintState::Stopped,
+                "held" => BlueprintState::Held,
+                "failed" => BlueprintState::Failed,
+                "running" => BlueprintState::Running,
+                _ => BlueprintState::Idle,
+            },
+            run_id: latest.id.clone(),
+            current_step: latest.current_step,
+            last_event_at_ms: latest.last_event_at_ms,
+            trigger: Some(trigger_view(&spec.trigger)),
+            steps: latest.steps.clone(),
+            result: latest.result.clone(),
+            runs,
+            plugin_hold: None,
+            held_reason: None,
+            event_subscription: None,
+            projection: Default::default(),
+        };
         if let Some(hold) = &job.admission.plugin_hold {
-            blueprint["plugin_hold"] = json!(hold);
+            blueprint.plugin_hold = Some(hold.clone());
         }
         if state == "held" {
-            let latest_run = latest["id"].as_str();
+            let latest_run = latest.id.as_deref();
             let journal_reason = entries
                 .iter()
                 .filter(|entry| {
@@ -160,7 +192,7 @@ pub(super) fn project_pipeline_contract(
                         .or(journal_reason)
                 });
             if let Some(reason) = held_reason {
-                blueprint["held_reason"] = json!(reason);
+                blueprint.held_reason = Some(Some(reason));
             }
         }
         if matches!(
@@ -168,16 +200,33 @@ pub(super) fn project_pipeline_contract(
             codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
         ) {
             let subscription = event_subscriptions.summary(&job.id);
-            blueprint["event_subscription"] = json!({
-                "state":subscription.as_ref().map(|item| item.state.as_str()).unwrap_or(if job.machine.stopped { "stopped" } else { "unavailable" }),
-                "delivered":subscription.as_ref().map(|item| item.delivered).unwrap_or_default(),
-                "refused":subscription.as_ref().map(|item| item.refused).unwrap_or_default(),
-                "last_event_at_ms":subscription.as_ref().and_then(|item| item.last_event_at_ms),
-                "reason":subscription.as_ref().and_then(|item| item.reason.clone()).or_else(|| (!job.machine.stopped).then(|| "not_subscribed".into()))
+            blueprint.event_subscription = Some(views::EventSubscription {
+                state: subscription
+                    .as_ref()
+                    .map(|item| item.state.as_str())
+                    .unwrap_or(if job.machine.stopped {
+                        "stopped"
+                    } else {
+                        "unavailable"
+                    })
+                    .into(),
+                delivered: subscription
+                    .as_ref()
+                    .map(|item| item.delivered)
+                    .unwrap_or_default(),
+                refused: subscription
+                    .as_ref()
+                    .map(|item| item.refused)
+                    .unwrap_or_default(),
+                last_event_at_ms: subscription.as_ref().and_then(|item| item.last_event_at_ms),
+                reason: subscription
+                    .as_ref()
+                    .and_then(|item| item.reason.clone())
+                    .or_else(|| (!job.machine.stopped).then(|| "not_subscribed".into())),
             });
         }
-        node["state"] = json!(state);
-        node["held_reason"] = blueprint["held_reason"].clone();
+        node.state = Some(state.into());
+        node.held_reason = Some(blueprint.held_reason.clone().flatten());
         snapshot.blueprints.push(blueprint);
     }
 }
@@ -186,7 +235,7 @@ fn pipeline_run_view(
     job: &Sentinel,
     spec: &codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec,
     entries: &[&BlueprintJournalEntry],
-) -> Value {
+) -> views::Run {
     let mut seen = BTreeSet::new();
     let newest = entries
         .iter()
@@ -231,15 +280,37 @@ fn pipeline_run_view(
         None if entries.is_empty() => "idle",
         None => "held",
     };
-    json!({
-        "id":entries.first().map(|entry| &entry.run_id),"state":state,"closed":closed_state.is_some(),
-        "started_at_ms":entries.iter().map(|entry| entry.started_at_ms).min(),
-        "last_event_at_ms":entries.iter().map(|entry| entry.ended_at_ms.unwrap_or(entry.started_at_ms)).max(),
-        "current_step":current,"steps":steps,
-        "result":{"target":result_target_view(&spec.result.to,spec.owner,job),"state":result_state,
-            "reason":result.and_then(|entry| entry.reason.as_deref()),
-            "body_ref":result.and_then(|entry| entry.body_ref.as_deref())}
-    })
+    views::Run {
+        id: entries.first().map(|entry| entry.run_id.clone()),
+        state: match state {
+            "failed" => BlueprintRunState::Failed,
+            "held" => BlueprintRunState::Held,
+            "completed" => BlueprintRunState::Completed,
+            "running" => BlueprintRunState::Running,
+            _ => BlueprintRunState::Idle,
+        },
+        closed: closed_state.is_some(),
+        started_at_ms: entries.iter().map(|entry| entry.started_at_ms).min(),
+        last_event_at_ms: entries
+            .iter()
+            .map(|entry| entry.ended_at_ms.unwrap_or(entry.started_at_ms))
+            .max(),
+        current_step: current,
+        steps,
+        result: Some(views::ResultView {
+            target: result_target_view(&spec.result.to, spec.owner, job),
+            state: match result_state {
+                "delivered" => BlueprintResultState::Delivered,
+                "failed" => BlueprintResultState::Failed,
+                "delivering" => BlueprintResultState::Delivering,
+                _ => BlueprintResultState::Waiting,
+            },
+            reason: result
+                .and_then(|entry| entry.reason.as_ref().map(|reason| reason.as_str().into())),
+            body_ref: result.and_then(|entry| entry.body_ref.clone()),
+        }),
+        projection: Default::default(),
+    }
 }
 
 fn pipeline_step_view(
@@ -248,14 +319,18 @@ fn pipeline_step_view(
     kind: &codeterm_blueprint_types::blueprint_pipeline::StepKind,
     entry: Option<&&BlueprintJournalEntry>,
     summary: Option<&&BlueprintJournalEntry>,
-) -> Value {
+) -> views::Step {
     let source = match kind {
         codeterm_blueprint_types::blueprint_pipeline::StepKind::Github { probe } => {
-            serde_json::to_value(probe).ok()
+            Some(views::StepSource::Github(probe.clone()))
         }
-        codeterm_blueprint_types::blueprint_pipeline::StepKind::Http { probe } => Some(
-            json!({"url":probe.display_url(), "expected_status":probe.expected_status, "timeout_ms":probe.timeout_ms}),
-        ),
+        codeterm_blueprint_types::blueprint_pipeline::StepKind::Http { probe } => {
+            Some(views::StepSource::Http(views::HttpSource {
+                url: probe.display_url(),
+                expected_status: probe.expected_status.clone(),
+                timeout_ms: probe.timeout_ms,
+            }))
+        }
         _ => None,
     };
     let source_state = if source.is_some() {
@@ -272,39 +347,51 @@ fn pipeline_step_view(
         None
     };
     let kind = kind.name();
-    let state = entry.map_or("waiting", |entry| entry.state.as_str());
-    let mut view = json!({
-        "index":index,
-        "name":name,
-        "kind":kind,
-        "title":format!("{}: {name}", kind),
-        "state":state,
-        "outcome":entry.filter(|entry| !entry.outcome.as_ref().is_some_and(JournalOutcome::is_skip)).and_then(|entry| entry.outcome.clone()),
-        "started_at_ms":entry.map(|entry| entry.started_at_ms),
-        "ended_at_ms":entry.and_then(|entry| entry.ended_at_ms),
-        "result_summary":summary.and_then(|entry| entry.result_summary.clone()),
-        "reason":entry.and_then(|entry| entry.reason.clone())
-    });
-    if let Some(source) = source {
-        view["source"] = source;
-        view["source_state"] = json!(source_state);
+    views::Step {
+        index,
+        name: name.into(),
+        kind: kind.into(),
+        title: format!("{}: {name}", kind),
+        state: entry.map_or(
+            BlueprintStepState::Waiting(views::WaitingStep::Waiting),
+            |entry| BlueprintStepState::Recorded(entry.state),
+        ),
+        outcome: entry
+            .filter(|entry| !entry.outcome.as_ref().is_some_and(JournalOutcome::is_skip))
+            .and_then(|entry| {
+                entry
+                    .outcome
+                    .as_ref()
+                    .map(|outcome| outcome.as_str().into())
+            }),
+        started_at_ms: entry.map(|entry| entry.started_at_ms),
+        ended_at_ms: entry.and_then(|entry| entry.ended_at_ms),
+        result_summary: summary.and_then(|entry| entry.result_summary.clone()),
+        reason: entry.and_then(|entry| entry.reason.as_ref().map(|reason| reason.as_str().into())),
+        source_state: source.as_ref().map(|_| source_state.map(str::to_owned)),
+        source,
     }
-    view
 }
 
-fn trigger_view(trigger: &codeterm_blueprint_types::blueprint_pipeline::Trigger) -> Value {
+fn trigger_view(trigger: &codeterm_blueprint_types::blueprint_pipeline::Trigger) -> views::Trigger {
     use codeterm_blueprint_types::blueprint_pipeline::Trigger;
     match trigger {
-        Trigger::Webhook { .. } => json!({"type":"webhook","summary":"authenticated JSON webhook"}),
-        Trigger::Schedule { every } => {
-            json!({"type":"schedule","summary":format!("every {every}")})
-        }
-        Trigger::Event { kind, .. } => {
-            json!({"type":"event","summary":format!("event {kind}")})
-        }
-        Trigger::Input { kind, source } => {
-            json!({"type":"input", "summary":input_summary(*kind, source)})
-        }
+        Trigger::Webhook { .. } => views::Trigger {
+            r#type: "webhook".into(),
+            summary: "authenticated JSON webhook".into(),
+        },
+        Trigger::Schedule { every } => views::Trigger {
+            r#type: "schedule".into(),
+            summary: format!("every {every}"),
+        },
+        Trigger::Event { kind, .. } => views::Trigger {
+            r#type: "event".into(),
+            summary: format!("event {kind}"),
+        },
+        Trigger::Input { kind, source } => views::Trigger {
+            r#type: "input".into(),
+            summary: input_summary(*kind, source),
+        },
     }
 }
 
@@ -341,16 +428,29 @@ fn result_target_view(
     target: &codeterm_blueprint_types::blueprint_pipeline::ResultTarget,
     owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner,
     job: &Sentinel,
-) -> Value {
+) -> views::ResultTarget {
     use codeterm_blueprint_types::blueprint_pipeline::{BlueprintOwner, ResultTarget};
     match target {
-        ResultTarget::Owner if owner == BlueprintOwner::Team => {
-            json!({"kind":"team","id":job.team_id})
-        }
-        ResultTarget::Owner => json!({"kind":"owner_tab","id":job.creator_tab_id}),
-        ResultTarget::Tab(id) => json!({"kind":"tab","id":id}),
-        ResultTarget::Team => json!({"kind":"team","id":job.team_id}),
-        ResultTarget::Notify => json!({"kind":"notify","id":Value::Null}),
+        ResultTarget::Owner if owner == BlueprintOwner::Team => views::ResultTarget {
+            kind: "team".into(),
+            id: job.team_id.clone(),
+        },
+        ResultTarget::Owner => views::ResultTarget {
+            kind: "owner_tab".into(),
+            id: Some(job.creator_tab_id.clone()),
+        },
+        ResultTarget::Tab(id) => views::ResultTarget {
+            kind: "tab".into(),
+            id: Some(id.clone()),
+        },
+        ResultTarget::Team => views::ResultTarget {
+            kind: "team".into(),
+            id: job.team_id.clone(),
+        },
+        ResultTarget::Notify => views::ResultTarget {
+            kind: "notify".into(),
+            id: None,
+        },
     }
 }
 

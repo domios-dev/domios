@@ -3,6 +3,7 @@
 import type { Tab } from "../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import {
+  attemptTabId,
   buildHistoricalExecutorView,
   historicalExecutorForTask,
   resolveTaskExecutionAttempts,
@@ -123,5 +124,7 @@ const rustFieldsTask: Task = {
 const rustHistorical = buildHistoricalExecutorView(rustFieldsTask, tabs);
 assert(rustHistorical?.label === "Puccini", `rust field label=${rustHistorical?.label}`);
 assert(!rustHistorical?.summary.toLowerCase().includes("unknown"), "rust fields avoid unknown executor");
+
+assert(attemptTabId({ executor_tab_id: "" }) === null, "empty stored executor has no actionable tab");
 
 console.log("taskExecutorHistory: all assertions passed");

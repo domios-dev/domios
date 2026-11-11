@@ -12,14 +12,9 @@ export interface SendEchoBoundary {
   endOffset?: number;
 }
 
-export type MatchedRowRecord =
-  | { kind: "structured"; thread_id: string; item_id: string }
-  | { kind: "jsonl"; incarnation: string; record_start: number; record_row: number };
-
-export interface MatchedRow {
-  source: { source_session_id: string; record: MatchedRowRecord };
-  ordinal: number;
-}
+export type { SourceRecord as MatchedRowRecord } from "./gen/SourceRecord";
+import type { MatchedRow } from "./gen/MatchedRow";
+export type { MatchedRow } from "./gen/MatchedRow";
 
 export function captureSendEchoBoundary(
   authority: TranscriptAuthority | null, rows: readonly NormalizedChatMessage[],

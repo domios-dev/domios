@@ -274,7 +274,8 @@ fn team_board_summary_size_does_not_grow_with_task_records() {
         .find(|task| task.id == task_id)
         .unwrap()
         .clone();
-    let small = serde_json::to_vec(&TeamPlanSummary::from(&TeamPlanRead::from(&record))).unwrap();
+    let small =
+        serde_json::to_vec(&TeamPlanSummary::from_read(&TeamPlanRead::from(&record))).unwrap();
     record.tasks = (0..596)
         .map(|index| {
             let mut task = task.clone();
@@ -283,7 +284,7 @@ fn team_board_summary_size_does_not_grow_with_task_records() {
             task
         })
         .collect();
-    let summary = TeamPlanSummary::from(&TeamPlanRead::from(&record));
+    let summary = TeamPlanSummary::from_read(&TeamPlanRead::from(&record));
     assert_eq!(summary.task_counts.total, 596);
     assert_eq!(summary.task_counts.pending, 596);
     let large = serde_json::to_vec(&summary).unwrap();
@@ -305,7 +306,8 @@ fn team_board_summary_carries_only_the_displayed_goal() {
         constraints: vec!["constraint".repeat(1000)],
         postulates: vec!["postulate".repeat(1000)],
     });
-    let json = serde_json::to_value(TeamPlanSummary::from(&TeamPlanRead::from(&record))).unwrap();
+    let json =
+        serde_json::to_value(TeamPlanSummary::from_read(&TeamPlanRead::from(&record))).unwrap();
     assert_eq!(
         json["goal"],
         serde_json::json!({ "vector": "Visible goal" })

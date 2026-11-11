@@ -179,13 +179,7 @@ pub fn complete_first_run_core(
     config: &crate::config::ConfigState,
     provider_id: &str,
 ) -> Result<(), String> {
-    let known = svc
-        .agent_registry
-        .with_provider(provider_id, |_| ())
-        .is_some();
-    if !known {
-        return Err(format!("Unknown provider: {}", provider_id));
-    }
+    super::validate_general_agent_provider(&svc.agent_registry, provider_id)?;
     let (default_chat_view, mem, mux, pty, screen_state) = {
         let mut snapshot = config.lock().clone();
         snapshot.general_agent.agent_provider = provider_id.to_string();

@@ -469,3 +469,31 @@ async fn local_history_retains_daily_limit_details_on_explicit_status_checks() {
         "not_delivered"
     );
 }
+
+#[test]
+fn history_response_preserves_the_existing_wire_projection() {
+    let mut value = entry(1, "in", Kind::Question, None);
+    value.received_by = Some(ReceivedBy {
+        tab_id: "tab".into(),
+        session_id: "session".into(),
+        binding_nonce: "nonce".into(),
+    });
+    value.flag_callers.push("caller".into());
+    let mut expected = json!(value);
+    let object = expected.as_object_mut().unwrap();
+    for field in ["received_by", "flag_callers", "handling_owner"] {
+        object.remove(field);
+    }
+    let history = History {
+        entries: vec![value],
+        ..Default::default()
+    };
+    let page = history.page(None, 50);
+    assert_eq!(
+        page,
+        json!({"entries":[expected], "next_before":null, "ended":false})
+    );
+    assert!(page["entries"][0].get("in_reply_to").is_none());
+    assert!(page["entries"][0].get("flags").is_none());
+    assert!(page["entries"][0].get("handling_state").is_none());
+}

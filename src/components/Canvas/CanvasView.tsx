@@ -174,7 +174,7 @@ export function CanvasViewInner({
           .catch(() => [planId, [] as Section[]] as const),
       ),
     ).then((pairs) => {
-      if (active) setFetchedSpecSections(new Map(pairs));
+      if (active) setFetchedSpecSections(new Map<string, Section[]>(pairs));
     });
     return () => {
       active = false;

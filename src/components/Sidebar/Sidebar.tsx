@@ -287,7 +287,7 @@ export const Sidebar = memo(function Sidebar({
       .filter((tab) => tab.agent_type && !teamMemberIds.has(tab.id))
       .map((tab) => tab.title);
     const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
-    const blueprints = blueprintSnapshots.filter((blueprint) => blueprint.state === "running" && blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && workspaceTabIds.has(blueprint.owner.tab_id) && !teamMemberIds.has(blueprint.owner.tab_id)).map((blueprint) => blueprint.name);
+    const blueprints = blueprintSnapshots.filter((blueprint) => blueprint.state === "running" && blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && workspaceTabIds.has(blueprint.owner.tab_id) && !teamMemberIds.has(blueprint.owner.tab_id)).map((blueprint) => blueprint.name ?? blueprint.id);
     setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, blueprints, teams });
   }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces, planApi?.host, planApi?.port, planApi?.token]);
 

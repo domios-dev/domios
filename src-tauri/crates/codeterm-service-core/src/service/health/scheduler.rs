@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::service::activity::{ActivityEvent, ActivityWriter};
+use crate::service::activity::{self, ActivityWriter};
 use crate::service::store::{HealthMode, HealthSnapshot, HealthStatus, ServiceKind, ServicesStore};
 
 const TICK_SECS: u64 = 30;
@@ -76,7 +76,7 @@ async fn run_tick(
             let prev = confirmed;
             entry.confirmed = snap.status;
             entry.pending_count = 0;
-            let _ = activity.record(ActivityEvent::health(
+            let _ = activity.record(activity::health(
                 &svc.id,
                 (status_str(prev), status_str(snap.status)),
             ));

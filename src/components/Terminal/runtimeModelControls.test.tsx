@@ -50,6 +50,10 @@ async function mount(runtimeControls = controls) {
 }
 
 const row = () => document.body.querySelector('[data-testid="status-model-picker"]')!;
+const apply = async () => {
+  const button = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Apply")!;
+  await act(async () => button.click());
+};
 const trigger = () => host.querySelector<HTMLButtonElement>('[data-testid="status-model-trigger"]')!;
 
 describe("declared model controls of a runtime agent", () => {
@@ -91,6 +95,7 @@ describe("declared model controls of a runtime agent", () => {
     const approvals = row().querySelector<HTMLButtonElement>('button[aria-label^="Approvals:"]')!;
     await act(async () => { approvals.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })); });
     await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) => item.textContent?.trim() === "Auto")!.click());
+    await apply();
     expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_controls", { tabId: "acp", request: { threadId: "acp-session", bindingNonce: "acp-nonce", epoch: 7, id: "approvals", value: "auto", mode: false } });
   });
 });
@@ -134,6 +139,7 @@ describe("the Permissions control", () => {
     expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Allow all");
     await act(async () => permissions()!.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
     await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Ask when the agent asks")!.click());
+    await apply();
     expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_host_approvals", { tabId: "acp", request: { allowAll: false } });
     expect([...document.body.querySelectorAll("button")].some(button => button.textContent === "Apply" && !button.disabled)).toBe(false);
   });
@@ -149,6 +155,7 @@ describe("the Permissions control", () => {
     expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Ask outside workspace");
     await act(async () => permissions()!.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
     await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Allow all")!.click());
+    await apply();
     expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_host_approvals", { tabId: "acp", request: { allowAll: true } });
   });
 
@@ -184,8 +191,9 @@ describe("the Permissions control", () => {
     bridge.invoke.mockRejectedValue(new Error("Refused"));
     await act(async () => permissions()!.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
     await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Ask when the agent asks")!.click());
-    expect(row().textContent).toContain("The agent refused this control value.");
-    expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Allow all");
+    await apply();
+    expect(row().textContent).toContain("Refused");
+    expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Ask when the agent asks");
   });
 });
 
@@ -195,11 +203,15 @@ it("legacy mode keeps its pinned mode request and refused settings remain visibl
   const mode = row().querySelector<HTMLButtonElement>('button[aria-label="Mode: Code"]')!;
   await act(async () => mode.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
   await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Plan")!.click());
+  await apply();
   expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_controls", { tabId: "acp", request: { threadId: "acp-session", bindingNonce: "acp-nonce", epoch: 7, id: "", value: "plan", mode: true } });
+  await act(async () => trigger().click());
   bridge.invoke.mockRejectedValue(new Error("Refused"));
-  await act(async () => mode.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+  const retryMode = row().querySelector<HTMLButtonElement>('button[aria-label="Mode: Code"]')!;
+  await act(async () => retryMode.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
   await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Plan")!.click());
-  expect(row().textContent).toContain("The agent refused this control value.");
+  await apply();
+  expect(row().textContent).toContain("Refused");
 });
 
 it("a busy agent shows a short notice in the picker, not a refusal", async () => {
@@ -211,8 +223,27 @@ it("a busy agent shows a short notice in the picker, not a refusal", async () =>
     JSON.stringify({ ok: false, reason: "runtime_busy", error: "opaque busy text" })));
   await act(async () => mode.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
   await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Plan")!.click());
+    await apply();
   const notice = document.body.querySelector('.ct-model-picker [role="status"]');
   expect(notice?.textContent).toBe("opaque busy text");
   expect(document.body.querySelector('.ct-model-picker [role="alert"]')).toBeNull();
   expect(document.body.textContent).not.toContain("The agent refused this control value.");
+});
+
+it("stages Advanced controls until Apply and discards them on Cancel", async () => {
+  const switchModel = await mount();
+  await act(async () => trigger().click());
+  const advanced = row().querySelector("details")!;
+  expect(advanced.open).toBe(false);
+  await act(async () => advanced.querySelector("summary")!.click());
+  expect(advanced.open).toBe(true);
+  const approvals = row().querySelector<HTMLButtonElement>('button[aria-label="Approvals: Ask"]')!;
+  await act(async () => approvals.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Auto")!.click());
+  expect(bridge.invoke).not.toHaveBeenCalled();
+  await act(async () => [...row().querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Cancel")!.click());
+  await act(async () => trigger().click());
+  expect(row().querySelector('button[aria-label="Approvals: Ask"]')).not.toBeNull();
+  expect(bridge.invoke).not.toHaveBeenCalled();
+  expect(switchModel).not.toHaveBeenCalled();
 });

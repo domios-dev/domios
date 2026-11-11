@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::plan::TaskStatus;
 
 /// The two structural agent roles. Every finer-grained kind lives in
 /// `role_profile` and resolves through `role_kind` descriptors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub enum AgentRole {
     Manager,
     Worker,
@@ -76,7 +77,7 @@ pub fn restore_role(role: Option<&str>, role_profile: Option<&str>) -> Option<Re
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ReportStatus {
     Done,
@@ -85,7 +86,7 @@ pub enum ReportStatus {
     Partial,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ReportOutcomeClass {
     StaleBindingConflict,

@@ -1,18 +1,11 @@
 use codeterm_plugin::surfaces::{SurfaceRegistryHandle, SurfaceRenderer};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::ServiceContext;
 
 /// No plugin-supplied owner, actor, revision or arbitrary event data crosses this port.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ViewIdentity {
-    pub surface: String,
-    pub instance: String,
-    pub tab: String,
-}
+pub(crate) use codeterm_wire::plugin_host::ViewIdentity;
 
 pub(crate) fn view_context(
     mux: &MultiplexerState,
@@ -38,9 +31,14 @@ pub(crate) fn view_context(
         .get_tab(actor)
         .and_then(|tab| super::activity::sanitize_actor(&tab.title))
         .unwrap_or_else(|| "agent".to_string());
-    Ok(
-        json!({"actorLabel":actor_label,"surface":surface,"instance":backing.instance_id,"tab":tab_id,"owner":owner,"actor":actor}),
-    )
+    Ok(json!(codeterm_wire::plugin_host::SurfaceCallContext {
+        actor_label,
+        surface,
+        instance: &backing.instance_id,
+        tab: tab_id,
+        owner,
+        actor
+    }))
 }
 
 pub(crate) fn validate_instance(
@@ -64,8 +62,10 @@ pub(crate) fn validate_instance(
 impl ServiceContext {
     pub(crate) fn invalidate_surface_view_json(&self, plugin: &str, request: &str) -> String {
         match self.invalidate_surface_view(plugin, request) {
-            Ok(()) => json!({"ok":true}).to_string(),
-            Err(error) => json!({"error":error}).to_string(),
+            Ok(()) => serde_json::to_string(&codeterm_wire::plugin_host::HostOk { ok: true })
+                .unwrap_or_else(|_| "null".into()),
+            Err(error) => serde_json::to_string(&codeterm_wire::plugin_host::HostError { error })
+                .unwrap_or_else(|_| "null".into()),
         }
     }
 

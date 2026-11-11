@@ -81,7 +81,8 @@ fn old_jsonl_claim_without_incarnation_loads_receipts_and_discards_only_the_clai
         client_token: None,
         ledger_sequence: 2,
         matched_row: MatchedRow {
-            source: SourceRowRef::structured("own", "item").unwrap(),
+            source: crate::service::chat_send_transaction::structured_source_row("own", "item")
+                .unwrap(),
             ordinal: 1,
         },
     };
@@ -91,7 +92,9 @@ fn old_jsonl_claim_without_incarnation_loads_receipts_and_discards_only_the_clai
         .push(serde_json::to_value(&valid).unwrap());
     let decoded: UserIndex = serde_json::from_value(index.clone()).unwrap();
     assert_eq!(decoded.source_claims.len(), 2);
-    assert!(!decoded.source_claims[0].matched_row.source.valid());
+    assert!(!crate::service::chat_send_transaction::valid_source_row(
+        &decoded.source_claims[0].matched_row.source
+    ));
     std::fs::write(
         tab.dir.join("index.json"),
         serde_json::to_vec(&index).unwrap(),
@@ -111,7 +114,8 @@ fn old_jsonl_claim_without_incarnation_loads_receipts_and_discards_only_the_clai
 fn durable_index_keeps_all_ordinals_for_a_shared_row() {
     let dir = tempfile::tempdir().unwrap();
     let store = UserSendStore::open(dir.path()).unwrap();
-    let source = SourceRowRef::structured("thread", "item").unwrap();
+    let source =
+        crate::service::chat_send_transaction::structured_source_row("thread", "item").unwrap();
     let claims: Vec<_> = (1..=3)
         .map(|ordinal| SendRowClaim {
             send_id: uuid::Uuid::new_v4().to_string(),

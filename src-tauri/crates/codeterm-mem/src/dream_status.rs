@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub mod deadline;
 
 /// Why a worker's execution ended. Says nothing about its artifact.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ExecutionEnd {
     /// The worker itself reported that the run ended.
@@ -176,7 +176,7 @@ fn pending_log_fields(body: &str) -> Vec<String> {
 }
 
 /// The diary-finalization fact stored against one worker run.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default, ts_rs::TS)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum DiaryFinalization {
     /// No finalization evidence has been recorded for this run.
@@ -187,11 +187,13 @@ pub enum DiaryFinalization {
     },
     Partial {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         diary_id: Option<String>,
         reason: String,
     },
     Failed {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         diary_id: Option<String>,
         reason: String,
     },

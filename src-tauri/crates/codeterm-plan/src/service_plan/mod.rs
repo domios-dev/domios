@@ -133,6 +133,7 @@ pub mod task_queries;
 pub mod task_recovery;
 mod task_remove;
 mod task_speed;
+pub mod team_mission_control;
 mod text_bounds;
 mod types;
 pub mod ui_projections;

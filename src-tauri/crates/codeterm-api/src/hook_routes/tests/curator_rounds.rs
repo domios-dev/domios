@@ -167,28 +167,46 @@ async fn journey(finish: bool, deadline: bool) {
         assert!(!settled.success);
         assert_eq!(settled.summary, "partial");
     } else if finish {
-        // A Curator round runs for a bound Orchestrator; an absent owner waits with no timed wake.
-        let owner = {
+        let (owner, team) = {
             let mut mux = fixture.service.mux.write();
             let owner = mux.create_tab(&workspace).unwrap();
             mux.set_orchestrator_role(&owner).unwrap();
+            let team = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
             let tab = mux.get_tab_mut(&owner).unwrap();
             tab.agent_type = Some(PROVIDER.into());
             tab.agent_session_model = Some("owner-model".into());
-            owner
+            tab.chat_view = true;
+            mux.get_tab_mut(&tab_id).unwrap().team_id = Some(team.clone());
+            (owner, team)
         };
         let _owner_deliveries =
             fixture.bind_recorded_agent_recipient(&owner, "owner-session", "owner-nonce");
+        assert!(
+            codeterm_service_core::service::plan_reconcile::tab_has_live_agent(
+                fixture.service.mux.read().get_tab(&owner).unwrap()
+            )
+        );
+        let mut job = state.cron.lock().get(&job.id).unwrap().clone();
+        job.team_id = Some(team.clone());
+        job.protected = true;
+        job.oneshot = true;
+        commit(&state.cron, |_| {
+            Ok(Prepared::new(CronChange::Patch(job.clone()), ()))
+        })
+        .unwrap();
         fixture
             .service
             .plan_store
             .edit_plan_fixture(&plan.id, now, |plan| {
+                plan.team_id = Some(team.clone());
                 plan.owner = OrchestratorRef::from_tab(&owner);
                 plan.owner.session_id = Some("owner-session".into());
+                plan.control_loop.cron_id = Some(job.id.clone());
                 Ok(())
             })
             .unwrap();
         fixture.service.curator_finish(&caller, "NEXT: 2h | bounded fixture\nMOVE: inspect fixture [task_fixture]\nRETRO: + observed fixture [task_fixture]\nASKED: none", 7200, now).unwrap();
+        fixture.service.reconcile_curator_for_test(&plan.id, now);
         let finished = fixture.service.plan_store.get(&plan.id).unwrap();
         assert!(finished.control_loop.running.is_none());
         assert_eq!(finished.control_loop.next_at, Some(now + 7_200_000));
@@ -208,11 +226,14 @@ async fn journey(finish: bool, deadline: bool) {
             .is_err());
     }
     fixture.service.close_tab(&tab_id).unwrap();
-    if deadline {
+    if deadline || finish {
         fixture.service.reconcile_curator_for_test(&plan.id, now);
     }
     let closed = fixture.service.plan_store.get(&plan.id).unwrap();
     assert!(closed.control_loop.running.is_none());
+    if finish {
+        assert_eq!(closed.control_loop.next_at, Some(now + 7_200_000));
+    }
     let round = closed.control_loop.last_round.unwrap();
     assert_eq!(
         round.outcome.to_string(),

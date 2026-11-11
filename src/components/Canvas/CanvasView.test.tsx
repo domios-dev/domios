@@ -220,7 +220,7 @@ test("canvas spec node reflects spec sections loaded from the API", async () => 
       return new Response(JSON.stringify({ drift: [] }), { status: 200 });
     }),
   });
-  const api = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: true };
+  const api = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: true };
   const { root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={plans} api={api} />);
   try {
     await paintFrames();

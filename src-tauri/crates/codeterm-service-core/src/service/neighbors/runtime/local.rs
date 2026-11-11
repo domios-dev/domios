@@ -60,11 +60,25 @@ impl ServiceContext {
                 self.reconcile_neighbor_handling_restore(metadata, friendship_id, generation)
                     .await?;
                 let page = metadata
-                    .history_page(friendship_id, before.as_deref(), limit.unwrap_or(50))
+                    .history_response_page(friendship_id, before.as_deref(), limit.unwrap_or(50))
                     .await?;
-                let summary=page["entries"].as_array().map(|entries|entries.iter().filter(|entry|entry["direction"]=="in"&&!entry["handling_state"].is_null()).map(|entry|json!({"message_id":entry["message_id"],"handling_state":entry["handling_state"],"handling_reason":entry["handling_reason"],"handling_updated_at":entry["handling_updated_at"]})).collect::<Vec<_>>()).unwrap_or_default();
-                self.remember_neighbor_handling(friendship_id, json!(summary), generation);
-                Ok(page)
+                let summary = page
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.direction == "in")
+                    .filter_map(|entry| {
+                        entry.handling_state.map(|state| {
+                            codeterm_neighbors::responses::NeighborHandlingSummary {
+                                message_id: entry.message_id.clone(),
+                                handling_state: state,
+                                handling_reason: entry.handling_reason.clone(),
+                                handling_updated_at: entry.handling_updated_at,
+                            }
+                        })
+                    })
+                    .collect();
+                self.remember_neighbor_handling(friendship_id, summary, generation);
+                Ok(json!(page))
             }
             NeighborRuntimeCommand::Permission { friendship_id } => {
                 if !hex_id(friendship_id, 64) {
@@ -77,6 +91,7 @@ impl ServiceContext {
                     .cloned()
                     .unwrap_or_default();
                 self.neighbor_permission_projection(metadata, friendship_id, &permission, &settings)
+                    .map(|permission| json!(permission))
             }
             NeighborRuntimeCommand::NotificationPreference { friendship_id } => {
                 if !hex_id(friendship_id, 64) {
@@ -107,16 +122,14 @@ impl ServiceContext {
                 let concierges = self.neighbor_concierge_views(&settings, &friends);
                 let notification_preferences =
                     Self::neighbor_notification_preferences(&settings, &friends);
-                let key = friend_receivers.as_object().and_then(|friends| {
-                    friends.keys().find_map(|id| {
-                        self.neighbor_friend_receiver(id)
-                            .filter(|receiver| receiver.receiving_here())
-                            .and_then(|receiver| receiver.receiver_encryption_key_id)
-                    })
-                });
+                let installation = self.installation_id().await.map_err(|_| Error::Transport)?;
+                let enrolled = self.neighbor_published_installation_key(installation.as_str());
                 let states = self.neighbor_cell().states.lock().clone();
                 let failures = self.neighbor_cell().failures.lock().clone();
-                let permissions: serde_json::Map<String, Value> = settings
+                let permissions: std::collections::BTreeMap<
+                    String,
+                    codeterm_neighbors::responses::NeighborPermission,
+                > = settings
                     .permissions
                     .iter()
                     .map(|(friendship, permission)| {
@@ -126,9 +139,21 @@ impl ServiceContext {
                         .map(|value| (friendship.clone(), value))
                     })
                     .collect::<codeterm_neighbors::Result<_>>()?;
-                Ok(
-                    json!({"watches":self.neighbor_cell().watch_states.lock().clone(),"incoming_handling":self.neighbor_handling_status(),"enabled":self.configuration().neighbors.enabled,"enrolled":key.is_some(),"bindings":settings.bindings,"permissions":permissions,"concierges":concierges,"friend_receivers":friend_receivers,"friend_receivers_version":friend_receivers_version,"machine_label":machine_label,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures}),
-                )
+                Ok(json!(codeterm_neighbors::responses::ChannelStatus {
+                    watches: self.neighbor_cell().watch_states.lock().clone(),
+                    incoming_handling: self.neighbor_handling_status(),
+                    enabled: self.configuration().neighbors.enabled,
+                    enrolled,
+                    bindings: settings.bindings,
+                    permissions,
+                    concierges,
+                    friend_receivers,
+                    friend_receivers_version,
+                    machine_label,
+                    notification_preferences,
+                    listeners: states.into_iter().collect(),
+                    listener_errors: failures.into_iter().collect(),
+                }))
             }
             _ => Err(Error::InvalidEnvelope),
         }

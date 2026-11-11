@@ -81,3 +81,11 @@ it("sends write areas explicitly and defaults them to an empty grant", async () 
     expect(JSON.parse(String(request.body)).permission.memory_write_areas).toEqual(memory_write_areas ?? []);
   }
 });
+
+it("keeps pending key confirmation typed without replaying receiver selection", async () => {
+  const message = "Neighbor key preparation awaits inventory confirmation; receiving has not changed";
+  vi.mocked(localFetch).mockClear();
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "key_inventory_pending", message }), { status: 409 }));
+  await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "key_inventory_pending", message });
+  expect(localFetch).toHaveBeenCalledTimes(1);
+});

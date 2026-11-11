@@ -2,11 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use codeterm_mem::embedder::catalog::{self, BuildContext, BuildError, EmbedderSelection};
-use codeterm_mem::embedder::key::{self, ApiKey, KeyPresence, KeySources, KeyVault};
-use codeterm_mem::embedder::{
-    EmbedderIdentity, EmbedderStatus, ProviderDescriptor, ReembedProgress, ReembedState, SwitchPlan,
-};
-use serde::{Deserialize, Serialize};
+use codeterm_mem::embedder::key::{self, ApiKey, KeySources, KeyVault};
+use codeterm_mem::embedder::{EmbedderIdentity, ReembedState};
+use serde::Deserialize;
 
 use crate::config::ConfigState;
 use crate::secrets::SecretStoreState;
@@ -97,37 +95,11 @@ fn stamped_selection(identity: &EmbedderIdentity) -> EmbedderSelection {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ProviderListing {
-    #[serde(flatten)]
-    pub descriptor: ProviderDescriptor,
-    pub active: bool,
-    pub key: Option<KeyPresence>,
-    pub refusal: Option<Refusal>,
-}
+pub use codeterm_mem::embedder::contracts::ProviderListing;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct Refusal {
-    pub message: String,
-    pub hints: Vec<String>,
-}
+pub use codeterm_wire::api_contracts::Refusal;
 
-impl From<&BuildError> for Refusal {
-    fn from(error: &BuildError) -> Self {
-        Self {
-            message: error.message(),
-            hints: error.hints(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct EmbedderListing {
-    pub providers: Vec<ProviderListing>,
-    pub remote_opt_in: bool,
-    pub remote_warning: &'static str,
-    pub status: EmbedderStatus,
-}
+pub use codeterm_mem::embedder::contracts::EmbedderListing;
 
 pub fn list(svc: &ServiceState) -> EmbedderListing {
     let status = svc.mem.embedder_status();
@@ -177,18 +149,7 @@ impl UseParams {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct SwitchPreview {
-    pub already_active: bool,
-    pub already_running: Option<ReembedProgress>,
-    pub cancelled: Option<EmbedderIdentity>,
-    pub target: EmbedderIdentity,
-    pub remote: bool,
-    pub warning: Option<&'static str>,
-    pub plan: SwitchPlan,
-    pub total: u64,
-    pub refusal: Option<Refusal>,
-}
+pub use codeterm_mem::embedder::contracts::SwitchPreview;
 
 /// What a switch would do, without doing it: the target, the item count and
 /// any refusal the gate would raise.

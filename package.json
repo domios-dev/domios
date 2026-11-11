@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.19.1",
+  "version": "1.19.2",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -43,7 +43,7 @@
     "test:general-agent-provider": "node evals/general-agent/provider-matrix.mjs",
     "check:unused-exports": "knip --workspace @codeterm/chat-core --exports",
     "types:export": "node scripts/export-chat-types.mjs",
-    "types:check": "pnpm types:export && node scripts/check-generated-chat-types.mjs && git diff --exit-code -- gen/ packages/chat-core/src/gen/ packages/plugin-sdk/src/gen/",
+    "types:check": "pnpm types:export && pnpm types:compare",
     "knip:report": "knip --reporter compact --no-progress --no-exit-code",
     "lint": "biome check .",
     "sync:versions": "node scripts/sync-plugin-versions.mjs",
@@ -53,7 +53,8 @@
     "check:plugin-versions": "node scripts/sync-plugin-versions.mjs --check",
     "sync:lucide": "node scripts/sync-lucide-icons.mjs",
     "check:errors": "node scripts/check-error-presentation.mjs",
-    "check:api-effects": "node scripts/check-api-effect-dependencies.mjs"
+    "check:api-effects": "node scripts/check-api-effect-dependencies.mjs",
+    "types:compare": "node scripts/check-generated-chat-types.mjs && git diff --exit-code -- gen/ packages/chat-core/src/gen/ packages/plugin-sdk/src/gen/"
   },
   "keywords": [],
   "author": "",

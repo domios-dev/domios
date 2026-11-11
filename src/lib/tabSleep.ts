@@ -1,6 +1,6 @@
 import type { AppConfig, Tab } from "./types";
 
-export function tabSleepSettings(config: Pick<AppConfig, "tab_sleep">) {
+export function tabSleepSettings(config: Partial<Pick<AppConfig, "tab_sleep">>) {
   return { enabled: config.tab_sleep?.enabled ?? true, idle_minutes: config.tab_sleep?.idle_minutes ?? 60 };
 }
 

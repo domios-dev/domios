@@ -72,8 +72,6 @@ const SNAPSHOT: PluginSnapshot = {
       kind: "git",
       system: true,
       removable: false,
-      verified: true,
-      refreshed_at: "2026-06-19T08:00:00.000Z",
     },
     {
       name: "lab",

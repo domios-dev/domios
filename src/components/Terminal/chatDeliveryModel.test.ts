@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeliveryStatus, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, waitsAfterTurn, type DeliverySend } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 
@@ -8,6 +8,54 @@ const send = (): DeliverySend => ({ id: "bubble", correlationId: "token", conten
 const status = (state: ChatSendStatus["state"], sequence: number): ChatSendStatus => ({
   tab_id: "tab", send_id: "transaction", state, sequence, ledger_id: "ledger",
   retained_from: 1, error: null, correlationId: "token",
+});
+
+test("settled tokenless and system sends have an exit while active host writes cannot be hidden locally", () => {
+  for (const state of ["held", "written", "submit_unconfirmed", "failed", "delivered"] as const) {
+    const tracked = applyDeliveryStatus(send(), status(state, 1));
+    assert.equal(canDeleteChatSend(tracked), state !== "delivered");
+    assert.equal(canRetryChatSend(tracked), state === "failed");
+    assert.equal(canEditChatSend(tracked), state === "submit_unconfirmed");
+    assert.equal(canDeleteChatSend({ ...tracked, correlationId: undefined }), state === "failed" || state === "submit_unconfirmed");
+    const system = { ...tracked, status: { ...tracked.status!, system_send: { content: "opaque", sent_at_ms: 1 } } };
+    assert.equal(canDeleteChatSend(system), state === "failed" || state === "submit_unconfirmed");
+    assert.equal(canRetryChatSend(system), false);
+    assert.equal(canEditChatSend(system), false);
+  }
+  const tokenless = { ...send(), correlationId: undefined };
+  assert.equal(deliveryState(tokenless), "uncertain");
+  assert.equal(canDeleteChatSend(tokenless), true);
+  assert.equal(canEditChatSend(tokenless), true);
+  assert.equal(canRetryChatSend(tokenless), false);
+  assert.equal(canDeleteChatSend(send()), false);
+  assert.equal(canDeleteChatSend({ ...send(), requestUncertain: true }), true);
+});
+
+test("failed and uncertain formerly held sends return to send-time placement across reload", () => {
+  const at = 1_800_000_000_000;
+  const transcript = reduceTranscript(createTranscriptState(), { kind: "snapshot", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
+    rows: [{ id: "reply", type: "assistant", content: "later", timestamp: String(at + 1000) }] }).state;
+  const held = applyDeliveryStatus({ ...send(), sentAtMs: at }, status("held", 1));
+  for (const state of ["failed", "submit_unconfirmed"] as const) {
+    const settled = applyDeliveryStatus(held, status(state, 2));
+    for (const value of [settled, JSON.parse(JSON.stringify(settled)) as DeliverySend]) {
+      assert.deepEqual(projectTranscript(transcript, deliveryProjectionSends([value])).rows.map(row => row.id), ["bubble", "reply"]);
+    }
+  }
+});
+
+test("tail placement shares one rule for queued and formerly held active sends", () => {
+  for (const state of ["held", "written", "submit_unconfirmed", "failed", "delivered"] as const) {
+    for (const wasHeld of [false, true]) {
+      const current = { ...applyDeliveryStatus(send(), status(state, 1)), wasHeld };
+      const expected = state === "held" || (wasHeld && state === "written");
+      assert.equal(waitsAfterTurn(current), expected);
+      assert.equal(deliveryProjectionSends([current])[0].held, expected);
+    }
+  }
+  const admitting = { ...send(), wasHeld: true };
+  assert.equal(waitsAfterTurn(admitting), true);
+  assert.equal(deliveryProjectionSends([admitting])[0].held, true);
 });
 
 test("sending becomes delivered without changing the bubble", () => {

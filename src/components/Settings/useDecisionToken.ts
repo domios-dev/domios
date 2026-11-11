@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DEV_BUILD } from "../../lib/devBuild";
 import type { SupporterAdapter, SupporterFailure, SupporterMutation, SupporterStatus } from "./supporterTypes";
 import { isSupporterCatalog, isSupporterStatus, redactSupporterError } from "./supporterResponse";
+
+export type SupporterConnectionOutcome = Pick<Extract<SupporterMutation, { state: string }>, "adapter" | "state">;
 export type * from "./supporterTypes";
 
 interface MutationOutcome {
@@ -144,24 +146,24 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
         /* Plain HTTP bodies are also actionable. */
       }
       if (!response.ok) {
-        const message = parsed?.error?.message || text || `HTTP ${response.status}`;
+        const message = (parsed && "error" in parsed ? parsed.error.message : undefined) || text || `HTTP ${response.status}`;
         setErrors((old) => ({
           ...old,
           [adapter]: {
-            code: parsed?.error?.code ?? "unavailable",
+            code: (parsed && "error" in parsed ? parsed.error.code : undefined) ?? "unavailable",
             message: redactSupporterError(message, secret),
           },
         }));
       } else if (
         parsed &&
-        (path !== "connections" || parsed.state === "active" || parsed.state === "saved_not_active")
+        (path !== "connections" || ("state" in parsed && (parsed.state === "active" || parsed.state === "saved_not_active")))
       ) {
         accepted = true;
-        const acceptedMutation = parsed.error
-          ? { ...parsed, error: { ...parsed.error, message: redactSupporterError(parsed.error.message, secret) } }
-          : parsed;
-        mutation = acceptedMutation;
-        const acceptedError = acceptedMutation.error;
+        mutation = parsed;
+        if ("error" in mutation) {
+          mutation.error = { ...mutation.error, message: redactSupporterError(mutation.error.message, secret) };
+        }
+        const acceptedError = "error" in mutation ? mutation.error : undefined;
         if (acceptedError)
           setErrors((old) => ({
             ...old,
@@ -200,7 +202,7 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     } else if (!refreshed && unknownResponse) {
       setOutcomeError(adapter, "The outcome is unknown. Refresh authoritative status before retrying.");
     }
-    if (accepted && currentStatus && mutation?.state) {
+    if (accepted && currentStatus && mutation && "state" in mutation) {
       const connection = currentStatus.connections.find((entry) => entry.adapter === adapter);
       if (mutation.state === "saved_not_active" && connection && !connection.active) {
         setSaved((old) => ({ ...old, [adapter]: true }));
@@ -220,7 +222,7 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
   const activate = async (adapter: string): Promise<boolean> => {
     const outcome = await write(adapter, `${path(adapter)}/activate`, "POST");
     if (!outcome?.refreshed || !outcome.status) return false;
-    if (outcome.mutation?.state === "saved_not_active") return false;
+    if ((outcome.mutation && "state" in outcome.mutation && outcome.mutation.state) === "saved_not_active") return false;
     const connection = outcome.status.connections.find((entry) => entry.adapter === adapter);
     if (outcome.status.adapter === adapter && connection?.active) return true;
     if (outcome.accepted || outcome.unknownResponse) {
@@ -228,7 +230,7 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     }
     return false;
   };
-  const connect = async (adapter: string, model: string, token?: string): Promise<SupporterMutation | null> => {
+  const connect = async (adapter: string, model: string, token?: string): Promise<SupporterConnectionOutcome | null> => {
     const activeBefore = statusRef.current?.adapter ?? null;
     const modelBefore = statusRef.current?.model ?? null;
     const outcome = await write(adapter, "connections", "POST", { adapter, model, token, activate: true }, token);
@@ -241,8 +243,8 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
       outcome.status.adapter === activeBefore &&
       outcome.status.model === modelBefore;
     if (outcome.accepted) {
-      if (outcome.mutation?.state === "active" && confirmedActive) return outcome.mutation;
-      if (outcome.mutation?.state === "saved_not_active" && confirmedSaved) return outcome.mutation;
+      if (outcome.mutation && "state" in outcome.mutation && outcome.mutation.state === "active" && confirmedActive) return outcome.mutation;
+      if (outcome.mutation && "state" in outcome.mutation && outcome.mutation.state === "saved_not_active" && confirmedSaved) return outcome.mutation;
       setOutcomeError(adapter, "The connection outcome was not confirmed by refreshed status. Review status before retrying.");
       return null;
     }

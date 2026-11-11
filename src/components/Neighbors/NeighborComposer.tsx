@@ -8,6 +8,7 @@ import { ComposerTextInput } from "../Terminal/ComposerTextInput";
 import { withTranscripts } from "../Surface/surfaceChromeModel";
 import { ComposerBubbleRow } from "../Terminal/ComposerBubbles";
 import { isVoiceNote } from "./neighborFilesClient";
+import { TranscriberSetupAction } from "../Terminal/voice/TranscriberSetupAction";
 
 const MAX_FILES = 4;
 
@@ -21,6 +22,7 @@ export function NeighborComposer({ name, placeholder, disabled, sending, onSend,
 }) {
   const [draft, setDraft] = useState("");
   const [transcribing, setTranscribing] = useState(false);
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const latest = useRef(draft);
   latest.current = draft;
@@ -52,12 +54,13 @@ export function NeighborComposer({ name, placeholder, disabled, sending, onSend,
   };
   const applyVoice = async (paths: string[], andSend: boolean) => {
     setTranscribing(true);
+    setTranscriptionError(null);
     try {
       const message = withTranscripts(latest.current, await Promise.all(paths.map(path => transcribe(path))));
       if (andSend) send(message);
       else setDraft(message);
     } catch (failure: unknown) {
-      onError(failure instanceof Error ? failure.message : "The recording could not be transcribed.");
+      setTranscriptionError(failure instanceof Error ? failure.message : "The recording could not be transcribed.");
     } finally { setTranscribing(false); }
   };
 
@@ -77,5 +80,6 @@ export function NeighborComposer({ name, placeholder, disabled, sending, onSend,
         }}
         onCompositionStart={() => beginComposition(gate)} onCompositionEnd={() => endComposition(gate)} />
     </ComposerActions>
+    {transcriptionError && <TranscriberSetupAction reason={transcriptionError} />}
   </div>;
 }

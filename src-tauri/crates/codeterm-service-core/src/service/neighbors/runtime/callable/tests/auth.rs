@@ -44,11 +44,17 @@ impl CallableTransport for Transport {
     }
 }
 
-async fn fixture() -> (ServiceFixture, Arc<codeterm_account::Account>, Calls) {
+pub(super) async fn fixture() -> (ServiceFixture, Arc<codeterm_account::Account>, Calls) {
+    fixture_with_provider(Arc::new(codeterm_account::adapters::fake::Fake::default())).await
+}
+
+pub(super) async fn fixture_with_provider(
+    provider: Arc<dyn codeterm_account::IdentityProvider>,
+) -> (ServiceFixture, Arc<codeterm_account::Account>, Calls) {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let account = Arc::new(codeterm_account::Account::new(
-        Arc::new(codeterm_account::adapters::fake::Fake::default()),
+        provider,
         Arc::new(Store),
         Duration::from_secs(1),
     ));

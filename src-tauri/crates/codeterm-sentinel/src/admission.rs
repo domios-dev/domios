@@ -24,7 +24,7 @@ pub struct Admission {
     pub plugin_hold: Option<PluginHold>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct PluginHold {
     pub run: String,

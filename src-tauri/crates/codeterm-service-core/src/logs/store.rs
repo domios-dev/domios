@@ -4,50 +4,13 @@ use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
-use serde::{Deserialize, Serialize};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const RING_CAP: usize = 1000;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum LogLevel {
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
+pub use codeterm_wire::api_contracts::LogLevel;
 
-impl LogLevel {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Debug => "debug",
-            Self::Info => "info",
-            Self::Warn => "warn",
-            Self::Error => "error",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        Some(match s.to_ascii_lowercase().as_str() {
-            "debug" => Self::Debug,
-            "info" => Self::Info,
-            "warn" | "warning" => Self::Warn,
-            "error" => Self::Error,
-            _ => return None,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppLog {
-    pub id: i64,
-    pub ts: i64,
-    pub level: String,
-    pub source: String,
-    pub message: String,
-    pub context_json: Option<String>,
-}
+pub use codeterm_wire::api_contracts::AppLog;
 
 pub struct LogStore {
     conn: Mutex<Connection>,
@@ -155,12 +118,12 @@ impl LogStore {
             let _ = self.persist(std::iter::once(d));
         }
         if let Some(ui) = self.ui.lock().clone() {
-            let payload = serde_json::json!({
-                "ts": ts,
-                "level": pending.level,
-                "source": pending.source,
-                "message": pending.message,
-                "context": context,
+            let payload = serde_json::json!(codeterm_wire::api_contracts::LogEventPayload {
+                ts,
+                level: pending.level,
+                source: pending.source,
+                message: pending.message,
+                context,
             });
             ui.emit("logs-updated", payload);
         }

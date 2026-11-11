@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use ts_rs::TS;
 
 use serde::Serialize;
 use uuid::Uuid;
@@ -51,7 +52,7 @@ fn short_id() -> String {
 }
 
 /// Lightweight workspace summary for listing.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 pub struct WorkspaceInfo {
     pub id: String,
     pub name: String,
@@ -65,6 +66,7 @@ pub struct WorkspaceInfo {
     pub locked: bool,
     /// Set to true when create_workspace deduped by cwd (no new ws was created).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub existing: Option<bool>,
     /// True when the daemon created this workspace's directory.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -137,7 +139,7 @@ pub struct TeamResolution {
 }
 
 /// Full state snapshot for frontend hydration.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 pub struct MultiplexerSnapshot {
     /// Monotonic generation; the reducer drops any snapshot whose value is
     /// `<=` the one already applied. Serialized first so the publisher can

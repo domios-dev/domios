@@ -1,37 +1,43 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Durable evidence that a tab's agent was mid-turn during one daemon start.
 /// A later start owes the tab one continue until the mark is settled.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TurnResumeMark {
     pub session_id: String,
     pub start_epoch: String,
     /// Explicit continuation requested for this tab; replaces the default text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub sender: Option<TurnResumeSender>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub settled: Option<TurnResumeSettlement>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TurnResumeSender {
     pub tab_id: String,
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub from_agent: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub from_model: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TurnResumeSettlement {
     pub start_epoch: String,
     pub outcome: TurnResumeOutcome,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TurnResumeOutcome {
     /// Claimed for this start and handed to the post-ready send path once.

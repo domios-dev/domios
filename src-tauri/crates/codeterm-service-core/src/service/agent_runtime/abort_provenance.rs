@@ -45,12 +45,17 @@ pub(crate) fn runtime_ended_rows(
 
 /// restoreContext value that tells the agent, on its next loaded thread, why its turn ended.
 pub(crate) fn abort_note_context(cause: &str) -> serde_json::Value {
-    serde_json::json!({
-        "instructions": null,
-        "additionalContext": [{
-            "key": "domios-turn-aborted",
-            "kind": "application",
-            "value": format!("Domios notice: your previous turn was aborted, not stopped by the user: {cause}."),
+    use codeterm_plugin::agent_runtime::{
+        RuntimeAdditionalContext, RuntimeAdditionalContextKind, RuntimeRestoreContext,
+    };
+    serde_json::json!(RuntimeRestoreContext {
+        instructions: None,
+        additional_context: vec![RuntimeAdditionalContext {
+            key: "domios-turn-aborted".into(),
+            kind: RuntimeAdditionalContextKind::Application,
+            value: format!(
+                "Domios notice: your previous turn was aborted, not stopped by the user: {cause}."
+            ),
         }],
     })
 }

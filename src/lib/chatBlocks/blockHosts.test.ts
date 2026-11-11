@@ -1,3 +1,4 @@
+import { FIXTURE_PLAN_READ, FIXTURE_TASK_METADATA } from "../../components/Canvas/cards/fixtures.testdata";
 // Run: npx tsx src/lib/chatBlocks/blockHosts.test.ts
 
 import { Window } from "happy-dom";
@@ -16,7 +17,7 @@ import { createJobBlockHost } from "./jobBlockHost";
 import { jobBlockState } from "./jobBlockState";
 import { createJobsBlockStore, type JobsSnapshot } from "./jobsBlockStore";
 import { createScopedPlanBlockRead } from "./scopedPlanBlockRead";
-import type { PlanProjection } from "../../components/Canvas/planProjection";
+import type { PlanRead } from "../../components/Canvas/planProjection";
 import { createTasksBlockHost, tasksBlockState, type PlansSnapshot } from "./tasksBlockHost";
 import { createValueFeed } from "./valueFeed";
 
@@ -273,7 +274,7 @@ test("tasks_state_keeps_the_block_set_with_live_rows", () => {
 
 test("a retained task card reads its selected projection without a global task catalogue",async()=>{
   let reads=0;
-  const source=createScopedPlanBlockRead<PlanProjection>({epoch:()=>1,watch:()=>({ready:Promise.resolve(),stop(){}}),read:async()=>{reads++;return {...plan("pl_scoped",[]),revision:"1",title:"Scoped plan",tasks:[{...FIXTURE_TASK,id:"chosen",name:"Selected task"}]};}});
+  const source=createScopedPlanBlockRead<PlanRead>({epoch:()=>1,watch:()=>({ready:Promise.resolve(),stop(){}}),read:async()=>{reads++;return {...FIXTURE_PLAN_READ,id:"pl_scoped",revision:"1",title:"Scoped plan",task_counts:{...FIXTURE_PLAN_READ.task_counts,in_progress:1,total:1},tasks:[{...FIXTURE_TASK_METADATA,id:"chosen",name:"Selected task"}]};}});
   const headers=createValueFeed<PlansSnapshot>({plans:[],loaded:true});
   const host=createTasksBlockHost(headers,()=>{},source);
   const key=JSON.stringify(["pl_scoped",["chosen"],[],null]);

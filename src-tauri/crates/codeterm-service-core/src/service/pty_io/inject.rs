@@ -52,6 +52,17 @@ impl ServiceContext {
         command: &str,
         queued: Option<&dyn Fn(usize)>,
     ) -> Result<crate::service::ExecWaiter, String> {
+        let _input = super::submit_transaction::reserve_command_input(
+            pty_id,
+            std::time::Instant::now() + std::time::Duration::from_secs(15),
+        )
+        .map_err(|detail| super::utility_command::busy_refused(pty_id, detail))?;
+        if super::utility_command::shell_command_running(self, pty_id) {
+            return Err(super::utility_command::busy_refused(
+                pty_id,
+                "a shell command is running",
+            ));
+        }
         self.await_shell_ready(pty_id);
         let profile = {
             let mux = self.mux.read();
@@ -76,9 +87,21 @@ impl ServiceContext {
             .map(Ok)
             .unwrap_or_else(|| build_spawn_dispatch(command).map_err(|error| error.to_string()))?;
         let (payload, expected) = super::submit_transaction::shell_dispatch(&bytes);
-        let claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        let admission = super::utility_command::UtilityCommandAdmission::begin(self, pty_id)?;
+        let claim = super::submit_transaction::claim_command_submit_cycle(pty_id);
+        let on_queued = |bytes| {
+            admission.mark_written();
+            if let Some(queued) = queued {
+                queued(bytes);
+            }
+        };
         let result = super::submit_transaction::submit_shell_dispatch(
-            self, pty_id, &payload, &expected, claim, queued,
+            self,
+            pty_id,
+            &payload,
+            &expected,
+            claim,
+            Some(&on_queued),
         );
         if result.is_ok()
             || matches!(

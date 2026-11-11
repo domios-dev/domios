@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// An Active plan whose Team closed while tasks were unfinished. It stays
 /// visible and ownerless until a live Team adopts it; it is never auto-archived.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlanOrphan {
     pub team_id: String,
     pub reason: String,

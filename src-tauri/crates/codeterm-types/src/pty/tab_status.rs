@@ -1,8 +1,9 @@
 use serde::Serialize;
+use ts_rs::TS;
 
 use super::{BootStage, TimelineState};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, TS)]
 pub enum TabStatus {
     Working,
     Waiting,

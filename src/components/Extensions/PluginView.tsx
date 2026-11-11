@@ -15,6 +15,7 @@ import { surfaceQuery, type PluginViewSurface } from "../../lib/surfaceTab";
 import { createViewHostGate, performViewHostAction, viewHostSupport, type ViewHostGate } from "../../lib/pluginViewHostActions";
 import { viewHostDeps } from "../../lib/pluginViewHostDeps";
 import { getPluginSnapshotState } from "../../lib/pluginSnapshotStore";
+import { BackPill } from "../shared/BackPill";
 
 type ApiCfg = DaemonApiConfig;
 
@@ -322,9 +323,14 @@ export function PluginView({
     );
   }
 
+  const pluginName = getPluginSnapshotState().snapshot.plugins.find((plugin) => plugin.id === pluginId)?.display_name || pluginId;
   return (
     <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "var(--ct-bg)" }}>
-      {frame}
+      {onClose && <header className="ct-jobs-header flex min-w-0 shrink-0 items-center gap-3 px-4 py-3">
+        <BackPill label="where you were" onBack={onClose} />
+        <h2 className="min-w-0 truncate text-sm font-semibold" title={pluginName}>{pluginName}</h2>
+      </header>}
+      <div className="relative min-h-0 flex-1">{frame}</div>
     </div>
   );
 }

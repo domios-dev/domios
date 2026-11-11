@@ -6,7 +6,7 @@ use crate::service_plan::{
     PlanError,
 };
 use rusqlite::{params, Connection};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanError> {
     connection
@@ -131,18 +131,16 @@ pub(super) fn window(
 pub(super) fn apply_task_counts(
     connection: &Connection,
     id: &str,
-    value: &mut Value,
+    tasks: &mut [crate::service_plan::chat_snapshot::read::ChatTaskRead],
 ) -> Result<(), PlanError> {
-    if let Some(tasks) = value["tasks"].as_array_mut() {
-        for task in tasks {
-            let task_id = task["id"].as_str().unwrap_or_default();
-            record_query();
-            let (criteria,milestones): (usize,usize) = connection.query_row(
+    for task in tasks {
+        let task_id = &task.id;
+        record_query();
+        let (criteria,milestones): (usize,usize) = connection.query_row(
                 "SELECT coalesce(json_array_length(row_json,'$.acceptance_criteria'),0),(SELECT count(*) FROM plan_task_milestones m WHERE m.plan_id=t.plan_id AND m.task_id=t.task_id) FROM plan_tasks t WHERE plan_id=?1 AND task_id=?2",
                 params![id,task_id],|row| Ok((row.get(0)?,row.get(1)?))).map_err(db_error)?;
-            task["criteria_count"] = json!(criteria);
-            task["milestone_count"] = json!(milestones);
-        }
+        task.criteria_count = criteria;
+        task.milestone_count = milestones;
     }
     Ok(())
 }

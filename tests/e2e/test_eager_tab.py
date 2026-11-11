@@ -36,4 +36,4 @@ def test_eager_non_active_tab_has_pty_and_accepts_send_text(api: CodeTermAPI):
         output = api.wait_for_output(tab_id, pattern=assembled_marker, timeout=15)
         assert assembled_marker in output
     finally:
-        api.close_workspace(ws_id)
+        api.cleanup_workspace(ws_id)

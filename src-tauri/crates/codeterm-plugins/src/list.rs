@@ -36,16 +36,19 @@ pub(super) fn list_installed() -> Result<serde_json::Value, String> {
             provenance.source.as_ref(),
         );
         rows.push(InstalledPluginRow {
-            update,
+            update: Some(update),
             id: id.clone(),
-            version: provenance.version,
-            display_name: manifest.and_then(|m| m.display_name),
-            path: path.display().to_string(),
-            install_path: path.display().to_string(),
-            install_time: record.as_ref().map(|r| r.installed_at.clone()),
-            manifest_hash: manifest_hash(&path).ok(),
-            verified: is_verified_install(&id, record.as_ref()),
-            last_change: record.as_ref().and_then(|r| r.last_change.clone()),
+            metadata: crate::snapshot_contracts::Metadata {
+                version: provenance.version,
+                display_name: manifest.and_then(|m| m.display_name),
+                ..Default::default()
+            },
+            path: Some(path.display().to_string()),
+            install_path: Some(Some(path.display().to_string())),
+            install_time: Some(record.as_ref().map(|r| r.installed_at.clone())),
+            manifest_hash: Some(manifest_hash(&path).ok()),
+            verified: Some(is_verified_install(&id, record.as_ref())),
+            last_change: Some(record.as_ref().and_then(|r| r.last_change.clone())),
             state: if super::staging::path_for(&path, "tmp-install").exists() {
                 "mid-install".to_string()
             } else if record.is_none() && is_reserved_system_id(&id) {
@@ -53,9 +56,10 @@ pub(super) fn list_installed() -> Result<serde_json::Value, String> {
             } else {
                 "installed".to_string()
             },
-            source: provenance.source,
+            source: Some(provenance.source),
             system: provenance.system,
             removable: !provenance.system,
+            ..Default::default()
         });
     }
     merge_system_rows(&mut rows);
@@ -91,19 +95,23 @@ pub(super) fn virtual_system_row(id: &str) -> InstalledPluginRow {
         .as_ref()
         .and_then(|manifest| manifest.version.clone());
     InstalledPluginRow {
-        update: installed_update_status(id, version.as_deref(), None),
+        update: Some(installed_update_status(id, version.as_deref(), None)),
         id: id.to_string(),
-        version,
-        display_name: metadata.and_then(|manifest| manifest.display_name),
-        path: String::new(),
-        install_path: String::new(),
-        install_time: None,
-        manifest_hash: None,
-        verified: true,
-        last_change: None,
+        metadata: crate::snapshot_contracts::Metadata {
+            version,
+            display_name: metadata.and_then(|manifest| manifest.display_name),
+            ..Default::default()
+        },
+        path: Some(String::new()),
+        install_path: Some(Some(String::new())),
+        install_time: Some(None),
+        manifest_hash: Some(None),
+        verified: Some(true),
+        last_change: Some(None),
         state: "bundled".to_string(),
-        source: effective_install_source(id, None),
+        source: Some(effective_install_source(id, None)),
         system: true,
         removable: false,
+        ..Default::default()
     }
 }

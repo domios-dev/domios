@@ -1,13 +1,6 @@
-export type EndpointKind = "openai-compatible" | "anthropic";
+export type EndpointKind = import("../../../../gen/EndpointKind").EndpointKind;
 
-export interface ModelEndpoint {
-  id: string;
-  kind: EndpointKind;
-  baseUrl: string;
-  models: string[];
-  name?: string;
-  secretName?: string;
-}
+export type ModelEndpoint = Pick<import("../../../../gen/ModelProviderDefinition").ModelProviderDefinition, "id" | "kind" | "baseUrl" | "models" | "name" | "secretName">;
 
 export type EndpointFormMode = "add" | "edit";
 export type KeySource = "new" | "saved" | "keep";
@@ -23,22 +16,12 @@ export interface EndpointDraft {
   selected: string[];
 }
 
-interface ProviderWire {
-  id: string;
-  kind: EndpointKind;
-  baseUrl: string;
-  models: string[];
-}
+type ProviderWire = Pick<import("../../../../gen/ModelProviderDefinition").ModelProviderDefinition, "id" | "kind" | "baseUrl" | "models">;
 
-export type AddRequest =
-  | { action: "add"; provider: ProviderWire; value: string }
-  | { action: "add_from_secret"; provider: ProviderWire; source_secret: string };
-
-export type UpdateRequest = { action: "update"; provider: ProviderWire; value?: string };
-
-export type DiscoverRequest =
-  | { action: "discover"; kind: EndpointKind; base_url: string; value: string }
-  | { action: "discover"; kind: EndpointKind; base_url: string; source_secret: string };
+type ModelProviderRequest = import("../../../../gen/ModelProviderRequest").ModelProviderRequest;
+export type AddRequest = Extract<ModelProviderRequest, { action: "add" | "add_from_secret" }>;
+export type UpdateRequest = Extract<ModelProviderRequest, { action: "update" }>;
+export type DiscoverRequest = Extract<ModelProviderRequest, { action: "discover" }>;
 
 export type DiscoverPlan =
   | { kind: "request"; request: DiscoverRequest }

@@ -20,7 +20,7 @@ for (const tab of leaves(document)) {
   tab.cwd = join(root, 'project');
   if (tab.agent_identity) delete tab.agent_identity.provisioned_cwd;
 }
-document.measurements = measurements(document.snapshot, document.histories);
+document.measurements = measurements(document.snapshot, document.histories, document.measurements);
 const fixturePath = join(root, 'desk.json');
 const tracePath = join(root, 'provider-trace.jsonl');
 writeFileSync(fixturePath, JSON.stringify(document, null, 2));

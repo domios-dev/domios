@@ -36,7 +36,7 @@ fn viewer_plugin_nodes_carry_installed_descriptors_and_mark_missing_plugins_unav
     }))
     .unwrap();
     let closure = FrozenClosure::from_document(document).unwrap();
-    let nodes = descriptors(&registry, &closure);
+    let nodes = serde_json::json!(descriptors(&registry, &closure));
     assert_eq!(
         nodes,
         json!({
@@ -49,7 +49,7 @@ fn viewer_plugin_nodes_carry_installed_descriptors_and_mark_missing_plugins_unav
     );
     registry.unregister("fixture");
     assert_eq!(
-        descriptors(&registry, &closure)["fixture.read"],
+        serde_json::json!(descriptors(&registry, &closure))["fixture.read"],
         json!({"available":false})
     );
 }

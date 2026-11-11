@@ -1,6 +1,8 @@
 //! Human task keys (`PREFIX-N`): the one owner of prefix allocation, counter
 //! allocation, the legacy display fallback, and task reference matching.
 
+use ts_rs::TS;
+
 use super::Task;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -12,9 +14,10 @@ const MAX_PREFIX: usize = 4;
 
 /// Durable key state owned by one workspace. The prefix is fixed by the first
 /// issued key; the counter only grows.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct WorkspaceTaskKeys {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub prefix: Option<String>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub next: u64,

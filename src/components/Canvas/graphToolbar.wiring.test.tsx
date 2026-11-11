@@ -66,7 +66,7 @@ it("Blueprint wires the shared toolbar once", async () => {
 });
 it("memory wires the shared toolbar to its camera and refresh once", async () => {
   const refresh = vi.fn();
-  await mount(<MemorySnapshotCanvas api={{ enabled: true, cors: false, host: "localhost", port: 7686, token: "fixture" }} index={{ byId: new Map([["fixture", { id: "fixture", kind: "note", x: 0, y: 0, importance: 0, has_vector: true, pinned: false, cluster_id: 0 }]]), clusters: [], clusterEdges: [], layoutVersion: 1, seq: 1, computedAt: "" }} pulses={new Map()} registerFit={() => {}} registerRecenter={() => {}} onRefresh={refresh} />);
+  await mount(<MemorySnapshotCanvas api={{mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, cors: false, host: "localhost", port: 7686, token: "fixture" }} index={{ byId: new Map([["fixture", { id: "fixture", kind: "note", x: 0, y: 0, importance: 0, has_vector: true, pinned: false, cluster_id: 0 }]]), clusters: [], clusterEdges: [], layoutVersion: 1, seq: 1, computedAt: "" }} pulses={new Map()} registerFit={() => {}} registerRecenter={() => {}} onRefresh={refresh} />);
   await click("Fit all"); expect(fakes.animate).toHaveBeenCalledTimes(1);
   await click("Zoom out"); expect(fakes.zoomOut).toHaveBeenCalledTimes(1);
   await click("Zoom in"); expect(fakes.zoomIn).toHaveBeenCalledTimes(1);

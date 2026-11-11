@@ -17,19 +17,10 @@ static PROGRESS_ACTIVITY_IDS: LazyLock<Mutex<std::collections::HashMap<String, S
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn err(msg: impl Into<String>) -> String {
-    serde_json::json!({ "error": msg.into() }).to_string()
+    serde_json::to_string(&HostError { error: msg.into() }).unwrap_or_else(|_| "null".into())
 }
 
-#[derive(serde::Deserialize)]
-struct ProgressOpts {
-    label: String,
-    #[serde(default)]
-    percent: Option<f32>,
-    #[serde(default)]
-    done: bool,
-    #[serde(default)]
-    error: Option<String>,
-}
+use codeterm_wire::plugin_host::*;
 
 fn apply_progress_raw(
     registry: &PluginActivityRegistry,
@@ -66,12 +57,15 @@ fn apply_progress_raw(
 }
 
 fn search_hits_json(hits: &[crate::mem::SearchHit]) -> serde_json::Value {
-    serde_json::json!({
-        "hits": hits.iter().map(|h| serde_json::json!({
-            "id": h.item.id,
-            "text": h.item.body,
-            "score": h.score,
-        })).collect::<Vec<_>>()
+    serde_json::json!(HostMemSearchResult {
+        hits: hits
+            .iter()
+            .map(|h| HostMemHit {
+                id: h.item.id.clone(),
+                text: h.item.body.clone(),
+                score: h.score,
+            })
+            .collect(),
     })
 }
 
@@ -159,13 +153,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     // ── Memory ───────────────────────────────────────────────────────────
 
     fn mem_search_json(&self, opts_json: &str) -> String {
-        #[derive(serde::Deserialize)]
-        struct Opts {
-            query: String,
-            #[serde(default)]
-            k: Option<usize>,
-        }
-        let opts: Opts = match serde_json::from_str(opts_json) {
+        let opts: HostMemSearchOptions = match serde_json::from_str(opts_json) {
             Ok(o) => o,
             Err(e) => return err(format!("bad mem.search opts: {e}")),
         };
@@ -191,13 +179,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     // ── Workspace / tab ─────────────────────────────────────────────────
 
     fn workspace_ensure_json(&self, opts_json: &str) -> String {
-        #[derive(serde::Deserialize)]
-        struct Opts {
-            name: String,
-            #[serde(default, rename = "externalRoot")]
-            external_root: Option<String>,
-        }
-        let opts: Opts = match serde_json::from_str(opts_json) {
+        let opts: HostWorkspaceOptions = match serde_json::from_str(opts_json) {
             Ok(o) => o,
             Err(e) => return err(format!("bad workspace.ensure opts: {e}")),
         };
@@ -205,7 +187,10 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             Ok(workspace) => workspace,
             Err(error) => return err(error),
         };
-        serde_json::json!({ "workspaceId": ws.id }).to_string()
+        serde_json::to_string(&HostWorkspaceResult {
+            workspace_id: ws.id,
+        })
+        .unwrap_or_else(|_| "null".into())
     }
 
     fn workspace_tabs_json(&self, workspace_id: &str) -> String {
@@ -259,15 +244,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     }
 
     fn worker_start_json(&self, plugin_id: &str, opts_json: &str) -> String {
-        #[derive(serde::Deserialize)]
-        struct Opts {
-            task: String,
-            #[serde(default)]
-            provider: Option<String>,
-            #[serde(default)]
-            model: Option<String>,
-        }
-        let opts: Opts = match serde_json::from_str(opts_json) {
+        let opts: HostWorkerStartOptions = match serde_json::from_str(opts_json) {
             Ok(o) => o,
             Err(e) => return err(format!("bad worker.start opts: {e}")),
         };
@@ -281,31 +258,27 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         let spawned_by = format!("plugin:{plugin_id}");
         let svc = std::sync::Arc::new(self.clone());
         match workers::spawn_headless(&svc, intent, opts.task, spawned_by, provider, model) {
-            Ok(job_id) => serde_json::json!({ "jobId": job_id }).to_string(),
+            Ok(job_id) => {
+                serde_json::to_string(&HostJobStart { job_id }).unwrap_or_else(|_| "null".into())
+            }
             Err(e) => err(e),
         }
     }
 
     fn worker_poll_json(&self, session_id: &str) -> String {
-        poll_envelope(self.workers.get(session_id).as_ref(), "report").to_string()
+        let (done, report, error) = poll_outcome(self.workers.get(session_id).as_ref());
+        serde_json::to_string(&HostWorkerPoll {
+            done,
+            report,
+            error,
+        })
+        .unwrap_or_else(|_| "null".into())
     }
 
     // ── Agent ────────────────────────────────────────────────────────────
 
     fn agent_spawn_json(&self, plugin_id: &str, workspace_id: &str, opts_json: &str) -> String {
-        #[derive(serde::Deserialize)]
-        struct Opts {
-            task: String,
-            #[serde(default)]
-            provider: Option<String>,
-            #[serde(default)]
-            model: Option<String>,
-            #[serde(default)]
-            key: Option<String>,
-            #[serde(default)]
-            commands: Vec<String>,
-        }
-        let opts: Opts = match serde_json::from_str(opts_json) {
+        let opts: HostAgentSpawnOptions = match serde_json::from_str(opts_json) {
             Ok(o) => o,
             Err(e) => return err(format!("bad agent.spawn opts: {e}")),
         };
@@ -328,7 +301,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             None,
             opts.commands,
         );
-        serde_json::json!({ "sessionId": session_id }).to_string()
+        serde_json::to_string(&HostSessionResult { session_id }).unwrap_or_else(|_| "null".into())
     }
 
     fn agent_send_json(&self, plugin_id: &str, session_id: &str, text: &str) -> String {
@@ -362,7 +335,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             resume,
             Vec::new(),
         );
-        serde_json::json!({ "ticket": ticket }).to_string()
+        serde_json::to_string(&HostTicketResult { ticket }).unwrap_or_else(|_| "null".into())
     }
 
     fn agent_reap_json(&self, session_id: &str) -> String {
@@ -380,7 +353,9 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     }
 
     fn agent_poll_json(&self, session_id: &str) -> String {
-        poll_envelope(self.workers.get(session_id).as_ref(), "reply").to_string()
+        let (done, reply, error) = poll_outcome(self.workers.get(session_id).as_ref());
+        serde_json::to_string(&HostAgentPoll { done, reply, error })
+            .unwrap_or_else(|_| "null".into())
     }
 
     // ── Progress ─────────────────────────────────────────────────────────
@@ -737,32 +712,23 @@ mod supporter_token_tests {
 
 // ── Poll envelope (shared by worker_poll / agent_poll) ───────────────────────
 
-fn poll_envelope(info: Option<&workers::GraphWorkerInfo>, ok_field: &str) -> serde_json::Value {
-    let mut m = serde_json::Map::new();
+fn poll_outcome(info: Option<&workers::GraphWorkerInfo>) -> (bool, Option<String>, Option<String>) {
     match info {
-        None => {
-            m.insert("done".into(), true.into());
-            m.insert("error".into(), "job not found".into());
-        }
+        None => (true, None, Some("job not found".into())),
         Some(w) => match w.status {
-            workers::WorkerStatus::Done => {
-                m.insert("done".into(), true.into());
-                m.insert(ok_field.into(), w.report.clone().unwrap_or_default().into());
-            }
-            workers::WorkerStatus::Error | workers::WorkerStatus::Orphaned => {
-                m.insert("done".into(), true.into());
-                let reason = w
-                    .report
-                    .clone()
-                    .unwrap_or_else(|| format!("worker {:?}", w.status));
-                m.insert("error".into(), reason.into());
-            }
-            _ => {
-                m.insert("done".into(), false.into());
-            }
+            workers::WorkerStatus::Done => (true, Some(w.report.clone().unwrap_or_default()), None),
+            workers::WorkerStatus::Error | workers::WorkerStatus::Orphaned => (
+                true,
+                None,
+                Some(
+                    w.report
+                        .clone()
+                        .unwrap_or_else(|| format!("worker {:?}", w.status)),
+                ),
+            ),
+            _ => (false, None, None),
         },
     }
-    serde_json::Value::Object(m)
 }
 
 // ── Agent turn enqueue (mirrors host_compute::enqueue_agent_turn) ─────────────

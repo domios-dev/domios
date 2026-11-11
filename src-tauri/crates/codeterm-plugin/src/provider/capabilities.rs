@@ -117,7 +117,7 @@ mod paste_capability_tests {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelCatalogueAuthority {
     FreeForm,
@@ -130,7 +130,7 @@ impl Default for ModelCatalogueAuthority {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ModelCatalogueCapability {
     pub authority: ModelCatalogueAuthority,
@@ -194,7 +194,7 @@ impl ModelCatalogueCapability {
 }
 
 /// How a running agent tab changes its model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelSwitchMode {
     Live,
@@ -334,7 +334,7 @@ pub struct ModelSwitchPrompt {
 
 /// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
 /// Replaces the old injected `kind` string and is the spawn discriminant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderTransport {
     Pty,
@@ -342,7 +342,7 @@ pub enum ProviderTransport {
 }
 
 /// What behavior surface a provider exposes for configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(tag = "model", rename_all = "snake_case")]
 pub enum BehaviorConfig {
     #[default]
@@ -353,7 +353,7 @@ pub enum BehaviorConfig {
 }
 
 /// How a system prompt reaches the provider.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum SystemPromptDelivery {
     CliFlag(String),
@@ -364,7 +364,7 @@ pub enum SystemPromptDelivery {
 /// Who composes the conversational context a backend sends: the provider itself
 /// (native, today's behaviour everywhere) or the host, which hands over a turn
 /// it composed and recorded.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextOwner {
     #[default]
@@ -384,7 +384,7 @@ impl ContextOwner {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderTrust {
     System,
@@ -509,7 +509,7 @@ pub fn session_start_hook_roster() -> Vec<HookEventBinding> {
 /// Optional `integration.trust_grant` capability: after integration install,
 /// core invokes the provider-owned grant exactly once with these managed hook
 /// key(s). The provider's own CLI is the only trust-hash authority.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct IntegrationTrustGrantCapability {
     pub managed_keys: Vec<String>,

@@ -7,13 +7,13 @@ mod tailscale;
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct NetworkIdentity {
     pub kind: String,
     pub network_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TransportState {
     NotInstalled,
@@ -25,19 +25,20 @@ pub enum TransportState {
     Unknown,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct SetupAction {
     pub kind: String,
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct TransportStatus {
     pub display_name: String,
     pub state: TransportState,
     pub identity: Option<NetworkIdentity>,
     pub network_name: Option<String>,
     #[serde(skip_serializing)]
+    #[ts(skip)]
     pub user: Option<String>,
     pub addresses: Vec<IpAddr>,
     pub peer_listener: bool,

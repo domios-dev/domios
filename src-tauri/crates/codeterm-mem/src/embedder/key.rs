@@ -46,14 +46,14 @@ pub trait KeyVault: Send + Sync {
     fn read(&self, name: &str) -> Result<Option<ApiKey>, String>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct KeyFile {
     pub path: PathBuf,
     pub present: bool,
     pub owner_only: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct KeyPresence {
     pub file: KeyFile,
     pub vault_name: String,

@@ -1,52 +1,51 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::{json, Value};
-
 use super::super::store::Sentinel;
 
 #[cfg(test)]
 mod tests;
 
 pub(super) fn project(
-    nodes: &[Value],
+    nodes: &[codeterm_sentinel::graph_contracts::Node],
     jobs: &[Sentinel],
     now: u64,
     live: &BTreeSet<String>,
-) -> Vec<Value> {
-    let mut groups: BTreeMap<String, Value> = BTreeMap::new();
+) -> Vec<codeterm_sentinel::graph_contracts::Run> {
+    use codeterm_sentinel::graph_contracts::{Run, RunState, RunTransition};
+    let mut groups: BTreeMap<String, Run> = BTreeMap::new();
     for node in nodes {
-        let Some(history) = node["history"].as_array() else {
+        let Some(history) = &node.history else {
             continue;
         };
         for transition in history.iter().rev() {
-            let Some(id) = transition["causal_run"]["id"].as_str() else {
+            let Some(context) = &transition.causal_run else {
                 continue;
             };
-            let context = &transition["causal_run"];
-            let group = groups.entry(id.into()).or_insert_with(|| {
-                json!({"id":id,"root_node":context["root_node"],
-                    "root_transition":context["root_transition"],"started_at":context["started_at"],
-                    "state":"completed","incomplete":false,"transitions":[]})
+            let group = groups.entry(context.id.clone()).or_insert_with(|| Run {
+                id: context.id.clone(),
+                root_node: context.root_node.clone(),
+                root_transition: context.root_transition.clone(),
+                started_at: context.started_at,
+                state: RunState::Completed,
+                incomplete: false,
+                transitions: Vec::new(),
             });
-            if let Some(entries) = group["transitions"].as_array_mut() {
-                entries.push(json!({
-                "node":node["identity"],"transition_id":transition["id"],"parent":context["parent"],"conversation":node["conversation"]
-            }));
-            }
-            if transition["pending_handlers"] == true
-                || transition["handlers"].as_array().is_some_and(|handlers| {
-                    handlers
-                        .iter()
-                        .any(|handler| handler["status"] == "unconfirmed")
-                })
+            group.transitions.push(RunTransition {
+                node: node.identity.clone(),
+                transition_id: transition.id.clone(),
+                parent: context.parent.clone(),
+                conversation: node.conversation.clone(),
+            });
+            if transition.pending_handlers
+                || transition
+                    .handlers
+                    .iter()
+                    .any(|handler| handler.result.status.as_deref() == Some("unconfirmed"))
             {
-                if node["identity"]["id"]
-                    .as_str()
-                    .is_some_and(|id| live.contains(id))
-                {
-                    group["state"] = json!("running");
-                } else if group["state"] != "running" {
-                    group["state"] = json!("unconfirmed");
+                if live.contains(&node.identity.id) {
+                    group.state = RunState::Running;
+                } else if group.state != RunState::Running {
+                    group.state = RunState::Unconfirmed;
                 }
             }
         }
@@ -54,8 +53,8 @@ pub(super) fn project(
     let waiting: BTreeSet<_> = jobs
         .iter()
         .filter(|job| {
-            let identity = json!(super::identity(job));
-            nodes.iter().any(|node| node["identity"] == identity)
+            let identity = super::identity(job);
+            nodes.iter().any(|node| node.identity == identity)
                 && !job.machine.stopped
                 && !job.machine.paused
                 && job.admission.permits_steps()
@@ -64,31 +63,26 @@ pub(super) fn project(
         .filter_map(|job| job.causal_run.as_ref().map(|run| run.id.as_str()))
         .collect();
     for group in groups.values_mut() {
-        let Some(transitions) = group["transitions"].as_array() else {
-            continue;
-        };
-        let root_retained = transitions.iter().any(|entry| {
-            entry["node"]["id"] == group["root_node"]
-                && entry["transition_id"] == group["root_transition"]
+        let root_retained = group.transitions.iter().any(|entry| {
+            entry.node.id == group.root_node && entry.transition_id == group.root_transition
         });
-        let parents_retained = transitions.iter().all(|entry| {
-            entry["parent"].is_null()
-                || transitions.iter().any(|candidate| {
-                    candidate["node"]["id"] == entry["parent"]["node"]
-                        && candidate["transition_id"] == entry["parent"]["transition"]
+        let parents_retained = group.transitions.iter().all(|entry| {
+            entry.parent.as_ref().is_none_or(|parent| {
+                group.transitions.iter().any(|candidate| {
+                    candidate.node.id == parent.node && candidate.transition_id == parent.transition
                 })
+            })
         });
-        group["incomplete"] = json!(!root_retained || !parents_retained);
-        if group["id"].as_str().is_some_and(|id| waiting.contains(id)) {
-            group["state"] = json!("running");
+        group.incomplete = !root_retained || !parents_retained;
+        if waiting.contains(group.id.as_str()) {
+            group.state = RunState::Running;
         }
     }
     let mut runs: Vec<_> = groups.into_values().collect();
     runs.sort_by(|a, b| {
-        b["started_at"]
-            .as_u64()
-            .cmp(&a["started_at"].as_u64())
-            .then_with(|| a["id"].as_str().cmp(&b["id"].as_str()))
+        b.started_at
+            .cmp(&a.started_at)
+            .then_with(|| a.id.cmp(&b.id))
     });
     runs
 }

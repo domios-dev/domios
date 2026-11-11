@@ -31,7 +31,7 @@ pub struct StampedVector {
     pub vector: Vec<f32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 pub struct EmbedderStatus {
     pub provider: String,
     pub model: String,
@@ -50,3 +50,5 @@ pub struct EmbedderStatus {
 pub fn legacy_identity() -> EmbedderIdentity {
     local::LocalProvider::new(local::default_model()).identity()
 }
+
+pub mod contracts;

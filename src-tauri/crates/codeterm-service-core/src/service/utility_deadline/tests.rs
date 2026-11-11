@@ -36,9 +36,6 @@ fn shell_marks_arm_cancel_and_restart_preserves_the_tab() {
         .unwrap();
     assert_eq!(initial["duration_ms"], 3_600_000);
     assert!(initial["deadline_ms"].is_null());
-    fixture
-        .service
-        .prepare_utility_command(&shell.tab_id, "opaque-command");
     assert!(fixture
         .service
         .utility_deadline_snapshot(&shell.tab_id)
@@ -51,6 +48,13 @@ fn shell_marks_arm_cancel_and_restart_preserves_the_tab() {
         let tab = mux.get_tab_mut(&shell.tab_id).unwrap();
         tab.shell_integration_nonce = None;
     }
+    let admission = crate::service::pty_io::utility_command::UtilityCommandAdmission::begin(
+        &fixture.service,
+        pty,
+    )
+    .unwrap();
+    admission.mark_written();
+    drop(admission);
     fixture.service.process_pty_output(
         pty,
         b"\x1b]133;A\x07\x1b]633;E;opaque-command;\x07\x1b]133;C\x07",

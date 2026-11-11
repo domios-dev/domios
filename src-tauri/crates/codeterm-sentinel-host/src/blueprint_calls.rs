@@ -489,6 +489,7 @@ fn success(output: &ExecutionEnvelope, label: &str) -> crate::pipeline::StepResu
 #[cfg(test)]
 mod tests;
 
+mod journal_preview;
 pub mod plugin_nodes;
 
 pub fn project(
@@ -496,7 +497,7 @@ pub fn project(
     entries: &[codeterm_storage::BlueprintJournalEntry],
     plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
 ) -> Result<Value, String> {
-    project_retained(Some(document), entries, None, plugins)
+    project_retained(Some(document), entries, None, plugins).map(|projection| json!(projection))
 }
 
 pub fn project_retained(
@@ -504,7 +505,7 @@ pub fn project_retained(
     entries: &[codeterm_storage::BlueprintJournalEntry],
     definition_version: Option<u64>,
     plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
-) -> Result<Value, String> {
+) -> Result<codeterm_sentinel::blueprint_snapshot::Projection, String> {
     let latest = entries.first().map(|entry| entry.run_id.as_str());
     let mut seen = BTreeSet::new();
     let nodes = entries
@@ -513,15 +514,26 @@ pub fn project_retained(
         .filter(|entry| entry.outcome != Some(JournalOutcome::Unchanged))
         .filter(|entry| seen.insert(entry.marker()))
         .take(66)
-        .map(|entry| calls::projection::bounded(&json!(entry), 0))
+        .map(journal_preview::project)
         .collect::<Vec<_>>();
-    let mut value = json!({"expanded_calls":[],"call_graph":null,"historical_graph_available":document.is_some(),"graph_definition_version":definition_version,"nested_run":{"id":latest,"definition_version":definition_version,"nodes":nodes}});
+    let mut value = codeterm_sentinel::blueprint_snapshot::Projection {
+        expanded_calls: Some(Vec::new()),
+        call_graph: Some(Value::Null),
+        historical_graph_available: Some(document.is_some()),
+        graph_definition_version: Some(definition_version),
+        nested_run: Some(codeterm_sentinel::blueprint_snapshot::NestedRun {
+            id: latest.map(str::to_owned),
+            definition_version,
+            nodes,
+        }),
+        plugin_nodes: None,
+    };
     if let Some(document) = document {
         let closure = FrozenClosure::from_document(document.clone())?;
         let graph = calls::projection::graph(&closure)?;
-        value["expanded_calls"] = json!(graph.calls);
-        value["call_graph"] = graph.root;
-        value["plugin_nodes"] = plugin_nodes::descriptors(plugins, &closure);
+        value.expanded_calls = Some(graph.calls);
+        value.call_graph = Some(graph.root);
+        value.plugin_nodes = Some(plugin_nodes::descriptors(plugins, &closure));
     }
     Ok(value)
 }

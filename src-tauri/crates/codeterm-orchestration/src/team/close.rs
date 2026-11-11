@@ -658,19 +658,9 @@ pub struct TeamCloseResult {
     pub flagged_plans: Vec<super::close_busy::TeamCloseFlaggedPlan>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct TeamCloseInventory {
-    pub removed: Vec<TeamCloseLaneRecord>,
-    pub kept: Vec<TeamCloseLaneRecord>,
-    pub orphan_branches: Vec<String>,
-}
+pub use codeterm_wire::api_contracts::TeamCloseInventory;
 
-#[derive(Debug, Serialize)]
-pub struct TeamCloseLaneRecord {
-    pub path: Option<String>,
-    pub branch: Option<String>,
-    pub reason: Option<String>,
-}
+pub use codeterm_wire::api_contracts::TeamCloseLaneRecord;
 
 fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
     cleanup_lane_with_tabs(lane, &[])

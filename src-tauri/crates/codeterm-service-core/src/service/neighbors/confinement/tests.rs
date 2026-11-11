@@ -401,6 +401,12 @@ fn permission_projection_reports_actual_sandbox_and_additional_host_roots() {
         .service
         .neighbor_permission_projection(&metadata, &friend, &permission, &settings)
         .unwrap();
+    let projected = serde_json::to_value(projected).unwrap();
+    assert_eq!(projected.get("folder"), Some(&serde_json::Value::Null));
+    assert_eq!(
+        projected.get("initial_context_digest"),
+        Some(&serde_json::Value::Null)
+    );
     assert_eq!(projected["allow_memory"], true);
     assert_eq!(projected["allow_files"], true);
     assert_eq!(projected["folder_enforcement"]["writes"], "advisory");
@@ -423,6 +429,7 @@ fn permission_projection_reports_actual_sandbox_and_additional_host_roots() {
         .service
         .neighbor_permission_projection(&metadata, &friend, &permission, &settings)
         .unwrap();
+    let projected = serde_json::to_value(projected).unwrap();
     assert_eq!(projected["effective_folder"], cwd);
     assert_eq!(
         projected["folder_enforcement"]["writes"],
@@ -448,6 +455,7 @@ fn permission_projection_reports_actual_sandbox_and_additional_host_roots() {
         .service
         .neighbor_permission_projection(&metadata, &friend, &permission, &settings)
         .unwrap();
+    let projected = serde_json::to_value(projected).unwrap();
     assert_eq!(projected["folder_enforcement"]["writes"], "pad_only");
     assert_eq!(projected["folder_enforcement"]["reads"], "not_confined");
 }

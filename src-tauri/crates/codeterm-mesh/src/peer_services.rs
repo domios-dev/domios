@@ -58,7 +58,7 @@ impl PeerServicesCache {
 
 /// What the UI gets for one peer — always an honest envelope, never a silent
 /// empty list: stale data is flagged stale, fetch errors are carried along.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct PeerServicesView {
     pub services: Vec<serde_json::Value>,
     /// True when `services` is last-known data, not a fresh fetch.

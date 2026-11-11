@@ -28,7 +28,15 @@ impl ServiceContext {
                 log::debug!("[neighbors] local concierge retirement failed: {error}");
                 service.ui.emit(
                     "neighbor-runtime-status",
-                    json!({"receiver_unavailable":true,"reason":"concierge_retirement_failed"}),
+                    json!(
+                        codeterm_neighbors::responses::NeighborListenerEvent::Unavailable {
+                            receiver_unavailable: true,
+                            friendship_id: None,
+                            friend_receivers_version: None,
+                            reason: Some("concierge_retirement_failed".into()),
+                            message: None
+                        }
+                    ),
                 );
             }
         });

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::MeshManager;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionPhase {
     Discovering,
@@ -18,7 +18,7 @@ pub enum ConnectionPhase {
     PeerNeedsUpdate,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct PeerConnection {
     pub installation_id: String,
     pub phase: ConnectionPhase,

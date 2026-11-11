@@ -17,17 +17,7 @@ pub use operations::{
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, serde::Serialize)]
-pub struct ProviderSwitchOutcome {
-    pub tab_id: String,
-    pub provider: String,
-    pub session_id: String,
-    pub previous_provider: String,
-    pub previous_session_id: Option<String>,
-    pub previous_history_path: String,
-    pub binding_restored: bool,
-    pub handoff_delivered: bool,
-}
+pub use codeterm_wire::api_contracts::ProviderSwitchOutcome;
 
 struct SwitchBindingCleanup<'a> {
     service: &'a ServiceContext,
@@ -80,6 +70,12 @@ impl ServiceContext {
             .agent_type
             .as_deref()
             .ok_or("provider_switch_no_agent: tab has no provider")?;
+        if crate::service::general_agent::is_general_agent(&tab) {
+            crate::service::general_agent::validate_general_agent_provider(
+                &self.agent_registry,
+                target,
+            )?;
+        }
         let route = self.provider_switch_route(source, target, &tab)?;
         let _general_claim = self.claim_general_provider_switch(&tab)?;
         model::require_idle(

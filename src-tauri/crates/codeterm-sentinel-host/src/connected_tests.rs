@@ -136,7 +136,10 @@ fn sentinel_connected_hash_gate_shared_budget_and_journal() {
         .unwrap()
         .contains(&job.id));
     assert_eq!(decision["asked"][0]["answer"], "passed");
-    assert_eq!(runtime.status(1)["budget"]["reached"], true);
+    assert_eq!(
+        serde_json::json!(runtime.status(1))["budget"]["reached"],
+        true
+    );
 }
 
 #[test]

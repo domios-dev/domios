@@ -806,14 +806,12 @@ async fn perform_relay_unredacted(
         let writer = codeterm_service_core::service::activity::ActivityWriter::new(
             state.svc.services_store.conn(),
         );
-        let _ = writer.record(
-            codeterm_service_core::service::activity::ActivityEvent::peer_relay(
-                sender_id,
-                &sender_name,
-                &target_tab,
-                &preview,
-            ),
-        );
+        let _ = writer.record(codeterm_service_core::service::activity::peer_relay(
+            sender_id,
+            &sender_name,
+            &target_tab,
+            &preview,
+        ));
         state.svc.ui.emit(
             "service-pushed",
             serde_json::json!({"source_id": sender_name, "target": target_tab, "kind": "mesh"}),

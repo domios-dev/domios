@@ -390,7 +390,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           <div className="group flex w-full min-w-0">
             <div className="relative min-w-0 w-full">
               {originHeader}
-              <div data-testid="user-bubble-row" className="relative ml-auto w-fit max-w-full min-w-0">
+              <div data-testid="user-bubble-row" className="ct-user-bubble-row relative ml-auto w-fit max-w-full min-w-0">
                 <BoundedMessageContent
                   collapsedHeight={`${LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`}
                   role="group"

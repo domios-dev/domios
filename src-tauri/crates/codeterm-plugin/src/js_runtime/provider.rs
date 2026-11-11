@@ -247,3 +247,19 @@ mod effect_tests;
 
 #[cfg(test)]
 mod discovery_deadline_tests;
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    agent_provider::export_protocol_contracts(config)?;
+    prompt_parse::export_protocol_contracts(config)?;
+    session_resume::export_protocol_contracts(config)?;
+    session_content::export_protocol_contracts(config)?;
+    {
+        use ts_rs::TS;
+        session_delta::SessionDeltaContext::export_all(config)?;
+    }
+    wire::export_protocol_contracts(config)?;
+    manifest_sessions::export_protocol_contracts(config)?;
+    Ok(())
+}

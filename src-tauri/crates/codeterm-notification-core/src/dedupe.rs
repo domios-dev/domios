@@ -162,7 +162,7 @@ impl ConditionLedger {
 
 /// A standing condition of one tab that needs its owner. A notice keyed to one
 /// stays open while the condition holds and resolves when it ends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TabCondition {
     /// The tab's agent process is gone and the tab needs a restart.

@@ -1,7 +1,8 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
+#[ts(rename = "HostIoRequest")]
 #[serde(
     tag = "op",
     rename_all = "camelCase",

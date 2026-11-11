@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_SUPPORTER_CALLS_PER_HOUR: Option<usize> = None;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct SupporterConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub adapter: Option<String>,
     pub connections: BTreeMap<String, SupporterConnection>,
     pub deadline_ms: u64,
@@ -37,14 +39,14 @@ impl SupporterConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct SupporterConnection {
     pub model: Option<String>,
     pub endpoint: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct MemoryRerankConfig {
     pub docs_hybrid: bool,
@@ -70,7 +72,7 @@ impl Default for MemoryRerankConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum RerankRequestMode {
     #[default]
@@ -78,7 +80,7 @@ pub enum RerankRequestMode {
     SharedState,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct SupporterSources {
     pub recall: usize,

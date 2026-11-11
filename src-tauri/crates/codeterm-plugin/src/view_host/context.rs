@@ -2,13 +2,13 @@ use serde::Serialize;
 use std::cell::RefCell;
 
 /// UI-origin actor. An iframe cannot claim an agent's identity.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViewActor {
     Local,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ViewCallOrigin {
     Document,
@@ -17,7 +17,7 @@ pub enum ViewCallOrigin {
 }
 
 /// Resolved by a host document or narrow host port; never deserialize from iframe args.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct ViewCallContext {
     pub plugin: String,
     pub origin: ViewCallOrigin,

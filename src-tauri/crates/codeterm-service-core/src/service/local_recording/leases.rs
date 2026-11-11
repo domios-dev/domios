@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use codeterm_plugin::local_recording::{LocalRecordingRegistry, SelectedDevices};
 use parking_lot::Mutex;
-use serde::Serialize;
 
 use super::chat::ChatIdentity;
 use super::clip::CaptureClips;
@@ -46,15 +45,7 @@ pub(crate) enum CapturePhase {
     Transcribing,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CaptureLeaseView {
-    pub(crate) lease: String,
-    pub(crate) plugin_id: String,
-    pub(crate) tab_id: String,
-    pub(crate) microphone_id: String,
-    pub(crate) generation: u64,
-}
+pub(crate) use codeterm_wire::api_contracts::CaptureLeaseView;
 
 #[derive(Default)]
 pub struct RecordingLeases {

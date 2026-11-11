@@ -50,7 +50,10 @@ pub(crate) fn current_agent_caller() -> Option<String> {
 }
 
 fn err(message: &str) -> String {
-    serde_json::json!({ "error": message }).to_string()
+    serde_json::to_string(&codeterm_wire::plugin_host::HostError {
+        error: message.into(),
+    })
+    .unwrap_or_else(|_| "null".into())
 }
 
 pub(crate) fn surface_call(sandbox: &PluginSandbox, verb: &str, args_json: &str) -> String {

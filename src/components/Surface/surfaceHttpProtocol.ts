@@ -152,11 +152,11 @@ export function streamOutcomeForStatus(status: number, body: string): StreamOutc
 }
 
 export function disconnectedNotice(reason: string): SurfaceNotice {
-  return { text: `Live view disconnected: ${reason}. It reconnects when Domios is reachable again.`, tone: "error" };
+  return { text: `Live view disconnected: ${reason}. It reconnects when Domios is reachable again.`, tone: "error", kind: NOTICE_KIND.unavailable };
 }
 
 export function refusedNotice(reason: string): SurfaceNotice {
-  return { text: `Live view unavailable: ${reason}`, tone: "error" };
+  return { text: `Live view unavailable: ${reason}`, tone: "error", kind: NOTICE_KIND.unavailable };
 }
 
 export const RECONNECTED_NOTICE: SurfaceNotice = { text: "Live view reconnected", tone: "info" };

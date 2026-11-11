@@ -1,7 +1,7 @@
 import { uid } from "./uid";
 import { browserFetch, createTransportClient, SseCapacityError, streamClientId, TransportError, type TransportClient, type TransportOptions, type Unsubscribe } from "./transportClient";
 import { bulkCreditDue, CREDIT_ATTEMPTS, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused, type MuxFrame } from "./streamMuxModel";
-import { EMPTY_MUX_POSTS, initialMuxRequest, MUX_REQUEST_TIMEOUT, muxPostCancel, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestOperation, muxRequestPolicy, transitionMuxRequest, type MuxPostState, type MuxRequestInit, type MuxRequestState, type MuxTraffic } from "./streamMuxRequestModel";
+import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, MUX_REQUEST_TIMEOUT, muxPostCancel, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestOperation, muxRequestPolicy, transitionMuxRequest, type MuxPostState, type MuxRequestInit, type MuxRequestState, type MuxTraffic } from "./streamMuxRequestModel";
 import { restRequestTimeoutMs } from "./restTimeoutPolicy";
 import { RECONNECT_FIRST_MS, reconnectDelay, nextReconnectBackoff, shouldResetReconnectBackoff } from "./webReconnectModel";
 
@@ -39,7 +39,11 @@ export class RetryableMuxError extends TransportError {
 export class MuxAdmissionError extends RetryableMuxError {
   readonly dispatched = false;
   readonly code = "client_capacity";
-  constructor(path: string) { super(path, "client_capacity: Other requests are using the available connection capacity; this request was not sent."); }
+  readonly [MUX_READ_CAPACITY]?: (signal?: AbortSignal) => Promise<void>;
+  constructor(path: string, capacity?: (signal?: AbortSignal) => Promise<void>) {
+    super(path, "client_capacity: Other requests are using the available connection capacity; this request was not sent.");
+    this[MUX_READ_CAPACITY] = capacity;
+  }
 }
 
 // Body readers rethrow the typed carrier outcome; runtimes may wrap stream errors.
@@ -87,6 +91,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
   const pending = new Map<string, Pending>();
   const waiting = new Map<string, { resolve: (session: string) => void; reject: (error: unknown) => void }>();
   const posts = new Map<string, () => Promise<void>>();
+  const readCapacity = createMuxReadCapacity();
   let postState: MuxPostState = EMPTY_MUX_POSTS;
   let current: string | null = null;
   let live: string | null = null;
@@ -129,7 +134,10 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       const close = closeStream; current = null; closeStream = null; close?.();
     }
     // After the caller's drain, so an idle waiter sees complete bodies.
-    queueMicrotask(() => { kick(); notifyIdle(); });
+    queueMicrotask(() => {
+      kick(); notifyIdle();
+      if (!closed && muxRequestAdmission(false, "interactive", 0, [...pending.values()].filter(item => !item.stream).length, 0)) readCapacity.released();
+    });
   }
 
   const idleWaiters: Array<() => void> = [];
@@ -428,7 +436,9 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       const streams = entries.filter(entry => entry.stream).length;
       const bulk = entries.filter(entry => !entry.stream && entry.postTraffic === "bulk").length;
       if (closed) return Promise.reject(new RetryableMuxError(path, "Mux connection closed before dispatch"));
-      if (!muxRequestAdmission(stream, postTraffic, streams, entries.length - streams, bulk, foreground)) return Promise.reject(new MuxAdmissionError(path));
+      if (!muxRequestAdmission(stream, postTraffic, streams, entries.length - streams, bulk, foreground)) {
+        return Promise.reject(new MuxAdmissionError(path, !stream && ["GET", "HEAD"].includes(operation.method) ? readCapacity.capture() : undefined));
+      }
       return new Promise<Response>((resolve, reject) => {
         const aborter = new AbortController();
         const entry: Pending = {
@@ -460,6 +470,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     },
     close() {
       closed = true; clearTimeout(retry);
+      readCapacity.close(new DOMException("Mux origin closed", "AbortError"));
       const owner = current, close = closeStream;
       if (owner) lost(owner, new Error("Mux origin closed"));
       for (const entry of [...pending.values()]) cancel(entry, new DOMException("Mux origin closed", "AbortError"));

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::service::hierarchy::plan_reminder_nudge::{
     current_epoch_secs, project_for_tab, ProjectedHeartbeat, ProjectedTick,
@@ -7,33 +7,9 @@ use crate::service::ServiceContext;
 
 use super::{DelayedMessage, DelayedMessageState, DelayedMessageView, RecurrenceRule};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MessageOrigin {
-    User,
-    System,
-}
+pub use codeterm_wire::delayed::MessageOrigin;
 
-impl Default for MessageOrigin {
-    fn default() -> Self {
-        Self::User
-    }
-}
-
-impl MessageOrigin {
-    pub(crate) fn is_user(&self) -> bool {
-        matches!(self, Self::User)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeliveryTickView {
-    pub at_ms: u64,
-    pub outcome: String,
-    pub spinal_verdict: String,
-    pub spinal_reason: String,
-}
+pub use codeterm_wire::api_contracts::DeliveryTickView;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

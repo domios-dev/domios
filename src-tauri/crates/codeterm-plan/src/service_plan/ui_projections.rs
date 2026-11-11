@@ -1,8 +1,12 @@
+pub mod board;
+pub mod task_reads;
+pub mod views;
+
 use super::{PlanError, PlanStore};
 use serde::Deserialize;
 use serde_json::Value;
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanViewProjection {
     #[default]

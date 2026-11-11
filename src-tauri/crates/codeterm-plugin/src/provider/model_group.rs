@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// One provider-owned grouping of its models. `id` is the model-id prefix the
 /// provider publishes (`deepseek` for `deepseek/...`); `label` is the text the
 /// picker renders for the section. Both are the provider's to decide.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct ModelGroup {
     pub id: String,
@@ -26,7 +26,7 @@ pub struct ModelGroup {
 /// upstream: `spend_cents` is what the provider observed, the limit/remaining
 /// pair is only present when the provider can read a live quota. A group whose
 /// live limit is unreadable leaves the limit fields `None` rather than guessing.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct ModelGroupUsage {
     /// Matches `ModelGroup::id`.
@@ -44,11 +44,15 @@ pub struct ModelGroupUsage {
     #[serde(default)]
     pub cost_micros: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub spend_cents: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub spend_limit_cents: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub spend_remaining_cents: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub spend_resets_at_ms: Option<i64>,
 }

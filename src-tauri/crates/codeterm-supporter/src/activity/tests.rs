@@ -24,7 +24,10 @@ fn supporter_budget_transition_journaled_once() {
             Err(DecisionError::Budget)
         );
     }
-    assert_eq!(runtime.status_at(2, 102000)["budget"]["free_at"], 3700);
+    assert_eq!(
+        serde_json::json!(runtime.status_at(2, 102000))["budget"]["free_at"],
+        3700
+    );
     assert_eq!(
         lines(&dir)
             .iter()
@@ -32,7 +35,10 @@ fn supporter_budget_transition_journaled_once() {
             .count(),
         1
     );
-    assert_eq!(runtime.status_at(2, 3700000)["budget"]["reached"], false);
+    assert_eq!(
+        serde_json::json!(runtime.status_at(2, 3700000))["budget"]["reached"],
+        false
+    );
     runtime.status_at(2, 3700000);
     assert_eq!(
         lines(&dir)
@@ -41,8 +47,14 @@ fn supporter_budget_transition_journaled_once() {
             .count(),
         2
     );
-    assert_eq!(runtime.status_at(2, 3700000)["calls_last_day"], 2);
-    assert_eq!(runtime.status_at(2, 86501000)["calls_last_day"], 0);
+    assert_eq!(
+        serde_json::json!(runtime.status_at(2, 3700000))["calls_last_day"],
+        2
+    );
+    assert_eq!(
+        serde_json::json!(runtime.status_at(2, 86501000))["calls_last_day"],
+        0
+    );
 }
 
 #[test]
@@ -68,7 +80,10 @@ fn supporter_global_budget_reservation_is_atomic_across_tabs() {
         .filter_map(|worker| worker.join().unwrap().ok())
         .count();
     assert_eq!(admitted, 7);
-    assert_eq!(runtime.status_at(7, 101000)["calls_last_hour"], 7);
+    assert_eq!(
+        serde_json::json!(runtime.status_at(7, 101000))["calls_last_hour"],
+        7
+    );
     assert_eq!(
         lines(&dir)
             .iter()
@@ -82,7 +97,7 @@ fn supporter_global_budget_reservation_is_atomic_across_tabs() {
 fn supporter_status_exposes_activity_and_budget() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = SupporterRuntime::new(dir.path().into());
-    let empty = runtime.status(10);
+    let empty = serde_json::json!(runtime.status(10));
     assert_eq!(empty["calls_last_hour"], 0);
     assert_eq!(empty["calls_last_day"], 0);
     assert_eq!(empty["last_activity"], Value::Null);
@@ -106,7 +121,7 @@ fn supporter_status_exposes_activity_and_budget() {
             asked: None,
         },
     );
-    let status = runtime.status(10);
+    let status = serde_json::json!(runtime.status(10));
     assert_eq!(status["calls_last_hour"], 1);
     assert_eq!(status["calls_last_day"], 1);
     assert!(status["last_activity"].is_i64());
@@ -127,7 +142,10 @@ fn supporter_budget_survives_runtime_restart() {
         restarted.reserve_at(1, VerdictKind::TabState, Some("tab"), 1, 101000),
         Err(DecisionError::Budget)
     );
-    assert_eq!(restarted.status_at(1, 101000)["calls_last_hour"], 1);
+    assert_eq!(
+        serde_json::json!(restarted.status_at(1, 101000))["calls_last_hour"],
+        1
+    );
     assert_eq!(
         lines(&dir)
             .iter()
@@ -138,7 +156,10 @@ fn supporter_budget_survives_runtime_restart() {
     restarted
         .reserve_at(1, VerdictKind::TabState, Some("tab"), 1, 3700000)
         .unwrap();
-    assert_eq!(restarted.status_at(1, 3700000)["calls_last_day"], 2);
+    assert_eq!(
+        serde_json::json!(restarted.status_at(1, 3700000))["calls_last_day"],
+        2
+    );
 }
 
 #[test]
@@ -208,7 +229,7 @@ fn supporter_default_no_cap_never_refuses_and_counts_every_request() {
     runtime
         .reserve_at(cap, VerdictKind::Rerank, None, 5, 100600)
         .unwrap();
-    let status = runtime.status_at(cap, 101000);
+    let status = serde_json::json!(runtime.status_at(cap, 101000));
     assert_eq!(status["calls_last_hour"], 601);
     assert_eq!(status["calls_last_day"], 601);
     assert_eq!(status["budget"]["calls_per_hour"], Value::Null);
@@ -308,7 +329,10 @@ fn supporter_explicit_cap_can_be_removed_after_reaching_limit() {
     runtime
         .reserve_at(0, VerdictKind::Rerank, None, 1, 100002)
         .unwrap();
-    assert_eq!(runtime.status_at(0, 100003)["budget"]["reached"], false);
+    assert_eq!(
+        serde_json::json!(runtime.status_at(0, 100003))["budget"]["reached"],
+        false
+    );
 }
 
 /// WHAT: Expose both Sentinel verdict journal paths in the owner activity feed.

@@ -12,17 +12,9 @@ export interface TeamActions {
   onCloseTeam: (teamId: string) => Promise<TeamCloseInventory>;
 }
 
-export interface TeamCloseLaneRecord {
-  path: string | null;
-  branch: string | null;
-  reason: string | null;
-}
+export type TeamCloseLaneRecord = import("../../gen/TeamCloseLaneRecord").TeamCloseLaneRecord;
 
-export interface TeamCloseInventory {
-  removed: TeamCloseLaneRecord[];
-  kept: TeamCloseLaneRecord[];
-  orphan_branches: string[];
-}
+export type TeamCloseInventory = import("../../gen/TeamCloseInventory").TeamCloseInventory;
 
 export type TeamMemberRole = "orchestrator" | "planner" | "cartographer" | "worker";
 
@@ -38,11 +30,7 @@ export interface TeamMemberRequest {
   sessionBindingNonce?: string;
 }
 
-export interface TeamMemberAttachment {
-  tab_id: string;
-  team: Team;
-  reused: boolean;
-}
+export type TeamMemberAttachment = Pick<import("../../gen/AddTeamMemberResult").AddTeamMemberResult, "tab_id" | "reused"> & { team: Team };
 
 export function selectTeamStaffingManager(tabs: readonly Pick<Tab, "id" | "can_spawn" | "role">[]): string | null {
   return tabs.find((tab) => tab.can_spawn === true && tab.role === "Manager")?.id ?? null;

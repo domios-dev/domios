@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const MAX_STEP_DESCRIPTORS: usize = 32;
 pub const MAX_STEP_BYTES: usize = 65_536;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StepDescriptor {
     pub contract_version: u32,
@@ -14,6 +14,7 @@ pub struct StepDescriptor {
     pub id: String,
     pub title: String,
     pub description: String,
+    #[ts(as = "super::AuthoredSchema")]
     pub params: StepSchema,
     pub inputs: BTreeMap<String, StepPort>,
     pub outputs: BTreeMap<String, StepPort>,
@@ -22,17 +23,19 @@ pub struct StepDescriptor {
     pub effects: StepEffects,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StepPort {
     pub kind: PortKind,
     pub min_items: u16,
     pub max_items: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    #[ts(as = "Option<super::AuthoredSchema>")]
     pub schema: Option<StepSchema>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PortKind {
     Text,
@@ -43,14 +46,14 @@ pub enum PortKind {
     File,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StepLifecycle {
     pub reconcile: bool,
     pub cancel: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StepEffects {
     pub side_effects: bool,

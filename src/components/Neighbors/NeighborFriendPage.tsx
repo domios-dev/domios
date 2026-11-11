@@ -21,7 +21,7 @@ import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborPermissionsEditor } from "./NeighborPermissionsEditor";
 import { formatBytes, neighborFilesClient, type NeighborFileQuota, type NeighborFilesClient } from "./neighborFilesClient";
 import { formatAge, formatUntil } from "../../lib/timeLabels";
-import type { NeighborPermission, NeighborRuntimeClient } from "./neighborRuntimeClient";
+import type { NeighborPermissionDraft, NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useConciergeStatus, type ConciergeStatus } from "./useConciergeStatus";
 import { useNeighborPermission } from "./useNeighborPermission";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
@@ -187,7 +187,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
         <div ref={permissions}>
           <FriendSection icon={<ShieldCheck size={16} />} title="Permissions" description={`What ${name}'s agents may ask yours for, and how often.`}>
             <NeighborPermissionsEditor neighbor={friend} name={name} permission={permission} pending={pending}
-              onSave={(permission: NeighborPermission) => conciergeClient.setPermission(friendship, permission)}
+              onSave={(permission: NeighborPermissionDraft) => conciergeClient.setPermission(friendship, permission)}
               onSaveDailyLimit={dailyLimit => conciergeClient.setDailyLimit(friendship, dailyLimit)}
               onSaveFileDailyLimit={bytes => filesClient.setDailyLimit(friendship, bytes)}
               onLimit={onLimit} onEditWithGeneral={onInterview} />

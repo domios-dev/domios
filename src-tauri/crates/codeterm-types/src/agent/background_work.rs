@@ -1,13 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use ts_rs::TS;
 
 const LIMIT: usize = 256;
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct BackgroundWorkObservation {
     pub id: String,
     pub state: BackgroundWorkState,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundWorkState {
     Running,
@@ -17,7 +18,7 @@ pub enum BackgroundWorkState {
     Killed,
     Failed,
 }
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct BackgroundRoster {
     pub running: BTreeMap<String, String>,
     #[serde(default)]

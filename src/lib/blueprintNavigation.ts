@@ -25,7 +25,7 @@ export function restoreBlueprintNavigation(route: BlueprintNavigation, pipeline:
   if (route.runId !== null && runId === null) return { runId, trail, selected: null };
   for (const node of route.trail) {
     const call = calls.find((entry) => entry.node === node);
-    if (!call) break;
+    if (!call?.graph) break;
     trail.push(node);
     document = call.graph;
     calls = call.children;

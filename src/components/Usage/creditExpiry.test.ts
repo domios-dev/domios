@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {creditExpiryHint, hasExpiringCredits} from "./creditExpiry";
-import type {UsageDetails} from "../../types/usage";
 const now = Date.UTC(2026, 9, 21);
 const hour = 3_600_000;
 assert.equal(creditExpiryHint(now + 72 * hour, now), "expires in 3 days");
@@ -16,7 +15,7 @@ for (const status of ["redeemed", "redeeming", "unknown"] as const) {
 }
 assert.equal(hasExpiringCredits({availableCount:1,nextExpiry:now+hour,credits:null}, null, now), true);
 assert.equal(hasExpiringCredits({availableCount:2,nextExpiry:now+hour,credits:[{...reset,expiresAt:null}]}, null, now), true);
-const details: UsageDetails = {limits:[],extra_usage:null,dollar_credits:[{remaining_dollars:250,resets_at:now+hour}]};
+const details = {limits:[],extra_usage:null,dollar_credits:[{remaining_dollars:250,resets_at:now+hour}]};
 assert.equal(hasExpiringCredits(null, details, now), true);
 assert.equal(hasExpiringCredits(null, {...details,dollar_credits:[{remaining_dollars:0,resets_at:now+hour}]}, now), false);
 assert.equal(hasExpiringCredits(null, null, now), false);

@@ -16,7 +16,7 @@ def test_create_workspace(api_only: CodeTermAPI):
     assert ws["id"] in ids
 
     # Cleanup
-    api_only.close_workspace(ws["id"])
+    api_only.cleanup_workspace(ws["id"])
 
 
 def test_rename_workspace(api_only: CodeTermAPI):
@@ -34,7 +34,7 @@ def test_rename_workspace(api_only: CodeTermAPI):
     assert len(found) == 1
     assert found[0]["name"] == new_name
 
-    api_only.close_workspace(ws_id)
+    api_only.cleanup_workspace(ws_id)
 
 
 def test_close_workspace(api_only: CodeTermAPI):
@@ -67,7 +67,7 @@ def test_create_tab_in_workspace(api_only: CodeTermAPI):
     assert "tab_id" in tab
     assert len(tab["tab_id"]) == 8  # 8-char hex
 
-    api_only.close_workspace(ws_id)
+    api_only.cleanup_workspace(ws_id)
 
 
 def test_create_workspace_cwd_dedupe(api_only: CodeTermAPI):
@@ -88,7 +88,7 @@ def test_create_workspace_cwd_dedupe(api_only: CodeTermAPI):
     assert found is not None
     assert found["tab_count"] == ws1.get("tab_count", 0), "tab count must not change on dedupe"
 
-    api_only.close_workspace(ws1["id"])
+    api_only.cleanup_workspace(ws1["id"])
 
 
 def test_create_workspace_fresh_counters(api_only: CodeTermAPI):
@@ -99,7 +99,7 @@ def test_create_workspace_fresh_counters(api_only: CodeTermAPI):
     assert ws.get("tab_ids") == [], "new workspace must start with empty tab_ids"
     assert ws.get("existing") is None
 
-    api_only.close_workspace(ws["id"])
+    api_only.cleanup_workspace(ws["id"])
 
 
 def test_create_tab_follows_creator_not_focus(api_only: CodeTermAPI):
@@ -133,5 +133,5 @@ def test_create_tab_follows_creator_not_focus(api_only: CodeTermAPI):
             "an explicit workspace_id still wins over the creator"
         )
     finally:
-        api_only.close_workspace(home["id"])
-        api_only.close_workspace(elsewhere["id"])
+        api_only.cleanup_workspace(home["id"])
+        api_only.cleanup_workspace(elsewhere["id"])

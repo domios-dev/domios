@@ -4,6 +4,9 @@
 //! of the open JSON Schema surface (`$ref`, combinators, nested objects).
 //! Errors are field-named so a manifest typo names the exact key.
 
+mod authored;
+use authored::*;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -78,7 +81,8 @@ pub struct NodeScalarSchema {
     pub max_length: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "lowercase")]
 pub enum NodeScalarType {
     String,
     Integer,
@@ -231,38 +235,15 @@ impl<'de> Deserialize<'de> for GraphNodesCap {
 
 impl GraphNodesCap {
     pub fn to_value(&self) -> Value {
-        let mut object = Map::new();
-        if !self.steps.is_empty() {
-            object.insert("steps".into(), serde_json::json!(self.steps));
-        }
-        if !self.converters.is_empty() {
-            object.insert(
-                "converters".into(),
-                Value::Array(
-                    self.converters
-                        .iter()
-                        .map(|conversion| {
-                            serde_json::json!({
-                                "from": conversion.from.as_str(),
-                                "to": conversion.to.as_str(),
-                            })
-                        })
-                        .collect(),
-                ),
-            );
-        }
-        if !self.event_sources.is_empty() {
-            object.insert(
-                "eventSources".into(),
-                Value::Array(
-                    self.event_sources
-                        .iter()
-                        .map(EventSourceDecl::to_value)
-                        .collect(),
-                ),
-            );
-        }
-        Value::Object(object)
+        serde_json::json!(GraphNodesManifestCapability {
+            converters: (!self.converters.is_empty()).then(|| self.converters.clone()),
+            event_sources: (!self.event_sources.is_empty()).then(|| self
+                .event_sources
+                .iter()
+                .map(EventSourceDeclaration::from_internal)
+                .collect()),
+            steps: (!self.steps.is_empty()).then(|| self.steps.clone()),
+        })
     }
 
     pub fn from_value(value: &Value) -> Result<Self, String> {
@@ -292,11 +273,12 @@ impl GraphNodesCap {
                 "{ROOT}: declare at least one converter, event source or step"
             ));
         }
-        Ok(Self {
-            converters,
-            event_sources,
-            steps,
-        })
+        Ok(GraphNodesManifestCapability {
+            converters: (!converters.is_empty()).then_some(converters),
+            event_sources: (!event_sources.is_empty()).then_some(event_sources),
+            steps: (!steps.is_empty()).then_some(steps),
+        }
+        .lower())
     }
 }
 
@@ -348,7 +330,7 @@ fn parse_media_kind(value: Option<&Value>, path: &str) -> Result<MediaKind, Stri
     MediaKind::parse(raw).ok_or_else(|| format!("{path}: unknown media kind \"{raw}\""))
 }
 
-fn parse_event_sources(value: &Value) -> Result<Vec<EventSourceDecl>, String> {
+fn parse_event_sources(value: &Value) -> Result<Vec<EventSourceDeclaration>, String> {
     let path = format!("{ROOT}.eventSources");
     let list = value
         .as_array()
@@ -358,7 +340,7 @@ fn parse_event_sources(value: &Value) -> Result<Vec<EventSourceDecl>, String> {
             "{path}: at most {MAX_EVENT_SOURCES} event sources are allowed"
         ));
     }
-    let mut declared: Vec<EventSourceDecl> = Vec::with_capacity(list.len());
+    let mut declared: Vec<EventSourceDeclaration> = Vec::with_capacity(list.len());
     for (index, entry) in list.iter().enumerate() {
         let entry_path = format!("{path}[{index}]");
         let object = entry
@@ -384,7 +366,7 @@ fn parse_event_sources(value: &Value) -> Result<Vec<EventSourceDecl>, String> {
             None | Some(Value::Null) => None,
             Some(schema) => Some(parse_node_schema(schema, &format!("{entry_path}.payload"))?),
         };
-        declared.push(EventSourceDecl {
+        declared.push(EventSourceDeclaration {
             kind,
             title,
             params,
@@ -427,7 +409,7 @@ fn parse_title(value: Option<&Value>, path: &str) -> Result<String, String> {
     Ok(raw.to_string())
 }
 
-fn parse_node_schema(value: &Value, path: &str) -> Result<NodeSchema, String> {
+fn parse_node_schema(value: &Value, path: &str) -> Result<AuthoredNodeSchema, String> {
     let object = value
         .as_object()
         .ok_or_else(|| format!("{path}: expected an object schema"))?;
@@ -451,7 +433,7 @@ fn parse_node_schema(value: &Value, path: &str) -> Result<NodeSchema, String> {
             ));
         }
     }
-    let mut properties: Vec<NodeProperty> = Vec::new();
+    let mut properties = std::collections::BTreeMap::new();
     if let Some(declared) = object.get("properties") {
         let map = declared
             .as_object()
@@ -462,10 +444,10 @@ fn parse_node_schema(value: &Value, path: &str) -> Result<NodeSchema, String> {
             ));
         }
         for (name, schema) in map {
-            properties.push(NodeProperty {
-                name: name.clone(),
-                schema: parse_property_schema(schema, &format!("{path}.properties.{name}"))?,
-            });
+            properties.insert(
+                name.clone(),
+                parse_property_schema(schema, &format!("{path}.properties.{name}"))?,
+            );
         }
     }
     let mut required: Vec<String> = Vec::new();
@@ -477,7 +459,7 @@ fn parse_node_schema(value: &Value, path: &str) -> Result<NodeSchema, String> {
             let name = entry
                 .as_str()
                 .ok_or_else(|| format!("{path}.required[{index}]: expected a property name"))?;
-            if !properties.iter().any(|p| p.name == name) {
+            if !properties.contains_key(name) {
                 return Err(format!(
                     "{path}.required[{index}]: \"{name}\" is not a declared property"
                 ));
@@ -485,13 +467,14 @@ fn parse_node_schema(value: &Value, path: &str) -> Result<NodeSchema, String> {
             required.push(name.to_string());
         }
     }
-    Ok(NodeSchema {
+    Ok(AuthoredNodeSchema {
+        kind: NodeObjectType::Object,
         properties,
-        required,
+        required: (!required.is_empty()).then_some(required),
     })
 }
 
-fn parse_property_schema(value: &Value, path: &str) -> Result<NodePropertySchema, String> {
+fn parse_property_schema(value: &Value, path: &str) -> Result<AuthoredNodePropertySchema, String> {
     let object = value
         .as_object()
         .ok_or_else(|| format!("{path}: expected an object schema"))?;
@@ -518,11 +501,12 @@ fn parse_property_schema(value: &Value, path: &str) -> Result<NodePropertySchema
                 .ok_or_else(|| {
                     format!("{path}.maxItems: expected an integer <= {MAX_ARRAY_ITEMS}")
                 })? as u32;
-            Ok(NodePropertySchema::Array {
+            Ok(AuthoredNodePropertySchema::Array(AuthoredNodeArraySchema {
+                kind: NodeArrayType::Array,
                 description,
                 items: Box::new(items),
                 max_items,
-            })
+            }))
         }
         "object" => Err(format!("{path}.type: nested objects are not supported")),
         _ => {
@@ -531,7 +515,7 @@ fn parse_property_schema(value: &Value, path: &str) -> Result<NodePropertySchema
                     return Err(format!("{path}: unsupported schema field `{key}`"));
                 }
             }
-            Ok(NodePropertySchema::Scalar(parse_scalar_fields(
+            Ok(AuthoredNodePropertySchema::Scalar(parse_scalar_fields(
                 object,
                 path,
                 description,
@@ -540,7 +524,7 @@ fn parse_property_schema(value: &Value, path: &str) -> Result<NodePropertySchema
     }
 }
 
-fn parse_scalar_schema(value: &Value, path: &str) -> Result<NodeScalarSchema, String> {
+fn parse_scalar_schema(value: &Value, path: &str) -> Result<AuthoredNodeScalarSchema, String> {
     let object = value
         .as_object()
         .ok_or_else(|| format!("{path}: expected a scalar schema"))?;
@@ -566,7 +550,7 @@ fn parse_scalar_fields(
     object: &Map<String, Value>,
     path: &str,
     description: Option<String>,
-) -> Result<NodeScalarSchema, String> {
+) -> Result<AuthoredNodeScalarSchema, String> {
     let raw_kind = object
         .get("type")
         .and_then(Value::as_str)
@@ -625,7 +609,7 @@ fn parse_scalar_fields(
             Some(length)
         }
     };
-    Ok(NodeScalarSchema {
+    Ok(AuthoredNodeScalarSchema {
         description,
         kind,
         enum_values,
@@ -647,97 +631,26 @@ fn parse_description(value: Option<&Value>, path: &str) -> Result<Option<String>
 
 impl EventSourceDecl {
     pub fn to_value(&self) -> Value {
-        let mut object = Map::new();
-        object.insert("kind".into(), Value::String(self.kind.clone()));
-        object.insert("title".into(), Value::String(self.title.clone()));
-        if let Some(params) = &self.params {
-            object.insert("params".into(), params.to_value());
-        }
-        if let Some(payload) = &self.payload {
-            object.insert("payload".into(), payload.to_value());
-        }
-        Value::Object(object)
+        serde_json::json!(EventSourceDeclaration::from_internal(self))
     }
 }
 
 impl NodeSchema {
     pub fn from_value(value: &Value) -> Result<Self, String> {
-        parse_node_schema(value, "schema")
+        parse_node_schema(value, "schema").map(AuthoredNodeSchema::lower)
     }
     pub fn to_value(&self) -> Value {
-        let mut properties = Map::new();
-        for property in &self.properties {
-            properties.insert(property.name.clone(), property.schema.to_value());
-        }
-        let mut object = Map::new();
-        object.insert("type".into(), Value::String("object".into()));
-        object.insert("properties".into(), Value::Object(properties));
-        if !self.required.is_empty() {
-            object.insert(
-                "required".into(),
-                Value::Array(
-                    self.required
-                        .iter()
-                        .map(|name| Value::String(name.clone()))
-                        .collect(),
-                ),
-            );
-        }
-        Value::Object(object)
+        serde_json::json!(AuthoredNodeSchema::from_internal(self))
     }
 }
 
-impl NodePropertySchema {
-    fn to_value(&self) -> Value {
-        match self {
-            Self::Scalar(scalar) => scalar.to_value(),
-            Self::Array {
-                description,
-                items,
-                max_items,
-            } => {
-                let mut object = Map::new();
-                object.insert("type".into(), Value::String("array".into()));
-                if let Some(description) = description {
-                    object.insert("description".into(), Value::String(description.clone()));
-                }
-                object.insert("items".into(), items.to_value());
-                object.insert("maxItems".into(), Value::from(*max_items));
-                Value::Object(object)
-            }
-        }
-    }
-}
-
-impl NodeScalarSchema {
-    fn to_value(&self) -> Value {
-        let mut object = Map::new();
-        object.insert(
-            "type".into(),
-            Value::String(
-                match self.kind {
-                    NodeScalarType::String => "string",
-                    NodeScalarType::Integer => "integer",
-                    NodeScalarType::Number => "number",
-                    NodeScalarType::Boolean => "boolean",
-                }
-                .into(),
-            ),
-        );
-        if let Some(description) = &self.description {
-            object.insert("description".into(), Value::String(description.clone()));
-        }
-        if let Some(values) = &self.enum_values {
-            object.insert(
-                "enum".into(),
-                Value::Array(values.iter().map(|v| Value::String(v.clone())).collect()),
-            );
-        }
-        if let Some(max) = self.max_length {
-            object.insert("maxLength".into(), Value::from(max));
-        }
-        Value::Object(object)
-    }
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    GraphNodesManifestCapability::export_all(config)?;
+    AuthoredNodeArraySchema::export_all(config)?;
+    Ok(())
 }
 
 #[cfg(test)]

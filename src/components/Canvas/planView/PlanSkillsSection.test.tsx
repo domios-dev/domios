@@ -19,7 +19,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const API: ApiConfig = {
+const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],
   enabled: true,
   host: "127.0.0.1",
   port: 7686,
@@ -28,7 +28,7 @@ const API: ApiConfig = {
 };
 const SKILLS: PlanSkillSummary[] = [
   {
-    slug: "deploy",
+    content_digest: "test-digest", skill_dir: "/test/skill", slug: "deploy",
     title: "Deploy",
     purpose: "Ship to staging",
     check: "echo ok",

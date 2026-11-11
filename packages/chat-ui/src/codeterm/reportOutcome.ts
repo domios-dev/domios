@@ -1,9 +1,6 @@
-export type ReportOutcomeClass =
-  | "stale_binding_conflict"
-  | "structurally_not_attachable"
-  | "delivered_unattached"
-  | "block_proposed"
-  | "transition_rejected";
+import type { ReportOutcomeClass } from "../../../chat-core/src/gen/ReportOutcomeClass";
+
+export type { ReportOutcomeClass } from "../../../chat-core/src/gen/ReportOutcomeClass";
 
 /** Task-transition truth of one accepted report, as decided by the daemon. */
 export interface ReportTaskOutcome {

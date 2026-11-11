@@ -95,7 +95,7 @@ test("same-attempt lazy composer event releases Starting until the binding event
     lifecycle_operation_id: "lazy-attempt",
     boot_stage: "launch_written",
   };
-  const provisional = {
+  const provisional = {first_turn_payload_written: false,
     pty_id: "own-pty",
     binding_nonce: "own-nonce",
     reason: "composer-ready",

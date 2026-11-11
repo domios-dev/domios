@@ -291,6 +291,7 @@ async function main() {
     });
   }
 
+  assert.equal(normalizeInstallResponse({ status: "scheduled" }).status, "updating");
   assert.equal(normalizeInstallResponse({ status: "already_in_flight" }).status, "already_in_flight");
   assert.equal(normalizeInstallResponse({ status: "no_update" }).status, "up_to_date");
   for (const status of ["blocked", "elevation_required", "unknown"]) {
