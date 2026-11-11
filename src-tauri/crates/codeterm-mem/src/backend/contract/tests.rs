@@ -38,6 +38,24 @@ fn sqlite_archive() {
     archive(&store);
 }
 #[test]
+fn sqlite_save_replace_reactivates_an_archived_item() {
+    let (_dir, store) = fixture();
+    let ctx = WriteContext::new(MemAuthor::owner(None), "contract-create");
+    let id = store
+        .save(&ctx, &item("contract revived"), true)
+        .unwrap()
+        .id;
+    store
+        .archive(&ctx, &id, "contract obsolete", "contract-archive")
+        .unwrap();
+    let mut again = item("contract revived");
+    again.body = "contract revived body".into();
+    assert_eq!(store.save(&ctx, &again, true).unwrap().id, id);
+    let got = store.get(&id).unwrap().unwrap();
+    assert_eq!(got.kind, "fact", "the archived item is active again");
+    assert_eq!(got.body, "contract revived body");
+}
+#[test]
 fn sqlite_guarded_replace_is_atomic() {
     let (_dir, store) = fixture();
     guarded_replace_is_atomic(&store);

@@ -186,7 +186,12 @@ fn a_scrubbed_package_asks_for_its_secrets_by_name_and_keeps_authors() {
         .instructions = Some(
         "Use GITHUB_TOKEN: ghp_abcdefghijklmnopqrstuvwxyz0123 from /home/ada/.config.\n".into(),
     );
-    package.document.memory[0].body = "Kept at /home/ada/archive.".into();
+    package.document.memory = vec![codeterm_team_package::PackageMemory {
+        title: "Where the archive lives".into(),
+        kind: codeterm_team_package::MemoryKind::Fact,
+        body: "Kept at /home/ada/archive.".into(),
+        tags: Vec::new(),
+    }];
     let report = scrub_package(&mut package, &private_context());
     let checker = package.document.workers.get("checker").unwrap();
     assert_eq!(
