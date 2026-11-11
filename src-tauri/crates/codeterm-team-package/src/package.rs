@@ -1,3 +1,4 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -224,14 +225,17 @@ pub fn check_entries(
                     "the archive holds two team.yaml entries",
                 ));
             }
-        } else if files.contains_key(&path) {
-            diagnostics.push(entry_error(
-                &path,
-                DiagnosticCode::DuplicateEntry,
-                "the archive holds this path twice",
-            ));
         } else {
-            files.insert(path, data);
+            match files.entry(path) {
+                Entry::Occupied(existing) => diagnostics.push(entry_error(
+                    existing.key(),
+                    DiagnosticCode::DuplicateEntry,
+                    "the archive holds this path twice",
+                )),
+                Entry::Vacant(slot) => {
+                    slot.insert(data);
+                }
+            }
         }
     }
     let Some(root) = root else {
