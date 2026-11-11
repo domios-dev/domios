@@ -11592,6 +11592,7 @@ dependencies = [
  "either",
  "errno",
  "fastrand",
+ "flate2",
  "foldhash 0.2.0",
  "form_urlencoded",
  "futures-channel",
@@ -11682,6 +11683,7 @@ dependencies = [
  "zerocopy",
  "zerofrom",
  "zeroize",
+ "zlib-rs",
 ]
 
 [[package]]

@@ -30,6 +30,7 @@ digest = { version = "0.10", features = ["mac", "std"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 either = { version = "1", features = ["use_std"] }
 fastrand = { version = "2" }
+flate2 = { version = "1", features = ["zlib-rs"] }
 foldhash = { version = "0.2" }
 form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
@@ -94,6 +95,7 @@ yoke = { version = "0.8", features = ["derive"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zerofrom = { version = "0.1", default-features = false, features = ["alloc", "derive"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
+zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
 
 [build-dependencies]
 aho-corasick = { version = "1" }
@@ -105,6 +107,7 @@ crypto-common = { version = "0.1", default-features = false, features = ["getran
 digest = { version = "0.10", features = ["mac", "std"] }
 either = { version = "1", features = ["use_std"] }
 fastrand = { version = "2" }
+flate2 = { version = "1", features = ["zlib-rs"] }
 foldhash = { version = "0.2" }
 form_urlencoded = { version = "1" }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
@@ -139,6 +142,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 yoke = { version = "0.8", features = ["derive"] }
 zerofrom = { version = "0.1", default-features = false, features = ["alloc", "derive"] }
+zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["serde"] }
