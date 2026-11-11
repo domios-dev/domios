@@ -7,6 +7,7 @@ import { trapDialogTab } from "../shared/dialogFocusTrap";
 import { AttachmentChip } from "../Terminal/ComposerBubbles";
 import { ComposerActions } from "../Terminal/ComposerActions";
 import { composerAttachmentHandoff } from "../Terminal/composerAttachmentHandoff";
+import { TranscriberSetupAction } from "../Terminal/voice/TranscriberSetupAction";
 import { measureComposerAutosize } from "../Terminal/composerAutosize";
 import { askDialogLabel, askPlaceholder, SNIP_DIALOG_LABEL, snipPlaceholder, withTranscripts, type ElementCard, type ElementKind } from "./surfaceChromeModel";
 
@@ -76,6 +77,7 @@ export function PointAndAsk({
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState("");
   const [transcribing, setTranscribing] = useState(false);
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const pathId = useId();
   const touchMode = useTouchOptimizedUi();
   const composerDevice = classifyComposerDevice({
@@ -117,13 +119,14 @@ export function PointAndAsk({
 
   const applyVoice = async (paths: string[], send: boolean) => {
     setTranscribing(true);
+    setTranscriptionError(null);
     try {
       const transcripts = await Promise.all(paths.map((path) => transcribe(path)));
       const comment = withTranscripts(latest.current.draft, transcripts);
       if (!send) setDraft(comment);
       else if (comment) onSend(comment);
     } catch (error) {
-      onError(errorText(error));
+      setTranscriptionError(errorText(error));
     } finally {
       setTranscribing(false);
     }
@@ -189,6 +192,7 @@ export function PointAndAsk({
           className="ct-surface-ask__editor block w-full min-h-5 resize-none bg-transparent py-0 pr-1 text-[14px] leading-5 outline-none placeholder:text-[var(--ct-muted-fg)]"
         />
       </ComposerActions>
+      {transcriptionError && <TranscriberSetupAction reason={transcriptionError} />}
     </div>
   );
 }

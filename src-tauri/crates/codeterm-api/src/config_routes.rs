@@ -251,6 +251,13 @@ pub async fn patch_config_api(
         }
     }
     codeterm_service_core::config::sanitize_plugin_settings(&mut new_cfg);
+    if new_cfg.general_agent.agent_provider != cfg.general_agent.agent_provider {
+        codeterm_service_core::service::general_agent::validate_general_agent_provider(
+            &state.svc.agent_registry,
+            &new_cfg.general_agent.agent_provider,
+        )
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+    }
     codeterm_service_core::config::bounds::validate_app_config(&new_cfg)
         .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     new_cfg.api.token = cfg.api.token.clone();

@@ -30,7 +30,7 @@ fn startup_accepts_only_the_1_17_schema_without_upgrading() {
 #[test]
 fn schema_v1_store_is_refused_without_changing_its_records() {
     let root = tempfile::tempdir().unwrap();
-    let database = crate::Storage::database_path(root.path());
+    let database = crate::assets::Layout::of_root(root.path()).database;
     std::fs::create_dir_all(database.parent().unwrap()).unwrap();
     let conn = Connection::open(&database).unwrap();
     conn.execute_batch(crate::schema::MIGRATIONS[0]).unwrap();

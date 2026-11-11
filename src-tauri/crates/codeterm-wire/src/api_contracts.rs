@@ -339,12 +339,16 @@ pub enum State {
 #[derive(Debug, Clone, Default, Deserialize, ts_rs::TS)]
 pub struct OrchestrationPairParams {
     pub orchestrator_agent: String,
+    #[serde(default)]
+    pub orchestrator_launch_profile: Option<String>,
     pub orchestrator_model: Option<String>,
     /// Requested reasoning effort for the Orchestrator. Capability-validated
     /// against the provider at spawn; unsupported values are rejected.
     #[serde(default)]
     pub orchestrator_reasoning_effort: Option<String>,
     pub planner_agent: String,
+    #[serde(default)]
+    pub planner_launch_profile: Option<String>,
     pub planner_model: Option<String>,
     /// Requested reasoning effort for the Planner (same validation as above).
     #[serde(default)]

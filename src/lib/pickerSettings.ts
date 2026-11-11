@@ -119,7 +119,10 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
       options: option.options.map(value => ({ value: value.value, label: value.name })),
       applyTarget: { kind: "config", id: option.id },
     };
-    if (category) { if (!known.has(category)) known.set(category, section); }
+    if (category) {
+      if ((category === "model" || category === "effort") && descriptor?.available_models.length) continue;
+      if (!known.has(category)) known.set(category, section);
+    }
     else extras.push(section);
   }
   if (!known.has("model") && descriptor?.available_models.length) known.set("model", {

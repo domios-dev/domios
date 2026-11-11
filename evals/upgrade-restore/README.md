@@ -14,21 +14,34 @@ The CLI surface is `sessions backups export <timestamp|latest> --sanitize --out
 <file>`. `latest` reads the live mux without saving, dispatching or loading a
 provider runtime. The timestamp form reads a saved backup. Neither writes to
 instance storage. The client refuses output paths within instance directories.
-The daemon masks text with filler preserving UTF-8, UTF-16 and JSON escaped
-lengths. It keeps role/profile/provider, models, session and assignment ids,
+The document format is `upgrade-restore-v2`; v1 documents are refused.
+The daemon masks desk and Plan text with filler preserving UTF-8, UTF-16 and JSON
+escaped lengths. It keeps role/profile/provider, models, session and assignment ids,
 structure and scalar state, captures the typed Plan store with tasks and
 execution attempts, and keeps live hidden/tabbar metadata separately. Unsupported
 sanitization refuses capture. Missing transcript data keeps the leaf and records
 `histories[].transcript.status = unavailable` with its backing kind and provider;
-other leaves retain their captured histories. Replay refuses unavailable
+other leaves retain their history shapes. Replay refuses unavailable
 transcript evidence explicitly rather than treating it as an empty conversation.
 
-Histories are generated from normalized parsed transcript shape with filler
-content, not copied provider session files. `history_pages` means normalized
-100-item capture pages; it does not claim a provider-native page count.
-The fake app-server converts these rows into Codex `thread/turns/list` and
-`thread/items/list` responses. It never opens a real provider session and refuses
-unknown threads and mutation methods. No provider account credentials are needed.
+Histories carry shape, never transcript bytes, so the export size follows the
+message count rather than history volume and stays far below the 64 MiB export
+and 32 MiB import bounds. Each `histories[].shape` row describes one normalized
+message in order: `kind`, `group` (tool-flow group, numbered by first appearance),
+`bytes` (content UTF-8 length) and, when present, `result_bytes`, `input_bytes`
+(serialized tool input), `image_bytes` (one entry per attachment) and
+`image_data_bytes`. Message and flow ids are not exported. Validation refuses any
+other row key, a `messages` field, or out-of-order groups. `measurements[].history_bytes`
+records the real serialized normalized history; `history_pages` means normalized
+100-item capture pages, not a provider-native page count.
+
+Replay synthesizes deterministic filler from each row (`message-<index>`,
+`turn-<group>`, `x` text of the recorded length), so the fake app-server and the
+verifier produce identical histories. The fake app-server serves these rows as
+Codex `thread/turns/list` and `thread/items/list` pages, synthesizing item text
+per page, which reproduces the original volume per page, including the 256 KiB
+continuation case. It never opens a real provider session and refuses unknown
+threads and mutation methods. No provider account credentials are needed.
 
 ## Canonical procedure
 
@@ -58,8 +71,8 @@ PATHEXT to find `codex.cmd`; keep `.CMD` in PATHEXT. Set PATH in the backend
 launcher on both initial launch and restart, not only in `dev-front` or the bench
 shell. The Windows desktop handoff forwards PATH and PATHEXT to the native client
 that launches the daemon. An already running daemon retains its launch environment.
-`prepare` rewrites replay working directories into its isolated project while
-retaining the size evidence in the original capture.
+`prepare` rewrites replay working directories into its isolated project,
+recomputes leaf sizes and keeps the captured `history_bytes`.
 
 With that target DEV running, stage only through the dev wrapper:
 
@@ -81,10 +94,18 @@ CODETERM_INSTANCE=upgrade-restore-real CODETERM_API_PORT=<dev-port> \
 ```
 
 Repeat with `upgrade-restore-worst`, its isolated port and `/tmp/upgrade-worst`.
+The replay composes the DEV connection once through the bench lib (`dev_resolve`,
+target and identity assertions, `dev_run`), refuses non-`upgrade-restore-*`
+instances and ports 7685/7686, then reads health, providers and every tab's
+focus, inspect and chat in-process (`transport.mjs`). Only stage's config and
+import mutations use `dc`. A shell plus lib resolution per read costs seconds
+each and exhausted the deadline before any tab verdict.
 Each verifier has one bounded failure deadline (maximum 120 seconds). It waits
 for CLI/process completion and provider runtime protocol handles, not elapsed-time
 readiness. It checks build SHA, every captured leaf's role/provider/session,
-confirmed runtime nonce, loaded runtime epoch, Worker attempt identity, visibility
+confirmed runtime nonce, loaded runtime epoch, completed history paging
+(`agent_runtime_state.history = complete`; a loaded runtime keeps paging older
+history in the background, and `failed` ends the wait), Worker attempt identity, visibility
 and consumed fake history. It also requires a changed daemon boot id and the
 SHA256 of the staged fixture, so import without restart cannot pass. Failures name their tab and exact runtime reason,
 including SizeLimit, binding incomplete, missing tab and deadline. Evidence is
@@ -102,7 +123,7 @@ outside this app startup gate.
 ## Focused checks and current limitations
 
 ```bash
-node --test evals/upgrade-restore/model.test.mjs evals/upgrade-restore/process.test.mjs
+node --test evals/upgrade-restore/model.test.mjs evals/upgrade-restore/process.test.mjs evals/upgrade-restore/cli-result.test.mjs evals/upgrade-restore/transport.test.mjs
 ```
 
 Canonical Rust selectors: `./build.sh test-one app api::session_exchange` and
@@ -115,7 +136,8 @@ Domios's snapshot writer also fail closed because no persisted replay backing
 exists. These failures require an owner decision or added backing; they are not
 skips, and unit fixtures are not pre/post DEV proof. The capture command requires
 a daemon that exposes the new export route; a new CLI cannot invent that route in
-an older running PROD daemon. Read-only export compatibility and cross-platform
+an older running PROD daemon. A daemon still emitting v1 full-history filler is
+refused by the v2 CLI and can exceed the export bound on a large desk. Read-only export compatibility and cross-platform
 live replay remain canonical integration work.
 
 Generated leaves read `LEAF_SESSION_ID_KEY` from the product's

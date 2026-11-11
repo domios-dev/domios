@@ -1,15 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "../../lib/bridge";
-import { listen } from "../../lib/bridge";
-import { getCachedConfig, loadConfig, setUiSettings } from "../../lib/clientSettings";
-import { DEV_BUILD } from "../../lib/devBuild";
+import { useEffect, useRef, useState } from "react";
 import { Power } from "lucide-react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { UI_TRAY_BTN } from "../shared/design";
 import { LiquidToggleTrack, useLiquidTravel } from "../shared/LiquidToggle";
 import { Segmented } from "../shared/Segmented";
 
-type KeepAwakeStatus = import("../../../gen/KeepAwakeStatus").KeepAwakeStatus;
+import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { useKeepAwake } from "./useKeepAwake";
 
 const PRESETS = [
   { value: "inf", label: "∞", title: "Indefinitely", secs: null },
@@ -22,15 +19,6 @@ const PRESETS = [
 
 type PresetValue = (typeof PRESETS)[number]["value"];
 
-// is shared across clients instead of per-localStorage.
-function loadDisplay(): boolean {
-  return getCachedConfig()?.ui?.keepawake_display === true;
-}
-
-function saveDisplay(v: boolean) {
-  void setUiSettings({ keepawake_display: v });
-}
-
 function clockParts(expiresAt: number): { h: number; m: number } | null {
   const diff = expiresAt - Date.now();
   if (diff <= 0) return null;
@@ -39,54 +27,11 @@ function clockParts(expiresAt: number): { h: number; m: number } | null {
 }
 
 export function KeepAwakeTray() {
-  const [status, setStatus] = useState<KeepAwakeStatus>({ active: false, display: false, expires_at: null, gnome_policy: false, system_block: false });
   const [open, setOpen] = useState(false);
-  const [displaySleep, setDisplaySleep] = useState<boolean>(loadDisplay);
+  const { status, displaySleep, error, pending, change } = useKeepAwake(open);
   const [picked, setPicked] = useState<PresetValue>("inf");
   const [tick, setTick] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
-
-  // Hydrate the display preference from centralized config once it loads.
-  useEffect(() => {
-    void loadConfig()
-      .then((cfg) => setDisplaySleep(cfg.ui?.keepawake_display === true))
-      .catch(() => {});
-  }, []);
-
-  // Apply a status update from any source (event, invoke response, menu open).
-  const applyStatus = useCallback((s: KeepAwakeStatus) => {
-    setStatus((prev) => {
-      if (
-        prev.active === s.active &&
-        prev.display === s.display &&
-        prev.expires_at === s.expires_at
-      ) {
-        return prev;
-      }
-      return s;
-    });
-    if (s.active) setDisplaySleep(s.display);
-  }, []);
-
-  // subscription. Guarded with `cancelled` so StrictMode double-mount and async-race teardowns both unlisten cleanly.
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    (async () => {
-      try {
-        const u = await listen<KeepAwakeStatus>("keepawake-changed", (e) => {
-          if (!cancelled) applyStatus(e.payload);
-        });
-        if (cancelled) { u(); return; }
-        unlisten = u;
-        const snap = await invoke<KeepAwakeStatus>("keepawake_status");
-        if (!cancelled) applyStatus(snap);
-      } catch {
-        /* backend restarting — next mount will retry */
-      }
-    })();
-    return () => { cancelled = true; if (unlisten) unlisten(); };
-  }, [applyStatus]);
 
   useEffect(() => {
     if (!status.active || status.expires_at === null) return;
@@ -94,41 +39,11 @@ export function KeepAwakeTray() {
     return () => clearInterval(id);
   }, [status.active, status.expires_at]);
 
-  // applies the authoritative payload — a single source of truth avoids flicker and out-of-sync races.
-  const start = useCallback(async (secs: number | null) => {
-    try {
-      await invoke<KeepAwakeStatus>("keepawake_start", {
-        durationSecs: secs ?? undefined,
-        display: displaySleep,
-      });
-    } catch (e) {
-      if (DEV_BUILD) console.debug("Keep awake start failed", e);
-    }
-  }, [displaySleep]);
-
-  const stop = useCallback(async () => {
-    await invoke("keepawake_stop").catch(() => {});
-  }, []);
-
-  const applyDisplay = useCallback((next: boolean) => {
-    setDisplaySleep(next);
-    saveDisplay(next);
-    if (!status.active) return;
-    // side; clamp to ≥ 1s so a near-expiry toggle doesn't collapse into `Duration::from_secs(0)` which the backend would treat as instant expiry. Indefinite sessions stay indefinite.
-    let durSecs: number | undefined;
-    if (status.expires_at !== null) {
-      const remaining = Math.ceil((status.expires_at - Date.now()) / 1000);
-      durSecs = Math.max(1, remaining);
-    }
-    invoke<KeepAwakeStatus>("keepawake_start", { durationSecs: durSecs, display: next })
-      .catch(() => {});
-  }, [status.active, status.expires_at]);
-
   const {
     flip: flipDisplay,
     travel: displayTravel,
     finishTravel: finishDisplayTravel,
-  } = useLiquidTravel(displaySleep, applyDisplay);
+  } = useLiquidTravel(displaySleep, (display) => { void change({ kind: "display", display }); });
 
 
   // The strip follows status where it can: a countdown drifts off its preset, so a
@@ -137,14 +52,10 @@ export function KeepAwakeTray() {
     if (status.active && status.expires_at === null) setPicked("inf");
   }, [status.active, status.expires_at]);
 
-  const onPick = useCallback(
-    (value: PresetValue) => {
-      setPicked(value);
-      const preset = PRESETS.find((p) => p.value === value);
-      if (preset) void start(preset.secs);
-    },
-    [start],
-  );
+  const onPick = async (value: PresetValue) => {
+    const preset = PRESETS.find((option) => option.value === value);
+    if (preset && await change({ kind: "start", seconds: preset.secs, display: displaySleep })) setPicked(value);
+  };
 
   const timed = status.active && status.expires_at !== null;
   const time = timed ? clockParts(status.expires_at!) : null;
@@ -179,6 +90,7 @@ export function KeepAwakeTray() {
       <AnchoredPopover open={open} anchor={triggerRef} placement="bottom-end" width={260} onClose={() => setOpen(false)}>
         <div
           className="ct-portal-menu ct-menu w-[260px]"
+          aria-busy={pending}
         >
           <div className="ct-menu-head">
             <div className="flex min-w-0 items-baseline gap-1.5 px-2 pt-1.5 pb-1">
@@ -207,7 +119,8 @@ export function KeepAwakeTray() {
               aria-pressed={!status.active}
               title="Off"
               aria-label="Turn keep awake off"
-              onClick={() => void stop()}
+              disabled={pending}
+              onClick={() => void change({ kind: "stop" })}
             >
               ✕
             </button>
@@ -217,9 +130,13 @@ export function KeepAwakeTray() {
               height={26}
               value={picked}
               onChange={onPick}
-              options={PRESETS.map((p) => ({ value: p.value, label: p.label, title: p.title }))}
+              options={PRESETS.map((p) => ({ value: p.value, label: p.label, title: p.title, disabled: pending }))}
             />
           </div>
+
+          {error != null && <div className="px-2 py-1">
+            <InlineErrorNotice role="alert" description={{ title: "Keep Awake could not be updated", cause: error, raw: error, actions: [] }} />
+          </div>}
 
           <div role="separator" className="ct-menu-separator" />
 
@@ -227,6 +144,7 @@ export function KeepAwakeTray() {
             type="button"
             role="switch"
             aria-checked={displaySleep}
+            disabled={pending}
             onClick={flipDisplay}
             className="ct-menu-row"
           >
