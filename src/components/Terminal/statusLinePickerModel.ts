@@ -33,6 +33,7 @@ export interface PickerModelGroup {
 
 export interface PickerSelection {
   model: string;
+  controls?: Record<string, string>;
   effort?: string;
   serviceTier?: ServiceTierSelection;
   runtimeMode?: string;
@@ -198,8 +199,8 @@ export function planSelection(
   next: PickerSelection,
 ): PickerPlan {
   if (!gate.interactive) return { action: "none" };
-  const sameModel = current.model?.toLowerCase() === next.model.toLowerCase();
-  if (sameModel && current.serviceTier?.id === next.serviceTier?.id && (current.effort ?? undefined) === (next.effort ?? undefined) && current.runtimeMode === next.runtimeMode) return { action: "none" };
+  const sameModel = (current.model ?? "").toLowerCase() === next.model.toLowerCase();
+  if (sameModel && current.serviceTier?.id === next.serviceTier?.id && (current.effort ?? undefined) === (next.effort ?? undefined) && current.runtimeMode === next.runtimeMode && !Object.keys(next.controls ?? {}).length) return { action: "none" };
   return { action: gate.confirmRestart ? "confirm" : "apply", selection: next };
 }
 
