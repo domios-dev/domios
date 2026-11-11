@@ -13,9 +13,49 @@ export function leaves(document) {
   return result;
 }
 
+export const FORMAT = 'upgrade-restore-v2';
+const PAGE_SIZE = 100;
+const SHAPE_KEYS = new Set(['kind', 'group', 'bytes', 'result_bytes', 'input_bytes', 'image_bytes', 'image_data_bytes']);
+const HISTORY_KEYS = new Set(['tab_id', 'page_size', 'shape', 'transcript']);
+const EMPTY_INPUT_BYTES = Buffer.byteLength(JSON.stringify({fixture: ''}));
+const size = value => Number.isSafeInteger(value) && value >= 0;
+
+function validateShape(history) {
+  const id = history.tab_id;
+  if (Object.keys(history).some(key => !HISTORY_KEYS.has(key)) || !Array.isArray(history.shape)) {
+    throw new Error(`tab=${id}: history must be a shape descriptor without transcript content`);
+  }
+  let groups = 0;
+  for (const [index, row] of history.shape.entries()) {
+    const keys = Object.keys(row ?? {});
+    if (keys.some(key => !SHAPE_KEYS.has(key)) || typeof row.kind !== 'string' || !/^[a-z_]+$/.test(row.kind)
+      || !size(row.group) || row.group > groups || !size(row.bytes)
+      || ['result_bytes', 'input_bytes', 'image_data_bytes'].some(key => key in row && !size(row[key]))
+      || ('image_bytes' in row && !(Array.isArray(row.image_bytes) && row.image_bytes.length && row.image_bytes.every(size)))) {
+      throw new Error(`tab=${id}: malformed history shape row ${index}`);
+    }
+    if (row.group === groups) groups++;
+  }
+}
+
+// Replay text is derived only from the captured shape, so peer and verifier synthesize identical rows.
+export function synthesizeMessage(row, index) {
+  const id = `message-${index}`;
+  return {id, seq: index + 1, type: row.kind, content: 'x'.repeat(row.bytes), toolFlowId: `turn-${row.group}`,
+    ...('result_bytes' in row ? {toolResult: 'x'.repeat(row.result_bytes)} : {}),
+    ...('input_bytes' in row ? {toolInput: {fixture: 'x'.repeat(Math.max(0, row.input_bytes - EMPTY_INPUT_BYTES))}} : {}),
+    ...(row.image_bytes ? {attachments: row.image_bytes.map((bytes, image) => ({id: `${id}-image-${image + 1}`,
+      mimeType: 'image/png', data: bytes ? 'x'.repeat(bytes) : 'eA=='}))} : {}),
+  };
+}
+
+export function synthesizeHistory(shape) {
+  return shape.map(synthesizeMessage);
+}
+
 export function validateCapture(document) {
-  if (document.format !== 'upgrade-restore-v1' || document.sanitized !== true) {
-    throw new Error('A sanitized upgrade-restore-v1 document is required');
+  if (document.format !== FORMAT || document.sanitized !== true) {
+    throw new Error(`A sanitized ${FORMAT} document is required`);
   }
   const tabs = leaves(document);
   if (!Array.isArray(document.plans) || !Array.isArray(document.live_tab_metadata)) {
@@ -28,21 +68,18 @@ export function validateCapture(document) {
     const measure = measurements.get(tab.tab_id);
     const history = histories.get(tab.tab_id);
     if (!measure || !history) throw new Error(`tab=${tab.tab_id}: missing size/history evidence`);
+    if (history.page_size !== PAGE_SIZE) throw new Error(`tab=${tab.tab_id}: unsupported capture page size`);
+    validateShape(history);
     const identity = tab.agent_identity ?? {};
-    const sizes = {
-      leaf_bytes: Buffer.byteLength(JSON.stringify(tab)),
-      prompt_bytes: Buffer.byteLength(identity.agent_runtime_config?.systemPrompt ?? ''),
-      identity_bytes: Buffer.byteLength(identity.restorable_launch?.identity_instructions ?? ''),
-      history_bytes: Buffer.byteLength(JSON.stringify(history.messages)),
-      history_pages: Math.ceil(history.messages.length / history.page_size),
-      ...historyShape(history.messages),
-    };
-    if (history.page_size !== 100) throw new Error(`tab=${tab.tab_id}: unsupported capture page size`);
+    const sizes = {...leafSizes(tab), ...shapeSizes(history.shape)};
     for (const [key, value] of Object.entries(sizes)) {
       if (measure[key] !== value) throw new Error(`tab=${tab.tab_id}: ${key} changed (${measure[key]} -> ${value})`);
     }
+    if (!size(measure.history_bytes) || measure.history_bytes < shapePayloadBytes(history.shape)) {
+      throw new Error(`tab=${tab.tab_id}: history_bytes is smaller than its shape payload`);
+    }
     for (const content of [identity.agent_runtime_config?.systemPrompt,
-      identity.restorable_launch?.identity_instructions, ...history.messages.map(message => message.content)]) {
+      identity.restorable_launch?.identity_instructions]) {
       if (typeof content === 'string' && !/^[x¢□🟦\\\n\u0000]*$/u.test(content)) {
         throw new Error(`tab=${tab.tab_id}: unmasked content`);
       }
@@ -147,29 +184,44 @@ export function verdict(expected, actual) {
   return {tab_id: id, ready: true, reason: 'runtime loaded with authoritative binding'};
 }
 
-export function measurements(snapshot, histories) {
+// Captured history_bytes is real transcript volume; without a prior capture it is the synthesized volume.
+export function measurements(snapshot, histories, captured = []) {
   const historyByTab = new Map(histories.map(row => [row.tab_id, row]));
+  const capturedByTab = new Map(captured.map(row => [row.tab_id, row]));
   return leaves({snapshot}).map(tab => {
-    const history = historyByTab.get(tab.tab_id);
+    const shape = historyByTab.get(tab.tab_id).shape;
     return {
       tab_id: tab.tab_id,
-      leaf_bytes: Buffer.byteLength(JSON.stringify(tab)),
-      prompt_bytes: Buffer.byteLength(tab.agent_identity?.agent_runtime_config?.systemPrompt ?? ''),
-      identity_bytes: Buffer.byteLength(tab.agent_identity?.restorable_launch?.identity_instructions ?? ''),
-      history_bytes: Buffer.byteLength(JSON.stringify(history.messages)),
-      history_pages: Math.ceil(history.messages.length / 100),
-      ...historyShape(history.messages),
+      ...leafSizes(tab),
+      history_bytes: capturedByTab.get(tab.tab_id)?.history_bytes
+        ?? Buffer.byteLength(JSON.stringify(synthesizeHistory(shape))),
+      ...shapeSizes(shape),
     };
   });
 }
 
-function historyShape(messages) {
-  const images = messages.flatMap(message => message.attachments ?? []);
+function leafSizes(tab) {
   return {
-    history_items: messages.length,
-    normalized_turn_groups: new Set(messages.map(message => message.toolFlowId ?? 'fixture-turn')).size,
-    image_items: images.length + messages.filter(message => message.imageData != null).length,
-    image_bytes: images.reduce((sum, image) => sum + Buffer.byteLength(image.data ?? ''), 0)
-      + messages.reduce((sum, message) => sum + Buffer.byteLength(message.imageData ?? ''), 0),
+    leaf_bytes: Buffer.byteLength(JSON.stringify(tab)),
+    prompt_bytes: Buffer.byteLength(tab.agent_identity?.agent_runtime_config?.systemPrompt ?? ''),
+    identity_bytes: Buffer.byteLength(tab.agent_identity?.restorable_launch?.identity_instructions ?? ''),
   };
+}
+
+function shapeSizes(shape) {
+  const images = shape.flatMap(row => row.image_bytes ?? []);
+  const standalone = shape.filter(row => row.image_data_bytes != null);
+  return {
+    history_pages: Math.ceil(shape.length / PAGE_SIZE),
+    history_items: shape.length,
+    normalized_turn_groups: new Set(shape.map(row => row.group)).size,
+    image_items: images.length + standalone.length,
+    image_bytes: images.reduce((sum, bytes) => sum + bytes, 0)
+      + standalone.reduce((sum, row) => sum + row.image_data_bytes, 0),
+  };
+}
+
+function shapePayloadBytes(shape) {
+  return shape.reduce((sum, row) => sum + row.bytes + (row.result_bytes ?? 0) + (row.input_bytes ?? 0)
+    + (row.image_bytes ?? []).reduce((total, bytes) => total + bytes, 0) + (row.image_data_bytes ?? 0), 0);
 }

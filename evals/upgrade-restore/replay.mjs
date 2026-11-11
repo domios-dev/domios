@@ -3,7 +3,7 @@ import {readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
-import {requireBackings, verdict, failureReason, requireRestart, historyMatches} from './model.mjs';
+import {requireBackings, verdict, failureReason, requireRestart, historyMatches, synthesizeHistory} from './model.mjs';
 import {cliResult} from './cli-result.mjs';
 import {Events} from '../core-journeys/lib/env.mjs';
 import {observe, touchesTab} from '../core-journeys/lib/wait.mjs';
@@ -85,7 +85,7 @@ const results = await Promise.all(expected.map(async tab => {
       const chat = await dc('tab', 'chat', '--tab', tab.tab_id, '--json');
       const messages = chat.messages ?? [];
       const history = document.histories.find(history => history.tab_id === tab.tab_id);
-      for (const row of history.messages) {
+      for (const row of synthesizeHistory(history.shape)) {
         const observed = messages.find(message => message.id === row.id);
         if (!historyMatches(row, observed)) {
           return {tab_id: tab.tab_id, ready: false, reason: `restored history missing or truncated at item ${row.id}`};

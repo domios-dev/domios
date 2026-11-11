@@ -3,6 +3,8 @@ use std::path::Path;
 use crate::{cmd::print, local_api::LocalApiClient};
 use serde_json::Value;
 
+const FORMAT: &str = "upgrade-restore-v2";
+
 fn response(request: crate::local_api::LocalApiRequest) -> Value {
     let response = request
         .send()
@@ -72,7 +74,7 @@ pub(super) fn export(
         request = request.header("Authorization", format!("Bearer {token}"));
     }
     let value = response(request);
-    if value["sanitized"] != true || value["format"] != "upgrade-restore-v1" {
+    if value["sanitized"] != true || value["format"] != FORMAT {
         print::fail(
             1,
             "Snapshot export returned an unsupported or unsanitized document",
@@ -100,10 +102,10 @@ pub(super) fn import(
         .unwrap_or_else(|error| print::fail(1, &format!("Read fixture: {error}")));
     let value: Value = serde_json::from_slice(&bytes)
         .unwrap_or_else(|error| print::fail(1, &format!("Invalid fixture: {error}")));
-    if value["sanitized"] != true || value["format"] != "upgrade-restore-v1" {
+    if value["sanitized"] != true || value["format"] != FORMAT {
         print::fail(
             1,
-            "Import requires an upgrade-restore-v1 sanitized document",
+            &format!("Import requires an {FORMAT} sanitized document"),
         );
     }
     let mut request = http
