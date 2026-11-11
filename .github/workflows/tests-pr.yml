@@ -18,7 +18,7 @@ jobs:
       heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
       plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
     steps:
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         id: ci-4
         with:
           package-manager-cache: false
@@ -65,7 +65,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 15
     steps:
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         id: ci-2
         with:
           package-manager-cache: false
@@ -143,7 +143,7 @@ jobs:
       matrix:
         plugin: ${{ fromJSON(needs.changed.outputs.plugins) }}
     steps:
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         id: ci-2
         with:
           package-manager-cache: false
@@ -178,7 +178,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -223,7 +223,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 15
     steps:
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         id: ci-2
         with:
           package-manager-cache: false
@@ -257,7 +257,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-3
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -309,7 +309,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -343,7 +343,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -377,7 +377,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -413,7 +413,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 20
     steps:
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
