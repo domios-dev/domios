@@ -205,7 +205,7 @@ dev_resolve_identity() {
   fi
   cli="$(dev_bootstrap_cli)" || return 7
   if ! output="$(
-    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_DATA_DIR "${EVAL_LIB_LAUNCH_MARKERS[@]}"
+    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_DATA_DIR ${EVAL_LIB_LAUNCH_MARKERS[@]+"${EVAL_LIB_LAUNCH_MARKERS[@]}"}
     if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
       export CODETERM_INSTANCE="$EVAL_LIB_REQUESTED_INSTANCE"
       unset CODETERM_SOCKET_PATH
@@ -302,7 +302,7 @@ dev_token() {
   data_dir="$(dev_data_dir)" || return 7
   cli="$(dev_bootstrap_cli)" || return 7
   # The calling tab belongs to the parent instance, not this dev instance; its identity must not reach dev.
-  env -u CODETERM_API_TOKEN -u CODETERM_API_URL "${EVAL_LIB_LAUNCH_UNSET[@]}" \
+  env -u CODETERM_API_TOKEN -u CODETERM_API_URL ${EVAL_LIB_LAUNCH_UNSET[@]+"${EVAL_LIB_LAUNCH_UNSET[@]}"} \
     CODETERM_DATA_DIR="$data_dir" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
     "$cli" system api-token || { dev_resolution_error "$data_dir/.secrets" "$data_dir"; return 7; }
 }
@@ -415,7 +415,7 @@ dev_run() {
     "CODETERM_DEV_AUTH_HEADER=Authorization: Bearer $token"
   )
   # The caller tab's launch identity must never reach dev; only --as-tab re-adds that DEV tab's binding.
-  env "${EVAL_LIB_LAUNCH_UNSET[@]}" "${dev_vars[@]}" ${caller_vars[@]+"${caller_vars[@]}"} "$@"
+  env ${EVAL_LIB_LAUNCH_UNSET[@]+"${EVAL_LIB_LAUNCH_UNSET[@]}"} "${dev_vars[@]}" ${caller_vars[@]+"${caller_vars[@]}"} "$@"
 }
 
 dev_api_url() {

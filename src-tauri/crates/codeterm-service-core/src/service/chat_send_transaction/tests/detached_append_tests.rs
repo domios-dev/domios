@@ -195,6 +195,52 @@ fn detached_append_state(existing: bool, wrong_witness: bool, content: &str) -> 
 
 #[test]
 fn detached_first_materialization_confirms_owned_send_without_chat_subscription() {
+    use crate::service::tab_chat::registry::{JsonlSource, SourceCapture, SourceObservation};
+    use std::io::Write;
+
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("source.jsonl");
+    let source = JsonlSource::default();
+    let SourceCapture::Absent { witness } = source.capture(SESSION, &path) else {
+        panic!("source starts absent");
+    };
+    let mut file = std::fs::File::create(&path).unwrap();
+    let mut incarnation = None;
+    for bytes in [
+        b"".as_slice(),
+        b"{",
+        b"\"content\":\"opaque complete row\"}\n",
+    ] {
+        file.write_all(bytes).unwrap();
+        let SourceObservation::Present {
+            incarnation: Some(observed),
+            restart,
+        } = source.observe(SESSION, &path, incarnation.as_ref(), 0)
+        else {
+            panic!("source must have an incarnation");
+        };
+        assert!(!restart);
+        assert_eq!(observed.absence_witness.as_ref(), Some(&witness));
+        if let Some(previous) = &incarnation {
+            assert_eq!(&observed, previous);
+        }
+        incarnation = Some(observed);
+    }
+    drop(file);
+    let rotated = root.path().join("rotated.jsonl");
+    std::fs::rename(&path, rotated).unwrap();
+    std::fs::write(&path, b"{\"content\":\"opaque complete row\"}\n").unwrap();
+    let SourceObservation::Present {
+        incarnation: Some(replacement),
+        restart,
+    } = source.observe(SESSION, &path, incarnation.as_ref(), 0)
+    else {
+        panic!("replacement must have an incarnation");
+    };
+    assert!(restart);
+    assert_ne!(Some(replacement.clone()), incarnation);
+    assert!(replacement.absence_witness.is_none());
+
     assert_eq!(
         detached_append_state(false, false, PAYLOAD),
         ChatSendState::Sent

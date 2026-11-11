@@ -51,7 +51,6 @@ import {
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 import { failChatSendRequest, readChatSends, setChatSendDraft } from "./chatSendStore";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
-import { TranscriptionStatus, useTranscriptionStatus } from "./voice/TranscriptionStatus";
 import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
@@ -69,9 +68,10 @@ import { ReplyQuote } from "@codeterm/chat-ui";
 import type { ComposerReply } from "./composerReply";
 import { useComposerReply } from "./useComposerReply";
 import { useStartupSend } from "./useStartupSend";
+import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
-const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
+const VOICE_TRANSCRIBE_ERROR = "Voice transcription failed";
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
   "/config",
@@ -264,6 +264,7 @@ function ChatComposerImpl({
   const [delayedBusyId, setDelayedBusyId] = useState<string | null>(null);
   const [delayedModal, setDelayedModal] = useState<DelayedModalTarget | null>(null);
   const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [transcriptionFailure, setTranscriptionFailure] = useState<string | null>(null);
   // Screen-reader-visible mirror of showComposerError: the field's current
   // content was rejected, until the user edits it again.
   const [composerInvalid, setComposerInvalid] = useState(false);
@@ -283,7 +284,6 @@ function ChatComposerImpl({
     textareaRef.current?.focus({ preventScroll: true });
   });
   const [composing, setComposing] = useState(false);
-  const transcription = useTranscriptionStatus();
   const capsulesActive = !composing && hasCapsuleTokens(input);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
   const commands = useMuxSelector(useLatestCallback(state => state.tabs[tabId]?.agent_runtime_state?.controls?.commands !== undefined
@@ -466,7 +466,7 @@ function ChatComposerImpl({
       const readyDraft = { ...deliveryDraft, ...resolved };
       setChatSendDraft(tabId, optimisticId, readyDraft);
       const delivery = prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
-      composed = await (recordedVoiceAttachments.length > 0 ? transcription.track(delivery) : delivery);
+      composed = await delivery;
       if (!composed.trim()) {
         failChatSendRequest(tabId, optimisticId, "No message was sent because the prepared message is empty.");
         pendingDraftsRef.current.delete(dupKey);
@@ -507,6 +507,7 @@ function ChatComposerImpl({
       draft.recordedVoiceAttachments, capsules.registryRef.current, draft.quoted);
     if (tabProvider && attachmentError) { flagComposerError(attachmentError); return; }
     setScheduleBusy(true);
+    setTranscriptionFailure(null);
     try {
       const pendingDraft = composeDraft(
         body,
@@ -514,10 +515,10 @@ function ChatComposerImpl({
         draft.recordedVoiceAttachments,
         draft.quoted,
       );
-      const { composed, transcribeFailed } = await (draft.recordedVoiceAttachments.length > 0
-        ? transcription.track(pendingDraft) : pendingDraft);
+      const { composed, transcribeFailed } = await pendingDraft;
       if (transcribeFailed) {
-        flagComposerError(VOICE_TRANSCRIBE_ERROR);
+        setDelayedModal(null);
+        setTranscriptionFailure(VOICE_TRANSCRIBE_ERROR);
         return;
       }
 
@@ -529,7 +530,12 @@ function ChatComposerImpl({
       setDelayedModal(null);
       await refreshDelayedMessages();
     } catch (e) {
-      flagComposerError(e instanceof Error ? e.message : String(e));
+      const reason = e instanceof Error ? e.message : String(e);
+      if (isTranscriptionFailure(reason)) {
+        setDelayedModal(null);
+        setTranscriptionFailure(reason);
+      }
+      else flagComposerError(reason);
     } finally {
       setScheduleBusy(false);
       refocusComposer();
@@ -589,6 +595,7 @@ function ChatComposerImpl({
         {attachments.length > 0 && <ComposerBubbleRow attachments={attachments} onRemove={removeAttachment} />}
       </>}
     >
+      {transcriptionFailure && <TranscriberSetupAction reason={transcriptionFailure} />}
       <SlashPicker
         suggestions={pickerOpen ? suggestions : NO_SUGGESTIONS}
         highlighted={pickerHighlight}
@@ -600,7 +607,6 @@ function ChatComposerImpl({
         onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
       {plansSink}
       {!startupSend.bound && <span role="status">Connecting to chat — sending is unavailable</span>}
-      <TranscriptionStatus since={transcription.since} />
       <ComposerCapsuleField
         tabId={tabId}
         value={input}

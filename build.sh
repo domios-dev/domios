@@ -3199,7 +3199,8 @@ EOF
     preflight_step clippy bash scripts/clippy-gate.sh
     preflight_step rust run_release_rust_tests
     preflight_step typescript node node_modules/typescript/bin/tsc --noEmit
-    preflight_step exports node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
+    # Knip cannot enumerate pnpm workspaces under the gateway's subst drive root; run from the real worktree.
+    preflight_step exports preflight_real node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
     preflight_step api-effects node scripts/check-api-effect-dependencies.mjs
     preflight_step ts-unit node scripts/run-ts-unit-tests.mjs
     preflight_step vitest node node_modules/vitest/vitest.mjs run

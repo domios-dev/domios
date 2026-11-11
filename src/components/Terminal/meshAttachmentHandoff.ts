@@ -199,10 +199,10 @@ export function assertNoSourceAttachmentPaths(
 }
 
 function requireVoiceTranscript(reference: string | null | undefined): string {
-  if (!reference?.trim()) throw new Error("The target host returned no voice transcript");
+  if (!reference?.trim()) throw new Error("Voice transcription failed: The target host returned no voice transcript");
   const marker = parseMarker(reference);
   if (marker?.kind === "voice" && marker.attrs.status === "untranscribed") {
-    throw new Error(marker.payload.trim() || "The target host could not transcribe the voice note");
+    throw new Error(`Voice transcription failed: ${marker.payload.trim() || "The target host could not transcribe the voice note"}`);
   }
   return reference;
 }

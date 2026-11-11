@@ -93,6 +93,9 @@ pub struct PluginManifest {
     pub pitch: Option<String>,
     #[serde(default)]
     pub homepage: Option<String>,
+    /// SPDX license expression of the plugin bundle.
+    #[serde(default)]
+    pub license: Option<String>,
     #[serde(default)]
     pub readme: Option<String>,
     /// Bundle-relative markdown guide for agents, appended (bounded) to the

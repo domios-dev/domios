@@ -25,7 +25,7 @@ test("failed input exposes marked, unmarked and unknown reasons without changing
   await act(async () => root.unmount());
 });
 
-test("every pending state exposes its reason and available controls without interaction", async () => {
+test("only actionable bubble states show reasons and controls", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -36,16 +36,36 @@ test("every pending state exposes its reason and available controls without inte
     await act(async () => root.render(<ChatDeliveryState state={state} onRetry={() => retried++}
       onRemove={() => removed++} onEdit={() => edited++} />));
     const status = host.querySelector('[role="status"]');
-    if (state === "delivered") { assert.equal(status, null); continue; }
-    assert.ok(status?.textContent);
+    if (state === "delivered") { assert.ok(!status); continue; }
+    assert.ok(status?.getAttribute("aria-label"));
+    assert.equal(status?.getAttribute("title"), status?.getAttribute("aria-label"));
+    if (state === "failed" || state === "uncertain") assert.ok(status?.textContent);
+    else assert.equal(status?.textContent, "");
     const buttons = [...host.querySelectorAll("button")];
     assert.deepEqual(buttons.map(button => button.textContent), state === "failed" ? ["Retry", "Remove"]
-      : state === "uncertain" ? ["Edit and resend", "Remove"] : ["Remove"]);
+      : state === "uncertain" ? ["Edit and resend", "Remove"] : []);
     for (const button of buttons) await act(async () => button.click());
   }
   assert.equal(retried, 1);
   assert.equal(edited, 1);
-  assert.equal(removed, 5);
+  assert.equal(removed, 2);
+  await act(async () => root.unmount());
+});
+
+test("held bubbles show a short queued label and inline states keep the full label", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(<ChatDeliveryState state="queued" queuedBehindTurn onRemove={() => {}} />));
+  const status = host.querySelector('[role="status"]');
+  assert.equal(status?.textContent, "Queued");
+  assert.equal(status?.getAttribute("aria-label"), "Queued until the current turn ends");
+  assert.ok(!host.querySelector("button"));
+  for (const state of ["sending", "written", "queued"] as const) {
+    await act(async () => root.render(<ChatDeliveryState inline state={state} onRemove={() => {}} />));
+    const inlineStatus = host.querySelector('[role="status"]');
+    assert.equal(inlineStatus?.textContent, inlineStatus?.getAttribute("aria-label"));
+    assert.ok(!host.querySelector("button"));
+  }
   await act(async () => root.unmount());
 });
 
@@ -64,12 +84,12 @@ test("a held CLI notice shows its queued state while collapsed and drops it once
   const card = host.querySelector<HTMLElement>('[data-testid="chat-system-event"]');
   assert.ok(card);
   assert.equal(card.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded"), "false");
-  const status = card.querySelector<HTMLElement>('.ct-delivery[role="status"]');
-  assert.equal(status?.dataset.state, "queued");
-  assert.ok(status?.querySelector(".ct-delivery__label:not(.sr-only)")?.textContent);
+  const status = card.querySelector<HTMLElement>('[role="status"]');
+  assert.equal(status?.getAttribute("aria-label"), "Queued until the current turn ends");
+  assert.equal(status?.textContent, status?.getAttribute("aria-label"));
 
   await act(async () => root.render(<Notice state="delivered" />));
   assert.equal(host.querySelectorAll('[data-testid="chat-system-event"]').length, 1);
-  assert.equal(host.querySelector('.ct-delivery[role="status"]'), null);
+  assert.ok(!host.querySelector('[role="status"][aria-label="Queued until the current turn ends"]'));
   await act(async () => root.unmount());
 });

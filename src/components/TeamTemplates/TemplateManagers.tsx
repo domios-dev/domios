@@ -13,6 +13,8 @@ type ManagerModelPicker = import("../../../gen/ManagerModelPicker").ManagerModel
 type TemplateStartForm = import("../../../gen/TemplateStartForm").TemplateStartForm;
 
 export type ManagerSeats = Partial<Record<ManagerSlot, PickerSeed>>;
+/** Launch-profile controls for the pair rows; other manager seats carry only provider:model. */
+export type PairRoleControls = Partial<Record<"orchestrator" | "planner", { modelSlot?: ReactNode; details?: ReactNode }>>;
 
 const SLOT_ICON: Record<ManagerSlot, ReactNode> = {
   orchestrator: <Workflow size={13} aria-hidden="true" />,
@@ -69,7 +71,7 @@ function DecisionLines({ picker, onAction }: { picker: ManagerModelPicker; onAct
 }
 
 /** The template's managers in today's roster rows: pickers for with_team slots, a timing line for the rest. */
-export function TemplateManagers({ form, providers, disabledProviderIds, pair, onPairChange, seats, onSeatChange, onInstallProvider }: {
+export function TemplateManagers({ form, providers, disabledProviderIds, pair, onPairChange, seats, onSeatChange, onInstallProvider, roleControls }: {
   form: TemplateStartForm;
   providers: ProviderDescriptor[];
   disabledProviderIds: ReadonlySet<string>;
@@ -78,7 +80,9 @@ export function TemplateManagers({ form, providers, disabledProviderIds, pair, o
   seats: ManagerSeats;
   onSeatChange: (slot: ManagerSlot, seat: PickerSeed) => void;
   onInstallProvider: (providerId: string) => void;
+  roleControls?: PairRoleControls;
 }) {
+  const seatProviders = providers.filter((provider) => !provider.agent_runtime?.launchProfiles);
   const seatOf = (slot: ManagerSlot): PickerSeed => slot === "orchestrator" || slot === "planner"
     ? pairSeat(slot, pair)
     : seats[slot] ?? { providerId: "", modelId: "" };
@@ -99,11 +103,14 @@ export function TemplateManagers({ form, providers, disabledProviderIds, pair, o
         const label = managerLabel(slot, picker?.label ?? role?.label ?? slot);
         const seat = seatOf(slot);
         const timing = role ? roleTiming(role.start) : null;
+        const controls = slot === "orchestrator" || slot === "planner" ? roleControls?.[slot] : undefined;
         return (
           <TeamRosterMember key={slot} role={slot} icon={SLOT_ICON[slot]}>
             {picker ? (
               <>
-                <OrchestrationRoleRow label={label} providers={providers} providerId={seat.providerId} modelId={seat.modelId}
+                <OrchestrationRoleRow label={label} providers={slot === "orchestrator" || slot === "planner" ? providers : seatProviders}
+                  providerId={seat.providerId} modelId={seat.modelId} modelSlot={controls?.modelSlot} details={controls?.details}
+                  modelControls={!controls?.modelSlot}
                   effortId={seat.effortId} disabledProviderIds={disabledProviderIds} onInstallProvider={onInstallProvider}
                   onProviderChange={(providerId) => {
                     const modelId = providers.find((provider) => provider.id === providerId)?.default_model ?? "";

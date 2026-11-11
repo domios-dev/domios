@@ -371,7 +371,7 @@ async fn listener_owned_enrollment_is_pending_without_waiting_or_losing_candidat
     assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 3);
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn rotate_returns_without_waiting_for_revocation_while_registry_activation_is_queued() {
     use crate::service::neighbors::{
         runtime::{FixtureKeyPortBinding, FixtureKeyPorts, NeighborRuntimeCommand},
@@ -434,6 +434,7 @@ async fn rotate_returns_without_waiting_for_revocation_while_registry_activation
             )
             .await
     );
+    tokio::time::pause();
     let started = tokio::time::Instant::now();
     assert_eq!(rotate.await, Err(Error::Transport.to_string()));
     assert_eq!(activation.await, Err(Error::Revoked.to_string()));

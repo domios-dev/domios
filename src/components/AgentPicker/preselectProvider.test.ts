@@ -130,6 +130,26 @@ test("General offer policy belongs to capabilities rather than provider identiti
     "the flag allows install offers only for eligible agent transports");
 });
 
+test("General excludes profile adapters regardless of identity, installation or profile count", () => {
+  const manifest = JSON.parse(readFileSync(
+    new URL("../../../plugins/provider-acp/plugin.json", import.meta.url), "utf8",
+  )) as { capabilities: { agentRuntime: NonNullable<ProviderDescriptor["agent_runtime"]> } };
+  for (const launchProfiles of [manifest.capabilities.agentRuntime.launchProfiles, {}]) {
+    for (const availability of ["available", "unavailable", "unknown"] as const) {
+      const adapter = {
+        ...mkProvider("arbitrary-adapter", null, availability),
+        transport: "chat_backend" as const,
+        agent_runtime: { ...manifest.capabilities.agentRuntime, launchProfiles },
+      };
+      const harness = { ...mkProvider("acp", null, "available"), agent_runtime: {} };
+      assert(generalAgentProviders([adapter, harness]).map(p => p.id).join(",") === "acp",
+        "profile capability excludes adapters; the provider id does not decide eligibility");
+      assert(isProviderSelectable(adapter) === (availability !== "unavailable"),
+        "General eligibility does not change installation-based launch selection");
+    }
+  }
+});
+
 test("providerRequiresCli respects descriptor", () => {
   assert(providerRequiresCli(mkProvider("claude", "claude")), "claude has cli");
   assert(!providerRequiresCli(mkProvider("lm", null)), "no cli");
