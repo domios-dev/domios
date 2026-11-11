@@ -472,10 +472,8 @@ mod normalization_tests {
 
                 assert_eq!(params.task_id.as_deref(), task_id);
                 assert_eq!(preset.kind_id, kind);
-                assert!(preset.fragments.iter().any(|fragment| {
-                    fragment.source == crate::service::role_preset::FragmentSource::Builtin
-                        && fragment.text == guidance
-                }));
+                assert_eq!(preset.fragments[0].source.label(), "builtin");
+                assert_eq!(preset.contract_guidance(), guidance);
             }
             assert_eq!(
                 dispatch_worker_profile(Some(kind), None).expect("saved executor role resolves"),

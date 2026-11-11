@@ -315,6 +315,7 @@ fn fire_job_with_spawn(
         Some(&task_text),
         policy.map(|policy| policy.spawn_role()).or(role),
         policy.map(|policy| policy.profile().as_str()),
+        None,
     );
 
     // (shared default). Resolved against `agent`'s own catalog so a cron job

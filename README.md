@@ -122,7 +122,7 @@ For a production build, run `./build.sh build`. On Windows PowerShell, use `.\bu
 
 - [Website and trailer](https://domios.dev) · [Source and issues](https://github.com/domios-dev/domios) · [Public releases](https://github.com/domios-dev/domios/releases/latest)
 - [CLI reference](generated/cli/cli.md) · [API reference](prod-docs/API.md) · [Configuration](prod-docs/CONFIG.md)
-- [Orchestration](prod-docs/ORCHESTRATION.md) · [Lanes](prod-docs/LANES.md) · [Mesh](prod-docs/MESH.md) · [Memory](prod-docs/MEMORY.md)
+- [Orchestration](src-tauri/team-templates/default/managers/orchestrator.md) · [Lanes](prod-docs/LANES.md) · [Mesh](prod-docs/MESH.md) · [Memory](prod-docs/MEMORY.md)
 - [Telegram setup](prod-docs/TELEGRAM-SETUP.md) · [Voice transcription](prod-docs/TRANSCRIBE.md) · [Accounts](prod-docs/ACCOUNT.md)
 
 Inside Domios, run `domios docs` to discover the help embedded in your installed version, then `domios docs <NAME>` to read a document.

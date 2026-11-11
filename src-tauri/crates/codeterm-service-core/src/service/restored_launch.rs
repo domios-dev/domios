@@ -43,6 +43,10 @@ pub(crate) fn capture_tab_launch_parameters(
     registry: &AgentRegistry,
     capture: RestorableLaunchCapture<'_>,
 ) -> RestorableLaunchParameters {
+    let team_id = mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.team_id.clone());
     let neighbor_root = mux.read().get_tab(tab_id).is_some_and(|tab| {
         tab.neighbor_authority
             .as_ref()
@@ -57,6 +61,7 @@ pub(crate) fn capture_tab_launch_parameters(
                 capture.task,
                 capture.role,
                 capture.role_profile,
+                team_id.as_deref(),
             )
         })
         .flatten();
@@ -137,12 +142,18 @@ pub(crate) fn restored_launch_task(
     provider_id: &str,
     role: Option<&str>,
     role_profile: Option<&str>,
+    team_id: Option<&str>,
     launch: &RestorableLaunchParameters,
 ) -> (bool, Option<String>) {
     let prompt_capable = launch_prompt_capable(registry, provider_id);
     let task = if prompt_capable {
         launch.identity_instructions.clone().or_else(|| {
-            crate::service::orchestrator::restorable_identity_task(None, role, role_profile)
+            crate::service::orchestrator::restorable_identity_task(
+                None,
+                role,
+                role_profile,
+                team_id,
+            )
         })
     } else {
         crate::service::orchestrator::provider_launch_task(
@@ -151,6 +162,7 @@ pub(crate) fn restored_launch_task(
             None,
             role,
             role_profile,
+            team_id,
         )
     };
     let task = if launch
@@ -286,6 +298,7 @@ pub fn restored_fresh_launch_input(
         provider_id,
         params.role.as_deref(),
         params.role_profile.as_deref(),
+        params.team_id.as_deref(),
         &launch_parameters,
     );
     params.system_prompt = prompt_capable.then(|| launch_task.clone()).flatten();

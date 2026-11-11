@@ -1,43 +1,47 @@
-//! One seam for the guidance a role kind carries. Manager kinds and Worker
-//! subtypes resolve the same way, keyed by kind id and never a role literal.
+//! One resolver for the text a role type carries: task > Team registration > builtin default package.
+//! Role prose comes first; host runtime text follows it and no package can remove or replace it.
 
+use codeterm_team_package::TeamRoleGroup;
 use codeterm_types::agent::role_kind::{self, builtins};
-
 use codeterm_types::agent::AgentRole;
+use codeterm_types::team::role_registration::{PinnedPackage, RoleProvenance, RoleRegistration};
 
-/// Where one guidance fragment came from. Rendered as provenance by the
-/// inspection surface and used by occasions to select the fragments they carry.
+use crate::builtin_roles;
+
+/// Where one guidance fragment came from; rendered as provenance by `domios role show`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FragmentSource {
-    /// Bundled text compiled into the binary for a builtin kind.
-    Builtin,
-    /// The Worker base a leaf kind inherits when it ships no bundled text.
-    InheritedBase,
-    /// A disk overlay file, named by its path.
-    Disk(String),
+    /// The role type's own prose, from the builtin package or the Team's registration.
+    Role(RoleProvenance),
+    /// A Worker type with no prose of its own reads the builtin Worker's.
+    InheritedBase(PinnedPackage),
+    /// Host runtime text appended per group and manager slot.
+    Host,
     /// Caller-supplied persona/guidance owned by this delivery.
     Task,
 }
 
 impl FragmentSource {
-    /// Contract fragments describe the kind itself; task fragments describe one
-    /// delivery. Occasions place the two in different slots.
+    /// Contract fragments describe the role type itself; task fragments describe one delivery.
     pub fn is_contract(&self) -> bool {
         !matches!(self, Self::Task)
     }
 
-    pub fn disk_path(&self) -> Option<&str> {
+    pub fn package(&self) -> Option<&PinnedPackage> {
         match self {
-            Self::Disk(path) => Some(path),
-            _ => None,
+            Self::Role(RoleProvenance::Builtin { package })
+            | Self::Role(RoleProvenance::Team { package })
+            | Self::InheritedBase(package) => Some(package),
+            Self::Host | Self::Task => None,
         }
     }
 
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Builtin => "builtin",
-            Self::InheritedBase => "inherited_base",
-            Self::Disk(_) => "disk_overlay",
+            Self::Role(RoleProvenance::Builtin { .. }) => "builtin",
+            Self::Role(RoleProvenance::Team { .. }) => "team_registration",
+            Self::InheritedBase(_) => "inherited_base",
+            Self::Host => "host",
             Self::Task => "task_overlay",
         }
     }
@@ -51,8 +55,7 @@ pub struct PresetFragment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RolePreset {
-    /// Structural role the kind resolved under. Occasions select rows by this
-    /// and by kind id, never by a wire literal.
+    /// Structural role, derived from the role type's group and slot.
     pub role: AgentRole,
     pub kind_id: String,
     pub label: String,
@@ -60,14 +63,12 @@ pub struct RolePreset {
 }
 
 impl RolePreset {
-    /// The kind's full guidance: bundled or inherited base, then any disk
-    /// overlay, then the task persona. Empty fragments never add a separator.
+    /// The role's full guidance: prose, host text, then the task persona.
     pub fn guidance(&self) -> String {
         self.join(|_| true)
     }
 
-    /// Everything the kind carries by itself, with the delivery's own persona
-    /// left out.
+    /// Everything the role type carries by itself, with the delivery's own persona left out.
     pub fn contract_guidance(&self) -> String {
         self.join(FragmentSource::is_contract)
     }
@@ -75,6 +76,15 @@ impl RolePreset {
     /// Only the persona this delivery supplied.
     pub fn task_guidance(&self) -> String {
         self.join(|source| !source.is_contract())
+    }
+
+    pub fn provenance(&self) -> Option<&RoleProvenance> {
+        self.fragments
+            .iter()
+            .find_map(|fragment| match &fragment.source {
+                FragmentSource::Role(provenance) => Some(provenance),
+                _ => None,
+            })
     }
 
     fn join(&self, keep: impl Fn(&FragmentSource) -> bool) -> String {
@@ -87,110 +97,153 @@ impl RolePreset {
     }
 }
 
-/// Runtime-declared leaf kinds. Implemented by the disk overlay catalog; the
-/// resolver never reads a file itself.
-pub trait PresetOverlays {
-    fn label_for(&self, kind_id: &str) -> Option<&str>;
-    /// Layered guidance plus the path it came from.
-    fn guidance_for(&self, kind_id: &str) -> Option<(&str, &str)>;
-}
-
-/// The catalog used when no overlay source is installed.
-pub struct NoOverlays;
-
-impl PresetOverlays for NoOverlays {
-    fn label_for(&self, _kind_id: &str) -> Option<&str> {
-        None
-    }
-
-    fn guidance_for(&self, _kind_id: &str) -> Option<(&str, &str)> {
-        None
+fn group_of(role: AgentRole) -> TeamRoleGroup {
+    match role {
+        AgentRole::Manager => TeamRoleGroup::Manager,
+        AgentRole::Worker => TeamRoleGroup::Worker,
     }
 }
 
-/// Bundled guidance for a builtin kind. `general_agent` is absent on purpose:
-/// the machine agent composes its own instructions file. Cartographer carries
-/// its own Manager contract and never the Worker base.
-pub fn builtin_guidance(kind_id: &str) -> Option<String> {
-    match kind_id {
-        builtins::ORCHESTRATOR => Some(crate::prompts::orchestrator_suffix()),
-        builtins::PLANNER | builtins::WATCHER => Some(crate::prompts::planner_suffix()),
-        builtins::WORKER => Some(crate::prompts::worker_suffix()),
-        builtins::QA => Some(crate::prompts::QA_ROLE_PROMPT.to_string()),
-        builtins::RELEASE_MANAGER => Some(crate::prompts::RELEASE_MANAGER_ROLE_PROMPT.to_string()),
-        builtins::REVIEWER => Some(crate::prompts::REVIEWER_ROLE_PROMPT.to_string()),
-        builtins::CARTOGRAPHER => Some(crate::prompts::CARTOGRAPHER_SUFFIX.to_string()),
-        builtins::CURATOR => Some(crate::prompts::CURATOR_SUFFIX.to_string()),
-        _ => None,
+/// The Team's registration for a role type, matched by name and structural group.
+pub fn registration<'a>(
+    team: &'a [RoleRegistration],
+    role: AgentRole,
+    kind_id: &str,
+) -> Option<&'a RoleRegistration> {
+    let name = builtin_roles::prose_role(kind_id);
+    team.iter()
+        .find(|registration| registration.name == name && registration.group == group_of(role))
+}
+
+/// Host runtime text for a group and manager slot, in delivery order.
+pub fn host_fragments(role: AgentRole, kind_id: &str) -> Vec<&'static str> {
+    match (role, kind_id) {
+        (AgentRole::Worker, _) => vec![
+            crate::prompts::TESTING_DISCIPLINE,
+            crate::prompts::QA_PIPELINE_DISCIPLINE,
+        ],
+        (AgentRole::Manager, builtins::ORCHESTRATOR | builtins::PLANNER | builtins::WATCHER) => {
+            vec![
+                crate::prompts::PLAN_TASK_FLAGS,
+                crate::prompts::MEM_MANAGEMENT,
+            ]
+        }
+        (AgentRole::Manager, _) => Vec::new(),
     }
 }
 
-/// An overlay kind has no bundled text, so it inherits its structural base and
-/// layers the supplied persona on top — the same composition managers get.
-#[allow(dead_code)]
+/// The Team's worker names and descriptions plus this role's own files and skills.
+pub fn team_context(team: &[RoleRegistration], own: Option<&RoleRegistration>) -> String {
+    let mut workers = builtin_roles::builtin_workers();
+    for registration in team
+        .iter()
+        .filter(|registration| registration.group == TeamRoleGroup::Worker)
+    {
+        let entry = (registration.name.clone(), registration.description.clone());
+        match workers
+            .iter_mut()
+            .find(|(name, _)| *name == registration.name)
+        {
+            Some(existing) => *existing = entry,
+            None => workers.push(entry),
+        }
+    }
+    let mut lines = vec!["Worker types available to this Team:".to_string()];
+    lines.extend(workers.iter().map(|(name, description)| match description {
+        Some(description) => format!("- `{name}`: {description}"),
+        None => format!("- `{name}`"),
+    }));
+    if let Some(own) = own {
+        if !own.files.is_empty() {
+            lines.push("Your files:".to_string());
+            lines.extend(own.files.iter().map(|file| match &file.description {
+                Some(description) => format!("- `{}`: {description}", file.path),
+                None => format!("- `{}`", file.path),
+            }));
+        }
+        if !own.skills.is_empty() {
+            lines.push(format!("Your skills: {}", own.skills.join(", ")));
+        }
+    }
+    lines.join("\n")
+}
+
+/// Resolves with the builtin default package only.
 pub fn resolve(
     role: Option<AgentRole>,
     role_profile: Option<&str>,
-    overlay_guidance: Option<&str>,
+    task_guidance: Option<&str>,
 ) -> Option<RolePreset> {
-    resolve_in(&NoOverlays, role, role_profile, overlay_guidance)
+    resolve_in(&[], role, role_profile, task_guidance)
+}
+
+/// A builtin role type's contract (prose plus host text) under its structural role.
+pub fn builtin_guidance(kind_id: &str) -> Option<String> {
+    let role = if builtins::lookup(kind_id).is_some_and(|descriptor| descriptor.manages()) {
+        AgentRole::Manager
+    } else {
+        AgentRole::Worker
+    };
+    resolve(Some(role), Some(kind_id), None)
+        .filter(|preset| preset.kind_id == kind_id && preset.provenance().is_some())
+        .map(|preset| preset.contract_guidance())
 }
 
 pub fn resolve_in(
-    overlays: &dyn PresetOverlays,
+    team: &[RoleRegistration],
     role: Option<AgentRole>,
     role_profile: Option<&str>,
-    overlay_guidance: Option<&str>,
+    task_guidance: Option<&str>,
 ) -> Option<RolePreset> {
     let resolved_role = role?;
     let kind_id = role_kind::kind_id(role, role_profile)?.to_string();
-    // Builtin rows are embedded and non-overridable, so a catalog entry that
-    // shares their id contributes nothing even if a loader ever admitted it.
-    let overlays: &dyn PresetOverlays = if builtins::is_builtin(&kind_id) {
-        &NoOverlays
-    } else {
-        overlays
-    };
-    let label = overlays
-        .label_for(&kind_id)
-        .map(str::to_string)
+    let registered = registration(team, resolved_role, &kind_id)
+        .filter(|_| kind_id != builtins::GENERAL_AGENT && kind_id != builtins::WATCHER);
+    let label = registered
+        .map(|registration| registration.label.clone())
         .or_else(|| role_kind::kind_label(role, role_profile).map(str::to_string))
         .unwrap_or_else(|| kind_id.clone());
     let kind_manages = builtins::lookup(&kind_id).is_some_and(|descriptor| descriptor.manages());
     let mut fragments = Vec::new();
-    if role == Some(AgentRole::Worker)
-        && builtins::lookup(&kind_id).is_some_and(|descriptor| descriptor.is_taskless_worker())
-    {
-        fragments.push(PresetFragment {
-            source: FragmentSource::InheritedBase,
-            text: crate::prompts::worker_suffix(),
-        });
-    }
-    match builtin_guidance(&kind_id) {
-        Some(guidance) => fragments.push(PresetFragment {
-            source: FragmentSource::Builtin,
-            text: guidance,
+    match (registered, builtin_roles::builtin_prose(&kind_id)) {
+        (Some(registration), _) => fragments.push(PresetFragment {
+            source: FragmentSource::Role(RoleProvenance::Team {
+                package: registration.package.clone(),
+            }),
+            text: registration.instructions.trim().to_string(),
         }),
-        // Only a leaf overlay inherits a base; a Manager-kind role carries its
-        // own contract and an unknown manager kind must state its own.
-        None if role == Some(AgentRole::Worker) && !kind_manages => {
+        (None, Some(prose)) => fragments.push(PresetFragment {
+            source: FragmentSource::Role(RoleProvenance::Builtin {
+                package: builtin_roles::default_identity(),
+            }),
+            text: prose.trim().to_string(),
+        }),
+        (None, None) if resolved_role == AgentRole::Worker && !kind_manages => {
             fragments.push(PresetFragment {
-                source: FragmentSource::InheritedBase,
-                text: crate::prompts::worker_suffix(),
+                source: FragmentSource::InheritedBase(builtin_roles::default_identity()),
+                text: builtin_roles::builtin_prose(builtins::WORKER)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string(),
             })
         }
-        None => {}
+        (None, None) => {}
     }
-    if let Some((guidance, path)) = overlays.guidance_for(&kind_id) {
-        let guidance = guidance.trim();
-        if !guidance.is_empty() {
-            fragments.push(PresetFragment {
-                source: FragmentSource::Disk(path.to_string()),
-                text: guidance.to_string(),
-            });
-        }
+    if !fragments.is_empty() {
+        fragments.extend(
+            host_fragments(resolved_role, &kind_id)
+                .into_iter()
+                .map(|text| PresetFragment {
+                    source: FragmentSource::Host,
+                    text: text.trim().to_string(),
+                }),
+        );
+        fragments.push(PresetFragment {
+            source: FragmentSource::Host,
+            text: team_context(team, registered),
+        });
     }
-    if let Some(overlay) = overlay_guidance
+    if let Some(overlay) = task_guidance
         .map(str::trim)
         .filter(|guidance| !guidance.is_empty())
     {
@@ -205,6 +258,32 @@ pub fn resolve_in(
         label,
         fragments,
     })
+}
+
+/// Every builtin role type composed from the default package, keyed by type.
+pub fn builtin_presets() -> Vec<(&'static str, RolePreset)> {
+    let managers = [
+        builtins::ORCHESTRATOR,
+        builtins::PLANNER,
+        builtins::WATCHER,
+        builtins::CARTOGRAPHER,
+        builtins::CURATOR,
+    ]
+    .map(|kind| (kind, AgentRole::Manager));
+    let workers = [
+        builtins::WORKER,
+        builtins::QA,
+        builtins::REVIEWER,
+        builtins::RELEASE_MANAGER,
+    ]
+    .map(|kind| (kind, AgentRole::Worker));
+    managers
+        .into_iter()
+        .chain(workers)
+        .filter_map(|(kind, role)| {
+            resolve(Some(role), Some(kind), None).map(|preset| (kind, preset))
+        })
+        .collect()
 }
 
 #[cfg(test)]

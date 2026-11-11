@@ -545,11 +545,8 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
 
             assert_eq!(params.task_id.as_deref(), task_id);
             assert_eq!(preset.kind_id, kind);
-            assert!(preset.fragments.iter().any(|fragment| {
-                fragment.source
-                    == codeterm_service_core::service::role_preset::FragmentSource::Builtin
-                    && fragment.text == guidance
-            }));
+            assert_eq!(preset.fragments[0].source.label(), "builtin");
+            assert_eq!(preset.contract_guidance(), guidance);
         }
     }
 

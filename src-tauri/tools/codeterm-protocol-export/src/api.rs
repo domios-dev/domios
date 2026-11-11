@@ -152,6 +152,9 @@ pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Erro
     >::export_all(config)?;
     codeterm_secrets::model_provider_request::ModelProviderRequest::export_all(config)?;
     codeterm_types::team::staffing::AddTeamMemberResult::export_all(config)?;
+    codeterm_types::team::role_registration::RoleRegistration::export_all(config)?;
+    codeterm_types::team::role_registration::RoleRegistrationOutcome::export_all(config)?;
+    codeterm_types::team::role_registration::RoleProvenance::export_all(config)?;
     codeterm_plugin::api_contracts::GoalSnapshot::export_all(config)?;
     codeterm_types::api_contracts::ChatMsgEvent::export_all(config)?;
     codeterm_update::contracts::RuntimeStatus::export_all(config)?;

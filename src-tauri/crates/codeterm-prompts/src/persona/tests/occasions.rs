@@ -3,7 +3,6 @@
 use codeterm_types::agent::role_kind::builtins;
 
 use crate::persona::occasion::{compose, declared_fallback, guidance, Emission, Occasion, ALL};
-use crate::persona::overlay::OverlayCatalog;
 use crate::role_preset;
 use codeterm_types::agent::AgentRole;
 
@@ -97,42 +96,16 @@ fn the_worker_identity_slot_carries_the_persona_and_the_assignment_slot_carries_
     assert_eq!(identity_emission, Emission::Preset);
 
     let (assignment, assignment_emission) = guidance(Occasion::LaunchAssignment, Some(&preset));
-    assert_eq!(assignment, crate::prompts::worker_suffix());
+    assert_eq!(assignment, preset.contract_guidance());
+    assert!(assignment.starts_with(
+        crate::builtin_roles::builtin_prose(builtins::WORKER)
+            .unwrap()
+            .trim()
+    ));
     assert_eq!(assignment_emission, Emission::Preset);
     assert!(
         !assignment.contains("You are Mira."),
         "the delivery persona must not be duplicated into the assignment slot"
-    );
-}
-
-#[test]
-fn a_disk_overlay_layers_into_the_contract_slot_only() {
-    let catalog = OverlayCatalog::from_sources(&[(
-        "role-presets/rust-backend-dev.toml",
-        r#"
-id = "rust-backend-dev"
-label = "Rust Backend Dev"
-guidance = "Stay inside src-tauri/."
-"#,
-    )]);
-    let preset = role_preset::resolve_in(
-        &catalog,
-        Some(AgentRole::Worker),
-        Some("rust-backend-dev"),
-        Some("You are Mira."),
-    )
-    .expect("overlay preset");
-
-    let (identity, _) = guidance(Occasion::WorkerLaunchIdentity, Some(&preset));
-    assert_eq!(identity, "You are Mira.");
-
-    let (assignment, _) = guidance(Occasion::LaunchAssignment, Some(&preset));
-    assert_eq!(
-        assignment,
-        format!(
-            "{}\n\nStay inside src-tauri/.",
-            crate::prompts::worker_suffix()
-        )
     );
 }
 
@@ -159,7 +132,7 @@ fn only_an_anchor_states_its_charter_without_an_assignment() {
     let orchestrator = manager_preset(builtins::ORCHESTRATOR);
     assert_eq!(
         compose(Occasion::LaunchAssignment, Some(&orchestrator), None),
-        Some(crate::prompts::orchestrator_suffix())
+        Some(orchestrator.contract_guidance())
     );
 
     for kind in [builtins::PLANNER, builtins::WATCHER] {

@@ -80,6 +80,17 @@ impl Package {
             .or_else(|| self.entries.get(path).map(Vec::as_slice))
     }
 
+    /// A role's own instructions: inline text, or its `instructions_file` content.
+    pub fn role_instructions(&self, name: &str) -> Option<&str> {
+        let role = self.document.role(name)?;
+        if let Some(text) = role.instructions.as_deref() {
+            return Some(text);
+        }
+        let path = role.instructions_file.as_deref()?;
+        self.file_bytes(path)
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+    }
+
     /// The name roles use for a skill: the inline name, or the SKILL.md frontmatter `name`.
     pub fn skill_name(&self, skill: &PackageSkill) -> Option<String> {
         match skill {

@@ -733,6 +733,7 @@ impl ServiceContext {
             Some(&task_text),
             role.as_deref(),
             None,
+            None,
         );
 
         let model = model.or_else(|| {

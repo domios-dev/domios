@@ -4,115 +4,16 @@
 //! Rust code uses `include_str!()` so changes require recompilation.
 
 pub use codeterm_plan::service_plan::prompts_plan::{
-    orch_defer_structure_line, reflection_block, worker_suffix,
-    HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE, PEER_ORCH_DEFER_STRUCTURE_LINE,
-    PEER_PLANNER_CHARTER_LINE, PEER_WAIVER_HINT, PLAN_ARCHIVE_SUGGESTION, PLAN_RETROSPECTIVE_NUDGE,
-    PLAN_SKILLS_PRINCIPLES, PLAN_SKILLS_WORKER_LINE, QA_PIPELINE_DISCIPLINE, REFLECTION_BLOCK,
-    REFLECTION_HEARTBEAT_TITLE, REGRESSION_MILESTONE_KIND, TESTING_DISCIPLINE,
-    WORKER_COMPETITIVE_CONTEXT_TITLE, WORKER_COMPETITIVE_ISOLATION_RULES, WORKER_FRAMEWORK_RULE,
-    WORKER_LOOP_CONTEXT_TITLE, WORKER_LOOP_EVIDENCE_RULE, WORKER_SUFFIX,
+    orch_defer_structure_line, reflection_block, HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE,
+    PEER_ORCH_DEFER_STRUCTURE_LINE, PEER_PLANNER_CHARTER_LINE, PEER_WAIVER_HINT,
+    PLAN_ARCHIVE_SUGGESTION, PLAN_RETROSPECTIVE_NUDGE, PLAN_SKILLS_PRINCIPLES,
+    PLAN_SKILLS_WORKER_LINE, QA_PIPELINE_DISCIPLINE, REFLECTION_BLOCK, REFLECTION_HEARTBEAT_TITLE,
+    REGRESSION_MILESTONE_KIND, TESTING_DISCIPLINE, WORKER_COMPETITIVE_CONTEXT_TITLE,
+    WORKER_COMPETITIVE_ISOLATION_RULES, WORKER_LOOP_CONTEXT_TITLE, WORKER_LOOP_EVIDENCE_RULE,
 };
-
-/// Appended to Planner-profile Worker tasks.
-pub const PLANNER_SUFFIX: &str = include_str!("../../../prompts/planner_suffix.md");
-
-pub const PLANNER_DOC: &str = include_str!("../../../../prod-docs/PLANNER.md");
-
-/// The executor-role member of [`PLANNER_TASK_MANDATORY_FIELDS`]. It lives in
-/// that list, not in a sentence beside it: a list member cannot be delivered
-/// with its requirement edited out.
-pub const PLANNER_TASK_EXECUTOR_ROLE_FIELD: &str = "an `--executor-role` naming who executes it";
-
-/// The worker-conditioning member of [`PLANNER_TASK_MANDATORY_FIELDS`].
-/// Presence is enforceable; prose quality is deliberately not validated.
-pub const PLANNER_TASK_ROLE_GUIDANCE_FIELD: &str =
-    "`--role-guidance` conditioning who the worker is and what it does";
-
-/// The persona member of [`PLANNER_TASK_MANDATORY_FIELDS`]. A task without one
-/// dispatches a worker that falls back to the title 'Worker'.
-pub const PLANNER_TASK_PERSONALITY_FIELD: &str = "a one-word `--personality`";
-
-/// Every field a task must carry at creation. The prompt sentence is composed
-/// from this list, so a field is obliged by membership rather than by prose.
-pub const PLANNER_TASK_MANDATORY_FIELDS: &[&str] = &[
-    "a bounded body",
-    "section links",
-    "acceptance criteria",
-    "a correctness vector",
-    "an executable test plan",
-    "an ownership boundary",
-    "report expectations",
-    PLANNER_TASK_EXECUTOR_ROLE_FIELD,
-    PLANNER_TASK_ROLE_GUIDANCE_FIELD,
-    PLANNER_TASK_PERSONALITY_FIELD,
-];
-
-/// Routing that stays optional — out of the mandatory scope, not out of the product.
-pub const PLANNER_TASK_ROUTING_FLAGS: &[&str] = &["`--model`"];
-
-fn oxford_join(items: &[&str]) -> String {
-    match items {
-        [] => String::new(),
-        [only] => (*only).to_string(),
-        [first, second] => format!("{first} and {second}"),
-        [head @ .., last] => format!("{}, and {last}", head.join(", ")),
-    }
-}
-
-/// Fills `{task_contract_line}` in [`PLANNER_SUFFIX`].
-pub fn planner_task_contract_line() -> String {
-    format!(
-        "Every task needs {}.",
-        oxford_join(PLANNER_TASK_MANDATORY_FIELDS)
-    )
-}
-
-/// Fills `{task_routing_line}` in [`PLANNER_SUFFIX`].
-pub fn planner_task_routing_line() -> String {
-    format!(
-        "Routing is yours too: set {} at add time with a rationale, so the Orchestrator never has to re-route by hand.",
-        oxford_join(PLANNER_TASK_ROUTING_FLAGS)
-    )
-}
-
-/// Canonical role_guidance for tasks whose primary deliverable is tests.
-pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. `domios docs TEST-AUTHORING` is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
-
-/// Appended to Orchestrator tasks — no-sleep rule.
-pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../../../prompts/orchestrator_suffix.md");
-
-pub const ORCHESTRATION_DOC: &str = include_str!("../../../../prod-docs/ORCHESTRATION.md");
-
-/// Fills `{roleless_draft_rejection}` in [`ORCHESTRATOR_SUFFIX`], inside the
-/// instruction where drafts are already accepted, revised, or rejected.
-pub const ORCH_ROLELESS_DRAFT_REJECTION: &str = "reject any task that names no executor role";
-
-/// Delivered at the Orchestrator's existing draft-verdict decision point.
-pub const ORCH_EMPTY_ROLE_GUIDANCE_REJECTION: &str =
-    "reject any draft whose worker guidance says nothing";
-
-/// Connects the missing-ACK event to the shared child PTY recovery procedure.
-pub const ORCH_CHILD_PTY_RECOVERY_TRIGGER: &str = "- worker_ack_startup_failed/interactive_child_pty: inspect tab/attempt; hold prompt-bound; declared safe choices only; recheck screen/binding/ACK; action-needed unknowns; no brief/ACK prose, keys.";
-
-/// Stable Orchestrator delivery token for the optional Cartographer Manager.
-pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
-    "Cartographer: optional Manager for project-specific normative essences, including from zero; spawn it when essence work is needed and close it when that work is done; no spawn, approval or release authority, no continuous cadence.";
-
-/// Task-decomposition contract shared by both planning surfaces. One source so
-/// the Planner that cuts the graph and the Orchestrator that judges it agree.
-pub const PLANNING_COMPACTION_CONTRACT: &str =
-    include_str!("../../../prompts/planning_compaction.md");
-
-/// Team-bound creation contract shared by the two roles that can ask for a new
-/// agent, shell, or schedule. One source so neither can drift into a loose one.
-pub const TEAM_CREATION_CONTRACT: &str = include_str!("../../../prompts/team_creation_contract.md");
 
 /// Plan and task flag corrections, delivered once to each surface that writes plan state.
 pub const PLAN_TASK_FLAGS: &str = include_str!("../../../prompts/plan_task_flags.md");
-
-/// How the Orchestrator sequences work: actionability, group retrospectives, and rare plan pause.
-pub const TASK_SEQUENCING_CONTRACT: &str =
-    include_str!("../../../prompts/task_sequencing_contract.md");
 
 /// Delivered when an existing agent tab becomes an Orchestrator.
 pub const ORCHESTRATOR_ONBOARDING: &str =
@@ -200,16 +101,6 @@ pub const NOTIFY_VERBOSE_COMPLETION_CLAUSE: &str = "A short completion or progre
 /// What an `unseen` report on a send result means, so an agent reads it as
 /// information rather than an error and does not retry a recorded notification.
 pub const NOTIFY_UNSEEN_CLAUSE: &str = "A send that reports `unseen` surfaces under the id is information, not a failure: the record was kept and the exit is still 0, so nothing is waiting to be retried.";
-
-/// Standalone Manager contract for project-specific normative essences.
-/// It carries its own bounded authority and canonical verification discipline.
-pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../../../prompts/cartographer_suffix.md");
-pub const CURATOR_SUFFIX: &str = include_str!("../../../prompts/curator_suffix.md");
-pub const CURATOR_RUBRIC: &str = include_str!("../../../prompts/curator_rubric.md");
-
-pub const QA_ROLE_PROMPT: &str = include_str!("../../../prompts/qa.md");
-pub const RELEASE_MANAGER_ROLE_PROMPT: &str = include_str!("../../../prompts/release_manager.md");
-pub const REVIEWER_ROLE_PROMPT: &str = include_str!("../../../prompts/reviewer.md");
 
 /// Compact control context placed after a Worker's task-owned identity.
 pub const WORKER_CODETERM_CONTEXT: &str =
@@ -309,39 +200,6 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
     )
 }
 
-pub fn orchestrator_suffix() -> String {
-    let role_prompt = ORCHESTRATOR_SUFFIX
-        .replace(
-            "{child_pty_recovery_trigger}",
-            ORCH_CHILD_PTY_RECOVERY_TRIGGER,
-        )
-        .replace("{roleless_draft_rejection}", ORCH_ROLELESS_DRAFT_REJECTION)
-        .replace(
-            "{empty_role_guidance_rejection}",
-            ORCH_EMPTY_ROLE_GUIDANCE_REJECTION,
-        )
-        .replace(
-            "{task_sequencing_contract}",
-            TASK_SEQUENCING_CONTRACT.trim(),
-        )
-        .replace(
-            "{planning_compaction_contract}",
-            PLANNING_COMPACTION_CONTRACT.trim(),
-        )
-        .replace(
-            "{cartographer_contract_notice}",
-            ORCH_CARTOGRAPHER_CONTRACT_NOTICE,
-        )
-        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim())
-        .replace("{plan_task_flags}", PLAN_TASK_FLAGS.trim());
-    format!(
-        "{}\n\n{}\n\n## Canonical Orchestrator manual\n\n{}",
-        role_prompt.trim(),
-        MEM_MANAGEMENT.trim(),
-        ORCHESTRATION_DOC.trim()
-    )
-}
-
 /// Stable marker the plan-absent first-message emits so tests assert the
 /// create-first path by constant, never by prose.
 pub const ORCH_ONBOARD_NO_PLAN_MARKER: &str =
@@ -368,13 +226,13 @@ fn orchestrator_infra_brief_no_plan(tab_id: &str, team_id: &str) -> String {
          The daemon waits for this tab's session-binding event during plan writes, through the startup deadline. If it expires first, stop on the retryable `session_binding_pending` result instead of polling. Then proceed with these plan commands:\n\
          Step 1 — create the Team Plan:\n{ORCH_ONBOARD_CREATE_STEP} \"<your goal>\"\n\n\
          Step 2 — once step 1 prints the new plan id, bind it to this team:\n{ORCH_ONBOARD_ADOPT_STEP} {team_id} <the plan id printed in step 1>\n\n\
-         Step 3 — spawn your Planner bound to that plan and to this tab (never through the General Agent):\ncodeterm agent spawn <provider> [--model <model>] --parent-tab {tab_id} --role Planner --plan <the plan id printed in step 1>\n\n\
+         Step 3 — spawn your Planner bound to that plan and to this tab (never through the General Agent):\ncodeterm agent spawn <provider> [--model <model>] --parent-tab {tab_id} --role planner --plan <the plan id printed in step 1>\n\n\
          Then state the goal to the Planner and wait for its draft; do not cut tasks yourself."
     )
 }
 
 /// Concrete, real-valued first message delivered right after an Orchestrator
-/// launches. Methodology lives in the system prompt (`orchestrator_suffix`) and
+/// launches. Methodology lives in the role's system prompt and
 /// is intentionally NOT duplicated here — this is only infrastructure with real
 /// tab/team/plan ids, or an explicit plan-not-yet-created create+bind path.
 pub fn orchestrator_first_message(tab_id: &str, team_id: &str, plan_id: Option<&str>) -> String {
@@ -383,31 +241,6 @@ pub fn orchestrator_first_message(tab_id: &str, team_id: &str, plan_id: Option<&
         None => orchestrator_infra_brief_no_plan(tab_id, team_id),
     };
     ORCHESTRATOR_ONBOARDING.replace("{infra_brief}", &brief)
-}
-
-pub fn planner_suffix() -> String {
-    let role_prompt = PLANNER_SUFFIX
-        .replace("{task_contract_line}", &planner_task_contract_line())
-        .replace("{task_routing_line}", &planner_task_routing_line())
-        .replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
-        .replace(
-            "{planning_compaction_contract}",
-            PLANNING_COMPACTION_CONTRACT.trim(),
-        )
-        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim())
-        .replace("{plan_task_flags}", PLAN_TASK_FLAGS.trim());
-    format!(
-        "{}\n\n{}\n\n## Canonical Planner manual\n\n{}",
-        role_prompt.trim(),
-        MEM_MANAGEMENT.trim(),
-        PLANNER_DOC.trim()
-    )
-}
-
-/// The Cartographer Manager has its own contract, without Worker or Planner
-/// task lifecycle instructions granting contradictory authority.
-pub fn cartographer_suffix() -> String {
-    CARTOGRAPHER_SUFFIX.trim().to_string()
 }
 
 /// Upper bound for a composed role prompt. Not a style preference: every byte

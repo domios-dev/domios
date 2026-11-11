@@ -126,7 +126,7 @@ fn every_runtime_role_composes_opaque_identity_after_primer_without_residue() {
             kind_id: kind.into(),
             label: format!("opaque-label-{kind}"),
             fragments: vec![PresetFragment {
-                source: FragmentSource::Builtin,
+                source: FragmentSource::Host,
                 text: contract.clone(),
             }],
         };
@@ -263,7 +263,11 @@ fn runtime_planner_spawn_config_carries_assignment_and_plan_identity() {
     assert_eq!(prompt.matches(ASSIGNMENT).count(), 1);
     assert!(prompt.contains(&plan.id));
     assert!(prompt.contains("opaque-team"));
-    assert!(prompt.contains(crate::prompts::PLANNER_DOC.trim()));
+    assert!(prompt.contains(
+        crate::service::builtin_roles::builtin_prose("planner")
+            .unwrap()
+            .trim()
+    ));
     assert!(prompt.contains(ROLE_AUTHORITY));
     let kickoff = spec
         .chatbackend_launch
@@ -310,7 +314,13 @@ fn restored_runtime_identity_is_persisted_once_without_fabricating_kickoff() {
         .unwrap();
     assert_eq!(prompt.matches("opaque-saved-identity").count(), 0);
     assert_eq!(
-        prompt.matches(crate::prompts::PLANNER_DOC.trim()).count(),
+        prompt
+            .matches(
+                crate::service::builtin_roles::builtin_prose("planner")
+                    .unwrap()
+                    .trim()
+            )
+            .count(),
         1
     );
     assert!(first.pending_delivery.is_none());

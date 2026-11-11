@@ -1,8 +1,7 @@
 use serde_json::Value;
 
-use codeterm_types::agent::AgentRole;
-
-use codeterm_service_core::service::persona::{inspect, occasion::Occasion, overlay};
+use codeterm_service_core::service::persona::{inspect, occasion::Occasion};
+use codeterm_service_core::service::team_roles::TeamRoleStore;
 
 use super::JsonRpcError;
 
@@ -31,14 +30,24 @@ fn field<'a>(params: &'a Option<Value>, key: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
+fn listing(team_id: Option<&str>) -> Result<Value, JsonRpcError> {
+    let team = codeterm_service_core::service::team_roles::registrations(team_id);
+    encode(inspect::list(team_id, &team))
+}
+
 pub(super) fn dispatch(method: &str, params: &Option<Value>) -> Result<Value, JsonRpcError> {
+    let team_id = field(params, "team_id");
     match method {
-        "role.list" => encode(inspect::list(overlay::ambient().as_ref())),
-        "role.reload" => encode(inspect::list(overlay::reload().as_ref())),
+        "role.list" => listing(team_id),
+        "role.reload" => {
+            TeamRoleStore::global().reload(team_id);
+            listing(team_id)
+        }
         "role.show" => {
-            let role = field(params, "role").unwrap_or("Worker");
-            let role = AgentRole::from_str_compat(role)
-                .ok_or_else(|| invalid(format!("unknown role `{role}`")))?;
+            let value = field(params, "type").unwrap_or("worker");
+            let role_type = TeamRoleStore::global()
+                .role_type(team_id, value)
+                .map_err(|error| invalid(error.to_string()))?;
             let only = match field(params, "occasion") {
                 Some(id) => Some(
                     Occasion::parse(id)
@@ -46,14 +55,9 @@ pub(super) fn dispatch(method: &str, params: &Option<Value>) -> Result<Value, Js
                 ),
                 None => None,
             };
-            let view = inspect::show(
-                overlay::ambient().as_ref(),
-                role,
-                field(params, "kind"),
-                field(params, "guidance"),
-                only,
-            )
-            .ok_or_else(|| invalid("that role and kind resolve to no preset"))?;
+            let team = codeterm_service_core::service::team_roles::registrations(team_id);
+            let view = inspect::show(&team, &role_type, field(params, "guidance"), only)
+                .ok_or_else(|| invalid("that role type resolves to no preset"))?;
             encode(view)
         }
         _ => Err(JsonRpcError {

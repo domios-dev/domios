@@ -4,13 +4,14 @@ How Domios ships instructions to LLM agents: where prompt files live, how they a
 This README is source documentation, not an injected prompt. The table below identifies each prompt, its audience, placeholders and injection point.
 
 ## Overview
-Every system-level prompt in Domios is compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Prompt fragments live under `src-tauri/prompts/`; the complete Orchestrator and Planner manuals remain canonical in `prod-docs/ORCHESTRATION.md` and `prod-docs/PLANNER.md` and are embedded into their startup contracts. Loaders are split by ownership: the app catalog is in `src-tauri/src/prompts.rs`, shared runtime fragments in `codeterm-service-core`, plan worker fragments in `codeterm-plan`, memory prompts and private seed constants in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
+Every system-level prompt in Domios is compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Host prompt fragments live under `src-tauri/prompts/`; builtin role prose lives once in the default team package under `src-tauri/team-templates/default/` (see *Role files*), whose Orchestrator and Planner files also serve `domios docs ORCHESTRATION` and `domios docs PLANNER`. Loaders are split by ownership: the app catalog is in `src-tauri/src/prompts.rs`, shared runtime fragments in `codeterm-service-core`, plan worker fragments in `codeterm-plan`, memory prompts and private seed constants in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
 
-**One in-binary prompt location.** Every prompt the project owns and ships with Domios lives here:
+**Two in-binary prompt roots.** Host prompts live here; builtin role prose lives in the default team package:
 
-1. **`src-tauri/prompts/`** — all in-binary prompt sources. Loaded via `include_str!()` by the owning app or crate module. Includes the GA system prompt, role suffixes, framework rules, bridge memory protocol, cron suffixes, seed prompts, AND every memory-worker prompt (extraction, REM dreaming, reranking, worker preamble).
+1. **`src-tauri/prompts/`** — all in-binary prompt sources. Loaded via `include_str!()` by the owning app or crate module. Includes the GA system prompt, host runtime text appended to roles, bridge memory protocol, cron suffixes, seed prompts, AND every memory-worker prompt (extraction, REM dreaming, reranking, worker preamble).
+2. **`src-tauri/team-templates/default/`** — the builtin default package: `team.yaml` plus one role file per manager slot and worker. Embedded by `codeterm-team-package` and read by `codeterm-prompts/src/builtin_roles.rs`.
 
-Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. Apart from the two canonical role manuals above, a project-owned prompt source outside `src-tauri/prompts/` is a bug.
+Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. A project-owned prompt source outside these two roots is a bug.
 
 Prompts reach the model through these pathways:
 
@@ -30,7 +31,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` `{interactive_child_pty_operation}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
 | `interactive_child_pty.md` | `INTERACTIVE_CHILD_PTY_OPERATION` | Shared child PTY recovery procedure | — | `service/general_agent/instructions.rs`, `prompts.rs`, and `service/skill_mirror.rs` — delivered to the General Agent and codeterm skill; the Orchestrator trigger refers to it by capability id |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
-| `plan_task_flags.md` | `PLAN_TASK_FLAGS` | Task lifecycle flags | — | `prompts.rs` — composed into plan task guidance |
+| `plan_task_flags.md` | `PLAN_TASK_FLAGS` | Manager host text | — | `role_preset.rs` — appended after the Orchestrator, Planner and Watcher prose |
 | `plugin_discovery_rule.md` | `PLUGIN_DISCOVERY_RULE` | Capability discovery pointer | — | `prompts.rs` — composed into agent control guidance |
 | `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/prompt_compose.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
 | `agent_routing_contract.md` | `AGENT_ROUTING_CONTRACT` | Shared routed-message trust and reply policy | — | `codeterm-service-core/src/prompts.rs`; composed after the Agent primer for spawned launches in `service/orchestrator/prompt_compose.rs` and `service/orchestrator/spawn/runtime_prompt.rs` |
@@ -39,23 +40,10 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `read_only_worker_guidance.md` | `READ_ONLY_WORKER_GUIDANCE` | Read-only intent authority, explicit-sandbox refusals and stdin reports | — | Worker launch composition replaces the writable-pad fragment for `read_only` execution intent |
 | `rich_rendering_guidance.md` | `RICH_RENDERING_GUIDANCE` | Shared rendering capability | — | `service/orchestrator/prompt_compose.rs` — included for capable spawned agents |
 | `agent_pad_rule.md` | `AGENT_PAD_RULE` | Shared AgentPad contract — the one semantic source | — | `service/orchestrator/prompt_compose.rs` for every spawned class; `service/general_agent/instructions.rs` (`general_cli_reference`) for the GA; `service/skill_mirror.rs` renders it into the `codeterm` skill via `{agent_pad_rule}` |
-| `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
-| `qa.md` | `QA_ROLE_PROMPT` | Task-less QA Worker contract | — | `role_preset.rs` — appended after the Worker contract for the built-in `qa` kind |
-| `release_manager.md` | `RELEASE_MANAGER_ROLE_PROMPT` | Task-less Release Manager Worker contract | — | `role_preset.rs` — appended after the Worker contract for the built-in `release_manager` kind |
-| `reviewer.md` | `REVIEWER_ROLE_PROMPT` | Task-optional read-only Reviewer Worker contract | — | `role_preset.rs` — appended after the Worker contract for the built-in `reviewer` kind |
-| `cartographer_suffix.md` | `CARTOGRAPHER_SUFFIX` | Worker subtype contract | - | `prompts.rs` `cartographer_suffix()` - layered on the Worker suffix for the `cartographer` kind via `service/role_preset.rs` |
-| `curator_suffix.md` | `CURATOR_SUFFIX` | Curator role contract | — | Built-in Curator role guidance; the digest is the launch task |
-| `curator_rubric.md` | `CURATOR_RUBRIC` | Curator question rubric | — | Curator digest header, within the shared digest byte cap |
 | `tool_less.md` | `TOOL_LESS` | Tool-less provider class rules | - | `prompts.rs` `TOOL_LESS` - materialized by `service/tool_less_instructions.rs` for providers declaring the tool-less capability (external delivery as a read-only file, native delivery composed with the assignment) |
-| `worker_framework_rule.md` | `WORKER_FRAMEWORK_RULE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — leads `worker_suffix.md`; the persona overlay core needle |
-| `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
-| `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
-| `planning_compaction.md` | `PLANNING_COMPACTION_CONTRACT` | Shared planning fragment | — | `prompts.rs` — substituted into both `planner_suffix.md` and `orchestrator_suffix.md` so the role that cuts a task graph and the role that judges it share one decomposition contract |
-| `team_creation_contract.md` | `TEAM_CREATION_CONTRACT` | Shared Team-boundary fragment | — | `prompts.rs` — substituted into both `planner_suffix.md` and `orchestrator_suffix.md` so the role that can create agents and the role that must ask for them share one contract |
-| `task_sequencing_contract.md` | `TASK_SEQUENCING_CONTRACT` | Orchestrator sequencing fragment | — | `prompts.rs` — substituted into `orchestrator_suffix.md`: which tasks are actionable, group regression and retrospective records, and the rare plan-level pause |
-| `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role prefix | `{test_author_guidance}` `{planning_compaction_contract}` `{team_creation_contract}` | `prompts.rs` — rendered before the complete embedded `prod-docs/PLANNER.md`; delivered through the provider's system-prompt channel or Domios system-message fallback |
-| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role prefix | `{task_sequencing_contract}` `{planning_compaction_contract}` `{team_creation_contract}` `{child_pty_recovery_trigger}` | `prompts.rs` — rendered before the complete embedded `prod-docs/ORCHESTRATION.md`; delivered through the provider's system-prompt channel or Domios system-message fallback |
-| `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{planner_spawn_cmd}` `{orchestrator_suffix}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
+| `testing_discipline.md` | `TESTING_DISCIPLINE` | Worker host text | — | `role_preset.rs` — appended after every Worker type's prose; also the worker charter |
+| `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Worker host text | — | `role_preset.rs` — appended after every Worker type's prose; also the worker charter and Orchestrator heartbeat |
+| `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{infra_brief}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
 | `manager_bootstrap.md` | `MANAGER_BOOTSTRAP_TEMPLATE` | Team manager bootstrap | role/team/plan/project placeholders | `service/role_identity.rs` — shared manager identity rendered before launch delivery |
 | `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
 | `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `cron/task_text.rs` — appended when a cron job has a `report_target_tab_id` |
@@ -64,7 +52,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `cron_skill_missing.md` | `CRON_SKILL_MISSING` | Cron skill failure instruction | `{skill_slug}` | `cron/skill_block.rs` — provides a bounded failure handoff when the requested skill is absent |
 | `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/domios.md` |
 | `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; `service/skill_mirror.rs` renders the same constant into the `codeterm` skill through the same placeholder |
-| `mem_management.md` | `MEM_MANAGEMENT` | Shared memory management | — | GA renderer, Orchestrator and Planner suffixes, and roleless agent onboarding; excluded from Workers and Cartographer |
+| `mem_management.md` | `MEM_MANAGEMENT` | Shared memory management | — | GA renderer, roleless agent onboarding, and host text after the Orchestrator, Planner and Watcher prose; excluded from Workers, Cartographer and Curator |
 | `bridge_mem.md` | `BRIDGE_MEM` | Memory protocol rule | — | `service/sync_watcher.rs:18` installs per provider; inlined into Codex `AGENTS.md` |
 | `worker_task_preamble.md` | `WORKER_TASK_PREAMBLE` | Memory worker wrapper | `{intent}` `{worker_id}` `{task}` | `mem/workers.rs` `build_worker_task()` — wraps every headless memory worker task |
 | `plugin_agent_task_preamble.md` | `PLUGIN_AGENT_TASK_PREAMBLE` | Plugin agent wrapper | `{task}` | `service/plugin_host.rs` — wraps plugin-spawned agent tasks before launch |
@@ -122,19 +110,42 @@ Five of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 `codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` as baseline memory items on every startup. Overwrite authority is each item's `seed_fingerprint` (see `prod-docs/MEMORY.md`): an edited seed reaches a machine on restart only while nothing else has changed that item; a real edit through `mem update` or the API clears the fingerprint, and the item is left alone from then on. Seeds reach agents only through `domios mem search`/`get`.
 
+## Role files
+
+Builtin role prose lives once in the default package. `check-prompts-doc.sh` requires a row here for every role file; `codeterm-team-package` requires `team.yaml` to reference each one. Role prose carries no `{placeholder}`: host runtime text is appended after it per group and manager slot, and a package can never remove or replace that text.
+
+| Role file | Group | Host text appended after it |
+|---|---|---|
+| `default/managers/orchestrator.md` | Manager slot `orchestrator`; served as `domios docs ORCHESTRATION` | `plan_task_flags.md`, `mem_management.md` |
+| `default/managers/planner.md` | Manager slot `planner` and the host-only `watcher`; served as `domios docs PLANNER` | `plan_task_flags.md`, `mem_management.md` |
+| `default/managers/cartographer.md` | Manager slot `cartographer` | — |
+| `default/managers/curator.md` | Manager slot `curator`, including its ask rubric | — |
+| `default/workers/worker.md` | Worker type `worker`; the base of an unregistered Worker type | `testing_discipline.md`, `qa_pipeline_discipline.md` |
+| `default/workers/qa.md` | Worker type `qa` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
+| `default/workers/reviewer.md` | Worker type `reviewer` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
+| `default/workers/release_manager.md` | Worker type `release_manager` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
+
+Every role then receives the Team's worker types with their descriptions, plus its own registered files and skills.
+
 ## Role presets — one resolver, one composition table
 
-`service/role_preset.rs` is the sole persona registry. It resolves `(role,
-role_profile)` by kind capability, never by provider literal or a separate Worker path.
+`service/role_preset.rs` is the sole role registry. It resolves a role type by
+precedence task > Team registration > builtin default package, by kind
+capability, never by provider literal or a separate Worker path. An omitted
+manager slot falls back to the default package; a same-named Team worker
+replaces the builtin entirely. Registrations live per Team in
+`<data-dir>/teams/<team_id>/roles.json` (`service/team_roles.rs`), are immutable
+once stored, and never change a role type's structural capability.
 
 A preset's guidance is a list of fragments, each with its own provenance, joined
 with a blank line in this order:
 
 | Fragment | Source | Meaning |
 |---|---|---|
-| `builtin` | `role_preset::builtin_guidance` | Bundled text for a builtin kind |
-| `inherited_base` | `worker_suffix.md` | The base a leaf kind inherits when it ships no bundled text |
-| `disk_overlay` | `<data-dir>/role-presets/*.toml` | Runtime-declared leaf guidance |
+| `builtin` | the default package role file | Prose for a builtin role type |
+| `team_registration` | the Team's `roles.json` | Prose pinned to the registering package |
+| `inherited_base` | `default/workers/worker.md` | The base an unregistered Worker type reads |
+| `host` | `src-tauri/prompts/` | Host runtime text per group and manager slot, then the Team's worker types |
 | `task_overlay` | The dispatch | Task personality, `role_guidance`, and `executor_role` for this one delivery |
 
 `service/persona/occasion.rs` holds the single declarative table mapping a
@@ -143,51 +154,23 @@ it speaks with no payload. Occasions:
 
 | Occasion | Injection point | Fragments | Declared fallback |
 |---|---|---|---|
-| `launch_assignment` | `service/orchestrator/prompt_compose.rs` | contract (`builtin`/`inherited_base` + `disk_overlay`) | the assignment alone |
+| `launch_assignment` | `service/orchestrator/prompt_compose.rs` | contract (role prose + `host`) | the assignment alone |
 | `worker_launch_identity` | `service/persona/occasion.rs` | `task_overlay` only | `You are a Domios Worker.` |
-| `manager_bootstrap` | `service/role_identity.rs` | contract | `planner_suffix.md` |
+| `manager_bootstrap` | `service/role_identity.rs` | contract | the builtin Planner contract |
 
 Every occasion declares a fallback, and an unmatched `(occasion, kind)` pair
 lands on it rather than on silence. Worker task personality is not a private
 path: it enters as the `task_overlay` fragment of the same `RolePreset` a
 manager kind resolves, and only the `worker_launch_identity` occasion places it.
 
-### Runtime overlays
-
-Files in `<data-dir>/role-presets/*.toml` add leaf kinds without a rebuild
-(`domios role reload` re-reads them):
-
-```toml
-id = "rust-backend-dev"
-label = "Rust Backend Dev"
-base = "worker"                        # optional; only a leaf base is admissible
-guidance = "Stay inside src-tauri/."
-```
-
-An overlay may add a kind id, a label, and layered guidance. It may never do
-anything else, and each refusal has its own reason, reported by
-`domios role list`:
-
-| Reason | Trigger |
-|---|---|
-| `builtin_override` | `id` names a builtin kind |
-| `capability_escalation` | declares `anchors_team`, `can_spawn`, `team_authority`, `requires_parent`, `capability`, `origin`, or claims an anchoring base |
-| `team_authority_claim` | claims the `planner` or `watcher` base |
-| `missing_core` | the contract it claims would ship without the Worker framework rule or the report protocol |
-| `malformed` / `unreadable` / `empty_guidance` | the file cannot be used at all |
-
-A refused file is skipped and logged; it never blocks a healthy sibling, and an
-overlay kind always resolves to leaf capability — it can never anchor a Team,
-spawn, or hold Team authority.
-
 ### Inspecting the resolver
 
-`domios role list` shows every reachable kind with its capability columns
-and the refused overlays. `domios role show --role Worker --kind
-rust-backend-dev --guidance "You are Mira."` renders the exact text each
+`domios role list --team <team-id>` shows every role type the Team can launch
+with its package provenance and capability columns. `domios role show checker
+--team <team-id> --guidance "You are Mira."` renders the exact text each
 occasion emits, which fragment supplied it, and whether the declared fallback
-was used. The text comes from the shared resolver, so what it prints is what the
-agent receives.
+was used. `domios role reload --team <team-id>` re-reads the Team's
+registrations from disk.
 
 Reusable operations belong in embedded docs or folder skills; machine-local preferences belong in mem.
 
@@ -209,7 +192,7 @@ Embedded prompts describe Domios capabilities and general agent behavior. This r
         ▼
 owning loader module (pub const &str)
         │
-        ├──► app prompts.rs ─► service/orchestrator/prompt_compose.rs (rendered role suffixes)
+        ├──► app prompts.rs ─► service/orchestrator/prompt_compose.rs (role composition)
         │                    └─► service/plugin_host.rs (plugin-agent wrapper)
         ├──► codeterm-plan/prompts_plan.rs ─► worker task rendering
         ├──► codeterm-mem/prompt_text.rs ─► extraction, dreaming, and reranking

@@ -244,7 +244,7 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     doc!(
         "ORCHESTRATION",
         "Team orchestration lifecycle",
-        "../../../prod-docs/ORCHESTRATION.md"
+        "../../../src-tauri/team-templates/default/managers/orchestrator.md"
     ),
     doc!(
         "ORCHESTRATION-TASKS",
@@ -269,7 +269,7 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     doc!(
         "PLANNER",
         "Planner responsibilities and workflow",
-        "../../../prod-docs/PLANNER.md"
+        "../../../src-tauri/team-templates/default/managers/planner.md"
     ),
     doc!(
         "BOUNCE",

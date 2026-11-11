@@ -4,6 +4,7 @@ use serde::Serialize;
 
 pub mod builtins;
 pub mod query;
+pub mod role_type;
 
 #[cfg(test)]
 mod tests;
@@ -15,6 +16,7 @@ pub use query::can_close_review;
 pub use query::{anchors_team, can_spawn, has_team_authority, manages, plan_approval, plan_edit};
 pub use query::{kind_capability, kind_descriptor, kind_id, kind_label, taskless_worker};
 pub use query::{read_only_by_default, release, requires_parent};
+pub use role_type::{RoleType, RoleTypeError};
 
 /// Structural authority of a role kind. Fields are private and `LEAF` is the
 /// only public value, so capability cannot be named or forged off-crate.

@@ -58,6 +58,7 @@ fn sessionless_model_switch_prepares_fresh_model_and_fences_first_send_or_replac
                 None,
                 snap.role.as_deref(),
                 snap.role_profile.as_deref(),
+                None,
             )
         };
         assert_eq!(launch.task, expected_identity);

@@ -5,7 +5,7 @@ import {measurements} from './model.mjs';
 import {leafSessionIdKey} from './snapshot-contract.mjs';
 
 export function worstCases(root, cwd, now = Date.now()) {
-  const manualFiles = ['prod-docs/ORCHESTRATION.md', 'prod-docs/ROUTING.md',
+  const manualFiles = ['src-tauri/team-templates/default/managers/orchestrator.md', 'prod-docs/ROUTING.md',
     'prod-docs/TAB-LIFECYCLE.md', 'src-tauri/prompts/codeterm_cli.md',
     'src-tauri/prompts/manager_bootstrap.md', 'src-tauri/prompts/general_agent.md'];
   const manuals = manualFiles.map(path => readFileSync(resolve(root, path), 'utf8')).join('\n');

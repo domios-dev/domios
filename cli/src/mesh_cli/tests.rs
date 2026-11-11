@@ -288,18 +288,18 @@ fn update_install_local_only_options_are_rejected_over_mesh() {
     assert!(b.is_none());
 }
 
-/// Role inspection reads the serving daemon's compiled prompts and its own overlay
-/// directory, so a mesh call must refuse rather than answer from local state.
+/// Role inspection reads the serving daemon's compiled prompts and its own Team
+/// role registry, so a mesh call must refuse rather than answer from local state.
 #[test]
 fn role_inspection_is_refused_over_mesh_for_every_subcommand() {
     use crate::args::role::RoleAction;
 
     for action in [
-        RoleAction::List,
-        RoleAction::Reload,
+        RoleAction::List { team: None },
+        RoleAction::Reload { team: None },
         RoleAction::Show {
-            role: "Worker".into(),
-            kind: Some("rust-backend-dev".into()),
+            role_type: "checker".into(),
+            team: Some("team_a".into()),
             guidance: None,
             occasion: None,
         },
@@ -308,7 +308,7 @@ fn role_inspection_is_refused_over_mesh_for_every_subcommand() {
         assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
         assert!(reason.contains("socket-only"), "reason: {reason}");
         assert!(
-            reason.contains("overlay directory"),
+            reason.contains("role registry"),
             "the refusal must say whose catalog would be wrong: {reason}"
         );
         assert!(b.is_none(), "a refused command carries no body");

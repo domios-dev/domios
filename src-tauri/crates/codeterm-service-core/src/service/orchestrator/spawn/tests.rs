@@ -644,7 +644,13 @@ fn chatbackend_worker_receives_identity_context_contract_and_assignment_once() {
         1
     );
     assert_eq!(
-        prompt.matches(crate::prompts::WORKER_SUFFIX.trim()).count(),
+        prompt
+            .matches(
+                crate::service::builtin_roles::builtin_prose("worker")
+                    .unwrap()
+                    .trim()
+            )
+            .count(),
         1
     );
     assert_eq!(prompt.matches("repair transport").count(), 1);

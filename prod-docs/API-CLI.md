@@ -196,11 +196,11 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 
 | Command | RPC | Purpose |
 |---|---|---|
-| `domios role list` | `role.list` | Every reachable role kind with capability columns, plus refused overlays and why |
-| `domios role show --role <Manager\|Worker> [--kind <id>] [--guidance <text>] [--occasion <id>]` | `role.show` | The exact text each occasion emits, its fragments, and their provenance |
-| `domios role reload` | `role.reload` | Re-read `<data-dir>/role-presets/*.toml` without a restart or rebuild |
+| `domios role list [--team <team-id>]` | `role.list` | Every role type the Team can launch, with package provenance and capability columns |
+| `domios role show [<type>] [--team <team-id>] [--guidance <text>] [--occasion <id>]` | `role.show` | The exact text each occasion emits, its fragments, and their package provenance |
+| `domios role reload [--team <team-id>]` | `role.reload` | Re-read a Team's role registrations from disk |
 
-Overlay files add leaf kinds only; one that declares capability, claims an anchoring or Team-authority base, overrides a builtin kind, or owns a contract without the coordination core is refused with a reason and skipped.
+Role types resolve task > Team registration > the builtin default package. A registration replaces a role's prose only; it never changes the type's capability or authority.
 
 ## Account
 
@@ -231,4 +231,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 83 -->
+<!-- revision: 84 -->

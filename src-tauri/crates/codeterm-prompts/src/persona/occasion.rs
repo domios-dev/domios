@@ -61,7 +61,7 @@ impl Selector {
 /// Which fragments of the preset an occasion consumes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
-    /// The kind's own contract: bundled or inherited base plus disk overlays.
+    /// The role type's own contract: its prose plus host text.
     Contract,
     /// Only the persona this delivery supplied.
     TaskPersona,
@@ -109,6 +109,13 @@ pub const DEFAULT_WORKER_IDENTITY: &str = "You are a Domios Worker.";
 /// The default identity of a Worker launched without a task-owned persona.
 fn default_worker_identity() -> String {
     DEFAULT_WORKER_IDENTITY.to_string()
+}
+
+/// A manager bootstrap with no resolvable role reads the builtin Planner's contract.
+fn default_manager_guidance() -> String {
+    crate::role_preset::resolve(Some(AgentRole::Manager), Some(builtins::PLANNER), None)
+        .map(|preset| preset.contract_guidance())
+        .unwrap_or_default()
 }
 
 static TABLE: &[OccasionRules] = &[
@@ -182,7 +189,7 @@ static TABLE: &[OccasionRules] = &[
                 standalone: true,
             },
         )],
-        fallback: Fallback::Declared(crate::prompts::planner_suffix),
+        fallback: Fallback::Declared(default_manager_guidance),
     },
 ];
 
