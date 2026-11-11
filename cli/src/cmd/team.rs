@@ -118,7 +118,11 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         | TeamAction::Template { .. }
         | TeamAction::Distill(_)
         | TeamAction::Export(_)
-        | TeamAction::Import(_) => unreachable!("these verbs return before the socket verbs"),
+        | TeamAction::Import(_)
+        | TeamAction::Recall(_)
+        | TeamAction::DeleteTemplate(_) => {
+            unreachable!("these verbs return before the socket verbs")
+        }
         TeamAction::Check { .. } => unreachable!("team check runs before socket discovery"),
     };
     match result {
