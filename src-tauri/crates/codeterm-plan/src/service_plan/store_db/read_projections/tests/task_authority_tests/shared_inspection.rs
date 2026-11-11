@@ -3,7 +3,9 @@ use crate::plan::WorkerPlacement;
 use crate::service_plan::task_authority_projection::SharedReportRead;
 
 fn reference(task: &crate::plan::Task, reporter: &str) -> Option<SharedReportRead> {
-    if task.assigned_tab_id.as_deref() != Some(reporter) {
+    if !task.execution_intent.requires_repository()
+        || task.assigned_tab_id.as_deref() != Some(reporter)
+    {
         return None;
     }
     let attempt = task.execution_attempts.iter().rfind(|attempt| {
@@ -37,7 +39,7 @@ fn configure(plan: &mut Plan) {
 
 #[test]
 fn shared_inspection_preserves_latest_attempt_epoch_and_snapshot_fields() {
-    for variant in 0..15 {
+    for variant in 0..16 {
         let directory = tempfile::tempdir().unwrap();
         let mut plan = authority_plan(directory.path());
         configure(&mut plan);
@@ -70,6 +72,7 @@ fn shared_inspection_preserves_latest_attempt_epoch_and_snapshot_fields() {
                 plan.tasks[0].interruption.owner_epoch = u64::MAX;
                 plan.tasks[0].execution_attempts[0].interruption.owner_epoch = u64::MAX;
             }
+            15 => plan.tasks[0].execution_intent = crate::plan::TaskExecutionIntent::NonRepository,
             _ => {}
         }
         let database = fixtures::database(directory.path(), &plan);

@@ -68,7 +68,8 @@ impl PlanDatabase {
                     'files',json(coalesce(json_extract(t.row_json,'$.files'),'{{}}')))
                  FROM chosen c JOIN plan_task_attempts a ON a.plan_id=c.plan_id AND a.task_id=c.task_id AND a.position=c.position
                     JOIN selected_task t ON t.plan_id=c.plan_id AND t.task_id=c.task_id
-                 WHERE CASE WHEN json_type(a.row_json,'$.placement') IS NULL THEN 0
+                 WHERE json_extract(t.row_json,'$.execution_intent') IS NOT 'non_repository'
+                    AND CASE WHEN json_type(a.row_json,'$.placement') IS NULL THEN 0
                     WHEN json_extract(a.row_json,'$.placement') IN ('isolated_lane','shared','canonical_writer','read_only','non_repository')
                         THEN json_extract(a.row_json,'$.placement')='shared' ELSE json('invalid worker placement') END)"),
             params![plan,task,reporter],|row|Ok((column(row,0)?,column(row,1)?,column(row,2)?)),

@@ -22,7 +22,10 @@ impl SharedDispatchInspection {
 
 impl SharedReportSnapshot {
     fn capture(task: &Task, reporter: &str) -> Option<Self> {
-        if task.assigned_tab_id.as_deref() != Some(reporter) {
+        // A non_repository task carries no Git attribution, whatever its attempt placement.
+        if !task.execution_intent.requires_repository()
+            || task.assigned_tab_id.as_deref() != Some(reporter)
+        {
             return None;
         }
         let attempt = task.execution_attempts.iter().rfind(|attempt| {
