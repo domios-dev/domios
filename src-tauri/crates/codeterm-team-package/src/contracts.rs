@@ -225,6 +225,9 @@ pub struct TemplatePreview {
     pub form: TemplateStartForm,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub where_needed: Option<TemplateWhere>,
+    /// The package's `requires.harnesses`, whether or not this machine has them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires_harnesses: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub asks: Vec<TemplateAsk>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -256,6 +259,9 @@ pub struct TemplateStartRequest {
     pub opt_out: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_id: Option<String>,
+    /// Secret name to the local vault entry that supplies it; values never travel.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secret_bindings: BTreeMap<String, String>,
     /// Choices for with_team managers beyond the pair's own Orchestrator and Planner fields.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub manager_models: BTreeMap<ManagerSlot, ManagerModelChoice>,
@@ -315,6 +321,26 @@ pub enum TemplateStartResult {
     Refused {
         refusal: TemplateStartRefusal,
     },
+}
+
+/// The code a non-started result carries when it travels as an error message.
+pub const TEMPLATE_START_ERROR: &str = "template_start";
+
+impl TemplateStartResult {
+    /// `template_start: <json>`; the typed JSON closes the message so every transport keeps it.
+    pub fn error_message(&self) -> String {
+        format!(
+            "{TEMPLATE_START_ERROR}: {}",
+            serde_json::to_string(self).unwrap_or_default()
+        )
+    }
+
+    pub fn from_error_message(message: &str) -> Option<Self> {
+        let json = message
+            .strip_prefix(TEMPLATE_START_ERROR)?
+            .strip_prefix(": ")?;
+        serde_json::from_str(json).ok()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

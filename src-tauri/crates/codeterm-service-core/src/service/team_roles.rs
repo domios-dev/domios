@@ -149,6 +149,24 @@ impl TeamRoleStore {
         Ok(RoleRegistrationOutcome::Created)
     }
 
+    /// Removes the registrations of a Team that never came up (a rolled-back pair mint).
+    pub fn forget(&self, team_id: &str) -> Result<(), String> {
+        let file = self.file(team_id)?;
+        let mut cache = self.cache.lock();
+        for path in std::iter::once(file.path().to_path_buf()).chain(file.backups()) {
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("remove {}: {error}", path.display())),
+            }
+        }
+        // Only empty folders go; anything else under the Team folder is not ours.
+        let _ = std::fs::remove_dir(file.backup_dir());
+        let _ = std::fs::remove_dir(self.root.join(team_id));
+        cache.remove(team_id);
+        Ok(())
+    }
+
     /// Drops cached registrations so the next read comes from disk.
     pub fn reload(&self, team_id: Option<&str>) {
         let mut cache = self.cache.lock();
