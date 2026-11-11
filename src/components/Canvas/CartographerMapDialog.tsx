@@ -11,6 +11,7 @@ import { ComposerTextInput } from "../Terminal/ComposerTextInput";
 import { ComposerInputShell } from "../Terminal/ComposerInputShell";
 import { ComposerActionButton } from "../Terminal/ComposerActionButton";
 import { useComposerVoice } from "../Terminal/voice/useComposerVoice";
+import { TranscriberSetupAction } from "../Terminal/voice/TranscriberSetupAction";
 import { composerAttachmentHandoff } from "../Terminal/composerAttachmentHandoff";
 import {
   CARTOGRAPHER_FOCUS_SOURCES,
@@ -37,6 +38,7 @@ function useCartographerMapForm({ mode, providers, onStart, onCancel }: Cartogra
   const [submitting, setSubmitting] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -47,6 +49,7 @@ function useCartographerMapForm({ mode, providers, onStart, onCancel }: Cartogra
     if (inFlight.current || paths.length === 0) return;
     setTranscribing(true);
     setError(null);
+    setTranscriptionError(null);
     try {
       const text = (await Promise.all(paths.map(async (path) => {
         const line = await composerAttachmentHandoff.transcribeLocal(path);
@@ -56,7 +59,7 @@ function useCartographerMapForm({ mode, providers, onStart, onCancel }: Cartogra
       }))).join("\n");
       if (mounted.current) setDraft((current) => ({ ...current, ownerDescription: current.ownerDescription ? `${current.ownerDescription}\n${text}` : text }));
     } catch (reason) {
-      if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason));
+      if (mounted.current) setTranscriptionError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       if (mounted.current) setTranscribing(false);
     }
@@ -66,6 +69,7 @@ function useCartographerMapForm({ mode, providers, onStart, onCancel }: Cartogra
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
+    setTranscriptionError(null);
     try {
       await action();
       onCancel();
@@ -77,7 +81,7 @@ function useCartographerMapForm({ mode, providers, onStart, onCancel }: Cartogra
     }
   };
   const submit = () => { if (draft.providerId) return run(() => onStart(draft)); };
-  return { draft, setDraft, submitting, transcribing, error, setError, transcribe, submit, run };
+  return { draft, setDraft, submitting, transcribing, error, transcriptionError, setError, transcribe, submit, run };
 }
 
 export function CartographerMapDialog(props: CartographerMapDialogProps) {
@@ -141,6 +145,7 @@ export function CartographerMapDialog(props: CartographerMapDialogProps) {
       {!voiceUi.isPreview && <ComposerActionButton voiceUi={voiceUi} sendDisabled={busy} onSend={() => {}} />}
     </div>
     {form.transcribing && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Transcribing description…</p>}
+    {form.transcriptionError && <TranscriberSetupAction reason={form.transcriptionError} />}
     {form.error && <InlineErrorNotice error={form.error} operation="starting the Cartographer" blocking />}
     <div className="flex justify-end gap-2">
       <button type="button" className={UI_BUTTON.ghost} disabled={form.submitting} onClick={props.onCancel}>Cancel</button>

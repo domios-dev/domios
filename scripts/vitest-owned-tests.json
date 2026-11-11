@@ -415,5 +415,6 @@
   "src/components/Sidebar/WorkspaceNavigationActions.live.test.tsx",
   "src/components/Sidebar/TeamStatusTally.test.tsx",
   "src/components/Sidebar/useSidebarScrollAnchor.test.tsx",
-  "src/components/Jobs/TeamJobsUnit.test.tsx"
+  "src/components/Jobs/TeamJobsUnit.test.tsx",
+  "src/components/Terminal/voice/TranscriberSetupAction.test.tsx"
 ]
