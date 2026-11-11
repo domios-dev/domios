@@ -103,7 +103,9 @@ each and exhausted the deadline before any tab verdict.
 Each verifier has one bounded failure deadline (maximum 120 seconds). It waits
 for CLI/process completion and provider runtime protocol handles, not elapsed-time
 readiness. It checks build SHA, every captured leaf's role/provider/session,
-confirmed runtime nonce, loaded runtime epoch, Worker attempt identity, visibility
+confirmed runtime nonce, loaded runtime epoch, completed history paging
+(`agent_runtime_state.history = complete`; a loaded runtime keeps paging older
+history in the background, and `failed` ends the wait), Worker attempt identity, visibility
 and consumed fake history. It also requires a changed daemon boot id and the
 SHA256 of the staged fixture, so import without restart cannot pass. Failures name their tab and exact runtime reason,
 including SizeLimit, binding incomplete, missing tab and deadline. Evidence is

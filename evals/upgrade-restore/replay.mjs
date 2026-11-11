@@ -67,7 +67,7 @@ const results = await Promise.all(expected.map(async tab => {
       judge: actual => {
         const result = verdict(tab, actual);
         if (result.ready) return {done: actual};
-        if (actual?.agent_runtime_state?.state === 'degraded' || actual?.boot_stage === 'spawn_failed') {
+        if (result.terminal || actual?.agent_runtime_state?.state === 'degraded' || actual?.boot_stage === 'spawn_failed') {
           return {fail: result.reason};
         }
         return {pending: `tab=${tab.tab_id}: ${result.reason}`};

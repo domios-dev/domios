@@ -181,6 +181,14 @@ export function verdict(expected, actual) {
   if (!actual.session_binding_nonce || actual.session_binding_nonce !== actual.reported_session_binding_nonce) {
     return {tab_id: id, ready: false, reason: 'binding incomplete: runtime nonce unconfirmed'};
   }
+  // A loaded runtime still pages history; chat holds only the pages read so far until it completes.
+  if (runtime.history === 'failed') {
+    return {tab_id: id, ready: false, terminal: true,
+      reason: `history failed after ${runtime.historyPages ?? 0} pages: ${runtime.historyError ?? 'unknown'}`};
+  }
+  if (runtime.history !== 'complete') {
+    return {tab_id: id, ready: false, reason: `history ${runtime.history ?? 'missing'} after ${runtime.historyPages ?? 0} pages`};
+  }
   return {tab_id: id, ready: true, reason: 'runtime loaded with authoritative binding'};
 }
 

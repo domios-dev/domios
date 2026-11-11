@@ -11,7 +11,7 @@ const fixture = () => worstCases(root, '/isolated-fixture-project');
 function ready(tab) {
   return {...tab, task_binding: tab.agent_identity?.task_binding,
     session_binding_nonce: 'nonce-current', reported_session_binding_nonce: 'nonce-current',
-    agent_runtime_state: {state: 'loaded', epoch: 1}};
+    agent_runtime_state: {state: 'loaded', epoch: 1, history: 'complete', historyPages: 1}};
 }
 
 test('capture verifies all leaf, prompt, identity and normalized history byte sizes', () => {
