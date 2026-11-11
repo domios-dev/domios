@@ -45,8 +45,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `domios sessions backups restore <name>`. |
 
 Authenticated snapshot exchange: `GET /api/session/backups/{name}/export`
-accepts `latest` or a backup timestamp and returns an `upgrade-restore-v2`
-sanitized desk, Plan store, per-tab history shapes (message kinds, groups and
+accepts `latest` or a backup timestamp and returns a version-2 sanitized desk, Plan store, per-tab history shapes (message kinds, groups and
 byte sizes, never transcript text), size evidence and hidden-tab metadata. CLI:
 `domios sessions backups export latest --sanitize --out /tmp/desk.json`.
 

@@ -214,7 +214,7 @@ fn history_shape_keeps_restore_thresholds_at_a_size_independent_of_history_bytes
         "version":"1","timestamp":1,"active_workspace_id":"workspace",
         "workspaces":[{"id":"workspace","name":"desk","active_tab_id":"long",
             "tabs":[{"id":"long","title":"long","split_tree":{"type":"Leaf","tab_id":"long",
-                "cwd":"/private/project","agent_type":"codex","agent_session_id":"thread-long",
+                "cwd":"/private/project","agent_type":"opaque-agent","agent_session_id":"thread-long",
                 "agent_identity":{"agent_runtime_config":{"systemPrompt":"p".repeat(70 * 1024)}}}}]}]
     }))
     .unwrap();
