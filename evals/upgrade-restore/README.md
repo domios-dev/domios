@@ -94,6 +94,12 @@ CODETERM_INSTANCE=upgrade-restore-real CODETERM_API_PORT=<dev-port> \
 ```
 
 Repeat with `upgrade-restore-worst`, its isolated port and `/tmp/upgrade-worst`.
+The replay composes the DEV connection once through the bench lib (`dev_resolve`,
+target and identity assertions, `dev_run`), refuses non-`upgrade-restore-*`
+instances and ports 7685/7686, then reads health, providers and every tab's
+focus, inspect and chat in-process (`transport.mjs`). Only stage's config and
+import mutations use `dc`. A shell plus lib resolution per read costs seconds
+each and exhausted the deadline before any tab verdict.
 Each verifier has one bounded failure deadline (maximum 120 seconds). It waits
 for CLI/process completion and provider runtime protocol handles, not elapsed-time
 readiness. It checks build SHA, every captured leaf's role/provider/session,
@@ -115,7 +121,7 @@ outside this app startup gate.
 ## Focused checks and current limitations
 
 ```bash
-node --test evals/upgrade-restore/model.test.mjs evals/upgrade-restore/process.test.mjs evals/upgrade-restore/cli-result.test.mjs
+node --test evals/upgrade-restore/model.test.mjs evals/upgrade-restore/process.test.mjs evals/upgrade-restore/cli-result.test.mjs evals/upgrade-restore/transport.test.mjs
 ```
 
 Canonical Rust selectors: `./build.sh test-one app api::session_exchange` and
