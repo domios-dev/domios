@@ -27,7 +27,11 @@ const fixture = vi.hoisted(() => {
       preview: vi.fn(),
       export: vi.fn(),
       import: vi.fn(),
+      delete: vi.fn(),
+      card: vi.fn(),
+      distill: vi.fn(),
     },
+    vault: vi.fn(async () => ["SEARCH_API_KEY"]),
   };
 });
 
@@ -41,8 +45,13 @@ vi.mock("../../lib/bridge", async (importOriginal) => ({
   listen: vi.fn(async () => () => undefined),
 }));
 vi.mock("../../lib/transport/orchestrationRuntime", () => ({ teamTemplatesTransport: () => fixture.templates }));
+vi.mock("../../lib/teamTemplates/vaultSecrets", () => ({ listVaultSecretNames: fixture.vault, openSecretsSettings: vi.fn() }));
 
 import { NewSessionPicker } from "./NewSessionPicker";
+import { openTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
+import exchange from "../../../src-tauri/crates/codeterm-team-package/fixtures/contracts/exchange.json";
+
+type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -149,6 +158,7 @@ describe("Team template start in the session dialog", () => {
       inputs: { question: "EU heat pumps", depth: "standard" },
       opt_out: ["skill:source-check"],
       decision_id: "tcd_7f3a2c",
+      secret_bindings: { SEARCH_API_KEY: "SEARCH_API_KEY" },
     });
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -184,5 +194,42 @@ describe("Team template start in the session dialog", () => {
     const asks = Array.from(dialog().querySelectorAll("[data-ask]")).map((row) => row.getAttribute("data-ask"));
     expect(asks).toEqual(["shell"]);
     expect(dialog().querySelector('[data-testid="template-where"]')?.textContent).toContain("codex isn't installed");
+  });
+
+  it("blocks start until a required secret is bound when the vault has no entry of that name", async () => {
+    fixture.vault.mockResolvedValueOnce([]);
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    await renderPicker();
+    await chooseResearchDesk();
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.textContent).toBe("Choose a secret for SEARCH_API_KEY");
+    expect(start().disabled).toBe(true);
+    expect(dialog().querySelector('[aria-label^="Secret for SEARCH_API_KEY"]')).not.toBeNull();
+  });
+
+  it("deletes a template from My templates only after an inline confirm", async () => {
+    fixture.templates.delete.mockResolvedValue(exchange.delete_result);
+    await renderPicker();
+    await click(button("Change template"));
+    const kebab = button("More actions for com.example/research-desk");
+    expect(kebab).toBeDefined();
+    await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
+    const remove = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Delete");
+    await click(remove);
+    expect(fixture.templates.delete).not.toHaveBeenCalled();
+    const confirm = dialog().querySelector('[role="alertdialog"]')!;
+    await click(Array.from(confirm.querySelectorAll<HTMLButtonElement>("button")).find((candidate) => candidate.textContent?.trim() === "Delete"));
+    expect(fixture.templates.delete).toHaveBeenCalledWith({ name: "com.example/research-desk", version: "2.1.0" });
+    expect(fixture.templates.list).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens a shared package straight into its review with the update it brings", async () => {
+    localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "claude" }));
+    const update = { ...exchange.import_result.update, name: "com.example/research-desk", from_version: "2.0.3", to_version: "2.1.0" } as TemplateUpdateDiff;
+    openTemplatePreview({ id: "workspace", cwd: "/workspace" }, { name: "com.example/research-desk", version: "2.1.0" }, update);
+    await renderPicker();
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
+    expect(dialog().querySelector('[data-testid="template-update-diff"]')?.textContent).toContain("Roles added: editor");
+    expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 });

@@ -67,7 +67,7 @@ export function TemplateStartFields({ choice, preview, providers, disabledProvid
         </div>
       )}
       <TemplateBrings payload={preview.payload ?? []} optOut={choice.optOut} onToggle={choice.setKept} />
-      <TemplateAsks asks={preview.asks ?? []} />
+      <TemplateAsks asks={preview.asks ?? []} secrets={{ bindings: choice.secrets, vault: choice.vault, onBind: choice.setSecret }} />
       {needs.length > 0 && (
         <section aria-label="Where" className="flex flex-col gap-1 text-[12px]" data-testid="template-where">
           {needs.map((need) => need.kind === "missing_harness" ? (

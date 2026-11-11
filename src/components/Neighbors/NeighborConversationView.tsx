@@ -36,6 +36,8 @@ import { FINAL_REFUSALS, neighborRuntimeClient, NeighborRuntimeFailure, type Nei
 import { useNeighbors } from "./useNeighbors";
 import { readNeighborCache, type CachedFriend } from "./neighborListCache";
 import { useNeighborPermission } from "./useNeighborPermission";
+import { TemplateShareCardView, useDismissedTemplateCards } from "../TeamTemplates/TemplateShareCardView";
+import { isTemplateFileName } from "../../lib/teamTemplates/exchangeModel";
 import { formatBytes, neighborFilesClient, NeighborFilesFailure, type NeighborFile, type NeighborFilesClient } from "./neighborFilesClient";
 import { notReceivingReason, useReceiverState } from "./useReceiverState";
 import { useNeighborStatus } from "./neighborStatusStore";
@@ -93,6 +95,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const { permission } = useNeighborPermission(runtimeClient, conciergeClient, friendship);
   // Files join their message by id; the list reloads whenever a transfer moves.
   const [files, setFiles] = useState<NeighborFile[]>([]);
+  const [dismissedCards, dismissCard] = useDismissedTemplateCards();
   const filesGeneration = useRef(0);
   const reloadFiles = useCallback(() => {
     const current = ++filesGeneration.current;
@@ -326,6 +329,8 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
             {day && <ChatDaySeparator label={day} />}
             <Entry entry={entry} friend={friend} friendName={name} agentLabel={agentLabel(entry)}
               files={filesOf(entry)}
+              templateCards={filesOf(entry).filter(file => file.direction === "in" && file.state === "saved" && isTemplateFileName(file.name) && !dismissedCards.has(file.file_id))
+                .map(file => <TemplateShareCardView key={file.file_id} friendship={friendship} fileId={file.file_id} senderName={name} onDismiss={() => dismissCard(file.file_id)} />)}
               onOpenFile={file => { void filesClient.open(friendship, file.file_id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file could not be opened.")); }} grouped={!day && continuesGroup(entry, index > 0 ? shown[index - 1] : null)} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
               checking={checking === entry.message_id} onCheckDelivery={() => checkDelivery(entry.message_id)} quoted={quoted ? { label: speaker(quoted, name), excerpt: readableBody(quoted.body, new Set(filesOf(quoted).map(file => file.file_id))) } : null}
               onOpenQuoted={() => scrollTo(entry.in_reply_to!)}
@@ -364,8 +369,8 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   </div>;
 }
 
-function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, standing, settled, outgoing, onFlag, quietOutcome }: {
-  entry: HistoryEntry; friend: ConversationFriend; friendName: string; agentLabel: string; files: NeighborFile[]; onOpenFile: (file: NeighborFile) => void; grouped: boolean; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
+function Entry({ entry, friend, friendName, agentLabel, files, templateCards, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, standing, settled, outgoing, onFlag, quietOutcome }: {
+  entry: HistoryEntry; friend: ConversationFriend; friendName: string; agentLabel: string; files: NeighborFile[]; templateCards?: ReactNode; onOpenFile: (file: NeighborFile) => void; grouped: boolean; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
   quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
   /** Your concierge's standing on this message: inside the time row once settled, its own line while under way. */
   standing?: ReactNode; settled?: boolean;
@@ -409,6 +414,7 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
           trigger={<RowMenuButton label={`Actions for this message from ${friendName}`} title="Message actions" />} />}
       </div>
       {files.length > 0 && <div className="neighbor-files" role="list" aria-label="Files">{files.map(file => <FileChip key={file.file_id} file={file} onOpen={onOpenFile} />)}</div>}
+      {templateCards}
       <p className="neighbor-msg__meta">
         <time dateTime={new Date(entry.at).toISOString()} title={`${new Date(entry.at).toLocaleString()}${quietOutcome ? `. ${quietOutcome}` : ""}`}>{time}</time>
         {mine && (refusal || mark === "not_delivered") ? <span className="neighbor-work neighbor-work--inline" data-work="refused">

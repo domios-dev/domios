@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import exchange from "../../../src-tauri/crates/codeterm-team-package/fixtures/contracts/exchange.json";
+import { templatePreviewFixture } from "../transport/teamTemplates.testdata";
+import {
+  authorLine, authorRows, distillName, initialSecretBindings, isTemplateFileName, linkRows, shareAsksSummary, updateDiffLines, usedByLine,
+} from "./exchangeModel";
+
+type TemplateAsk = import("../../../gen/TemplateAsk").TemplateAsk;
+type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
+
+describe("template exchange model", () => {
+  it("names authors and follows only web links from a shared package", () => {
+    const summary = { authors: [
+      { name: "Jane Doe", role: "maintainer" as const, url: "https://example.com/jane" },
+      { name: "Example Labs", url: "javascript:alert(1)" },
+    ], links: { homepage: "https://example.com/desk", repository: "file:///etc/passwd", docs: "http://docs.example.com/" } };
+    expect(authorLine(summary)).toBe("by Jane Doe, Example Labs");
+    expect(authorRows(summary)).toEqual([
+      { name: "Jane Doe", role: "maintainer", url: "https://example.com/jane" },
+      { name: "Example Labs", role: null, url: null },
+    ]);
+    expect(linkRows(summary)).toEqual([{ label: "Homepage", url: "https://example.com/desk" }, { label: "Docs", url: "http://docs.example.com/" }]);
+    expect(authorLine({ authors: [] })).toBeNull();
+  });
+
+  it("says which roles use an item", () => {
+    const [brief] = exchange.distill_result.includes;
+    expect(usedByLine(brief)).toBe("used by Orchestrator, researcher");
+    expect(usedByLine({ used_by: [] })).toBeNull();
+  });
+
+  it("summarises a shared package's asks in one line", () => {
+    expect(shareAsksSummary(exchange.share_card.asks as TemplateAsk[])).toBe("Asks for 1 secret. Runs a script on start.");
+    expect(shareAsksSummary(templatePreviewFixture.asks ?? [])).toBe(
+      "Asks for network for api.example.com, *.wikipedia.org, edits to the project, shell commands, mcp:io.github.example/search and 1 secret. Runs a script on start.");
+    expect(shareAsksSummary([])).toBeNull();
+  });
+
+  it("lists what an update changes", () => {
+    expect(updateDiffLines(exchange.import_result.update as TemplateUpdateDiff)).toEqual([
+      "Roles added: editor", "Roles changed: checker", "No longer brings: memory:1", "New asks: network for api.example.com",
+    ]);
+  });
+
+  it("binds a required secret to the vault entry of the same name and skips optional ones", () => {
+    const asks: TemplateAsk[] = [
+      { kind: "secret", name: "SEARCH_API_KEY", purpose: "search", required: true },
+      { kind: "secret", name: "SLACK_TOKEN", purpose: "notify", required: false },
+      { kind: "secret", name: "GH_TOKEN", purpose: "push", required: true },
+    ];
+    expect(initialSecretBindings(asks, ["SEARCH_API_KEY", "SLACK_TOKEN"])).toEqual({ SEARCH_API_KEY: "SEARCH_API_KEY" });
+  });
+
+  it("recognises team package files and names a bake under the owner's namespace", () => {
+    expect(["desk.team", "desk.team.yaml", "desk.TEAM.yml"].map(isTemplateFileName)).toEqual([true, true, true]);
+    expect(["team.zip", "notes.yaml", "desk.teams"].map(isTemplateFileName)).toEqual([false, false, false]);
+    expect(distillName("Release train!")).toBe("me/release-train");
+    expect(distillName("  ")).toBe("me/team");
+  });
+});

@@ -52,8 +52,10 @@ describe("template start model", () => {
 
   it("blocks start on a missing input, then on a missing harness", () => {
     expect(startBlocker(templatePreviewFixture, { question: "", depth: "standard" })).toBe("Fill in question");
-    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" })).toBe("Needs codex on this machine");
-    expect(startBlocker({ ...templatePreviewFixture, where_needed: null }, { question: "EU heat pumps" })).toBeNull();
+    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" })).toBe("Choose a secret for SEARCH_API_KEY");
+    const bound = { SEARCH_API_KEY: "research-desk/search" };
+    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, bound)).toBe("Needs codex on this machine");
+    expect(startBlocker({ ...templatePreviewFixture, where_needed: null }, { question: "EU heat pumps" }, bound)).toBeNull();
   });
 
   it("carries the owner decision id, opt-outs and filled inputs on the start request", () => {
@@ -62,12 +64,14 @@ describe("template start model", () => {
       inputs: { question: "EU heat pumps", depth: "" },
       optOut: new Set(["skill:source-check", "memory:0"]),
       managerModels: {},
+      secretBindings: { SEARCH_API_KEY: "research-desk/search", OPTIONAL_KEY: "" },
     });
     expect(request).toEqual({
       template: { name: "com.example/research-desk", version: "2.1.0" },
       inputs: { question: "EU heat pumps" },
       opt_out: ["memory:0", "skill:source-check"],
       decision_id: "tcd_7f3a2c",
+      secret_bindings: { SEARCH_API_KEY: "research-desk/search" },
     });
     expect(buildStartRequest({ preview: { ...templatePreviewFixture, consent: null }, inputs: {}, optOut: new Set(), managerModels: {} }))
       .not.toHaveProperty("decision_id");
@@ -78,6 +82,9 @@ describe("template start model", () => {
     expect(startErrorView(new Error(`/api/orchestration/new → HTTP 400: ${JSON.stringify(managerFailed)}`))).toEqual({
       message: "The Planner couldn't start", reasons: ["codex is not signed in"], choices: ["Sign in to codex", "Use claude:sonnet"],
     });
+    expect(startErrorView(new Error(`template_start: ${JSON.stringify(managerFailed)}`)).message).toBe("The Planner couldn't start");
+    expect(startErrorView(new Error(`HTTP 422: ${JSON.stringify({ code: "invalid_package", message: "notes.zip has no team.yaml", diagnostics: [{ message: "team.yaml is missing" }] })}`)))
+      .toEqual({ message: "notes.zip has no team.yaml", reasons: ["team.yaml is missing"], choices: [] });
     expect(startErrorView(JSON.stringify(needsChoice)).reasons).toEqual(["Orchestrator · Lead"]);
     expect(startErrorView(JSON.stringify(consent)).reasons).toEqual(["new_grants"]);
     expect(startErrorView(JSON.stringify(missingInputs)).reasons).toEqual(["question"]);

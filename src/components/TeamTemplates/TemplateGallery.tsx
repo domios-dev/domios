@@ -8,6 +8,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { useTauriFileDrop } from "../../hooks/terminal/useTauriFileDrop";
 import { galleryEntries, sourceLabel, templateTitle, type GalleryFilter, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { TemplateIcon } from "./TemplateIcon";
+import { authorLine } from "../../lib/teamTemplates/exchangeModel";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 
 const FILTERS: { value: GalleryFilter; label: string }[] = [
@@ -31,6 +32,7 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
   const [query, setQuery] = useState("");
   const current = choice.chosen?.form.template ?? choice.defaultSummary;
   const [selected, setSelected] = useState<TemplateSummary>(current);
+  const [confirming, setConfirming] = useState<TemplateSummary | null>(null);
   const zoneRef = useRef<HTMLDivElement>(null);
   const { isDragOver } = useTauriFileDrop({ containerRef: zoneRef, onPaths: (paths) => paths[0] && choice.importPath(paths[0]), onError: choice.setNotice });
   const catalog = choice.catalog;
@@ -61,19 +63,28 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
                     {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
                   </span>
                   <span className="block truncate text-[12px] text-[var(--ct-muted-fg)]">{summary.description}</span>
+                  {authorLine(summary) && <span className="block truncate text-[11px] text-[var(--ct-muted-fg)]">{authorLine(summary)}</span>}
                 </span>
                 <SourceTag summary={summary} />
               </button>
-              {summary.provenance === "saved" && (
+              {summary.provenance !== "builtin" && (
                 <DropdownMenu menuLabel={`${templateTitle(summary)} actions`} items={[
                   { label: "Details", onClick: () => choice.showSummaryDetails(summary) },
-                  { label: "Export…", onClick: () => onExport(summary) },
+                  ...(summary.provenance === "saved" ? [{ label: "Export…", onClick: () => onExport(summary) }] : []),
+                  { label: "Delete", onClick: () => setConfirming(summary) },
                 ]} trigger={<Button variant="icon" aria-label={`More actions for ${templateTitle(summary)}`} aria-haspopup="menu"><KebabGlyph /></Button>} />
               )}
             </li>
           );
         })}
         {catalog?.error && <li className="text-[12px] text-[var(--ct-muted-fg)]">{catalog.error}</li>}
+        {confirming && (
+          <li role="alertdialog" aria-label={`Delete ${templateTitle(confirming)}`} className="ct-card ct-card--static flex flex-wrap items-center gap-2 p-2.5 text-[12px]">
+            <span className="min-w-0 flex-1">Delete {templateTitle(confirming)} {confirming.version} from My templates? Teams already started keep running.</span>
+            <Button variant="ghost" className="text-xs" onClick={() => setConfirming(null)}>Cancel</Button>
+            <Button variant="danger" className="text-xs" onClick={() => { choice.remove(confirming); setConfirming(null); }}>Delete</Button>
+          </li>
+        )}
       </ul>
       <div ref={zoneRef} data-testid="template-drop-zone" data-drag-over={isDragOver || undefined} data-invalid={choice.notice ? true : undefined}
         className={`rounded-lg border border-dashed px-3 py-2.5 text-center text-[12px] text-[var(--ct-muted-fg)] ${choice.notice ? "border-[var(--ct-red)]" : isDragOver ? "border-[var(--ct-accent)]" : "border-[var(--ct-border)]"}`}>

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { teamTemplatesTransport } from "../../lib/transport/orchestrationRuntime";
 import type { TeamTemplatesTransport, TemplatePreview, TemplateRecall, TemplateStartRequest } from "../../lib/transport/teamTemplates";
+import { initialSecretBindings } from "../../lib/teamTemplates/exchangeModel";
+import { takePendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
+import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
 import {
   buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView,
   type PickerSeed, type TemplateSummary,
@@ -8,6 +11,7 @@ import {
 import type { ManagerSeats } from "./TemplateManagers";
 
 type ManagerSlot = import("../../../gen/ManagerSlot").ManagerSlot;
+type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
 
 export type TemplateView =
   | { kind: "form" }
@@ -26,11 +30,12 @@ function basename(path: string): string {
 }
 
 /** Template choice for the Team form; the default is always available and starts today's pair without `template`. */
-export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport }: {
+export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames }: {
   enabled: boolean;
   recallQuery: string;
   onSeedPair: (seats: Partial<Record<"orchestrator" | "planner", PickerSeed>>) => void;
   transport?: () => TeamTemplatesTransport;
+  vaultNames?: () => Promise<string[]>;
 }) {
   const [view, setView] = useState<TemplateView>({ kind: "form" });
   const [catalog, setCatalog] = useState<TemplateCatalog | null>(null);
@@ -40,6 +45,9 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const [seats, setSeats] = useState<ManagerSeats>({});
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
+  const [vault, setVault] = useState<string[] | null>(null);
+  const [update, setUpdate] = useState<TemplateUpdateDiff | null>(null);
 
   useEffect(() => {
     if (!enabled || catalog) return;
@@ -72,15 +80,17 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     }
     onSeedPair(pairSeeds);
     setChosen(preview);
+    setSecrets(initialSecretBindings(preview.asks ?? [], vault ?? []));
     setInputs(initialInputs(preview.form.inputs ?? []));
     setOptOut(kept);
     setSeats(managerSeeds);
     setView({ kind: "form" });
-  }, [onSeedPair]);
+  }, [onSeedPair, vault]);
 
-  const openPreview = useCallback(async (template: { name: string; version?: string | null }, detail = false) => {
+  const openPreview = useCallback(async (template: { name: string; version?: string | null }, detail = false, diff: TemplateUpdateDiff | null = null) => {
     setPending(true);
     setNotice(null);
+    setUpdate(diff);
     try {
       const preview = await transport().preview(template);
       setOptOut(new Set());
@@ -107,31 +117,60 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     setPending(true);
     setNotice(null);
     try {
-      const report = await transport().import(path);
-      if (!report.valid || !report.name) {
-        const reason = report.diagnostics[0]?.message ?? "there's no team.yaml inside";
-        setNotice(`${basename(path)} isn't a team package: ${reason}.`);
-        return;
-      }
+      const imported = await transport().import(path);
       setCatalog(null);
-      await openPreview({ name: report.name, version: report.version });
+      await openPreview({ name: imported.template.name, version: imported.template.version }, false, imported.update ?? null);
     } catch (error) {
-      setNotice(startErrorView(error).message);
+      const failure = startErrorView(error);
+      const reason = (failure.reasons[0] ?? failure.message).replace(/\.$/, "");
+      setNotice(`${basename(path)} isn't a team package: ${reason}.`);
     } finally {
       setPending(false);
     }
   }, [openPreview, transport]);
 
+  const remove = useCallback(async (summary: TemplateSummary) => {
+    setPending(true);
+    setNotice(null);
+    try {
+      await transport().delete({ name: summary.name, version: summary.version });
+      if (chosen && chosen.form.template.name === summary.name && chosen.form.template.version === summary.version) setChosen(null);
+      setCatalog(null);
+    } catch (error) {
+      setNotice(startErrorView(error).message);
+    } finally {
+      setPending(false);
+    }
+  }, [chosen, transport]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const request = takePendingTemplatePreview();
+    if (request) void openPreview(request.template, false, request.update);
+  }, [enabled, openPreview]);
+
+  const needsVault = Boolean(chosen?.asks?.some((ask) => ask.kind === "secret"));
+  useEffect(() => {
+    if (!needsVault || vault) return;
+    let live = true;
+    void vaultNames().then((names) => {
+      if (!live) return;
+      setVault(names);
+      setSecrets((current) => ({ ...initialSecretBindings(chosen?.asks ?? [], names), ...current }));
+    }, () => { if (live) setVault([]); });
+    return () => { live = false; };
+  }, [needsVault, vault, vaultNames, chosen]);
+
   const startRequest = useCallback((): TemplateStartRequest | undefined => {
     if (!chosen) return undefined;
     const managerModels = Object.fromEntries(Object.entries(seats).map(([slot, seat]) => [slot,
       { model: `${seat.providerId}:${seat.modelId}`, reasoning_effort: seat.effortId ?? null }]));
-    return buildStartRequest({ preview: chosen, inputs, optOut, managerModels });
-  }, [chosen, inputs, optOut, seats]);
+    return buildStartRequest({ preview: chosen, inputs, optOut, managerModels, secretBindings: secrets });
+  }, [chosen, inputs, optOut, seats, secrets]);
 
   return {
-    view, catalog, chosen, inputs, optOut, seats, pending, notice, defaultSummary,
-    blocker: chosen ? startBlocker(chosen, inputs) : null,
+    view, catalog, chosen, inputs, optOut, seats, pending, notice, defaultSummary, secrets, vault, update,
+    blocker: chosen ? startBlocker(chosen, inputs, secrets) : null,
     openGallery: () => { setNotice(null); setView({ kind: "gallery" }); },
     backToForm: () => setView({ kind: "form" }),
     showDetails: () => { if (chosen) setView({ kind: "review", preview: chosen, mode: "detail" }); },
@@ -144,6 +183,8 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
       else select(view.preview, optOut);
     },
     importPath: (path: string) => { void importPath(path); },
+    remove: (summary: TemplateSummary) => { void remove(summary); },
+    setSecret: (name: string, entry: string) => setSecrets((current) => ({ ...current, [name]: entry })),
     setNotice,
     setInput: (key: string, value: string) => setInputs((current) => ({ ...current, [key]: value })),
     setKept: (id: string, kept: boolean) => setOptOut((current) => {

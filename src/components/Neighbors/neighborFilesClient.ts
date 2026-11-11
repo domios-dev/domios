@@ -89,6 +89,13 @@ export async function openSavedFile(friendship: string, fileId: string,
   await runtime({ operation: "open", friendship_id: friendship, file_id: fileId });
 }
 
+/** Where a saved file from them lives on this machine, without opening it. */
+export async function savedFilePath(friendship: string, fileId: string, runtime: (command: Record<string, unknown>) => Promise<unknown> = call): Promise<string> {
+  const resolved = await runtime({ operation: "open", friendship_id: friendship, file_id: fileId, launch: false });
+  if (!record(resolved) || typeof resolved.path !== "string") throw new Error("The file could not be found.");
+  return resolved.path;
+}
+
 export const neighborFilesClient: NeighborFilesClient = {
   send: async (friendship, body, paths, inReplyTo = null) => {
     const result = receipt(await call({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: inReplyTo, paths }));

@@ -35,8 +35,22 @@ import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
 import {useLaunchProfileSelection} from "./useLaunchProfileSelection";
 import {cloudExecution} from "./cloudExecution";
 import { TeamTemplateSection } from "../TeamTemplates/TeamTemplateSection";
+import { hasPendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
 import { startErrorView, type PickerSeed, type StartErrorView } from "../../lib/teamTemplates/startModel";
+
+function pairChoice(prev: NewSessionChoice): NewSessionChoice {
+  if (prev.mode === "pair") return prev;
+  return {
+    mode: "pair",
+    orchestratorProviderId: prev.providerId,
+    orchestratorModelId: prev.modelId,
+    orchestratorEffortId: prev.effortId,
+    plannerProviderId: prev.providerId,
+    plannerModelId: prev.modelId,
+    plannerEffortId: prev.effortId,
+  };
+}
 
 export function NewSessionPicker({
   workspaceId,
@@ -68,6 +82,7 @@ export function NewSessionPicker({
   const [execution, setExecution] = useState({providerId: "", location: "local" as ExecutionLocation, environmentId: ""});
   const allowedModes = allowedNewSessionModes(section);
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
+  const [templatePreviewRequested] = useState(hasPendingTemplatePreview);
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const localId = choice.mode === "single" ? choice.providerId : "";
   const selectedProvider = visibleProviders.find(provider => provider.id === localId);
@@ -143,10 +158,11 @@ export function NewSessionPicker({
     if (initialLocalId && visibleProviders.some((provider) => provider.id === initialLocalId)) {
       setChoice(initialProviderChoice(visibleProviders.find((candidate) => candidate.id === initialLocalId)!));
     } else {
-      setChoice(choiceForSessionSection(restored, section));
+      const fitted = choiceForSessionSection(restored, section);
+      setChoice(templatePreviewRequested && allowedNewSessionModes(section).includes("pair") ? pairChoice(fitted) : fitted);
     }
     hasRestoredRef.current = true;
-  }, [initialProviderId, visibleProviders, section, menuProviders]);
+  }, [initialProviderId, visibleProviders, section, menuProviders, templatePreviewRequested]);
 
   useEffect(() => {
     if (!hasRestoredRef.current) return;
@@ -343,15 +359,7 @@ export function NewSessionPicker({
           effortId: prev.mode === "pair" ? prev.orchestratorEffortId : prev.effortId,
         };
       }
-      return {
-        mode: "pair",
-        orchestratorProviderId: prev.mode === "single" ? prev.providerId : prev.orchestratorProviderId,
-        orchestratorModelId: prev.mode === "single" ? prev.modelId : prev.orchestratorModelId,
-        orchestratorEffortId: prev.mode === "single" ? prev.effortId : prev.orchestratorEffortId,
-        plannerProviderId: prev.mode === "pair" ? prev.plannerProviderId : prev.providerId,
-        plannerModelId: prev.mode === "pair" ? prev.plannerModelId : prev.modelId,
-        plannerEffortId: prev.mode === "pair" ? prev.plannerEffortId : prev.effortId,
-      };
+      return pairChoice(prev);
     });
   }, [section, visibleProviders]);
 
