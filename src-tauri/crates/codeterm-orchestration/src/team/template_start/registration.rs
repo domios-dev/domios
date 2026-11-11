@@ -32,7 +32,7 @@ pub(crate) fn registrations_for(
                 .or_else(|| builtin_prose(name))?
                 .to_string();
             // The payload leaf owns where a role's files live once applied.
-            let files = role_file_refs(team_id, package, name);
+            let files = role_file_refs(team_id, package, role);
             Some(RoleRegistration {
                 team_id: team_id.to_string(),
                 group,
