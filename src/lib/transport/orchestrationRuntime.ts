@@ -1,8 +1,10 @@
 import type { TransportClient } from "../transportClient";
 import { createOrchestrationTransport } from "./orchestration";
+import { createTeamTemplatesTransport, type TeamTemplatesTransport } from "./teamTemplates";
 
 let client: TransportClient | undefined;
 let transport: ReturnType<typeof createOrchestrationTransport> | undefined;
+let templates: TeamTemplatesTransport | undefined;
 let generation = new AbortController();
 const subscriptions = new Set<() => void>();
 type EventListener = (name: string, payload: unknown) => void;
@@ -24,16 +26,23 @@ export function configureOrchestrationTransport(injected: TransportClient): void
   generation = new AbortController();
   const signal = generation.signal;
   client = injected;
-  transport = createOrchestrationTransport({
+  const scoped: Pick<TransportClient, "json"> = {
     json: (method, path, body, opts) => injected.json(method, path, body, {
       ...opts, signal: opts?.signal ? AbortSignal.any([signal, opts.signal]) : signal,
     }),
-  });
+  };
+  transport = createOrchestrationTransport(scoped);
+  templates = createTeamTemplatesTransport(scoped);
 }
 
 export function orchestrationTransport(): ReturnType<typeof createOrchestrationTransport> {
   if (!transport) throw new Error("Orchestration transport has not been configured");
   return transport;
+}
+
+export function teamTemplatesTransport(): TeamTemplatesTransport {
+  if (!templates) throw new Error("Orchestration transport has not been configured");
+  return templates;
 }
 
 export function listenOrchestration<T>(event: string, handler: (event: { payload: T }) => void): Promise<() => void> {

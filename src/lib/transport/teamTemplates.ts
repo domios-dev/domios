@@ -7,6 +7,9 @@ export type TemplateRef = import("../../../gen/TemplateRef").TemplateRef;
 export type TemplateStartRequest = import("../../../gen/TemplateStartRequest").TemplateStartRequest;
 export type TemplateStartResult = import("../../../gen/TemplateStartResult").TemplateStartResult;
 export type TemplateUnavailable = import("../../../gen/TemplateUnavailable").TemplateUnavailable;
+export type TemplateExportRequest = import("../../../gen/TemplateExportRequest").TemplateExportRequest;
+export type TemplateExportResult = import("../../../gen/TemplateExportResult").TemplateExportResult;
+export type PackageCheckReport = import("../../../gen/PackageCheckReport").PackageCheckReport;
 
 export type TeamTemplatesClient = Pick<TransportClient, "json">;
 
@@ -18,8 +21,14 @@ export function createTeamTemplatesTransport(client: TeamTemplatesClient) {
       client.json<TemplatePreview>("POST", "/api/team-templates/preview", { template }, opts),
     recall: (query: string, opts?: { signal?: AbortSignal }) =>
       client.json<TemplateRecall>("POST", "/api/team-templates/recall", { query }, opts),
+    export: (request: TemplateExportRequest, opts?: { signal?: AbortSignal }) =>
+      client.json<TemplateExportResult>("POST", "/api/team-templates/export", request, opts),
+    import: (path: string, opts?: { signal?: AbortSignal }) =>
+      client.json<PackageCheckReport>("POST", "/api/team-templates/import", { path }, opts),
   };
 }
+
+export type TeamTemplatesTransport = ReturnType<typeof createTeamTemplatesTransport>;
 
 /** The pair request body for a template start; omitting `template` keeps today's default pair. */
 export function withTemplate<T extends Record<string, unknown>>(params: T, template?: TemplateStartRequest): T & { template?: TemplateStartRequest } {

@@ -38,7 +38,7 @@ const KIND_LABELS: Record<string, string> = {
   [REVIEWER_KIND]: "Reviewer",
 };
 
-type RoleCarrier = Pick<Tab, "role" | "role_profile">;
+type RoleCarrier = Pick<Tab, "role" | "role_profile"> & { role_label?: string | null };
 
 /**
  * Resolve a tab's role kind. A Worker's profile is a subtype and can never
@@ -73,11 +73,16 @@ export function isGeneralAgent(tab: RoleCarrier | null | undefined): boolean {
   return roleKind(tab) === GENERAL_AGENT_KIND;
 }
 
-/** Display label for a tab's kind, falling back to the structural role. */
+/** Display label for a tab: its Team-registered label, then its kind, then the structural role. */
 export function roleKindLabel(tab: RoleCarrier | null | undefined): string | null {
   const kind = roleKind(tab);
   if (kind === null) return null;
-  return KIND_LABELS[kind] ?? structuralLabel(tab?.role ?? null);
+  return tab?.role_label?.trim() || KIND_LABELS[kind] || structuralLabel(tab?.role ?? null);
+}
+
+/** The host name of a built-in kind, such as a manager slot. */
+export function kindDisplayName(kind: string): string {
+  return KIND_LABELS[kind] ?? kind;
 }
 
 function structuralLabel(role: AgentRole | null): string | null {

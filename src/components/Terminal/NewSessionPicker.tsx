@@ -35,6 +35,9 @@ import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
 import {LaunchProfileModelRow, LaunchProfilePicker, LaunchProfileSelect} from "./LaunchProfilePicker";
 import {useLaunchProfiles} from "./useLaunchProfiles";
 import {cloudExecution} from "./cloudExecution";
+import { TeamTemplateSection } from "../TeamTemplates/TeamTemplateSection";
+import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
+import { startErrorView, type PickerSeed, type StartErrorView } from "../../lib/teamTemplates/startModel";
 
 export function NewSessionPicker({
   workspaceId,
@@ -82,6 +85,7 @@ export function NewSessionPicker({
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
   const [busy, setBusy] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const [startError, setStartError] = useState<StartErrorView | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
   const disabledProviderIds = useMemo(
@@ -93,6 +97,15 @@ export function NewSessionPicker({
     () => state.workspaces.find((w) => w.id === workspaceId),
     [state.workspaces, workspaceId],
   );
+
+  const seedPair = useCallback((seats: Partial<Record<"orchestrator" | "planner", PickerSeed>>) => {
+    setChoice((current) => current.mode !== "pair" ? current : {
+      ...current,
+      ...(seats.orchestrator ? { orchestratorProviderId: seats.orchestrator.providerId, orchestratorModelId: seats.orchestrator.modelId || undefined, orchestratorEffortId: seats.orchestrator.effortId } : {}),
+      ...(seats.planner ? { plannerProviderId: seats.planner.providerId, plannerModelId: seats.planner.modelId || undefined, plannerEffortId: seats.planner.effortId } : {}),
+    });
+  }, []);
+  const templates = useTeamTemplateChoice({ enabled: choice.mode === "pair", recallQuery: selectedWorkspace?.name ?? "", onSeedPair: seedPair });
 
   const hasRestoredRef = useRef(false);
   const remoteRefreshStartedRef = useRef(false);
@@ -269,22 +282,42 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    await finishSpawn(async () => {
-      const result = await createOrchestrationPair({
-        orchestratorAgent: choice.orchestratorProviderId,
-        orchestratorModel: choice.orchestratorModelId,
-        orchestratorReasoningEffort: choice.orchestratorEffortId,
-        plannerAgent: choice.plannerProviderId,
-        plannerModel: choice.plannerModelId,
-        plannerReasoningEffort: choice.plannerEffortId,
-        workspaceId,
+    const pair = {
+      orchestratorAgent: choice.orchestratorProviderId,
+      orchestratorModel: choice.orchestratorModelId,
+      orchestratorReasoningEffort: choice.orchestratorEffortId,
+      plannerAgent: choice.plannerProviderId,
+      plannerModel: choice.plannerModelId,
+      plannerReasoningEffort: choice.plannerEffortId,
+      workspaceId,
+    };
+    const template = templates.startRequest();
+    if (!template) {
+      await finishSpawn(async () => {
+        const result = await createOrchestrationPair(pair);
+        return { workspaceId, tabId: result.orchestrator_tab_id };
       });
-      return { workspaceId, tabId: result.orchestrator_tab_id };
-    });
-  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section]);
+      return;
+    }
+    setBusy(true);
+    setStartError(null);
+    try {
+      const result = await createOrchestrationPair({ ...pair, template });
+      await selectTabByTab(workspaceId, result.orchestrator_tab_id).catch(() => {});
+      onClose();
+    } catch (error) {
+      if (!isFreeLimitRefusal(error)) setStartError(startErrorView(error));
+    } finally {
+      setBusy(false);
+    }
+  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, templates, selectTabByTab, onClose]);
 
   const handleStart = useCallback(() => {
     if (busy || dismissing || selectedWorkspace?.cwd_missing) return;
+    if (choice.mode === "pair" && templates.chosen) {
+      void runPairSpawn();
+      return;
+    }
     setDismissing(true);
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) onClose();
     const start = async () => {
@@ -295,7 +328,7 @@ export function NewSessionPicker({
       }
     };
     void start();
-  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn]);
+  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn, templates.chosen]);
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
     if (!allowedNewSessionModes(section).includes(mode)) return;
@@ -331,7 +364,9 @@ export function NewSessionPicker({
     : choice.orchestratorProviderId.length > 0
       && choice.plannerProviderId.length > 0
       && !disabledProviderIds.has(choice.orchestratorProviderId)
-      && !disabledProviderIds.has(choice.plannerProviderId);
+      && !disabledProviderIds.has(choice.plannerProviderId)
+      && templates.blocker === null;
+  const templateStep = choice.mode === "pair" && templates.view.kind !== "form";
 
   return createPortal(
     <div
@@ -349,7 +384,7 @@ export function NewSessionPicker({
         aria-modal="true"
         aria-labelledby="new-session-picker-title"
         tabIndex={-1}
-        className="new-session-picker-card picker-stagger relative my-auto w-full max-w-lg overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none"
+        className={`new-session-picker-card picker-stagger relative my-auto w-full ${choice.mode === "pair" && templates.view.kind === "review" ? "max-w-2xl" : "max-w-lg"} overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none`}
       >
         <span
           aria-hidden
@@ -430,7 +465,29 @@ export function NewSessionPicker({
                   onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})}
                   onRefresh={profileCatalog.refresh} error={profileCatalog.error} />}</>
               ) : (
-                <>
+                <TeamTemplateSection
+                  choice={templates}
+                  providers={visibleProviders.filter(provider => !provider.agent_runtime?.launchProfiles)}
+                  disabledProviderIds={disabledProviderIds}
+                  pair={{
+                    orchestratorProviderId: choice.orchestratorProviderId,
+                    orchestratorModelId: choice.orchestratorModelId ?? "",
+                    orchestratorEffortId: choice.orchestratorEffortId,
+                    plannerProviderId: choice.plannerProviderId,
+                    plannerModelId: choice.plannerModelId ?? "",
+                    plannerEffortId: choice.plannerEffortId,
+                  }}
+                  onPairChange={(values) => setChoice({
+                    mode: "pair",
+                    orchestratorProviderId: values.orchestratorProviderId,
+                    orchestratorModelId: values.orchestratorModelId || undefined,
+                    orchestratorEffortId: values.orchestratorEffortId,
+                    plannerProviderId: values.plannerProviderId,
+                    plannerModelId: values.plannerModelId || undefined,
+                    plannerEffortId: values.plannerEffortId,
+                  })}
+                  onInstallProvider={handleInstallProvider}
+                  defaultForm={<>
                   <p data-testid="picker-team-hint" className="mb-2.5 text-[12px] leading-snug text-[var(--ct-muted-fg)]">
                     Tell the Orchestrator what you need. It plans and brings in the agents.
                   </p>
@@ -466,14 +523,25 @@ export function NewSessionPicker({
                     }}
                     onInstallProvider={handleInstallProvider}
                   />
-                </>
+                </>}
+                />
               )}
             </div>
           </div>
         </div>
 
 
-        <div className="relative mt-4 flex justify-end">
+        {!templateStep && <div className="relative mt-4 flex flex-wrap items-center justify-end gap-3">
+          {choice.mode === "pair" && startError && (
+            <div role="alert" data-testid="picker-start-error" className="mr-auto min-w-0 text-[12px] text-[var(--ct-red)]">
+              <div>{startError.message}</div>
+              {startError.reasons.map((reason) => <div key={reason} className="text-[var(--ct-muted-fg)]">{reason}</div>)}
+              {startError.choices.length > 0 && <div className="text-[var(--ct-muted-fg)]">{startError.choices.join(" · ")}</div>}
+            </div>
+          )}
+          {choice.mode === "pair" && !startError && templates.blocker && (
+            <span data-testid="picker-start-blocker" className="mr-auto text-[12px] text-[var(--ct-muted-fg)]">{templates.blocker}</span>
+          )}
           <Button
             variant="primary"
             className="text-xs"
@@ -484,7 +552,7 @@ export function NewSessionPicker({
           >
             {choice.mode === "pair" ? "Start team" : "Start session"}
           </Button>
-        </div>
+        </div>}
         </>}
       </div>
 
