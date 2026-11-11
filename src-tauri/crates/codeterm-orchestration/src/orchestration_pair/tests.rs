@@ -1106,7 +1106,9 @@ fn pair_preflight_validates_each_roles_launch_profile_before_reservation() {
         };
         let error = runtime
             .block_on(fixture.service.create_orchestration_pair(params))
-            .expect_err("a native provider must reject launch profiles before reserving either role");
+            .expect_err(
+                "a native provider must reject launch profiles before reserving either role",
+            );
         assert!(error.contains("launch profile"), "{error}");
         let mux = fixture.service.mux.read();
         assert_eq!(mux.snapshot().tabs.len(), tabs_before);
