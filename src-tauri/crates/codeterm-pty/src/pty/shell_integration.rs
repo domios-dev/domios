@@ -87,6 +87,13 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
     $global:__CodeTermOriginalPrompt = { "PS $($executionContext.SessionState.Path.CurrentLocation)> " }
   }
 
+  function global:__CodeTermEscapeValue([string]$value) {
+    [regex]::Replace($value, '[\\;\x00-\x1f\x7f]', {
+      param($match)
+      if ($match.Value -eq '\') { '\\' } else { '\x{0:x2}' -f [int][char]$match.Value }
+    })
+  }
+
   try {
     if (-not (Get-Command PSConsoleHostReadLine -ErrorAction SilentlyContinue)) {
       Import-Module PSReadLine -ErrorAction Stop
@@ -96,10 +103,7 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
       function global:PSConsoleHostReadLine {
         $line = & $global:__CodeTermOriginalReadLine @args
         if (-not [string]::IsNullOrWhiteSpace($line) -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
-          $escapedLine = [regex]::Replace($line, '[\\;\x00-\x1f\x7f]', {
-            param($match)
-            if ($match.Value -eq '\') { '\\' } else { '\x{0:x2}' -f [int][char]$match.Value }
-          })
+          $escapedLine = __CodeTermEscapeValue $line
           [Console]::Write(([char]27 + ']633;E;' + $escapedLine + ';' + $global:__CodeTermShellNonce + [char]7))
           [Console]::Write(([char]27 + ']633;C' + [char]7))
         }
@@ -118,7 +122,8 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
     $commandFinished = $historyId -gt $global:__CodeTermLastHistoryId
     $global:__CodeTermLastHistoryId = $historyId
     if ($commandFinished -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
-      [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
+      $escapedLine = __CodeTermEscapeValue $lastHistory.CommandLine
+      [Console]::Write(([char]27 + ']633;E;' + $escapedLine + ';' + $global:__CodeTermShellNonce + [char]7))
       $exitCode = if ($lastSucceeded) { 0 } elseif ($lastNativeExit -is [int] -and $lastNativeExit -ne 0) { $lastNativeExit } else { 1 }
       [Console]::Write(([char]27 + ']633;D;' + $exitCode + [char]7))
     }
