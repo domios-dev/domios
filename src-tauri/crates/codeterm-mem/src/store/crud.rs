@@ -49,6 +49,27 @@ pub fn upsert_with_context(
 ) -> Result<String, String> {
     let candidate = ids::compose(item.kind.as_str(), &ids::slugify(&item.title));
     if exists(conn, &candidate).map_err(|e| e.to_string())? {
+        // Saving an archived item's title again reactivates that item rather than updating it in the archive.
+        let archived: bool = conn
+            .query_row(
+                "SELECT kind = ?2 FROM mem_items WHERE id = ?1",
+                params![
+                    &candidate,
+                    crate::curation::calibration::archive::ARCHIVED_KIND
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("read archived state: {e}"))?;
+        if archived {
+            crate::curation::calibration::archive::unarchive_item_with_context(
+                ctx,
+                conn,
+                &candidate,
+                item.kind.as_str(),
+                &ctx.changed_by,
+                Some("saved again"),
+            )?;
+        }
         replace_existing_with_context(ctx, conn, &candidate, item, blobs_dir)?;
         return Ok(candidate);
     }
