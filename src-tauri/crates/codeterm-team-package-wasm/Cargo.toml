@@ -1,0 +1,25 @@
+[package]
+license = "AGPL-3.0-only"
+name = "codeterm-team-package-wasm"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# A workspace of its own: wasm-bindgen never enters the Domios lockfile, workspace-hack,
+# or the domios-server and codeterm-cli closures.
+[workspace]
+
+[lib]
+name = "atp_validate"
+crate-type = ["cdylib"]
+
+[dependencies]
+codeterm-team-package = { path = "../codeterm-team-package" }
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+
+[lints.rust]
+warnings = "warn"

@@ -449,8 +449,13 @@ fn grammars_follow_the_published_rules() {
 }
 
 #[test]
-fn schema_requires_the_four_protocol_fields() {
-    let schema = schema();
+fn schema_document_carries_its_id_and_requires_the_four_protocol_fields() {
+    let schema = schema_document("2026-11-01");
+    assert_eq!(
+        schema["$id"],
+        "https://atp.domios.dev/schema/2026-11-01/team.schema.json"
+    );
+    assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
     let required: Vec<&str> = schema["required"]
         .as_array()
         .expect("required list")

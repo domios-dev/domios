@@ -7,7 +7,7 @@ icon: assets/icon.svg
 authors:
   - name: Jane Doe
     email: jane@example.com
-    url: https://github.com/janedoe
+    url: https://example.com/jane
     role: maintainer
   - name: Example Labs
     url: https://example.com

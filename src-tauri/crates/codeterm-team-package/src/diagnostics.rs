@@ -158,6 +158,40 @@ impl PackageCheckReport {
             .iter()
             .filter(|diagnostic| !diagnostic.is_error())
     }
+
+    /// The pretty-printed JSON document the standalone CLI and wasm validators emit.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+
+    /// One rendered line per diagnostic, then the verdict; archive and folder files are
+    /// labelled `package/file`.
+    pub fn render(&self, package: &str) -> String {
+        let mut out = String::new();
+        for diagnostic in &self.diagnostics {
+            let label = match self.format {
+                PackageFormat::Yaml => package.to_string(),
+                _ if diagnostic.file.is_empty() => package.to_string(),
+                _ => format!("{package}/{}", diagnostic.file),
+            };
+            out.push_str(&diagnostic.render(&label));
+            out.push('\n');
+        }
+        let identity = match (&self.name, &self.version) {
+            (Some(name), Some(version)) => format!(" {name}@{version}"),
+            _ => String::new(),
+        };
+        let errors = self.errors().count();
+        let warnings = self.warnings().count();
+        if self.valid {
+            out.push_str(&format!("valid{identity} ({warnings} warning(s))\n"));
+        } else {
+            out.push_str(&format!(
+                "invalid{identity}: {errors} error(s), {warnings} warning(s)\n"
+            ));
+        }
+        out
+    }
 }
 
 /// Collects diagnostics for one file while a package is read.
