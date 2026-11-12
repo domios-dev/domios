@@ -6,6 +6,7 @@ commands.allow = [
   "native_webview_diagnostics_snapshot",
   "notify_permission_state",
   "establish_notify_permission",
+  "take_opened_team_file",
   "get_windows_build_number",
   "materialize_dropped_files",
   "read_clipboard_files",

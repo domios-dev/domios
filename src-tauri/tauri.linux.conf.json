@@ -9,7 +9,8 @@
         "replaces": ["code-term"],
         "files": {
           "/usr/bin/domios": "../target/domios-package/cli/domios",
-          "/usr/bin/codeterm": "../target/domios-package/cli/codeterm"
+          "/usr/bin/codeterm": "../target/domios-package/cli/codeterm",
+          "/usr/share/mime/packages/domios-team.xml": "linux/domios-team.xml"
         }
       },
       "rpm": {
@@ -17,7 +18,8 @@
         "obsoletes": ["code-term"],
         "files": {
           "/usr/bin/domios": "../target/domios-package/cli/domios",
-          "/usr/bin/codeterm": "../target/domios-package/cli/codeterm"
+          "/usr/bin/codeterm": "../target/domios-package/cli/codeterm",
+          "/usr/share/mime/packages/domios-team.xml": "linux/domios-team.xml"
         }
       }
     }

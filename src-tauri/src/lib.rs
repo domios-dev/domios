@@ -30,6 +30,7 @@ mod os_notify;
 mod deep_links;
 #[cfg(windows)]
 mod native_resize;
+mod team_files;
 mod webview_watchdog;
 
 const LOCAL_WEBVIEW_DIAGNOSTICS_ARGUMENT: &str = "--local-webview-diagnostics-port";

@@ -8,6 +8,7 @@ import { TrayIcon } from "@tauri-apps/api/tray";
 import { open, save, type OpenDialogOptions, type SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 
 export type NativeUnsubscribe = () => void;
+export const TEAM_FILE_OPENED_EVENT = "team-file-opened";
 export type NotificationPermission = "granted" | "denied" | "prompt" | "unknown";
 export type LocalRecordingCommand =
   | "local_recording_status" | "local_recording_set_enabled"
@@ -45,6 +46,8 @@ export interface NativeBridge {
     install(channel?: string): Promise<{ status: string }>;
   } | undefined;
   deepLinks: { subscribe(handler: (urls: string[]) => void): Promise<NativeUnsubscribe> } | undefined;
+  /** `.team` packages the OS opened Domios with, delivered once each, including one waiting from before the subscription. */
+  openedTeamFiles: { subscribe(handler: (path: string) => void): Promise<NativeUnsubscribe> } | undefined;
   clipboardFilePaths(): Promise<string[]>;
   materializeDroppedFiles(paths: string[]): Promise<string[]>;
   screenCapture: { capture(): Promise<MediaStream> } | undefined;
@@ -141,6 +144,22 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
       install: (channel?: string) => invoke("install_app_update", { channel }),
     } : undefined,
     deepLinks: undefined,
+    openedTeamFiles: native ? {
+      async subscribe(handler) {
+        const take = () => invoke<string | null>("take_opened_team_file").then((path) => { if (path) handler(path); });
+        // Listening before the first take means a package that lands in between still wakes a take.
+        const unlisten = await listen(TEAM_FILE_OPENED_EVENT, () => {
+          take().catch((error: unknown) => console.warn("Opened team file could not be taken", error));
+        });
+        try {
+          await take();
+        } catch (error) {
+          unlisten();
+          throw error;
+        }
+        return unlisten;
+      },
+    } : undefined,
     async clipboardFilePaths() { if (!native) return unavailable("clipboard file paths"); return invoke("read_clipboard_files"); },
     async materializeDroppedFiles(paths) { if (!native) return unavailable("native file drop"); return invoke("materialize_dropped_files", { paths }); },
     screenCapture: typeof globalThis.navigator?.mediaDevices?.getDisplayMedia === "function" ? {

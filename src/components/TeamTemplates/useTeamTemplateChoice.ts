@@ -171,8 +171,10 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   useEffect(() => {
     if (!enabled) return;
     const request = takePendingTemplatePreview();
-    if (request) void openPreview(request.template, false, request.update);
-  }, [enabled, openPreview]);
+    if (!request) return;
+    if ("file" in request) void importPath(request.file);
+    else void openPreview(request.template, false, request.update);
+  }, [enabled, openPreview, importPath]);
 
   useEffect(() => {
     if (!peersWanted || peers) return;

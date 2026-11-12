@@ -7,7 +7,7 @@ vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ minimize: 
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDropEvent: mocks.drop }) }));
 vi.mock("@tauri-apps/api/tray", () => ({ TrayIcon: { getById: mocks.tray } }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: mocks.open, save: vi.fn() }));
-import { bindNativeBridgeTransport, createNativeBridge, NativeCapabilityUnavailable } from "./nativeBridge";
+import { bindNativeBridgeTransport, createNativeBridge, NativeCapabilityUnavailable, TEAM_FILE_OPENED_EVENT } from "./nativeBridge";
 
 beforeEach(() => vi.clearAllMocks());
 describe("nativeBridge", () => {
@@ -93,6 +93,30 @@ describe("nativeBridge", () => {
     mocks.invoke.mockResolvedValue({ status: "already_running" });
     expect(await createNativeBridge(true).updater?.install("rc")).toEqual({ status: "already_running" });
     expect(mocks.invoke).toHaveBeenCalledWith("install_app_update", { channel: "rc" });
+  });
+  it("delivers each opened team package once: the one waiting at subscribe, then one per wake", async () => {
+    expect(createNativeBridge(false).openedTeamFiles).toBeUndefined();
+    const order: string[] = [];
+    const unlisten = vi.fn();
+    mocks.listen.mockImplementation(async () => { order.push("listen"); return unlisten; });
+    mocks.invoke.mockImplementation(async () => { order.push("take"); return order.length === 2 ? "/waiting.team" : null; });
+    const handler = vi.fn();
+    const stop = await createNativeBridge(true).openedTeamFiles!.subscribe(handler);
+    expect(order).toEqual(["listen", "take"]);
+    expect(mocks.listen).toHaveBeenCalledWith(TEAM_FILE_OPENED_EVENT, expect.any(Function));
+    expect(mocks.invoke).toHaveBeenCalledWith("take_opened_team_file");
+    expect(handler).toHaveBeenCalledExactlyOnceWith("/waiting.team");
+    const wake = mocks.listen.mock.calls[0][1] as () => void;
+    mocks.invoke.mockResolvedValueOnce("/next.team").mockResolvedValueOnce(null);
+    wake();
+    wake();
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(3));
+    await Promise.resolve();
+    expect(handler.mock.calls).toEqual([["/waiting.team"], ["/next.team"]]);
+    stop();
+    expect(unlisten).toHaveBeenCalledOnce();
+    mocks.listen.mockReset();
+    mocks.invoke.mockReset();
   });
   it("routes application restart over the bound daemon transport", async () => {
     const localJson = vi.fn().mockResolvedValue({ ok: true });

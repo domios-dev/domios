@@ -52,7 +52,7 @@ vi.mock("../../lib/teamTemplates/vaultSecrets", () => ({ listVaultSecretNames: f
 vi.mock("../../lib/teamTemplates/hostPeers", () => ({ listHostPeers: fixture.peers }));
 
 import { NewSessionPicker } from "./NewSessionPicker";
-import { openTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
+import { openTemplateFileReview, openTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import exchange from "../../../src-tauri/crates/codeterm-team-package/fixtures/contracts/exchange.json";
 
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
@@ -301,6 +301,17 @@ describe("Team template start in the session dialog", () => {
     await renderPicker();
     expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
     expect(dialog().querySelector('[data-testid="template-update-diff"]')?.textContent).toContain("Roles added: editor");
+    expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
+  });
+
+  it("imports a package file the OS opened and stops at its consent review", async () => {
+    localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "claude" }));
+    fixture.templates.import.mockResolvedValue({ ...exchange.import_result, update: null });
+    openTemplateFileReview({ id: "workspace", cwd: "/workspace" }, "/downloads/research-desk.team");
+    await renderPicker();
+    expect(fixture.templates.import).toHaveBeenCalledExactlyOnceWith("/downloads/research-desk.team");
+    expect(fixture.templates.preview).toHaveBeenCalledWith({ name: exchange.import_result.template.name, version: exchange.import_result.template.version });
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 

@@ -48,6 +48,20 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["team"],
+        "name": "Domios.TeamTemplate",
+        "description": "Domios team template",
+        "mimeType": "application/vnd.domios.team+zip",
+        "role": "Viewer",
+        "rank": "Owner",
+        "exportedType": {
+          "identifier": "com.domios.team",
+          "conformsTo": ["public.data", "public.zip-archive"]
+        }
+      }
+    ],
     "resources": {
       "../target/domios-package/server-component.json": "server-component.json",
       "../target/domios-package/cli/": "cli",
