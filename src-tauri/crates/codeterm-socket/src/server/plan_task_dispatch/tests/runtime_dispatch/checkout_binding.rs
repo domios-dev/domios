@@ -70,6 +70,8 @@ fn assert_checkout_binding(foreign_cwd: bool) {
             NewTask {
                 name: "checkout binding".into(),
                 personality: Some("Finch".into()),
+                acceptance_criteria: vec!["opaque-result".into()],
+                test_plan: Some("opaque-verification".into()),
                 execution_intent:
                     codeterm_service_core::plan::TaskExecutionIntent::RepositoryMutation,
                 files: TaskFiles {
