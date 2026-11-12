@@ -1,9 +1,11 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 /**
  * Chat-preprocessor plugin contract tests.
  * Run: npx tsx plugins/chat-preprocessor/tests/plugin.test.ts
  */
 
-import plugin, { preprocessText } from "../src/plugin";
+import rawPlugin, { preprocessText } from "../src/plugin";
+const plugin = ioTestExport(rawPlugin);
 
 let passed = 0;
 let failed = 0;

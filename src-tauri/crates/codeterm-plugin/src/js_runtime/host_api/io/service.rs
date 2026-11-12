@@ -17,6 +17,13 @@ pub(super) fn execute(
         .check()
         .map_err(|error| Failure::from(error.to_string()))?;
     match request {
+        GraphEventEmit { event } => {
+            if !sandbox.graph_events_allowed() {
+                return Err("host.events.emit: graph_events permission required".into());
+            }
+            operation.begin_effect().map_err(|error| error.to_string())?;
+            parsed(service.emit_graph_event_json(sandbox.plugin_id(), &event.to_string()))
+        }
         Progress { options } => {
             operation
                 .begin_effect()

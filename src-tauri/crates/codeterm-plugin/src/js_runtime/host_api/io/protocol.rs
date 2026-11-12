@@ -103,6 +103,13 @@ pub(super) enum Request {
     Progress {
         options: Value,
     },
+    SurfaceCall {
+        verb: String,
+        args: String,
+    },
+    GraphEventEmit {
+        event: Value,
+    },
     LocalRecordingStatus,
     LocalRecordingSetEnabled {
         enabled: bool,

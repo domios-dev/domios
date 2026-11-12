@@ -33,6 +33,10 @@ export interface HostIo {
   <T>(request: HostIoRequest, then: (value: unknown) => T): T;
   run<T>(steps: HostIoSteps<T>): T;
   fs: HostIoFs;
+  surface: {
+    /** Calls a host-owned native surface; JavaScript view dispatch is refused. */
+    call(verb: string, argsJson: string): HostIoSteps<string>;
+  };
   exec(options: ExecOpts): HostIoSteps<ExecPollResult>;
   fetch(options: FetchOpts): HostIoSteps<FetchResult>;
 }

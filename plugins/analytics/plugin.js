@@ -24,14 +24,30 @@ __export(plugin_exports, {
   runQuery: () => runQuery
 });
 module.exports = __toCommonJS(plugin_exports);
-function hostAnalytics() {
-  return typeof host === "object" && host ? host.analytics : void 0;
+
+// packages/plugin-sdk/src/ioPrograms.ts
+function* ioValue(request) {
+  return yield request;
 }
+function defineProviderIo(source, io) {
+  const exports = { ...source };
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value !== "function") continue;
+    exports[key] = function(...args) {
+      const result = value.apply(source, args);
+      return result && typeof result.next === "function" ? io().run(result) : result;
+    };
+  }
+  return exports;
+}
+
+// plugins/analytics/src/plugin.ts
 function isSnapshot(value) {
   const candidate = value;
   return typeof candidate.scope === "object" && typeof candidate.recording === "object" && typeof candidate.tokens === "object";
 }
-function runQuery(query, analytics = hostAnalytics()) {
+function runQuery(query, analytics) {
   if (!analytics) return { kind: "unavailable" };
   if (!query || typeof query !== "object" || Array.isArray(query)) {
     return { kind: "refused", message: "query must be an object" };
@@ -44,11 +60,14 @@ function runQuery(query, analytics = hostAnalytics()) {
   }
   return isSnapshot(answer) ? { kind: "snapshot", snapshot: answer } : { kind: "unavailable" };
 }
-function viewCall(method, args) {
+function* viewCall(method, args) {
   if (method !== "query") return { kind: "refused", message: `unknown method: ${method}` };
-  return runQuery(args?.query);
+  const query = args?.query;
+  if (!query || typeof query !== "object" || Array.isArray(query)) return { kind: "refused", message: "query must be an object" };
+  const answer = yield* ioValue({ op: "analyticsQuery", query });
+  return runQuery(query, { query: () => answer });
 }
 var plugin = {
   viewCall
 };
-var plugin_default = plugin;
+var plugin_default = defineProviderIo(plugin, () => host.io);

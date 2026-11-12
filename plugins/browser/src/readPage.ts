@@ -1,7 +1,7 @@
-import type { BlueprintJobUpdate, BlueprintStepRequest } from "@codeterm/plugin-sdk";
+import { ioResolve, type HostIoSteps, type BlueprintJobUpdate, type BlueprintStepRequest } from "@codeterm/plugin-sdk";
 import { redactCredentials } from "./redaction";
 
-type SurfaceCall = (verb: string, argsJson: string) => string;
+type SurfaceCall = (verb: string, argsJson: string) => string | HostIoSteps<string>;
 type SurfaceIdentity = { tab: string; instance: string };
 type Reply = { result: string; surface?: SurfaceIdentity } | { error: string };
 export type ReadPageOutcome = "read" | "navigation_failed" | "needs_human" | "browser_busy";
@@ -17,9 +17,9 @@ const VERB_MARGIN_MS = 16_000;
 // Core answers `status` itself, without touching any runtime, when the owner has no browser.
 const NO_BROWSER = /^no browser open\b/;
 
-function ask(call: SurfaceCall, verb: string, args: string[], surface?: SurfaceIdentity): Reply {
+function* ask(call: SurfaceCall, verb: string, args: string[], surface?: SurfaceIdentity): HostIoSteps<Reply> {
   try {
-    const reply = JSON.parse(call(verb, JSON.stringify(surface ? { args, surface } : args))) as { result?: unknown; error?: unknown; surface?: SurfaceIdentity };
+    const reply = JSON.parse(yield* ioResolve(call(verb, JSON.stringify(surface ? { args, surface } : args)))) as { result?: unknown; error?: unknown; surface?: SurfaceIdentity };
     if (typeof reply?.error === "string") return { error: reply.error };
     if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface };
   } catch { /* an unparseable answer is reported below */ }
@@ -67,7 +67,7 @@ function lineLimit(raw: unknown): number {
 }
 
 /** Reads one page in a browser the run opens and always closes; an owner browser that is already open is never touched. */
-export function readPage(request: BlueprintStepRequest, call: SurfaceCall | undefined, now: () => number = Date.now): BlueprintJobUpdate {
+export function* readPage(request: BlueprintStepRequest, call: SurfaceCall | undefined, now: () => number = Date.now): HostIoSteps<BlueprintJobUpdate> {
   const deadline = now() + Math.max(0, Number(request.deadlineMs) || 0);
   const finish = (outcome: ReadPageOutcome, text: string, finalUrl = ""): BlueprintJobUpdate => ({
     job: request.context.operation,
@@ -83,36 +83,36 @@ export function readPage(request: BlueprintStepRequest, call: SurfaceCall | unde
   if (!url || url.length > 2048 || /\s/.test(url) || !/^https?:\/\//i.test(url)) {
     return finish("navigation_failed", "read_page needs one http(s) URL from the url input or the url param");
   }
-  const probe = ask(call, "status", []);
+  const probe = yield* ask(call, "status", []);
   if ("error" in probe) return finish("navigation_failed", probe.error);
   if (!NO_BROWSER.test(probe.result)) return finish("browser_busy", "the step already has a surface open; read_page leaves it untouched");
   const covered = () => deadline - now() > VERB_MARGIN_MS;
   let surface: SurfaceIdentity | undefined;
   try {
-    const opened = ask(call, "open", []);
+    const opened = yield* ask(call, "open", []);
     if ("error" in opened) return finish("navigation_failed", opened.error);
     surface = opened.surface;
     if (!surface || typeof surface.tab !== "string" || typeof surface.instance !== "string") return finish("navigation_failed", "the host did not grant a run-owned surface");
     if (!covered()) return finish("navigation_failed", "the step deadline cannot cover navigation", url);
-    const moved = ask(call, "goto", [url], surface);
+    const moved = yield* ask(call, "goto", [url], surface);
     if ("error" in moved) return finish("navigation_failed", moved.error, url);
     const waitText = request.params?.wait_text;
     if (typeof waitText === "string" && waitText.trim()) {
       if (!covered()) return finish("navigation_failed", "the step deadline cannot cover wait_text", url);
-      const waited = ask(call, "wait", ["--text", waitText], surface);
+      const waited = yield* ask(call, "wait", ["--text", waitText], surface);
       if ("error" in waited) return finish("navigation_failed", waited.error, url);
     }
-    const status = ask(call, "status", [], surface);
+    const status = yield* ask(call, "status", [], surface);
     if ("error" in status) return finish("navigation_failed", status.error, url);
     const page = statusField(status.result, "page") ?? "";
     const separator = page.lastIndexOf(" — ");
     const finalUrl = separator >= 0 ? page.slice(separator + 3).trim() : url;
     const needs = statusField(status.result, "needs human");
     if (needs && needs !== "none") return finish("needs_human", `the page needs a human: ${needs}`, finalUrl);
-    const read = ask(call, "text", [String(TEXT_CHARS)], surface);
+    const read = yield* ask(call, "text", [String(TEXT_CHARS)], surface);
     if ("error" in read) return finish("navigation_failed", read.error, finalUrl);
     return finish("read", boundText(read.result, lineLimit(request.params?.limit)), finalUrl);
   } finally {
-    if (surface) ask(call, "close", [], surface);
+    if (surface) yield* ask(call, "close", [], surface);
   }
 }

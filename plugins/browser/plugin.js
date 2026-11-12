@@ -26,6 +26,24 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// packages/plugin-sdk/src/ioPrograms.ts
+function defineProviderIo(source, io) {
+  const exports = { ...source };
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value !== "function") continue;
+    exports[key] = function(...args) {
+      const result = value.apply(source, args);
+      return result && typeof result.next === "function" ? io().run(result) : result;
+    };
+  }
+  return exports;
+}
+function* ioResolve(value) {
+  if (value && typeof value.next === "function") return yield* value;
+  return value;
+}
+
 // plugins/browser/src/redaction.ts
 var CREDENTIALS = /* @__PURE__ */ new Set(["token", "access_token", "api_token", "key", "secret", "password"]);
 function redactCredentials(text) {
@@ -51,9 +69,9 @@ var TEXT_BYTES = 48e3;
 var TRUNCATED = "\n[truncated]";
 var VERB_MARGIN_MS = 16e3;
 var NO_BROWSER = /^no browser open\b/;
-function ask(call, verb, args, surface) {
+function* ask(call, verb, args, surface) {
   try {
-    const reply = JSON.parse(call(verb, JSON.stringify(surface ? { args, surface } : args)));
+    const reply = JSON.parse(yield* ioResolve(call(verb, JSON.stringify(surface ? { args, surface } : args))));
     if (typeof reply?.error === "string") return { error: reply.error };
     if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface };
   } catch {
@@ -93,7 +111,7 @@ function requestedUrl(request) {
 function lineLimit(raw) {
   return Number.isInteger(raw) && raw >= 1 ? Math.min(raw, MAX_LINES) : DEFAULT_LINES;
 }
-function readPage(request, call, now = Date.now) {
+function* readPage(request, call, now = Date.now) {
   const deadline = now() + Math.max(0, Number(request.deadlineMs) || 0);
   const finish = (outcome, text, finalUrl = "") => ({
     job: request.context.operation,
@@ -109,37 +127,37 @@ function readPage(request, call, now = Date.now) {
   if (!url || url.length > 2048 || /\s/.test(url) || !/^https?:\/\//i.test(url)) {
     return finish("navigation_failed", "read_page needs one http(s) URL from the url input or the url param");
   }
-  const probe = ask(call, "status", []);
+  const probe = yield* ask(call, "status", []);
   if ("error" in probe) return finish("navigation_failed", probe.error);
   if (!NO_BROWSER.test(probe.result)) return finish("browser_busy", "the step already has a surface open; read_page leaves it untouched");
   const covered = () => deadline - now() > VERB_MARGIN_MS;
   let surface;
   try {
-    const opened = ask(call, "open", []);
+    const opened = yield* ask(call, "open", []);
     if ("error" in opened) return finish("navigation_failed", opened.error);
     surface = opened.surface;
     if (!surface || typeof surface.tab !== "string" || typeof surface.instance !== "string") return finish("navigation_failed", "the host did not grant a run-owned surface");
     if (!covered()) return finish("navigation_failed", "the step deadline cannot cover navigation", url);
-    const moved = ask(call, "goto", [url], surface);
+    const moved = yield* ask(call, "goto", [url], surface);
     if ("error" in moved) return finish("navigation_failed", moved.error, url);
     const waitText = request.params?.wait_text;
     if (typeof waitText === "string" && waitText.trim()) {
       if (!covered()) return finish("navigation_failed", "the step deadline cannot cover wait_text", url);
-      const waited = ask(call, "wait", ["--text", waitText], surface);
+      const waited = yield* ask(call, "wait", ["--text", waitText], surface);
       if ("error" in waited) return finish("navigation_failed", waited.error, url);
     }
-    const status = ask(call, "status", [], surface);
+    const status = yield* ask(call, "status", [], surface);
     if ("error" in status) return finish("navigation_failed", status.error, url);
     const page = statusField(status.result, "page") ?? "";
     const separator = page.lastIndexOf(" \u2014 ");
     const finalUrl = separator >= 0 ? page.slice(separator + 3).trim() : url;
     const needs = statusField(status.result, "needs human");
     if (needs && needs !== "none") return finish("needs_human", `the page needs a human: ${needs}`, finalUrl);
-    const read = ask(call, "text", [String(TEXT_CHARS)], surface);
+    const read = yield* ask(call, "text", [String(TEXT_CHARS)], surface);
     if ("error" in read) return finish("navigation_failed", read.error, finalUrl);
     return finish("read", boundText(read.result, lineLimit(request.params?.limit)), finalUrl);
   } finally {
-    if (surface) ask(call, "close", [], surface);
+    if (surface) yield* ask(call, "close", [], surface);
   }
 }
 
@@ -160,7 +178,7 @@ function parse(body) {
     return { name, input: { args } };
   });
 }
-function runBatch(ctx, execute) {
+function* runBatch(ctx, execute) {
   let steps;
   try {
     steps = parse(ctx.body);
@@ -172,7 +190,7 @@ function runBatch(ctx, execute) {
   for (const step of steps) {
     let reply;
     try {
-      reply = execute({ ...ctx, verb: step.name, args: step.input.args, body: void 0 });
+      reply = yield* ioResolve(execute({ ...ctx, verb: step.name, args: step.input.args, body: void 0 }));
     } catch {
       reply = { error: "action_unconfirmed: runtime interrupted; inspect before continuing; never replay" };
     }
@@ -183,11 +201,11 @@ function runBatch(ctx, execute) {
 }
 
 // plugins/browser/plugin.json
-var version = "1.15.3";
+var version = "1.15.4";
 
 // plugins/browser/src/plugin.ts
 function hostSurfaceCall() {
-  return typeof host === "object" && host && host.surface ? host.surface.call : void 0;
+  return typeof host === "object" && host && host.io?.surface ? host.io.surface.call : void 0;
 }
 var OF_USAGE = "--of needs an agent name or tab id";
 function parseOf(raw) {
@@ -211,9 +229,9 @@ function parseOf(raw) {
   }
   return of === void 0 ? { args } : { args, of };
 }
-function forward(ctx, call = hostSurfaceCall()) {
+function* forward(ctx, call = hostSurfaceCall()) {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
-  if (ctx.verb === "batch") return runBatch(ctx, (step) => forward(step, call));
+  if (ctx.verb === "batch") return yield* runBatch(ctx, (step) => forward(step, call));
   if (ctx.verb === "connect-secret") return { error: "connect accepts its token only through --stdin" };
   const secret = ctx.verb === "connect" ? ctx.body?.trim() : ctx.body;
   const verb = secret !== void 0 && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb === "--help" ? "help" : ctx.verb || "help";
@@ -225,7 +243,7 @@ function forward(ctx, call = hostSurfaceCall()) {
   const redact = (text) => redactCredentials(secret ? text.split(secret).join("REDACTED") : text);
   if (ctx.verb === "connect") {
     try {
-      const opening = JSON.parse(call("open", JSON.stringify(parsed.of === void 0 ? parsed.args : { args: parsed.args, of: parsed.of })));
+      const opening = JSON.parse(yield* ioResolve(call("open", JSON.stringify(parsed.of === void 0 ? parsed.args : { args: parsed.args, of: parsed.of }))));
       if (typeof opening.error === "string") return { error: redact(opening.error) };
       if (typeof opening.result !== "string") return { error: "the browser runtime did not confirm the requested session" };
     } catch {
@@ -236,7 +254,7 @@ function forward(ctx, call = hostSurfaceCall()) {
   const payload = parsed.of === void 0 ? parsed.args : { args: parsed.args, of: parsed.of };
   let reply;
   try {
-    reply = JSON.parse(call(verb, JSON.stringify(payload)));
+    reply = JSON.parse(yield* ioResolve(call(verb, JSON.stringify(payload))));
   } catch {
     return { error: `the browser runtime returned no answer for ${verb}` };
   }
@@ -253,4 +271,4 @@ var plugin = {
   onAgentCommand: (ctx) => forward(ctx),
   blueprintSubmit: (request) => readPage(request, hostSurfaceCall())
 };
-var plugin_default = plugin;
+var plugin_default = defineProviderIo(plugin, () => host.io);

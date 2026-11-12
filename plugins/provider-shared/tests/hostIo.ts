@@ -38,6 +38,9 @@ export function installTestIo<T extends object>(fixture: T): T & {io: HostIo} {
     return invoke(fs, name, args);
   };
   const execute = (request: HostIoRequest): unknown => {
+    if (request.op === "surfaceCall") return invoke(host.surface as Port, "call", [request.verb, request.args]);
+    if (request.op === "analyticsQuery") return invoke(host.analytics as Port, "query", [request.query]);
+    if (request.op === "memSearch") return invoke(host.mem as Port, "search", [request.options]);
     if (request.op === "execStart" || request.op === "fetchStart") {
       if (typeof host[request.op] === "function") return parse(invoke(host, request.op, [JSON.stringify(request.options)]));
       const id = `fixture-io-${++sequence}`;
@@ -106,6 +109,7 @@ export function installTestIo<T extends object>(fixture: T): T & {io: HostIo} {
   const io = ((effect: HostIoRequest, then: Fn) => request(effect, (value, failed) => { if (failed) throw value; return then(value); })) as HostIo;
   io.run = run as HostIo["run"];
   io.fs = {} as HostIoFs;
+  io.surface = {call: function* (verb, args) { return (yield {op:"surfaceCall", verb, args}) as string; }};
   for (const name of ["readFile", "fileExists", "isSymlink", "canonicalPath", "lockFile", "removeFile", "makeDirs", "readDir", "listChildDirs"] as const) {
     (io.fs as unknown as Port)[name] = function* (path: string): HostIoSteps<unknown> { return yield {op: name, path}; };
   }

@@ -5,10 +5,14 @@ use crate::js_runtime::manifest::PermissionsConfig;
 use crate::js_runtime::vm::{call_json, PluginVm};
 
 fn fixture() -> (PluginVm, Arc<dyn PluginHostCtx>) {
+    configured_fixture(false)
+}
+
+fn configured_fixture(surfaces: bool) -> (PluginVm, Arc<dyn PluginHostCtx>) {
     let id = "io-lifecycle";
     let sandbox = Arc::new(
         PluginSandbox::restricted(vec![], vec![])
-            .with_identity_and_perms(id, &PermissionsConfig::default()),
+            .with_identity_and_perms(id, &PermissionsConfig {surfaces, ..Default::default()}),
     );
     let vm = PluginVm::from_source_sandboxed(
         id,
@@ -16,6 +20,7 @@ fn fixture() -> (PluginVm, Arc<dyn PluginHostCtx>) {
           request(request) { return host.io.run((function* () {
             try { return yield request; } catch (error) { return {error:String(error)}; }
           })()); },
+          surface() { return host.io.run((function* () { return JSON.parse(yield* host.io.surface.call('status','[]')); })()); },
           legacy() { return host.progress({label:'denied'}); }
         };"#
         .into(),
@@ -90,4 +95,46 @@ fn lifecycle_poll_and_close_never_claim_foreign_jobs() {
             Value::Null
         );
     }
+}
+
+#[test]
+fn surface_jobs_capture_the_agent_caller_and_do_not_leak_it() {
+    let (vm, _service) = configured_fixture(true);
+    {
+        let _caller = crate::js_runtime::host_surface::AgentCallerScope::enter("own-agent");
+        let result: Value = call_json(&vm, "surface", &[]).unwrap();
+        assert_eq!(result["result"], "io-lifecycle|own-agent|status|[]");
+        let reply: String = call_json(&vm, "request", &[json!({"op":"surfaceCall","verb":"view-probe","args":"[]"})]).unwrap();
+        let reply: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply["error"], "host.io surface calls require a native surface runtime");
+    }
+    let result: Value = call_json(&vm, "surface", &[]).unwrap();
+    assert_eq!(result["error"], crate::js_runtime::host_surface::NO_AGENT_CALLER);
+}
+
+#[test]
+fn surface_jobs_retain_the_original_blueprint_owner() {
+    use crate::blueprint_step::{StepCall, StepInputScope};
+    let (vm, _service) = configured_fixture(true);
+    let request = crate::js_runtime::host_surface::step_tests::request("run-owner");
+    let call = StepCall {
+        request: &request,
+        job: None,
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
+        cancellation: Default::default(),
+    };
+    let _step = StepInputScope::enter("io-lifecycle", &call, true);
+    let _caller = crate::js_runtime::host_surface::AgentCallerScope::enter("other-agent");
+    let result: Value = call_json(&vm, "surface", &[]).unwrap();
+    assert_eq!(result["result"], "io-lifecycle|run-owner|status|[]");
+}
+
+#[test]
+fn surface_and_event_jobs_preserve_their_grants() {
+    let (vm, _service) = fixture();
+    let _caller = crate::js_runtime::host_surface::AgentCallerScope::enter("own-agent");
+    let result: Value = call_json(&vm, "surface", &[]).unwrap();
+    assert_eq!(result["error"], crate::js_runtime::host_surface::SURFACE_DENIED);
+    let result: Value = call_json(&vm, "request", &[json!({"op":"graphEventEmit","event":{}})]).unwrap();
+    assert!(result["error"].as_str().unwrap().contains("graph_events permission required"));
 }
