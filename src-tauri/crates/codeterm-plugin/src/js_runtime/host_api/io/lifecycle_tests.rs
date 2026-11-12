@@ -11,8 +11,13 @@ fn fixture() -> (PluginVm, Arc<dyn PluginHostCtx>) {
 fn configured_fixture(surfaces: bool) -> (PluginVm, Arc<dyn PluginHostCtx>) {
     let id = "io-lifecycle";
     let sandbox = Arc::new(
-        PluginSandbox::restricted(vec![], vec![])
-            .with_identity_and_perms(id, &PermissionsConfig {surfaces, ..Default::default()}),
+        PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms(
+            id,
+            &PermissionsConfig {
+                surfaces,
+                ..Default::default()
+            },
+        ),
     );
     let vm = PluginVm::from_source_sandboxed(
         id,
@@ -104,12 +109,23 @@ fn surface_jobs_capture_the_agent_caller_and_do_not_leak_it() {
         let _caller = crate::js_runtime::host_surface::AgentCallerScope::enter("own-agent");
         let result: Value = call_json(&vm, "surface", &[]).unwrap();
         assert_eq!(result["result"], "io-lifecycle|own-agent|status|[]");
-        let reply: String = call_json(&vm, "request", &[json!({"op":"surfaceCall","verb":"view-probe","args":"[]"})]).unwrap();
+        let reply: String = call_json(
+            &vm,
+            "request",
+            &[json!({"op":"surfaceCall","verb":"view-probe","args":"[]"})],
+        )
+        .unwrap();
         let reply: Value = serde_json::from_str(&reply).unwrap();
-        assert_eq!(reply["error"], "host.io surface calls require a native surface runtime");
+        assert_eq!(
+            reply["error"],
+            "host.io surface calls require a native surface runtime"
+        );
     }
     let result: Value = call_json(&vm, "surface", &[]).unwrap();
-    assert_eq!(result["error"], crate::js_runtime::host_surface::NO_AGENT_CALLER);
+    assert_eq!(
+        result["error"],
+        crate::js_runtime::host_surface::NO_AGENT_CALLER
+    );
 }
 
 #[test]
@@ -134,7 +150,14 @@ fn surface_and_event_jobs_preserve_their_grants() {
     let (vm, _service) = fixture();
     let _caller = crate::js_runtime::host_surface::AgentCallerScope::enter("own-agent");
     let result: Value = call_json(&vm, "surface", &[]).unwrap();
-    assert_eq!(result["error"], crate::js_runtime::host_surface::SURFACE_DENIED);
-    let result: Value = call_json(&vm, "request", &[json!({"op":"graphEventEmit","event":{}})]).unwrap();
-    assert!(result["error"].as_str().unwrap().contains("graph_events permission required"));
+    assert_eq!(
+        result["error"],
+        crate::js_runtime::host_surface::SURFACE_DENIED
+    );
+    let result: Value =
+        call_json(&vm, "request", &[json!({"op":"graphEventEmit","event":{}})]).unwrap();
+    assert!(result["error"]
+        .as_str()
+        .unwrap()
+        .contains("graph_events permission required"));
 }

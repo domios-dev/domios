@@ -21,7 +21,9 @@ pub(super) fn execute(
             if !sandbox.graph_events_allowed() {
                 return Err("host.events.emit: graph_events permission required".into());
             }
-            operation.begin_effect().map_err(|error| error.to_string())?;
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
             parsed(service.emit_graph_event_json(sandbox.plugin_id(), &event.to_string()))
         }
         Progress { options } => {

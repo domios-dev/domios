@@ -275,11 +275,16 @@ fn execute(
     use Request::*;
     match request {
         SurfaceCall { verb, args } => {
-            operation.begin_effect().map_err(|error| error.to_string())?;
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
             let reply = super::super::host_surface::surface_call(sandbox, &verb, &args);
             let parsed: Value = serde_json::from_str(&reply).map_err(|error| error.to_string())?;
             if parsed.get("view_dispatch").is_some() {
-                return Ok(json!(json!({"error":"host.io surface calls require a native surface runtime"}).to_string()));
+                return Ok(json!(
+                    json!({"error":"host.io surface calls require a native surface runtime"})
+                        .to_string()
+                ));
             }
             Ok(json!(reply))
         }
