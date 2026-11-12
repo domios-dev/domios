@@ -30,6 +30,11 @@
   animation: ct-menu-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
 }
 
+/* Over a blurred modal scrim the glass backdrop shows the dialog through; a menu opened from a dialog is opaque. */
+.ct-menu.ct-menu--modal {
+  background: var(--ct-glass-sheen), var(--ct-surface);
+}
+
 .ct-menu-page {
   display: flex;
   min-width: 0;

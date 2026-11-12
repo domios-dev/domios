@@ -1,6 +1,6 @@
 import { useId } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
-import { kindDisplayName } from "../../lib/roleKind";
+import { humanizeRoleKey, roleDisplayLabel } from "../../lib/roleKind";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import type { OrchestrationPairValues } from "../Sidebar/OrchestrationPairForm";
 import { TemplateHeader } from "./TemplateHeader";
@@ -14,8 +14,7 @@ type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePrevi
 type TemplateInputField = import("../../../gen/TemplateInputField").TemplateInputField;
 
 function inputLabel(field: TemplateInputField): string {
-  const name = field.key.replace(/_/g, " ");
-  return `${name.charAt(0).toUpperCase()}${name.slice(1)}${field.required ? "" : " · optional"}`;
+  return `${humanizeRoleKey(field.key)}${field.required ? "" : " · optional"}`;
 }
 
 function InputField({ field, value, onChange }: { field: TemplateInputField; value: string; onChange: (value: string) => void }) {
@@ -48,7 +47,7 @@ export function WorkerChips({ preview }: { preview: TemplatePreview }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-[11px]" aria-label="Workers on demand" role="group">
       <span className="text-[var(--ct-muted-fg)]">Workers on demand</span>
-      {workers.map((role) => <span key={role.role} className="ct-small-pill">{kindDisplayName(role.label)}</span>)}
+      {workers.map((role) => <span key={role.role} className="ct-small-pill" title={role.description ?? undefined}>{roleDisplayLabel(role.role, role.label)}</span>)}
     </div>
   );
 }
@@ -71,11 +70,11 @@ export function TemplateStartFields({ choice, preview, providers, disabledProvid
         <InputField key={field.key} field={field} value={choice.inputs[field.key] ?? ""} onChange={(value) => choice.setInput(field.key, value)} />
       ))}
       <TemplateManagers form={preview.form} providers={providers} disabledProviderIds={disabledProviderIds} pair={pair} onPairChange={onPairChange}
-        seats={choice.seats} onSeatChange={choice.setSeat} onInstallProvider={onInstallProvider} roleControls={roleControls} />
+        seats={choice.seats} onSeatChange={choice.setSeat} onSeatClear={choice.clearSeat} onInstallProvider={onInstallProvider} roleControls={roleControls} />
       <WorkerChips preview={preview} />
       <TemplateBrings payload={preview.payload ?? []} optOut={choice.optOut} onToggle={choice.setKept} template={preview.form.template} />
       <TemplateAsks asks={preview.asks ?? []} secrets={{ bindings: choice.secrets, vault: choice.vault, onBind: choice.setSecret }} />
-      <TemplateWhere choice={choice} preview={preview} onInstallProvider={onInstallProvider} />
+      <TemplateWhere choice={choice} preview={preview} providers={providers} onInstallProvider={onInstallProvider} />
     </div>
   );
 }

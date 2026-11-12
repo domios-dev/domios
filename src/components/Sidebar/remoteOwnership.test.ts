@@ -36,7 +36,7 @@ describe("canonical remote ownership presentation", () => {
     expect(remoteIdentity(planner)).toEqual({ role: "Planner", peer: "@BLACKSTAR" });
     // Stored authority stays Manager + role_profile; this surface is a display label.
     expect(remoteIdentity(orchestrator)).toEqual({ role: "Orchestrator", peer: "@BLACKSTAR" });
-    expect(namedManagerRole({ ...worker, role: "Manager", role_profile: "review_lead" })).toEqual("Review Lead");
+    expect(namedManagerRole({ ...worker, role: "Manager", role_profile: "review_lead" })).toEqual("Review lead");
     expect(namedManagerRole({ ...worker, role: "Manager", role_profile: null })).toEqual(null);
   });
 

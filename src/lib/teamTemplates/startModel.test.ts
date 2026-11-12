@@ -3,8 +3,9 @@ import {
   modelDecisionFixtures, templateListFixture, templatePreviewFixture, templateRecallFixture, templateStartResultFixtures, templateUnavailableFixture,
 } from "../transport/teamTemplates.testdata";
 import {
-  bringsSummary, buildStartRequest, decisionNotice, effortNote, exportFormats, galleryEntries, pickerSeed, roleTiming, startBlocker, startErrorView,
-  managerRoles, rowDecisionNotice, templateSource,
+  blockerView, bringsSummary, buildStartRequest, decisionNotice, effortLabel, effortNote, exportFormats, galleryEntries, groupKeptState, humanizePackageName,
+  payloadItemText, pickerSeed, roleTiming, scrubRows, startBlocker, startErrorView, managerRoles, rowDecisionNotice, templateSource, templateTitle,
+  visiblePayload, withKept,
 } from "./startModel";
 
 const [firstPreference, sameAs, normalDefault, , unknownModel, absentHarness, notSignedIn, quota, sameAsUnavailable, noReasoningEffort, missingTool, exhausted] = modelDecisionFixtures;
@@ -42,7 +43,40 @@ describe("template start model", () => {
   it("says when non-starting roles join", () => {
     expect(roleTiming("with_team")).toBeNull();
     expect(roleTiming("on_demand")).toBe("Joins when the Orchestrator needs it");
-    expect(roleTiming({ schedule: "45m..2h" })).toBe("Visits every 45 min to 2 h");
+    expect(roleTiming({ schedule: "45m..2h" })).toBe("Visits every 45 to 120 min");
+    expect(roleTiming({ schedule: "90m..1h" })).toBe("Visits every 60 to 90 min");
+    expect(roleTiming({ schedule: "1h..2h" })).toBe("Visits every 1 to 2 h");
+  });
+
+  it("names templates by title, else by the humanized last id segment, and capitalizes efforts", () => {
+    expect(templateTitle({ name: "dev.weaverqa/secret-probe", title: null })).toBe("Secret probe");
+    expect(templateTitle({ name: "me/release_train", title: "Release train" })).toBe("Release train");
+    expect(humanizePackageName("me/qa-sweep")).toBe("QA sweep");
+    expect(effortLabel("medium")).toBe("Medium");
+  });
+
+  it("keeps the icon out of Brings and reads documents by their description", () => {
+    const icon = { id: "file:icon.svg", kind: "file" as const, label: "icon.svg", executable: false };
+    const doc = { id: "file:docs/how-we-research.md", kind: "file" as const, label: "docs/how-we-research.md", executable: false };
+    expect(visiblePayload([icon, doc])).toEqual([doc]);
+    expect(payloadItemText(doc)).toEqual({ name: "How we research", detail: "docs/how-we-research.md" });
+    expect(payloadItemText({ ...doc, description: "How we research a market" }).name).toBe("How we research a market");
+  });
+
+  it("selects or clears a whole group of payload items at once", () => {
+    const items = [{ id: "a" }, { id: "b" }];
+    expect(groupKeptState(items, new Set())).toBe("all");
+    expect(groupKeptState(items, new Set(["a"]))).toBe("some");
+    const cleared = withKept(new Set(["c"]), ["a", "b"], false);
+    expect(groupKeptState(items, cleared)).toBe("none");
+    expect([...withKept(cleared, ["a", "b"], true)]).toEqual(["c"]);
+  });
+
+  it("reports only what scrubbing removed, and chats without a count", () => {
+    const none = { machines_removed: 0, paths_generalized: 0, secret_values_removed: 0, secret_asks_added: 0, history_removed: 0 };
+    expect(scrubRows(none)).toEqual([]);
+    const rows = scrubRows({ ...none, paths_generalized: 14, history_removed: 3, secret_values_removed: 1, secret_names: ["GH_TOKEN"] });
+    expect(rows.map((row) => [row.label, row.count])).toEqual([["Paths", 14], ["Secret values", 1], ["Chats and history", null]]);
   });
 
   it("counts only the payload the owner keeps", () => {
@@ -52,13 +86,17 @@ describe("template start model", () => {
   });
 
   it("blocks start on a missing input, then on a missing harness", () => {
-    expect(startBlocker(templatePreviewFixture, { question: "", depth: "standard" })).toBe("Fill in question");
-    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" })).toBe("Choose a secret for SEARCH_API_KEY");
+    expect(startBlocker(templatePreviewFixture, { question: "", depth: "standard" })).toEqual({ kind: "inputs", keys: ["question"] });
+    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" })).toEqual({ kind: "secret", name: "SEARCH_API_KEY" });
     const bound = { SEARCH_API_KEY: "research-desk/search" };
-    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, bound)).toBe("Needs codex on this machine");
+    const harness = startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, bound);
+    expect(harness).toEqual({ kind: "harness", harness: "codex" });
     expect(startBlocker({ ...templatePreviewFixture, where_needed: null }, { question: "EU heat pumps" }, bound)).toBeNull();
     expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, {}, "eight")).toBeNull();
-    expect(startBlocker(templatePreviewFixture, { question: "" }, {}, "eight")).toBe("Fill in question");
+    expect(startBlocker(templatePreviewFixture, { question: "" }, {}, "eight")).toEqual({ kind: "inputs", keys: ["question"] });
+    const names = (id: string) => id === "codex" ? "Codex" : id;
+    expect(blockerView({ kind: "secret", name: "SEARCH_API_KEY" }, names).tone).toBe("amber");
+    expect(blockerView(harness!, names)).toEqual({ tone: "red", text: "Install Codex to start." });
   });
 
   it("carries the owner decision id, opt-outs and filled inputs on the start request", () => {
@@ -93,7 +131,7 @@ describe("template start model", () => {
     expect(startErrorView(JSON.stringify(needsChoice)).reasons).toEqual(["Orchestrator · Lead"]);
     expect(startErrorView(JSON.stringify(consent)).reasons).toEqual(["new_grants"]);
     expect(startErrorView(JSON.stringify(missingInputs)).reasons).toEqual(["question"]);
-    expect(startErrorView(JSON.stringify(notFound)).message).toBe("dev.example/missing isn't available");
+    expect(startErrorView(JSON.stringify(notFound)).message).toBe("Missing isn't available");
     expect(startErrorView(`template_start: ${JSON.stringify(templateStartResultFixtures[6])}`).message).toBe("The Orchestrator is a manager and runs on this machine");
     expect(startErrorView(new Error(`template_unavailable: ${templateUnavailableFixture.message}`)).message).toBe(templateUnavailableFixture.message);
     expect(startErrorView(new Error(JSON.stringify({ error: `template_unavailable: ${templateUnavailableFixture.message}` }))).message)
@@ -128,7 +166,7 @@ describe("template start model", () => {
   });
 
   it("files an owner's import under Mine and a Neighborhood receipt under From friends, unverified until consented", () => {
-    expect(templateSource({ provenance: "imported", verified: false })).toEqual({ filter: "mine", label: "Mine · unverified", unverified: true, owned: true });
+    expect(templateSource({ provenance: "imported", verified: false })).toEqual({ filter: "mine", label: "From file · unverified", unverified: true, owned: true });
     expect(templateSource({ provenance: "imported", verified: true })).toEqual({ filter: "mine", label: "Mine", unverified: false, owned: true });
     expect(templateSource({ provenance: "imported", received_from: "Mira", verified: false })).toEqual({ filter: "friends", label: "From Mira · unverified", unverified: true, owned: false });
     expect(templateSource({ provenance: "imported", received_from: "Mira", verified: true })).toMatchObject({ filter: "friends", label: "From Mira", unverified: false });

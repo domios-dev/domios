@@ -1,8 +1,11 @@
-import type { ReactNode } from "react";
-import { Compass, ListChecks, Map as MapIcon, Workflow } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ChevronRight, Compass, ListChecks, Map as MapIcon, Workflow } from "lucide-react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { resolveEffort } from "../../lib/newSessionChoice";
+import { AgentIcon } from "../AgentIcon";
+import { DropdownSelect } from "../shared/DropdownMenu";
 import { OrchestrationRoleRow, TeamRosterMember, type OrchestrationPairValues } from "../Sidebar/OrchestrationPairForm";
+import { modelEffortText } from "../Sidebar/RoleModelButton";
 import {
   effortNote, managerLabel, managerRoles, MANAGER_SLOTS, pickerSeed, roleTiming, rowDecisionNotice, splitModel,
   type DecisionAction, type PickerSeed,
@@ -11,12 +14,13 @@ import {
 type ManagerSlot = import("../../../gen/ManagerSlot").ManagerSlot;
 type ManagerModelPicker = import("../../../gen/ManagerModelPicker").ManagerModelPicker;
 type TemplateStartForm = import("../../../gen/TemplateStartForm").TemplateStartForm;
+type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 
 export type ManagerSeats = Partial<Record<ManagerSlot, PickerSeed>>;
 /** Launch-profile controls for the pair rows; other manager seats carry only provider:model. */
 export type PairRoleControls = Partial<Record<"orchestrator" | "planner", { modelSlot?: ReactNode; details?: ReactNode }>>;
 
-const SLOT_ICON: Record<ManagerSlot, ReactNode> = {
+export const SLOT_ICON: Record<ManagerSlot, ReactNode> = {
   orchestrator: <Workflow size={13} aria-hidden="true" />,
   planner: <ListChecks size={13} aria-hidden="true" />,
   cartographer: <MapIcon size={13} aria-hidden="true" />,
@@ -24,6 +28,11 @@ const SLOT_ICON: Record<ManagerSlot, ReactNode> = {
 };
 
 const ACTION = "rounded border border-[var(--ct-border)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--ct-accent)] hover:brightness-125";
+const MUTED_LINE = "text-[10px] text-[var(--ct-muted-fg)]";
+const SAME_AS = "same";
+const CHOOSE = "choose";
+
+const isPairSlot = (slot: string): slot is "orchestrator" | "planner" => slot === "orchestrator" || slot === "planner";
 
 function pairSeat(slot: "orchestrator" | "planner", values: OrchestrationPairValues): PickerSeed {
   return slot === "orchestrator"
@@ -46,144 +55,198 @@ function actionKey(action: DecisionAction): string {
   }
 }
 
-function DecisionActionView({ action, onAction }: { action: DecisionAction; onAction: (action: DecisionAction) => void }) {
+function DecisionActionView({ action, harnessName, onAction }: { action: DecisionAction; harnessName: (id: string) => string; onAction: (action: DecisionAction) => void }) {
   const hint = "text-[var(--ct-muted-fg)]";
   switch (action.kind) {
     case "wait": return <span className={hint}>or wait for its quota</span>;
-    case "sign_in": return <span className={hint}>Sign in to {action.harness}, or</span>;
+    case "sign_in": return <span className={hint}>Sign in to {harnessName(action.harness)}, or</span>;
     case "connect_tool": return <span className={hint}>Connect {action.tool}, or</span>;
-    case "install": return <button type="button" className={ACTION} onClick={() => onAction(action)}>Install {action.harness}</button>;
+    case "install": return <button type="button" className={ACTION} onClick={() => onAction(action)}>Install {harnessName(action.harness)}</button>;
     case "substitute": return <button type="button" className={ACTION} onClick={() => onAction(action)}>Use {action.model}</button>;
   }
 }
 
-function DecisionLines({ picker, providerId, onAction }: { picker: ManagerModelPicker; providerId: string; onAction: (action: DecisionAction) => void }) {
-  const notice = rowDecisionNotice(picker.decision, providerId);
+function DecisionLines({ picker, providerId, harnessName, onAction }: {
+  picker: ManagerModelPicker;
+  providerId: string;
+  harnessName: (id: string) => string;
+  onAction: (action: DecisionAction) => void;
+}) {
+  const notice = rowDecisionNotice(picker.decision, providerId, harnessName);
   const effort = effortNote(picker.decision);
   if (!notice && !effort) return null;
   return (
     <div className="flex flex-wrap items-center gap-2 text-[10px]" data-decision={notice?.tone ?? "effort"}>
       {notice && <span style={{ color: notice.tone === "amber" ? "var(--ct-yellow,#d97706)" : "var(--ct-red)" }}>{notice.text}</span>}
-      {notice?.actions.map((action) => <DecisionActionView key={actionKey(action)} action={action} onAction={onAction} />)}
+      {notice?.actions.map((action) => <DecisionActionView key={actionKey(action)} action={action} harnessName={harnessName} onAction={onAction} />)}
       {effort && <span className="text-[var(--ct-muted-fg)]" title={effort} tabIndex={0} aria-label={effort}>Effort adjusted</span>}
     </div>
   );
 }
 
-/**
- * The default form's managers past the pair. Each shows what the package decides until the owner picks a model;
- * a picked model is a manager choice, which the caller starts through the template start.
- */
-export function LaterManagerRows({ form, providers, disabledProviderIds, pair, seats, onSeatChange, onInstallProvider }: {
+interface RowContext {
   form: TemplateStartForm;
   providers: ProviderDescriptor[];
   disabledProviderIds: ReadonlySet<string>;
   pair: OrchestrationPairValues;
   seats: ManagerSeats;
   onSeatChange: (slot: ManagerSlot, seat: PickerSeed) => void;
+  onSeatClear: (slot: ManagerSlot) => void;
   onInstallProvider: (providerId: string) => void;
-}) {
+}
+
+export function harnessNames(providers: readonly ProviderDescriptor[]) {
+  return (id: string) => providers.find((provider) => provider.id === id)?.display_name ?? id;
+}
+
+/**
+ * A manager past the pair. `same_as: orchestrator` is one select that follows the Orchestrator live; a role with no
+ * model of its own shows the Orchestrator's current pick until the owner picks one.
+ */
+function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context: RowContext }) {
+  const { form, providers, disabledProviderIds, pair, seats, onSeatChange, onSeatClear, onInstallProvider } = context;
+  const slot = role.role as ManagerSlot;
+  const label = managerLabel(slot, role.label);
+  const harnessName = harnessNames(providers);
   const seatProviders = providers.filter((provider) => !provider.agent_runtime?.launchProfiles);
   const effortFor = (providerId: string, modelId: string, current?: string) =>
     resolveEffort(providers.find((provider) => provider.id === providerId), modelId, current);
-  const later = managerRoles(form.roles).filter((role) => role.role !== "orchestrator" && role.role !== "planner");
-  return <>{later.map((role) => {
-    const slot = role.role as ManagerSlot;
-    const decision = form.pickers.find((picker) => picker.slot === slot)?.decision;
-    const sameAs = decision?.reason === "same_as";
-    const picked = seats[slot];
-    const shown = picked ?? (sameAs ? pairSeat("orchestrator", pair) : decision ? pickerSeed(decision) : null) ?? { providerId: "", modelId: "" };
-    const packageDecision = picked ? null : sameAs ? "Same as Orchestrator" : decision?.choice ? null : "Chosen when it joins";
-    // A seat that already shows the Orchestrator's model still says why.
-    const note = packageDecision && shown.providerId ? packageDecision : null;
-    const timing = roleTiming(role.start);
+  const picker = form.pickers.find((candidate) => candidate.slot === slot);
+  const decision = picker?.decision;
+  const sameAs = decision?.reason === "same_as";
+  const orchestrator = pairSeat("orchestrator", pair);
+  const picked = seats[slot];
+  const declared = decision ? pickerSeed(decision) : null;
+  const waits = role.start !== "with_team";
+  const shown = picked ?? declared ?? (waits ? orchestrator : { providerId: "", modelId: "" });
+  const timing = roleTiming(role.start);
+  if (sameAs && !picked) {
+    const orchestratorProvider = providers.find((provider) => provider.id === orchestrator.providerId);
+    const followed = modelEffortText(orchestratorProvider, orchestrator.modelId, orchestrator.effortId);
     return (
-      <TeamRosterMember key={slot} role={slot} icon={SLOT_ICON[slot] ?? null}>
-        <OrchestrationRoleRow label={managerLabel(slot, role.label)} providers={seatProviders}
-          providerPlaceholder={packageDecision ?? undefined}
-          providerId={shown.providerId} modelId={shown.modelId} effortId={shown.effortId}
-          disabledProviderIds={disabledProviderIds} onInstallProvider={onInstallProvider}
-          onProviderChange={(providerId) => {
-            const modelId = providers.find((provider) => provider.id === providerId)?.default_model ?? "";
-            onSeatChange(slot, { providerId, modelId, effortId: effortFor(providerId, modelId) });
-          }}
-          onModelChange={(modelId) => onSeatChange(slot, { ...shown, modelId, effortId: effortFor(shown.providerId, modelId, shown.effortId) })}
-          onEffortChange={(effortId) => onSeatChange(slot, { ...shown, effortId })} />
-        {note && <div className="text-[10px] text-[var(--ct-muted-fg)]">{note}</div>}
-        {timing && <div className="text-[10px] text-[var(--ct-muted-fg)]">{timing}</div>}
+      <TeamRosterMember role={slot} icon={SLOT_ICON[slot] ?? null}>
+        <div className="orchestration-role-row flex flex-col gap-1.5" data-testid={`orchestration-role-${label.toLowerCase()}`}>
+          <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{label}</div>
+          <DropdownSelect aria-label={`${label} model`} value={SAME_AS}
+            leading={orchestrator.providerId ? <AgentIcon providerId={orchestrator.providerId} className="text-[12px] shrink-0" /> : undefined}
+            options={[{ value: SAME_AS, label: `Same as Orchestrator · ${followed}` }, { value: CHOOSE, label: "Choose a model…" }]}
+            onChange={(value) => { if (value === CHOOSE) onSeatChange(slot, orchestrator); }} />
+        </div>
+        {picker && <DecisionLines picker={picker} providerId={orchestrator.providerId} harnessName={harnessName} onAction={(action) => {
+          if (action.kind === "install") onInstallProvider(action.harness);
+          if (action.kind === "substitute") onSeatChange(slot, { ...splitModel(action.model) });
+        }} />}
+        {timing && <div className={MUTED_LINE}>{timing}</div>}
       </TeamRosterMember>
     );
-  })}</>;
+  }
+  return (
+    <TeamRosterMember role={slot} icon={SLOT_ICON[slot] ?? null}>
+      <OrchestrationRoleRow label={label} providers={seatProviders} compact
+        providerId={shown.providerId} modelId={shown.modelId} effortId={shown.effortId}
+        disabledProviderIds={disabledProviderIds} onInstallProvider={onInstallProvider}
+        onProviderChange={(providerId) => {
+          const modelId = providers.find((provider) => provider.id === providerId)?.default_model ?? "";
+          onSeatChange(slot, { providerId, modelId, effortId: effortFor(providerId, modelId) });
+        }}
+        onModelChange={(modelId) => onSeatChange(slot, { ...shown, modelId, effortId: effortFor(shown.providerId, modelId, shown.effortId) })}
+        onEffortChange={(effortId) => onSeatChange(slot, { ...shown, effortId })}
+        onSelectionChange={(modelId, effortId) => onSeatChange(slot, { ...shown, modelId, effortId })} />
+      {picker && <DecisionLines picker={picker} providerId={shown.providerId} harnessName={harnessName} onAction={(action) => {
+        if (action.kind === "install") onInstallProvider(action.harness);
+        if (action.kind === "substitute") {
+          const next = splitModel(action.model);
+          onSeatChange(slot, { ...next, effortId: effortFor(next.providerId, next.modelId) });
+        }
+      }} />}
+      {timing && <div className={MUTED_LINE}>{timing}</div>}
+      {sameAs && picked && <button type="button" className="self-start text-[10px] text-[var(--ct-accent)] hover:underline" onClick={() => onSeatClear(slot)}>
+        Use the Orchestrator's model
+      </button>}
+    </TeamRosterMember>
+  );
 }
 
-/** The template's managers in today's roster rows: pickers for with_team slots, a timing line for the rest. */
-export function TemplateManagers({ form, providers, disabledProviderIds, pair, onPairChange, seats, onSeatChange, onInstallProvider, roleControls }: {
-  form: TemplateStartForm;
-  providers: ProviderDescriptor[];
-  disabledProviderIds: ReadonlySet<string>;
-  pair: OrchestrationPairValues;
+/** Managers that join after the start (on demand or on a schedule), collapsed under the pair until the owner opens them. */
+export function JoinsLaterGroup({ roles, context }: { roles: TemplateRoleSummary[]; context: RowContext }) {
+  const [open, setOpen] = useState(false);
+  if (roles.length === 0) return null;
+  return <>
+    <div className="team-roster-member team-roster-later" role="listitem" data-pair-role="later">
+      <span className="team-roster-avatar" aria-hidden="true"><ChevronRight size={13} className={open ? "rotate-90" : ""} /></span>
+      <div className="team-roster-body">
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
+          className="self-start text-left text-[11px] font-medium text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]">
+          Joins later ({roles.length})
+        </button>
+      </div>
+    </div>
+    {open && roles.map((role) => <ManagerSeatRow key={role.role} role={role} context={context} />)}
+  </>;
+}
+
+/** Non-pair managers split into those starting with the team and those joining later. */
+function extraManagers(form: TemplateStartForm): { withTeam: TemplateRoleSummary[]; later: TemplateRoleSummary[] } {
+  const declared = managerRoles(form.roles).filter((role) => !isPairSlot(role.role));
+  const pickerOnly = form.pickers
+    .filter((picker) => !isPairSlot(picker.slot) && !declared.some((role) => role.role === picker.slot))
+    .map((picker): TemplateRoleSummary => ({ group: "manager", role: picker.slot, label: picker.label, start: "with_team" }));
+  const all = [...declared, ...pickerOnly].sort((a, b) => MANAGER_SLOTS.indexOf(a.role as ManagerSlot) - MANAGER_SLOTS.indexOf(b.role as ManagerSlot));
+  return { withTeam: all.filter((role) => role.start === "with_team"), later: all.filter((role) => role.start !== "with_team") };
+}
+
+/** The default form's managers past the pair: with-team rows, then the collapsed later group. */
+export function LaterManagerRows(context: RowContext) {
+  const { withTeam, later } = extraManagers(context.form);
+  return <>
+    {withTeam.map((role) => <ManagerSeatRow key={role.role} role={role} context={context} />)}
+    <JoinsLaterGroup roles={later} context={context} />
+  </>;
+}
+
+/** The template's managers in today's roster rows: the pair, other with-team managers, then the later group. */
+export function TemplateManagers({ form, providers, disabledProviderIds, pair, onPairChange, seats, onSeatChange, onSeatClear, onInstallProvider, roleControls }: RowContext & {
   onPairChange: (next: OrchestrationPairValues) => void;
-  seats: ManagerSeats;
-  onSeatChange: (slot: ManagerSlot, seat: PickerSeed) => void;
-  onInstallProvider: (providerId: string) => void;
   roleControls?: PairRoleControls;
 }) {
-  const seatProviders = providers.filter((provider) => !provider.agent_runtime?.launchProfiles);
-  const seatOf = (slot: ManagerSlot): PickerSeed => slot === "orchestrator" || slot === "planner"
-    ? pairSeat(slot, pair)
-    : seats[slot] ?? { providerId: "", modelId: "" };
-  const setSeat = (slot: ManagerSlot, seat: PickerSeed) => {
-    if (slot === "orchestrator" || slot === "planner") onPairChange(withPairSeat(slot, pair, seat));
-    else onSeatChange(slot, seat);
-  };
+  const harnessName = harnessNames(providers);
   const effortFor = (providerId: string, modelId: string, current?: string) =>
     resolveEffort(providers.find((provider) => provider.id === providerId), modelId, current);
   const roles = managerRoles(form.roles);
-  const managers = MANAGER_SLOTS.flatMap((slot) => {
-    const picker = form.pickers.find((candidate) => candidate.slot === slot);
-    const role = roles.find((candidate) => candidate.role === slot);
-    return picker || role ? [{ slot, picker, role }] : [];
-  });
+  const context: RowContext = { form, providers, disabledProviderIds, pair, seats, onSeatChange, onSeatClear, onInstallProvider };
   return (
     <div className="team-roster" role="list" aria-label="Managers" data-testid="template-managers">
-      {managers.map(({ slot, picker, role }) => {
+      {(["orchestrator", "planner"] as const).map((slot) => {
+        const picker = form.pickers.find((candidate) => candidate.slot === slot);
+        const role = roles.find((candidate) => candidate.role === slot);
         const label = managerLabel(slot, picker?.label ?? role?.label ?? slot);
-        const seat = seatOf(slot);
-        const timing = role ? roleTiming(role.start) : null;
-        const isPair = slot === "orchestrator" || slot === "planner";
-        const controls = isPair ? roleControls?.[slot] : undefined;
+        const seat = pairSeat(slot, pair);
+        const controls = roleControls?.[slot];
+        const setSeat = (next: PickerSeed) => onPairChange(withPairSeat(slot, pair, next));
         return (
           <TeamRosterMember key={slot} role={slot} icon={SLOT_ICON[slot]}>
-            {picker || isPair ? (
-              <>
-                <OrchestrationRoleRow label={label} providers={isPair ? providers : seatProviders}
-                  providerId={seat.providerId} modelId={seat.modelId} modelSlot={controls?.modelSlot} details={controls?.details}
-                  modelControls={!controls?.modelSlot}
-                  effortId={seat.effortId} disabledProviderIds={disabledProviderIds} onInstallProvider={onInstallProvider}
-                  onProviderChange={(providerId) => {
-                    const modelId = providers.find((provider) => provider.id === providerId)?.default_model ?? "";
-                    setSeat(slot, { providerId, modelId, effortId: effortFor(providerId, modelId) });
-                  }}
-                  onModelChange={(modelId) => setSeat(slot, { ...seat, modelId, effortId: effortFor(seat.providerId, modelId, seat.effortId) })}
-                  onEffortChange={(effortId) => setSeat(slot, { ...seat, effortId })} />
-                {picker && <DecisionLines picker={picker} providerId={seat.providerId} onAction={(action) => {
-                  if (action.kind === "install") onInstallProvider(action.harness);
-                  if (action.kind === "substitute") {
-                    const next = splitModel(action.model);
-                    setSeat(slot, { ...next, effortId: effortFor(next.providerId, next.modelId) });
-                  }
-                }} />}
-              </>
-            ) : (
-              <div className="flex flex-col gap-0.5">
-                <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{label}</div>
-                {timing && <div className="text-[10px] text-[var(--ct-muted-fg)]">{timing}</div>}
-              </div>
-            )}
-            {(picker || isPair) && timing && <div className="text-[10px] text-[var(--ct-muted-fg)]">{timing}</div>}
+            <OrchestrationRoleRow label={label} providers={providers} compact
+              providerId={seat.providerId} modelId={seat.modelId} modelSlot={controls?.modelSlot} details={controls?.details}
+              modelControls={!controls?.modelSlot}
+              effortId={seat.effortId} disabledProviderIds={disabledProviderIds} onInstallProvider={onInstallProvider}
+              onProviderChange={(providerId) => {
+                const modelId = providers.find((provider) => provider.id === providerId)?.default_model ?? "";
+                setSeat({ providerId, modelId, effortId: effortFor(providerId, modelId) });
+              }}
+              onModelChange={(modelId) => setSeat({ ...seat, modelId, effortId: effortFor(seat.providerId, modelId, seat.effortId) })}
+              onEffortChange={(effortId) => setSeat({ ...seat, effortId })}
+              onSelectionChange={(modelId, effortId) => setSeat({ ...seat, modelId, effortId })} />
+            {picker && <DecisionLines picker={picker} providerId={seat.providerId} harnessName={harnessName} onAction={(action) => {
+              if (action.kind === "install") onInstallProvider(action.harness);
+              if (action.kind === "substitute") {
+                const next = splitModel(action.model);
+                setSeat({ ...next, effortId: effortFor(next.providerId, next.modelId) });
+              }
+            }} />}
           </TeamRosterMember>
         );
       })}
+      <LaterManagerRows {...context} />
     </div>
   );
 }

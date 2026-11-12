@@ -394,7 +394,7 @@ export function DropdownMenu({
               moveFocus(event.key);
             }}
             aria-description={activeSubmenu?.description}
-            className="ct-menu w-max"
+            className={`ct-menu w-max${triggerRef.current?.closest('[aria-modal="true"]') ? " ct-menu--modal" : ""}`}
             style={{ width: maxWidth ?? (inSubmenu && pageWidth ? pageWidth : undefined), maxHeight, maxWidth }}
           >
             <div key={submenuKey ?? "root"} className="ct-menu-page" data-direction={pageDirection ?? undefined}>

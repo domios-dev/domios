@@ -34,7 +34,7 @@ const KIND_LABELS: Record<string, string> = {
   [CARTOGRAPHER_KIND]: "Cartographer",
   [CURATOR_KIND]: "Curator",
   [QA_KIND]: "QA",
-  [RELEASE_MANAGER_KIND]: "Release Manager",
+  [RELEASE_MANAGER_KIND]: "Release manager",
   [REVIEWER_KIND]: "Reviewer",
 };
 
@@ -80,9 +80,37 @@ export function roleKindLabel(tab: RoleCarrier | null | undefined): string | nul
   return tab?.role_label?.trim() || KIND_LABELS[kind] || structuralLabel(tab?.role ?? null);
 }
 
-/** The host name of a built-in kind, such as a manager slot. */
+/** The host name of a built-in kind, such as a manager slot; any other key reads in sentence case. */
 export function kindDisplayName(kind: string): string {
-  return KIND_LABELS[kind] ?? kind;
+  return KIND_LABELS[kind] ?? humanizeRoleKey(kind);
+}
+
+const ROLE_ACRONYMS = new Set(["qa", "ci", "ui", "ux", "api", "pr", "sre"]);
+
+/** A role or file key in sentence case: "build_owner" → "Build owner", "qa-lead" → "QA lead". */
+export function humanizeRoleKey(key: string): string {
+  const words = key.trim().split(/[_\-\s.]+/).filter(Boolean);
+  if (words.length === 0) return key.trim();
+  return words.map((word, index) => {
+    const lower = word.toLowerCase();
+    if (ROLE_ACRONYMS.has(lower)) return lower.toUpperCase();
+    return index === 0 ? `${lower.charAt(0).toUpperCase()}${lower.slice(1)}` : lower;
+  }).join(" ");
+}
+
+const KEY_LIKE = /^[a-z0-9]+([_-][a-z0-9]+)*$/;
+const normalizedKey = (text: string) => text.toLowerCase().replace(/[_\-\s]+/g, " ").trim();
+
+/**
+ * A role's label for people: a declared display name ("Lead", "Conductor") stays as written; a label that only
+ * restates its key, or is itself a key, reads as the kind's host name or in sentence case ("Field scout").
+ */
+export function roleDisplayLabel(key: string | null | undefined, label?: string | null): string {
+  const declared = label?.trim() ?? "";
+  const id = key?.trim() ?? "";
+  if (declared && !KEY_LIKE.test(declared) && normalizedKey(declared) !== normalizedKey(id)) return declared;
+  const source = id || declared;
+  return KIND_LABELS[source] ?? humanizeRoleKey(declared || source);
 }
 
 function structuralLabel(role: AgentRole | null): string | null {

@@ -4,26 +4,30 @@ import { authorLine } from "../../lib/teamTemplates/exchangeModel";
 
 const LINK = "text-[12px] text-[var(--ct-accent)] hover:underline";
 
+/** The chosen template in one card: its description in one line (full text on hover), then the author, Details and Change template. */
 export function TemplateHeader({ summary, onChange, onDetails }: {
   summary: TemplateSummary;
   onChange: () => void;
   onDetails?: () => void;
 }) {
+  const author = authorLine(summary);
   return (
     <div className="ct-card ct-card--static flex items-start gap-3 p-3" data-testid="template-header">
       <TemplateIcon icon={summary.icon} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate text-[13px] font-medium text-[var(--ct-fg)]">{templateTitle(summary)}</span>
-          <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>
+          {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
         </div>
-        <p className="mt-0.5 text-[12px] leading-snug text-[var(--ct-muted-fg)]">{summary.description}</p>
-        {(authorLine(summary) || onDetails) && <div className="text-[12px] text-[var(--ct-muted-fg)]">
-          {authorLine(summary)}{authorLine(summary) && onDetails && " · "}
+        <p className="mt-0.5 truncate text-[12px] leading-snug text-[var(--ct-muted-fg)]" title={summary.description}>{summary.description}</p>
+        <div className="flex flex-wrap items-center gap-x-1 text-[12px] text-[var(--ct-muted-fg)]">
+          {author && <span>{author}</span>}
+          {author && onDetails && <span aria-hidden="true">·</span>}
           {onDetails && <button type="button" className={LINK} onClick={onDetails}>Details</button>}
-        </div>}
+          {(author || onDetails) && <span aria-hidden="true">·</span>}
+          <button type="button" className={LINK} onClick={onChange}>Change template</button>
+        </div>
       </div>
-      <button type="button" className={`${LINK} shrink-0`} onClick={onChange}>Change template</button>
     </div>
   );
 }

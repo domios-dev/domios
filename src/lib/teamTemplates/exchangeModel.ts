@@ -1,4 +1,4 @@
-import { kindDisplayName } from "../roleKind";
+import { kindDisplayName, roleDisplayLabel } from "../roleKind";
 import type { TemplateSummary } from "./startModel";
 
 type TemplateAsk = import("../../../gen/TemplateAsk").TemplateAsk;
@@ -12,10 +12,12 @@ export function authorLine(summary: Pick<TemplateSummary, "authors">): string | 
   return names.length ? `by ${names.join(", ")}` : null;
 }
 
-/** The gallery card's second line: "by Jane Doe · 4 workers", each part only when there is one. */
-export function cardByline(summary: Pick<TemplateSummary, "authors" | "workers">): string | null {
+/** The gallery card's meta line: "by Jane Doe · 4 workers", or "by you" for the owner's own; each part only when there is one. */
+export function cardByline(summary: Pick<TemplateSummary, "authors" | "workers">, mine = false): string | null {
   const workers = summary.workers;
-  const parts = [authorLine(summary), workers > 0 ? `${workers} ${workers === 1 ? "worker" : "workers"}` : null].filter(Boolean);
+  const first = (summary.authors ?? []).map((author) => author.name.trim()).find(Boolean);
+  const by = mine ? "by you" : first ? `by ${first}` : null;
+  const parts = [by, workers > 0 ? `${workers} ${workers === 1 ? "worker" : "workers"}` : null].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
 
@@ -53,7 +55,7 @@ export function linkRows(summary: Pick<TemplateSummary, "links">): { label: stri
 
 export function usedByLine(item: Pick<TemplatePayloadItem, "used_by">): string | null {
   const roles = item.used_by ?? [];
-  return roles.length ? `used by ${roles.map(kindDisplayName).join(", ")}` : null;
+  return roles.length ? `used by ${roles.map((role) => roleDisplayLabel(role)).join(", ")}` : null;
 }
 
 function askText(ask: TemplateAsk): string {

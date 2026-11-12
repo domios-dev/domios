@@ -5,6 +5,7 @@ import {
   REVIEWER_KIND,
   QA_KIND,
   WORKER_KIND,
+  roleDisplayLabel,
   roleKind,
   roleKindLabel,
 } from "../../lib/roleKind";
@@ -56,7 +57,7 @@ export function roleShieldLabel(
   if (!tab?.role) return null;
   const kind = roleKind(tab);
   const registered = kind === null ? null : tab.role_label?.trim();
-  if (registered) return registered;
+  if (registered) return roleDisplayLabel(kind, registered);
   if (tab.role === "Manager") return kind?.toUpperCase() ?? null;
   return kind === QA_KIND || kind === RELEASE_MANAGER_KIND || kind === REVIEWER_KIND
     ? roleKindLabel(tab)?.toUpperCase() ?? null

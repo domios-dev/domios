@@ -8,7 +8,7 @@ import { takePendingTemplatePreview } from "../../lib/teamTemplates/pendingPrevi
 import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
 import { listHostPeers, type HostPeer } from "../../lib/teamTemplates/hostPeers";
 import {
-  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView,
+  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, withKept,
   type PickerSeed, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import type { ManagerSeats } from "./TemplateManagers";
@@ -19,7 +19,9 @@ type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpda
 export type TemplateView =
   | { kind: "form" }
   | { kind: "gallery" }
-  | { kind: "review"; preview: TemplatePreview; mode: "consent" | "detail"; back: "form" | "gallery" };
+  | { kind: "review"; preview: TemplatePreview; mode: "consent" | "detail"; back: "form" | "gallery" }
+  /** A role's instructions, a step inside the same dialog that returns to the review it came from. */
+  | { kind: "instructions"; review: Extract<TemplateView, { kind: "review" }>; role: string };
 
 export interface TemplateCatalog { templates: TemplateSummary[]; recall: TemplateRecall | null; error: string | null }
 
@@ -238,12 +240,18 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     setRemotePeer,
     setNotice,
     setInput: (key: string, value: string) => setInputs((current) => ({ ...current, [key]: value })),
-    setKept: (id: string, kept: boolean) => setOptOut((current) => {
-      const next = new Set(current);
-      if (kept) next.delete(id); else next.add(id);
+    setKept: (ids: readonly string[], kept: boolean) => setOptOut((current) => withKept(current, ids, kept)),
+    setSeat: (slot: ManagerSlot, seat: PickerSeed) => setSeats((current) => ({ ...current, [slot]: seat })),
+    clearSeat: (slot: ManagerSlot) => setSeats((current) => {
+      const next = { ...current };
+      delete next[slot];
       return next;
     }),
-    setSeat: (slot: ManagerSlot, seat: PickerSeed) => setSeats((current) => ({ ...current, [slot]: seat })),
+    readInstructions: (role: string) => {
+      if (view.kind === "review") setView({ kind: "instructions", review: view, role });
+      else if (view.kind === "instructions") setView({ ...view, role });
+    },
+    backFromInstructions: () => { if (view.kind === "instructions") setView(view.review); },
     startRequest,
   };
 }

@@ -306,7 +306,9 @@ function TabItemInner({
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const meshLabel = meshBadgeLabel(tab);
-  const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : description;
+  // A Team worker reads as name and role label; its description stays in the row's tooltip.
+  const labelledWorker = tab.role === "Worker" && Boolean(tab.role_label?.trim());
+  const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : labelledWorker ? null : description;
   const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: roleShield });
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);

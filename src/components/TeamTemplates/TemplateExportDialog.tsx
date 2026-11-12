@@ -14,13 +14,15 @@ import {
 } from "../../lib/teamTemplates/startModel";
 
 export function ScrubReportCard({ report }: { report: ScrubReport }) {
+  const rows = scrubRows(report);
+  if (rows.length === 0) return <p className="text-[12px] text-[var(--ct-muted-fg)]" aria-label="Removed before saving">Nothing needed removing.</p>;
   return (
-    <ul className="ct-card ct-card--static flex flex-col gap-1.5 p-3" aria-label="Removed before saving">
-      {scrubRows(report).map((row) => (
-        <li key={row.label} className="flex items-center gap-2 text-[12px]">
-          <span>{row.label}</span>
-          <span className="min-w-0 flex-1 truncate text-[var(--ct-muted-fg)]">{row.detail}</span>
-          <span className="ct-small-pill font-mono" aria-label={`${row.count} ${row.label.toLowerCase()}`}>{row.count}</span>
+    <ul className="ct-card ct-card--static flex flex-col px-3 py-1" aria-label="Removed before saving">
+      {rows.map((row) => (
+        <li key={row.label} className="flex min-h-[30px] items-center gap-2.5 border-t border-[color-mix(in_srgb,var(--ct-fg)_6%,transparent)] text-[12px] first:border-t-0">
+          <span className="w-36 shrink-0">{row.label}</span>
+          <span className="min-w-0 flex-1 truncate text-[var(--ct-muted-fg)]" title={row.detail}>{row.detail}</span>
+          {row.count !== null && <span className="ct-card__chip font-mono" aria-label={`${row.count} ${row.label.toLowerCase()}`}>{row.count}</span>}
         </li>
       ))}
     </ul>

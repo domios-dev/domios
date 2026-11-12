@@ -1,58 +1,72 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { Network } from "lucide-react";
+import type { ProviderDescriptor } from "../../lib/types";
+import { roleDisplayLabel } from "../../lib/roleKind";
+import { Button } from "../shared/Button";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
 
-const LINK = "self-start text-[12px] text-[var(--ct-accent)] hover:underline";
+const QUIET_LINK = "inline-flex items-center gap-1.5 self-start text-[12px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-accent)]";
 const HOME = "";
 
-/** Where the Team runs: this machine unless the owner moves some workers, or the whole Team, to a peer. */
-export function TemplateWhere({ choice, preview, onInstallProvider }: {
+function IssueLine({ text, children }: { text: string; children?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="template-where-issue">
+      <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ct-red)]" />
+      <span className="text-[var(--ct-fg)]">{text}</span>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Where the Team runs: this machine unless the owner moves some workers, or the whole Team, to a peer. One quiet link
+ * opens the block; the whole-team choice lives inside it.
+ */
+export function TemplateWhere({ choice, preview, providers, onInstallProvider }: {
   choice: TeamTemplateChoice;
   preview: TemplatePreview;
+  providers: readonly ProviderDescriptor[];
   onInstallProvider: (providerId: string) => void;
 }) {
-  const [open, setOpen] = useState<"roles" | "team" | null>(choice.remotePeer ? "team" : null);
+  const [open, setOpen] = useState(choice.remotePeer !== null);
   const workers = preview.form.roles.filter((role) => role.group === "worker");
   const needs = choice.remotePeer ? [] : preview.where_needed?.needs ?? [];
   const peers = choice.peers;
   const options = [{ value: HOME, label: "This machine" }, ...(peers ?? []).map((peer) => ({ value: peer.name, label: peer.name }))];
-  const reveal = (which: "roles" | "team") => {
+  const harnessName = (id: string) => providers.find((provider) => provider.id === id)?.display_name ?? id;
+  const reveal = () => {
     choice.wantPeers();
-    setOpen(which);
+    setOpen(true);
   };
-  const noPeers = peers !== null && peers.length === 0
-    ? <p className="text-[11px] text-[var(--ct-muted-fg)]">No paired machine with Full access is online.</p>
-    : null;
   return (
     <section aria-label="Where" className="flex flex-col gap-1.5 text-[12px]" data-testid="template-where">
       {needs.map((need) => need.kind === "missing_harness" ? (
-        <div key={need.harness} className="flex items-center gap-2">
-          <span className="text-[var(--ct-red)]">{need.harness} isn't installed on this machine</span>
-          <button type="button" className="text-[var(--ct-accent)] hover:underline" onClick={() => onInstallProvider(need.harness)}>Install</button>
-        </div>
-      ) : <div key={need.tool} className="text-[var(--ct-red)]">{need.tool} isn't available on this machine</div>)}
-      {open !== "roles" && !choice.remotePeer && workers.length > 0
-        && <button type="button" className={LINK} onClick={() => reveal("roles")}>Run some roles on another machine</button>}
-      {open === "roles" && (
-        <div role="group" aria-label="Worker placement" className="flex flex-col gap-1.5">
-          {noPeers}
-          {workers.map((role) => (
-            <div key={role.role} className="flex items-center justify-between gap-3">
-              <span>{role.label}</span>
-              <DropdownSelect className="w-44 shrink-0" aria-label={`Machine for ${role.label}`} options={options}
-                value={choice.placements[role.role] ?? HOME} disabled={peers === null} onChange={(peer) => choice.setPlacement(role.role, peer)} />
-            </div>
-          ))}
-        </div>
-      )}
-      {open !== "team" && <button type="button" className={LINK} onClick={() => reveal("team")}>Run this team on another machine…</button>}
-      {open === "team" && (
-        <div role="group" aria-label="Team placement" className="flex flex-col gap-1.5">
-          {noPeers}
+        <IssueLine key={need.harness} text={`${harnessName(need.harness)} isn't installed on this machine`}>
+          <Button type="button" variant="ghost" className="text-xs" onClick={() => onInstallProvider(need.harness)}>Install</Button>
+          <Button type="button" variant="ghost" className="text-xs" onClick={reveal}>Run on another machine</Button>
+        </IssueLine>
+      ) : <IssueLine key={need.tool} text={`${need.tool} isn't available on this machine`} />)}
+      {!open && <button type="button" className={QUIET_LINK} onClick={reveal}>
+        <Network size={12} aria-hidden="true" />{workers.length > 0 ? "Run some roles on another machine" : "Run this team on another machine"}
+      </button>}
+      {open && (
+        <div role="group" aria-label="Placement" className="flex flex-col gap-1.5">
+          {peers !== null && peers.length === 0 && <p className="text-[11px] text-[var(--ct-muted-fg)]">No paired machine with Full access is online.</p>}
+          {!choice.remotePeer && workers.map((role) => {
+            const label = roleDisplayLabel(role.role, role.label);
+            return (
+              <div key={role.role} className="flex items-center justify-between gap-3">
+                <span>{label}</span>
+                <DropdownSelect className="w-44 shrink-0" aria-label={`Machine for ${label}`} options={options}
+                  value={choice.placements[role.role] ?? HOME} disabled={peers === null} onChange={(peer) => choice.setPlacement(role.role, peer)} />
+              </div>
+            );
+          })}
           <div className="flex items-center justify-between gap-3">
-            <span>Run this team on</span>
+            <span className={workers.length > 0 && !choice.remotePeer ? "text-[var(--ct-muted-fg)]" : ""}>{workers.length > 0 ? "Or run the whole team on" : "Run this team on"}</span>
             <DropdownSelect className="w-44 shrink-0" aria-label="Machine for this team" options={options}
               value={choice.remotePeer ?? HOME} disabled={peers === null} onChange={(peer) => choice.setRemotePeer(peer || null)} />
           </div>
