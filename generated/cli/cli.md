@@ -4269,6 +4269,12 @@ Team templates: list, preview and start
 
 List builtin and saved team templates
 
+#### `domios team template outcome`
+
+Read the outcome of a template start asked of the `--mesh` peer Main
+
+- `<request>` — The request id `team template start --mesh` returned
+
 #### `domios team template preview`
 
 Show what a template starts, asks for and brings
@@ -4291,6 +4297,13 @@ Start a Team from a template on the standard pair primitive
 - `--team` — Re-run the start on this existing Team: adds only missing registrations
 - `--title`
 - `--workspace`
+
+#### `domios team template transfer`
+
+Send a template to the `--mesh` peer Main's My templates, unverified there
+
+- `<name>` — Template name (`name[@version]`)
+- `--tab` — The peer tab that receives the package over the mesh attachment rail
 
 #### `domios theme`
 

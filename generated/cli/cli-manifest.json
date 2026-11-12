@@ -19533,6 +19533,24 @@
               "subcommands": []
             },
             {
+              "name": "outcome",
+              "about": "Read the outcome of a template start asked of the `--mesh` peer Main",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "request",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "REQUEST",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "The request id `team template start --mesh` returned",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "preview",
               "about": "Show what a template starts, asks for and brings",
               "aliases": [],
@@ -19673,6 +19691,34 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "transfer",
+              "about": "Send a template to the `--mesh` peer Main's My templates, unverified there",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Template name (`name[@version]`)",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TAB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "The peer tab that receives the package over the mesh attachment rail",
                   "aliases": []
                 }
               ],
