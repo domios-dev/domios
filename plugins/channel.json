@@ -31,25 +31,25 @@
     {
       "id": "chat-preprocessor",
       "path": "chat-preprocessor",
-      "version": "1.4.7",
-      "minCodeterm": "1.0.0"
+      "version": "1.4.8",
+      "minCodeterm": "1.19.0"
     },
     {
       "id": "analytics",
       "path": "analytics",
-      "version": "1.10.23",
-      "minCodeterm": "1.10.20"
+      "version": "1.10.24",
+      "minCodeterm": "1.19.0"
     },
     {
       "id": "browser",
       "path": "browser",
-      "version": "1.15.3",
-      "minCodeterm": "1.18.7"
+      "version": "1.15.4",
+      "minCodeterm": "1.20.0"
     },
     {
       "id": "acp",
       "path": "provider-acp",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "minCodeterm": "1.19.1"
     }
   ],

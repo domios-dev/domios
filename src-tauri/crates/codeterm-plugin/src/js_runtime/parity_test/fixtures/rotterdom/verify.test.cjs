@@ -12,13 +12,18 @@ const setup = source.match(/let setup = r#"([\s\S]*?)"#/)[1]
 const bundle = fs.readFileSync(path.join(__dirname, 'plugin.js'), 'utf8');
 
 function model() {
-  const context = { host: { fetch: {} }, module: { exports: {} }, exports: {} };
+  const context = { host: { io: {} }, module: { exports: {} }, exports: {} };
+  context.host.io.run = steps => {
+    const next = steps.next();
+    assert.equal(next.done, true, "fixture transport must not yield a real host effect");
+    return next.value;
+  };
   vm.runInNewContext(`${setup}\n${bundle}`, context);
   const plugin = context.module.exports.default;
   plugin.transportErrors = [];
-  const fetch = context.host.fetch.async;
-  context.host.fetch.async = (...args) => {
-    try { return fetch(...args); }
+  const fetch = context.host.io.fetch;
+  context.host.io.fetch = function* (...args) {
+    try { return yield* fetch(...args); }
     catch (error) { plugin.transportErrors.push(error.message); throw error; }
   };
   return plugin;

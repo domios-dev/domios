@@ -1,7 +1,7 @@
 {
   "id": "chat-preprocessor",
-  "version": "1.4.7",
-  "minCodeterm": "1.0.0",
+  "version": "1.4.8",
+  "minCodeterm": "1.19.0",
   "hostApi": 2,
   "displayName": "Chat Preprocessor",
   "description": "Send-time message presets for enriching Chat UI prompts before they reach an agent.",
@@ -12,5 +12,6 @@
     "chatPreprocessor": {
       "match": "text"
     }
-  }
+  },
+  "hostIoJobs": true
 }

@@ -1,7 +1,7 @@
 {
   "id": "analytics",
-  "version": "1.10.23",
-  "minCodeterm": "1.10.20",
+  "version": "1.10.24",
+  "minCodeterm": "1.19.0",
   "hostApi": 2,
   "displayName": "Analytics",
   "description": "Machine-wide token totals, time series and tab counts, grouped by provider, model, workspace, team or plan.",
@@ -11,5 +11,6 @@
   },
   "permissions": {
     "analytics": true
-  }
+  },
+  "hostIoJobs": true
 }

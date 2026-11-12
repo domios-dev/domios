@@ -1,6 +1,6 @@
 {
   "id": "acp",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "minCodeterm": "1.19.1",
   "hostApi": 2,
   "displayName": "ACP",
@@ -216,5 +216,6 @@
   "agentVerbs": [
     "registry-search [query]",
     "registry-refresh [query]"
-  ]
+  ],
+  "hostIoJobs": true
 }

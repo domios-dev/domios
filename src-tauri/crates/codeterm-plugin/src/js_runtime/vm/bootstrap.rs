@@ -315,6 +315,12 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
   };
   function* ioRequest(request) { return yield request; }
   host.io.fs = {};
+  host.io.surface = {
+    call: function* (verb, argsJson) {
+      var args = typeof argsJson === "string" ? argsJson : JSON.stringify(argsJson === undefined ? [] : argsJson);
+      return yield {op:"surfaceCall", verb:String(verb || ""), args:args};
+    },
+  };
   ["readFile", "fileExists", "isSymlink", "canonicalPath", "lockFile", "removeFile", "makeDirs", "readDir", "listChildDirs"].forEach(function (op) {
     host.io.fs[op] = function (path) { return ioRequest({ op: op, path: path }); };
   });

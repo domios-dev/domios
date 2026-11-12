@@ -24,6 +24,25 @@ __export(plugin_exports, {
   preprocessText: () => preprocessText
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// packages/plugin-sdk/src/ioPrograms.ts
+function* ioValue(request) {
+  return yield request;
+}
+function defineProviderIo(source, io) {
+  const exports = { ...source };
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value !== "function") continue;
+    exports[key] = function(...args) {
+      const result = value.apply(source, args);
+      return result && typeof result.next === "function" ? io().run(result) : result;
+    };
+  }
+  return exports;
+}
+
+// plugins/chat-preprocessor/src/plugin.ts
 var SYSTEM_MEM_RECALL_ID = "mem-recall";
 function currentHost() {
   return typeof host === "object" && host ? host : {};
@@ -54,10 +73,9 @@ function compactSnippet(text, maxChars) {
   if (oneLine.length <= maxChars) return oneLine;
   return `${oneLine.slice(0, Math.max(0, maxChars - 1)).trimEnd()}\u2026`;
 }
-function formatMemBlock(text, settings, overrides) {
+function formatMemBlock(text, settings, overrides, hits = []) {
   const k = asNumber(overrides?.k ?? settings.memK, 3, 1, 8);
   const maxChars = asNumber(overrides?.maxChars ?? settings.memMaxChars, 140, 40, 500);
-  const hits = currentHost().mem?.search?.({ query: text, k })?.hits ?? [];
   const rows = hits.filter((hit) => typeof hit.id === "string" && typeof hit.text === "string").slice(0, k).map((hit) => `- ${hit.id}: ${compactSnippet(String(hit.text), maxChars)}`);
   if (rows.length === 0) return "";
   return `Found similar in mem:
@@ -86,16 +104,16 @@ function findPreset(settings) {
 function renderTemplate(template, text, memBlock) {
   return template.replaceAll("{{text}}", text).replaceAll("{{mem}}", memBlock);
 }
-function preprocessText(text, settings) {
+function preprocessText(text, settings, hits = []) {
   if (settings.enabled !== true) return null;
   const selected = findPreset(settings);
   if (!selected) return null;
   if (selected.kind === "mem-recall") {
-    const block = formatMemBlock(text, settings, selected.config);
+    const block = formatMemBlock(text, settings, selected.config, hits);
     return applyPosition(text, block, asPosition(selected.config.position ?? settings.insertPosition));
   }
   const template = asString(selected.preset?.template, "{{text}}");
-  const memBlock = template.includes("{{mem}}") ? formatMemBlock(text, settings, selected.config) : "";
+  const memBlock = template.includes("{{mem}}") ? formatMemBlock(text, settings, selected.config, hits) : "";
   return renderTemplate(template, text, memBlock);
 }
 var plugin = {
@@ -104,11 +122,23 @@ var plugin = {
     displayName: "Chat Preprocessor"
   },
   match: "text",
-  chatPreprocess(ctx) {
+  *chatPreprocess(ctx) {
     const text = asString(ctx?.text);
     if (!text.trim()) return null;
-    const next = preprocessText(text, readSettings());
+    const settings = readSettings();
+    const selected = settings.enabled === true ? findPreset(settings) : null;
+    const needsMem = selected && (selected.kind === "mem-recall" || asString(selected.preset?.template).includes("{{mem}}"));
+    let hits = [];
+    if (needsMem) {
+      const k = asNumber(selected.config.k ?? settings.memK, 3, 1, 8);
+      try {
+        hits = (yield* ioValue({ op: "memSearch", options: { query: text, k } }))?.hits ?? [];
+      } catch {
+        return null;
+      }
+    }
+    const next = preprocessText(text, settings, hits);
     return next === null || next === text ? null : { text: next };
   }
 };
-var plugin_default = plugin;
+var plugin_default = defineProviderIo(plugin, () => host.io);

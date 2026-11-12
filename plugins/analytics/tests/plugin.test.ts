@@ -1,9 +1,11 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostAnalytics, ViewCallContext } from "@codeterm/plugin-sdk";
-import plugin, { runQuery } from "../src/plugin";
+import rawPlugin, { runQuery } from "../src/plugin";
+const plugin = ioTestExport(rawPlugin);
 import { snapshotFor } from "../ui/src/model/fixtures.testdata";
 
 const VIEW_CONTEXT: ViewCallContext = {

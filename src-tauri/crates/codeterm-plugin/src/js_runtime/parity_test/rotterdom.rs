@@ -48,18 +48,19 @@ fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
     let sandbox = Arc::new(
         PluginSandbox::restricted(reads, writes)
             .with_project_roots(Vec::new(), Vec::new(), bundle.join("grants.yaml"))
-            .with_settings(settings.to_string()),
+            .with_settings(settings.to_string())
+            .with_identity("rotterdom"),
     );
     assert!(!data.exists());
     assert!(sandbox.can_write(data.to_str().unwrap()));
     let setup = format!(
-        "host.fs.expandHome = function(path) {{ return path === '~/.domios/rotterdom' ? {} : null; }};",
+        "host.fs.expandHome = function(path) {{ return path === '~/.codeterm/rotterdom' ? {} : null; }};",
         serde_json::to_string(&data).unwrap()
     );
     let vm = PluginVm::from_source_sandboxed(
         "rotterdom",
         format!("{setup}\n{}", include_str!("fixtures/rotterdom/plugin.js")),
-        None,
+        Some(serde_json::to_string(&manifest).unwrap()),
         sandbox,
     )
     .unwrap();
@@ -97,20 +98,20 @@ fn model(failure: &str) -> JsDecisionModel {
                 budgets:{tokens:4096,deadlineMs:10000}}],defaultProfile:'decision'
         }); };
         host.projectWriteAllowed = function() { throw new Error('decision requested filesystem grants'); };
-        host.fetch.async = function(opts, then) {
+        function fixtureFetch(opts) {
             if (opts.headers.authorization) throw new Error('unexpected token');
             if (opts.method === 'GET') {
                 if (opts.url !== 'http://localhost:1234/v1/models') throw new Error('wrong catalogue URL');
-                return then({status:200,body:JSON.stringify({data:[{id:'fixture-model',name:'Fixture model'}]})});
+                return ({status:200,body:JSON.stringify({data:[{id:'fixture-model',name:'Fixture model'}]})});
             }
             if (opts.url !== 'http://localhost:1234/v1/chat/completions') throw new Error('wrong completion URL');
             if (!(opts.timeoutMs > 0 && opts.timeoutMs <= 2000)) throw new Error('deadline ignored');
             var body = JSON.parse(opts.body);
             if (body.model !== 'fixture-model' || body.tools || body.tool_choice || body.stream !== false) throw new Error('unsafe decision wire');
             if (body.response_format.type !== 'json_schema' || !body.response_format.json_schema.strict) throw new Error('unconstrained decision');
-            if (failure === 'transport') return then({status:503,body:'private error'});
-            if (failure === 'timeout') { clock += 3000; return then({error:'timed out'}); }
-            if (failure === 'malformed') return then({status:200,body:'invalid JSON'});
+            if (failure === 'transport') return ({status:503,body:'private error'});
+            if (failure === 'timeout') { clock += 3000; return ({error:'timed out'}); }
+            if (failure === 'malformed') return ({status:200,body:'invalid JSON'});
             var input = JSON.parse(body.messages[1].content);
             if (input.questions.single && !equalJson(input.state, fixtures.find(function(f) { return f.request.question.type === input.questions.single.question.type; }).request.state)) throw new Error('state changed');
             if (!input.questions.single && input.state.fixture !== 'shared') throw new Error('batch state changed');
@@ -122,8 +123,9 @@ fn model(failure: &str) -> JsDecisionModel {
                 answers[name] = fixture.answer;
             });
             var answer = Object.keys(input.questions)[0] === 'single' ? answers.single : {answers:answers};
-            return then({status:200,body:JSON.stringify({choices:[{message:{content:JSON.stringify(answer)},finish_reason:'stop'}],usage:{prompt_tokens:123,completion_tokens:45}})});
-        };
+            return ({status:200,body:JSON.stringify({choices:[{message:{content:JSON.stringify(answer)},finish_reason:'stop'}],usage:{prompt_tokens:123,completion_tokens:45}})});
+        }
+        host.io.fetch = function* (opts) { return fixtureFetch(opts); };
     "#
     .replace("FAILURE", &serde_json::to_string(failure).unwrap())
     .replace("FIXTURES", include_str!("fixtures/rotterdom/shared.json"));

@@ -13,6 +13,10 @@ pub struct StepInputContext {
 thread_local! { static CURRENT: RefCell<Option<StepInputContext>> = const { RefCell::new(None) }; }
 pub struct StepInputScope(Option<StepInputContext>);
 impl StepInputScope {
+    pub(crate) fn attach(context: StepInputContext) -> Self {
+        Self(CURRENT.with(|slot| slot.replace(Some(context))))
+    }
+
     pub fn enter(plugin: &str, call: &super::StepCall<'_>, submitting: bool) -> Self {
         Self(CURRENT.with(|slot| {
             slot.replace(Some(StepInputContext {

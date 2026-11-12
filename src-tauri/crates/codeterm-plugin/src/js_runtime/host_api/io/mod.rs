@@ -177,6 +177,8 @@ fn start(
     let root = crate::surface_invocation::root_identity();
     let surface = crate::surface_invocation::current(&plugin);
     let view = crate::view_host::current_view_call_context(&plugin);
+    let caller = super::super::host_surface::current_agent_caller();
+    let step = crate::blueprint_step::current_step_input(&plugin);
     let cancel_operation = operation.clone();
     let owner_operation = operation.clone();
     let owner_root = root.clone();
@@ -197,6 +199,10 @@ fn start(
                 let _observer = observer.map(codeterm_decision::physical::RequestScope::enter);
                 let _files = FileLockCallScope::attach(resources);
                 let _operation = operation::Scope::enter(operation.clone());
+                let _caller = caller
+                    .as_deref()
+                    .map(super::super::host_surface::AgentCallerScope::enter);
+                let _step = step.map(crate::blueprint_step::StepInputScope::attach);
                 let work = || {
                     codeterm_util::task_files::with_capture(artifacts, || {
                         operation
@@ -268,6 +274,57 @@ fn execute(
 ) -> Result<Value, Failure> {
     use Request::*;
     match request {
+        SurfaceCall { verb, args } => {
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
+            let reply = super::super::host_surface::surface_call(sandbox, &verb, &args);
+            let parsed: Value = serde_json::from_str(&reply).map_err(|error| error.to_string())?;
+            if parsed.get("view_dispatch").is_some() {
+                return Ok(json!(
+                    json!({"error":"host.io surface calls require a native surface runtime"})
+                        .to_string()
+                ));
+            }
+            Ok(json!(reply))
+        }
+        ExecPoll { job } => serde_json::from_str(&host_exec::poll_owned(sandbox.plugin_id(), &job))
+            .map_err(|error| Failure::from(error.to_string())),
+        ExecClose { job } => {
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
+            host_exec::close_owned(sandbox.plugin_id(), &job);
+            Ok(Value::Null)
+        }
+        FetchStreamPoll { job } => {
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
+            serde_json::from_str(&super::super::host_net::stream_poll(
+                sandbox.plugin_id(),
+                &job,
+            ))
+            .map_err(|error| Failure::from(error.to_string()))
+        }
+        FetchStreamClose { job } => {
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
+            super::super::host_net::stream_close(sandbox.plugin_id(), &job);
+            Ok(Value::Null)
+        }
+        FetchStreamStart { options } => {
+            let prepared = super::prepare_fetch(sandbox, &options.to_string())?;
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
+            serde_json::from_str(&super::super::host_net::stream(
+                sandbox.plugin_id(),
+                &prepared,
+            ))
+            .map_err(|error| Failure::from(error.to_string()))
+        }
         ExecStart { options } => {
             let options = options.to_string();
             let binary = host_exec::bin_of(&options).unwrap_or_default();
@@ -335,5 +392,7 @@ fn execute(
     }
 }
 
+#[cfg(test)]
+mod lifecycle_tests;
 #[cfg(test)]
 mod tests;

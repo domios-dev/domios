@@ -29,6 +29,27 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// packages/plugin-sdk/src/ioPrograms.ts
+function defineProviderIo(source, io) {
+  const exports = { ...source };
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value !== "function") continue;
+    exports[key] = function(...args2) {
+      const result = value.apply(source, args2);
+      return result && typeof result.next === "function" ? io().run(result) : result;
+    };
+  }
+  return exports;
+}
+function* ioResolve(value) {
+  if (value && typeof value.next === "function") return yield* value;
+  return value;
+}
+function* ioThen(steps, then) {
+  return yield* ioResolve(then(yield* steps));
+}
+
 // plugins/provider-acp/src/auth.ts
 function decodeAuthMethods(value) {
   if (value === void 0) return [];
@@ -1573,34 +1594,36 @@ function decodeRegistry(text2) {
   });
   return { version: "1.0.0", agents };
 }
-function searchRegistryCache(cache, query) {
-  const text2 = cache.read();
+function* searchRegistryCache(cache, query) {
+  const text2 = yield* ioResolve(cache.read());
   if (text2 === null) return [];
   const needle = query.trim().slice(0, 256).toLowerCase();
   return decodeRegistry(text2).agents.filter((agent) => `${agent.id} ${agent.name} ${agent.description}`.toLowerCase().includes(needle));
 }
-function saveRegistryCache(cache, text2) {
+function* saveRegistryCache(cache, text2) {
   decodeRegistry(text2);
-  if (!cache.write(text2)) throw new Error("ACP registry cache could not be saved");
+  if (!(yield* ioResolve(cache.write(text2)))) throw new Error("ACP registry cache could not be saved");
 }
 
 // plugins/provider-acp/src/discovery.ts
 var indexUrl = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 function registryCache(host2) {
   const path = `${host2.dataDir()}/acp/cache/registry-v1.json`;
-  return { read: () => host2.readFileHead(path, registryBounds.bytes + 1), write: (text2) => host2.writeFileAtomic(path, text2) };
+  return { read: () => host2.io.fs.readFileHead(path, registryBounds.bytes + 1), write: (text2) => host2.io.fs.writeFileAtomic(path, text2) };
 }
-function discoveryCommand(host2, ctx) {
+function* discoveryCommand(host2, ctx) {
   const cache = registryCache(host2);
-  const result = () => ({ result: JSON.stringify(searchRegistryCache(cache, ctx.args.join(" "))) });
+  const result = function* () {
+    return { result: JSON.stringify(yield* searchRegistryCache(cache, ctx.args.join(" "))) };
+  };
   try {
-    if (ctx.verb === "registry-search") return result();
+    if (ctx.verb === "registry-search") return yield* result();
     if (ctx.verb === "registry-refresh") {
-      return host2.fetch.async({ url: indexUrl, timeoutMs: 15e3 }, (response) => {
+      return yield* ioThen(host2.io.fetch({ url: indexUrl, timeoutMs: 15e3 }), function* (response) {
         if (response.status !== 200 || !response.body || response.error) return { error: "ACP registry unavailable; the previous cache is retained" };
         try {
-          saveRegistryCache(cache, response.body);
-          return result();
+          yield* saveRegistryCache(cache, response.body);
+          return yield* result();
         } catch {
           return { error: "Invalid ACP registry; the previous cache is retained" };
         }
@@ -1736,8 +1759,8 @@ function readProfileLimits(ports, request2, nowMs) {
 }
 
 // plugins/provider-acp/src/plugin.ts
-function onAgentCommand(ctx) {
-  return discoveryCommand(host, ctx);
+function* onAgentCommand(ctx) {
+  return yield* discoveryCommand(host, ctx);
 }
 var limitsPorts = {
   fetch: (opts, then) => host.fetch.async(opts, then),
@@ -1746,4 +1769,4 @@ var limitsPorts = {
 function readProfileLimits2(request2, nowMs) {
   return readProfileLimits(limitsPorts, request2, nowMs);
 }
-var plugin_default = { runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand, readProfileLimits: readProfileLimits2 };
+var plugin_default = defineProviderIo({ runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand, readProfileLimits: readProfileLimits2 }, () => host.io);
