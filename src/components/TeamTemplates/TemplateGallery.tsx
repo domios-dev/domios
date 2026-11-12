@@ -92,9 +92,14 @@ function TemplateCard({ summary, selected, confirming, choice, footerRef, onSele
         </span>
       </button>
       <div className="flex shrink-0 items-center gap-1 self-start py-2.5 pr-2">
-        <Button variant="ghost" className="text-xs opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-          aria-label={`Use ${title}`} onClick={() => choice.choose(summary)}>Use</Button>
-        <span className="hidden min-[480px]:inline-flex"><TemplateTrust summary={summary} /></span>
+        {/* Use and the status share one slot: hover or focus swaps them, so the description keeps its width. */}
+        <span className="grid items-center justify-items-end">
+          <span className="col-start-1 row-start-1 hidden transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 min-[480px]:inline-flex">
+            <TemplateTrust summary={summary} />
+          </span>
+          <Button variant="ghost" className="col-start-1 row-start-1 text-xs opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+            aria-label={`Use ${title}`} onClick={() => choice.choose(summary)}>Use</Button>
+        </span>
         {summary.provenance !== "builtin" && (
           <span className="inline-flex" onPointerDownCapture={(event) => placeMenu(event.currentTarget)}
             onKeyDownCapture={(event) => placeMenu(event.currentTarget)}>

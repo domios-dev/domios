@@ -513,6 +513,7 @@ export function ModelPickerPopover({
                 key={row.id}
                 role="option"
                 tabIndex={-1}
+                aria-label={[row.label, row.badge, isCurrent ? "current" : null].filter(Boolean).join(", ")}
                 aria-selected={row.current}
                 aria-disabled={row.unavailable || busy || undefined}
                 data-current={isCurrent || undefined}
@@ -532,7 +533,7 @@ export function ModelPickerPopover({
                 <span className="ct-model-picker__name">{row.label}</span>
                 {row.badge && <span className="ct-model-picker__badge">{row.badge}</span>}
                 {isCurrent && <span className="ct-model-picker__current">current</span>}
-                {row.current && <Check size={13} strokeWidth={2.5} aria-label="Selected model" className="ct-model-picker__check" />}
+                {row.current && <Check size={13} strokeWidth={2.5} aria-hidden="true" className="ct-model-picker__check" />}
               </div>
               );
             })}
