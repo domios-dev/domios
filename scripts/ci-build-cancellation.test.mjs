@@ -12,12 +12,17 @@ import { nativeIdentity } from './build-gateway-guard.mjs';
 const unix = process.platform !== 'win32';
 const gateway = path.resolve('scripts/build-gateway.sh');
 
-test('gateway-cancel stops a waiting shell and compiler tree before releasing its slot', { timeout: 30000 }, async t => {
+for (const reentered of [false, true]) {
+test(`gateway-cancel stops a waiting shell and compiler tree (reentered=${reentered})`, { timeout: 30000 }, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-cancel-'));
   const bash = bashInterpreter();
   const ownerScript = path.join(directory, 'owner.sh');
   const compilerScript = path.join(directory, 'compiler.mjs');
   fs.writeFileSync(ownerScript, `set -eu
+if [ "\${3:-}" = parent ]; then
+  "$BASH" "$0" "$1" "$2" child
+  exit "$?"
+fi
 source "$1"
 ct_gateway_set_fixture_dir "$2"
 ct_gateway_acquire waiting-compiler
@@ -30,23 +35,23 @@ const child = spawn(process.execPath, ['-e', 'process.stdin.resume(); console.lo
 child.stdout.once('data', data => console.log('READY', process.pid, String(data).trim()));
 process.stdin.resume();
 `);
-  const supervisor = spawn(process.execPath, ['scripts/build-gateway-process.mjs', 'run', ownerScript,
-    gateway.replaceAll('\\', '/'), directory.replaceAll('\\', '/')], {
+  const launcher = spawn(bash, [ownerScript,
+    gateway.replaceAll('\\', '/'), directory.replaceAll('\\', '/'), reentered ? 'parent' : 'child'], {
     stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, FORCE_COLOR: '0' },
   });
-  const exited = once(supervisor, 'exit');
-  const closed = once(supervisor, 'close');
+  const exited = once(launcher, 'exit');
+  const closed = once(launcher, 'close');
   let errors = '';
-  supervisor.stderr.on('data', chunk => { errors += chunk; });
+  launcher.stderr.on('data', chunk => { errors += chunk; });
   t.after(async () => {
-    if (supervisor.exitCode === null && supervisor.signalCode === null) {
-      if (process.platform === 'win32') spawnSync('taskkill.exe', ['/PID', String(supervisor.pid), '/T', '/F']);
-      else supervisor.kill('SIGTERM');
+    if (launcher.exitCode === null && launcher.signalCode === null) {
+      if (process.platform === 'win32') spawnSync('taskkill.exe', ['/PID', String(launcher.pid), '/T', '/F']);
+      else launcher.kill('SIGTERM');
     }
     await closed;
     fs.rmSync(directory, { recursive: true, force: true });
   });
-  const lines = readline.createInterface({ input: supervisor.stdout })[Symbol.asyncIterator]();
+  const lines = readline.createInterface({ input: launcher.stdout })[Symbol.asyncIterator]();
   let ready;
   do {
     ready = await lines.next();
@@ -77,6 +82,7 @@ process.stdin.resume();
   { encoding: 'utf8', timeout: 15000, env: { ...process.env, CODETERM_BUILD_GATEWAY_MODE: 'fail-fast' } });
   assert.equal(successor.status, 0, successor.stdout + successor.stderr);
 });
+}
 const shell = `
 set -eu
 source "$1"

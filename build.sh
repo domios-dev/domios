@@ -3989,12 +3989,6 @@ esac
 
 }
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-  if [ -z "${CT_GATEWAY_SUPERVISOR_ENDPOINT:-}" ]; then
-    case "${1:-dev}" in
-      gateway-cancel|gateway-status|gateway-relocate|gateway-health-check|help|env|fmt|fmt-check) ;;
-      *) exec node "$(dirname "$0")/scripts/build-gateway-process.mjs" run "$0" "$@" ;;
-    esac
-  fi
   codeterm_build_main "$@"
   exit "$?"
 else
