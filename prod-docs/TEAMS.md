@@ -94,7 +94,8 @@ The bake keeps each role's instructions, models (a role without a model stays wi
 - `domios team export <name>[@version] --format yaml|team|folder [--out <path>]` writes a builtin or saved template through the same exporter.
 - `domios team import <path>` checks a `.team.yaml`, a `.team` archive or a folder and saves it to My templates as unverified. A malformed package, or one that still carries a secret value, is refused before it reaches My templates. Importing another version of a saved template reports what changed; the same version with other content is refused.
 - **Neighborhood**: share a `.team.yaml` or `.team` as an ordinary file attachment (at most four files, each under 2 MiB). The receiver sees a card with Preview and Dismiss; Preview checks the package and adds it to My templates as unverified. Nothing starts from the card.
+- **Double-click**: the installed app opens `.team` archives (not `.team.yaml`). Domios comes forward with the session dialog on that package's review in the active workspace, after the same check and save as unverified. Nothing starts until the owner accepts and presses Start.
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

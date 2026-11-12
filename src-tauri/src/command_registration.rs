@@ -6,6 +6,7 @@ pub(crate) fn register_commands(builder: tauri::Builder<Runtime>) -> tauri::Buil
         crate::host_ports::native_webview_diagnostics_snapshot,
         crate::os_notify::notify_permission_state,
         crate::os_notify::establish_notify_permission,
+        crate::team_files::take_opened_team_file,
         codeterm_client_shell::commands::get_windows_build_number,
         codeterm_client_shell::commands::materialize_dropped_files,
         codeterm_client_shell::clipboard_files::read_clipboard_files,
