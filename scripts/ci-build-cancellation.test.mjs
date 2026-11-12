@@ -190,3 +190,125 @@ for (const code of [0, 23]) {
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   });
 }
+
+const cappedScript = `
+fake_nextest() { cat "$FAKE_OUTPUT"; return "\${FAKE_STATUS:-0}"; }
+export -f fake_nextest
+exec "$BASH" scripts/test-capped.sh "$@"
+`;
+
+function capped(output, args, status = 0) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nextest-summary-'));
+  try {
+    const file = path.join(directory, 'output.log');
+    fs.writeFileSync(file, output);
+    return spawnSync(bashInterpreter(), ['-c', cappedScript, 'capped', ...args], {
+      encoding: 'utf8', timeout: 10000,
+      env: { ...process.env, CARGO_TEST_CMD: 'fake_nextest', CARGO_TEST_BUILD_CMD: '',
+        CODETERM_TEST_HOST_TRIPLE: 'x86_64-unknown-linux-gnu', TEST_CAP_SECS: '0',
+        CT_BUILD_ARTIFACT_DIR: '', FAKE_OUTPUT: file.replaceAll('\\', '/'), FAKE_STATUS: String(status) },
+    });
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+}
+
+// https://nexte.st/docs/features/stress-tests/#stress-test-output
+const stressOutput = Array.from({ length: 30 }, (_, i) =>
+  ` Stress test [   0.006s] iteration ${i + 1}/30: 3 tests run: 3 passed, 49 skipped`).join('\n')
+  + '\n     Summary [   0.200s] 30/30 stress run iterations: 30 passed\n';
+
+for (const args of [
+  ['--stress-count', '30'], ['--stress-duration', '1s'], ['--retries', '2'],
+  ['--failure-output', 'final'], ['--profile', 'ci'], ['--stress-count=30'],
+]) {
+  test(`nextest option values are not filters: ${args.join(' ')}`, () => {
+    const result = capped('Summary [0.001s] 0 tests run: 0 passed\n', args);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout, /ZERO MATCHES/);
+  });
+}
+
+for (const args of [
+  ['--stress-count', '30', 'owned_test'], ['owned_test', '--stress-count', '30'],
+  ['-E', 'test(owned_test)', '--stress-count', '30'],
+]) {
+  test(`nextest stress executes 90 passing runs: ${args.join(' ')}`, () => {
+    const result = capped(stressOutput, args);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /30\/30 stress run iterations: 30 passed/);
+    assert.doesNotMatch(result.stdout, /ZERO MATCHES/);
+  });
+}
+
+test('nextest stress preserves a failed command result', () => {
+  const result = capped(stressOutput.replace('30 passed\n', '29 passed, 1 failed\n'), ['--stress-count', '30', 'owned_test'], 100);
+  assert.equal(result.status, 100, result.stdout + result.stderr);
+});
+
+for (const output of ['', 'Summary [0.001s] 0 tests run: 0 passed\n',
+  'Stress test [0.001s] iteration 1/1: 0 tests run: 0 passed, 3 skipped\nSummary [0.001s] 1/1 stress run iterations: 1 passed\n']) {
+  test(`nextest still rejects empty filtered execution: ${JSON.stringify(output)}`, () => {
+    const result = capped(output, ['--stress-count', '30', 'owned_test']);
+    assert.equal(result.status, 97, result.stdout + result.stderr);
+    assert.match(result.stdout, /ZERO MATCHES: filter owned_test/);
+  });
+}
+
+test('nextest explicit empty-run policy is recognized after a filter', () => {
+  const result = capped('', ['owned_test', '--stress-count', '30', '--no-tests', 'pass']);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+const loggingJob = `set -eu
+source "$1"
+source "$(dirname "$1")/build-gateway-logging.sh"
+ct_gateway_set_fixture_dir "$2"
+ct_cache_retention() { :; }
+enter_stable_build_path() { :; }
+release_stable_build_path() { :; }
+CMD=gateway-fake
+enter_build_gateway fake-evidence
+exec 7>&1
+node -e 'process.stdout.write("x".repeat(256 * 1024) + "\\nplugins receipt\\nBiome receipt\\ndiff-check receipt\\n"); process.stderr.write("stderr receipt\\n")'
+if [ "$3" = handoff ]; then
+  complete_build_gateway_before_handoff
+else
+  exit "$3"
+fi
+`;
+
+for (const [mode, fingerprints] of [
+  ['0', false], ['23', false], ['handoff', false], ['stuck', false], ['open-failed', false],
+  ['0', true], ['stuck-handoff', true],
+]) {
+  test(`gateway drains evidence or fails closed (${mode}, fingerprints=${fingerprints})`, { timeout: 20000 }, () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-evidence-'));
+    try {
+      const failedReader = mode.startsWith('stuck') || mode === 'open-failed';
+      const result = spawnSync(bashInterpreter(), ['-c', loggingJob, 'fake', gateway.replaceAll('\\', '/'),
+        directory.replaceAll('\\', '/'), mode.startsWith('stuck') || mode === 'open-failed' ? (mode === 'stuck-handoff' ? 'handoff' : '0') : mode], {
+        encoding: 'utf8', timeout: 15000, maxBuffer: 2 * 1024 * 1024,
+        env: { ...process.env, CODETERM_BUILD_GATEWAY_MODE: 'fail-fast',
+          CODETERM_BUILD_FINGERPRINTS: fingerprints ? '1' : '0',
+          CT_BUILD_GATEWAY_READER_TIMEOUT_MS: '1000', CT_BUILD_GATEWAY_STUCK_READER: mode.startsWith('stuck') ? '1' : '0',
+          CT_BUILD_GATEWAY_FAIL_LOG_OPEN: mode === 'open-failed' ? '1' : '0', CT_BUILD_GATEWAY_NO_TEE: '0' },
+      });
+      const diagnostic = result.stdout?.slice(-3000) + result.stderr;
+      assert.equal(result.error, undefined, diagnostic);
+      assert.equal(result.status, failedReader ? 74 : mode === '23' ? 23 : 0, diagnostic);
+      const record = fs.readdirSync(path.join(directory, 'jobs')).find(file => file.endsWith('.json'));
+      const job = JSON.parse(fs.readFileSync(path.join(directory, 'jobs', record), 'utf8'));
+      assert.equal(job.state, failedReader || mode === '23' ? 'failed' : 'completed');
+      assert.equal(job.outcome, failedReader ? 'logging_failed' : mode === '23' ? 'command_failed' : 'success');
+      assert.equal(job.command_exit_code, mode === 'open-failed' ? null : mode === '23' ? 23 : 0);
+      assert.equal(fs.existsSync(path.join(directory, 'lock')), false);
+      if (failedReader) assert.match(result.stderr, /ERROR: build gateway logging path broke/);
+      else {
+        const log = fs.readFileSync(job.log_path, 'utf8');
+        assert.match(log, /plugins receipt\nBiome receipt\ndiff-check receipt\n/);
+        assert.match(log, /stderr receipt/);
+        assert.match(log, /Build gateway job .* (?:build )?exit: (?:0|23)/);
+        assert.ok(result.stdout.includes(log), diagnostic);
+      }
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+}

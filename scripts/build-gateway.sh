@@ -451,7 +451,6 @@ ct_gateway_finish() {
     rc="$failure"
   elif [ -n "$outcome_override" ]; then
     state=failed
-      if [ "$outcome_override" = logging_degraded ] && [ "$rc" -eq 0 ]; then state=completed; fi
     outcome="$outcome_override"
   elif [ "${CT_GATEWAY_CANCELLED:-0}" = "1" ] || [ "$rc" -eq 130 ] || [ "$rc" -eq 143 ]; then
     state=cancelled
