@@ -11,14 +11,3 @@ pub(super) const PLAN_ORCHESTRATOR_REQUIRED: i32 = -32003;
 
 /// JSON-RPC 2.0 "Invalid params": the request itself is malformed or under-specified.
 pub(super) const INVALID_PARAMS: i32 = -32602;
-
-/// A registered team-template operation this build does not implement yet; it changes nothing.
-pub(super) fn template_unavailable(
-    unavailable: codeterm_team_package::contracts::TemplateUnavailable,
-) -> super::JsonRpcError {
-    super::JsonRpcError {
-        code: -32000,
-        message: unavailable.to_string(),
-        data: serde_json::to_value(&unavailable).ok(),
-    }
-}

@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use codeterm_team_package::contracts::{ManagerModelChoice, TemplateRef, TemplateStartRequest};
+use codeterm_team_package::contracts::{
+    ManagerModelChoice, TemplateRef, TemplateStartRequest, TemplateStartResult,
+};
 use codeterm_team_package::ManagerSlot;
 use serde_json::{json, Value};
 
@@ -97,6 +99,101 @@ fn start_params(args: TemplateStartArgs) -> Result<Value, String> {
     Ok(params)
 }
 
+fn fail(message: impl std::fmt::Display) -> ! {
+    eprintln!("Error: {message}");
+    std::process::exit(crate::cmd::print::CLI_ERROR_EXIT_CODE);
+}
+
+/// A peer start carries only the template and this machine's pair choices; the peer picks
+/// its own workspace and the Team is new there.
+fn peer_start_body(peer: String, params: &Value) -> Value {
+    let mut start = json!({ "template": params["template"] });
+    for field in [
+        "orchestrator_agent",
+        "orchestrator_model",
+        "planner_agent",
+        "planner_model",
+    ] {
+        if let Some(value) = params.get(field) {
+            start[field] = value.clone();
+        }
+    }
+    json!({
+        "peer": peer,
+        "start": start,
+        "caller_tab_id": crate::nonempty_env("CODETERM_TAB_ID"),
+    })
+}
+
+/// Peer hosting runs on this machine's API, which owns the mesh client and the answer watch.
+fn post_local(json_output: bool, path: &str, body: &Value) {
+    let api = crate::build_local_api().unwrap_or_else(|error| fail(error));
+    let response = api
+        .post(path)
+        .json(body)
+        .send()
+        .unwrap_or_else(|error| fail(error));
+    let status = response.status();
+    let value: Value = response.json().unwrap_or(Value::Null);
+    if !status.is_success() {
+        if let Ok(TemplateStartResult::Refused { refusal }) =
+            serde_json::from_value::<TemplateStartResult>(value.clone())
+        {
+            eprintln!("Error: the peer refused the template start");
+            crate::cmd::print::print_json(&json!({ "refused": refusal }));
+            std::process::exit(crate::cmd::print::CLI_ERROR_EXIT_CODE);
+        }
+        let detail = value
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| value.to_string());
+        fail(format!("{status}: {detail}"));
+    }
+    if json_output {
+        crate::cmd::print::print_json(&value);
+    } else {
+        crate::cmd::print::print_human(&value);
+    }
+}
+
+/// Whether `--mesh` makes this template verb an origin command for a peer Main rather than a
+/// command executed on that peer.
+pub(crate) fn hosted_on_peer(action: &TemplateAction) -> bool {
+    matches!(
+        action,
+        TemplateAction::Start(_) | TemplateAction::Transfer { .. } | TemplateAction::Outcome { .. }
+    )
+}
+
+/// `team template start|transfer|outcome --mesh <peer>`: this machine asks the peer.
+pub(crate) fn handle_peer(json_output: bool, action: TemplateAction, peer: &str) {
+    match action {
+        TemplateAction::Start(args) => {
+            let params = start_params(args).unwrap_or_else(|message| fail(message));
+            post_local(
+                json_output,
+                "/api/team-templates/peer-start",
+                &peer_start_body(peer.to_string(), &params),
+            );
+        }
+        TemplateAction::Transfer { name, tab } => {
+            let body = json!({
+                "template": template_ref(&name),
+                "peer": peer,
+                "format": "team",
+                "tab": tab,
+            });
+            post_local(json_output, "/api/team-templates/transfer", &body);
+        }
+        TemplateAction::Outcome { request } => {
+            let body = json!({ "peer": peer, "request_id": request });
+            post_local(json_output, "/api/team-templates/peer-outcome", &body);
+        }
+        TemplateAction::List | TemplateAction::Preview { .. } => {}
+    }
+}
+
 pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TemplateAction) {
     let (method, params) = match action {
         TemplateAction::List => ("team.template.list", json!({})),
@@ -106,11 +203,11 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TemplateAct
         ),
         TemplateAction::Start(args) => match start_params(args) {
             Ok(params) => ("team.template.start", params),
-            Err(message) => {
-                eprintln!("Error: {message}");
-                std::process::exit(crate::cmd::print::CLI_ERROR_EXIT_CODE);
-            }
+            Err(message) => fail(message),
         },
+        TemplateAction::Transfer { .. } | TemplateAction::Outcome { .. } => {
+            fail("this template verb needs --mesh <peer>")
+        }
     };
     super::finish(json_output, client.call_detailed(method, Some(params)));
 }

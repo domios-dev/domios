@@ -28,9 +28,9 @@ The Team verbs are `domios team list|show|rename|close|adopt-plan|adopt-agent|pa
 
 Agents join a Team two ways, both authorized against the caller's own membership (`CODETERM_TAB_ID` must already belong to that Team; a non-member is refused before any tab is created or mutated). `domios agent spawn <provider> --team <team_id>` attaches a fresh roleless agent at spawn time, mirroring `domios tab new --team`; it is rejected together with `--plan-task`, because a plan-bound agent already derives its Team from that binding. `domios team adopt-agent <team_id> <tab_id>` attaches an already-running roleless agent tab; adopting a tab that already belongs to a Team, holds a role, or does not exist fails with a specific error. Both bind the tab under the Team's live Orchestrator, and `domios team show <team_id>` lists the Team's member tabs.
 
-A Team whose Orchestrator is gone is not stranded. Removing its final Orchestrator retires that owner but retains the discoverable Team and its active Plan identity/history. `domios agent spawn <provider> --team <team_id> --role Orchestrator` hands it a new one and is the only `--role` that combines with `--team`: it needs no `--workspace` (the Team names one), carries no other spawn flag, and lands on the same daemon staffing verb as the sidebar's add-member action and `POST /api/teams/{team_id}/members`. The new Orchestrator takes the Team's active plan over through the tab-gone owner rebind — owner and owner history move — so the plan heartbeat follows to the new tab; descendant role bindings follow ordinary unlink rules. If takeover fails, staffing fails and removes the spawned replacement/lane without changing the retained Team or Plan owner/history. A Team is allowed at most one **live** Orchestrator, counted as live anchoring tabs: a removed tab is gone and a dead agent's identity is cleared on exit, so neither counts, while a second live one is refused by the `team_orchestrator_already_live` error code and logged with the Team, the role, and the cause.
+A Team whose Orchestrator is gone is not stranded. Removing its final Orchestrator retires that owner but retains the discoverable Team and its active Plan identity/history. `domios agent spawn <provider> --team <team_id> --role orchestrator` hands it a new one and is the only `--role` that combines with `--team`: it needs no `--workspace` (the Team names one), carries no other spawn flag, and lands on the same daemon staffing verb as the sidebar's add-member action and `POST /api/teams/{team_id}/members`. The new Orchestrator takes the Team's active plan over through the tab-gone owner rebind — owner and owner history move — so the plan heartbeat follows to the new tab; descendant role bindings follow ordinary unlink rules. If takeover fails, staffing fails and removes the spawned replacement/lane without changing the retained Team or Plan owner/history. A Team is allowed at most one **live** Orchestrator, counted as live anchoring tabs: a removed tab is gone and a dead agent's identity is cleared on exit, so neither counts, while a second live one is refused by the `team_orchestrator_already_live` error code and logged with the Team, the role, and the cause.
 
-A Worker spawn without a task binding is permitted when it declares `--execution-intent read_only`: that is the canonical verification Worker `domios docs ORCHESTRATION-OPERATIONS` prescribes for post-merge QA. It is spawned under the plan it verifies (`--plan <plan_id>`), reports to `--parent-tab` / `--report-to`, and carries its command scope as repeated `--authorized-gate <command>` tokens, which are rendered into its brief. Holding no task, it can report against none and transition none — a report naming a task it does not hold is refused and writes nothing. The safeguard for source-changing work is unchanged: `--execution-intent mutating` without `--plan-task` (or `--plan` + `--task-id`) is refused, and so is `--role Worker --plan <id>` with neither a task binding nor read-only intent. Declare gates on the dispatch (`plan task dispatch --authorized-gate`) for a task-bound Worker; `agent spawn --authorized-gate` is rejected alongside `--plan-task`.
+A Worker spawn without a task binding is permitted when it declares `--execution-intent read_only`: that is the canonical verification Worker `domios docs ORCHESTRATION-OPERATIONS` prescribes for post-merge QA. It is spawned under the plan it verifies (`--plan <plan_id>`), reports to `--parent-tab` / `--report-to`, and carries its command scope as repeated `--authorized-gate <command>` tokens, which are rendered into its brief. Holding no task, it can report against none and transition none — a report naming a task it does not hold is refused and writes nothing. The safeguard for source-changing work is unchanged: `--execution-intent mutating` without `--plan-task` (or `--plan` + `--task-id`) is refused, and so is `--role worker --plan <id>` with neither a task binding nor read-only intent. Declare gates on the dispatch (`plan task dispatch --authorized-gate`) for a task-bound Worker; `agent spawn --authorized-gate` is rejected alongside `--plan-task`.
 
 `domios plan task dispatch` defaults local mutating tasks to shared canonical with declared disjoint edit files. Automatic overlap or a `build-breaking` tag selects a lane; `--placement shared` refuses conflicts and names the owner, while `--placement lane` requests isolation. `domios plan task extend-files --edit-file <path>` atomically extends a shared Worker's set. The report-time guard refuses commits containing foreign or undeclared paths. After lane integration, a readiness report may name a canonical task commit when the lane tip is its ancestor and its diff touches only declared task paths. `domios plan task update <task> --untag <tag>` removes an exact tag after additions; repeat `--untag` for more tags. `plan task show --json` returns the task with its plan id and title. Exclusive `--canonical-writer`, mesh lanes and recorded lane safety remain explicit; see `domios docs LANES`.
 
@@ -420,22 +420,21 @@ Spawn a new agent; roleless unless --role is provided.
 - `--environment` — Remote environment ID or unambiguous label; never inferred
 - `--execution-intent` — Declared execution intent. Plain mutating Workers require a task binding; Worker kinds may mutate task-less and default to `mutating`
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
-- `--kind` — Worker prompt kind/profile, with or without a task: qa, release_manager or reviewer (read-only by default)
 - `--location` — Execution location declared by the provider. Remote tasks are one-shot tabs
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `domios agent models <provider>` to see what's available
 - `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead
 - `--nudge-cooldown` — Watcher nudge cooldown, e.g. 10m
 - `--parent-tab` — Parent tab ID. Required for Workers; for a Planner, resolved from --plan (its Orchestrator) when omitted
-- `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
-- `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
+- `--plan` — Plan id to bind — required for `--role planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
+- `--plan-task` — Plan task to bind when spawning `--role worker` (handle, id, or prefix)
 - `--preset` — Select a provider-owned preset supported by the target provider
 - `--profile` — ACP launch profile declared by the provider
 - `--provider-reserve-pct` — Advisory provider allowance reserve for a mutating Worker: below it, or when exhausted, the receipt warns; it never blocks the spawn
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
-- `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
+- `--role` — Role type: a manager slot (orchestrator, planner, cartographer, curator), watcher, or a worker type available to the Team (worker, qa, reviewer, release_manager or a registered name; reviewer is read-only by default)
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
@@ -443,7 +442,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
-- `--team` — Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --plan-task, and with every --role but Orchestrator: a plan-bound agent takes its Team from that binding. `--team <id> --role Orchestrator` is the recovery add for a Team whose Orchestrator is gone and carries no other spawn flag
+- `--team` — Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --plan-task, and with every --role but Orchestrator: a plan-bound agent takes its Team from that binding. `--team <id> --role orchestrator` is the recovery add for a Team whose Orchestrator is gone and carries no other spawn flag
 - `--title` — Tab title
 - `--unplanned` — Create and dispatch a visible exceptional task for this Worker
 - `--workspace` — Target workspace ID. Defaults to the parent tab's workspace, then your own — never the workspace selected in the UI. Pass this only to place the agent in a different workspace on purpose
@@ -2095,27 +2094,6 @@ Explicit delete
 
 - `<id>` — Paste id
 
-#### `domios persona`
-
-Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits
-
-#### `domios persona list`
-
-List every role kind the resolver can reach, with refused overlays
-
-#### `domios persona reload`
-
-Re-read the overlay directory without restarting or rebuilding
-
-#### `domios persona show`
-
-Render the exact preset text a role kind receives at each delivery occasion
-
-- `--guidance` — Task-owned persona layered over the kind's base, as a dispatch supplies it
-- `--kind` — Role kind id (`orchestrator`, `planner`, a Worker subtype, ...)
-- `--occasion` — Render only this occasion
-- `--role` — Structural role — Manager or Worker
-
 #### `domios plan`
 
 Canvas plans — persistent orchestration boards
@@ -3083,7 +3061,6 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--cwd`
 - `--description` — Worker tab description (defaults to a short summary of the task name)
 - `--execution-intent` — Explicit task intent; mutating work reports the advisory provider allowance
-- `--kind` — Select a built-in Worker prompt kind without changing the task's executor_role
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `--placement`
@@ -3091,6 +3068,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--profile` — ACP launch profile declared by the provider
 - `--provider-reserve-pct` — Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
+- `--role` — Worker type to launch (worker, qa, reviewer, release_manager or a Team-registered name); the task's executor_role is unchanged
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
@@ -3496,6 +3474,31 @@ Restart the REST listener and wait for readiness or a reported failure
 #### `domios rest-api status`
 
 Show listener phase and the last bind or runtime error over the local socket
+
+#### `domios role`
+
+Inspect the shared role resolver — kinds, overlays, and the exact text each delivery occasion emits
+
+#### `domios role list`
+
+List the role types a Team can launch, with the package each comes from
+
+- `--team` — Team whose registrations to include; without it, the builtin default package
+
+#### `domios role reload`
+
+Re-read a Team's role registrations from disk
+
+- `--team`
+
+#### `domios role show`
+
+Render the exact text a role type receives at each delivery occasion
+
+- `--guidance` — Task-owned persona appended after the role's text, as a dispatch supplies it
+- `--occasion` — Render only this occasion
+- `<role_type>` — Role type: orchestrator, planner, cartographer, curator, watcher or a worker type
+- `--team` — Team whose registration of this type to render
 
 #### `domios send`
 
@@ -4173,12 +4176,56 @@ Attach the one optional Cartographer Manager to a Team
 - `--provider` — Agent provider ID
 - `<team_id>` — Team ID
 
+#### `domios team check`
+
+Validate an ATP team package: a `name.team.yaml` file, a `name.team` archive or a package folder
+
+- `<path>` — Package path
+
 #### `domios team close`
 
 Close every member tab and remove the Team registry entry. Refused while a Team task is in progress or a Worker is working, unless --force
 
 - `--force` — Close anyway: reports every killed Worker and task, and keeps plans with unfinished tasks active and flagged
 - `<team_id>` — Team ID
+
+#### `domios team delete-template`
+
+Remove a saved template from My templates
+
+- `<name>` — Saved template name (`name[@version]`); without a version every version goes
+
+#### `domios team distill`
+
+Distill a live Team into a checked template package (procedure: `domios docs TEAMS`)
+
+- `--description` — What the Team does, in one sentence
+- `--dry-run` — Review only: print the exact team.yaml and Includes list, write nothing
+- `--format` — Package form: `yaml` (one file), `team` (ZIP) or `folder`
+- `--license` — SPDX license id
+- `--name` — Package name, `owner/slug`
+- `--opt-out` — Payload item id to leave out (from the Includes list); repeat for several
+- `--out` — Where to write the package
+- `--runbook-file` — File with the runbook the coordinator wrote; it joins the orchestrator's instructions
+- `--save` — Also save the checked package to My templates
+- `<team_id>` — Team ID
+- `--title` — Display title
+- `--version` — Package version (semver)
+- `--when` — A situation the template fits; repeat for several
+
+#### `domios team export`
+
+Export a template as `yaml`, `team` or `folder`
+
+- `--format` — Package form: `yaml` (one file), `team` (ZIP) or `folder`
+- `<name>` — Template name (`name[@version]`)
+- `--out` — Where to write the package
+
+#### `domios team import`
+
+Import a template package into My templates
+
+- `<path>` — A `name.team.yaml` file, a `name.team` archive or a package folder
 
 #### `domios team list`
 
@@ -4191,8 +4238,15 @@ Create an Orchestrator + Planner Team in one action. The Plan stays unbound unti
 - `--acknowledge-leaf` — Explicit "I know I am a leaf and I am doing this deliberately" declaration — required only when the calling tab holds a Manager or Worker role. Creation is then attributed to this tab, never to an intermediary shell
 - `--orchestrator` — Orchestrator provider, optionally with a model (`provider[:model]`)
 - `--planner` — Planner provider, optionally with a model (`provider[:model]`)
+- `--template` — Start from this team template (`name[@version]`); omitted keeps the standard pair
 - `--title`
 - `--workspace`
+
+#### `domios team recall`
+
+Recall the templates that fit a goal, best first; the default is always offered
+
+- `<query>` — What the Team should do, in plain words
 
 #### `domios team rename`
 
@@ -4206,6 +4260,37 @@ Give a Team a human-readable name
 Show one Team
 
 - `<team_id>` — Team ID
+
+#### `domios team template`
+
+Team templates: list, preview and start
+
+#### `domios team template list`
+
+List builtin and saved team templates
+
+#### `domios team template preview`
+
+Show what a template starts, asks for and brings
+
+- `<name>` — Template name (`name[@version]`)
+
+#### `domios team template start`
+
+Start a Team from a template on the standard pair primitive
+
+- `--acknowledge-leaf` — Explicit leaf declaration, as for `team pair`
+- `--decision` — The consent decision id `team template preview` issued
+- `--input` — A template input as `key=value`; repeatable
+- `--manager-model` — Another with_team manager's model as `slot=harness:model`; repeatable
+- `<name>` — Template name (`name[@version]`)
+- `--opt-out` — A payload item id to leave out; repeatable
+- `--orchestrator` — Orchestrator provider, optionally with a model (`provider[:model]`); omitted asks for a choice
+- `--planner` — Planner provider, optionally with a model (`provider[:model]`); omitted asks for a choice
+- `--secret` — A secret binding as `NAME=vault-entry`; repeatable
+- `--team` — Re-run the start on this existing Team: adds only missing registrations
+- `--title`
+- `--workspace`
 
 #### `domios theme`
 

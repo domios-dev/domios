@@ -1725,16 +1725,6 @@
               "aliases": []
             },
             {
-              "name": "kind",
-              "positional": false,
-              "required": false,
-              "value_name": "KIND",
-              "possible_values": [],
-              "default": null,
-              "help": "Worker prompt kind/profile, with or without a task: qa, release_manager or reviewer (read-only by default)",
-              "aliases": []
-            },
-            {
               "name": "location",
               "positional": false,
               "required": false,
@@ -1804,7 +1794,7 @@
               "value_name": "PLAN",
               "possible_values": [],
               "default": null,
-              "help": "Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator",
+              "help": "Plan id to bind — required for `--role planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator",
               "aliases": []
             },
             {
@@ -1814,7 +1804,7 @@
               "value_name": "PLAN_TASK",
               "possible_values": [],
               "default": null,
-              "help": "Plan task to bind when spawning `--role Worker` (handle, id, or prefix)",
+              "help": "Plan task to bind when spawning `--role worker` (handle, id, or prefix)",
               "aliases": []
             },
             {
@@ -1882,15 +1872,9 @@
               "positional": false,
               "required": false,
               "value_name": "ROLE",
-              "possible_values": [
-                "Orchestrator",
-                "Worker",
-                "Manager",
-                "Planner",
-                "Watcher"
-              ],
+              "possible_values": [],
               "default": null,
-              "help": "Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar",
+              "help": "Role type: a manager slot (orchestrator, planner, cartographer, curator), watcher, or a worker type available to the Team (worker, qa, reviewer, release_manager or a registered name; reviewer is read-only by default)",
               "aliases": []
             },
             {
@@ -1973,7 +1957,7 @@
               "value_name": "TEAM_ID",
               "possible_values": [],
               "default": null,
-              "help": "Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --plan-task, and with every --role but Orchestrator: a plan-bound agent takes its Team from that binding. `--team <id> --role Orchestrator` is the recovery add for a Team whose Orchestrator is gone and carries no other spawn flag",
+              "help": "Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --plan-task, and with every --role but Orchestrator: a plan-bound agent takes its Team from that binding. `--team <id> --role orchestrator` is the recovery add for a Team whose Orchestrator is gone and carries no other spawn flag",
               "aliases": []
             },
             {
@@ -9021,76 +9005,6 @@
       ]
     },
     {
-      "name": "persona",
-      "about": "Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits",
-      "aliases": [],
-      "args": [],
-      "subcommands": [
-        {
-          "name": "list",
-          "about": "List every role kind the resolver can reach, with refused overlays",
-          "aliases": [],
-          "args": [],
-          "subcommands": []
-        },
-        {
-          "name": "reload",
-          "about": "Re-read the overlay directory without restarting or rebuilding",
-          "aliases": [],
-          "args": [],
-          "subcommands": []
-        },
-        {
-          "name": "show",
-          "about": "Render the exact preset text a role kind receives at each delivery occasion",
-          "aliases": [],
-          "args": [
-            {
-              "name": "guidance",
-              "positional": false,
-              "required": false,
-              "value_name": "GUIDANCE",
-              "possible_values": [],
-              "default": null,
-              "help": "Task-owned persona layered over the kind's base, as a dispatch supplies it",
-              "aliases": []
-            },
-            {
-              "name": "kind",
-              "positional": false,
-              "required": false,
-              "value_name": "KIND",
-              "possible_values": [],
-              "default": null,
-              "help": "Role kind id (`orchestrator`, `planner`, a Worker subtype, ...)",
-              "aliases": []
-            },
-            {
-              "name": "occasion",
-              "positional": false,
-              "required": false,
-              "value_name": "OCCASION",
-              "possible_values": [],
-              "default": null,
-              "help": "Render only this occasion",
-              "aliases": []
-            },
-            {
-              "name": "role",
-              "positional": false,
-              "required": false,
-              "value_name": "ROLE",
-              "possible_values": [],
-              "default": "Worker",
-              "help": "Structural role — Manager or Worker",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        }
-      ]
-    },
-    {
       "name": "plan",
       "about": "Canvas plans — persistent orchestration boards",
       "aliases": [],
@@ -13873,16 +13787,6 @@
                   "aliases": []
                 },
                 {
-                  "name": "kind",
-                  "positional": false,
-                  "required": false,
-                  "value_name": "WORKER_KIND",
-                  "possible_values": [],
-                  "default": null,
-                  "help": "Select a built-in Worker prompt kind without changing the task's executor_role",
-                  "aliases": []
-                },
-                {
                   "name": "model",
                   "positional": false,
                   "required": false,
@@ -13953,6 +13857,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": "Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)",
+                  "aliases": []
+                },
+                {
+                  "name": "role",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ROLE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Worker type to launch (worker, qa, reviewer, release_manager or a Team-registered name); the task's executor_role is unchanged",
                   "aliases": []
                 },
                 {
@@ -16126,6 +16040,98 @@
           "about": "Show listener phase and the last bind or runtime error over the local socket",
           "aliases": [],
           "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "role",
+      "about": "Inspect the shared role resolver — kinds, overlays, and the exact text each delivery occasion emits",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "list",
+          "about": "List the role types a Team can launch, with the package each comes from",
+          "aliases": [],
+          "args": [
+            {
+              "name": "team",
+              "positional": false,
+              "required": false,
+              "value_name": "TEAM",
+              "possible_values": [],
+              "default": null,
+              "help": "Team whose registrations to include; without it, the builtin default package",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "reload",
+          "about": "Re-read a Team's role registrations from disk",
+          "aliases": [],
+          "args": [
+            {
+              "name": "team",
+              "positional": false,
+              "required": false,
+              "value_name": "TEAM",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Render the exact text a role type receives at each delivery occasion",
+          "aliases": [],
+          "args": [
+            {
+              "name": "guidance",
+              "positional": false,
+              "required": false,
+              "value_name": "GUIDANCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Task-owned persona appended after the role's text, as a dispatch supplies it",
+              "aliases": []
+            },
+            {
+              "name": "occasion",
+              "positional": false,
+              "required": false,
+              "value_name": "OCCASION",
+              "possible_values": [],
+              "default": null,
+              "help": "Render only this occasion",
+              "aliases": []
+            },
+            {
+              "name": "role_type",
+              "positional": true,
+              "required": false,
+              "value_name": "ROLE_TYPE",
+              "possible_values": [],
+              "default": "worker",
+              "help": "Role type: orchestrator, planner, cartographer, curator, watcher or a worker type",
+              "aliases": []
+            },
+            {
+              "name": "team",
+              "positional": false,
+              "required": false,
+              "value_name": "TEAM",
+              "possible_values": [],
+              "default": null,
+              "help": "Team whose registration of this type to render",
+              "aliases": []
+            }
+          ],
           "subcommands": []
         }
       ]
@@ -19109,6 +19115,24 @@
           "subcommands": []
         },
         {
+          "name": "check",
+          "about": "Validate an ATP team package: a `name.team.yaml` file, a `name.team` archive or a package folder",
+          "aliases": [],
+          "args": [
+            {
+              "name": "path",
+              "positional": true,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Package path",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "close",
           "about": "Close every member tab and remove the Team registry entry. Refused while a Team task is in progress or a Worker is working, unless --force",
           "aliases": [],
@@ -19131,6 +19155,226 @@
               "possible_values": [],
               "default": null,
               "help": "Team ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "delete-template",
+          "about": "Remove a saved template from My templates",
+          "aliases": [],
+          "args": [
+            {
+              "name": "name",
+              "positional": true,
+              "required": true,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": "Saved template name (`name[@version]`); without a version every version goes",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "distill",
+          "about": "Distill a live Team into a checked template package (procedure: `domios docs TEAMS`)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "description",
+              "positional": false,
+              "required": true,
+              "value_name": "DESCRIPTION",
+              "possible_values": [],
+              "default": null,
+              "help": "What the Team does, in one sentence",
+              "aliases": []
+            },
+            {
+              "name": "dry-run",
+              "positional": false,
+              "required": false,
+              "value_name": "DRY_RUN",
+              "possible_values": [],
+              "default": null,
+              "help": "Review only: print the exact team.yaml and Includes list, write nothing",
+              "aliases": []
+            },
+            {
+              "name": "format",
+              "positional": false,
+              "required": false,
+              "value_name": "FORMAT",
+              "possible_values": [
+                "yaml",
+                "team",
+                "folder"
+              ],
+              "default": "yaml",
+              "help": "Package form: `yaml` (one file), `team` (ZIP) or `folder`",
+              "aliases": []
+            },
+            {
+              "name": "license",
+              "positional": false,
+              "required": false,
+              "value_name": "LICENSE",
+              "possible_values": [],
+              "default": null,
+              "help": "SPDX license id",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "required": true,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": "Package name, `owner/slug`",
+              "aliases": []
+            },
+            {
+              "name": "opt-out",
+              "positional": false,
+              "required": false,
+              "value_name": "OPT_OUT",
+              "possible_values": [],
+              "default": null,
+              "help": "Payload item id to leave out (from the Includes list); repeat for several",
+              "aliases": []
+            },
+            {
+              "name": "out",
+              "positional": false,
+              "required": false,
+              "value_name": "OUT",
+              "possible_values": [],
+              "default": null,
+              "help": "Where to write the package",
+              "aliases": []
+            },
+            {
+              "name": "runbook-file",
+              "positional": false,
+              "required": false,
+              "value_name": "RUNBOOK_FILE",
+              "possible_values": [],
+              "default": null,
+              "help": "File with the runbook the coordinator wrote; it joins the orchestrator's instructions",
+              "aliases": []
+            },
+            {
+              "name": "save",
+              "positional": false,
+              "required": false,
+              "value_name": "SAVE",
+              "possible_values": [],
+              "default": null,
+              "help": "Also save the checked package to My templates",
+              "aliases": []
+            },
+            {
+              "name": "team_id",
+              "positional": true,
+              "required": true,
+              "value_name": "TEAM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Team ID",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "required": false,
+              "value_name": "TITLE",
+              "possible_values": [],
+              "default": null,
+              "help": "Display title",
+              "aliases": []
+            },
+            {
+              "name": "version",
+              "positional": false,
+              "required": false,
+              "value_name": "VERSION",
+              "possible_values": [],
+              "default": "1.0.0",
+              "help": "Package version (semver)",
+              "aliases": []
+            },
+            {
+              "name": "when",
+              "positional": false,
+              "required": false,
+              "value_name": "WHEN",
+              "possible_values": [],
+              "default": null,
+              "help": "A situation the template fits; repeat for several",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "export",
+          "about": "Export a template as `yaml`, `team` or `folder`",
+          "aliases": [],
+          "args": [
+            {
+              "name": "format",
+              "positional": false,
+              "required": false,
+              "value_name": "FORMAT",
+              "possible_values": [
+                "yaml",
+                "team",
+                "folder"
+              ],
+              "default": "yaml",
+              "help": "Package form: `yaml` (one file), `team` (ZIP) or `folder`",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": true,
+              "required": true,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": "Template name (`name[@version]`)",
+              "aliases": []
+            },
+            {
+              "name": "out",
+              "positional": false,
+              "required": false,
+              "value_name": "OUT",
+              "possible_values": [],
+              "default": null,
+              "help": "Where to write the package",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "import",
+          "about": "Import a template package into My templates",
+          "aliases": [],
+          "args": [
+            {
+              "name": "path",
+              "positional": true,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "A `name.team.yaml` file, a `name.team` archive or a package folder",
               "aliases": []
             }
           ],
@@ -19179,6 +19423,16 @@
               "aliases": []
             },
             {
+              "name": "template",
+              "positional": false,
+              "required": false,
+              "value_name": "TEMPLATE",
+              "possible_values": [],
+              "default": null,
+              "help": "Start from this team template (`name[@version]`); omitted keeps the standard pair",
+              "aliases": []
+            },
+            {
               "name": "title",
               "positional": false,
               "required": false,
@@ -19196,6 +19450,24 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "recall",
+          "about": "Recall the templates that fit a goal, best first; the default is always offered",
+          "aliases": [],
+          "args": [
+            {
+              "name": "query",
+              "positional": true,
+              "required": true,
+              "value_name": "QUERY",
+              "possible_values": [],
+              "default": null,
+              "help": "What the Team should do, in plain words",
               "aliases": []
             }
           ],
@@ -19246,6 +19518,167 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "template",
+          "about": "Team templates: list, preview and start",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "list",
+              "about": "List builtin and saved team templates",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "preview",
+              "about": "Show what a template starts, asks for and brings",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Template name (`name[@version]`)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "start",
+              "about": "Start a Team from a template on the standard pair primitive",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "acknowledge-leaf",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ACKNOWLEDGE_LEAF",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Explicit leaf declaration, as for `team pair`",
+                  "aliases": []
+                },
+                {
+                  "name": "decision",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "DECISION",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "The consent decision id `team template preview` issued",
+                  "aliases": []
+                },
+                {
+                  "name": "input",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "KEY=VALUE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "A template input as `key=value`; repeatable",
+                  "aliases": []
+                },
+                {
+                  "name": "manager-model",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SLOT=HARNESS:MODEL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Another with_team manager's model as `slot=harness:model`; repeatable",
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Template name (`name[@version]`)",
+                  "aliases": []
+                },
+                {
+                  "name": "opt-out",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ITEM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "A payload item id to leave out; repeatable",
+                  "aliases": []
+                },
+                {
+                  "name": "orchestrator",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ORCHESTRATOR",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Orchestrator provider, optionally with a model (`provider[:model]`); omitted asks for a choice",
+                  "aliases": []
+                },
+                {
+                  "name": "planner",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PLANNER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Planner provider, optionally with a model (`provider[:model]`); omitted asks for a choice",
+                  "aliases": []
+                },
+                {
+                  "name": "secret",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "NAME=ENTRY",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "A secret binding as `NAME=vault-entry`; repeatable",
+                  "aliases": []
+                },
+                {
+                  "name": "team",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TEAM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Re-run the start on this existing Team: adds only missing registrations",
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TITLE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "WORKSPACE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         }
       ]
     },
