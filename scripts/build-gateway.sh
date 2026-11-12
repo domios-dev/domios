@@ -487,6 +487,7 @@ ct_gateway_on_exit() {
 
 ct_gateway_on_signal() {
   CT_GATEWAY_CANCELLED=1
+  if [ -n "${CT_GATEWAY_CANCEL_REQUEST:-}" ] && [ -f "$CT_GATEWAY_CANCEL_REQUEST" ]; then trap - EXIT; fi
   exit 130
 }
 
@@ -537,6 +538,7 @@ ct_gateway_acquire() {
   worktree="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
   owner_command="$(ct_gateway_process_command "$CT_GATEWAY_OWNER_PID" 2>/dev/null || true)"
   export CT_BUILD_JOB_ID CT_BUILD_QUEUE_KEY CT_GATEWAY_PROCESS_START
+  CT_GATEWAY_CANCEL_REQUEST="$dir/jobs/$CT_BUILD_JOB_ID.cancel-request"
   trap 'ct_gateway_on_exit' EXIT
   trap 'ct_gateway_on_signal' INT TERM
   ct_gateway_mutex_acquire "$dir" || return $?
@@ -652,14 +654,16 @@ ct_gateway_cancel() {
       ct_gateway_mutex_release "$dir"
       return 1
     fi
+    : > "$dir/jobs/$job_id.cancel-request" || { ct_gateway_mutex_release "$dir"; return 74; }
     if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
       ct_gateway_cancel_unix_tree "$pid" "$start_token" || rc=$?
     else
-      node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-cancel.mjs" "$dir/lock" || rc=$?
+      node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-cancel.mjs" "$dir/lock" "$(cygpath -w "$(command -v ps)")" || rc=$?
     fi
     if [ "$rc" -eq 0 ]; then
       if ct_gateway_recorded_owner_gone "$dir/lock"; then
         CT_BUILD_JOB_ID="$job_id" ct_gateway_update_job cancelled 130 cancelled "" "$(ct_gateway_now)" || rc=$?
+        if [ "$rc" -eq 0 ]; then rm -f "$dir/jobs/$job_id.cancel-request" || rc=$?; fi
         if [ "$rc" -eq 0 ]; then rm -rf "$dir/lock" || rc=$?; fi
       else
         rc=1

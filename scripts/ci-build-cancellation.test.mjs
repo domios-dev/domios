@@ -20,12 +20,21 @@ test(`gateway-cancel stops a waiting shell and compiler tree (reentered=${reente
   const compilerScript = path.join(directory, 'compiler.mjs');
   fs.writeFileSync(ownerScript, `set -eu
 if [ "\${3:-}" = parent ]; then
-  "$BASH" "$0" "$1" "$2" child
-  exit "$?"
+  source "$(dirname "$1")/dev-notify.sh"
+  report_alert_once() { :; }
+  status=0
+  report_run_stream "$2/marker" '' compiler compile "$2/stream.log" "$BASH" "$0" "$1" "$2" child || status=$?
+  printf 'PARENT_RESULT %s\\n' "$status"
+  exit "$status"
 fi
 source "$1"
 ct_gateway_set_fixture_dir "$2"
 ct_gateway_acquire waiting-compiler
+mkfifo "$2/output.fifo"
+reader() { tee -a "$1"; }
+reader "$2/output.log" < "$2/output.fifo" &
+printf '%s\\n' "$!" > "$2/reader.pid"
+exec > "$2/output.fifo" 2>&1
 node "$2/compiler.mjs"
 `);
   fs.writeFileSync(compilerScript, `import { spawn } from 'node:child_process';
@@ -35,7 +44,11 @@ const child = spawn(process.execPath, ['-e', 'process.stdin.resume(); console.lo
 child.stdout.once('data', data => console.log('READY', process.pid, String(data).trim()));
 process.stdin.resume();
 `);
-  const launcher = spawn(bash, [ownerScript,
+  const launcher = spawn(bash, ['-c', `"$BASH" "$@"
+status=$?
+printf 'CALLER_RESULT %s\\n' "$status"
+IFS= read -r release
+exit "$status"`, 'caller', ownerScript,
     gateway.replaceAll('\\', '/'), directory.replaceAll('\\', '/'), reentered ? 'parent' : 'child'], {
     stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, FORCE_COLOR: '0' },
   });
@@ -70,7 +83,19 @@ process.stdin.resume();
   assert.equal(terminal.state, 'cancelled');
   assert.equal(terminal.outcome, 'cancelled');
   assert.ok(terminal.ended_at);
-  await exited;
+  assert.equal(fs.existsSync(path.join(directory, 'jobs', `${job.job_id}.cancel-request`)), false);
+  let caller;
+  do {
+    caller = await lines.next();
+    assert.equal(caller.done, false, errors);
+  } while (!caller.value.startsWith('CALLER_RESULT '));
+  const expectedExit = unix ? 137 : 130;
+  assert.equal(caller.value, `CALLER_RESULT ${expectedExit}`, errors);
+  assert.equal(launcher.exitCode, null, 'calling shell must survive the cancelled command');
+  launcher.stdin.end('release\n');
+  const [exitCode, exitSignal] = await exited;
+  assert.equal(exitSignal, null);
+  assert.equal(exitCode, expectedExit, errors);
   await closed;
   for (const pid of descendants) {
     if (process.platform === 'linux' && fs.existsSync(`/proc/${pid}/stat`)) {
