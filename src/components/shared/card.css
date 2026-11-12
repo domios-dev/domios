@@ -56,6 +56,16 @@
   border-radius: max(var(--ct-radius-md), calc(var(--ct-bubble-radius) - var(--ct-bubble-pad-y)));
 }
 
+.ct-card--choice[data-selected="true"] {
+  border-color: var(--ct-card-tone);
+  background: color-mix(in srgb, var(--ct-card-tone) 7%, var(--ct-bg));
+}
+
+.ct-card--choice:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--ct-card-tone) 60%, transparent);
+  outline-offset: 2px;
+}
+
 .ct-card--quiet {
   border-color: transparent;
   background: color-mix(in srgb, var(--ct-fg) 1.5%, var(--ct-bg));
