@@ -4,13 +4,13 @@ import { probeReply, stopLongTurn, waitReady } from "../lib/tabs.mjs";
 import { JourneyFailure } from "../lib/wait.mjs";
 import { launchFlags } from "../lib/profile-policy.mjs";
 
-export async function spawnOne(ctx, provider) {
+export async function spawnOne(ctx, provider, journey = "J1") {
   const { workspace } = ctx.state;
-  const spawned = await ctx.policy.launch(provider.id, "J1-spawn", (model, profile) => (ctx.command ?? dcJson)(["agent", "spawn", provider.id, ...launchFlags(model, profile), "--workspace", workspace.id, "--cwd", workspace.cwd,
+  const spawned = await ctx.policy.launch(provider.id, `${journey}-spawn`, (model, profile) => (ctx.command ?? dcJson)(["agent", "spawn", provider.id, ...launchFlags(model, profile), "--workspace", workspace.id, "--cwd", workspace.cwd,
     "--title", `cj${provider.id}`, "--non-user-facing", "--description", `core-journeys ${ctx.state.run}`]));
   const id = spawned?.tab_id;
   if (!id) throw new JourneyFailure(`spawn returned no tab id: ${JSON.stringify(spawned).slice(0, 300)}`);
-  ctx.state.tabs.push({ id, provider: provider.id, runtime: provider.runtime, journey: "J1", reply: true });
+  ctx.state.tabs.push({ id, provider: provider.id, runtime: provider.runtime, journey, reply: true });
   ctx.save();
   return id;
 }
@@ -47,6 +47,30 @@ export async function singleAgent(ctx, provider) {
     ctx.save();
     return { summary: `${reply.answer} after ${ctx.options.historyBytes} filler bytes`, evidence: reply };
   });
+}
+
+// J4's own setup when J1 is not selected: one ready tab per roster provider with one exact reply on its own session.
+export async function restoreFixtures(ctx, selected) {
+  ctx.state.providers = selected;
+  ctx.save();
+  for (const missing of selected.missing) {
+    await ctx.check("J4", "provider_installed", missing.id, async () => { throw new JourneyFailure(missing.reason); });
+  }
+  await Promise.all(selected.run.map(async (provider) => {
+    const check = (name, body) => ctx.check("J4", name, provider.id, body);
+    const id = await check("restore_fixture_ready", async () => {
+      const tab = await spawnOne(ctx, provider, "J4");
+      const ready = await waitReady(ctx, tab, { allowFirstTurn: true });
+      return { summary: `${tab} ${ready.boot_stage}`, evidence: { tab, boot_stage: ready.boot_stage, backing: ready.backing?.kind } };
+    }).then((value) => value?.evidence?.tab);
+    if (!id) return;
+    await check("restore_fixture_reply", async () => {
+      const reply = await probeReply(ctx, id, marker(ctx.state.run, provider.id, "f"));
+      ctx.state.tabs.find((tab) => tab.id === id).session = reply.session;
+      ctx.save();
+      return { summary: `${reply.answer} on ${reply.session}`, evidence: reply };
+    });
+  }));
 }
 
 export async function journeyOne(ctx, selected) {

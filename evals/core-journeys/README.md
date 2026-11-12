@@ -1,7 +1,8 @@
-# Core journeys (release blocker)
+# Core journeys (change-scoped release evidence)
 
 The end-to-end owner journeys that broke on BLACKSTAR on one day while every
-unit test stayed green. The suite drives a running DEV through the real API:
+unit test stayed green. A release runs only the journeys whose source areas its
+diff touches; the gates skill's Release section owns that procedure. The suite drives a running DEV through the real API:
 CLI calls go through the lib's dev-locked `dc`, HTTP and the event stream use
 the connection `dev_run` composes, and the Team dialog leg drives the real DEV
 window over CDP. Waits are re-reads on the daemon's `/api/events/stream` (or DOM
@@ -43,6 +44,7 @@ selection and restart use that checkout's validated artifacts and provenance;
 the journeys and control runner use the lane's sources. Keep the candidate
 checkout and build stable through the run. This does not compile a new product.
 
+With the full suite or any selection that includes J4,
 `all` runs `setup`, a bench-owned DEV restart (`./build.sh kill`, then
 `./build.sh dev-prebuilt --wait --wait-build` on the same instance; never port
 7685), retaining its original frontend and CDP ports, `verify`, then `cleanup`,
@@ -130,11 +132,59 @@ evidence as a flat model. Historical partial Haiku
 or DeepSeek probes are not full-suite evidence.
 
 Flags: `--providers` may only repeat the complete installed roster; narrowing
-fails. Claude, Codex and OpenCode remain required. Other flags:
+fails. Claude, Codex and OpenCode remain required unless excluded explicitly
+(see *Journey selection*). Other flags:
 `--history-kb N` sizes the runtime history probe (default 320),
 `--deadline-secs N` sets the ready and reply deadline (default 240), `--all-tabs`
 makes every agent tab on the instance part of the restart oracle, `--keep`
 skips cleanup.
+
+## Journey selection
+
+`areas.json` is the journey → source-area map, owned by this bench. Each
+journey lists repository path prefixes and the journeys it `requires` (J2's
+Worker-context leg uses J3's Worker, so J2 requires J3). Edit the map, not the
+skills, when an area moves or a journey gains coverage.
+
+```bash
+node evals/core-journeys/select.mjs BASE HEAD --out OWNED_OUT/selection.json
+```
+
+The selector reads `git diff --name-only --no-renames BASE..HEAD` and, for each
+changed path, selects every journey with a matching prefix, recording
+`path (area prefix)` as the reason; `required by Jn` records the closure.
+Unmapped paths select nothing and are listed in `unmatched_paths`: there is no
+run-everything fallback. Unselected journeys are `not_run` with reason
+`area untouched`. It refuses a map whose prefixes match no file at HEAD, so a
+rename cannot silently stop selection. An empty selection is the not-run record
+itself; `run.sh` refuses to start with nothing to run.
+
+`run.sh` selection flags (default: the full suite J1–J4):
+
+- `--selection FILE` runs what the selector chose. The output is copied into
+  `results.json`, and the contract recomputes it from its own `changed_paths`.
+- `--journeys J1,J4` runs exactly these journeys plus their `requires`. With
+  `--selection`, adding a journey is recorded as `added by --journeys`; dropping a
+  selected one needs `--waiver` and records it as `waived` (accepted risk).
+  Without `--selection`, unlisted journeys are `not in --journeys`.
+- `--exclude-provider ID` (repeatable) removes an installed or required
+  provider from the roster. It needs `--waiver`; `--providers` still cannot
+  narrow and an omitted `--model` still refuses.
+- `--waiver "OWNER REASON"` is the owner's accepted-risk statement. It is
+  required whenever a selected journey is dropped or a provider is excluded,
+  and refused otherwise.
+
+The flags are recorded verbatim in `results.json` (`selection.flags`) and in a
+`results.md` text block, with each journey's status and reasons. Not-run and
+waived journeys are never passes and must have no checks. Repeat the same
+selection flags for an operator `verify`; a different selection refuses.
+
+Without J4, `all` runs `setup` then `cleanup`: no restart, no `verify`, no
+`restart.json` or verify screenshot, and J3 accepts its review in setup. With J4
+but not J1, setup first spawns one restore fixture per roster provider
+(`restore_fixture_ready`, `restore_fixture_reply`) so J4 has restorable sessions
+of its own. Its task-bound Worker leg (`restored_worker_attempt_binding` and the
+fixture rebind) runs only when J3 is selected.
 
 ## Evidence contract
 
@@ -142,20 +192,24 @@ skips cleanup.
 Exit 0: evidence complete and the run passed. Exit 1: an artefact is missing or
 malformed. Exit 3: evidence complete but a check failed. It requires:
 
-- `results.json`: schema 1; every phase (`setup`, `verify`, `cleanup`) with the instance name, an
+- `results.json`: schema 1; a `selection` that its recorded flags and selector output reproduce
+  exactly; every phase (`setup`, `cleanup`, and `verify` exactly when J4 runs) with the instance name, an
   integer port other than 7685/7686, build SHA and wall time; every check with a known journey id,
   a `verdict` of `pass`, `fail` or `skip` that agrees with `pass`, a reason unless it passed, a duration
-  and a start time; at least one check for SETUP, J1, J2, J3 and J4.
+  and a start time; at least one check for SETUP and each journey that runs, none for a not-run or
+  waived journey.
+- Required providers are in the roster unless excluded under the recorded waiver; an excluded
+  provider is absent. Launch evidence is required per running journey (`J4-spawn` for J4's own setup).
 - ids in `results.json` `state`: run id, workspace id, every tab id, a session id for each J1 tab
   that answered, and the pre-restart listener, build and tab ids.
 - `state.model_policy`: exact complete-roster selections, catalogue refresh/capability evidence,
   scoped General/provider configuration, explicit launch records and requested/resolved/actual
   own-session identities before and after restart. Missing policy evidence invalidates historical runs.
 - `results.md`: byte-equal to the rendering of `results.json`.
-- `restart.json`: `pass`, phase `verified`, listener
+- `restart.json` (only when J4 runs): `pass`, phase `verified`, listener
   pid and start time that prove a restart, same instance and port as `results.json`. An operator
   restart (`setup`/`verify` run by hand) leaves no `restart.json` and fails this check on purpose.
-- `screenshots/setup.png` and `screenshots/verify.png`, taken with `scripts/dev-screenshot.mjs`
+- `screenshots/setup.png` and, when J4 runs, `screenshots/verify.png`, taken with `scripts/dev-screenshot.mjs`
   and recorded in `state.screenshots`; each must exist and be a PNG.
 
 `lib/fixture-run.mjs <dir>` writes a complete synthetic run directory for trying the check.
@@ -222,8 +276,8 @@ node --test evals/core-journeys/*.test.mjs evals/core-journeys/lib/*.test.mjs
 ```
 
 They cover the verdicts (readiness, exact reply, task and attempt states), the
-event-wait loop, the dialog page scripts against a fake DOM, results and
-argument parsing. They are not live proof.
+event-wait loop, the dialog page scripts against a fake DOM, results, journey
+selection and argument parsing. They are not live proof.
 
 ## Troubleshooting
 
@@ -233,4 +287,4 @@ argument parsing. They are not live proof.
 | `deadline: Start a session dialog opened` | First-run onboarding is active, so the picker ignores the open event | Finish first run on that instance, then rerun. |
 | `restart_not_observed` | `build.sh dev-prebuilt` refused stale provenance or the same listener survived | Run `./build.sh dev --wait` once to record provenance, then rerun `all`. |
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

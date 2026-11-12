@@ -5,7 +5,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { main, parseArgs, preferred } from "./driver.mjs";
+import { main, parseArgs, persistedSelection, preferred } from "./driver.mjs";
+import { loadAreas, selectionFromFlags } from "./lib/selection.mjs";
 import { assertIsolated, target } from "./lib/env.mjs";
 import { PHASE_STEPS, buildPlan, planFromEnv, renderPlan } from "./lib/plan.mjs";
 import { parseRestartArgs, restartEnvironment } from "./restart.mjs";
@@ -94,6 +95,38 @@ test("the plan lists every stage, step and evidence path of each mode", () => {
   assert.throws(() => planFromEnv({ mode: "all", out: "/o", instance: "", port: "7697" }), /unset/);
 });
 
+const j1Selection = (areas) => selectionFromFlags(areas, parseArgs(["setup", "--out", "/o", "--journeys", "J1"]).selection);
+
+test("selection flags are parsed verbatim; only a J4 selection plans a restart, and J4 alone plans its own setup", () => {
+  const options = parseArgs(["setup", "--out", "/o", "--journeys", "J4", "--exclude-provider", "acp", "--waiver", "owner: acp quota"]);
+  assert.deepEqual(options.selection, { journeys: "J4", selection: null, exclude_providers: ["acp"], waiver: "owner: acp quota" });
+  assert.throws(() => parseArgs(["setup", "--out", "/o", "--waiver", "a", "--waiver", "b"]), /given twice/);
+  const areas = loadAreas();
+  const steps = (plan) => plan.stages.map((stage) => `${stage.phase}:${stage.steps.map((step) => `${step.journey}/${step.check}`).join(",")}`);
+  const j4 = buildPlan({ mode: "all", out: "/o", instance: "curated", port: 7697, selection: selectionFromFlags(areas, parseArgs(["setup", "--out", "/o", "--journeys", "J4"]).selection) });
+  assert.deepEqual(j4.stages.map((stage) => stage.phase), ["setup", "restart", "verify", "cleanup"]);
+  assert.match(steps(j4)[0], /J4\/restore_fixture_ready.*J4\/pre_restart_snapshot/);
+  assert.doesNotMatch(steps(j4).join(), /J1\/|J2\/|J3\/|restored_worker_attempt_binding/);
+  const j1 = buildPlan({ mode: "all", out: "/o", instance: "curated", port: 7697, selection: selectionFromFlags(areas, parseArgs(["setup", "--out", "/o", "--journeys", "J1,J3"]).selection) });
+  assert.deepEqual(j1.stages.map((stage) => stage.phase), ["setup", "cleanup"]);
+  assert.match(steps(j1)[0], /J3\/review_accept_done/);
+  assert.deepEqual(j1.evidence, ["/o/results.json", "/o/results.md", "/o/screenshots/setup.png"]);
+  assert.match(renderPlan(j1), /journey J2: not run \(1 reason: not in --journeys\)/);
+  assert.throws(() => buildPlan({ mode: "verify", out: "/o", instance: "curated", selection: j1Selection(areas) }), /no restart/);
+});
+
+test("setup records the selection; verify must repeat it and needs J4", () => {
+  const areas = loadAreas(), full = selectionFromFlags(areas, parseArgs(["setup", "--out", "/o"]).selection);
+  const results = {};
+  persistedSelection("setup", results, full);
+  assert.equal(results.selection, full);
+  assert.doesNotThrow(() => persistedSelection("verify", results, structuredClone(full)));
+  assert.throws(() => persistedSelection("setup", results, j1Selection(areas)), /different journey selection/);
+  assert.throws(() => persistedSelection("verify", results, j1Selection(areas)), /repeat the setup selection flags/);
+  assert.throws(() => persistedSelection("verify", { selection: j1Selection(areas) }, j1Selection(areas)), /no restart to verify/);
+  assert.throws(() => persistedSelection("verify", {}, full), /selection recorded by setup/);
+});
+
 test("every planned check name exists in the journey sources", () => {
   const files = [join(here, "driver.mjs"), join(here, "lib/screenshots.mjs"),
     ...readdirSync(join(here, "journeys")).map((name) => join(here, "journeys", name))];
@@ -123,6 +156,13 @@ test("run.sh --plan exits 0 on a named instance and prints steps and evidence pa
   const result = runner(["all", "--plan"], previousTarget("curated", "7697"));
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /PLAN all[^]*J1: [^]*spawn_ready[^]*results[.]json[^]*restart[.]json[^]*setup[.]png/);
+  const narrowed = runner(["all", "--plan", "--journeys", "J1"], previousTarget("curated", "7697"));
+  assert.equal(narrowed.status, 0, narrowed.stderr);
+  assert.match(narrowed.stdout, /journey J4: not run/);
+  assert.doesNotMatch(narrowed.stdout, /stage \d: restart/);
+  const unwaived = runner(["all", "--plan", "--exclude-provider", "acp"], previousTarget("curated", "7697"));
+  assert.notEqual(unwaived.status, 0);
+  assert.match(unwaived.stderr, /--waiver/);
 });
 
 test("run.sh refuses ports 7685 and 7686 and an unset instance, in plan and live modes", () => {

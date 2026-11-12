@@ -846,8 +846,8 @@ not publish a release or alter GitHub assets. Steps 1-4 describe Windows; step
 5 covers macOS.
 
 A build handed to the owner to install (an owner hotfix build such as
-`X.Y.Z-bs.N`) first needs a green core-journeys run on its exact SHA; the
-gates skill's Release section owns that step.
+`X.Y.Z-bs.N`) first needs green core-journeys evidence on its exact SHA for the
+journeys its diff selects; the gates skill's Release section owns that step.
 
 1. Start from the intended, clean release branch in the canonical checkout.
 2. After a version bump, run the idempotent preflight. It refreshes the Cargo
@@ -1509,7 +1509,7 @@ entitlement refresh when integrating either external service.
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
 For intentional gateway queueing, pass `--queue` (alias behavior of `--wait-build`). Lane checks honor the same mode by blocking on the shared intermediate file lock; the default refuses a busy lock. CLI and app workspace crates require separate lane-check invocations. The default stays fail-fast. Queueing uses the existing gateway event and normal completion report. Tab-origin build reports retain tab provenance; they never claim system provenance.
 
-<!-- revision: 63 -->
+<!-- revision: 64 -->
 
 ### Lane and batch scopes
 

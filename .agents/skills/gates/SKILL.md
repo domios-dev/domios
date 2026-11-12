@@ -214,24 +214,39 @@ SizeLimit and binding incomplete, plus post-fix passes. Only canonical may build
 or start those versions. Frontend-only and plugin-only releases do not run this
 app startup gate.
 
-The [core-journeys suite](../../../evals/core-journeys/README.md) is a required
-pre-push gate for every app release and every owner hotfix build (any build
-handed to the owner to install, such as `X.Y.Z-bs.N`). On that exact SHA, in
-canonical, with a named isolated instance running that build and its window
-open, run `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash
-evals/core-journeys/run.sh all --out <run-dir>` once in a Team-bound QA shell,
-then `node evals/core-journeys/lib/evidence-contract.mjs <run-dir>`. `run.sh`
-refuses ports 7685 and 7686 and an unnamed instance. Only exit 0 from both, with
-`Verdict: PASS` in `results.md`, clears the push; record its wall time and keep
-the run directory with the release evidence. A failed journey blocks the
-push until it is fixed and the suite rerun green on the new SHA. Offline node
-tests do not replace the live run. Frontend-only and
-plugin-only releases are outside this gate.
+The [core journeys](../../../evals/core-journeys/README.md) are change-scoped
+pre-push evidence for every app release and every owner hotfix build (any build
+handed to the owner to install, such as `X.Y.Z-bs.N`): a journey runs only when
+the release diff touches the source areas it proves. The release manager selects
+the journeys from the diff since the build the owner last received (the previous
+release tag, or the previous hotfix build's SHA) with
+`node evals/core-journeys/select.mjs <base> <release-sha> --out <selection.json>`;
+the journey → area map is `evals/core-journeys/areas.json`,
+and a journey it does not select is recorded as "not run: area untouched", never
+as a pass. If nothing is selected, keep `selection.json` as the release record
+and skip the live run. Otherwise, on that exact SHA, in canonical, with a named
+isolated instance running that build and its window open, run
+`CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh
+all --out <run-dir> --selection <selection.json>` once in a Team-bound QA
+shell, then `node evals/core-journeys/lib/evidence-contract.mjs <run-dir>`.
+`run.sh` refuses ports 7685 and 7686 and an unnamed instance.
+
+The owner may waive any selected journey or exclude a provider. The release
+manager then adds `--journeys <kept>` and/or `--exclude-provider <id>` with
+`--waiver "<owner reason>"`; the run records the waiver verbatim as accepted risk,
+and the release PR quotes it. Never drop a journey or provider without that
+recorded waiver: silent roster narrowing is refused.
+
+Only exit 0 from both, with `Verdict: PASS` in `results.md`, clears the push; record
+its wall time and keep the run directory and `selection.json` with the release
+evidence. A failed journey blocks the push until it is fixed and the
+selected journeys rerun green on the new SHA. Offline node tests do not replace
+the live run. Frontend-only and plugin-only releases are outside this gate.
 
 
 An intentional `--queue` uses the same event-based queue as `--wait-build`; it does not grant verification authority or change a Worker’s assigned gates. Default busy-slot refusal remains in effect.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
 
 ## Rust warning inventory and cleanup
 

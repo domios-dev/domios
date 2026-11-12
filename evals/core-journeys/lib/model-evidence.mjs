@@ -2,9 +2,14 @@ import { catalogueSelection, modelIdentity, selectedModel } from "./model-policy
 import { REQUIRED_PROVIDERS } from "./oracle.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
 import { profileSelection, profileIdentity, selectionDefault } from "./profile-policy.mjs";
+import { excludedProviders, runs } from "./selection.mjs";
 
-export function modelEvidenceErrors(state, { verify = true, builds = {} } = {}) {
+// A null selection means the full suite with the complete required roster.
+export function modelEvidenceErrors(state, { verify = true, builds = {}, selection = null } = {}) {
   const errors = [];
+  const ran = (id) => !selection || runs(selection, id);
+  const excluded = excludedProviders(selection);
+  const coverage = ran("J1") ? "J1" : ran("J4") ? "J4" : null;
   const require = (condition, reason) => { if (!condition) throw new Error(reason); };
   const check = (body) => { try { body(); } catch (error) { errors.push(`model policy: ${error.message}`); } };
   const policy = state?.model_policy;
@@ -13,12 +18,13 @@ export function modelEvidenceErrors(state, { verify = true, builds = {} } = {}) 
     require(!policy.refusal, `refusal recorded: ${policy.refusal}`);
     require(Array.isArray(policy.roster) && policy.roster.length > 0, "roster absent");
     require(new Set(policy.roster).size === policy.roster.length, "duplicate roster provider");
-    require(REQUIRED_PROVIDERS.every((id) => policy.roster.includes(id)), "required provider roster narrowed");
+    require(REQUIRED_PROVIDERS.every((id) => excluded.includes(id) || policy.roster.includes(id)), "required provider roster narrowed");
+    require(!excluded.some((id) => policy.roster.includes(id) || Object.hasOwn(policy.selections ?? {}, id)), "an excluded provider remains in the roster");
     require(Object.keys(policy.selections).length === policy.roster.length, "selections differ from roster");
   });
   if (!Array.isArray(policy.roster) || !policy.selections || typeof policy.selections !== "object") return errors;
   let controlId = null;
-  check(() => {
+  if (ran("J3")) check(() => {
     const provider = fixtureProviderId(state.run);
     const fixture = state.j3;
     const controls = state.tabs?.filter(tab => tab.control_fixture) ?? [];
@@ -65,7 +71,7 @@ export function modelEvidenceErrors(state, { verify = true, builds = {} } = {}) 
       require(configuration.general_provider === policy.general_provider
         && configuration.general_model === selectedModel(policy.selections, policy.general_provider), `${phase} General selection absent or substituted`);
     }
-    require(state.tabs?.some((tab) => tab.journey === "J1" && tab.provider === provider), `${provider} J1 roster coverage absent`);
+    if (coverage) require(state.tabs?.some((tab) => tab.journey === coverage && tab.provider === provider), `${provider} ${coverage} roster coverage absent`);
   });
   for (const launch of policy.launches ?? []) check(() => {
     const selected = selectedModel(policy.selections, launch.provider);
@@ -75,7 +81,9 @@ export function modelEvidenceErrors(state, { verify = true, builds = {} } = {}) 
     catalogue(launch.catalogue, launch.provider, selected);
     require(typeof launch.checked_at === "string" && launch.checked_at.length > 0, "launch catalogue observation time absent");
   });
-  for (const path of ["J1-spawn", "J2-api-pair", "J2-ui-pair", "J3-dispatch"]) check(() => {
+  const paths = [...(ran("J1") ? ["J1-spawn"] : coverage ? ["J4-spawn"] : []),
+    ...(ran("J2") ? ["J2-api-pair", "J2-ui-pair"] : []), ...(ran("J3") ? ["J3-dispatch"] : [])];
+  for (const path of paths) check(() => {
     require(policy.launches?.some((launch) => launch.path === path), `${path} prelaunch evidence absent`);
   });
   const identity = (entry, tab) => {

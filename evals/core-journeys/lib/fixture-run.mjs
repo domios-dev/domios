@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { emptyResults, saveResults } from "./results.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
+import { emptyFlags, loadAreas, resolveSelection } from "./selection.mjs";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000d49444154789c6360000002000001e221bc330000000049454e44ae426082", "hex");
 const check = (journey, name, subject, extra = {}) => ({
@@ -13,6 +14,7 @@ export function fixtureResults() {
   const results = emptyResults(new Date("2026-01-01T00:00:00Z"));
   const target = { instance: "fixture", port: 7697, build_sha: "0123456789abcdef" };
   results.phases = ["setup", "verify", "cleanup"].map((name) => ({ name, ...target, started_at: "2026-01-01T00:00:00.000Z", wall_ms: 5000 }));
+  results.selection = resolveSelection(loadAreas(), emptyFlags());
   results.checks = [
     check("SETUP", "workspace_provisioned", "run1"),
     check("J1", "spawn_ready", "claude"),

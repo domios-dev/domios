@@ -105,7 +105,7 @@ export async function journeyThree(ctx, provider) {
     return { summary: `reported at ${attempt.reported_at}`, evidence: { reported_at: attempt.reported_at } };
   });
   if (!reported) return;
-  await bounceAndReport(ctx, check, "bounce_then_report");
+  return bounceAndReport(ctx, check, "bounce_then_report");
 }
 
 async function bounceAndReport(ctx, check, name) {
@@ -138,6 +138,13 @@ export async function journeyThreeAfterRestart(ctx) {
   if (!bound || !rebound) return;
   const rechecked = await bounceAndReport(ctx, (name, body) => ctx.check("J3", name, j3.worker, body), "restored_bounce_then_report");
   if (!rechecked) return;
+  await acceptReview(ctx);
+}
+
+// Without J4 no restart follows, so J3 closes its own lifecycle in setup.
+export async function acceptReview(ctx) {
+  const j3 = ctx.state.j3;
+  if (!j3?.worker || !j3.reported_at) return;
   await ctx.check("J3", "review_accept_done", j3.worker, async () => {
     const response = await review(ctx, "accept", "Release journey accept.");
     const { task } = await waitTask(ctx, { kind: "status", status: "done" }, "accept closes task", ctx.deadlines.ready);
