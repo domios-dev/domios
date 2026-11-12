@@ -252,13 +252,16 @@ fn labels_land_once_the_team_and_its_registrations_exist() {
         },
     ]);
     stamp_team_with(&mux, &team, &source);
-    let mux = mux.read();
-    assert_eq!(
-        mux.get_tab(&anchor).unwrap().role_label.as_deref(),
-        Some("Conductor")
-    );
-    assert_eq!(
-        mux.get_tab(&scout).unwrap().role_label.as_deref(),
-        Some("Field Scout")
-    );
+    // Read back through the projection `/api/tabs` serves, not the in-memory tab.
+    let summary =
+        crate::dispatch::build_tab_summary_json(&mux.read().snapshot(), None, None, false, false);
+    let projected = |tab_id: &str| {
+        summary
+            .iter()
+            .find(|row| row["id"] == tab_id)
+            .and_then(|row| row["role_label"].as_str())
+            .map(str::to_string)
+    };
+    assert_eq!(projected(&anchor).as_deref(), Some("Conductor"));
+    assert_eq!(projected(&scout).as_deref(), Some("Field Scout"));
 }

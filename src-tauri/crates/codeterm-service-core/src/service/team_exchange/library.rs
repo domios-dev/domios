@@ -248,6 +248,14 @@ impl TemplateLibrary {
         summary
     }
 
+    /// The one summary of a resolved template, so list, preview and recall show the same trust.
+    pub fn summarize(&self, package: &Package, provenance: TemplateProvenance) -> TemplateSummary {
+        match provenance {
+            TemplateProvenance::Builtin => TemplateSummary::from_package(package, provenance),
+            _ => self.summary(package),
+        }
+    }
+
     /// The newest version of every saved template, by name.
     pub fn list(&self) -> Vec<TemplateSummary> {
         let mut names = Vec::new();

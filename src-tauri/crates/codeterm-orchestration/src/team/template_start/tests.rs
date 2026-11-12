@@ -261,6 +261,83 @@ fn no_manager_pick_asks_for_a_choice_for_both_pair_managers() {
 }
 
 #[test]
+fn a_later_manager_pick_lands_on_its_registration_and_its_attach_uses_it() {
+    let admitted = default_admitted();
+    let target = probe_target(&["m1"]);
+    let mut picks = BTreeMap::new();
+    for slot in [
+        ManagerSlot::Orchestrator,
+        ManagerSlot::Planner,
+        ManagerSlot::Cartographer,
+    ] {
+        picks.insert(slot, OwnerPick::new("probe", Some("m1"), None).unwrap());
+    }
+    let SeatPlan::Seats(mut seats) = plan_seats(&admitted.resolved, &picks, &target, &no_endpoints)
+    else {
+        panic!("every pick is eligible");
+    };
+    // The probe catalogue has no effort levels; the decided effort rides on the seat.
+    seats.get_mut(&ManagerSlot::Cartographer).unwrap().effort = Some("high".into());
+    let started = super::seats::started_slots(&admitted.resolved);
+    assert!(
+        !started.contains(&ManagerSlot::Cartographer),
+        "the Cartographer joins on demand, so the start never launches it"
+    );
+    let mut registrations = registrations_for(TEAM, &admitted, 1);
+    super::registration::record_later_seats(&mut registrations, &seats, &started);
+    let registered = |name: &str| {
+        registrations
+            .iter()
+            .find(|registration| registration.name == name)
+            .cloned()
+            .unwrap()
+    };
+    let cartographer = registered("cartographer");
+    assert_eq!(
+        cartographer.model,
+        Some(codeterm_team_package::ModelPreference::List(vec![
+            "probe:m1".into()
+        ]))
+    );
+    assert_eq!(cartographer.reasoning.as_deref(), Some("high"));
+    assert_eq!(
+        registered("orchestrator").model,
+        registrations_for(TEAM, &admitted, 1)[0].model,
+        "a started manager keeps its package registration"
+    );
+
+    let mut attach = crate::AddTeamMemberParams {
+        provider: "orchestrators-own".into(),
+        role: "cartographer".into(),
+        title: None,
+        task: None,
+        model: None,
+    };
+    let effort = crate::team::staffing::adopt_registered_model(&mut attach, Some(&cartographer));
+    assert_eq!(
+        (
+            attach.provider.as_str(),
+            attach.model.as_deref(),
+            effort.as_deref()
+        ),
+        ("probe", Some("m1"), Some("high"))
+    );
+    let mut explicit = crate::AddTeamMemberParams {
+        model: Some("chosen".into()),
+        ..attach.clone()
+    };
+    explicit.provider = "caller".into();
+    assert_eq!(
+        crate::team::staffing::adopt_registered_model(&mut explicit, Some(&cartographer)),
+        None
+    );
+    assert_eq!(
+        (explicit.provider.as_str(), explicit.model.as_deref()),
+        ("caller", Some("chosen"))
+    );
+}
+
+#[test]
 fn owner_picks_go_through_the_decision_service() {
     let admitted = default_admitted();
     let target = probe_target(&["m1"]);

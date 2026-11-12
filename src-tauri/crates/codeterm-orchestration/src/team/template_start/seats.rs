@@ -210,6 +210,17 @@ fn decide_pick(
     })
 }
 
+impl Seat {
+    /// `harness:model` as a registration's model preference reads it.
+    pub(crate) fn preference(&self) -> Option<ModelPreference> {
+        let model = self.model.as_deref()?;
+        Some(ModelPreference::List(vec![format!(
+            "{}:{model}",
+            self.provider
+        )]))
+    }
+}
+
 /// The pair primitive always seats an Orchestrator and a Planner; other with_team managers join them.
 pub(crate) fn started_slots(resolved: &ResolvedTemplate) -> Vec<ManagerSlot> {
     let mut slots = with_team_slots(resolved);
@@ -222,7 +233,8 @@ pub(crate) fn started_slots(resolved: &ResolvedTemplate) -> Vec<ManagerSlot> {
     slots
 }
 
-/// Decides every started manager; one refusal anywhere returns every picker that needs a hand.
+/// Decides every started manager plus each later manager the owner picked a model for;
+/// one refusal anywhere returns every picker that needs a hand.
 pub(crate) fn plan_seats(
     resolved: &ResolvedTemplate,
     picks: &BTreeMap<ManagerSlot, OwnerPick>,
@@ -252,7 +264,14 @@ pub(crate) fn plan_seats(
     };
     let mut seats = BTreeMap::new();
     let mut pickers = Vec::new();
-    for slot in started_slots(resolved) {
+    let mut slots = started_slots(resolved);
+    let later: Vec<ManagerSlot> = picks
+        .keys()
+        .copied()
+        .filter(|slot| !slots.contains(slot))
+        .collect();
+    slots.extend(later);
+    for slot in slots {
         let outcome = match picks.get(&slot) {
             Some(pick) => decide_pick(resolved, slot, pick, target, endpoints),
             None => {

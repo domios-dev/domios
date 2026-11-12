@@ -119,13 +119,18 @@ pub async fn add_team_member_checked(
     caller_tab_id: Option<&str>,
     params: AddTeamMemberParams,
 ) -> Result<AddTeamMemberResult, codeterm_service_core::service::spawn_params::SpawnTargetRefusal> {
+    let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
+    let (params, registered_effort) = if is_cartographer {
+        staffing::registered_cartographer_model(svc, team_id, params).await?
+    } else {
+        (params, None)
+    };
     codeterm_service_core::service::spawn::validate_agent_model(
         &svc.agent_registry,
         &params.provider,
         params.model.as_deref(),
     )
     .map_err(|error| error.to_string())?;
-    let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
     let is_orchestrator = params.role.trim().eq_ignore_ascii_case("orchestrator");
     let _cartographer_guard = if is_cartographer {
         Some(
@@ -192,6 +197,7 @@ pub async fn add_team_member_checked(
         svc.emit_state_changed_after_bus_publish(MuxEmitCause::Team);
     }
     let mut spawn_params = prepared.spawn_params;
+    spawn_params.reasoning_effort = spawn_params.reasoning_effort.take().or(registered_effort);
     attach_manager_bootstrap(svc, team_id, caller_tab_id, &mut spawn_params)?;
     let lane_label = format!("team-{team_id}");
     let service = svc.clone();

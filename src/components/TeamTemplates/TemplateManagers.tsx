@@ -93,11 +93,14 @@ export function LaterManagerRows({ form, providers, disabledProviderIds, pair, s
     const sameAs = decision?.reason === "same_as";
     const picked = seats[slot];
     const shown = picked ?? (sameAs ? pairSeat("orchestrator", pair) : decision ? pickerSeed(decision) : null) ?? { providerId: "", modelId: "" };
-    const note = picked ? null : sameAs ? "Same as Orchestrator" : decision?.choice ? null : "Chosen when it joins, unless you pick one";
+    const packageDecision = picked ? null : sameAs ? "Same as Orchestrator" : decision?.choice ? null : "Chosen when it joins";
+    // A seat that already shows the Orchestrator's model still says why.
+    const note = packageDecision && shown.providerId ? packageDecision : null;
     const timing = roleTiming(role.start);
     return (
       <TeamRosterMember key={slot} role={slot} icon={SLOT_ICON[slot] ?? null}>
         <OrchestrationRoleRow label={managerLabel(slot, role.label)} providers={seatProviders}
+          providerPlaceholder={packageDecision ?? undefined}
           providerId={shown.providerId} modelId={shown.modelId} effortId={shown.effortId}
           disabledProviderIds={disabledProviderIds} onInstallProvider={onInstallProvider}
           onProviderChange={(providerId) => {

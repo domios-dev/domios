@@ -253,8 +253,13 @@ describe("Team template start in the session dialog", () => {
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);
     await renderPicker();
-    expect(dialog().textContent).toContain("Chosen when it joins, unless you pick one");
+    const provider = dialog().querySelector<HTMLButtonElement>('button[aria-label^="Cartographer provider"]')!;
+    expect(provider.getAttribute("aria-label")).toBe("Cartographer provider: Chosen when it joins");
+    expect(provider.disabled).toBe(false);
+    expect(dialog().querySelector('[aria-label^="Cartographer model"]')).toBeNull();
+    expect(dialog().querySelector('[data-pair-role="cartographer"]')?.textContent).not.toContain("No models published");
     await choose("Cartographer provider", "Claude Code");
+    expect(dialog().querySelector('[aria-label^="Cartographer model"]')).not.toBeNull();
     await click(start());
     const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { template: unknown; manager_models: Record<string, { model: string }> } };
     expect(input.template.template).toEqual({ name: templateRecallFixture.fallback.name, version: templateRecallFixture.fallback.version });

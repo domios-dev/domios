@@ -735,6 +735,7 @@ pub fn build_tab_summary_json(
                 "has_checklist": tab.has_checklist,
                 "role": tab.role,
                 "role_profile": tab.role_profile,
+                "role_label": tab.role_label,
                 "ownership": tab.ownership,
                 "chat_view": tab.chat_view,
                 "backing": tab.backing,
