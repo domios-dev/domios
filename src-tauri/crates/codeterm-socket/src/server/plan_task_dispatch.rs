@@ -935,6 +935,31 @@ where
                     now,
                 )
             }
+        })
+        .and_then(|started| {
+            if let Some(cwd) = spawn_params.cwd.as_ref().filter(|_| {
+                requires_repository
+                    && spawn_params.execution_intent
+                        == Some(codeterm_service_core::plan::ExecutionIntent::Mutating)
+            }) {
+                if let Err(error) = store.record_attempt_checkout(
+                    &plan_id,
+                    &task_id,
+                    &reserved_tab_id,
+                    &started.attempt_id,
+                    cwd.clone(),
+                    now,
+                ) {
+                    store.roll_back_task_dispatch_attempt(
+                        &started.undo,
+                        &reserved_tab_id,
+                        &started.attempt_id,
+                        now,
+                    )?;
+                    return Err(error);
+                }
+            }
+            Ok(started)
         });
     let (started, provisioned_lane) =
         match finish_unreserved_dispatch(attempt_start, provisioned_lane, || {
