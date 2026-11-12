@@ -1,5 +1,6 @@
 import { Events } from "./env.mjs";
-import { installed, selectProviders } from "./oracle.mjs";
+import { REQUIRED_PROVIDERS, installed, selectProviders } from "./oracle.mjs";
+import { excludedProviders } from "./selection.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
 import { ModelPolicyRefusal, profileBacked, profileReady, profileSelection, profileIdentity, selectionDefault } from "./profile-policy.mjs";
 import { JourneyFailure, observe, touchesTab } from "./wait.mjs";
@@ -177,7 +178,13 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
     return id;
   };
   const descriptors = (await ctx.api("/api/agents/providers")).filter(descriptor => descriptor.id !== fixture());
-  const roster = selectProviders(descriptors, { required });
+  // Exclusion is only ever explicit and recorded with the owner's waiver; --providers still cannot narrow.
+  const excluded = excludedProviders(ctx.selection);
+  for (const id of excluded) {
+    if (!REQUIRED_PROVIDERS.includes(id) && !descriptors.some((descriptor) => descriptor.id === id && installed(descriptor))) refuse(`--exclude-provider ${id} names no required or installed provider`);
+  }
+  const roster = selectProviders(descriptors.filter((descriptor) => !excluded.includes(descriptor.id)),
+    { required: (required ?? REQUIRED_PROVIDERS).filter((id) => !excluded.includes(id)) });
   if (roster.missing.length) refuse(`required providers missing: ${roster.missing.map((entry) => entry.id).join(",")}`);
   const ids = roster.run.map((provider) => provider.id);
   if (ctx.options.providers && !same(ctx.options.providers, ids)) refuse("provider roster narrowing is forbidden");
@@ -292,7 +299,8 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
     },
     async send(id, call) {
       const fixture = ctx.state.tabs.find((tab) => tab.id === id);
-      const first = fixture?.journey === "J1" && !policy.first_sends[id] && ctx.options.mode === "setup";
+      // J1 tabs and J4's own restore fixtures are fresh spawns whose first turn precedes runtime identity evidence.
+      const first = ["J1", "J4"].includes(fixture?.journey) && !policy.first_sends[id] && ctx.options.mode === "setup";
       const evidence = await boundary.identity(id, { first, restored: ctx.options.mode === "verify" });
       policy.first_sends[id] = true;
       ctx.save();

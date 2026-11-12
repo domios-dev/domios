@@ -7,11 +7,16 @@ HERE="$ROOT/evals/core-journeys"
 usage() {
   cat <<'EOF'
 Usage: bash evals/core-journeys/run.sh MODE [--out DIR] [driver flags]
-  all       setup -> bench-owned DEV restart (build.sh kill + dev-prebuilt) -> verify -> cleanup
-  setup     J1-J3 and the pre-restart snapshot; leaves fixtures for verify
+  all       setup -> (only with J4) bench-owned DEV restart (build.sh kill + dev-prebuilt) -> verify -> cleanup
+  setup     the selected journeys and, with J4, the pre-restart snapshot; leaves fixtures for verify
   verify    J4 (+ J3 after restart) against the state in --out; run after an operator restart
   cleanup   remove the fixtures recorded in --out
 Driver flags: --model PROVIDER=ADVERTISED_ID (repeat for every installed provider; profile-backed: acp=PROFILE[/MODEL])  --providers a,b  --history-kb N  --deadline-secs N  --all-tabs  --keep
+Selection flags (default: the full suite J1-J4):
+  --selection FILE         run what `node evals/core-journeys/select.mjs BASE HEAD --out FILE` selected
+  --journeys J1,J4         run these journeys; with --selection, dropping a selected one needs --waiver
+  --exclude-provider ID    drop a provider from the roster (repeatable); needs --waiver
+  --waiver "OWNER REASON"  the owner's accepted-risk waiver, recorded verbatim with what it covers
 --plan prints the journeys, steps and evidence paths without contacting an instance.
 Needs a named instance and its own API port; ports 7685 and 7686 are refused.
 Check a finished run: node evals/core-journeys/lib/evidence-contract.mjs OUT
@@ -59,7 +64,7 @@ OUT="${OUT:-$ROOT/target-check/evals/core-journeys/$(date +%Y%m%d-%H%M%S)-$$}"
 if [ "$PLAN" = 1 ]; then
   command -v node >/dev/null || { echo "FAIL missing prerequisite: node" >&2; exit 7; }
   exec node "$HERE/lib/plan.mjs" "$MODE" --out "$OUT" --instance "$REQUESTED_INSTANCE" \
-    ${EVAL_LIB_REQUESTED_API_PORT:+--port "$EVAL_LIB_REQUESTED_API_PORT"}
+    ${EVAL_LIB_REQUESTED_API_PORT:+--port "$EVAL_LIB_REQUESTED_API_PORT"} ${PASS[@]+"${PASS[@]}"}
 fi
 
 for prerequisite in node python3 git; do
@@ -92,9 +97,17 @@ cycle() {
     return "$setup_status"
   fi
   [ "$setup_status" = 0 ] || status=1
-  dev_assert_restart_target 1 || return 7
-  restart "$out" "$@" || status=1
-  driver verify "$out" ${VERIFY_EXTRA[@]+"${VERIFY_EXTRA[@]}"} || status=1
+  local restarts=0
+  node "$HERE/lib/selection.mjs" restarts "$out" || restarts=$?
+  case "$restarts" in
+    0)
+      dev_assert_restart_target 1 || return 7
+      restart "$out" "$@" || status=1
+      driver verify "$out" ${VERIFY_EXTRA[@]+"${VERIFY_EXTRA[@]}"} || status=1
+      ;;
+    1) echo "J4 not selected: no restart or verify phase" ;;
+    *) echo "FAIL setup recorded no journey selection in $out" >&2; status=1 ;;
+  esac
   driver cleanup "$out" || status=1
   return "$status"
 }

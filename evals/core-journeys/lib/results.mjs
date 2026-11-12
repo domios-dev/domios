@@ -47,12 +47,36 @@ export function verdict(results) {
 const cell = (value) => String(value ?? "—").replaceAll("|", "\\|").replaceAll("\n", " ");
 const seconds = (ms) => (ms == null ? "—" : `${(ms / 1000).toFixed(1)}s`);
 
+const STATUS_TEXT = { run: "run", not_run: "not run", waived: "waived (accepted risk)" };
+const SHOWN_REASONS = 5;
+
+function renderSelection(selection) {
+  const { flags, selector } = selection;
+  const argv = [
+    ...(flags.journeys === null ? [] : [`--journeys ${flags.journeys}`]),
+    ...(flags.selection === null ? [] : [`--selection ${flags.selection}`]),
+    ...flags.exclude_providers.map((id) => `--exclude-provider ${id}`),
+    ...(flags.waiver === null ? [] : [`--waiver ${flags.waiver}`]),
+  ];
+  const lines = [`Selection: \`${selection.source}\`${selector ? ` from diff ${selector.base}..${selector.head} (${selector.changed_paths.length} changed paths)` : ""}.`, ""];
+  lines.push("Selection flags, verbatim:", "", "```text", ...(argv.length ? argv : ["(none: full suite)"]), "```", "");
+  lines.push("| Journey | Status | Reasons |", "| --- | --- | --- |");
+  for (const [id, entry] of Object.entries(selection.journeys)) {
+    const reasons = entry.reasons.slice(0, SHOWN_REASONS).join("; ") + (entry.reasons.length > SHOWN_REASONS ? `; and ${entry.reasons.length - SHOWN_REASONS} more in results.json` : "");
+    const status = entry.status === "not_run" ? `not run: ${entry.reasons.join("; ")}` : STATUS_TEXT[entry.status];
+    lines.push(`| ${cell(id)} | ${cell(status)} | ${cell(entry.status === "waived" ? `${reasons}; waived under --waiver` : reasons)} |`);
+  }
+  for (const { id } of selection.excluded_providers) lines.push("", `Provider \`${id}\` excluded from the roster (accepted risk) under --waiver.`);
+  return lines;
+}
+
 export function renderMarkdown(results) {
   const outcome = verdict(results);
   const lines = ["# Core journeys", "", `Started: ${results.started_at}`, ""];
   for (const phase of results.phases) {
     lines.push(`- Phase \`${phase.name}\`: build ${cell(phase.build_sha)} on ${cell(phase.instance || "default")}:${cell(phase.port)}, wall ${seconds(phase.wall_ms)}`);
   }
+  if (results.selection) lines.push("", ...renderSelection(results.selection));
   const wall = results.phases.reduce((sum, phase) => sum + (phase.wall_ms ?? 0), 0);
   lines.push("", `Verdict: **${outcome.pass ? "PASS" : "FAIL"}** (${outcome.reason}); total phase wall time ${seconds(wall)}.`, "");
   lines.push("| Journey | Pass | Fail | Time |", "| --- | --- | --- | --- |");

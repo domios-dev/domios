@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "journeys": {
+    "J1": {
+      "requires": [],
+      "paths": [
+        "plugins/provider-",
+        "src-tauri/conpty/",
+        "src-tauri/pty-fork/",
+        "src-tauri/crates/codeterm-pty/",
+        "src-tauri/crates/codeterm-agent-detect/",
+        "src-tauri/crates/codeterm-agent-model/",
+        "src-tauri/crates/codeterm-provider-ops/",
+        "src-tauri/crates/codeterm-provider-signals/",
+        "src-tauri/crates/codeterm-plugin/src/agent_runtime/",
+        "src-tauri/crates/codeterm-plugin/src/js_runtime/chatbackend/",
+        "src-tauri/crates/codeterm-service-core/src/agent/",
+        "src-tauri/crates/codeterm-service-core/src/chatbackend/",
+        "src-tauri/crates/codeterm-service-core/src/pty/",
+        "src-tauri/crates/codeterm-service-core/src/service/agent_runtime/",
+        "src-tauri/crates/codeterm-service-core/src/service/chat_send_",
+        "src-tauri/crates/codeterm-service-core/src/service/launch_",
+        "src-tauri/crates/codeterm-service-core/src/service/model_",
+        "src-tauri/crates/codeterm-service-core/src/service/pty_",
+        "src-tauri/crates/codeterm-service-core/src/service/spawn_",
+        "src-tauri/crates/codeterm-service-core/src/service/tab_chat",
+        "src-tauri/crates/codeterm-api/src/agent_",
+        "src-tauri/crates/codeterm-api/src/tab_agent_routes",
+        "src-tauri/crates/codeterm-api/src/tab_chat_routes",
+        "evals/core-journeys/journeys/spawn.mjs"
+      ]
+    },
+    "J2": {
+      "requires": ["J3"],
+      "paths": [
+        "src/components/Terminal/NewSessionPicker",
+        "src/lib/transport/orchestration",
+        "src/lib/teamTemplates/",
+        "src-tauri/crates/codeterm-orchestration/",
+        "src-tauri/crates/codeterm-api/src/team_routes",
+        "src-tauri/crates/codeterm-api/src/transport_orchestration",
+        "src-tauri/crates/codeterm-service-core/src/service/orchestrator",
+        "src-tauri/crates/codeterm-service-core/src/service/team_",
+        "evals/core-journeys/journeys/team.mjs",
+        "evals/core-journeys/lib/cdp.mjs"
+      ]
+    },
+    "J3": {
+      "requires": [],
+      "paths": [
+        "plugins/fixture-provider/",
+        "src-tauri/crates/codeterm-plan/",
+        "src-tauri/crates/codeterm-service-core/src/chatbackend/",
+        "src-tauri/crates/codeterm-service-core/src/dispatch/",
+        "src-tauri/crates/codeterm-service-core/src/plan/",
+        "src-tauri/crates/codeterm-service-core/src/service/plan",
+        "src-tauri/crates/codeterm-service-core/src/service/spawn_chatbackend",
+        "src-tauri/crates/codeterm-service-core/src/service/spawn_plan_task",
+        "src-tauri/crates/codeterm-service-core/src/service/task_",
+        "src-tauri/crates/codeterm-service-core/src/service/worker_",
+        "src-tauri/crates/codeterm-api/src/plan_routes",
+        "src-tauri/crates/codeterm-api/src/task_routes",
+        "evals/core-journeys/journeys/dispatch.mjs",
+        "evals/core-journeys/lib/fixture-"
+      ]
+    },
+    "J4": {
+      "requires": [],
+      "paths": [
+        "src-tauri/crates/domios-server/src/startup/",
+        "src-tauri/crates/codeterm-service-core/src/startup/",
+        "src-tauri/crates/codeterm-service-core/src/session/",
+        "src-tauri/crates/codeterm-service-core/src/service/lazy_restore",
+        "src-tauri/crates/codeterm-service-core/src/service/pty_activation",
+        "src-tauri/crates/codeterm-service-core/src/service/restore",
+        "src-tauri/crates/codeterm-service-core/src/service/restored_",
+        "src-tauri/crates/codeterm-service-core/src/service/session_",
+        "src-tauri/crates/codeterm-service-core/src/service/turn_resume",
+        "src-tauri/crates/codeterm-plan/src/service_plan/task_attempts/restore_binding",
+        "evals/core-journeys/journeys/restore.mjs",
+        "evals/core-journeys/restart.mjs"
+      ]
+    }
+  }
+}

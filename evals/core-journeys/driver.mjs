@@ -13,20 +13,22 @@ import { modelSelections, preparePolicy } from "./lib/model-policy.mjs";
 import { readTab } from "./lib/tabs.mjs";
 import { recordChatActivationObservation } from "./lib/chat-activation-observation.mjs";
 import { JourneyFailure } from "./lib/wait.mjs";
+import { SelectionRefusal, emptyFlags, loadAreas, runs, selectionFromFlags, takeSelectionFlag } from "./lib/selection.mjs";
 import { cleanup } from "./journeys/cleanup.mjs";
-import { journeyThree, journeyThreeAfterRestart } from "./journeys/dispatch.mjs";
+import { acceptReview, journeyThree, journeyThreeAfterRestart } from "./journeys/dispatch.mjs";
 import { restartCheck, restoredSends, restoredTabsReady, snapshotBeforeRestart } from "./journeys/restore.mjs";
-import { journeyOne } from "./journeys/spawn.mjs";
+import { journeyOne, restoreFixtures } from "./journeys/spawn.mjs";
 import { apiNoContext, uiContext } from "./journeys/team.mjs";
 
 export function parseArgs(argv) {
   const [mode, ...rest] = argv;
   if (!["setup", "verify", "cleanup"].includes(mode)) throw new Error(`unknown driver mode ${mode}`);
   const modelEntries = [];
-  const options = { mode, out: null, providers: null, allTabs: false, historyBytes: 320 * 1024, deadlineSecs: 240, keep: false, plan: false };
+  const options = { mode, out: null, providers: null, allTabs: false, historyBytes: 320 * 1024, deadlineSecs: 240, keep: false, plan: false, selection: emptyFlags() };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index], value = rest[index + 1];
-    if (flag === "--out") { options.out = resolve(value); index += 1; }
+    if (takeSelectionFlag(options.selection, flag, value)) index += 1;
+    else if (flag === "--out") { options.out = resolve(value); index += 1; }
     else if (flag === "--model") { modelEntries.push(value); index += 1; }
     else if (flag === "--providers") { options.providers = value.split(",").map((id) => id.trim()).filter(Boolean); index += 1; }
     else if (flag === "--history-kb") { options.historyBytes = Number(value) * 1024; index += 1; }
@@ -89,21 +91,23 @@ export async function setup(ctx) {
   });
   if (!firstRun) return;
   const ui = serial();
+  const selectedJourney = (id) => runs(ctx.selection, id);
   await Promise.all([
-    journeyOne(ctx, selected),
-    (async () => {
+    selectedJourney("J1") ? journeyOne(ctx, selected) : selectedJourney("J4") && restoreFixtures(ctx, selected),
+    selectedJourney("J2") && (async () => {
       if (!pty) return ctx.check("J2", "api_no_context", "none", async () => { throw new JourneyFailure("no installed PTY provider"); });
       await apiNoContext(ctx, pty.id);
       const manager = ctx.state.teams.find((team) => team.leg === "api_no_context")?.orchestrator;
       await ui(() => uiContext(ctx, { leg: "ui_manager_context", contextTab: manager, provider: pty.id }));
     })(),
-    (async () => {
-      await journeyThree(ctx, runtime);
+    selectedJourney("J3") && (async () => {
+      const bounced = await journeyThree(ctx, runtime);
       const provider = runtime?.id ?? pty?.id ?? "none";
-      await ui(() => uiContext(ctx, { leg: "ui_worker_context", contextTab: ctx.state.j3?.worker, provider }));
+      if (selectedJourney("J2")) await ui(() => uiContext(ctx, { leg: "ui_worker_context", contextTab: ctx.state.j3?.worker, provider }));
+      if (bounced && !selectedJourney("J4")) await acceptReview(ctx);
     })(),
   ]);
-  await ctx.check("J4", "pre_restart_snapshot", ctx.state.run, async () => {
+  if (selectedJourney("J4")) await ctx.check("J4", "pre_restart_snapshot", ctx.state.run, async () => {
     await snapshotBeforeRestart(ctx);
     return `${ctx.state.before_restart.tabs.length} agent tabs recorded`;
   });
@@ -120,26 +124,42 @@ async function verify(ctx) {
   await captureScreenshot(ctx, "verify");
 }
 
+// Setup records the selection; verify must repeat the same flags, and only a J4 selection restarts.
+export function persistedSelection(mode, results, selection) {
+  if (mode === "cleanup") return;
+  const same = results.selection && JSON.stringify(results.selection) === JSON.stringify(selection);
+  if (mode === "setup") {
+    if (results.selection && !same) throw new SelectionRefusal("this --out already records a different journey selection; use a new --out");
+    results.selection = selection;
+    return;
+  }
+  if (!results.selection) throw new SelectionRefusal("verify needs the selection recorded by setup in the same --out directory");
+  if (!same) throw new SelectionRefusal("verify flags resolve to a different journey selection than setup recorded; repeat the setup selection flags");
+  if (!runs(results.selection, "J4")) throw new SelectionRefusal("J4 is not selected for this run, so there is no restart to verify");
+}
+
 export async function main(argv) {
   const options = parseArgs(argv);
+  const selection = selectionFromFlags(loadAreas(), options.selection);
   if (options.plan) {
     process.stdout.write(renderPlan(planFromEnv({
       mode: options.mode, out: options.out, instance: process.env.CORE_JOURNEY_INSTANCE ?? "",
-      port: process.env.CORE_JOURNEY_API_PORT,
+      port: process.env.CORE_JOURNEY_API_PORT, selection,
     })));
     return 0;
   }
+  const results = loadResults(options.out);
+  persistedSelection(options.mode, results, selection);
   mkdirSync(options.out, { recursive: true });
   const dev = target();
   const { api } = client(dev);
-  const results = loadResults(options.out);
   const health = await api("/api/health");
   const started = performance.now();
   const phase = { name: options.mode, instance: dev.instance, port: dev.port, build_sha: health.build_sha ?? health.build, started_at: new Date().toISOString() };
   results.phases.push(phase);
   const deadlineMs = options.deadlineSecs * 1000;
   const ctx = {
-    dev, api, out: options.out, options, health, state: results.state,
+    dev, api, out: options.out, options, health, state: results.state, selection: results.selection,
     deadlines: { ready: deadlineMs, reply: deadlineMs, report: deadlineMs + 120_000, ui: 30_000 },
     save: () => saveResults(options.out, results),
   };
