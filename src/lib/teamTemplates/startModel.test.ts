@@ -166,12 +166,12 @@ describe("template start model", () => {
   });
 
   it("files an owner's import under Mine and a Neighborhood receipt under From friends, unverified until consented", () => {
-    expect(templateSource({ provenance: "imported", verified: false })).toEqual({ filter: "mine", label: "From file · unverified", unverified: true, owned: true });
-    expect(templateSource({ provenance: "imported", verified: true })).toEqual({ filter: "mine", label: "Mine", unverified: false, owned: true });
-    expect(templateSource({ provenance: "imported", received_from: "Mira", verified: false })).toEqual({ filter: "friends", label: "From Mira · unverified", unverified: true, owned: false });
+    expect(templateSource({ provenance: "imported", verified: false })).toEqual({ filter: "mine", label: "From file · unverified", unverified: true, owned: true, exportable: true });
+    expect(templateSource({ provenance: "imported", verified: true })).toEqual({ filter: "mine", label: "Mine", unverified: false, owned: true, exportable: true });
+    expect(templateSource({ provenance: "imported", received_from: "Mira", verified: false })).toEqual({ filter: "friends", label: "From Mira · unverified", unverified: true, owned: false, exportable: false });
     expect(templateSource({ provenance: "imported", received_from: "Mira", verified: true })).toMatchObject({ filter: "friends", label: "From Mira", unverified: false });
-    expect(templateSource({ provenance: "saved", verified: false })).toMatchObject({ filter: "mine", owned: true, unverified: false });
-    expect(templateSource({ provenance: "builtin", verified: false })).toMatchObject({ filter: "builtin", owned: false });
+    expect(templateSource({ provenance: "saved", verified: false })).toMatchObject({ filter: "mine", owned: true, exportable: true, unverified: false });
+    expect(templateSource({ provenance: "builtin", verified: false })).toMatchObject({ filter: "builtin", owned: false, exportable: true });
     const imported = { name: "me/cli-import", version: "1.0.0", description: "", provenance: "imported" as const, workers: 0, verified: false };
     const received = { ...imported, name: "mira/desk", received_from: "Mira" };
     const names = (entries: { name: string }[]) => entries.map((entry) => entry.name);

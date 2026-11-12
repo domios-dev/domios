@@ -73,9 +73,9 @@ const CAPSULE = "ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-no
 const UNSET = `${CAPSULE} border border-dashed border-[color-mix(in_srgb,var(--ct-fg)_18%,transparent)] text-[var(--ct-muted-fg)]`;
 
 function ModelCapsule({ preview, role, providers }: { preview: TemplatePreview; role: TemplateRoleSummary; providers: readonly ProviderDescriptor[] }) {
-  if (role.group !== "manager") return null;
-  const decision = preview.form.pickers.find((picker) => picker.slot === role.role)?.decision;
-  if (decision?.reason === "same_as") return <span className={UNSET}>Same as Orchestrator</span>;
+  const manager = role.group === "manager";
+  const decision = manager ? preview.form.pickers.find((picker) => picker.slot === role.role)?.decision : role.model;
+  if (manager && decision?.reason === "same_as") return <span className={UNSET}>Same as Orchestrator</span>;
   if (!decision?.choice) return <span className={UNSET}>You pick</span>;
   const { providerId, modelId } = splitModel(decision.choice.model);
   const model = providers.find((provider) => provider.id === providerId)?.available_models.find((entry) => entry.id === modelId)?.display_name ?? modelId;
@@ -185,7 +185,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
           {consent
             ? <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={choice.openGallery}>Not now</Button>
-            : source.owned && <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onExport}>Export…</Button>}
+            : source.exportable && <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onExport}>Export…</Button>}
           <Button type="button" variant="primary" className="w-full sm:w-auto" onClick={choice.acceptReviewed}>Use template</Button>
         </div>
       </div>

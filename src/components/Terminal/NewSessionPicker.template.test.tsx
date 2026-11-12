@@ -151,7 +151,10 @@ describe("Team template start in the session dialog", () => {
     await chooseResearchDesk();
     expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
     expect(start()).toBeNull();
-    const skill = dialog().querySelector<HTMLButtonElement>('[role="switch"][aria-label="Bring source-check"]')!;
+    const workers = dialog().querySelector('section[aria-label="Workers on demand"]')!.textContent;
+    expect(workers).toContain("sonnet · Medium");
+    expect(workers).toContain("You pick");
+    const skill =dialog().querySelector<HTMLButtonElement>('[role="switch"][aria-label="Bring source-check"]')!;
     expect(skill.getAttribute("aria-checked")).toBe("true");
     expect(dialog().querySelector('[data-payload-item="skill:source-check"] [data-executable="true"]')).not.toBeNull();
     await click(skill);
@@ -249,6 +252,13 @@ describe("Team template start in the session dialog", () => {
     expect(dialog().querySelector('[data-testid="template-where"]')).not.toBeNull();
     await click(button("Details"));
     expect(dialog().querySelector('[data-testid="template-review-detail"]')?.textContent).toContain("Planner");
+    // A built-in exports with the same format choice as any template, never to Neighborhood.
+    await click(button("Export…"));
+    const exporting = Array.from(document.body.querySelectorAll<HTMLElement>('[role="dialog"]')).find((candidate) => candidate.querySelector("h2")?.textContent === "Export Default team")!;
+    const formats = Array.from(exporting.querySelectorAll<HTMLInputElement>('input[name="template-format"]')).map((radio) => radio.value);
+    expect(formats).toEqual(["yaml", "team", "folder"]);
+    expect(exporting.querySelector('[aria-label="Also share to Neighborhood"]')).toBeNull();
+    await click(Array.from(exporting.querySelectorAll<HTMLButtonElement>("button")).find((candidate) => candidate.textContent?.trim() === "Cancel"));
     await click(button("Back to the Team form"));
     expect(dialog().querySelector('[data-testid="pair-affordance"]')).not.toBeNull();
     await click(start());
@@ -347,7 +357,10 @@ describe("Team template start in the session dialog", () => {
     openTemplatePreview({ id: "workspace", cwd: "/workspace" }, { name: "com.example/research-desk", version: "2.1.0" }, update);
     await renderPicker();
     expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
-    expect(dialog().querySelector('[data-testid="template-update-diff"]')?.textContent).toContain("Roles added: Editor");
+    const diff = dialog().querySelector('[data-testid="template-update-diff"]')?.textContent;
+    expect(diff).toContain("Roles added: Editor");
+    expect(diff).toContain("No longer brings: Market sizes older than two years mislead");
+    expect(diff).not.toContain("memory:1");
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 

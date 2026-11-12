@@ -8,6 +8,9 @@
       "when": ["research a market question"],
       "provenance": "imported",
       "workers": 4,
+      "worker_names": ["researcher", "checker", "qa", "writer"],
+      "skills": 2,
+      "skill_names": ["source-check", "market-sizing"],
       "verified": false,
       "icon": { "media_type": "image/svg+xml", "data_url": "data:image/svg+xml;base64,PHN2Zy8+" },
       "derived_from": { "name": "com.example/research-desk", "version": "2.0.3" }
@@ -43,7 +46,22 @@
         "role": "researcher",
         "label": "researcher",
         "description": "Researches one angle of the question.",
-        "start": "on_demand"
+        "start": "on_demand",
+        "model": {
+          "choice": { "model": "claude:sonnet" },
+          "reason": "first_preference",
+          "alternatives": [{ "model": "codex:gpt-6.1-sol" }],
+          "amber": false,
+          "effort": { "requested": "medium", "applied": "medium" }
+        }
+      },
+      {
+        "group": "worker",
+        "role": "writer",
+        "label": "writer",
+        "description": "Turns merged findings into the final report.",
+        "start": "on_demand",
+        "model": { "reason": "normal_default", "amber": false }
       }
     ],
     "inputs": [

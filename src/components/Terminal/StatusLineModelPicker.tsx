@@ -283,6 +283,7 @@ export function ModelPickerPopover({
   currentRuntimeMode,
   serviceTierAvailability,
   showReasoning = true,
+  showAdvanced = true,
   runtimeControls,
   hostApprovals,
   hostAskScope,
@@ -302,6 +303,8 @@ export function ModelPickerPopover({
   currentRuntimeMode?: string;
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   showReasoning?: boolean;
+  /** Off where the caller keeps only model and effort, so speed, mode and runtime controls would be dropped. */
+  showAdvanced?: boolean;
   runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   hostApprovals?: HostApprovalsValue;
   hostAskScope?: RuntimeAskScope;
@@ -329,7 +332,7 @@ export function ModelPickerPopover({
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, currentModel);
   const sections = pickerSections({ descriptor, controls: runtimeControls, model: staged?.model ?? currentModel, effort: staged?.effort ?? currentEffort, runtimeMode: staged?.runtimeMode ?? currentRuntimeMode, serviceTier: staged?.serviceTier ?? currentServiceTier, serviceTierAvailability, hostApprovals, hostAskScope, hostFullAccess });
   const effortSetting = sections.find(section => section.category === "effort");
-  const extraSettings = sections.filter(section => section.category !== "model" && section.category !== "effort");
+  const extraSettings = showAdvanced ? sections.filter(section => section.category !== "model" && section.category !== "effort") : [];
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
 

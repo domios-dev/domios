@@ -2,12 +2,13 @@
 //! archives, one per `name@version`. Saving never touches a Team's registrations, so an
 //! active Team keeps the version it was started from.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use codeterm_team_package::contracts::{
-    declared_asks, TemplateProvenance, TemplateRef, TemplateSummary, TemplateUpdateDiff,
+    declared_asks, TemplateDiffItem, TemplateProvenance, TemplateRef, TemplateSummary,
+    TemplateUpdateDiff,
 };
 use codeterm_team_package::{check_archive, payload_items, CheckOptions, Package};
 use parking_lot::Mutex;
@@ -111,15 +112,24 @@ pub fn update_diff(from: &Package, to: &Package) -> TemplateUpdateDiff {
             diff.roles_removed.push(name.clone());
         }
     }
-    let ids = |package: &Package| {
+    let items = |package: &Package| {
         payload_items(package)
             .into_iter()
-            .map(|item| item.id)
-            .collect::<BTreeSet<_>>()
+            .map(|item| (item.id, item.label))
+            .collect::<BTreeMap<_, _>>()
     };
-    let (old_ids, new_ids) = (ids(from), ids(to));
-    diff.payload_added = new_ids.difference(&old_ids).cloned().collect();
-    diff.payload_removed = old_ids.difference(&new_ids).cloned().collect();
+    let only_in = |kept: &BTreeMap<String, String>, other: &BTreeMap<String, String>| {
+        kept.iter()
+            .filter(|(id, _)| !other.contains_key(*id))
+            .map(|(id, label)| TemplateDiffItem {
+                id: id.clone(),
+                label: label.clone(),
+            })
+            .collect()
+    };
+    let (old_items, new_items) = (items(from), items(to));
+    diff.payload_added = only_in(&new_items, &old_items);
+    diff.payload_removed = only_in(&old_items, &new_items);
     let old_asks = declared_asks(from);
     diff.asks_added = declared_asks(to)
         .into_iter()

@@ -15,6 +15,9 @@
       "description": "Researches a market question in parallel, cross-checks sources and writes a cited report.",
       "provenance": "saved",
       "workers": 3,
+      "worker_names": ["researcher", "checker", "writer"],
+      "skills": 3,
+      "skill_names": ["source-check", "market-sizing", "citations"],
       "verified": true,
       "derived_from": { "name": "com.example/research-desk", "version": "2.0.3" }
     }

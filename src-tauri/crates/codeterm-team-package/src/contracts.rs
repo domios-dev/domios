@@ -57,6 +57,15 @@ pub struct TemplateSummary {
     /// How many worker roles the package declares.
     #[serde(default)]
     pub workers: u32,
+    /// The first [`SUMMARY_NAME_LIMIT`] worker display names, in declaration order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worker_names: Vec<String>,
+    /// How many skills the package brings.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub skills: u32,
+    /// The first [`SUMMARY_NAME_LIMIT`] skill names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skill_names: Vec<String>,
     /// The friend's display name when the template arrived through a share card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub received_from: Option<String>,
@@ -75,6 +84,16 @@ pub struct TemplateRoleSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub start: RoleStart,
+    /// A worker's model decided on the previewing machine; managers carry theirs as pickers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelDecision>,
+}
+
+/// Bounds the names a template summary previews; the counts give the rest.
+pub const SUMMARY_NAME_LIMIT: usize = 4;
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -518,11 +537,18 @@ pub struct TemplateUpdateDiff {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles_changed: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub payload_added: Vec<String>,
+    pub payload_added: Vec<TemplateDiffItem>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub payload_removed: Vec<String>,
+    pub payload_removed: Vec<TemplateDiffItem>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub asks_added: Vec<TemplateAsk>,
+}
+
+/// A payload item an update adds or removes: its opt-out id and the label the owner reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateDiffItem {
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -748,6 +774,17 @@ impl TemplateIcon {
 impl TemplateSummary {
     pub fn from_package(package: &Package, provenance: TemplateProvenance) -> Self {
         let document = &package.document;
+        let worker_names = document
+            .workers
+            .iter()
+            .take(SUMMARY_NAME_LIMIT)
+            .map(|(name, role)| role.name.clone().unwrap_or_else(|| name.to_string()))
+            .collect();
+        let skills: Vec<String> = payload_items(package)
+            .into_iter()
+            .filter(|item| item.kind == PayloadKind::Skill)
+            .map(|item| item.label)
+            .collect();
         Self {
             name: document.name.clone(),
             version: document.version.clone(),
@@ -763,6 +800,9 @@ impl TemplateSummary {
             links: document.links.clone(),
             license: document.license.clone(),
             workers: u32::try_from(document.workers.len()).unwrap_or(u32::MAX),
+            worker_names,
+            skills: u32::try_from(skills.len()).unwrap_or(u32::MAX),
+            skill_names: skills.into_iter().take(SUMMARY_NAME_LIMIT).collect(),
             received_from: None,
             verified: false,
         }
@@ -786,6 +826,7 @@ pub fn role_summaries(package: &Package) -> Vec<TemplateRoleSummary> {
                 label: declared.name.clone().unwrap_or_else(|| role.to_string()),
                 description: declared.description.clone(),
                 start: declared.effective_start(slot),
+                model: None,
             }
         })
         .collect()

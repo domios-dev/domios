@@ -326,20 +326,22 @@ export interface TemplateSource {
   label: string;
   /** Imported and not yet used through a recorded consent. */
   unverified: boolean;
-  /** The owner's own package: it can be exported and shared. */
+  /** The owner's own package: it can be shared and deleted. */
   owned: boolean;
+  /** The owner's own package or a built-in: it can be exported. */
+  exportable: boolean;
 }
 
 /** An owner's own import (file or CLI) is Mine; a package received over Neighborhood is From friends. Both stay unverified until consented. */
 /** The server resolves `received_from` from the friendship, so a client cannot claim a sender. */
 export function templateSource(origin: Pick<TemplateSummary, "provenance" | "received_from" | "verified">): TemplateSource {
-  if (origin.provenance === "builtin") return { filter: "builtin", label: "Built-in", unverified: false, owned: false };
-  if (origin.provenance === "saved") return { filter: "mine", label: "Mine", unverified: false, owned: true };
+  if (origin.provenance === "builtin") return { filter: "builtin", label: "Built-in", unverified: false, owned: false, exportable: true };
+  if (origin.provenance === "saved") return { filter: "mine", label: "Mine", unverified: false, owned: true, exportable: true };
   const unverified = !origin.verified;
   const sender = origin.received_from?.trim();
   // Until its first Use a file is a source like any other; afterwards the owner's own import is simply Mine.
   const label = unverified ? `From ${sender || "file"} · unverified` : sender ? `From ${sender}` : "Mine";
-  return { filter: sender ? "friends" : "mine", label, unverified, owned: !sender };
+  return { filter: sender ? "friends" : "mine", label, unverified, owned: !sender, exportable: !sender };
 }
 
 const key = (summary: TemplateSummary) => `${summary.name}@${summary.version}`;

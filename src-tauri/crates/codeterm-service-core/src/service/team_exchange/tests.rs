@@ -332,6 +332,14 @@ fn my_templates_keep_versions_refuse_rewrites_and_report_updates() {
         .get_mut("checker")
         .unwrap()
         .instructions = Some("Check twice.\n".into());
+    next.document
+        .memory
+        .push(codeterm_team_package::PackageMemory {
+            title: "Cite the filing year".into(),
+            kind: codeterm_team_package::MemoryKind::Rule,
+            body: "State the year of every figure.".into(),
+            tags: Vec::new(),
+        });
     let Saved::Created { update: Some(diff) } =
         library.save(&next, TemplateProvenance::Imported).unwrap()
     else {
@@ -342,6 +350,15 @@ fn my_templates_keep_versions_refuse_rewrites_and_report_updates() {
         ("2.1.0", "2.2.0")
     );
     assert_eq!(diff.roles_changed, vec!["checker".to_string()]);
+    assert_eq!(
+        diff.payload_added,
+        vec![codeterm_team_package::contracts::TemplateDiffItem {
+            id: format!("memory:{}", first.document.memory.len()),
+            label: "Cite the filing year".into(),
+        }],
+        "the diff names an added item by its label"
+    );
+    assert!(diff.payload_removed.is_empty());
     assert_eq!(
         library.versions(&first.document.name),
         vec!["2.1.0", "2.2.0"]
