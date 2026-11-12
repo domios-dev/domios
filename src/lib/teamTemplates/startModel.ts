@@ -118,10 +118,9 @@ export function managerRoles(roles: readonly TemplateRoleSummary[]): TemplateRol
   return all.sort((a, b) => rank(a) - rank(b));
 }
 
-/** The role whose model this one follows; `same_as` arrives with the next contract regeneration, until then a same_as decision names the Orchestrator. */
-export function roleSameAs(role: TemplateRoleSummary, decision?: ModelDecision | null): string | null {
-  const declared = (role as TemplateRoleSummary & { same_as?: string | null }).same_as;
-  return declared ?? (decision?.reason === "same_as" ? "orchestrator" : null);
+/** The role whose model this one follows (`model: {same_as: <role>}`), named even while that model is undecided. */
+export function roleSameAs(role: Pick<TemplateRoleSummary, "same_as">): string | null {
+  return role.same_as?.trim() || null;
 }
 
 /** A manager's decision: a with_team manager's picker, else the decision its role summary carries. */
@@ -200,8 +199,7 @@ function basename(path: string): string {
 }
 
 type MemoryKind = import("../../../gen/MemoryKind").MemoryKind;
-/** `memory_kind` arrives with the next contract regeneration; until then it reads as absent. */
-type PayloadText = Pick<TemplatePayloadItem, "kind" | "label" | "description"> & { memory_kind?: MemoryKind | null };
+type PayloadText = Pick<TemplatePayloadItem, "kind" | "label" | "description" | "memory_kind">;
 
 const MEMORY_KIND: Record<MemoryKind, string> = { fact: "Fact", rule: "Rule", learning: "Learning" };
 

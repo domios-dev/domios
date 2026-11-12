@@ -76,7 +76,7 @@ const UNSET = `${CAPSULE} border border-dashed border-[color-mix(in_srgb,var(--c
 
 function ModelCapsule({ preview, role, providers }: { preview: TemplatePreview; role: TemplateRoleSummary; providers: readonly ProviderDescriptor[] }) {
   const decision = role.group === "manager" ? managerDecision(preview.form.pickers, role) : role.model;
-  const target = roleSameAs(role, decision);
+  const target = roleSameAs(role);
   if (target) return <span className={UNSET}>Same as {kindDisplayName(target)}</span>;
   if (!decision?.choice) return <span className={UNSET}>You pick</span>;
   const { providerId, modelId } = splitModel(decision.choice.model);
