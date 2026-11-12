@@ -24,7 +24,7 @@ export type TemplateView =
 export interface TemplateCatalog { templates: TemplateSummary[]; recall: TemplateRecall | null; error: string | null }
 
 const DEFAULT_SUMMARY: TemplateSummary = {
-  name: "dev.domios/default", version: "", title: "Default team", provenance: "builtin", verified: true,
+  name: "dev.domios/default", version: "", title: "Default team", provenance: "builtin", verified: true, workers: 4,
   description: "Orchestrator and Planner; every built-in worker available on demand.",
 };
 
@@ -129,6 +129,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const choose = useCallback((summary: TemplateSummary) => {
     if (summary.name === defaultSummary.name) {
       setChosen(null);
+      setSeats({});
       setPlacements({});
       setRemotePeer(null);
       setView({ kind: "form" });
@@ -192,9 +193,9 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     return () => { live = false; };
   }, [needsVault, vault, vaultNames, chosen]);
 
-  // The default starts as today's pair; moving any role or the whole team to a peer needs the template start.
-  const placed = remotePeer !== null || Object.values(placements).some(Boolean);
-  const active = chosen ?? (placed ? defaultPreview : null);
+  // The default starts as today's pair; a picked later-manager model or a placement needs the template start.
+  const customized = remotePeer !== null || Object.values(placements).some(Boolean) || Object.keys(seats).length > 0;
+  const active = chosen ?? (customized ? defaultPreview : null);
   const startRequest = useCallback((): TemplateStartRequest | undefined => {
     if (!active) return undefined;
     const managerModels = Object.fromEntries(Object.entries(seats).map(([slot, seat]) => [slot,

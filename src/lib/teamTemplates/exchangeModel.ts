@@ -12,10 +12,10 @@ export function authorLine(summary: Pick<TemplateSummary, "authors">): string | 
   return names.length ? `by ${names.join(", ")}` : null;
 }
 
-/** The gallery card's second line: "by Jane Doe · 4 workers", each part only when known. */
+/** The gallery card's second line: "by Jane Doe · 4 workers", each part only when there is one. */
 export function cardByline(summary: Pick<TemplateSummary, "authors" | "workers">): string | null {
   const workers = summary.workers;
-  const parts = [authorLine(summary), workers == null ? null : `${workers} ${workers === 1 ? "worker" : "workers"}`].filter(Boolean);
+  const parts = [authorLine(summary), workers > 0 ? `${workers} ${workers === 1 ? "worker" : "workers"}` : null].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
 

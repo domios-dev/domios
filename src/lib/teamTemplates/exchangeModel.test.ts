@@ -18,7 +18,7 @@ describe("template exchange model", () => {
     expect(authorLine(summary)).toBe("by Jane Doe, Example Labs");
     expect(cardByline({ ...summary, workers: 4 })).toBe("by Jane Doe, Example Labs · 4 workers");
     expect(cardByline({ workers: 1 })).toBe("1 worker");
-    expect(cardByline({})).toBeNull();
+    expect(cardByline({ workers: 0 })).toBeNull();
     expect(authorRows(summary)).toEqual([
       { name: "Jane Doe", role: "maintainer", url: "https://example.com/jane" },
       { name: "Example Labs", role: null, url: null },

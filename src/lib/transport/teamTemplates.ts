@@ -16,9 +16,7 @@ export type TemplateShareCard = import("../../../gen/TemplateShareCard").Templat
 export type TemplateDistillRequest = import("../../../gen/TemplateDistillRequest").TemplateDistillRequest;
 export type TemplateDistillResult = import("../../../gen/TemplateDistillResult").TemplateDistillResult;
 
-/** One package file by `path`, or one role's instructions by `role` (inline or from a file); the two are exclusive. */
-export type TemplateFileRequest = Omit<import("../../../gen/TemplateFileRequest").TemplateFileRequest, "path" | "role">
-  & ({ path: string } | { role: string });
+export type TemplateFileRequest = import("../../../gen/TemplateFileRequest").TemplateFileRequest;
 export type TemplateFileText = import("../../../gen/TemplateFileText").TemplateFileText;
 export type TemplatePeerStartRequest = import("../../../gen/TemplatePeerStartRequest").TemplatePeerStartRequest;
 export type TemplatePeerStartAccepted = import("../../../gen/TemplatePeerStartAccepted").TemplatePeerStartAccepted;

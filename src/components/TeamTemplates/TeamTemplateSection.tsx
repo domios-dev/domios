@@ -35,7 +35,8 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
         ? <TemplateStartFields choice={choice} preview={choice.chosen} {...form} />
         : <div className="flex flex-col gap-3">
           <TemplateHeader summary={choice.defaultSummary} onChange={choice.openGallery} onDetails={fallback ? choice.showDetails : undefined} />
-          <div>{defaultForm(fallback ? <LaterManagerRows form={fallback.form} /> : null)}</div>
+          <div>{defaultForm(fallback ? <LaterManagerRows form={fallback.form} providers={form.providers} disabledProviderIds={form.disabledProviderIds}
+            pair={form.pair} seats={choice.seats} onSeatChange={choice.setSeat} onInstallProvider={form.onInstallProvider} /> : null)}</div>
           {fallback && <WorkerChips preview={fallback} />}
           {fallback && <TemplateWhere choice={choice} preview={fallback} onInstallProvider={form.onInstallProvider} />}
         </div>;

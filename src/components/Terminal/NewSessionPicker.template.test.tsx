@@ -245,6 +245,23 @@ describe("Team template start in the session dialog", () => {
     expect(fixture.actions.createOrchestrationPair.mock.calls[0][0]).not.toHaveProperty("template");
   });
 
+  it("starts the default through the template start once the owner picks a later manager's model", async () => {
+    const defaultPreview = {
+      ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [], pickers: [],
+        template: templateRecallFixture.fallback,
+        roles: [{ group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const }] },
+    };
+    fixture.templates.preview.mockImplementation(async () => defaultPreview);
+    await renderPicker();
+    expect(dialog().textContent).toContain("Chosen when it joins, unless you pick one");
+    await choose("Cartographer provider", "Claude Code");
+    await click(start());
+    const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { template: unknown; manager_models: Record<string, { model: string }> } };
+    expect(input.template.template).toEqual({ name: templateRecallFixture.fallback.name, version: templateRecallFixture.fallback.version });
+    expect(Object.keys(input.template.manager_models)).toEqual(["cartographer"]);
+    expect(input.template.manager_models.cartographer.model.startsWith("claude:")).toBe(true);
+  });
+
   it("returns from a gallery row's Details to the gallery", async () => {
     await renderPicker();
     await click(button("Change template"));

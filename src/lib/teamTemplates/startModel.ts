@@ -9,12 +9,10 @@ type RoleStart = import("../../../gen/RoleStart").RoleStart;
 type TemplateInputField = import("../../../gen/TemplateInputField").TemplateInputField;
 type TemplatePayloadItem = import("../../../gen/TemplatePayloadItem").TemplatePayloadItem;
 type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
-type TemplateProvenance = import("../../../gen/TemplateProvenance").TemplateProvenance;
 type TemplateStartRefusal = import("../../../gen/TemplateStartRefusal").TemplateStartRefusal;
 type TemplateStartResult = import("../../../gen/TemplateStartResult").TemplateStartResult;
 type PlacementProblem = import("../../../gen/PlacementProblem").PlacementProblem;
-/** `received_from`, `verified` and `workers` are optional here until the regenerated contract carries them. */
-export type TemplateSummary = import("../../../gen/TemplateSummary").TemplateSummary & Omit<TemplateOrigin, "provenance"> & { workers?: number };
+export type TemplateSummary = import("../../../gen/TemplateSummary").TemplateSummary;
 export type PackageFormat = import("../../../gen/PackageFormat").PackageFormat;
 export type ScrubReport = import("../../../gen/ScrubReport").ScrubReport;
 
@@ -254,13 +252,6 @@ export function startErrorView(error: unknown): StartErrorView {
 
 export type GalleryFilter = "all" | "builtin" | "mine" | "friends";
 
-/** Where a template came from, as the summary reports it; the server resolves `received_from` from the friendship. */
-export interface TemplateOrigin {
-  provenance: TemplateProvenance;
-  received_from?: string | null;
-  verified?: boolean;
-}
-
 export interface TemplateSource {
   filter: GalleryFilter;
   label: string;
@@ -271,10 +262,11 @@ export interface TemplateSource {
 }
 
 /** An owner's own import (file or CLI) is Mine; a package received over Neighborhood is From friends. Both stay unverified until consented. */
-export function templateSource(origin: TemplateOrigin): TemplateSource {
+/** The server resolves `received_from` from the friendship, so a client cannot claim a sender. */
+export function templateSource(origin: Pick<TemplateSummary, "provenance" | "received_from" | "verified">): TemplateSource {
   if (origin.provenance === "builtin") return { filter: "builtin", label: "Built-in", unverified: false, owned: false };
   if (origin.provenance === "saved") return { filter: "mine", label: "Mine", unverified: false, owned: true };
-  const unverified = origin.verified !== true;
+  const unverified = !origin.verified;
   const sender = origin.received_from?.trim();
   const base = sender ? `From ${sender}` : "Mine";
   return { filter: sender ? "friends" : "mine", label: unverified ? `${base} · unverified` : base, unverified, owned: !sender };
