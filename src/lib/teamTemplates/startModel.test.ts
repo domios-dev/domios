@@ -4,6 +4,7 @@ import {
 } from "../transport/teamTemplates.testdata";
 import {
   bringsSummary, buildStartRequest, decisionNotice, effortNote, exportFormats, galleryEntries, pickerSeed, roleTiming, startBlocker, startErrorView,
+  managerRoles, rowDecisionNotice, templateSource,
 } from "./startModel";
 
 const [firstPreference, sameAs, normalDefault, , unknownModel, absentHarness, notSignedIn, quota, sameAsUnavailable, noReasoningEffort, missingTool, exhausted] = modelDecisionFixtures;
@@ -107,6 +108,38 @@ describe("template start model", () => {
     expect(names(galleryEntries(templateListFixture.templates, null, fallback, "all", ""))).toEqual(["dev.domios/default", "com.example/research-desk"]);
     expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "mine", ""))).toEqual(["com.example/research-desk"]);
     expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "all", "market"))).toEqual(["com.example/research-desk"]);
+  });
+
+  it("keeps a harness blocker on the row only while that row runs on the blocked harness", () => {
+    const cursor = { ...absentHarness, blocked: { kind: "absent_harness" as const, harness: "cursor" } };
+    expect(rowDecisionNotice(cursor, "codex")).toBeNull();
+    expect(rowDecisionNotice(cursor, "cursor")?.text).toBe("cursor isn't installed");
+    expect(rowDecisionNotice(cursor, "")?.text).toBe("cursor isn't installed");
+    expect(rowDecisionNotice(unknownModel, "codex")).toEqual(decisionNotice(unknownModel));
+  });
+
+  it("always lists the Planner a start launches, in slot order", () => {
+    const curator = { group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } };
+    const orchestrator = { group: "manager" as const, role: "orchestrator", label: "Lead", start: "with_team" as const };
+    const worker = { group: "worker" as const, role: "qa", label: "qa", start: "on_demand" as const };
+    expect(managerRoles([curator, worker, orchestrator]).map((role) => [role.role, role.label])).toEqual([
+      ["orchestrator", "Lead"], ["planner", "planner"], ["curator", "curator"],
+    ]);
+  });
+
+  it("files an owner's import under Mine and a Neighborhood receipt under From friends, unverified until consented", () => {
+    expect(templateSource({ provenance: "imported" })).toEqual({ filter: "mine", label: "Mine · unverified", unverified: true, owned: true });
+    expect(templateSource({ provenance: "imported", verified: true })).toEqual({ filter: "mine", label: "Mine", unverified: false, owned: true });
+    expect(templateSource({ provenance: "imported", received_from: "Mira" })).toEqual({ filter: "friends", label: "From Mira · unverified", unverified: true, owned: false });
+    expect(templateSource({ provenance: "imported", received_from: "Mira", verified: true })).toMatchObject({ filter: "friends", label: "From Mira", unverified: false });
+    expect(templateSource({ provenance: "saved" })).toMatchObject({ filter: "mine", owned: true, unverified: false });
+    expect(templateSource({ provenance: "builtin" })).toMatchObject({ filter: "builtin", owned: false });
+    const imported = { name: "me/cli-import", version: "1.0.0", description: "", provenance: "imported" as const };
+    const received = { ...imported, name: "mira/desk", received_from: "Mira" };
+    const names = (entries: { name: string }[]) => entries.map((entry) => entry.name);
+    const fallback = templateRecallFixture.fallback;
+    expect(names(galleryEntries([imported, received], null, fallback, "mine", ""))).toEqual(["me/cli-import"]);
+    expect(names(galleryEntries([imported, received], null, fallback, "friends", ""))).toEqual(["mira/desk"]);
   });
 
   it("offers the one-file export only when the package has no binary icon", () => {

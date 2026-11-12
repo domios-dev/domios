@@ -47,7 +47,7 @@ export function TemplateShareCardView({ friendship, fileId, senderName, onDismis
     setBusy(true);
     setError(null);
     try {
-      const imported = await transport().import(path);
+      const imported = await transport().import(path, { fromFriend: friendship });
       setLoaded({ card: { ...card, state: "previewed" }, path });
       if (workspace) openTemplatePreview(workspace, { name: imported.template.name, version: imported.template.version }, imported.update ?? null);
     } catch (failure) {

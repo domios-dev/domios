@@ -16,7 +16,9 @@ export type TemplateShareCard = import("../../../gen/TemplateShareCard").Templat
 export type TemplateDistillRequest = import("../../../gen/TemplateDistillRequest").TemplateDistillRequest;
 export type TemplateDistillResult = import("../../../gen/TemplateDistillResult").TemplateDistillResult;
 
-export type TemplateFileRequest = import("../../../gen/TemplateFileRequest").TemplateFileRequest;
+/** One package file by `path`, or one role's instructions by `role` (inline or from a file); the two are exclusive. */
+export type TemplateFileRequest = Omit<import("../../../gen/TemplateFileRequest").TemplateFileRequest, "path" | "role">
+  & ({ path: string } | { role: string });
 export type TemplateFileText = import("../../../gen/TemplateFileText").TemplateFileText;
 export type TemplatePeerStartRequest = import("../../../gen/TemplatePeerStartRequest").TemplatePeerStartRequest;
 export type TemplatePeerStartAccepted = import("../../../gen/TemplatePeerStartAccepted").TemplatePeerStartAccepted;
@@ -33,8 +35,10 @@ export function createTeamTemplatesTransport(client: TeamTemplatesClient) {
       client.json<TemplateRecall>("POST", "/api/team-templates/recall", { query }, opts),
     export: (request: TemplateExportRequest, opts?: { signal?: AbortSignal }) =>
       client.json<TemplateExportResult>("POST", "/api/team-templates/export", request, opts),
-    import: (path: string, opts?: { signal?: AbortSignal }) =>
-      client.json<TemplateImportResult>("POST", "/api/team-templates/import", { path }, opts),
+    /** `fromFriend` is the Neighborhood friendship a share card came over; the server resolves the sender's name from it. */
+    import: (path: string, opts?: { signal?: AbortSignal; fromFriend?: string }) =>
+      client.json<TemplateImportResult>("POST", "/api/team-templates/import",
+        opts?.fromFriend ? { path, from_friend: opts.fromFriend } : { path }, opts?.signal ? { signal: opts.signal } : undefined),
     delete: (template: TemplateRef, opts?: { signal?: AbortSignal }) =>
       client.json<TemplateDeleteResult>("POST", "/api/team-templates/delete", { template }, opts),
     file: (request: TemplateFileRequest, opts?: { signal?: AbortSignal }) =>

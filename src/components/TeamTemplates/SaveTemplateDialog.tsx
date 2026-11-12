@@ -6,7 +6,7 @@ import { DropdownSelect } from "../shared/DropdownMenu";
 import { teamTemplatesTransport } from "../../lib/transport/orchestrationRuntime";
 import type { TeamTemplatesTransport, TemplateDistillRequest, TemplateDistillResult } from "../../lib/transport/teamTemplates";
 import { startErrorView, type TemplateSummary } from "../../lib/teamTemplates/startModel";
-import { distillName, SAVE_VERSION_DEFAULT } from "../../lib/teamTemplates/exchangeModel";
+import { distillDescription, distillName, SAVE_VERSION_DEFAULT } from "../../lib/teamTemplates/exchangeModel";
 import { TemplateBrings } from "./TemplateBrings";
 import { ScrubReportCard, TemplateExportDialog } from "./TemplateExportDialog";
 
@@ -24,7 +24,7 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, transport = team
 }) {
   const titleId = useId();
   const descriptionId = useId();
-  const [identity, setIdentity] = useState<Identity>({ title: teamName, description: "", version: SAVE_VERSION_DEFAULT, license: "" });
+  const [identity, setIdentity] = useState<Identity>({ title: teamName, description: distillDescription(teamName), version: SAVE_VERSION_DEFAULT, license: "" });
   const [optOut, setOptOut] = useState<ReadonlySet<string>>(new Set());
   const [includes, setIncludes] = useState<TemplateDistillResult["includes"] | null>(null);
   const [review, setReview] = useState<TemplateDistillResult | null>(null);
@@ -45,22 +45,19 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, transport = team
     format: "team",
   }), [identity, optOut, teamId]);
 
+  // The first review fills Includes; later ones run only while it is missing or team.yaml is shown, so a fixed field recovers.
+  const wantsReview = includes === null || showYaml;
   useEffect(() => {
-    const controller = new AbortController();
-    transport().distill({ team_id: teamId, name: distillName(teamName), description: "", version: SAVE_VERSION_DEFAULT, format: "team", dry_run: true }, { signal: controller.signal })
-      .then((result) => { setIncludes(result.includes); setReview(result); }, (failure: unknown) => {
-        if (!controller.signal.aborted) setError(startErrorView(failure).message);
-      });
-    return () => controller.abort();
-  }, [teamId, teamName, transport]);
-
-  useEffect(() => {
-    if (!showYaml) return;
+    if (!wantsReview || !request.description) return;
     const controller = new AbortController();
     transport().distill({ ...request, dry_run: true }, { signal: controller.signal })
-      .then(setReview, (failure: unknown) => { if (!controller.signal.aborted) setError(startErrorView(failure).message); });
+      .then((result) => {
+        setIncludes((current) => current ?? result.includes);
+        setReview(result);
+        setError(null);
+      }, (failure: unknown) => { if (!controller.signal.aborted) setError(startErrorView(failure).message); });
     return () => controller.abort();
-  }, [request, showYaml, transport]);
+  }, [request, wantsReview, transport]);
 
   const save = async (thenExport: boolean) => {
     setBusy(true);
@@ -83,7 +80,8 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, transport = team
 
   if (exporting) return <TemplateExportDialog summary={exporting} onClose={onClose} transport={transport} />;
   const set = (key: keyof Identity) => (value: string) => setIdentity((current) => ({ ...current, [key]: value }));
-  const ready = Boolean(request.title && request.description && request.version) && includes !== null;
+  const missing = !request.title ? "a name" : !request.description ? "what it does" : !request.version ? "a version" : null;
+  const ready = missing === null && includes !== null;
   return (
     <FormDialog titleId={titleId} descriptionId={descriptionId} className="max-w-lg" onCancel={onClose}
       onSubmit={(event) => { event.preventDefault(); if (saved) onClose(); else if (ready) void save(false); }}>
@@ -124,6 +122,7 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, transport = team
         </ul>}
       </>}
       {error && <p role="alert" className="text-[12px] text-[var(--ct-red)]">{error}</p>}
+      {!saved && !error && missing && <p role="status" className="text-[12px] text-[var(--ct-muted-fg)]">Add {missing} to save it.</p>}
       <div className="flex justify-end gap-2">
         {saved ? <Button type="submit" variant="primary">Done</Button> : <>
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>

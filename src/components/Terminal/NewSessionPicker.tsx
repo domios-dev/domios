@@ -346,7 +346,7 @@ export function NewSessionPicker({
 
   const handleStart = useCallback(() => {
     if (busy || dismissing || selectedWorkspace?.cwd_missing) return;
-    if (choice.mode === "pair" && templates.chosen) {
+    if (choice.mode === "pair" && templates.usesTemplate) {
       void runPairSpawn();
       return;
     }
@@ -360,7 +360,7 @@ export function NewSessionPicker({
       }
     };
     void start();
-  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn, templates.chosen]);
+  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn, templates.usesTemplate]);
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
     if (!allowedNewSessionModes(section).includes(mode)) return;
@@ -502,7 +502,7 @@ export function NewSessionPicker({
                     plannerEffortId: values.plannerEffortId,
                   })}
                   onInstallProvider={handleInstallProvider}
-                  defaultForm={<>
+                  defaultForm={(laterManagers) => <>
                   <p data-testid="picker-team-hint" className="mb-2.5 text-[12px] leading-snug text-[var(--ct-muted-fg)]">
                     Tell the Orchestrator what you need. It plans and brings in the agents.
                   </p>
@@ -528,6 +528,7 @@ export function NewSessionPicker({
                       plannerEffortId: values.plannerEffortId,
                     })}
                     layout="team"
+                    extraMembers={laterManagers}
                     pairAffordanceTestId="pair-affordance"
                     roleTestIds={{
                       orchestratorProvider: "picker-provider-orchestrator",

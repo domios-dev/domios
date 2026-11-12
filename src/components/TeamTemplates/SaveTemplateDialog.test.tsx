@@ -60,9 +60,40 @@ describe("Save as template", () => {
     expect(dialog().querySelector('[aria-label="team.yaml"]')?.textContent).toBe(review.yaml);
   });
 
+  it("is ready to save without typing, because the review never sends an empty description", async () => {
+    distill.mockImplementation(async (request: { description: string; dry_run?: boolean }) => {
+      if (!request.description.trim()) throw new Error("invalid_package: description cannot be empty");
+      return request.dry_run ? { ...review, saved: null, path: null } : review;
+    });
+    await renderDialog();
+    expect(distill.mock.calls[0][0].description).not.toBe("");
+    expect(dialog().querySelector('[role="alert"]')).toBeNull();
+    expect(button("Save template")!.disabled).toBe(false);
+    await act(async () => button("Save template")!.click());
+    expect(dialog().textContent).toContain("Saved ada/research-desk 1.0.0 to My templates.");
+  });
+
+  it("shows a refused review and recovers once the owner fixes the field", async () => {
+    distill.mockRejectedValueOnce(new Error("invalid_package: version is not semver"));
+    await renderDialog();
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("version is not semver");
+    expect(button("Save template")!.disabled).toBe(true);
+    const [, , version] = Array.from(dialog().querySelectorAll<HTMLInputElement>("input"));
+    await type(version, "1.0.1");
+    expect(dialog().querySelector('[role="alert"]')).toBeNull();
+    expect(button("Save template")!.disabled).toBe(false);
+  });
+
+  it("says which field blocks Save", async () => {
+    await renderDialog();
+    const [, description] = Array.from(dialog().querySelectorAll<HTMLInputElement>("input"));
+    await type(description, "");
+    expect(button("Save template")!.disabled).toBe(true);
+    expect(dialog().querySelector('[role="status"]')?.textContent).toContain("what it does");
+  });
+
   it("saves the exact identity and opt-outs the owner chose", async () => {
     await renderDialog();
-    expect(button("Save template")!.disabled).toBe(true);
     const [, description] = Array.from(dialog().querySelectorAll<HTMLInputElement>("input"));
     await type(description, "Researches a market question and writes a cited report.");
     await act(async () => dialog().querySelector<HTMLButtonElement>('[role="switch"][aria-label="Bring notes/brief.md"]')!.click());

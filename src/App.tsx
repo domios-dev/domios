@@ -22,6 +22,7 @@ import { useComposerDraftGc } from "./lib/useComposerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
+import { NewSessionPickerHost } from "./components/Terminal/NewSessionPickerHost";
 import { TabContent } from "./components/Terminal/TabContent";
 import { LocalRecordingCaptureStatus } from "./components/Terminal/voice/LocalRecordingCaptureStatus";
 import { LocalRecordingSetup } from "./components/Terminal/voice/LocalRecordingSetup";
@@ -835,6 +836,7 @@ function AppInner() {
             </SidebarDrawer>
           </>
         )}
+        <NewSessionPickerHost firstRunActive={locked} agentsConfig={config.agents} />
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">

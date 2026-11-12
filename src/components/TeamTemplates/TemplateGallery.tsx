@@ -6,9 +6,9 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { KebabGlyph } from "../shared/RowMenuButton";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useTauriFileDrop } from "../../hooks/terminal/useTauriFileDrop";
-import { galleryEntries, sourceLabel, templateTitle, type GalleryFilter, type TemplateSummary } from "../../lib/teamTemplates/startModel";
+import { galleryEntries, templateSource, templateTitle, type GalleryFilter, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { TemplateIcon } from "./TemplateIcon";
-import { authorLine } from "../../lib/teamTemplates/exchangeModel";
+import { cardByline } from "../../lib/teamTemplates/exchangeModel";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 
 const FILTERS: { value: GalleryFilter; label: string }[] = [
@@ -18,11 +18,12 @@ const FILTERS: { value: GalleryFilter; label: string }[] = [
 const same = (a: TemplateSummary, b: TemplateSummary) => a.name === b.name && a.version === b.version;
 
 function SourceTag({ summary }: { summary: TemplateSummary }) {
-  const shared = summary.provenance === "imported";
+  const source = templateSource(summary);
+  const chip = summary.provenance !== "imported";
   return (
-    <span className={`shrink-0 text-[11px] ${shared ? "" : "ct-small-pill"} text-[var(--ct-muted-fg)]`}>
-      {shared && <span aria-hidden="true" className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--ct-yellow,#d97706)]" />}
-      {sourceLabel(summary.provenance)}
+    <span className={`shrink-0 text-[11px] ${chip ? "ct-small-pill" : ""} text-[var(--ct-muted-fg)]`} data-testid="template-source">
+      {source.unverified && <span aria-hidden="true" className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--ct-yellow,#d97706)]" />}
+      {source.label}
     </span>
   );
 }
@@ -63,14 +64,14 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
                     {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
                   </span>
                   <span className="block truncate text-[12px] text-[var(--ct-muted-fg)]">{summary.description}</span>
-                  {authorLine(summary) && <span className="block truncate text-[11px] text-[var(--ct-muted-fg)]">{authorLine(summary)}</span>}
+                  {cardByline(summary) && <span className="block truncate text-[11px] text-[var(--ct-muted-fg)]" data-testid="template-byline">{cardByline(summary)}</span>}
                 </span>
                 <SourceTag summary={summary} />
               </button>
               {summary.provenance !== "builtin" && (
                 <DropdownMenu menuLabel={`${templateTitle(summary)} actions`} items={[
                   { label: "Details", onClick: () => choice.showSummaryDetails(summary) },
-                  ...(summary.provenance === "saved" ? [
+                  ...(templateSource(summary).owned ? [
                     { label: "Export…", onClick: () => onExport(summary) },
                     { label: "Share to Neighborhood…", onClick: () => onExport(summary, true) },
                   ] : []),
