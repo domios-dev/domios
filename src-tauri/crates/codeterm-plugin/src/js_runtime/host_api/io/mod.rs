@@ -271,25 +271,39 @@ fn execute(
         ExecPoll { job } => serde_json::from_str(&host_exec::poll_owned(sandbox.plugin_id(), &job))
             .map_err(|error| Failure::from(error.to_string())),
         ExecClose { job } => {
-            operation.begin_effect().map_err(|error| error.to_string())?;
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
             host_exec::close_owned(sandbox.plugin_id(), &job);
             Ok(Value::Null)
         }
         FetchStreamPoll { job } => {
-            operation.begin_effect().map_err(|error| error.to_string())?;
-            serde_json::from_str(&super::super::host_net::stream_poll(sandbox.plugin_id(), &job))
-                .map_err(|error| Failure::from(error.to_string()))
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
+            serde_json::from_str(&super::super::host_net::stream_poll(
+                sandbox.plugin_id(),
+                &job,
+            ))
+            .map_err(|error| Failure::from(error.to_string()))
         }
         FetchStreamClose { job } => {
-            operation.begin_effect().map_err(|error| error.to_string())?;
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
             super::super::host_net::stream_close(sandbox.plugin_id(), &job);
             Ok(Value::Null)
         }
         FetchStreamStart { options } => {
             let prepared = super::prepare_fetch(sandbox, &options.to_string())?;
-            operation.begin_effect().map_err(|error| error.to_string())?;
-            serde_json::from_str(&super::super::host_net::stream(sandbox.plugin_id(), &prepared))
-                .map_err(|error| Failure::from(error.to_string()))
+            operation
+                .begin_effect()
+                .map_err(|error| error.to_string())?;
+            serde_json::from_str(&super::super::host_net::stream(
+                sandbox.plugin_id(),
+                &prepared,
+            ))
+            .map_err(|error| Failure::from(error.to_string()))
         }
         ExecStart { options } => {
             let options = options.to_string();
@@ -359,6 +373,6 @@ fn execute(
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod tests;
