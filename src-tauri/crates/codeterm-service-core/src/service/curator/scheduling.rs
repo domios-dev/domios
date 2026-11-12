@@ -128,6 +128,30 @@ pub fn resolve_mirror(tab: &crate::multiplexer::types::Tab) -> Result<Mirror, Cu
     })
 }
 
+/// A Curator registration with an explicit `harness:model`, such as the owner's start-form
+/// pick, runs the round on it; otherwise the round mirrors the Orchestrator.
+pub fn curator_seat(
+    mirror: Mirror,
+    registration: Option<&codeterm_types::team::role_registration::RoleRegistration>,
+) -> Mirror {
+    let Some(registration) = registration else {
+        return mirror;
+    };
+    let Some(codeterm_team_package::ModelPreference::List(models)) = registration.model.as_ref()
+    else {
+        return mirror;
+    };
+    let Some((provider, model)) = models.first().and_then(|model| model.split_once(':')) else {
+        return mirror;
+    };
+    Mirror {
+        provider: provider.to_string(),
+        launch_profile: None,
+        model: model.to_string(),
+        effort: registration.reasoning.clone(),
+    }
+}
+
 fn waits_for_orchestrator(reason: Option<CuratorFailure>) -> bool {
     matches!(
         reason,
@@ -584,7 +608,12 @@ impl ServiceContext {
             .get_tab(owner)
             .cloned()
             .ok_or(CuratorFailure::OrchestratorAbsent)?;
-        let mirror = resolve_mirror(&tab)?;
+        let registration = crate::service::team_roles::registration_for(
+            plan.team_id.as_deref(),
+            codeterm_types::agent::AgentRole::Manager,
+            codeterm_types::agent::role_kind::builtins::CURATOR,
+        );
+        let mirror = curator_seat(resolve_mirror(&tab)?, registration.as_ref());
         let mirror = self.available_mirror(mirror)?;
         let since = read.since();
         let mut rows: std::collections::BTreeMap<String, Vec<digest::Row>> =

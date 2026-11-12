@@ -165,8 +165,13 @@ pub(crate) async fn register(
     team_id: &str,
     rail: &TemplateRail,
 ) -> Result<Vec<TemplateStartItem>, String> {
-    let registrations =
+    let mut registrations =
         registration::registrations_for(team_id, &rail.admitted, registration::now_ms());
+    registration::record_later_seats(
+        &mut registrations,
+        &rail.seats,
+        &seats::started_slots(&rail.admitted.resolved),
+    );
     let items =
         blocking::run(move || registration::register_all(TeamRoleStore::global(), registrations))
             .await?;
@@ -313,8 +318,12 @@ pub(crate) async fn finish(
         managers.push(manager_item(slot, TemplateItemState::Created));
         statuses.push(PostStartStatus::ok(slot.as_str(), "started"));
     }
+    let started = seats::started_slots(&rail.admitted.resolved);
     for (slot, seat) in &rail.seats {
-        if matches!(slot, ManagerSlot::Orchestrator | ManagerSlot::Planner) {
+        // A later manager's seat is recorded on its registration and used when it joins.
+        if matches!(slot, ManagerSlot::Orchestrator | ManagerSlot::Planner)
+            || !started.contains(slot)
+        {
             continue;
         }
         match start_extra_manager(svc, team_id, orchestrator_tab_id, *slot, seat).await {

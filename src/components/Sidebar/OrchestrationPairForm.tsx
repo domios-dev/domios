@@ -24,6 +24,8 @@ interface RoleRowProps {
   modelSlot?: ReactNode;
   details?: ReactNode;
   label: string;
+  /** Shown while no provider is picked, such as a package decision; the model picker waits for a provider. */
+  providerPlaceholder?: string;
   providers: ProviderDescriptor[];
   providerId: string;
   modelId: string;
@@ -49,6 +51,7 @@ export function OrchestrationRoleRow({
   modelSlot,
   details,
   label,
+  providerPlaceholder,
   providers,
   providerId,
   modelId,
@@ -66,6 +69,7 @@ export function OrchestrationRoleRow({
   const models = provider?.available_models ?? [];
   const efforts = reasoningEffortsForModel(provider, modelId);
   const providerDisabled = disabledProviderIds?.has(providerId) === true;
+  const awaitingProvider = Boolean(providerPlaceholder) && !provider;
   const providerOptions: DropdownSelectOption[] = providers.map((p) => {
     const disabled = disabledProviderIds?.has(p.id) === true;
     return {
@@ -99,11 +103,12 @@ export function OrchestrationRoleRow({
             options={providerOptions}
             value={providerId}
             onChange={onProviderChange}
-            leading={<AgentIcon providerId={providerId} className="text-[12px] shrink-0" />}
+            placeholder={providerPlaceholder}
+            leading={awaitingProvider ? undefined : <AgentIcon providerId={providerId} className="text-[12px] shrink-0" />}
           />
         </div>
         {modelSlot && <div className="flex-1 min-w-0">{modelSlot}</div>}
-        {!modelSlot && modelControls && <div className="flex-1 min-w-0">
+        {!modelSlot && modelControls && !awaitingProvider && <div className="flex-1 min-w-0">
           <DropdownSelect
             data-testid={modelTestId}
             options={modelOptions}

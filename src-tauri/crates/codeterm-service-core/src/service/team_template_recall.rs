@@ -159,8 +159,7 @@ pub fn recalled_names(hits: &[crate::mem::SearchHit]) -> Vec<String> {
 }
 
 fn summary(library: &TemplateLibrary, name: &str) -> Option<TemplateSummary> {
-    current(library, name)
-        .map(|(package, provenance)| TemplateSummary::from_package(&package, provenance))
+    current(library, name).map(|(package, provenance)| library.summarize(&package, provenance))
 }
 
 /// Best matches first from mem; the builtin default is always the fallback.

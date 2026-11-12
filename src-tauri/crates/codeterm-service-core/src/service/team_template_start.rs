@@ -305,7 +305,8 @@ pub fn preview_on(
     });
     Ok(TemplatePreview {
         form: TemplateStartForm {
-            template: TemplateSummary::from_package(&resolved.package, resolved.provenance),
+            template: super::team_exchange::library::TemplateLibrary::global()
+                .summarize(&resolved.package, resolved.provenance),
             pickers: manager_pickers(&resolved, target, &TeamModelInputs::default()),
             roles: role_summaries(&resolved.package),
             inputs: input_fields(&resolved.package),

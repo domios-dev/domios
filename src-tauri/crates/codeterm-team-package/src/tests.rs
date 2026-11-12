@@ -504,7 +504,14 @@ fn authored_builtin_packages_are_indexed_and_valid() {
         );
         let loaded = checked.package.expect("a valid package loads");
         assert_eq!(loaded.document.name, package);
-        assert!(loaded.icon().is_some(), "{folder} has no usable icon");
+        let (_, icon) = loaded
+            .icon()
+            .unwrap_or_else(|| panic!("{folder} has no usable icon"));
+        // An icon rendered as <img> cannot inherit the theme's text color.
+        assert!(
+            !String::from_utf8_lossy(icon).contains("currentColor"),
+            "{folder} icon needs explicit colors"
+        );
     }
 }
 

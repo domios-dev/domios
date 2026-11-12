@@ -57,6 +57,62 @@ pub struct AddTeamMemberParams {
     pub model: Option<String>,
 }
 
+/// A manager attached without a model takes its registration's `harness:model`, such as the
+/// owner's start-form pick, and returns the effort registered with it; an explicit model wins.
+pub(crate) fn adopt_registered_model(
+    params: &mut AddTeamMemberParams,
+    registration: Option<&codeterm_types::team::role_registration::RoleRegistration>,
+) -> Option<String> {
+    if params.model.is_some() {
+        return None;
+    }
+    let registration = registration?;
+    let codeterm_team_package::ModelPreference::List(models) = registration.model.as_ref()? else {
+        return None;
+    };
+    let (provider, model) = models.first()?.split_once(':')?;
+    params.provider = provider.to_string();
+    params.model = Some(model.to_string());
+    registration.reasoning.clone()
+}
+
+/// The Cartographer's registered pick, read off the async runtime; a pick this host cannot
+/// launch leaves the caller's provider in place.
+pub(crate) async fn registered_cartographer_model(
+    svc: &ServiceContext,
+    team_id: &str,
+    params: AddTeamMemberParams,
+) -> Result<(AddTeamMemberParams, Option<String>), String> {
+    if params.model.is_some() {
+        return Ok((params, None));
+    }
+    let team = team_id.to_string();
+    let registration = codeterm_service_core::service::blocking::run(move || {
+        Ok(
+            codeterm_service_core::service::team_roles::registration_for(
+                Some(&team),
+                AgentRole::Manager,
+                CARTOGRAPHER,
+            ),
+        )
+    })
+    .await?;
+    let mut adopted = params.clone();
+    let effort = adopt_registered_model(&mut adopted, registration.as_ref());
+    let launchable = adopted.model.is_some()
+        && codeterm_service_core::service::spawn::validate_agent_model(
+            &svc.agent_registry,
+            &adopted.provider,
+            adopted.model.as_deref(),
+        )
+        .is_ok();
+    Ok(if launchable {
+        (adopted, effort)
+    } else {
+        (params, None)
+    })
+}
+
 pub fn team_member_brief(
     task: Option<String>,
     brief: Option<String>,

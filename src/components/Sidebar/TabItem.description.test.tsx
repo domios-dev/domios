@@ -26,4 +26,14 @@ it("wires the selected type label and optional description into the sidebar row"
   expect(bare).toContain('data-role-badge="ORCHESTRATOR"');
 });
 
+it("shows a Team-registered role label as declared on managers and custom workers", () => {
+  const conductor = render(tab({ role: "Manager", role_profile: "orchestrator", role_label: "Conductor" }));
+  expect(conductor).toContain('data-role-badge="Conductor"');
+  expect(conductor).toContain(">Conductor</span>");
+  expect(conductor).not.toContain("Orchestrator");
+
+  const scout = render(tab({ role: "Worker", role_profile: "scout", role_label: "Field Scout" }));
+  expect(scout).toContain(">Field Scout</span>");
+});
+
 finish();

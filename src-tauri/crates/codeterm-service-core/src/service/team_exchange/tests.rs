@@ -539,6 +539,16 @@ fn the_template_list_carries_my_templates_and_their_persisted_trust() {
     assert_eq!(mine[0].received_from.as_deref(), Some("Friend-A"));
     assert!(mine[0].verified);
     assert_eq!(mine[0].workers as usize, package.document.workers.len());
+    // Preview and recall resolve the same package and must show the gallery's trust.
+    let (resolved, provenance) = super::resolve_in(
+        &restarted,
+        &TemplateRef {
+            name: name.clone(),
+            version: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(restarted.summarize(&resolved, provenance), mine[0]);
     assert_eq!(
         library
             .save(&package, TemplateProvenance::Imported)

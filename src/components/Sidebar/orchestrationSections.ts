@@ -49,12 +49,14 @@ export function roleBadgeLabel(
   return tab.role === "Manager" && kind ? kind.toUpperCase() : null;
 }
 
-/** Role shield on tab line 2: leadership kinds and named Worker kinds. */
+/** Role shield on tab line 2: a Team-registered label, then leadership kinds and named Worker kinds. */
 export function roleShieldLabel(
-  tab: Pick<Tab, "role" | "role_profile"> | null | undefined,
+  tab: Pick<Tab, "role" | "role_profile" | "role_label"> | null | undefined,
 ): string | null {
   if (!tab?.role) return null;
   const kind = roleKind(tab);
+  const registered = kind === null ? null : tab.role_label?.trim();
+  if (registered) return registered;
   if (tab.role === "Manager") return kind?.toUpperCase() ?? null;
   return kind === QA_KIND || kind === RELEASE_MANAGER_KIND || kind === REVIEWER_KIND
     ? roleKindLabel(tab)?.toUpperCase() ?? null

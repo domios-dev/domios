@@ -1,6 +1,8 @@
 //! Every package role becomes a Team registration pinned to the package identity. Registering
 //! spawns nothing; a later `--role` launch reads it through the one role resolver.
 
+use std::collections::BTreeMap;
+
 use codeterm_service_core::service::builtin_roles::builtin_prose;
 use codeterm_service_core::service::team_roles::TeamRoleStore;
 use codeterm_service_core::service::team_template_payload::role_file_refs;
@@ -8,6 +10,8 @@ use codeterm_service_core::service::team_template_start::AdmittedTemplate;
 use codeterm_team_package::contracts::{TemplateItemState, TemplateStartItem};
 use codeterm_team_package::{ManagerSlot, TeamRoleGroup};
 use codeterm_types::team::role_registration::{RoleRegistration, RoleRegistrationOutcome};
+
+use super::seats::Seat;
 
 /// The registrations one start asks for, in package order (managers first).
 pub(crate) fn registrations_for(
@@ -56,6 +60,27 @@ pub(crate) fn registrations_for(
             })
         })
         .collect()
+}
+
+/// A manager that joins later keeps the owner's start-form pick on its registration, which
+/// its on-demand launch reads; started managers already launched on their seat.
+pub(crate) fn record_later_seats(
+    registrations: &mut [RoleRegistration],
+    seats: &BTreeMap<ManagerSlot, Seat>,
+    started: &[ManagerSlot],
+) {
+    for registration in registrations {
+        let Some(slot) = registration.slot().filter(|slot| !started.contains(slot)) else {
+            continue;
+        };
+        let Some(seat) = seats.get(&slot) else {
+            continue;
+        };
+        if let Some(preference) = seat.preference() {
+            registration.model = Some(preference);
+            registration.reasoning = seat.effort.clone().or(registration.reasoning.take());
+        }
+    }
 }
 
 /// Registers each role once. A role already pinned to this package identity is present;

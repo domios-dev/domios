@@ -23,6 +23,7 @@ const ROW_TAB_FIELDS = [
   "boot_failure_reason",
   "role",
   "role_profile",
+  "role_label",
   "roleless_tracked",
   "has_checklist",
   "remote_peer_id",
