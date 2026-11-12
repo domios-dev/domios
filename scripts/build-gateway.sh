@@ -153,7 +153,8 @@ ct_gateway_write_owner() {
   printf '%s\n' "$CT_GATEWAY_PROCESS_START" > "$directory/start_token" &&
   printf '%s\n' "$CT_GATEWAY_OWNER_NAMESPACE" > "$directory/pid_namespace" &&
   printf '%s\n' "$CT_GATEWAY_OWNER_NATIVE_PID" > "$directory/native_pid" &&
-  printf '%s\n' "$CT_GATEWAY_OWNER_NATIVE_START" > "$directory/native_start_token"
+  printf '%s\n' "$CT_GATEWAY_OWNER_NATIVE_START" > "$directory/native_start_token" &&
+  printf '%s\n' "${CT_GATEWAY_SUPERVISOR_ENDPOINT:-}" > "$directory/supervisor_endpoint"
 }
 
 ct_gateway_recorded_owner_gone() {
@@ -631,8 +632,16 @@ ct_gateway_cancel() {
       ct_gateway_mutex_release "$dir"
       return 1
     fi
-    kill -TERM "$pid" 2>/dev/null || rc=1
-    ct_gateway_mutex_release "$dir"
+    node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-process.mjs" cancel "$dir/lock" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      if ct_gateway_recorded_owner_gone "$dir/lock"; then
+        CT_BUILD_JOB_ID="$job_id" ct_gateway_update_job cancelled 130 cancelled "" "$(ct_gateway_now)" || rc=$?
+        if [ "$rc" -eq 0 ]; then rm -rf "$dir/lock" || rc=$?; fi
+      else
+        rc=1
+      fi
+    fi
+    ct_gateway_mutex_release "$dir" || rc=$?
     [ "$rc" -eq 0 ] || return "$rc"
     return 0
   fi
