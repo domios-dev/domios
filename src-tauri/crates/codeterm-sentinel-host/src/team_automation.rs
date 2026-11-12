@@ -7,7 +7,7 @@ use std::sync::{Arc, Weak};
 use codeterm_blueprint_types::blueprint_document::{self, Document};
 use codeterm_blueprint_types::blueprint_recipe::{Recipe, SCHEMA_VERSION};
 use codeterm_service_core::service::team_template_payload::{
-    install_automation_port, AutomationItem, AutomationPort,
+    install_automation_port, live_orchestrator, AutomationItem, AutomationPort,
 };
 use codeterm_service_core::service::ServiceContext;
 use serde_json::Value;
@@ -53,6 +53,10 @@ impl TeamAutomation {
 }
 
 impl AutomationPort for TeamAutomation {
+    fn check(&self, item: &AutomationItem) -> Result<(), String> {
+        recipe(item).map(|_| ())
+    }
+
     fn apply(&self, team_id: &str, item: &AutomationItem) -> Result<(), String> {
         let svc = self.service()?;
         let recipe = recipe(item)?;
@@ -64,7 +68,8 @@ impl AutomationPort for TeamAutomation {
         {
             return Ok(());
         }
-        let orchestrator = svc.remote_team_target(team_id)?.orchestrator_tab_id;
+        let orchestrator = live_orchestrator(&svc, team_id)
+            .ok_or("the Team's Orchestrator has not proved its launch yet")?;
         svc.blueprint_import_host(&orchestrator, recipe, &[], Some(&format!("team:{team_id}")))
             .map(|_| ())
     }

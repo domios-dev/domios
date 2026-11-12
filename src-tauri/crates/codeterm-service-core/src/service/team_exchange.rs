@@ -174,6 +174,7 @@ pub fn run_pipeline(
     destination: Option<PathBuf>,
 ) -> Result<Exported, ExchangeError> {
     let scrub = scrub::scrub_package(&mut package, context);
+    let package = forms::canonical_for(package, format).map_err(ExchangeError::invalid)?;
     let canonical = check_entries(
         PackageFormat::Folder,
         package.archive_entries(),
@@ -350,7 +351,7 @@ fn save(
         Saved::Unchanged => None,
     };
     reindex(svc, &package.document.name);
-    Ok((TemplateSummary::from_package(package, provenance), update))
+    Ok((TemplateLibrary::global().summary(package), update))
 }
 
 /// Refuses a received package that still carries a secret value; the sender exports again.
@@ -382,11 +383,20 @@ pub fn check_import(path: &Path) -> Result<Package, ExchangeError> {
 #[derive(serde::Deserialize)]
 struct ImportParams {
     path: String,
+    /// The friendship a share card received the package through.
+    #[serde(default)]
+    from_friend: Option<String>,
 }
 
 /// `team import`: a file, archive or folder into My templates, unverified.
 pub fn import(svc: &ServiceContext, params: Option<&Value>) -> Outcome {
     let request: ImportParams = parse(params)?;
+    let received_from = match request.from_friend.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(friendship) => Some(svc.neighbor_friend_display_name(friendship).ok_or_else(
+            || ExchangeError::invalid(format!("`{friendship}` names no current friend")),
+        )?),
+    };
     let path = PathBuf::from(&request.path);
     let package = check_import(&path)?;
     let check = check_entries(
@@ -396,7 +406,13 @@ pub fn import(svc: &ServiceContext, params: Option<&Value>) -> Outcome {
         &CheckOptions::domios(),
     )
     .report;
-    let (template, update) = save(svc, &package, TemplateProvenance::Imported)?;
+    let (mut template, update) = save(svc, &package, TemplateProvenance::Imported)?;
+    if let Some(friend) = received_from {
+        TemplateLibrary::global()
+            .mark_received(&template.name, &template.version, &friend)
+            .map_err(ExchangeError::invalid)?;
+        template.received_from = Some(friend);
+    }
     to_value(&TemplateImportResult {
         template,
         check,

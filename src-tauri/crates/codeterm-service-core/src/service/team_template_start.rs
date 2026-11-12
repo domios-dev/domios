@@ -46,10 +46,16 @@ pub struct AdmittedTemplate {
     pub placements: BTreeMap<String, String>,
 }
 
+/// Builtins first, then the newest version of every template in My templates.
 pub fn list(_svc: &ServiceContext) -> TemplateList {
+    list_in(super::team_exchange::library::TemplateLibrary::global())
+}
+
+pub fn list_in(library: &super::team_exchange::library::TemplateLibrary) -> TemplateList {
     TemplateList {
         templates: builtin_templates()
             .map(|template| TemplateSummary::from_package(&template.package, template.provenance))
+            .chain(library.list())
             .collect(),
     }
 }
@@ -58,6 +64,36 @@ pub fn list(_svc: &ServiceContext) -> TemplateList {
 pub fn admit(
     request: Option<&TemplateStartRequest>,
     ledger: &ConsentLedger,
+) -> Result<AdmittedTemplate, TemplateStartRefusal> {
+    admit_bound(request, ledger, &[])
+}
+
+/// Bound vault entries this machine lacks, as `secret:<name>`; presence only, values never read.
+pub async fn vault_unbound(
+    svc: &ServiceContext,
+    request: Option<&TemplateStartRequest>,
+) -> Vec<String> {
+    let Some(request) = request.filter(|request| !request.secret_bindings.is_empty()) else {
+        return Vec::new();
+    };
+    let vault = svc.secrets.read().await;
+    let mut present = Vec::new();
+    for entry in request.secret_bindings.values() {
+        let entry = entry.trim();
+        if !entry.is_empty() && vault.has(entry).await.unwrap_or(false) {
+            present.push(entry.to_string());
+        }
+    }
+    super::team_template_remote::unbound_secrets(request, |entry| {
+        Ok(present.iter().any(|name| name == entry))
+    })
+}
+
+/// `admit`, where `unbound` names the bindings whose vault entry is absent on this machine.
+pub fn admit_bound(
+    request: Option<&TemplateStartRequest>,
+    ledger: &ConsentLedger,
+    unbound: &[String],
 ) -> Result<AdmittedTemplate, TemplateStartRefusal> {
     let resolved = resolve(request.map(|request| &request.template))?;
     let empty = BTreeMap::new();
@@ -88,6 +124,11 @@ pub fn admit(
             missing.push(format!("secret:{}", secret.name));
         }
     }
+    for key in unbound {
+        if !missing.contains(key) {
+            missing.push(key.clone());
+        }
+    }
     if !missing.is_empty() {
         return Err(TemplateStartRefusal::MissingInputs { inputs: missing });
     }
@@ -109,6 +150,27 @@ pub fn admit(
             decision_id
         },
     })
+}
+
+/// A start admitted on the owner's consent decision verifies that saved `name@version`.
+/// Blocking: writes the My templates record.
+pub fn record_consent(admitted: &AdmittedTemplate) {
+    if admitted.decision_id.is_none()
+        || admitted.resolved.provenance
+            == codeterm_team_package::contracts::TemplateProvenance::Builtin
+    {
+        return;
+    }
+    let identity = admitted.resolved.identity();
+    if let Err(error) = super::team_exchange::library::TemplateLibrary::global()
+        .mark_verified(&identity.name, &identity.version)
+    {
+        log::warn!(
+            "[template-start] {}@{} consent not recorded: {error}",
+            identity.name,
+            identity.version
+        );
+    }
 }
 
 fn placement_refusal(role: &str, peer: &str, problem: PlacementProblem) -> TemplateStartRefusal {

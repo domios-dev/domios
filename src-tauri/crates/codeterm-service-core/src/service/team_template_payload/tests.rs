@@ -14,6 +14,17 @@ struct FakePort {
     skills: RefCell<Vec<SkillFolder>>,
     automation: RefCell<Vec<AutomationItem>>,
     history: u32,
+    failing_skills: bool,
+    orchestrator_live: bool,
+}
+
+impl FakePort {
+    fn live() -> Self {
+        Self {
+            orchestrator_live: true,
+            ..Self::default()
+        }
+    }
 }
 
 impl PayloadPort for FakePort {
@@ -36,16 +47,23 @@ impl PayloadPort for FakePort {
             history_excluded: self.history,
         })
     }
-    fn register_skill(&self, _team_id: &str, skill: &SkillFolder) -> Result<(), String> {
+    fn register_skill(&self, _team_id: &str, skill: &SkillFolder) -> Result<Landed, String> {
+        if self.failing_skills {
+            return Err("opaque skill failure".into());
+        }
         self.skills.borrow_mut().push(skill.clone());
-        Ok(())
+        Ok(Landed::Now)
     }
     fn skills(&self, _team_id: &str) -> Result<Vec<SkillFolder>, String> {
         Ok(self.skills.borrow().clone())
     }
-    fn apply_automation(&self, _team_id: &str, item: &AutomationItem) -> Result<(), String> {
+    fn apply_automation(&self, _team_id: &str, item: &AutomationItem) -> Result<Landed, String> {
         self.automation.borrow_mut().push(item.clone());
-        Ok(())
+        Ok(if self.orchestrator_live {
+            Landed::Now
+        } else {
+            Landed::Deferred
+        })
     }
     fn automation(&self, _team_id: &str) -> Result<Vec<AutomationItem>, String> {
         Ok(self.automation.borrow().clone())
@@ -63,14 +81,15 @@ fn reference() -> Package {
 #[test]
 fn start_applies_only_opted_in_items_through_the_port() {
     let package = reference();
-    let port = FakePort::default();
+    let port = FakePort::live();
     let opt_out = vec![
         "file:templates/report.md".to_string(),
         "memory:1".to_string(),
         "skill:source-check".to_string(),
         "automation:stale-task-nudge".to_string(),
     ];
-    let result = apply_with(&port, "team_1", &package, &opt_out).expect("payload applies");
+    let result = apply_with(&port, "team_1", &package, &opt_out);
+    assert!(result.failed.is_empty() && result.deferred.is_empty());
     let mut skipped = result.skipped.clone();
     skipped.sort();
     let mut expected = opt_out.clone();
@@ -111,9 +130,9 @@ fn bake_collects_the_same_mapping_back_and_the_export_scrubs_it() {
     let package = reference();
     let port = FakePort {
         history: 3,
-        ..FakePort::default()
+        ..FakePort::live()
     };
-    apply_with(&port, "team_1", &package, &[]).unwrap();
+    apply_with(&port, "team_1", &package, &[]);
     port.memory.borrow_mut().push(PackageMemory {
         title: "Staging login".into(),
         kind: MemoryKind::Fact,
@@ -242,4 +261,76 @@ fn service_port_writes_stay_inside_their_root_and_skip_links() {
     service_port::write_under_for_test(&root, "notes/a.md").unwrap();
     let tree = service_port::read_tree(&root).unwrap();
     assert_eq!(tree, vec![("notes/a.md".to_string(), b"x".to_vec())]);
+}
+
+#[test]
+fn one_failed_item_never_stops_the_rest_and_blueprints_wait_for_the_orchestrator() {
+    let package = reference();
+    let port = FakePort {
+        failing_skills: true,
+        ..FakePort::default()
+    };
+    let result = apply_with(&port, "team_1", &package, &[]);
+    let skill_ids: Vec<String> = payload_items(&package)
+        .into_iter()
+        .map(|item| item.id)
+        .filter(|id| id.starts_with("skill:"))
+        .collect();
+    let failed: Vec<&str> = result.failed.iter().map(|f| f.id.as_str()).collect();
+    assert_eq!(
+        failed,
+        skill_ids.iter().map(String::as_str).collect::<Vec<_>>()
+    );
+    assert!(result
+        .failed
+        .iter()
+        .all(|failure| failure.reason.contains("opaque skill failure")));
+    assert_eq!(
+        result.deferred.len(),
+        package.document.automation.len(),
+        "every Blueprint after the failed skills still reached the port"
+    );
+    assert!(result
+        .deferred
+        .iter()
+        .all(|id| id.starts_with("automation:")));
+    assert_eq!(
+        result.applied.len() + result.deferred.len() + result.failed.len(),
+        payload_items(&package).len()
+    );
+}
+
+#[test]
+fn closing_a_team_removes_its_knowledge_and_held_skills_only() {
+    let root = tempfile::tempdir().unwrap();
+    let teams = root.path();
+    for (team, part) in [
+        ("team_gone", "knowledge"),
+        ("team_gone", "skills/opaque-skill"),
+        ("team_kept", "knowledge"),
+    ] {
+        let dir = teams.join(team).join(part);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("file.md"), b"x").unwrap();
+    }
+    remove_team_payload(teams, "team_gone").unwrap();
+    assert!(!teams.join("team_gone/knowledge").exists());
+    assert!(!teams.join("team_gone/skills").exists());
+    assert!(teams.join("team_kept/knowledge/file.md").exists());
+    remove_team_payload(teams, "team_gone").expect("an absent payload is already gone");
+    assert!(remove_team_payload(teams, "../team_kept").is_err());
+    assert!(teams.join("team_kept/knowledge/file.md").exists());
+}
+
+#[test]
+fn an_emptied_team_folder_goes_and_a_registered_one_stays() {
+    let root = tempfile::tempdir().unwrap();
+    let teams = root.path();
+    std::fs::create_dir_all(teams.join("team_empty/knowledge")).unwrap();
+    std::fs::create_dir_all(teams.join("team_roles/knowledge")).unwrap();
+    std::fs::write(teams.join("team_roles/opaque-registrations"), b"x").unwrap();
+    remove_team_payload(teams, "team_empty").unwrap();
+    remove_team_payload(teams, "team_roles").unwrap();
+    assert!(!teams.join("team_empty").exists());
+    assert!(teams.join("team_roles/opaque-registrations").exists());
 }

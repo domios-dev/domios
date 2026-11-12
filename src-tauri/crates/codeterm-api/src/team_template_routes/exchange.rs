@@ -133,15 +133,79 @@ fn package_file(package: &Package, path: &str) -> Option<Vec<u8>> {
         })
 }
 
+/// What a file request names: exactly one package path or one role.
+enum FileTarget {
+    Path(String),
+    Role(String),
+}
+
+fn file_target(request: &TemplateFileRequest) -> Result<FileTarget, ExchangeError> {
+    match (&request.path, &request.role) {
+        (Some(path), None) if package_relative(path) => Ok(FileTarget::Path(path.clone())),
+        (Some(_), None) => Err(ExchangeError::invalid(
+            "`path` must be a path inside the package",
+        )),
+        (None, Some(role)) if !role.trim().is_empty() => Ok(FileTarget::Role(role.clone())),
+        _ => Err(ExchangeError::invalid(
+            "set exactly one of `path` or `role`",
+        )),
+    }
+}
+
+/// The same size and text bounds hold for a package file and a role's instructions.
+fn bounded_text(label: &str, bytes: Vec<u8>) -> Result<String, ExchangeError> {
+    if bytes.len() > FILE_TEXT_LIMIT {
+        return Err(refusal(
+            TOO_LARGE,
+            format!("`{label}` is larger than 256 KiB"),
+        ));
+    }
+    String::from_utf8(bytes)
+        .ok()
+        .filter(|text| !text.contains('\0'))
+        .ok_or_else(|| refusal(NOT_TEXT, format!("`{label}` is not a text file")))
+}
+
+fn file_text(
+    package: &Package,
+    request: &TemplateFileRequest,
+) -> Result<TemplateFileText, ExchangeError> {
+    match file_target(request)? {
+        FileTarget::Path(path) => {
+            let bytes = package_file(package, &path)
+                .ok_or_else(|| refusal(NOT_FOUND, format!("`{path}` is not in the package")))?;
+            Ok(TemplateFileText {
+                text: bounded_text(&path, bytes)?,
+                path,
+                role: None,
+            })
+        }
+        FileTarget::Role(role) => {
+            let declared = package.document.role(&role).ok_or_else(|| {
+                refusal(NOT_FOUND, format!("`{role}` is not a role of the package"))
+            })?;
+            let path = declared
+                .instructions_file
+                .clone()
+                .filter(|_| declared.instructions.is_none())
+                .unwrap_or_else(|| "team.yaml".to_string());
+            let text = package.role_instructions(&role).ok_or_else(|| {
+                refusal(NOT_FOUND, format!("`{role}` has no readable instructions"))
+            })?;
+            Ok(TemplateFileText {
+                text: bounded_text(&role, text.as_bytes().to_vec())?,
+                path,
+                role: Some(role),
+            })
+        }
+    }
+}
+
 fn read_file(params: Option<&Value>) -> Result<Value, ExchangeError> {
     let request: TemplateFileRequest =
         serde_json::from_value(params.cloned().unwrap_or(Value::Null))
             .map_err(|error| ExchangeError::invalid(error.to_string()))?;
-    if !package_relative(&request.path) {
-        return Err(ExchangeError::invalid(
-            "`path` must be a path inside the package",
-        ));
-    }
+    file_target(&request)?;
     let (package, _) = team_exchange::resolve(&request.template).ok_or_else(|| {
         refusal(
             NOT_FOUND,
@@ -151,27 +215,8 @@ fn read_file(params: Option<&Value>) -> Result<Value, ExchangeError> {
             ),
         )
     })?;
-    let bytes = package_file(&package, &request.path).ok_or_else(|| {
-        refusal(
-            NOT_FOUND,
-            format!("`{}` is not in the package", request.path),
-        )
-    })?;
-    if bytes.len() > FILE_TEXT_LIMIT {
-        return Err(refusal(
-            TOO_LARGE,
-            format!("`{}` is larger than 256 KiB", request.path),
-        ));
-    }
-    let text = String::from_utf8(bytes)
-        .ok()
-        .filter(|text| !text.contains('\0'))
-        .ok_or_else(|| refusal(NOT_TEXT, format!("`{}` is not a text file", request.path)))?;
-    serde_json::to_value(TemplateFileText {
-        path: request.path,
-        text,
-    })
-    .map_err(|error| ExchangeError::invalid(error.to_string()))
+    serde_json::to_value(file_text(&package, &request)?)
+        .map_err(|error| ExchangeError::invalid(error.to_string()))
 }
 
 /// One package file as text, for reviewing a script before the owner keeps it.
@@ -181,7 +226,49 @@ pub(super) async fn file(State(state): State<AppState>, Json(body): Json<Value>)
 
 #[cfg(test)]
 mod tests {
-    use super::package_relative;
+    use super::{file_text, package_relative, INVALID_REQUEST, NOT_FOUND};
+    use codeterm_service_core::service::team_exchange::default_package;
+    use codeterm_team_package::contracts::{TemplateFileRequest, TemplateRef};
+
+    fn request(path: Option<&str>, role: Option<&str>) -> TemplateFileRequest {
+        TemplateFileRequest {
+            template: TemplateRef {
+                name: "opaque".into(),
+                version: None,
+            },
+            path: path.map(str::to_string),
+            role: role.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_role_answers_its_instructions_and_exactly_one_target_is_named() {
+        let package = default_package().expect("builtin default");
+        let role = "orchestrator";
+        let declared = package.document.role(role).unwrap();
+        let text = file_text(package, &request(None, Some(role))).unwrap();
+        assert_eq!(text.role.as_deref(), Some(role));
+        assert_eq!(Some(text.text.as_str()), package.role_instructions(role));
+        let expected = match (&declared.instructions, &declared.instructions_file) {
+            (None, Some(file)) => file.as_str(),
+            _ => "team.yaml",
+        };
+        assert_eq!(text.path, expected);
+
+        let file = file_text(package, &request(Some("team.yaml"), None)).unwrap();
+        assert_eq!((file.path.as_str(), file.role), ("team.yaml", None));
+
+        for (path, role) in [
+            (Some("team.yaml"), Some(role)),
+            (None, None),
+            (None, Some(" ")),
+        ] {
+            let error = file_text(package, &request(path, role)).unwrap_err();
+            assert_eq!(error.code, INVALID_REQUEST, "{path:?} {role:?}");
+        }
+        let unknown = file_text(package, &request(None, Some("no_such_role"))).unwrap_err();
+        assert_eq!(unknown.code, NOT_FOUND);
+    }
 
     #[test]
     fn only_package_relative_paths_are_read() {

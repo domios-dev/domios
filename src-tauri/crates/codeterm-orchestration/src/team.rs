@@ -516,6 +516,15 @@ async fn close_team_inner(
     {
         log::warn!("[team-close] launch artifact release task failed: {error}");
     }
+    let closed_team = team_id.to_string();
+    match tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::team_template_payload::forget_team(&closed_team)
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        other => log::warn!("[team-close] team={team_id} payload residue not removed: {other:?}"),
+    }
     let plan_store = std::sync::Arc::clone(&svc.plan_store);
     let lane_cleanup = tokio::task::spawn_blocking(move || {
         finish_team_lane_cleanup(&plan_store, &lanes, close_at)

@@ -206,3 +206,59 @@ fn forgetting_a_team_drops_its_registrations_and_backups() {
         .is_empty());
     store.forget("team_never_registered").unwrap();
 }
+
+#[test]
+fn labels_land_once_the_team_and_its_registrations_exist() {
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_util::lock_hold::TimedRwLock;
+
+    let (mut state, anchor) = MultiplexerState::new();
+    let workspace = state.find_workspace_for_tab(&anchor).unwrap();
+    let scout = state.create_tab(&workspace).unwrap();
+    state.set_orchestrator_role(&anchor).unwrap();
+    let mux: crate::multiplexer::commands::MuxState =
+        std::sync::Arc::new(TimedRwLock::new("mux-test", state));
+    let registered = std::sync::Mutex::new(Vec::<RoleRegistration>::new());
+    let source = |team: Option<&str>| -> Vec<RoleRegistration> {
+        let all = registered.lock().unwrap();
+        all.iter()
+            .filter(|registration| Some(registration.team_id.as_str()) == team)
+            .cloned()
+            .collect()
+    };
+
+    stamp_with(&mux, &anchor, source);
+    assert_eq!(mux.read().get_tab(&anchor).unwrap().role_label, None);
+
+    mux.write()
+        .set_tab_role_kind(&scout, AgentRole::Worker, Some("scout"), Some(&anchor))
+        .unwrap();
+    let team = mux
+        .read()
+        .get_tab(&anchor)
+        .unwrap()
+        .team_id
+        .clone()
+        .unwrap();
+    registered.lock().unwrap().extend([
+        RoleRegistration {
+            group: TeamRoleGroup::Manager,
+            label: "Conductor".into(),
+            ..worker(&team, "orchestrator", "fixture-prose")
+        },
+        RoleRegistration {
+            label: "Field Scout".into(),
+            ..worker(&team, "scout", "fixture-prose")
+        },
+    ]);
+    stamp_team_with(&mux, &team, &source);
+    let mux = mux.read();
+    assert_eq!(
+        mux.get_tab(&anchor).unwrap().role_label.as_deref(),
+        Some("Conductor")
+    );
+    assert_eq!(
+        mux.get_tab(&scout).unwrap().role_label.as_deref(),
+        Some("Field Scout")
+    );
+}

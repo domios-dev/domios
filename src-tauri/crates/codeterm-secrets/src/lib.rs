@@ -16,6 +16,7 @@ pub mod js_backend;
 pub mod local;
 pub mod mock;
 pub mod model_provider_request;
+pub mod owner;
 mod readiness;
 pub mod redact;
 mod registry;
@@ -26,6 +27,7 @@ pub use capability::{
     AUTO_UNLOCK_CREDENTIAL_KEY,
 };
 pub use factory::{factory as get_factory, list as list_factories, SecretBackendFactory};
+pub use owner::{owner_of, SecretItem, SecretOwner};
 pub use registry::SecretRegistry;
 
 use std::fmt;

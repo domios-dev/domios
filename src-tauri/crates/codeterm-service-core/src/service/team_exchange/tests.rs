@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use codeterm_team_package::contracts::{TemplateDistillRequest, TemplateProvenance, TemplateRef};
 use codeterm_team_package::{
     check_folder, check_yaml, CheckOptions, ManagerSlot, ModelPreference, Package, PackageFormat,
-    RoleStart, StartMode, TeamRoleGroup,
+    PackageSkill, RoleStart, StartMode, TeamRoleGroup,
 };
 use codeterm_types::team::role_registration::{PinnedPackage, RoleFileRef, RoleRegistration};
 
@@ -507,5 +507,100 @@ fn bake_keeps_registered_roles_model_omission_runbook_and_lineage() {
     assert_eq!(
         source_identity(&registrations).unwrap().name,
         "dev.domios/default"
+    );
+}
+
+#[test]
+fn the_template_list_carries_my_templates_and_their_persisted_trust() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let library = TemplateLibrary::new(&root);
+    let package = inline_reference();
+    let (name, version) = (&package.document.name, &package.document.version);
+    library
+        .save(&package, TemplateProvenance::Imported)
+        .unwrap();
+    assert!(
+        library.mark_verified(name, "9.9.9").is_err(),
+        "absent versions stay absent"
+    );
+    library.mark_received(name, version, "Friend-A").unwrap();
+    library.mark_verified(name, version).unwrap();
+
+    let restarted = TemplateLibrary::new(&root);
+    let listed = crate::service::team_template_start::list_in(&restarted).templates;
+    let builtins = crate::service::team_template_start::builtin_templates().count();
+    assert!(listed[..builtins]
+        .iter()
+        .all(|summary| summary.provenance == TemplateProvenance::Builtin));
+    let mine = &listed[builtins..];
+    assert_eq!(mine.len(), 1);
+    assert_eq!(&mine[0].name, name);
+    assert_eq!(mine[0].received_from.as_deref(), Some("Friend-A"));
+    assert!(mine[0].verified);
+    assert_eq!(mine[0].workers as usize, package.document.workers.len());
+    assert_eq!(
+        library
+            .save(&package, TemplateProvenance::Imported)
+            .unwrap(),
+        Saved::Unchanged
+    );
+    assert!(
+        restarted.summary(&package).verified,
+        "a re-save keeps the record"
+    );
+}
+
+#[test]
+fn archive_forms_are_the_same_bytes_whatever_form_the_package_arrived_in() {
+    let dir = tempfile::tempdir().unwrap();
+    let context = private_context();
+    let mut compared = 0;
+    for (index, package) in builtin_packages().iter().enumerate() {
+        let Ok(inline) = forms::single_file(package) else {
+            continue;
+        };
+        let from_yaml = check_yaml(&inline.to_yaml(), &CheckOptions::domios())
+            .package
+            .expect("the one-file form imports");
+        for (format, suffix) in [
+            (PackageFormat::Team, "team"),
+            (PackageFormat::Folder, "dir"),
+        ] {
+            let original = dir.path().join(format!("{index}-original.{suffix}"));
+            let imported = dir.path().join(format!("{index}-imported.{suffix}"));
+            run_pipeline(package.clone(), &context, format, Some(original.clone())).unwrap();
+            run_pipeline(from_yaml.clone(), &context, format, Some(imported.clone())).unwrap();
+            assert_eq!(
+                read_form(&original),
+                read_form(&imported),
+                "{} {format:?}",
+                package.document.name
+            );
+        }
+        compared += 1;
+    }
+    assert!(compared > 0, "at least one builtin has a one-file form");
+
+    let canonical = forms::externalized(&inline_reference()).unwrap();
+    assert!(canonical
+        .document
+        .files
+        .iter()
+        .all(|file| file.content.is_none()));
+    assert!(canonical
+        .document
+        .roles()
+        .iter()
+        .all(|(_, _, role)| role.instructions.is_none()));
+    assert!(canonical
+        .document
+        .skills
+        .iter()
+        .all(|skill| matches!(skill, PackageSkill::Path { path } if path.starts_with("skills/"))));
+    assert_eq!(
+        forms::externalized(&canonical).unwrap().archive_entries(),
+        canonical.archive_entries(),
+        "the canonical form is a fixed point"
     );
 }

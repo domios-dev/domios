@@ -54,6 +54,15 @@ pub struct TemplateSummary {
     pub links: Option<PackageLinks>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
+    /// How many worker roles the package declares.
+    #[serde(default)]
+    pub workers: u32,
+    /// The friend's display name when the template arrived through a share card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received_from: Option<String>,
+    /// A start of this `name@version` passed the owner's consent on this machine.
+    #[serde(default)]
+    pub verified: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -376,6 +385,22 @@ impl TemplateStartResult {
             .strip_prefix(": ")?;
         serde_json::from_str(json).ok()
     }
+
+    /// The stable CLI error code a non-started outcome answers with; a started Team has none.
+    pub fn error_code(&self) -> Option<&'static str> {
+        Some(match self {
+            Self::Started { .. } => return None,
+            Self::NeedsChoice { .. } => "invalid_argument",
+            Self::ManagerFailed { .. } => "startup_failed",
+            Self::Refused { refusal } => match refusal {
+                TemplateStartRefusal::ConsentRequired { .. } => "refused",
+                TemplateStartRefusal::NotFound { .. } => "not_found",
+                TemplateStartRefusal::InvalidPackage { .. }
+                | TemplateStartRefusal::MissingInputs { .. }
+                | TemplateStartRefusal::InvalidPlacement { .. } => "invalid_argument",
+            },
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -520,17 +545,24 @@ pub struct TemplateDeleteResult {
     pub removed: Vec<String>,
 }
 
-/// Read one file inside a builtin or saved package, by its package-relative path.
+/// Read one text inside a builtin or saved package: a file by its package-relative `path`,
+/// or a role's instructions by `role`. Exactly one of the two is set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TemplateFileRequest {
     pub template: TemplateRef,
-    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
-/// One package file as text, for review before the owner keeps it; nothing runs it.
+/// One package text, for review before the owner keeps it; nothing runs it. A role's
+/// instructions answer with the file they live in (`team.yaml` when inline) and the role.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TemplateFileText {
     pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
     pub text: String,
 }
 
@@ -620,6 +652,19 @@ pub struct PayloadApplyResult {
     pub applied: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skipped: Vec<String>,
+    /// Accepted items that land later: Blueprints once the Orchestrator is live, skills once
+    /// the Team's plan binds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deferred: Vec<String>,
+    /// Items that failed; every other item was still applied.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failed: Vec<PayloadItemFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct PayloadItemFailure {
+    pub id: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -717,6 +762,9 @@ impl TemplateSummary {
             authors: document.authors.clone(),
             links: document.links.clone(),
             license: document.license.clone(),
+            workers: u32::try_from(document.workers.len()).unwrap_or(u32::MAX),
+            received_from: None,
+            verified: false,
         }
     }
 }
@@ -832,6 +880,7 @@ pub fn export_typescript(config: &ts_rs::Config) -> Result<(), ts_rs::ExportErro
     TemplateShareCard::export_all(config)?;
     TemplateShareAction::export_all(config)?;
     PayloadApplyResult::export_all(config)?;
+    PayloadItemFailure::export_all(config)?;
     TemplateUnavailable::export_all(config)?;
     ModelDecision::export_all(config)?;
     Ok(())
