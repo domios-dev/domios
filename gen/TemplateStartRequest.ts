@@ -22,4 +22,8 @@ secret_bindings?: { [key in string]: string },
 /**
  * Choices for with_team managers beyond the pair's own Orchestrator and Planner fields.
  */
-manager_models?: { [key in ManagerSlot]?: ManagerModelChoice }, };
+manager_models?: { [key in ManagerSlot]?: ManagerModelChoice }, 
+/**
+ * Worker role type to the paired peer Main that hosts it; managers always stay home.
+ */
+role_placements?: { [key in string]: string }, };
