@@ -62,6 +62,14 @@ describe("Export with Neighborhood sharing", () => {
     expect(neighbors.send).not.toHaveBeenCalled();
   });
 
+  it("opens with focus on the chosen format, not the first one", async () => {
+    await renderDialog(false);
+    const focused = document.activeElement as HTMLInputElement;
+    expect(focused.name).toBe("template-format");
+    expect(focused.checked).toBe(true);
+    expect(focused.value).toBe("team");
+  });
+
   it("exports without sending anything when sharing stays off", async () => {
     await renderDialog(false);
     await act(async () => exportButton().click());

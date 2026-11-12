@@ -141,6 +141,17 @@ test("a busy apply closes the picker and cancel or Escape clears its staged requ
   }
 });
 
+test("a model option is named by its model and whether it is the current one", async () => {
+  const view = await mount(descriptor("next_turn"));
+  try {
+    await act(async () => view.trigger()!.click());
+    assert.equal(view.option("Deep").getAttribute("aria-label"), "Deep, current");
+    assert.equal(view.option("Fast").getAttribute("aria-label"), "Fast");
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("only the model capsule is interactive and the harness rides inside it as a decorative glyph", async () => {
   const view = await mount(descriptor("next_turn"));
   try {

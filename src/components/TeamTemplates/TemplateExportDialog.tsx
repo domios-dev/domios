@@ -105,7 +105,7 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
           <legend className="mb-1 text-[11px] text-[var(--ct-muted-fg)]">Format</legend>
           {options.map((option) => (
             <label key={option.format} data-selected={format === option.format || undefined}
-              className={`ct-card flex items-start gap-2.5 p-2.5 ${option.disabledReason ? "opacity-55" : ""} ${format === option.format ? "border-[var(--ct-accent)] bg-[color-mix(in_srgb,var(--ct-accent)_7%,var(--ct-bg))]" : ""}`}>
+              className={`ct-card ct-card--static flex items-start gap-2.5 p-2.5 ${option.disabledReason ? "opacity-55" : ""} ${format === option.format ? "border-[var(--ct-accent)] bg-[color-mix(in_srgb,var(--ct-accent)_7%,var(--ct-bg))]" : ""}`}>
               <input type="radio" name="template-format" value={option.format} checked={format === option.format}
                 disabled={Boolean(option.disabledReason)} onChange={() => setFormat(option.format)} className="mt-0.5" />
               <span className="min-w-0 flex-1 text-[12px]">

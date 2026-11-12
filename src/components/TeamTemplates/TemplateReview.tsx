@@ -14,6 +14,7 @@ import { TemplateIcon } from "./TemplateIcon";
 import { TemplateTrust } from "./TemplateTrust";
 import { TemplateBrings } from "./TemplateBrings";
 import { TemplateAsks } from "./TemplateAsks";
+import { PinnedFooter } from "./PinnedFooter";
 import { SLOT_ICON } from "./TemplateManagers";
 import { reviewRoles, roleHeading } from "./templateRoles";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
@@ -165,7 +166,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
       <div><BackPill label={back === "form" ? "the Team form" : "templates"} onBack={choice.backFromReview} /></div>
       <Identity summary={summary} titleId={titleId} descriptionId={descriptionId} />
       {unverified && <p className="text-[11.5px] text-[var(--ct-muted-fg)]">
-        {summary.received_from?.trim() ? `${summary.received_from.trim()} shared this team` : "This team came from a file"}. Check what it brings and turn off anything you don't want. Nothing runs until you start the team.
+        {summary.received_from?.trim() ? `${summary.received_from.trim()} shared this team` : "This team came from a file"}. Check what it brings and turn off anything you don't want.
       </p>}
       {update && <UpdateDiff diff={update} />}
       <div className={`grid gap-5 ${twoColumns ? "sm:grid-cols-2" : ""}`} data-testid="template-review-body" data-columns={twoColumns ? 2 : 1}>
@@ -183,8 +184,9 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
         </div>}
       </div>
       {/* One scroll container: the dialog scrolls and the footer stays pinned at its bottom edge. */}
-      <div className="template-pinned-footer sticky z-[1] flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] text-[11.5px] text-[var(--ct-muted-fg)] sm:flex-row sm:items-center">
-        <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-6 h-6 bg-gradient-to-t from-[var(--ct-surface)] to-transparent" />
+      {/* The section's gap-3 precedes the sentinel; -13px cancels it and the sentinel's own pixel. */}
+      <PinnedFooter sentinelClassName="-mt-[13px]"
+        className="flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] text-[11.5px] text-[var(--ct-muted-fg)] sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <HarnessNote preview={preview} providers={providers} onInstallProvider={onInstallProvider} />
           {/* Use only picks the template; the start is what the owner confirms, and only then is it verified. */}
@@ -196,7 +198,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
             : source.exportable && <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onExport}>Export…</Button>}
           <Button type="button" variant="primary" className="w-full sm:w-auto" onClick={choice.acceptReviewed}>Use template</Button>
         </div>
-      </div>
+      </PinnedFooter>
     </section>
   );
 }
