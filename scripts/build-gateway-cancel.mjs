@@ -9,7 +9,8 @@ try {
   }
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
     '-File', fileURLToPath(new URL('./build-gateway-cancel.ps1', import.meta.url)),
-    '-OwnerPid', owner.native_pid, '-OwnerStartToken', owner.native_start_token],
+    '-OwnerPid', owner.native_pid, '-OwnerStartToken', owner.native_start_token,
+    '-OwnerMsysPid', owner.pid, '-MsysPs', process.argv[3]],
   { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'Native tree cancellation failed');
 } catch (error) { console.error(error.message); process.exitCode = 1; }

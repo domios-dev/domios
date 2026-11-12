@@ -1,6 +1,8 @@
 param(
   [Parameter(Mandatory = $true)][int] $OwnerPid,
-  [Parameter(Mandatory = $true)][long] $OwnerStartToken
+  [Parameter(Mandatory = $true)][long] $OwnerStartToken,
+  [Parameter(Mandatory = $true)][int] $OwnerMsysPid,
+  [Parameter(Mandatory = $true)][string] $MsysPs
 )
 $ErrorActionPreference = 'Stop'
 
@@ -25,6 +27,7 @@ public static class GatewayCancelNative {
 
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $processes = New-Object 'System.Collections.Generic.List[object]'
+$pinnedIds = New-Object 'System.Collections.Generic.HashSet[int]'
 function Remaining {
   $remaining = 20000 - $clock.ElapsedMilliseconds
   if ($remaining -le 0) { throw 'Gateway tree cancellation deadline exceeded' }
@@ -50,6 +53,7 @@ try {
   $root = Pin $OwnerPid
   if (-not $root) { throw 'Gateway owner exited before cancellation' }
   $processes.Add($root)
+  [void]$pinnedIds.Add($OwnerPid)
   if ($root.created -ne $OwnerStartToken) { throw 'Gateway owner creation identity changed' }
   for ($index = 0; $index -lt $processes.Count; $index++) {
     $null = Remaining
@@ -57,9 +61,20 @@ try {
     if ($parent.process.HasExited) { continue }
     [GatewayCancelNative]::Suspend($parent.process.Handle)
     $parent.suspended = $true
-    $rows = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($parent.process.Id)")
+    $msys = @(& $MsysPs -e | ForEach-Object {
+      if ($_ -match '^\s*(\d+)\s+(\d+)\s+\d+\s+(\d+)\s') {
+        [pscustomobject]@{ pid = [int]$matches[1]; parent = [int]$matches[2]; native = [int]$matches[3] }
+      }
+    })
+    if ($LASTEXITCODE -ne 0) { throw 'MSYS process discovery failed' }
+    $msysParent = @($msys | Where-Object { $_.native -eq $parent.process.Id })
+    $msysChildren = @($msys | Where-Object { $_.parent -in $msysParent.pid } | ForEach-Object { $_.native })
+    $rows = @(Get-CimInstance Win32_Process | Where-Object {
+      $_.ParentProcessId -eq $parent.process.Id -or $_.ProcessId -in $msysChildren
+    })
     foreach ($row in $rows) {
       $null = Remaining
+      if ($pinnedIds.Contains([int]$row.ProcessId)) { continue }
       if (-not $row.CreationDate -or $row.CreationDate.ToUniversalTime().Ticks -lt ($parent.created - ($parent.created % 10))) { continue }
       $child = Pin ([int]$row.ProcessId)
       if (-not $child) { continue }
@@ -69,12 +84,18 @@ try {
         throw 'Gateway descendant creation identity changed'
       }
       $processes.Add($child)
+      [void]$pinnedIds.Add([int]$row.ProcessId)
     }
   }
   for ($index = $processes.Count - 1; $index -ge 0; $index--) {
     $entry = $processes[$index]
     $null = Remaining
-    if (-not $entry.process.HasExited) { [GatewayCancelNative]::Kill($entry.process.Handle) }
+    if ($index -eq 0 -and -not $entry.process.HasExited) {
+      & (Join-Path (Split-Path $MsysPs) 'kill.exe') -s TERM $OwnerMsysPid
+      if ($LASTEXITCODE -ne 0) { throw 'MSYS gateway owner signal failed' }
+      [GatewayCancelNative]::Resume($entry.process.Handle)
+      $entry.suspended = $false
+    } elseif (-not $entry.process.HasExited) { [GatewayCancelNative]::Kill($entry.process.Handle) }
     if (-not $entry.process.WaitForExit((Remaining))) { throw 'Gateway process exit was not confirmed' }
     $entry.suspended = $false
   }
