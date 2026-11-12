@@ -294,6 +294,8 @@ impl ServiceContext {
     pub fn emit_plan_changed(&self, plan_id: &str) {
         self.provider_update_task_state_changed();
         self.emit_committed_plan_changed(plan_id);
+        // A plan that binds a Team takes the skills that Team held since its start.
+        crate::service::team_template_payload::attach_held_skills_for_plan(self, plan_id);
     }
 }
 

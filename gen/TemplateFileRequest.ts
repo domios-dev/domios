@@ -2,6 +2,7 @@
 import type { TemplateRef } from "./TemplateRef";
 
 /**
- * Read one file inside a builtin or saved package, by its package-relative path.
+ * Read one text inside a builtin or saved package: a file by its package-relative `path`,
+ * or a role's instructions by `role`. Exactly one of the two is set.
  */
-export type TemplateFileRequest = { template: TemplateRef, path: string, };
+export type TemplateFileRequest = { template: TemplateRef, path?: string | null, role?: string | null, };

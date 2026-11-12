@@ -234,3 +234,32 @@ fn unsupported_sandbox_is_typed_in_cli_json_for_socket_and_rest_errors() {
         assert!(envelope["result"].is_object());
     }
 }
+
+#[test]
+fn typed_template_outcomes_keep_their_body_and_never_read_as_internal() {
+    let outcomes = [
+        (
+            json!({"status": "needs_choice", "choices": []}),
+            ErrorCode::InvalidArgument,
+        ),
+        (
+            json!({"status": "refused", "refusal": {"code": "consent_required", "reasons": []}}),
+            ErrorCode::Refused,
+        ),
+        (
+            json!({"status": "refused", "refusal": {"code": "missing_inputs", "inputs": ["secret:TOKEN"]}}),
+            ErrorCode::InvalidArgument,
+        ),
+        (
+            json!({"status": "refused", "refusal": {"code": "not_found", "template": {"name": "opaque"}}}),
+            ErrorCode::NotFound,
+        ),
+    ];
+    for (data, expected) in outcomes {
+        let message = format!("template_start: {data}");
+        assert_eq!(classify(&message, Some(-32000), Some(&data)), expected);
+        let envelope = error_envelope(&message, Some(-32000), Some(&data));
+        assert_eq!(envelope["result"], data, "the typed body travels unchanged");
+        assert_ne!(envelope["error"]["hint"], ErrorCode::Internal.hint());
+    }
+}

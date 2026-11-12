@@ -225,7 +225,15 @@ pub fn role_label_for(
 
 /// Stamps a launched tab's role label from its Team's registrations, read outside the mux lock.
 pub fn stamp_role_label(svc: &crate::service::ServiceContext, tab_id: &str) {
-    let identity = svc.mux.read().get_tab(tab_id).and_then(|tab| {
+    stamp_with(&svc.mux, tab_id, registrations);
+}
+
+fn stamp_with(
+    mux: &crate::multiplexer::commands::MuxState,
+    tab_id: &str,
+    registrations: impl Fn(Option<&str>) -> Vec<RoleRegistration>,
+) {
+    let identity = mux.read().get_tab(tab_id).and_then(|tab| {
         Some((
             tab.team_id.clone(),
             tab.role?,
@@ -236,8 +244,29 @@ pub fn stamp_role_label(svc: &crate::service::ServiceContext, tab_id: &str) {
         return;
     };
     let label = role_label_for(&registrations(team_id.as_deref()), role, &kind_id);
-    if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
-        tab.role_label = label;
+    if let Some(tab) = mux.write().get_tab_mut(tab_id) {
+        // A placement that moved the tab while the registrations were read restamps itself.
+        if tab.team_id == team_id {
+            tab.role_label = label;
+        }
+    }
+}
+
+/// Restamps every member of a Team once its registrations land; the anchor got its Team
+/// before any registration existed.
+pub fn stamp_team_role_labels(svc: &crate::service::ServiceContext, team_id: &str) {
+    stamp_team_with(&svc.mux, team_id, registrations);
+    svc.emit_state_changed(crate::service::MuxEmitCause::AgentIdentity);
+}
+
+fn stamp_team_with(
+    mux: &crate::multiplexer::commands::MuxState,
+    team_id: &str,
+    registrations: impl Fn(Option<&str>) -> Vec<RoleRegistration> + Copy,
+) {
+    let members = mux.read().team_member_tab_ids(team_id);
+    for tab_id in members {
+        stamp_with(mux, &tab_id, registrations);
     }
 }
 

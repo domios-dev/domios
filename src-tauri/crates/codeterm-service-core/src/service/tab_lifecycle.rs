@@ -155,6 +155,8 @@ impl ServiceContext {
                 parent_tab_id,
             },
         );
+        // The label follows the committed role and Team, whichever path placed the tab.
+        crate::service::team_roles::stamp_role_label(self, tab_id);
     }
 }
 

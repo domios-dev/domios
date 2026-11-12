@@ -103,6 +103,13 @@ fn declared_code(data: &Value) -> Option<ErrorCode> {
     ErrorCode::from_wire(wire)
 }
 
+/// A template start that did not start a Team travels as its typed result; it names its code.
+fn template_outcome_code(data: &Value) -> Option<ErrorCode> {
+    let outcome: codeterm_team_package::contracts::TemplateStartResult =
+        serde_json::from_value(data.clone()).ok()?;
+    ErrorCode::from_wire(outcome.error_code()?)
+}
+
 fn declared_hint(data: &Value) -> Option<String> {
     ["hint", "retry_hint"]
         .iter()
@@ -182,6 +189,9 @@ fn http_status_in(message: &str) -> Option<u64> {
 /// Structured facts win (declared code, HTTP status); free text is the last resort.
 pub fn classify(message: &str, rpc_code: Option<i32>, data: Option<&Value>) -> ErrorCode {
     if let Some(code) = data.and_then(declared_code) {
+        return code;
+    }
+    if let Some(code) = data.and_then(template_outcome_code) {
         return code;
     }
     let status = data

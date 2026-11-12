@@ -809,6 +809,28 @@ impl ServiceContext {
     }
 }
 
+impl ServiceContext {
+    /// The display name of one friend of the selected account, from its friends list.
+    pub fn neighbor_friend_display_name(&self, friendship_id: &str) -> Option<String> {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        let (uid, generation) = state.selected.clone()?;
+        let list = state
+            .snapshots
+            .read(&uid, generation, "friendsList", "", now_seconds())?;
+        friend_display_name(&list, friendship_id)
+    }
+}
+
+pub(crate) fn friend_display_name(list: &Value, friendship_id: &str) -> Option<String> {
+    list["friends"]
+        .as_array()?
+        .iter()
+        .find(|friend| friend["friendship_id"].as_str() == Some(friendship_id))?["displayName"]
+        .as_str()
+        .filter(|name| !name.trim().is_empty())
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests;
 

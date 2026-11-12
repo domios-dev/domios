@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::service::team_template_start::{
-    admit, resolve_placements, ConsentLedger,
+    admit_bound, resolve_placements, vault_unbound, ConsentLedger,
 };
 use codeterm_service_core::service::ServiceContext;
 use codeterm_team_package::contracts::{
@@ -17,8 +17,8 @@ use codeterm_team_package::ManagerSlot;
 use super::seats::started_slots;
 use super::summary::pinned_statuses;
 use super::{
-    apply_payload, deliver_summary, manager_item, refused, register, TemplateRail,
-    TemplateStartLocks,
+    apply_payload, deliver_summary, manager_item, refused, register, remember_consent,
+    TemplateRail, TemplateStartLocks,
 };
 use crate::{OrchestrationPairParams, OrchestrationPairResult};
 
@@ -62,8 +62,10 @@ pub(crate) async fn rerun(
     let gate = svc.ext::<TemplateStartLocks>().0.for_team(team_id);
     let _serialized = gate.lock_owned().await;
     let request = params.template.as_ref();
-    let mut admitted = admit(request, ConsentLedger::global()).map_err(refused)?;
+    let unbound = vault_unbound(svc, request).await;
+    let mut admitted = admit_bound(request, ConsentLedger::global(), &unbound).map_err(refused)?;
     resolve_placements(svc, &mut admitted).map_err(refused)?;
+    remember_consent(&admitted).await;
     let rail = TemplateRail {
         opt_out: request
             .map(|request| request.opt_out.clone())
@@ -95,7 +97,7 @@ pub(crate) async fn rerun(
     }
     let orchestrator_tab_id = live[&ManagerSlot::Orchestrator].clone();
     let planner_tab_id = live[&ManagerSlot::Planner].clone();
-    let registrations = register(team_id, &rail).await?;
+    let registrations = register(svc, team_id, &rail).await?;
     let mut statuses = pinned_statuses(&registrations);
     statuses.extend(apply_payload(svc, team_id, &rail).await);
     deliver_summary(svc, team_id, &orchestrator_tab_id, &statuses).await;

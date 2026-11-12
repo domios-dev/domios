@@ -5,13 +5,17 @@
       "version": "1.0.0",
       "title": "Default team",
       "description": "Orchestrator and Planner; every built-in worker available on demand.",
-      "provenance": "builtin"
+      "provenance": "builtin",
+      "workers": 0,
+      "verified": false
     },
     {
       "name": "com.example/research-desk",
       "version": "2.1.0",
       "description": "Researches a market question in parallel, cross-checks sources and writes a cited report.",
       "provenance": "saved",
+      "workers": 3,
+      "verified": true,
       "derived_from": { "name": "com.example/research-desk", "version": "2.0.3" }
     }
   ]
