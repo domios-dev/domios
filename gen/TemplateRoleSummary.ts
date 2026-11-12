@@ -13,6 +13,10 @@ role: string,
  */
 label: string, description?: string | null, start: RoleStart, 
 /**
- * A worker's model decided on the previewing machine; managers carry theirs as pickers.
+ * The role's model decided on the previewing machine; with_team managers carry theirs as pickers instead.
  */
-model?: ModelDecision | null, };
+model?: ModelDecision | null, 
+/**
+ * The role whose model this one follows (`model: {same_as: <role>}`), so a client names it even when undecided.
+ */
+same_as?: string | null, };
