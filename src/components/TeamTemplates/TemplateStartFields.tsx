@@ -6,6 +6,7 @@ import { TemplateHeader } from "./TemplateHeader";
 import { TemplateManagers, type PairRoleControls } from "./TemplateManagers";
 import { TemplateBrings } from "./TemplateBrings";
 import { TemplateAsks } from "./TemplateAsks";
+import { TemplateWhere } from "./TemplateWhere";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
@@ -51,7 +52,6 @@ export function TemplateStartFields({ choice, preview, providers, disabledProvid
   roleControls?: PairRoleControls;
 }) {
   const workers = preview.form.roles.filter((role) => role.group === "worker");
-  const needs = preview.where_needed?.needs ?? [];
   return (
     <div className="flex flex-col gap-3" data-testid="template-start-form">
       <TemplateHeader summary={preview.form.template} onChange={choice.openGallery} onDetails={choice.showDetails} />
@@ -68,16 +68,7 @@ export function TemplateStartFields({ choice, preview, providers, disabledProvid
       )}
       <TemplateBrings payload={preview.payload ?? []} optOut={choice.optOut} onToggle={choice.setKept} template={preview.form.template} />
       <TemplateAsks asks={preview.asks ?? []} secrets={{ bindings: choice.secrets, vault: choice.vault, onBind: choice.setSecret }} />
-      {needs.length > 0 && (
-        <section aria-label="Where" className="flex flex-col gap-1 text-[12px]" data-testid="template-where">
-          {needs.map((need) => need.kind === "missing_harness" ? (
-            <div key={need.harness} className="flex items-center gap-2">
-              <span className="text-[var(--ct-red)]">{need.harness} isn't installed on this machine</span>
-              <button type="button" className="text-[var(--ct-accent)] hover:underline" onClick={() => onInstallProvider(need.harness)}>Install</button>
-            </div>
-          ) : <div key={need.tool} className="text-[var(--ct-red)]">{need.tool} isn't available on this machine</div>)}
-        </section>
-      )}
+      <TemplateWhere choice={choice} preview={preview} onInstallProvider={onInstallProvider} />
     </div>
   );
 }

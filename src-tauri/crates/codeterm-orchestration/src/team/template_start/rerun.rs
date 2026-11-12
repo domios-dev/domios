@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 
 use codeterm_service_core::multiplexer::state::MultiplexerState;
-use codeterm_service_core::service::team_template_start::{admit, ConsentLedger};
+use codeterm_service_core::service::team_template_start::{
+    admit, resolve_placements, ConsentLedger,
+};
 use codeterm_service_core::service::ServiceContext;
 use codeterm_team_package::contracts::{
     ManagerStartFailure, TemplateItemState, TemplateStartResult,
@@ -60,7 +62,8 @@ pub(crate) async fn rerun(
     let gate = svc.ext::<TemplateStartLocks>().0.for_team(team_id);
     let _serialized = gate.lock_owned().await;
     let request = params.template.as_ref();
-    let admitted = admit(request, ConsentLedger::global()).map_err(refused)?;
+    let mut admitted = admit(request, ConsentLedger::global()).map_err(refused)?;
+    resolve_placements(svc, &mut admitted).map_err(refused)?;
     let rail = TemplateRail {
         opt_out: request
             .map(|request| request.opt_out.clone())

@@ -31,7 +31,9 @@ const fixture = vi.hoisted(() => {
       card: vi.fn(),
       distill: vi.fn(),
       file: vi.fn(),
+      peerStart: vi.fn(),
     },
+    peers: vi.fn(async () => [{ id: "inst_8c1f", name: "eight" }]),
     vault: vi.fn(async () => ["SEARCH_API_KEY"]),
   };
 });
@@ -47,6 +49,7 @@ vi.mock("../../lib/bridge", async (importOriginal) => ({
 }));
 vi.mock("../../lib/transport/orchestrationRuntime", () => ({ teamTemplatesTransport: () => fixture.templates }));
 vi.mock("../../lib/teamTemplates/vaultSecrets", () => ({ listVaultSecretNames: fixture.vault, openSecretsSettings: vi.fn() }));
+vi.mock("../../lib/teamTemplates/hostPeers", () => ({ listHostPeers: fixture.peers }));
 
 import { NewSessionPicker } from "./NewSessionPicker";
 import { openTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
@@ -98,6 +101,13 @@ async function type(input: HTMLInputElement, value: string) {
     setter.call(input, value);
     input.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
+}
+
+async function choose(labelPrefix: string, option: string) {
+  const trigger = dialog().querySelector<HTMLElement>(`[aria-label^="${labelPrefix}"]`);
+  expect(trigger).not.toBeNull();
+  await act(async () => { trigger!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+  await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')).find((item) => item.textContent?.trim() === option));
 }
 
 async function renderPicker() {
@@ -245,5 +255,36 @@ describe("Team template start in the session dialog", () => {
     const viewer = Array.from(document.body.querySelectorAll('[role="dialog"]')).pop()!;
     expect(viewer.querySelector('[aria-label="source-check/scripts/fetch.py"]')?.textContent).toBe("print('fetch')");
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
+  });
+
+  it("runs a chosen worker type on a Full-access peer through the same pair request", async () => {
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    await renderPicker();
+    await chooseResearchDesk();
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    await click(button("Run some roles on another machine"));
+    expect(dialog().querySelector('[aria-label^="Machine for Lead"]')).toBeNull();
+    await choose("Machine for researcher", "eight");
+    await click(start());
+    const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { role_placements?: Record<string, string> } };
+    expect(input.template.role_placements).toEqual({ researcher: "eight" });
+  });
+
+  it("asks a peer to start the whole team and never starts it here", async () => {
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    fixture.templates.peerStart.mockResolvedValue(exchange.peer_start_accepted);
+    await renderPicker();
+    await chooseResearchDesk();
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    await click(button("Run this team on another machine…"));
+    await choose("Machine for this team", "eight");
+    await click(start());
+    expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
+    const request = fixture.templates.peerStart.mock.calls[0][0] as { peer: string; start: { template: { template: unknown; role_placements?: unknown } } };
+    expect(request.peer).toBe("eight");
+    expect(request.start.template.template).toEqual({ name: "com.example/research-desk", version: "2.1.0" });
+    expect(request.start.template).not.toHaveProperty("role_placements");
+    expect(fixture.actions.upsertToast).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

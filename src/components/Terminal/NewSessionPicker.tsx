@@ -319,6 +319,21 @@ export function NewSessionPicker({
     setBusy(true);
     setStartError(null);
     try {
+      if (templates.remotePeer) {
+        const accepted = await templates.startOnPeer({
+          template,
+          orchestrator_agent: pair.orchestratorAgent,
+          orchestrator_model: pair.orchestratorModel ?? null,
+          planner_agent: pair.plannerAgent,
+          planner_model: pair.plannerModel ?? null,
+        });
+        createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null, workspaceId,
+          title: `Waiting for ${accepted.peer_name}'s owner to tap Start here`,
+          detail: "The team starts on that machine once they answer.",
+          severity: "Info" });
+        onClose();
+        return;
+      }
       const result = await createOrchestrationPair({ ...pair, template });
       await selectTabByTab(workspaceId, result.orchestrator_tab_id).catch(() => {});
       onClose();
@@ -327,7 +342,7 @@ export function NewSessionPicker({
     } finally {
       setBusy(false);
     }
-  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, orchestratorProfile, plannerProfile, templates, selectTabByTab, onClose]);
+  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, orchestratorProfile, plannerProfile, templates, selectTabByTab, onClose, upsertToast]);
 
   const handleStart = useCallback(() => {
     if (busy || dismissing || selectedWorkspace?.cwd_missing) return;

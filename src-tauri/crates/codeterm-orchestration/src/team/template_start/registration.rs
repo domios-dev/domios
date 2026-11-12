@@ -44,7 +44,11 @@ pub(crate) fn registrations_for(
                 instructions,
                 model: role.model.clone(),
                 reasoning: role.reasoning.clone(),
-                placement_peer: None,
+                // Managers are the Team's home; only workers run on another machine.
+                placement_peer: match group {
+                    TeamRoleGroup::Worker => admitted.placements.get(name).cloned(),
+                    TeamRoleGroup::Manager => None,
+                },
                 consent_decision_id: admitted.decision_id.clone(),
                 files,
                 skills: role.skills.clone(),

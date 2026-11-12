@@ -4,6 +4,7 @@ import { templatePreviewFixture } from "../transport/teamTemplates.testdata";
 import {
   authorLine, authorRows, distillName, initialSecretBindings, isTemplateFileName, linkRows, shareAsksSummary, updateDiffLines, usedByLine,
 } from "./exchangeModel";
+import { hostPeersOf } from "./hostPeers";
 
 type TemplateAsk = import("../../../gen/TemplateAsk").TemplateAsk;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
@@ -56,5 +57,14 @@ describe("template exchange model", () => {
     expect(["team.zip", "notes.yaml", "desk.teams"].map(isTemplateFileName)).toEqual([false, false, false]);
     expect(distillName("Release train!")).toBe("me/release-train");
     expect(distillName("  ")).toBe("me/team");
+  });
+
+  it("offers only online peers with Full access as hosts", () => {
+    expect(hostPeersOf([
+      { instance_id: "b", instance_name: "eight", online: true, access_level: "full" },
+      { instance_id: "a", instance_name: "air", online: true, access_level: "full" },
+      { instance_id: "c", instance_name: "mini", online: false, access_level: "full" },
+      { instance_id: "d", instance_name: "guest", online: true, access_level: "read_only" },
+    ])).toEqual([{ id: "a", name: "air" }, { id: "b", name: "eight" }]);
   });
 });

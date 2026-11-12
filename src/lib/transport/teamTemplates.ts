@@ -18,6 +18,8 @@ export type TemplateDistillResult = import("../../../gen/TemplateDistillResult")
 
 export type TemplateFileRequest = import("../../../gen/TemplateFileRequest").TemplateFileRequest;
 export type TemplateFileText = import("../../../gen/TemplateFileText").TemplateFileText;
+export type TemplatePeerStartRequest = import("../../../gen/TemplatePeerStartRequest").TemplatePeerStartRequest;
+export type TemplatePeerStartAccepted = import("../../../gen/TemplatePeerStartAccepted").TemplatePeerStartAccepted;
 
 export type TeamTemplatesClient = Pick<TransportClient, "json">;
 
@@ -37,6 +39,8 @@ export function createTeamTemplatesTransport(client: TeamTemplatesClient) {
       client.json<TemplateDeleteResult>("POST", "/api/team-templates/delete", { template }, opts),
     file: (request: TemplateFileRequest, opts?: { signal?: AbortSignal }) =>
       client.json<TemplateFileText>("POST", "/api/team-templates/file", request, opts),
+    peerStart: (request: TemplatePeerStartRequest, opts?: { signal?: AbortSignal }) =>
+      client.json<TemplatePeerStartAccepted>("POST", "/api/team-templates/peer-start", request, opts),
     card: (fileId: string, path: string, opts?: { signal?: AbortSignal }) =>
       client.json<TemplateShareCard>("POST", "/api/team-templates/card", { file_id: fileId, path }, opts),
     distill: ({ team_id: teamId, ...request }: TemplateDistillRequest, opts?: { signal?: AbortSignal }) =>

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { teamTemplatesTransport } from "../../lib/transport/orchestrationRuntime";
-import type { TeamTemplatesTransport, TemplatePreview, TemplateRecall, TemplateStartRequest } from "../../lib/transport/teamTemplates";
+import type {
+  TeamTemplatesTransport, TemplatePeerStartAccepted, TemplatePeerStartRequest, TemplatePreview, TemplateRecall, TemplateStartRequest,
+} from "../../lib/transport/teamTemplates";
 import { initialSecretBindings } from "../../lib/teamTemplates/exchangeModel";
 import { takePendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
+import { listHostPeers, type HostPeer } from "../../lib/teamTemplates/hostPeers";
 import {
   buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView,
   type PickerSeed, type TemplateSummary,
@@ -30,12 +33,13 @@ function basename(path: string): string {
 }
 
 /** Template choice for the Team form; the default is always available and starts today's pair without `template`. */
-export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames }: {
+export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames, hostPeers = listHostPeers }: {
   enabled: boolean;
   recallQuery: string;
   onSeedPair: (seats: Partial<Record<"orchestrator" | "planner", PickerSeed>>) => void;
   transport?: () => TeamTemplatesTransport;
   vaultNames?: () => Promise<string[]>;
+  hostPeers?: () => Promise<HostPeer[]>;
 }) {
   const [view, setView] = useState<TemplateView>({ kind: "form" });
   const [catalog, setCatalog] = useState<TemplateCatalog | null>(null);
@@ -48,6 +52,10 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [vault, setVault] = useState<string[] | null>(null);
   const [update, setUpdate] = useState<TemplateUpdateDiff | null>(null);
+  const [placements, setPlacements] = useState<Record<string, string>>({});
+  const [remotePeer, setRemotePeer] = useState<string | null>(null);
+  const [peers, setPeers] = useState<HostPeer[] | null>(null);
+  const [peersWanted, setPeersWanted] = useState(false);
 
   useEffect(() => {
     if (!enabled || catalog) return;
@@ -84,6 +92,8 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     setInputs(initialInputs(preview.form.inputs ?? []));
     setOptOut(kept);
     setSeats(managerSeeds);
+    setPlacements({});
+    setRemotePeer(null);
     setView({ kind: "form" });
   }, [onSeedPair, vault]);
 
@@ -149,6 +159,13 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     if (request) void openPreview(request.template, false, request.update);
   }, [enabled, openPreview]);
 
+  useEffect(() => {
+    if (!peersWanted || peers) return;
+    let live = true;
+    void hostPeers().then((list) => { if (live) setPeers(list); }, () => { if (live) setPeers([]); });
+    return () => { live = false; };
+  }, [peersWanted, peers, hostPeers]);
+
   const needsVault = Boolean(chosen?.asks?.some((ask) => ask.kind === "secret"));
   useEffect(() => {
     if (!needsVault || vault) return;
@@ -165,12 +182,13 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     if (!chosen) return undefined;
     const managerModels = Object.fromEntries(Object.entries(seats).map(([slot, seat]) => [slot,
       { model: `${seat.providerId}:${seat.modelId}`, reasoning_effort: seat.effortId ?? null }]));
-    return buildStartRequest({ preview: chosen, inputs, optOut, managerModels, secretBindings: secrets });
-  }, [chosen, inputs, optOut, seats, secrets]);
+    return buildStartRequest({ preview: chosen, inputs, optOut, managerModels, secretBindings: secrets, rolePlacements: remotePeer ? {} : placements });
+  }, [chosen, inputs, optOut, seats, secrets, placements, remotePeer]);
 
   return {
     view, catalog, chosen, inputs, optOut, seats, pending, notice, defaultSummary, secrets, vault, update,
-    blocker: chosen ? startBlocker(chosen, inputs, secrets) : null,
+    placements, remotePeer, peers,
+    blocker: chosen ? startBlocker(chosen, inputs, secrets, remotePeer) : null,
     openGallery: () => { setNotice(null); setView({ kind: "gallery" }); },
     backToForm: () => setView({ kind: "form" }),
     showDetails: () => { if (chosen) setView({ kind: "review", preview: chosen, mode: "detail" }); },
@@ -185,6 +203,12 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     importPath: (path: string) => { void importPath(path); },
     remove: (summary: TemplateSummary) => { void remove(summary); },
     setSecret: (name: string, entry: string) => setSecrets((current) => ({ ...current, [name]: entry })),
+    wantPeers: () => setPeersWanted(true),
+    /** Asks the chosen peer to start this Team; its owner answers there. */
+    startOnPeer: (start: TemplatePeerStartRequest["start"]): Promise<TemplatePeerStartAccepted> =>
+      transport().peerStart({ peer: remotePeer ?? "", start }),
+    setPlacement: (role: string, peer: string) => setPlacements((current) => ({ ...current, [role]: peer })),
+    setRemotePeer,
     setNotice,
     setInput: (key: string, value: string) => setInputs((current) => ({ ...current, [key]: value })),
     setKept: (id: string, kept: boolean) => setOptOut((current) => {

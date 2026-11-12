@@ -6,9 +6,8 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use codeterm_team_package::contracts::TemplateStartRequest;
+use codeterm_team_package::contracts::TemplatePeerStartAsk;
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// The daemon question request prefix every peer-hosting ask carries.
@@ -20,25 +19,11 @@ pub const PEER_ASK_DECLINE: &str = "Decline";
 /// Bounds both the open asks and the outcomes kept for origins; the oldest goes first.
 const MAX_ASKS: usize = 64;
 
-/// What an origin asks a peer Main to start; the pair fields are this peer's own choices.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerStartAsk {
-    pub template: TemplateStartRequest,
-    #[serde(default)]
-    pub orchestrator_agent: String,
-    #[serde(default)]
-    pub orchestrator_model: Option<String>,
-    #[serde(default)]
-    pub planner_agent: String,
-    #[serde(default)]
-    pub planner_model: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 pub enum PeerAsk {
     Start {
         origin_peer: String,
-        ask: PeerStartAsk,
+        ask: TemplatePeerStartAsk,
     },
     Clone {
         origin_peer: String,
