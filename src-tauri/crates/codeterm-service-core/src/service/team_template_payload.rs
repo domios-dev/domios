@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-use codeterm_team_package::contracts::PayloadApplyResult;
+use codeterm_team_package::contracts::{PayloadApplyResult, PayloadItemFailure};
 use codeterm_team_package::{
     payload_items, InlineSkill, MemoryKind, Package, PackageAutomation, PackageFile, PackageMemory,
     PackageSkill, SkillFile, TeamRole,
@@ -16,7 +16,38 @@ use codeterm_types::team::role_registration::RoleFileRef;
 
 use super::ServiceContext;
 
+mod deferred;
 mod service_port;
+
+pub use deferred::{attach_held_skills_for_plan, live_orchestrator, settle_automation_for_tab};
+
+/// A closed Team leaves no payload behind: its knowledge, held skills and waiting Blueprints.
+/// Blocking.
+pub fn forget_team(team_id: &str) -> Result<(), String> {
+    deferred::forget_waiting(team_id);
+    remove_team_payload(&crate::paths::data_dir().join("teams"), team_id)
+}
+
+fn remove_team_payload(teams: &std::path::Path, team_id: &str) -> Result<(), String> {
+    let safe = !team_id.is_empty()
+        && team_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+    if !safe {
+        return Err(format!("`{team_id}` is not a Team id"));
+    }
+    for part in ["knowledge", "skills"] {
+        let dir = teams.join(team_id).join(part);
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("{}: {error}", dir.display())),
+        }
+    }
+    // Registrations may still live beside it; only an emptied Team folder goes.
+    let _ = std::fs::remove_dir(teams.join(team_id));
+    Ok(())
+}
 
 /// One skill folder: `SKILL.md` plus its other files, by folder-relative path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,20 +72,30 @@ pub struct TeamMemory {
     pub history_excluded: u32,
 }
 
+/// Whether an accepted item is in place now or lands when the Team is ready for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Landed {
+    Now,
+    Deferred,
+}
+
 /// The stores a payload touches; the service implements it, tests inject it.
 pub trait PayloadPort {
     fn write_file(&self, team_id: &str, path: &str, bytes: &[u8]) -> Result<(), String>;
     fn files(&self, team_id: &str) -> Result<Vec<(String, Vec<u8>)>, String>;
     fn seed_memory(&self, team_id: &str, memory: &PackageMemory) -> Result<(), String>;
     fn memory(&self, team_id: &str) -> Result<TeamMemory, String>;
-    fn register_skill(&self, team_id: &str, skill: &SkillFolder) -> Result<(), String>;
+    fn register_skill(&self, team_id: &str, skill: &SkillFolder) -> Result<Landed, String>;
     fn skills(&self, team_id: &str) -> Result<Vec<SkillFolder>, String>;
-    fn apply_automation(&self, team_id: &str, item: &AutomationItem) -> Result<(), String>;
+    fn apply_automation(&self, team_id: &str, item: &AutomationItem) -> Result<Landed, String>;
     fn automation(&self, team_id: &str) -> Result<Vec<AutomationItem>, String>;
 }
 
 /// Applies Blueprints for the payload; installed by the host that owns Blueprint authority.
 pub trait AutomationPort: Send + Sync {
+    /// Refuses a document that could never import, before it waits for the Orchestrator.
+    fn check(&self, item: &AutomationItem) -> Result<(), String>;
+    /// Imports idempotently: a Blueprint the Team already has by name is left alone.
     fn apply(&self, team_id: &str, item: &AutomationItem) -> Result<(), String>;
     fn list(&self, team_id: &str) -> Result<Vec<AutomationItem>, String>;
 }
@@ -279,17 +320,28 @@ fn automation_item(package: &Package, automation: &PackageAutomation) -> Option<
     }
 }
 
-/// Applies every opted-in item through `port`; an opted-out item is never touched.
+fn record(result: &mut PayloadApplyResult, id: String, outcome: Result<Landed, String>) {
+    match outcome {
+        Ok(Landed::Now) => result.applied.push(id),
+        Ok(Landed::Deferred) => result.deferred.push(id),
+        Err(reason) => result.failed.push(PayloadItemFailure { id, reason }),
+    }
+}
+
+/// Applies every opted-in item through `port`; an opted-out item is never touched and one
+/// failed item never stops the rest, so the result names every item's outcome.
 pub fn apply_with(
     port: &dyn PayloadPort,
     team_id: &str,
     package: &Package,
     opt_out: &[String],
-) -> Result<PayloadApplyResult, String> {
+) -> PayloadApplyResult {
     let out: BTreeSet<&str> = opt_out.iter().map(String::as_str).collect();
     let mut result = PayloadApplyResult {
         applied: Vec::new(),
         skipped: Vec::new(),
+        deferred: Vec::new(),
+        failed: Vec::new(),
     };
     let ids: Vec<String> = payload_items(package)
         .into_iter()
@@ -310,42 +362,39 @@ pub fn apply_with(
         let Some(id) = decide(&mut result) else {
             continue;
         };
-        let bytes = package
+        let outcome = package
             .file_bytes(&file.path)
-            .ok_or_else(|| format!("{id}: the package does not carry this file"))?;
-        port.write_file(team_id, &file.path, bytes)
-            .map_err(|error| format!("{id}: {error}"))?;
-        result.applied.push(id);
+            .ok_or_else(|| "the package does not carry this file".to_string())
+            .and_then(|bytes| port.write_file(team_id, &file.path, bytes))
+            .map(|()| Landed::Now);
+        record(&mut result, id, outcome);
     }
     for memory in &document.memory {
         let Some(id) = decide(&mut result) else {
             continue;
         };
-        port.seed_memory(team_id, memory)
-            .map_err(|error| format!("{id}: {error}"))?;
-        result.applied.push(id);
+        let outcome = port.seed_memory(team_id, memory).map(|()| Landed::Now);
+        record(&mut result, id, outcome);
     }
     for skill in &document.skills {
         let Some(id) = decide(&mut result) else {
             continue;
         };
-        let folder =
-            skill_folder(package, skill).ok_or_else(|| format!("{id}: the skill has no name"))?;
-        port.register_skill(team_id, &folder)
-            .map_err(|error| format!("{id}: {error}"))?;
-        result.applied.push(id);
+        let outcome = skill_folder(package, skill)
+            .ok_or_else(|| "the skill has no name".to_string())
+            .and_then(|folder| port.register_skill(team_id, &folder));
+        record(&mut result, id, outcome);
     }
     for automation in &document.automation {
         let Some(id) = decide(&mut result) else {
             continue;
         };
-        let item = automation_item(package, automation)
-            .ok_or_else(|| format!("{id}: the Blueprint is not readable text"))?;
-        port.apply_automation(team_id, &item)
-            .map_err(|error| format!("{id}: {error}"))?;
-        result.applied.push(id);
+        let outcome = automation_item(package, automation)
+            .ok_or_else(|| "the Blueprint is not readable text".to_string())
+            .and_then(|item| port.apply_automation(team_id, &item));
+        record(&mut result, id, outcome);
     }
-    Ok(result)
+    result
 }
 
 /// What bake brings back from a live Team, before the export scrub.
@@ -443,13 +492,13 @@ pub(crate) fn mem_kind(kind: MemoryKind) -> crate::mem::MemKind {
     }
 }
 
-/// Applies the opted-in payload of `package` to a Team at start.
+/// Applies the opted-in payload of `package` to a Team at start. Blocking.
 pub fn apply(
     svc: &ServiceContext,
     team_id: &str,
     package: &Package,
     opt_out: &[String],
-) -> Result<PayloadApplyResult, String> {
+) -> PayloadApplyResult {
     apply_with(
         &service_port::ServicePort { svc },
         team_id,

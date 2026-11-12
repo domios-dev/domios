@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 
 use codeterm_service_core::service::messenger::{MessageEnvelope, Messenger};
 use codeterm_service_core::service::model_decision::TargetCatalogue;
-use codeterm_service_core::service::team_roles::TeamRoleStore;
+use codeterm_service_core::service::team_roles::{stamp_team_role_labels, TeamRoleStore};
 use codeterm_service_core::service::team_template_start::{
-    admit, resolve_placements, AdmittedTemplate, ConsentLedger,
+    admit_bound, record_consent, resolve_placements, vault_unbound, AdmittedTemplate, ConsentLedger,
 };
 use codeterm_service_core::service::{blocking, team_template_payload};
 use codeterm_service_core::service::{ServiceContext, SpawnAgentParams};
@@ -118,6 +118,16 @@ fn owner_picks(params: &OrchestrationPairParams) -> BTreeMap<ManagerSlot, OwnerP
     picks
 }
 
+/// Records the owner's admitted consent on the saved template, off the async runtime.
+pub(crate) async fn remember_consent(admitted: &AdmittedTemplate) {
+    let admitted = admitted.clone();
+    let _ = blocking::run(move || {
+        record_consent(&admitted);
+        Ok(())
+    })
+    .await;
+}
+
 /// Resolves the package, gathers inputs, enforces consent and decides manager models,
 /// all before any Tab, Team or registration exists.
 pub(crate) async fn prepare(
@@ -125,8 +135,10 @@ pub(crate) async fn prepare(
     params: &OrchestrationPairParams,
 ) -> Result<TemplateRail, String> {
     let request = params.template.as_ref();
-    let mut admitted = admit(request, ConsentLedger::global()).map_err(refused)?;
+    let unbound = vault_unbound(svc, request).await;
+    let mut admitted = admit_bound(request, ConsentLedger::global(), &unbound).map_err(refused)?;
     resolve_placements(svc, &mut admitted).map_err(refused)?;
+    remember_consent(&admitted).await;
     let mut picks = owner_picks(params);
     for (slot, pick) in picks.iter_mut() {
         pick.outside_catalogue = outside_catalogue(svc, *slot, pick)?;
@@ -149,12 +161,22 @@ pub(crate) async fn prepare(
 
 /// Registers every package role on the Team before its managers compose their prompts.
 pub(crate) async fn register(
+    svc: &ServiceContext,
     team_id: &str,
     rail: &TemplateRail,
 ) -> Result<Vec<TemplateStartItem>, String> {
     let registrations =
         registration::registrations_for(team_id, &rail.admitted, registration::now_ms());
-    blocking::run(move || registration::register_all(TeamRoleStore::global(), registrations)).await
+    let items =
+        blocking::run(move || registration::register_all(TeamRoleStore::global(), registrations))
+            .await?;
+    let (svc, team) = (svc.clone(), team_id.to_string());
+    blocking::run(move || {
+        stamp_team_role_labels(&svc, &team);
+        Ok(())
+    })
+    .await?;
+    Ok(items)
 }
 
 /// A rolled-back mint never came up, so its registrations go with it.
@@ -208,11 +230,24 @@ pub(crate) fn payload_request(rail: &TemplateRail) -> Option<(Package, Vec<Strin
     (!payload_items(package).is_empty()).then(|| (package.clone(), rail.opt_out.clone()))
 }
 
-fn payload_detail(result: &PayloadApplyResult) -> String {
-    format!(
-        "{} applied, {} opted out",
+pub(crate) fn payload_status(result: &PayloadApplyResult) -> PostStartStatus {
+    let detail = format!(
+        "{} applied, {} waiting for the Team, {} opted out",
         result.applied.len(),
+        result.deferred.len(),
         result.skipped.len()
+    );
+    if result.failed.is_empty() {
+        return PostStartStatus::ok("payload", detail);
+    }
+    let failures: Vec<String> = result
+        .failed
+        .iter()
+        .map(|failure| format!("{}: {}", failure.id, failure.reason))
+        .collect();
+    PostStartStatus::failed(
+        "payload",
+        format!("{detail}; failed: {}", failures.join("; ")),
     )
 }
 
@@ -225,11 +260,14 @@ async fn apply_payload(
     let (package, opt_out) = payload_request(rail)?;
     let svc = svc.clone();
     let team_id = team_id.to_string();
-    let applied =
-        blocking::run(move || team_template_payload::apply(&svc, &team_id, &package, &opt_out))
-            .await;
+    let applied = blocking::run(move || {
+        Ok(team_template_payload::apply(
+            &svc, &team_id, &package, &opt_out,
+        ))
+    })
+    .await;
     Some(match applied {
-        Ok(result) => PostStartStatus::ok("payload", payload_detail(&result)),
+        Ok(result) => payload_status(&result),
         Err(reason) => PostStartStatus::failed("payload", reason),
     })
 }

@@ -12,6 +12,13 @@ export function authorLine(summary: Pick<TemplateSummary, "authors">): string | 
   return names.length ? `by ${names.join(", ")}` : null;
 }
 
+/** The gallery card's second line: "by Jane Doe · 4 workers", each part only when there is one. */
+export function cardByline(summary: Pick<TemplateSummary, "authors" | "workers">): string | null {
+  const workers = summary.workers;
+  const parts = [authorLine(summary), workers > 0 ? `${workers} ${workers === 1 ? "worker" : "workers"}` : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
 export interface AuthorRow { name: string; role: string | null; url: string | null }
 
 export function authorRows(summary: Pick<TemplateSummary, "authors">): AuthorRow[] {
@@ -104,6 +111,11 @@ export function harnessRequirements(required: readonly string[], missing: Readon
 }
 
 export const SAVE_VERSION_DEFAULT = "1.0.0";
+
+/** The editable "What it does" seed; the server refuses an empty description, even for a review. */
+export function distillDescription(teamName: string): string {
+  return `Starts a team like ${teamName.trim() || "this one"}.`;
+}
 
 /** A package name the owner can keep: their own namespace and a slug of the Team's name. */
 export function distillName(teamName: string): string {

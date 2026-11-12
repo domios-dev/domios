@@ -516,6 +516,7 @@ impl ServiceContext {
             crate::startup::boot_timing::mark(tab_id, None, "finish_recovery_done");
             self.retire_superseded_process_conditions(tab_id);
             crate::startup::boot_timing::mark(tab_id, None, "finish_conditions_done");
+            crate::service::team_template_payload::settle_automation_for_tab(self, tab_id);
         }
         if stage == BootStage::SpawnFailed {
             self.wake_agent_deliveries_on_state_change(tab_id);

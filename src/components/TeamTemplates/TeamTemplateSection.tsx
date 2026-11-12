@@ -5,15 +5,17 @@ import type { TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { TemplateHeader } from "./TemplateHeader";
 import { TemplateGallery } from "./TemplateGallery";
 import { TemplateReview } from "./TemplateReview";
-import { TemplateStartFields } from "./TemplateStartFields";
+import { TemplateStartFields, WorkerChips } from "./TemplateStartFields";
+import { TemplateWhere } from "./TemplateWhere";
 import { TemplateExportDialog } from "./TemplateExportDialog";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
-import type { PairRoleControls } from "./TemplateManagers";
+import { LaterManagerRows, type PairRoleControls } from "./TemplateManagers";
 
 /** The Team panel of the session dialog: today's pair form under the default, or a chosen template's simple form. */
 export function TeamTemplateSection({ choice, defaultForm, ...form }: {
   choice: TeamTemplateChoice;
-  defaultForm: ReactNode;
+  /** Today's pair form; `laterManagers` are the default's further roster rows to place after the Planner. */
+  defaultForm: (laterManagers: ReactNode) => ReactNode;
   providers: ProviderDescriptor[];
   disabledProviderIds: ReadonlySet<string>;
   pair: OrchestrationPairValues;
@@ -23,6 +25,7 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
 }) {
   const [exporting, setExporting] = useState<{ summary: TemplateSummary; share: boolean } | null>(null);
   const view = choice.view;
+  const fallback = choice.defaultPreview;
   const body = view.kind === "gallery"
     ? <TemplateGallery choice={choice} onExport={(summary, share = false) => setExporting({ summary, share })} />
     : view.kind === "review"
@@ -31,8 +34,11 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
       : choice.chosen
         ? <TemplateStartFields choice={choice} preview={choice.chosen} {...form} />
         : <div className="flex flex-col gap-3">
-          <TemplateHeader summary={choice.defaultSummary} onChange={choice.openGallery} />
-          <div>{defaultForm}</div>
+          <TemplateHeader summary={choice.defaultSummary} onChange={choice.openGallery} onDetails={fallback ? choice.showDetails : undefined} />
+          <div>{defaultForm(fallback ? <LaterManagerRows form={fallback.form} providers={form.providers} disabledProviderIds={form.disabledProviderIds}
+            pair={form.pair} seats={choice.seats} onSeatChange={choice.setSeat} onInstallProvider={form.onInstallProvider} /> : null)}</div>
+          {fallback && <WorkerChips preview={fallback} />}
+          {fallback && <TemplateWhere choice={choice} preview={fallback} onInstallProvider={form.onInstallProvider} />}
         </div>;
   return <>
     {body}

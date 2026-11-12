@@ -21,6 +21,21 @@ pub const BUILTIN_OWNER: &str = "dev.domios";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Record {
     provenance: TemplateProvenance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    received_from: Option<String>,
+    /// A start of this version passed the owner's consent here.
+    #[serde(default)]
+    verified: bool,
+}
+
+impl Record {
+    fn new(provenance: TemplateProvenance) -> Self {
+        Self {
+            provenance,
+            received_from: None,
+            verified: false,
+        }
+    }
 }
 
 /// What a save changed.
@@ -177,12 +192,60 @@ impl TemplateLibrary {
         codeterm_util::safe_tree::refuse_linked_ancestors(&archive).ok()?;
         let bytes = std::fs::read(&archive).ok()?;
         let package = check_archive(&bytes, &CheckOptions::domios()).package?;
-        let provenance = std::fs::read_to_string(self.file(name, &version, RECORD).ok()?)
+        Some((package, self.record(name, &version).provenance))
+    }
+
+    /// The saved record of one version; an unreadable record is an unverified import.
+    fn record(&self, name: &str, version: &str) -> Record {
+        self.file(name, version, RECORD)
             .ok()
+            .and_then(|path| std::fs::read_to_string(path).ok())
             .and_then(|text| serde_json::from_str::<Record>(&text).ok())
-            .map(|record| record.provenance)
-            .unwrap_or(TemplateProvenance::Imported);
-        Some((package, provenance))
+            .unwrap_or_else(|| Record::new(TemplateProvenance::Imported))
+    }
+
+    fn write_record(&self, name: &str, version: &str, record: &Record) -> Result<(), String> {
+        let text = serde_json::to_string_pretty(record).map_err(|error| error.to_string())?;
+        codeterm_util::atomic_write::write_atomic(&self.file(name, version, RECORD)?, text)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Updates the record of a saved version; an absent version is not created.
+    fn amend(
+        &self,
+        name: &str,
+        version: &str,
+        change: impl FnOnce(&mut Record),
+    ) -> Result<(), String> {
+        let _write = self.writes.lock();
+        if !self.file(name, version, ARCHIVE)?.is_file() {
+            return Err(format!("`{name}@{version}` is not in My templates"));
+        }
+        let mut record = self.record(name, version);
+        change(&mut record);
+        self.write_record(name, version, &record)
+    }
+
+    /// Records the friend a saved version arrived from.
+    pub fn mark_received(&self, name: &str, version: &str, from: &str) -> Result<(), String> {
+        self.amend(name, version, |record| {
+            record.received_from = Some(from.to_string())
+        })
+    }
+
+    /// Records that a start of this version passed the owner's consent.
+    pub fn mark_verified(&self, name: &str, version: &str) -> Result<(), String> {
+        self.amend(name, version, |record| record.verified = true)
+    }
+
+    /// The summary of a saved package with what its record knows about it.
+    pub fn summary(&self, package: &Package) -> TemplateSummary {
+        let document = &package.document;
+        let record = self.record(&document.name, &document.version);
+        let mut summary = TemplateSummary::from_package(package, record.provenance);
+        summary.received_from = record.received_from;
+        summary.verified = record.verified;
+        summary
     }
 
     /// The newest version of every saved template, by name.
@@ -209,7 +272,7 @@ impl TemplateLibrary {
         names
             .into_iter()
             .filter_map(|name| self.load(&name, None))
-            .map(|(package, provenance)| TemplateSummary::from_package(&package, provenance))
+            .map(|(package, _)| self.summary(&package))
             .collect()
     }
 
@@ -225,7 +288,6 @@ impl TemplateLibrary {
         }
         let bytes = package.to_archive()?;
         let archive = self.file(name, version, ARCHIVE)?;
-        let record = self.file(name, version, RECORD)?;
         let _write = self.writes.lock();
         if let Ok(existing) = std::fs::read(&archive) {
             if existing == bytes {
@@ -241,10 +303,7 @@ impl TemplateLibrary {
         let dir = self.dir(name)?;
         std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
         codeterm_util::safe_tree::refuse_linked_ancestors(&dir)?;
-        let text = serde_json::to_string_pretty(&Record { provenance })
-            .map_err(|error| error.to_string())?;
-        codeterm_util::atomic_write::write_atomic(&record, text)
-            .map_err(|error| error.to_string())?;
+        self.write_record(name, version, &Record::new(provenance))?;
         codeterm_util::atomic_write::write_atomic(&archive, &bytes)
             .map_err(|error| error.to_string())?;
         Ok(Saved::Created { update })

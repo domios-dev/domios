@@ -7,7 +7,7 @@ import { TemplateExportDialog, type NeighborShare } from "./TemplateExportDialog
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const summary = { name: "me/research-desk", version: "1.0.0", title: "Research desk", description: "Researches.", provenance: "saved" as const };
+const summary = { name: "me/research-desk", version: "1.0.0", title: "Research desk", description: "Researches.", provenance: "saved" as const, workers: 2, verified: true };
 const exported = { ...exportFixture.result, path: "/data/team-exports/research-desk.team" };
 const exportPackage = vi.fn();
 const transport = () => ({ export: exportPackage } as unknown as TeamTemplatesTransport);

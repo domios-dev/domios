@@ -77,6 +77,7 @@ pub(super) fn export_sdk(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_plugin::local_recording::SelectedDevices::export_all(config)?;
     codeterm_secrets::StoreStatus::export_all(config)?;
     codeterm_secrets::ListFilter::export_all(config)?;
+    codeterm_secrets::SecretItem::export_all(config)?;
     codeterm_decision::TokenMode::export_all(config)?;
     codeterm_plugin::chatbackend_provider::ChatBackendCloseReceipt::export_all(config)?;
     codeterm_local_recording::ReceiverStatusQuery::export_all(config)?;

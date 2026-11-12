@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use codeterm_team_package::{MemoryKind, PackageMemory};
 
 use super::{
-    automation_port, knowledge_dir, mem_kind, AutomationItem, PayloadPort, SkillFolder, TeamMemory,
+    automation_port, deferred, knowledge_dir, mem_kind, AutomationItem, Landed, PayloadPort,
+    SkillFolder, TeamMemory,
 };
 use crate::mem::backend::WriteContext;
 use crate::mem::{MemScope, NewMemItem};
@@ -37,7 +38,7 @@ fn title(team_id: &str, title: &str) -> String {
 }
 
 /// Joins a package-relative path under `root`, refusing anything that could escape it.
-fn under(root: &Path, relative: &str) -> Result<PathBuf, String> {
+pub(super) fn under(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let parts: Vec<&str> = relative.split('/').collect();
     if relative.is_empty()
         || relative.starts_with('/')
@@ -54,7 +55,7 @@ fn under(root: &Path, relative: &str) -> Result<PathBuf, String> {
         .fold(root.to_path_buf(), |path, part| path.join(part)))
 }
 
-fn write_under(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
+pub(super) fn write_under(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
     let target = under(root, relative)?;
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -113,6 +114,37 @@ impl ServicePort<'_> {
     fn plan_id(&self, team_id: &str) -> Option<String> {
         self.svc.plan_store.plan_id_for_team(team_id)
     }
+}
+
+/// Registers a skill folder as a plan skill; one already registered under the name stays.
+pub(super) fn install_plan_skill(
+    svc: &ServiceContext,
+    plan_id: &str,
+    skill: &SkillFolder,
+) -> Result<(), String> {
+    let created = match create_plan_skill(
+        &svc.plan_store,
+        plan_id,
+        NewPlanSkill {
+            slug: skill.name.clone(),
+            title: None,
+            area: None,
+            check: None,
+            rationale: Some("registered from a Team template".to_string()),
+        },
+    ) {
+        Ok(created) => created,
+        Err(PlanError::PlanSkillAlreadyExists { .. }) => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let dir = Path::new(&created.skill_md)
+        .parent()
+        .ok_or("the plan skill has no folder")?
+        .to_path_buf();
+    for (path, bytes) in &skill.files {
+        write_under(&dir, path, bytes)?;
+    }
+    Ok(())
 }
 
 impl PayloadPort for ServicePort<'_> {
@@ -191,40 +223,19 @@ impl PayloadPort for ServicePort<'_> {
         Ok(memory)
     }
 
-    fn register_skill(&self, team_id: &str, skill: &SkillFolder) -> Result<(), String> {
-        let plan_id = self
-            .plan_id(team_id)
-            .ok_or("the Team has no plan to hold its skills")?;
-        let created = match create_plan_skill(
-            &self.svc.plan_store,
-            &plan_id,
-            NewPlanSkill {
-                slug: skill.name.clone(),
-                title: None,
-                area: None,
-                check: None,
-                rationale: Some("registered from a Team template".to_string()),
-            },
-        ) {
-            Ok(created) => created,
-            Err(PlanError::PlanSkillAlreadyExists { .. }) => return Ok(()),
-            Err(error) => return Err(error.to_string()),
-        };
-        let dir = Path::new(&created.skill_md)
-            .parent()
-            .ok_or("the plan skill has no folder")?
-            .to_path_buf();
-        for (path, bytes) in &skill.files {
-            write_under(&dir, path, bytes)?;
+    /// A Team without a plan yet holds the skill until its plan binds.
+    fn register_skill(&self, team_id: &str, skill: &SkillFolder) -> Result<Landed, String> {
+        match self.plan_id(team_id) {
+            Some(plan_id) => install_plan_skill(self.svc, &plan_id, skill).map(|()| Landed::Now),
+            None => deferred::hold_skill(team_id, skill).map(|()| Landed::Deferred),
         }
-        Ok(())
     }
 
     fn skills(&self, team_id: &str) -> Result<Vec<SkillFolder>, String> {
+        let mut skills = deferred::held_skills(team_id)?;
         let Some(plan_id) = self.plan_id(team_id) else {
-            return Ok(Vec::new());
+            return Ok(skills);
         };
-        let mut skills = Vec::new();
         for summary in
             list_plan_skills(&self.svc.plan_store, &plan_id).map_err(|error| error.to_string())?
         {
@@ -240,10 +251,15 @@ impl PayloadPort for ServicePort<'_> {
         Ok(skills)
     }
 
-    fn apply_automation(&self, team_id: &str, item: &AutomationItem) -> Result<(), String> {
-        automation_port()
-            .ok_or("Blueprint automation is not available in this host")?
-            .apply(team_id, item)
+    /// A Blueprint imports under a live Orchestrator; before that it waits for its readiness.
+    fn apply_automation(&self, team_id: &str, item: &AutomationItem) -> Result<Landed, String> {
+        let port = automation_port().ok_or("Blueprint automation is not available in this host")?;
+        port.check(item)?;
+        if deferred::live_orchestrator(self.svc, team_id).is_some() {
+            return port.apply(team_id, item).map(|()| Landed::Now);
+        }
+        deferred::wait_for_orchestrator(self.svc, team_id, item.clone());
+        Ok(Landed::Deferred)
     }
 
     fn automation(&self, team_id: &str) -> Result<Vec<AutomationItem>, String> {

@@ -2113,15 +2113,20 @@ button {
   }
 }
 
+/* Phone width: the session dialog becomes a full-screen sheet in the same order. */
 @media (max-width: 640px) {
   .new-session-picker {
-    padding: 0.75rem;
+    padding: 0;
     align-items: stretch;
   }
   .new-session-picker-card {
-    max-width: calc(100vw - 1.5rem);
-    padding: 1rem;
-    align-self: center;
+    max-width: none;
+    min-height: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    padding: calc(1rem + var(--ct-safe-top, 0px)) 1rem calc(1rem + var(--ct-safe-bottom, 0px));
+    align-self: stretch;
   }
 }
 

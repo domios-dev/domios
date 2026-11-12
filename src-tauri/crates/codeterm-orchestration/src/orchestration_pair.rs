@@ -614,8 +614,12 @@ impl OrchestrationPairExt for ServiceContext {
             reserved
         };
         // Registered before the managers spawn, so their prompts compose from the package roles.
-        let registrations = match crate::team::template_start::register(&reserved.team.id, &rail)
-            .await
+        let registrations = match crate::team::template_start::register(
+            self,
+            &reserved.team.id,
+            &rail,
+        )
+        .await
         {
             Ok(registrations) => registrations,
             Err(error) => {

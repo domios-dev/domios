@@ -160,9 +160,12 @@ export function OrchestrationPairForm({
   roleTestIds,
   roleControls,
   onInstallProvider,
+  extraMembers,
 }: {
   providers: ProviderDescriptor[];
   values: OrchestrationPairValues;
+  /** Further roster rows after the Planner, such as the managers a template adds later. */
+  extraMembers?: ReactNode;
   disabledProviderIds?: ReadonlySet<string>;
   onChange: (next: OrchestrationPairValues) => void;
   layout?: "team" | "stack";
@@ -286,6 +289,7 @@ export function OrchestrationPairForm({
         <TeamRosterMember role="planner" icon={<ListChecks size={13} aria-hidden="true" />}>
           {plannerRow}
         </TeamRosterMember>
+        {extraMembers}
       </div>
       {titleField}
     </div>

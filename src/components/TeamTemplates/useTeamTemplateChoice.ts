@@ -19,12 +19,12 @@ type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpda
 export type TemplateView =
   | { kind: "form" }
   | { kind: "gallery" }
-  | { kind: "review"; preview: TemplatePreview; mode: "consent" | "detail" };
+  | { kind: "review"; preview: TemplatePreview; mode: "consent" | "detail"; back: "form" | "gallery" };
 
 export interface TemplateCatalog { templates: TemplateSummary[]; recall: TemplateRecall | null; error: string | null }
 
 const DEFAULT_SUMMARY: TemplateSummary = {
-  name: "dev.domios/default", version: "", title: "Default team", provenance: "builtin",
+  name: "dev.domios/default", version: "", title: "Default team", provenance: "builtin", verified: true, workers: 4,
   description: "Orchestrator and Planner; every built-in worker available on demand.",
 };
 
@@ -76,6 +76,18 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   }, [enabled, catalog, recallQuery, transport]);
 
   const defaultSummary = catalog?.recall?.fallback ?? DEFAULT_SUMMARY;
+  const [defaultPreview, setDefaultPreview] = useState<TemplatePreview | null>(null);
+
+  // The default form shows the whole default team; its start still goes through today's pair unless the owner moves roles.
+  useEffect(() => {
+    if (!enabled || defaultPreview) return;
+    const controller = new AbortController();
+    void Promise.resolve()
+      .then(() => transport().preview({ name: DEFAULT_SUMMARY.name }, { signal: controller.signal }))
+      // Without the preview the default form keeps today's pair rows, which still start the default team.
+      .then((preview) => { if (!controller.signal.aborted) setDefaultPreview(preview); }, () => undefined);
+    return () => controller.abort();
+  }, [enabled, defaultPreview, transport]);
 
   const select = useCallback((preview: TemplatePreview, kept: ReadonlySet<string>) => {
     const pairSeeds: Partial<Record<"orchestrator" | "planner", PickerSeed>> = {};
@@ -104,8 +116,8 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     try {
       const preview = await transport().preview(template);
       setOptOut(new Set());
-      if (detail) setView({ kind: "review", preview, mode: "detail" });
-      else if (preview.consent) setView({ kind: "review", preview, mode: "consent" });
+      if (detail) setView({ kind: "review", preview, mode: "detail", back: "gallery" });
+      else if (preview.consent) setView({ kind: "review", preview, mode: "consent", back: "gallery" });
       else select(preview, new Set());
     } catch (error) {
       setNotice(startErrorView(error).message);
@@ -117,6 +129,9 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const choose = useCallback((summary: TemplateSummary) => {
     if (summary.name === defaultSummary.name) {
       setChosen(null);
+      setSeats({});
+      setPlacements({});
+      setRemotePeer(null);
       setView({ kind: "form" });
       return;
     }
@@ -178,25 +193,35 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     return () => { live = false; };
   }, [needsVault, vault, vaultNames, chosen]);
 
+  // The default starts as today's pair; a picked later-manager model or a placement needs the template start.
+  const customized = remotePeer !== null || Object.values(placements).some(Boolean) || Object.keys(seats).length > 0;
+  const active = chosen ?? (customized ? defaultPreview : null);
   const startRequest = useCallback((): TemplateStartRequest | undefined => {
-    if (!chosen) return undefined;
+    if (!active) return undefined;
     const managerModels = Object.fromEntries(Object.entries(seats).map(([slot, seat]) => [slot,
       { model: `${seat.providerId}:${seat.modelId}`, reasoning_effort: seat.effortId ?? null }]));
-    return buildStartRequest({ preview: chosen, inputs, optOut, managerModels, secretBindings: secrets, rolePlacements: remotePeer ? {} : placements });
-  }, [chosen, inputs, optOut, seats, secrets, placements, remotePeer]);
+    return buildStartRequest({ preview: active, inputs, optOut, managerModels, secretBindings: secrets, rolePlacements: remotePeer ? {} : placements });
+  }, [active, inputs, optOut, seats, secrets, placements, remotePeer]);
 
   return {
-    view, catalog, chosen, inputs, optOut, seats, pending, notice, defaultSummary, secrets, vault, update,
+    view, catalog, chosen, inputs, optOut, seats, pending, notice, defaultSummary, defaultPreview, secrets, vault, update,
     placements, remotePeer, peers,
-    blocker: chosen ? startBlocker(chosen, inputs, secrets, remotePeer) : null,
+    /** True when Start goes through the template start rather than today's default pair. */
+    usesTemplate: active !== null,
+    blocker: active ? startBlocker(active, inputs, secrets, remotePeer) : null,
     openGallery: () => { setNotice(null); setView({ kind: "gallery" }); },
     backToForm: () => setView({ kind: "form" }),
-    showDetails: () => { if (chosen) setView({ kind: "review", preview: chosen, mode: "detail" }); },
+    showDetails: () => {
+      const shown = chosen ?? defaultPreview;
+      if (shown) setView({ kind: "review", preview: shown, mode: "detail", back: "form" });
+    },
     showSummaryDetails: (summary: TemplateSummary) => { void openPreview(summary, true); },
     choose,
+    backFromReview: () => setView(view.kind === "review" && view.back === "form" ? { kind: "form" } : { kind: "gallery" }),
     acceptReviewed: () => {
       if (view.kind !== "review") return;
       if (view.preview === chosen) setView({ kind: "form" });
+      else if (view.preview.form.template.name === defaultSummary.name) choose(defaultSummary);
       else if (view.mode === "detail" && view.preview.consent) setView({ ...view, mode: "consent" });
       else select(view.preview, optOut);
     },

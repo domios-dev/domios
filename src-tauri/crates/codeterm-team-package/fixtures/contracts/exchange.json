@@ -46,6 +46,8 @@
       "version": "1.0.0",
       "description": "Researches a market question and writes a cited report.",
       "provenance": "saved",
+      "workers": 2,
+      "verified": false,
       "derived_from": { "name": "dev.domios/default", "version": "1.0.0" },
       "authors": [{ "name": "Ada" }],
       "links": { "homepage": "https://example.com/desk" },
@@ -57,7 +59,10 @@
       "name": "ada/research-desk",
       "version": "1.1.0",
       "description": "Researches a market question and writes a cited report.",
-      "provenance": "imported"
+      "provenance": "imported",
+      "workers": 3,
+      "received_from": "Ada",
+      "verified": false
     },
     "check": { "format": "team", "valid": true, "name": "ada/research-desk", "version": "1.1.0", "diagnostics": [] },
     "update": {
@@ -79,7 +84,9 @@
       "name": "ada/research-desk",
       "version": "1.1.0",
       "description": "Researches a market question and writes a cited report.",
-      "provenance": "imported"
+      "provenance": "imported",
+      "workers": 3,
+      "verified": false
     },
     "roles": 6,
     "asks": [{ "kind": "secret", "name": "SEARCH_API_KEY", "purpose": "Web search", "required": true }, { "kind": "script", "item": "skill:source-check" }],

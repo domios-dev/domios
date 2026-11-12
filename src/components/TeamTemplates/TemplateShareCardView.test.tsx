@@ -64,7 +64,7 @@ describe("Neighborhood team share card", () => {
     await renderCard();
     await act(async () => button("Preview").click());
     window.removeEventListener(OPEN_NEW_SESSION_EVENT, opened);
-    expect(importPackage).toHaveBeenCalledWith("/neighbors/mira/research-desk.team");
+    expect(importPackage).toHaveBeenCalledWith("/neighbors/mira/research-desk.team", { fromFriend: "mira" });
     expect(start).not.toHaveBeenCalled();
     expect((opened.mock.calls[0][0] as CustomEvent).detail).toMatchObject({ workspaceId: "workspace", section: "workspace" });
     expect(takePendingTemplatePreview()).toEqual({ template: { name: "ada/research-desk", version: "1.1.0" }, update: exchange.import_result.update });

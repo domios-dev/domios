@@ -2,12 +2,12 @@
 //! forms carry the package as it is; the one-file form inlines every text reference and
 //! refuses binary content with the form that can carry it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use codeterm_team_package::{
-    frontmatter_name, InlineSkill, Package, PackageAutomation, PackageFormat, PackageSkill,
-    SkillFile,
+    frontmatter_name, InlineSkill, ManagerSlot, Package, PackageAutomation, PackageFormat,
+    PackageSkill, SkillFile, TeamDocument, TeamRole,
 };
 
 /// The bytes or folder one export writes.
@@ -45,6 +45,212 @@ fn frontmatter(text: &str) -> &str {
         return "";
     };
     rest.split("\n---").next().unwrap_or_default()
+}
+
+fn role_mut<'a>(document: &'a mut TeamDocument, name: &str) -> Option<&'a mut TeamRole> {
+    match ManagerSlot::parse(name) {
+        Some(ManagerSlot::Orchestrator) => Some(&mut document.managers.orchestrator),
+        Some(ManagerSlot::Planner) => document.managers.planner.as_mut(),
+        Some(ManagerSlot::Cartographer) => document.managers.cartographer.as_mut(),
+        Some(ManagerSlot::Curator) => document.managers.curator.as_mut(),
+        None => document.workers.get_mut(name),
+    }
+}
+
+/// A name usable as one path segment of a canonical location.
+fn segment(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+/// Moves every entry under `from/` to `to/`; refused when `to/` already holds anything.
+fn move_dir(entries: &mut BTreeMap<String, Vec<u8>>, from: &str, to: &str) -> bool {
+    if from == to {
+        return true;
+    }
+    if entries.keys().any(|path| within(path, to)) {
+        return false;
+    }
+    let inside: Vec<String> = entries
+        .keys()
+        .filter(|path| within(path, from))
+        .cloned()
+        .collect();
+    for path in inside {
+        if let Some(bytes) = entries.remove(&path) {
+            entries.insert(format!("{to}{}", &path[from.len()..]), bytes);
+        }
+    }
+    true
+}
+
+fn with_frontmatter(content: &str, name: &str, description: &str) -> String {
+    if frontmatter_name(content).is_some() {
+        return content.to_string();
+    }
+    let description = if description.is_empty() {
+        name
+    } else {
+        description
+    };
+    format!("---\nname: {name}\ndescription: {description}\n---\n{content}")
+}
+
+/// The `.team` and folder forms carry one package as the same bytes whatever form it arrived
+/// in: file and icon contents live in entries, role instructions in `managers/<slot>.md` or
+/// `workers/<name>.md`, skills under `skills/<name>/` and Blueprints in `blueprints/<name>.yaml`.
+pub fn externalized(package: &Package) -> Result<Package, String> {
+    let mut package = package.clone();
+    let mut entries = std::mem::take(&mut package.entries);
+    let mut vacated: BTreeSet<String> = BTreeSet::new();
+    let document = &mut package.document;
+    for file in document.files.iter_mut() {
+        if let Some(content) = file.content.take() {
+            entries.insert(file.path.clone(), content.into_bytes());
+        }
+    }
+    // The icon travels by `icon:`; a listing that only gave it an inline home goes.
+    let icon = document.icon.clone();
+    document
+        .files
+        .retain(|file| icon.as_deref() != Some(file.path.as_str()) || file.description.is_some());
+
+    let names: Vec<String> = document
+        .roles()
+        .into_iter()
+        .map(|(_, name, _)| name.to_string())
+        .collect();
+    for name in names.iter().filter(|name| segment(name)) {
+        let home = match ManagerSlot::parse(name) {
+            Some(_) => format!("managers/{name}.md"),
+            None => format!("workers/{name}.md"),
+        };
+        let Some(role) = role_mut(document, name) else {
+            continue;
+        };
+        if role.instructions_file.as_deref() == Some(home.as_str()) {
+            continue;
+        }
+        let bytes = match (&role.instructions, &role.instructions_file) {
+            (Some(text), _) => text.clone().into_bytes(),
+            (None, Some(path)) => match entries.get(path) {
+                Some(bytes) => bytes.clone(),
+                None => continue,
+            },
+            (None, None) => continue,
+        };
+        if entries.contains_key(&home) {
+            continue;
+        }
+        if let Some(previous) = role.instructions_file.take() {
+            vacated.insert(previous);
+        }
+        role.instructions = None;
+        role.instructions_file = Some(home.clone());
+        entries.insert(home, bytes);
+    }
+
+    for skill in document.skills.iter_mut() {
+        match skill {
+            PackageSkill::Inline(inline) => {
+                let dir = format!("skills/{}", inline.name);
+                if !segment(&inline.name) || entries.keys().any(|path| within(path, &dir)) {
+                    continue;
+                }
+                let manifest = with_frontmatter(&inline.content, &inline.name, &inline.description);
+                entries.insert(format!("{dir}/SKILL.md"), manifest.into_bytes());
+                for file in &inline.files {
+                    entries.insert(
+                        format!("{dir}/{}", file.path),
+                        file.content.clone().into_bytes(),
+                    );
+                }
+                *skill = PackageSkill::Path { path: dir };
+            }
+            PackageSkill::Path { path } => {
+                let name = entries
+                    .get(&format!("{path}/SKILL.md"))
+                    .and_then(|data| std::str::from_utf8(data).ok())
+                    .and_then(frontmatter_name);
+                let Some(name) = name.filter(|name| segment(name)) else {
+                    continue;
+                };
+                let dir = format!("skills/{name}");
+                if move_dir(&mut entries, path, &dir) {
+                    *path = dir;
+                }
+            }
+        }
+    }
+
+    for automation in document.automation.iter_mut() {
+        let (name, description, bytes, previous) = match automation {
+            PackageAutomation::Inline {
+                name,
+                description,
+                content,
+            } => (
+                name.clone(),
+                description.clone(),
+                content.clone().into_bytes(),
+                None,
+            ),
+            PackageAutomation::Path { path, description } => {
+                let Some(bytes) = entries.get(path.as_str()).cloned() else {
+                    continue;
+                };
+                let name = std::str::from_utf8(&bytes)
+                    .ok()
+                    .and_then(|text| field(text, "name"))
+                    .unwrap_or_default();
+                (name, description.clone(), bytes, Some(path.clone()))
+            }
+        };
+        let home = format!("blueprints/{name}.yaml");
+        if !segment(&name) || previous.as_deref() == Some(home.as_str()) {
+            continue;
+        }
+        if entries.contains_key(&home) {
+            continue;
+        }
+        if let Some(previous) = previous {
+            vacated.insert(previous);
+        }
+        entries.insert(home.clone(), bytes);
+        *automation = PackageAutomation::Path {
+            path: home,
+            description,
+        };
+    }
+
+    // A vacated path stays only while something else still names it.
+    let named: BTreeSet<&str> = document
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .chain(document.icon.as_deref())
+        .chain(
+            document
+                .roles()
+                .into_iter()
+                .filter_map(|(_, _, role)| role.instructions_file.as_deref()),
+        )
+        .chain(document.automation.iter().filter_map(|item| match item {
+            PackageAutomation::Path { path, .. } => Some(path.as_str()),
+            PackageAutomation::Inline { .. } => None,
+        }))
+        .collect();
+    for path in vacated {
+        if !named.contains(path.as_str()) {
+            entries.remove(&path);
+        }
+    }
+    package.entries = entries;
+    Ok(package)
 }
 
 /// The one-file form: every reference inline, no package entries.
@@ -100,24 +306,7 @@ pub fn single_file(package: &Package) -> Result<Package, String> {
     }
     for (name, path) in names {
         let content = instructions.get(&path).cloned().unwrap_or_default();
-        let role = match codeterm_team_package::ManagerSlot::parse(&name) {
-            Some(slot) => match slot {
-                codeterm_team_package::ManagerSlot::Orchestrator => {
-                    Some(&mut package.document.managers.orchestrator)
-                }
-                codeterm_team_package::ManagerSlot::Planner => {
-                    package.document.managers.planner.as_mut()
-                }
-                codeterm_team_package::ManagerSlot::Cartographer => {
-                    package.document.managers.cartographer.as_mut()
-                }
-                codeterm_team_package::ManagerSlot::Curator => {
-                    package.document.managers.curator.as_mut()
-                }
-            },
-            None => package.document.workers.get_mut(&name),
-        };
-        if let Some(role) = role {
+        if let Some(role) = role_mut(&mut package.document, &name) {
             role.instructions = Some(content);
             role.instructions_file = None;
         }
@@ -190,6 +379,14 @@ pub fn render(package: &Package, format: PackageFormat) -> Result<(Package, Writ
             Ok((package.clone(), Written::Bytes(bytes)))
         }
         PackageFormat::Folder => Ok((package.clone(), Written::Folder(package.clone()))),
+    }
+}
+
+/// The package a format carries: the archive forms take the canonical externalized layout.
+pub fn canonical_for(package: Package, format: PackageFormat) -> Result<Package, String> {
+    match format {
+        PackageFormat::Yaml => Ok(package),
+        PackageFormat::Team | PackageFormat::Folder => externalized(&package),
     }
 }
 

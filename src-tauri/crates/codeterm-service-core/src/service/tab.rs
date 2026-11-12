@@ -685,6 +685,8 @@ impl ServiceContext {
             self.wake_parked_user_send(tab_id);
             self.wake_agent_deliveries_on_state_change(tab_id);
         }
+        // An Orchestrator proving its launch is the moment its Team can take Blueprints.
+        crate::service::team_template_payload::settle_automation_for_tab(self, tab_id);
     }
 
     /// Boot path: refresh model once for every tab that already has an

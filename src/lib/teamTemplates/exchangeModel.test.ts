@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import exchange from "../../../src-tauri/crates/codeterm-team-package/fixtures/contracts/exchange.json";
 import { templatePreviewFixture } from "../transport/teamTemplates.testdata";
 import {
-  authorLine, authorRows, distillName, initialSecretBindings, isTemplateFileName, linkRows, shareAsksSummary, updateDiffLines, usedByLine,
+  authorLine, authorRows, cardByline, distillName, initialSecretBindings, isTemplateFileName, linkRows, shareAsksSummary, updateDiffLines, usedByLine,
 } from "./exchangeModel";
 import { hostPeersOf } from "./hostPeers";
 
@@ -16,6 +16,9 @@ describe("template exchange model", () => {
       { name: "Example Labs", url: "javascript:alert(1)" },
     ], links: { homepage: "https://example.com/desk", repository: "file:///etc/passwd", docs: "http://docs.example.com/" } };
     expect(authorLine(summary)).toBe("by Jane Doe, Example Labs");
+    expect(cardByline({ ...summary, workers: 4 })).toBe("by Jane Doe, Example Labs · 4 workers");
+    expect(cardByline({ workers: 1 })).toBe("1 worker");
+    expect(cardByline({ workers: 0 })).toBeNull();
     expect(authorRows(summary)).toEqual([
       { name: "Jane Doe", role: "maintainer", url: "https://example.com/jane" },
       { name: "Example Labs", role: null, url: null },

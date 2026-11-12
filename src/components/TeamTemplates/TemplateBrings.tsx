@@ -67,7 +67,7 @@ export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, 
           </div>
         );
       })}
-      {viewing && template && <TemplateFileDialog template={template} path={viewing} onClose={() => setViewing(null)} />}
+      {viewing && template && <TemplateFileDialog template={template} target={{ path: viewing }} onClose={() => setViewing(null)} />}
     </section>
   );
 }

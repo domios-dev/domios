@@ -8,7 +8,7 @@ type PayloadKind = import("../../../gen/PayloadKind").PayloadKind;
 type RoleStart = import("../../../gen/RoleStart").RoleStart;
 type TemplateInputField = import("../../../gen/TemplateInputField").TemplateInputField;
 type TemplatePayloadItem = import("../../../gen/TemplatePayloadItem").TemplatePayloadItem;
-type TemplateProvenance = import("../../../gen/TemplateProvenance").TemplateProvenance;
+type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 type TemplateStartRefusal = import("../../../gen/TemplateStartRefusal").TemplateStartRefusal;
 type TemplateStartResult = import("../../../gen/TemplateStartResult").TemplateStartResult;
 type PlacementProblem = import("../../../gen/PlacementProblem").PlacementProblem;
@@ -79,6 +79,30 @@ export function decisionNotice(decision: ModelDecision): DecisionNotice | null {
     case "preferences_exhausted":
       return { tone: "blocked", text: "None of its models are available here, so choose one", actions: substitutes(alternatives) };
   }
+}
+
+/** A harness blocker belongs to the row only while that row runs on the blocked harness; another chosen harness is unaffected. */
+export function rowDecisionNotice(decision: ModelDecision, rowProviderId: string): DecisionNotice | null {
+  const blocked = decision.blocked;
+  const harness = blocked && "harness" in blocked ? blocked.harness : null;
+  if (harness && rowProviderId && rowProviderId !== harness) return null;
+  return decisionNotice(decision);
+}
+
+const PAIR_MANAGERS: readonly TemplateRoleSummary[] = [
+  { group: "manager", role: "orchestrator", label: "orchestrator", start: "with_team" },
+  { group: "manager", role: "planner", label: "planner", start: "with_team" },
+];
+
+/** The managers a start launches, in slot order: every Team starts an Orchestrator and a Planner even when the package omits them. */
+export function managerRoles(roles: readonly TemplateRoleSummary[]): TemplateRoleSummary[] {
+  const declared = roles.filter((role) => role.group === "manager");
+  const all = [...declared, ...PAIR_MANAGERS.filter((pair) => !declared.some((role) => role.role === pair.role))];
+  const rank = (role: TemplateRoleSummary) => {
+    const index = MANAGER_SLOTS.indexOf(role.role as ManagerSlot);
+    return index < 0 ? MANAGER_SLOTS.length : index;
+  };
+  return all.sort((a, b) => rank(a) - rank(b));
 }
 
 /** The quiet tooltip shown when the model cannot honour the requested effort. */
@@ -228,10 +252,24 @@ export function startErrorView(error: unknown): StartErrorView {
 
 export type GalleryFilter = "all" | "builtin" | "mine" | "friends";
 
-const FILTER_BY_PROVENANCE: Record<TemplateProvenance, GalleryFilter> = { builtin: "builtin", saved: "mine", imported: "friends" };
+export interface TemplateSource {
+  filter: GalleryFilter;
+  label: string;
+  /** Imported and not yet used through a recorded consent. */
+  unverified: boolean;
+  /** The owner's own package: it can be exported and shared. */
+  owned: boolean;
+}
 
-export function sourceLabel(provenance: TemplateProvenance): string {
-  return provenance === "builtin" ? "Built-in" : provenance === "saved" ? "Mine" : "Shared · unverified";
+/** An owner's own import (file or CLI) is Mine; a package received over Neighborhood is From friends. Both stay unverified until consented. */
+/** The server resolves `received_from` from the friendship, so a client cannot claim a sender. */
+export function templateSource(origin: Pick<TemplateSummary, "provenance" | "received_from" | "verified">): TemplateSource {
+  if (origin.provenance === "builtin") return { filter: "builtin", label: "Built-in", unverified: false, owned: false };
+  if (origin.provenance === "saved") return { filter: "mine", label: "Mine", unverified: false, owned: true };
+  const unverified = !origin.verified;
+  const sender = origin.received_from?.trim();
+  const base = sender ? `From ${sender}` : "Mine";
+  return { filter: sender ? "friends" : "mine", label: unverified ? `${base} · unverified` : base, unverified, owned: !sender };
 }
 
 const key = (summary: TemplateSummary) => `${summary.name}@${summary.version}`;
@@ -243,7 +281,7 @@ export function galleryEntries(templates: readonly TemplateSummary[], recall: Te
   const rest = templates.filter((summary) => !seen.has(summary.name) && !seen.has(key(summary)) && seen.add(key(summary)));
   const ordered = [...matches, fallback, ...rest];
   const needle = query.trim().toLowerCase();
-  return ordered.filter((summary) => (filter === "all" || FILTER_BY_PROVENANCE[summary.provenance] === filter)
+  return ordered.filter((summary) => (filter === "all" || templateSource(summary).filter === filter)
     && (!needle || [summary.name, summary.title ?? "", summary.description, ...(summary.when ?? [])].some((text) => text.toLowerCase().includes(needle))));
 }
 

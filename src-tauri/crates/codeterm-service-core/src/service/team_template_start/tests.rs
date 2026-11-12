@@ -69,3 +69,31 @@ fn a_version_pin_must_match_the_builtin() {
         Err(TemplateStartRefusal::NotFound { .. })
     ));
 }
+
+#[test]
+fn a_binding_to_an_absent_vault_entry_refuses_as_a_missing_input() {
+    let mut start = TemplateStartRequest {
+        template: template("default"),
+        team_id: None,
+        inputs: Default::default(),
+        opt_out: Vec::new(),
+        decision_id: None,
+        secret_bindings: [("TOKEN".to_string(), "entry-opaque".to_string())].into(),
+        manager_models: Default::default(),
+        role_placements: Default::default(),
+    };
+    let ledger = ConsentLedger::default();
+    let present = |entry: &str| -> Result<bool, String> { Ok(entry == "entry-present") };
+    let unbound = super::super::team_template_remote::unbound_secrets(&start, present);
+    assert_eq!(
+        admit_bound(Some(&start), &ledger, &unbound).unwrap_err(),
+        TemplateStartRefusal::MissingInputs {
+            inputs: vec!["secret:TOKEN".into()]
+        }
+    );
+    start
+        .secret_bindings
+        .insert("TOKEN".into(), "entry-present".into());
+    let unbound = super::super::team_template_remote::unbound_secrets(&start, present);
+    assert!(admit_bound(Some(&start), &ledger, &unbound).is_ok());
+}

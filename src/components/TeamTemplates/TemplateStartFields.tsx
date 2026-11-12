@@ -1,5 +1,6 @@
 import { useId } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
+import { kindDisplayName } from "../../lib/roleKind";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import type { OrchestrationPairValues } from "../Sidebar/OrchestrationPairForm";
 import { TemplateHeader } from "./TemplateHeader";
@@ -40,6 +41,18 @@ function InputField({ field, value, onChange }: { field: TemplateInputField; val
   );
 }
 
+/** The workers a template brings on demand; nothing is spawned at start. */
+export function WorkerChips({ preview }: { preview: TemplatePreview }) {
+  const workers = preview.form.roles.filter((role) => role.group === "worker");
+  if (workers.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[11px]" aria-label="Workers on demand" role="group">
+      <span className="text-[var(--ct-muted-fg)]">Workers on demand</span>
+      {workers.map((role) => <span key={role.role} className="ct-small-pill">{kindDisplayName(role.label)}</span>)}
+    </div>
+  );
+}
+
 /** The simple start form for a chosen template, in the order the owner fills it. */
 export function TemplateStartFields({ choice, preview, providers, disabledProviderIds, pair, onPairChange, onInstallProvider, roleControls }: {
   choice: TeamTemplateChoice;
@@ -51,7 +64,6 @@ export function TemplateStartFields({ choice, preview, providers, disabledProvid
   onInstallProvider: (providerId: string) => void;
   roleControls?: PairRoleControls;
 }) {
-  const workers = preview.form.roles.filter((role) => role.group === "worker");
   return (
     <div className="flex flex-col gap-3" data-testid="template-start-form">
       <TemplateHeader summary={preview.form.template} onChange={choice.openGallery} onDetails={choice.showDetails} />
@@ -60,12 +72,7 @@ export function TemplateStartFields({ choice, preview, providers, disabledProvid
       ))}
       <TemplateManagers form={preview.form} providers={providers} disabledProviderIds={disabledProviderIds} pair={pair} onPairChange={onPairChange}
         seats={choice.seats} onSeatChange={choice.setSeat} onInstallProvider={onInstallProvider} roleControls={roleControls} />
-      {workers.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px]" aria-label="Workers on demand" role="group">
-          <span className="text-[var(--ct-muted-fg)]">Workers on demand</span>
-          {workers.map((role) => <span key={role.role} className="ct-small-pill">{role.label}</span>)}
-        </div>
-      )}
+      <WorkerChips preview={preview} />
       <TemplateBrings payload={preview.payload ?? []} optOut={choice.optOut} onToggle={choice.setKept} template={preview.form.template} />
       <TemplateAsks asks={preview.asks ?? []} secrets={{ bindings: choice.secrets, vault: choice.vault, onBind: choice.setSecret }} />
       <TemplateWhere choice={choice} preview={preview} onInstallProvider={onInstallProvider} />

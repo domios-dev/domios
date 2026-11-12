@@ -5,4 +5,16 @@ import type { PackageLinks } from "./PackageLinks";
 import type { TemplateIcon } from "./TemplateIcon";
 import type { TemplateProvenance } from "./TemplateProvenance";
 
-export type TemplateSummary = { name: string, version: string, title?: string | null, description: string, when?: Array<string>, provenance: TemplateProvenance, icon?: TemplateIcon | null, derived_from?: PackageLineage | null, authors?: Array<PackageAuthor>, links?: PackageLinks | null, license?: string | null, };
+export type TemplateSummary = { name: string, version: string, title?: string | null, description: string, when?: Array<string>, provenance: TemplateProvenance, icon?: TemplateIcon | null, derived_from?: PackageLineage | null, authors?: Array<PackageAuthor>, links?: PackageLinks | null, license?: string | null, 
+/**
+ * How many worker roles the package declares.
+ */
+workers: number, 
+/**
+ * The friend's display name when the template arrived through a share card.
+ */
+received_from?: string | null, 
+/**
+ * A start of this `name@version` passed the owner's consent on this machine.
+ */
+verified: boolean, };

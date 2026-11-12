@@ -218,6 +218,61 @@ describe("Team template start in the session dialog", () => {
     expect(dialog().querySelector('[aria-label^="Secret for SEARCH_API_KEY"]')).not.toBeNull();
   });
 
+  it("shows the whole default team on the default form, and Details returns to that form", async () => {
+    const defaultPreview = {
+      ...startablePreview, consent: null, asks: [], payload: [], form: { ...startablePreview.form, inputs: [], pickers: [],
+        template: templateRecallFixture.fallback,
+        roles: [
+          { group: "manager" as const, role: "orchestrator", label: "orchestrator", start: "with_team" as const },
+          { group: "manager" as const, role: "planner", label: "planner", start: "with_team" as const },
+          { group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const },
+          { group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } },
+          { group: "worker" as const, role: "qa", label: "qa", start: "on_demand" as const },
+        ] },
+    };
+    fixture.templates.preview.mockImplementation(async (template: { name: string }) => template.name === "dev.domios/default" ? defaultPreview : startablePreview);
+    await renderPicker();
+    const roster = dialog().querySelector('[data-testid="pair-affordance"]')!;
+    expect(Array.from(roster.querySelectorAll('[role="listitem"]')).map((row) => row.getAttribute("data-pair-role"))).toEqual(["orchestrator", "planner", "cartographer", "curator"]);
+    expect(roster.textContent).toContain("Joins when the Orchestrator needs it");
+    expect(dialog().querySelector('[role="group"][aria-label="Workers on demand"]')?.textContent).toContain("QA");
+    expect(dialog().querySelector('[data-testid="template-where"]')).not.toBeNull();
+    await click(button("Details"));
+    expect(dialog().querySelector('[data-testid="template-review-detail"]')?.textContent).toContain("Planner");
+    await click(button("Back to the Team form"));
+    expect(dialog().querySelector('[data-testid="pair-affordance"]')).not.toBeNull();
+    await click(start());
+    expect(fixture.actions.createOrchestrationPair.mock.calls[0][0]).not.toHaveProperty("template");
+  });
+
+  it("starts the default through the template start once the owner picks a later manager's model", async () => {
+    const defaultPreview = {
+      ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [], pickers: [],
+        template: templateRecallFixture.fallback,
+        roles: [{ group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const }] },
+    };
+    fixture.templates.preview.mockImplementation(async () => defaultPreview);
+    await renderPicker();
+    expect(dialog().textContent).toContain("Chosen when it joins, unless you pick one");
+    await choose("Cartographer provider", "Claude Code");
+    await click(start());
+    const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { template: unknown; manager_models: Record<string, { model: string }> } };
+    expect(input.template.template).toEqual({ name: templateRecallFixture.fallback.name, version: templateRecallFixture.fallback.version });
+    expect(Object.keys(input.template.manager_models)).toEqual(["cartographer"]);
+    expect(input.template.manager_models.cartographer.model.startsWith("claude:")).toBe(true);
+  });
+
+  it("returns from a gallery row's Details to the gallery", async () => {
+    await renderPicker();
+    await click(button("Change template"));
+    const kebab = button("More actions for com.example/research-desk");
+    await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
+    await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
+    expect(dialog().querySelector('[data-testid="template-review-detail"]')).not.toBeNull();
+    await click(button("Back to templates"));
+    expect(dialog().querySelector('[data-testid="template-gallery"]')).not.toBeNull();
+  });
+
   it("deletes a template from My templates only after an inline confirm", async () => {
     fixture.templates.delete.mockResolvedValue(exchange.delete_result);
     await renderPicker();

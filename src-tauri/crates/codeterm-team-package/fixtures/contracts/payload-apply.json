@@ -1,1 +1,6 @@
-{ "applied": ["file:essences/how-we-research.md", "skill:source-check"], "skipped": ["memory:1"] }
+{
+  "applied": ["file:essences/how-we-research.md"],
+  "skipped": ["memory:1"],
+  "deferred": ["skill:source-check", "automation:research-digest"],
+  "failed": [{ "id": "memory:0", "reason": "opaque failure" }]
+}
