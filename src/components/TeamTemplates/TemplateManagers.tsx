@@ -113,7 +113,7 @@ function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context:
   const effortFor = (providerId: string, modelId: string, current?: string) =>
     resolveEffort(providers.find((provider) => provider.id === providerId), modelId, current);
   const decision = managerDecision(form.pickers, role);
-  const target = roleSameAs(role, decision);
+  const target = roleSameAs(role);
   const followsPair = target !== null && isPairSlot(target) ? target : null;
   const orchestrator = pairSeat("orchestrator", pair);
   const picked = seats[slot];

@@ -292,7 +292,7 @@ describe("Team template start in the session dialog", () => {
     const defaultPreview = {
       ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [],
         template: templateRecallFixture.fallback, pickers: [{ slot: "curator" as const, label: "curator", decision: sameAs }],
-        roles: [{ group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } }] },
+        roles: [{ group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" }, same_as: "orchestrator" }] },
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);
     await renderPicker();
