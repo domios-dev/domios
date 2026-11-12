@@ -27,7 +27,7 @@ function ModeCard({ selected, label, description, glyphs, onSelect, ...rest }: M
         {glyphs}
       </span>
       <span className="picker-mode-card-label">{label}</span>
-      <span className="picker-mode-card-desc">{description}</span>
+      <span className="picker-mode-card-desc" title={description}>{description}</span>
     </button>
   );
 }

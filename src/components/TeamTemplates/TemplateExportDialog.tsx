@@ -91,7 +91,7 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
     }
   };
   return (
-    <FormDialog titleId={titleId} descriptionId={descriptionId} className="max-w-md" onCancel={onClose}
+    <FormDialog titleId={titleId} descriptionId={descriptionId} className="max-w-md" stacked onCancel={onClose}
       onSubmit={(event) => { event.preventDefault(); if (result) onClose(); else void submit(); }}>
       <h2 id={titleId} className="text-base font-semibold">Export {templateTitle(summary)}</h2>
       <p id={descriptionId} className="text-sm text-[var(--ct-muted)]">Machines, paths and secret values are removed from every export.</p>
@@ -104,7 +104,8 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
         <fieldset className="flex flex-col gap-1.5">
           <legend className="mb-1 text-[11px] text-[var(--ct-muted-fg)]">Format</legend>
           {options.map((option) => (
-            <label key={option.format} className={`ct-card flex items-start gap-2.5 p-2.5 ${option.disabledReason ? "opacity-55" : ""}`}>
+            <label key={option.format} data-selected={format === option.format || undefined}
+              className={`ct-card flex items-start gap-2.5 p-2.5 ${option.disabledReason ? "opacity-55" : ""} ${format === option.format ? "border-[var(--ct-accent)] bg-[color-mix(in_srgb,var(--ct-accent)_7%,var(--ct-bg))]" : ""}`}>
               <input type="radio" name="template-format" value={option.format} checked={format === option.format}
                 disabled={Boolean(option.disabledReason)} onChange={() => setFormat(option.format)} className="mt-0.5" />
               <span className="min-w-0 flex-1 text-[12px]">
@@ -130,8 +131,8 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
       {result?.path && <p className="text-[12px] text-[var(--ct-muted-fg)]">Saved to <span className="font-mono">{result.path}</span>{sent && `, and sent to ${sent}`}.</p>}
       {error && <p role="alert" className="text-[12px] text-[var(--ct-red)]">{error}</p>}
       <div className="flex justify-end gap-2">
-        {!result && <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>}
-        <Button type="submit" variant="primary" loading={busy} disabled={!result && share && !friend}>{result ? "Done" : "Export"}</Button>
+        {!result && <Button type="button" variant="ghost" className="text-xs" onClick={onClose}>Cancel</Button>}
+        <Button type="submit" variant="primary" className="text-xs" loading={busy} disabled={!result && share && !friend}>{result ? "Done" : "Export"}</Button>
       </div>
     </FormDialog>
   );

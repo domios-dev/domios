@@ -5,8 +5,10 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { AgentIcon } from "../AgentIcon";
 import { BackPill } from "../shared/BackPill";
 import { Button } from "../shared/Button";
+import { kindDisplayName } from "../../lib/roleKind";
 import {
-  effortLabel, humanizePackageName, managerRoles, roleTiming, splitModel, templateSource, templateTitle, type TemplateSummary,
+  effortLabel, humanizePackageName, managerDecision, managerRoles, roleSameAs, roleTiming, splitModel, templateSource, templateTitle,
+  visibleAsks, visiblePayload, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import { TemplateIcon } from "./TemplateIcon";
 import { TemplateTrust } from "./TemplateTrust";
@@ -73,9 +75,9 @@ const CAPSULE = "ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-no
 const UNSET = `${CAPSULE} border border-dashed border-[color-mix(in_srgb,var(--ct-fg)_18%,transparent)] text-[var(--ct-muted-fg)]`;
 
 function ModelCapsule({ preview, role, providers }: { preview: TemplatePreview; role: TemplateRoleSummary; providers: readonly ProviderDescriptor[] }) {
-  const manager = role.group === "manager";
-  const decision = manager ? preview.form.pickers.find((picker) => picker.slot === role.role)?.decision : role.model;
-  if (manager && decision?.reason === "same_as") return <span className={UNSET}>Same as Orchestrator</span>;
+  const decision = role.group === "manager" ? managerDecision(preview.form.pickers, role) : role.model;
+  const target = roleSameAs(role, decision);
+  if (target) return <span className={UNSET}>Same as {kindDisplayName(target)}</span>;
   if (!decision?.choice) return <span className={UNSET}>You pick</span>;
   const { providerId, modelId } = splitModel(decision.choice.model);
   const model = providers.find((provider) => provider.id === providerId)?.available_models.find((entry) => entry.id === modelId)?.display_name ?? modelId;
@@ -157,15 +159,16 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
   const workers = preview.form.roles.filter((role) => role.group === "worker");
   const readable = reviewRoles(preview.form.roles);
   const unverified = consent && preview.consent?.reasons.includes("unverified_package");
+  const twoColumns = visiblePayload(preview.payload ?? []).length > 0 || visibleAsks(preview.asks ?? []).length > 0;
   return (
     <section aria-labelledby={titleId} aria-describedby={descriptionId} className="flex flex-col gap-3" data-testid={`template-review-${mode}`}>
       <div><BackPill label={back === "form" ? "the Team form" : "templates"} onBack={choice.backFromReview} /></div>
       <Identity summary={summary} titleId={titleId} descriptionId={descriptionId} />
       {unverified && <p className="text-[11.5px] text-[var(--ct-muted-fg)]">
-        {summary.received_from?.trim() ? `${summary.received_from.trim()} shared this team` : "This team came from a file"}. Check what it brings and turn off anything you don't want; nothing runs until you start the team.
+        {summary.received_from?.trim() ? `${summary.received_from.trim()} shared this team` : "This team came from a file"}. Check what it brings and turn off anything you don't want. Nothing runs until you start the team.
       </p>}
       {update && <UpdateDiff diff={update} />}
-      <div className="grid gap-5 sm:grid-cols-2" data-testid="template-review-body">
+      <div className={`grid gap-5 ${twoColumns ? "sm:grid-cols-2" : ""}`} data-testid="template-review-body" data-columns={twoColumns ? 2 : 1}>
         <div className="flex flex-col gap-3">
           <RoleList title="Managers" roles={managers} preview={preview} providers={providers} />
           <RoleList title="Workers on demand" roles={workers} preview={preview} providers={providers} />
@@ -173,15 +176,20 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
             <Eye size={12} aria-hidden="true" />Read the instructions for {readable.length === 1 ? "1 role" : `${readable.length} roles`}
           </button>}
         </div>
-        <div className="flex flex-col gap-3">
-          <TemplateBrings payload={preview.payload ?? []} optOut={consent ? choice.optOut : new Set()} onToggle={consent ? choice.setKept : undefined} collapsible={false} template={summary} />
+        {twoColumns && <div className="flex flex-col gap-3">
+          <TemplateBrings payload={preview.payload ?? []} optOut={consent ? choice.optOut : new Set()} onToggle={consent ? choice.setKept : undefined}
+            collapsible={false} template={summary} roles={preview.form.roles} />
           <TemplateAsks asks={preview.asks ?? []} />
-        </div>
+        </div>}
       </div>
       {/* One scroll container: the dialog scrolls and the footer stays pinned at its bottom edge. */}
-      <div className="template-review-footer sticky z-[1] flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] text-[11.5px] text-[var(--ct-muted-fg)] sm:flex-row sm:items-center">
+      <div className="template-pinned-footer sticky z-[1] flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] text-[11.5px] text-[var(--ct-muted-fg)] sm:flex-row sm:items-center">
         <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-6 h-6 bg-gradient-to-t from-[var(--ct-surface)] to-transparent" />
-        <div className="min-w-0 flex-1"><HarnessNote preview={preview} providers={providers} onInstallProvider={onInstallProvider} /></div>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <HarnessNote preview={preview} providers={providers} onInstallProvider={onInstallProvider} />
+          {/* Use only picks the template; the start is what the owner confirms, and only then is it verified. */}
+          {consent && <span data-testid="template-consent-note">You'll confirm when you start.</span>}
+        </div>
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
           {consent
             ? <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={choice.openGallery}>Not now</Button>

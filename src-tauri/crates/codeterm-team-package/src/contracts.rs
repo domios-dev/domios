@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    payload_items, IconKind, ManagerSlot, Package, PackageAuthor, PackageCheckReport,
-    PackageDiagnostic, PackageFormat, PackageLineage, PackageLinks, PackageNetwork, PayloadKind,
-    RoleStart, TeamRoleGroup, TemplatePayloadItem,
+    payload_items, IconKind, ManagerSlot, ModelPreference, Package, PackageAuthor,
+    PackageCheckReport, PackageDiagnostic, PackageFormat, PackageLineage, PackageLinks,
+    PackageNetwork, PayloadKind, RoleStart, TeamRoleGroup, TemplatePayloadItem,
 };
 
 /// Names one template: a builtin or saved package, optionally pinned to a version.
@@ -84,9 +84,12 @@ pub struct TemplateRoleSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub start: RoleStart,
-    /// A worker's model decided on the previewing machine; managers carry theirs as pickers.
+    /// The role's model decided on the previewing machine; with_team managers carry theirs as pickers instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelDecision>,
+    /// The role whose model this one follows (`model: {same_as: <role>}`), so a client names it even when undecided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub same_as: Option<String>,
 }
 
 /// Bounds the names a template summary previews; the counts give the rest.
@@ -827,6 +830,10 @@ pub fn role_summaries(package: &Package) -> Vec<TemplateRoleSummary> {
                 description: declared.description.clone(),
                 start: declared.effective_start(slot),
                 model: None,
+                same_as: match &declared.model {
+                    Some(ModelPreference::SameAs { same_as }) => Some(same_as.clone()),
+                    _ => None,
+                },
             }
         })
         .collect()

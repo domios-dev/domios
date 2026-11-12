@@ -29,7 +29,7 @@ fn the_default_preview_asks_nothing_and_offers_both_pair_pickers() {
 }
 
 #[test]
-fn preview_workers_carry_their_model_decision_and_managers_keep_pickers() {
+fn preview_roles_carry_their_model_decision_unless_a_picker_does() {
     let ledger = ConsentLedger::default();
     let preview = preview_on(&template("default"), &TargetCatalogue::default(), &ledger).unwrap();
     let (workers, managers): (Vec<_>, Vec<_>) = preview
@@ -50,7 +50,27 @@ fn preview_workers_carry_their_model_decision_and_managers_keep_pickers() {
         );
         assert!(decision.choice.is_none());
     }
-    assert!(managers.iter().all(|role| role.model.is_none()));
+    let pickers: Vec<&str> = preview
+        .form
+        .pickers
+        .iter()
+        .map(|picker| picker.slot.as_str())
+        .collect();
+    for manager in managers {
+        assert_eq!(
+            manager.model.is_none(),
+            pickers.contains(&manager.role.as_str()),
+            "{} carries its decision only when it has no picker",
+            manager.role
+        );
+    }
+    let curator = preview
+        .form
+        .roles
+        .iter()
+        .find(|role| role.role == "curator")
+        .expect("the default team has a curator");
+    assert_eq!(curator.same_as.as_deref(), Some("orchestrator"));
 }
 
 #[test]

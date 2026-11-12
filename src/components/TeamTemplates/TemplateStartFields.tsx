@@ -2,6 +2,7 @@ import { useId } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { humanizeRoleKey, roleDisplayLabel } from "../../lib/roleKind";
 import { DropdownSelect } from "../shared/DropdownMenu";
+import { inputFieldLabel } from "../../lib/teamTemplates/startModel";
 import type { OrchestrationPairValues } from "../Sidebar/OrchestrationPairForm";
 import { TemplateHeader } from "./TemplateHeader";
 import { TemplateManagers, type PairRoleControls } from "./TemplateManagers";
@@ -14,7 +15,7 @@ type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePrevi
 type TemplateInputField = import("../../../gen/TemplateInputField").TemplateInputField;
 
 function inputLabel(field: TemplateInputField): string {
-  return `${humanizeRoleKey(field.key)}${field.required ? "" : " · optional"}`;
+  return `${inputFieldLabel(field.key)}${field.required ? "" : " · optional"}`;
 }
 
 function InputField({ field, value, onChange }: { field: TemplateInputField; value: string; onChange: (value: string) => void }) {
@@ -26,7 +27,7 @@ function InputField({ field, value, onChange }: { field: TemplateInputField; val
         <span className="text-[11px] text-[var(--ct-muted-fg)]">{label}</span>
         <div className="w-40">
           <DropdownSelect aria-label={label} value={value} onChange={onChange}
-            options={[...(field.required ? [] : [{ value: "", label: "Skip" }]), ...field.choices.map((option) => ({ value: option, label: option }))]} />
+            options={[...(field.required ? [] : [{ value: "", label: "Skip" }]), ...field.choices.map((option) => ({ value: option, label: humanizeRoleKey(option) }))]} />
         </div>
       </div>
     );
@@ -72,7 +73,7 @@ export function TemplateStartFields({ choice, preview, providers, disabledProvid
       <TemplateManagers form={preview.form} providers={providers} disabledProviderIds={disabledProviderIds} pair={pair} onPairChange={onPairChange}
         seats={choice.seats} onSeatChange={choice.setSeat} onSeatClear={choice.clearSeat} onInstallProvider={onInstallProvider} roleControls={roleControls} />
       <WorkerChips preview={preview} />
-      <TemplateBrings payload={preview.payload ?? []} optOut={choice.optOut} onToggle={choice.setKept} template={preview.form.template} />
+      <TemplateBrings payload={preview.payload ?? []} optOut={choice.optOut} onToggle={choice.setKept} template={preview.form.template} roles={preview.form.roles} />
       <TemplateAsks asks={preview.asks ?? []} secrets={{ bindings: choice.secrets, vault: choice.vault, onBind: choice.setSecret }} />
       <TemplateWhere choice={choice} preview={preview} providers={providers} onInstallProvider={onInstallProvider} />
     </div>

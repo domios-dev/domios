@@ -49,7 +49,7 @@ export function TemplateInstructions({ preview, role, onRole, onBack, transport 
       </div>
       {failure ? <p role="alert" className="text-[12px] text-[var(--ct-red)]">{failure}</p>
         : body === null ? <p aria-busy="true" className="text-[12px] text-[var(--ct-muted-fg)]">Reading the instructions…</p>
-          : <div className="text-[13px] leading-relaxed [font-family:var(--ct-font-ui)]" aria-label={`${heading.name} instructions`}><RichMarkdown text={body} /></div>}
+          : <div className="text-[13px] leading-relaxed [font-family:var(--ct-font-ui)] [&_p]:my-2" aria-label={`${heading.name} instructions`}><RichMarkdown text={body} /></div>}
     </section>
   );
 }

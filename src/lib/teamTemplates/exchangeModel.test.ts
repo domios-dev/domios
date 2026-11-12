@@ -15,24 +15,25 @@ describe("template exchange model", () => {
       { name: "Jane Doe", role: "maintainer" as const, url: "https://example.com/jane" },
       { name: "Example Labs", url: "javascript:alert(1)" },
     ], links: { homepage: "https://example.com/desk", repository: "file:///etc/passwd", docs: "http://docs.example.com/" } };
-    expect(authorLine(summary)).toBe("by Jane Doe, Example Labs");
+    expect(authorLine({ ...summary, provenance: "imported" })).toBe("by Jane Doe");
     const [, desk] = templateListFixture.templates;
-    expect(cardByline({ ...desk, ...summary })).toBe("by Jane Doe · Researcher, Checker, Writer, 3 more");
-    expect(cardByline(desk, true)).toBe("by you · Researcher, Checker, Writer, 3 more");
-    expect(cardByline({ workers: 1, worker_names: ["build_owner"], skills: 1, skill_names: ["source-check"] })).toBe("Build owner, source-check");
-    expect(cardByline({ workers: 0, skills: 2, skill_names: ["source-check", "market-sizing"] })).toBe("source-check, market-sizing");
-    expect(cardByline({ workers: 0 })).toBeNull();
+    expect(cardByline({ ...desk, ...summary, provenance: "imported" })).toBe("by Jane Doe · Researcher, Checker, Writer, 3 more");
+    expect(cardByline({ ...desk, ...summary, provenance: "saved" })).toBe("by you · Researcher, Checker, Writer, 3 more");
+    expect(cardByline({ provenance: "builtin", workers: 1, worker_names: ["build_owner"], skills: 1, skill_names: ["source-check"] })).toBe("Build owner, source-check");
+    expect(cardByline({ provenance: "builtin", workers: 0, skills: 2, skill_names: ["source-check", "market-sizing"] })).toBe("source-check, market-sizing");
+    expect(cardByline({ provenance: "builtin", workers: 0 })).toBeNull();
     expect(authorRows(summary)).toEqual([
       { name: "Jane Doe", role: "maintainer", url: "https://example.com/jane" },
       { name: "Example Labs", role: null, url: null },
     ]);
     expect(linkRows(summary)).toEqual([{ label: "Homepage", url: "https://example.com/desk" }, { label: "Docs", url: "http://docs.example.com/" }]);
-    expect(authorLine({ authors: [] })).toBeNull();
+    expect(authorLine({ authors: [], provenance: "imported" })).toBeNull();
   });
 
   it("says which roles use an item", () => {
     const [brief] = exchange.distill_result.includes;
     expect(usedByLine(brief)).toBe("used by Orchestrator, Researcher");
+    expect(usedByLine(brief, [{ role: "orchestrator", label: "Lead" }, { role: "researcher", label: "researcher" }])).toBe("used by Lead, Researcher");
     expect(usedByLine({ used_by: ["build_owner"] })).toBe("used by Build owner");
     expect(usedByLine({ used_by: [] })).toBeNull();
   });

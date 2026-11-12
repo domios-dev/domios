@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from "react";
 import { Brain, ChevronDown, FileText, Sparkles, Workflow } from "lucide-react";
 import { LiquidToggle } from "../shared/LiquidToggle";
-import { bringsSummary, groupKeptState, PAYLOAD_GROUPS, payloadItemText, visiblePayload } from "../../lib/teamTemplates/startModel";
+import { bringsSummary, groupKeptState, PAYLOAD_GROUPS, payloadItemText, skillScriptPath, visiblePayload } from "../../lib/teamTemplates/startModel";
 import { usedByLine } from "../../lib/teamTemplates/exchangeModel";
 import { TemplateFileDialog } from "./TemplateFileDialog";
 
 type TemplatePayloadItem = import("../../../gen/TemplatePayloadItem").TemplatePayloadItem;
+type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 type TemplateRef = import("../../../gen/TemplateRef").TemplateRef;
 type PayloadKind = import("../../../gen/PayloadKind").PayloadKind;
 
@@ -33,8 +34,10 @@ function BulkToggle({ items, optOut, onToggle, scope }: {
 }
 
 /** What a package brings; every item starts on and the owner may opt out. Without `onToggle` it is read-only. */
-export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, defaultOpen = !collapsible, title = "Brings", template }: {
+export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, defaultOpen = !collapsible, title = "Brings", template, roles = [] }: {
   payload: readonly TemplatePayloadItem[];
+  /** The package's roles, so "used by" names them as the owner sees them ("Lead"). */
+  roles?: readonly TemplateRoleSummary[];
   optOut: ReadonlySet<string>;
   onToggle?: (ids: readonly string[], kept: boolean) => void;
   collapsible?: boolean;
@@ -74,18 +77,22 @@ export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, 
             </div>
             {grouped.map((item) => {
               const kept = !optOut.has(item.id);
-              const usedBy = usedByLine(item);
+              const usedBy = usedByLine(item, roles);
               const text = payloadItemText(item);
+              const script = item.kind === "skill" ? skillScriptPath(item) : item.script_path ?? null;
+              const detail = [text.detail?.replace(/\.\s*$/, ""), usedBy].filter(Boolean).join(" · ");
               return (
                 <div key={item.id} className="flex items-center gap-3 border-t border-[color-mix(in_srgb,var(--ct-fg)_6%,transparent)] py-1.5 pl-[19px] first-of-type:border-t-0" data-payload-item={item.id}>
                   <div className={`min-w-0 flex-1 ${kept ? "" : "opacity-55"}`}>
                     <div className={`text-[12px] text-[var(--ct-fg)] ${item.kind === "skill" ? "font-mono" : ""}`}>{text.name}</div>
-                    {(text.detail || usedBy) && <div className="text-[11px] text-[var(--ct-muted-fg)]">{[text.detail, usedBy].filter(Boolean).join(" · ")}</div>}
+                    {detail && <div className="text-[11px] text-[var(--ct-muted-fg)]">{detail}</div>}
                     {item.executable && (
-                      <div className="flex items-center gap-1.5 text-[11px]" data-executable="true">
-                        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: AMBER }} />
-                        {item.script_path ? <>Runs <span className="font-mono">{item.script_path}</span></> : "Runs scripts"}
-                        {item.script_path && template && <button type="button" className="text-[var(--ct-accent)] hover:underline"
+                      <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px]" data-executable="true">
+                        <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: AMBER }} />
+                        <span className="min-w-0 truncate" title={item.script_path ?? undefined}>
+                          {script ? <>Runs <span className="font-mono">{script}</span></> : "Runs scripts"}
+                        </span>
+                        {item.script_path && template && <button type="button" className="shrink-0 text-[var(--ct-accent)] hover:underline"
                           aria-label={`View ${item.script_path}`} onClick={() => setViewing(item.script_path ?? null)}>View</button>}
                       </div>
                     )}

@@ -557,9 +557,12 @@ export function NewSessionPicker({
         </div>
 
 
-        {!templateStep && <div className="relative mt-4 flex flex-wrap items-center justify-end gap-3">
+        {!templateStep && <div data-testid="picker-footer" className={choice.mode === "pair"
+          ? "template-pinned-footer sticky z-[1] flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] sm:flex-row sm:items-center sm:gap-3"
+          : "relative mt-4 flex flex-wrap items-center justify-end gap-3"}>
+          {choice.mode === "pair" && <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-6 h-6 bg-gradient-to-t from-[var(--ct-surface)] to-transparent" />}
           {choice.mode === "pair" && startError && (
-            <div role="alert" data-testid="picker-start-error" className="mr-auto min-w-0 text-[12px] text-[var(--ct-red)]">
+            <div role="alert" data-testid="picker-start-error" className="min-w-0 flex-1 text-[12px] text-[var(--ct-red)]">
               <div>{startError.message}</div>
               {startError.reasons.map((reason) => <div key={reason} className="text-[var(--ct-muted-fg)]">{reason}</div>)}
               {startError.choices.length > 0 && <div className="text-[var(--ct-muted-fg)]">{startError.choices.join(" · ")}</div>}
@@ -567,11 +570,12 @@ export function NewSessionPicker({
           )}
           {choice.mode === "pair" && !startError && blocker && (
             <span data-testid="picker-start-blocker" data-tone={blocker.tone}
-              className={`mr-auto min-w-0 text-[12px] ${blocker.tone === "red" ? "text-[var(--ct-red)]" : "text-[var(--ct-yellow,#d97706)]"}`}>{blocker.text}</span>
+              className={`min-w-0 flex-1 text-[12px] ${blocker.tone === "red" ? "text-[var(--ct-red)]" : "text-[var(--ct-yellow,#d97706)]"}`}>{blocker.text}</span>
           )}
+          {choice.mode === "pair" && !startError && !blocker && <span aria-hidden="true" className="hidden flex-1 sm:block" />}
           <Button
             variant="primary"
-            className="text-xs"
+            className={choice.mode === "pair" ? "w-full text-xs sm:w-auto" : "text-xs"}
             data-testid="picker-confirm"
             disabled={!canStart}
             loading={busy}

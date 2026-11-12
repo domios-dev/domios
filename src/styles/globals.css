@@ -2128,6 +2128,14 @@ button {
     padding: calc(1rem + var(--ct-safe-top, 0px)) 1rem calc(1rem + var(--ct-safe-bottom, 0px));
     align-self: stretch;
   }
+  /* The Team card's subtitle names the chosen template; on a phone it stays one line. */
+  .picker-mode-card-desc {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
 }
 
 .ct-sidebar-content {

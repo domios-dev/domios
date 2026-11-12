@@ -118,6 +118,17 @@ export function managerRoles(roles: readonly TemplateRoleSummary[]): TemplateRol
   return all.sort((a, b) => rank(a) - rank(b));
 }
 
+/** The role whose model this one follows; `same_as` arrives with the next contract regeneration, until then a same_as decision names the Orchestrator. */
+export function roleSameAs(role: TemplateRoleSummary, decision?: ModelDecision | null): string | null {
+  const declared = (role as TemplateRoleSummary & { same_as?: string | null }).same_as;
+  return declared ?? (decision?.reason === "same_as" ? "orchestrator" : null);
+}
+
+/** A manager's decision: a with_team manager's picker, else the decision its role summary carries. */
+export function managerDecision(pickers: readonly { slot: string; decision: ModelDecision }[], role: TemplateRoleSummary): ModelDecision | null {
+  return pickers.find((picker) => picker.slot === role.role)?.decision ?? role.model ?? null;
+}
+
 /** The quiet tooltip shown when the model cannot honour the requested effort. */
 export function effortNote(decision: ModelDecision): string | null {
   const effort = decision.effort;
@@ -131,13 +142,21 @@ function durationMinutes(value: string): number | null {
   return Number(match[1]) * (match[2] === "h" ? 60 : 1);
 }
 
-/** Both ends in their smaller common unit, smallest first: "45m..2h" reads "45 to 120 min". */
+const durationUnit = (minutes: number) => minutes % 60 === 0 ? "h" : "min";
+const durationAmount = (minutes: number) => minutes % 60 === 0 ? minutes / 60 : minutes;
+
+/**
+ * Smallest first. Both ends in whole hours read "1 to 2 h"; a longest end in minutes keeps both in minutes ("60 to 90 min");
+ * only a short start before whole hours mixes units ("45 min to 2 h").
+ */
 function scheduleText(values: readonly string[]): string {
   const minutes = values.map(durationMinutes);
   if (minutes.some((value) => value === null)) return values.map((value) => value.trim()).join(" to ");
   const sorted = (minutes as number[]).sort((a, b) => a - b);
-  const hours = sorted.every((value) => value % 60 === 0);
-  return `${sorted.map((value) => hours ? value / 60 : value).join(" to ")} ${hours ? "h" : "min"}`;
+  const longest = sorted[sorted.length - 1];
+  if (sorted.every((value) => durationUnit(value) === "h")) return `${sorted.map(durationAmount).join(" to ")} h`;
+  if (durationUnit(longest) === "min") return `${sorted.join(" to ")} min`;
+  return sorted.map((value) => `${durationAmount(value)} ${durationUnit(value)}`).join(" to ");
 }
 
 export function roleTiming(start: RoleStart): string | null {
@@ -152,6 +171,14 @@ export const PAYLOAD_GROUPS: readonly { kind: PayloadKind; title: string; one: s
   { kind: "skill", title: "Skills", one: "skill", many: "skills" },
   { kind: "automation", title: "Automations", one: "automation", many: "automations" },
 ];
+
+type TemplateAsk = import("../../../gen/TemplateAsk").TemplateAsk;
+export type ShownAsk = Exclude<TemplateAsk, { kind: "script" }>;
+
+/** The asks a list shows: a script ask is already the skill's flag under Brings, so it is not repeated there. */
+export function visibleAsks(asks: readonly TemplateAsk[]): ShownAsk[] {
+  return asks.filter((ask): ask is ShownAsk => ask.kind !== "script");
+}
 
 export function bringsSummary(payload: readonly TemplatePayloadItem[], optOut: ReadonlySet<string>): string {
   const parts = PAYLOAD_GROUPS.flatMap((group) => {
@@ -172,11 +199,33 @@ function basename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-/** A document reads by its description, else its humanized file name, with the path underneath; other kinds keep their label. */
-export function payloadItemText(item: Pick<TemplatePayloadItem, "kind" | "label" | "description">): { name: string; detail: string | null } {
-  if (item.kind !== "file") return { name: item.label, detail: item.description?.trim() || null };
-  const name = item.description?.trim() || humanizeRoleKey(basename(item.label).replace(/\.[^.]+$/, ""));
-  return { name, detail: item.label };
+type MemoryKind = import("../../../gen/MemoryKind").MemoryKind;
+/** `memory_kind` arrives with the next contract regeneration; until then it reads as absent. */
+type PayloadText = Pick<TemplatePayloadItem, "kind" | "label" | "description"> & { memory_kind?: MemoryKind | null };
+
+const MEMORY_KIND: Record<MemoryKind, string> = { fact: "Fact", rule: "Rule", learning: "Learning" };
+
+/**
+ * A document reads by its description, else its humanized file name, with the path underneath. A memory fact shows its
+ * kind underneath, and an automation reads by its description, else its humanized name. A skill keeps its name.
+ */
+export function payloadItemText(item: PayloadText): { name: string; detail: string | null } {
+  const description = item.description?.trim() || null;
+  const humanized = humanizeRoleKey(basename(item.label).replace(/\.[^.]+$/, ""));
+  switch (item.kind) {
+    case "file": return { name: description ?? humanized, detail: item.label };
+    case "memory": return { name: item.label, detail: item.memory_kind ? MEMORY_KIND[item.memory_kind] : description };
+    case "automation": return { name: description ?? humanized, detail: null };
+    case "skill": return { name: item.label, detail: description };
+  }
+}
+
+/** A skill's script path relative to the skill folder: "source-check/scripts/fetch.py" reads "scripts/fetch.py". */
+export function skillScriptPath(item: Pick<TemplatePayloadItem, "id" | "label" | "script_path">): string | null {
+  const path = item.script_path;
+  if (!path) return null;
+  const root = [item.id.replace(/^skill:/, ""), item.label].find((candidate) => candidate && path.startsWith(`${candidate}/`));
+  return root ? path.slice(root.length + 1) : path;
 }
 
 /** Whether every item of `items` is kept, none is, or some are; the toggle link turns the group all on or all off. */
@@ -201,33 +250,45 @@ export function missingInputs(fields: readonly TemplateInputField[], values: Rec
   return fields.filter((field) => field.required && !values[field.key]?.trim()).map((field) => field.key);
 }
 
-export type StartBlocker =
-  | { kind: "inputs"; keys: string[] }
-  | { kind: "secret"; name: string }
-  | { kind: "harness"; harness: string }
-  | { kind: "tool"; tool: string };
-
-/** The one reason Start stays disabled, shown beside it; null when the template can start. */
-export function startBlocker(preview: TemplatePreview, inputs: Record<string, string>, secretBindings: Record<string, string> = {}, remotePeer: string | null = null): StartBlocker | null {
-  const missing = missingInputs(preview.form.inputs ?? [], inputs);
-  if (missing.length) return { kind: "inputs", keys: missing };
-  // A peer binds secrets from its own vault and checks its own harnesses when its owner answers.
-  if (remotePeer) return null;
-  const unbound = (preview.asks ?? []).find((ask) => ask.kind === "secret" && ask.required && !secretBindings[ask.name]);
-  if (unbound?.kind === "secret") return { kind: "secret", name: unbound.name };
-  const need = preview.where_needed?.needs[0];
-  if (need) return need.kind === "missing_harness" ? { kind: "harness", harness: need.harness } : { kind: "tool", tool: need.tool };
-  return null;
+/** An input's form label: its humanized key, "Question". */
+export function inputFieldLabel(key: string): string {
+  return humanizeRoleKey(key);
 }
 
-/** A missing input is the owner's to fill (amber); a missing harness or tool stops the start until it is installed (red). */
-export function blockerView(blocker: StartBlocker, harnessName: (id: string) => string): { tone: "amber" | "red"; text: string } {
-  switch (blocker.kind) {
-    case "inputs": return { tone: "amber", text: `Fill in ${blocker.keys.map((key) => humanizeRoleKey(key).toLowerCase()).join(", ")}.` };
-    case "secret": return { tone: "amber", text: `Choose a secret for ${blocker.name}.` };
-    case "harness": return { tone: "red", text: `Install ${harnessName(blocker.harness)} to start.` };
-    case "tool": return { tone: "red", text: `Connect ${blocker.tool} to start.` };
+/** Every reason Start stays disabled: inputs to fill, secrets to choose, then harnesses and tools this machine lacks. */
+export interface StartBlocker { inputs: string[]; secrets: string[]; harnesses: string[]; tools: string[] }
+
+/** Everything that keeps Start disabled, shown beside it in one line; null when the template can start. */
+export function startBlocker(preview: TemplatePreview, inputs: Record<string, string>, secretBindings: Record<string, string> = {}, remotePeer: string | null = null): StartBlocker | null {
+  const blocker: StartBlocker = { inputs: missingInputs(preview.form.inputs ?? [], inputs), secrets: [], harnesses: [], tools: [] };
+  // A peer binds secrets from its own vault and checks its own harnesses when its owner answers.
+  if (!remotePeer) {
+    for (const ask of preview.asks ?? []) {
+      if (ask.kind === "secret" && ask.required && !secretBindings[ask.name]) blocker.secrets.push(ask.name);
+    }
+    for (const need of preview.where_needed?.needs ?? []) {
+      if (need.kind === "missing_harness") blocker.harnesses.push(need.harness);
+      else blocker.tools.push(need.tool);
+    }
   }
+  return Object.values(blocker).some((list) => list.length > 0) ? blocker : null;
+}
+
+function sentenceList(items: readonly string[]): string {
+  return items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}` : items[0] ?? "";
+}
+
+/** Missing inputs and secrets are the owner's to fill (amber); a missing harness or tool stops the start until it is installed (red). */
+export function blockerView(blocker: StartBlocker, harnessName: (id: string) => string): { tone: "amber" | "red"; text: string } {
+  const red = blocker.harnesses.length > 0 || blocker.tools.length > 0;
+  const parts = [
+    blocker.inputs.length ? `fill in ${sentenceList(blocker.inputs.map(inputFieldLabel))}` : null,
+    blocker.secrets.length ? `choose a secret for ${sentenceList(blocker.secrets)}` : null,
+    blocker.harnesses.length ? `install ${sentenceList(blocker.harnesses.map(harnessName))}` : null,
+    blocker.tools.length ? `connect ${sentenceList(blocker.tools)}` : null,
+  ].filter((part): part is string => part !== null);
+  const sentence = `${sentenceList(parts)}${red ? " to start" : ""}.`;
+  return { tone: red ? "red" : "amber", text: `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}` };
 }
 
 export function buildStartRequest({ preview, inputs, optOut, managerModels, secretBindings = {}, rolePlacements = {} }: {
