@@ -305,7 +305,8 @@ ct_gateway_terminate_descendants() {
     return
   fi
   for child in $(pgrep -P "$root_pid" 2>/dev/null || true); do
-    ct_gateway_terminate_descendant_tree "$child"
+    # Best effort on abort paths: under set -e a failed walk must not replace the caller's exit status.
+    ct_gateway_terminate_descendant_tree "$child" || true
     wait "$child" 2>/dev/null || true
   done
 }
