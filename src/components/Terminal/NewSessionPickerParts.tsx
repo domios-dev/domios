@@ -36,10 +36,13 @@ export function ModeCards({
   mode,
   allowedModes,
   onSelect,
+  teamDescription = "Orchestrator + Planner",
 }: {
   mode: NewSessionMode;
   allowedModes: readonly NewSessionMode[];
   onSelect: (mode: NewSessionMode) => void;
+  /** The chosen template, such as "Release train · 3 workers"; the default team reads "Orchestrator + Planner". */
+  teamDescription?: string;
 }) {
   return (
     <div className="picker-mode-cards">
@@ -58,7 +61,7 @@ export function ModeCards({
       {allowedModes.includes("pair") && <ModeCard
         selected={mode === "pair"}
         label="Team"
-        description="Orchestrator + Planner"
+        description={teamDescription}
         onSelect={() => onSelect("pair")}
         data-testid="picker-mode-orchestration"
         glyphs={

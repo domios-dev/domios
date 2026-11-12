@@ -37,7 +37,7 @@ import {cloudExecution} from "./cloudExecution";
 import { TeamTemplateSection } from "../TeamTemplates/TeamTemplateSection";
 import { hasPendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
-import { startErrorView, type PickerSeed, type StartErrorView } from "../../lib/teamTemplates/startModel";
+import { blockerView, startErrorView, templateTitle, type PickerSeed, type StartErrorView } from "../../lib/teamTemplates/startModel";
 
 function pairChoice(prev: NewSessionChoice): NewSessionChoice {
   if (prev.mode === "pair") return prev;
@@ -389,6 +389,14 @@ export function NewSessionPicker({
       && orchestratorProfile.ready && plannerProfile.ready
       && templates.blocker === null;
   const templateStep = choice.mode === "pair" && templates.view.kind !== "form";
+  const wideStep = choice.mode === "pair" && (templates.view.kind === "review" || templates.view.kind === "instructions");
+  const chosenTemplate = templates.chosen?.form.template;
+  const teamDescription = chosenTemplate
+    ? [templateTitle(chosenTemplate), chosenTemplate.workers > 0 ? `${chosenTemplate.workers} ${chosenTemplate.workers === 1 ? "worker" : "workers"}` : null].filter(Boolean).join(" · ")
+    : undefined;
+  const blocker = templates.blocker
+    ? blockerView(templates.blocker, (id) => visibleProviders.find((provider) => provider.id === id)?.display_name ?? id)
+    : null;
 
   return createPortal(
     <div
@@ -406,7 +414,7 @@ export function NewSessionPicker({
         aria-modal="true"
         aria-labelledby="new-session-picker-title"
         tabIndex={-1}
-        className={`new-session-picker-card picker-stagger relative my-auto w-full ${choice.mode === "pair" && templates.view.kind === "review" ? "max-w-2xl" : "max-w-lg"} overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none`}
+        className={`new-session-picker-card picker-stagger relative my-auto w-full ${wideStep ? "max-w-2xl" : "max-w-lg"} overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none`}
       >
         <span
           aria-hidden
@@ -429,10 +437,10 @@ export function NewSessionPicker({
 
         {selectedWorkspace?.cwd_missing ? <FolderPaneState workspace={selectedWorkspace} /> : <>
         <div className="relative mb-4" role="group" aria-label="Session mode">
-          <ModeCards mode={choice.mode} allowedModes={allowedModes} onSelect={handleModeSelect} />
+          <ModeCards mode={choice.mode} allowedModes={allowedModes} onSelect={handleModeSelect} teamDescription={teamDescription} />
         </div>
 
-        <div ref={modeFrameRef} className="picker-mode-frame relative">
+        <div ref={modeFrameRef} className="picker-mode-frame relative" data-step={templateStep ? "template" : undefined}>
           <div ref={modeContentRef}>
             <div key={choice.mode} className="picker-mode-panel">
               {choice.mode === "single" && location === "local" && presets.some((preset) => preset.provider === choice.providerId) && <label>
@@ -528,6 +536,7 @@ export function NewSessionPicker({
                       plannerEffortId: values.plannerEffortId,
                     })}
                     layout="team"
+                    compact
                     extraMembers={laterManagers}
                     pairAffordanceTestId="pair-affordance"
                     roleTestIds={{
@@ -556,8 +565,9 @@ export function NewSessionPicker({
               {startError.choices.length > 0 && <div className="text-[var(--ct-muted-fg)]">{startError.choices.join(" · ")}</div>}
             </div>
           )}
-          {choice.mode === "pair" && !startError && templates.blocker && (
-            <span data-testid="picker-start-blocker" className="mr-auto text-[12px] text-[var(--ct-muted-fg)]">{templates.blocker}</span>
+          {choice.mode === "pair" && !startError && blocker && (
+            <span data-testid="picker-start-blocker" data-tone={blocker.tone}
+              className={`mr-auto min-w-0 text-[12px] ${blocker.tone === "red" ? "text-[var(--ct-red)]" : "text-[var(--ct-yellow,#d97706)]"}`}>{blocker.text}</span>
           )}
           <Button
             variant="primary"

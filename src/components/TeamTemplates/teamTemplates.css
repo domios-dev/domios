@@ -1,0 +1,20 @@
+/* The review footer bleeds to the session dialog's edges and stays pinned over its bottom padding while it scrolls. */
+.template-review-footer {
+  bottom: -1.25rem;
+  margin: 0.25rem -1.25rem -1.25rem;
+  padding: 0.75rem 1.25rem 1.25rem;
+}
+
+/* Template steps reach the dialog edges; the mode frame only clips while switching modes. */
+.picker-mode-frame[data-step="template"] {
+  overflow: visible;
+}
+
+/* Phone: the dialog is a full-screen sheet with 1rem gutters and a safe-area bottom. */
+@media (max-width: 640px) {
+  .template-review-footer {
+    bottom: calc(-1rem - var(--ct-safe-bottom, 0px));
+    margin: 0.25rem -1rem calc(-1rem - var(--ct-safe-bottom, 0px));
+    padding: 0.75rem 1rem calc(1rem + var(--ct-safe-bottom, 0px));
+  }
+}

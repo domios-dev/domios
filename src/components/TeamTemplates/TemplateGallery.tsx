@@ -8,6 +8,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { useTauriFileDrop } from "../../hooks/terminal/useTauriFileDrop";
 import { galleryEntries, templateSource, templateTitle, type GalleryFilter, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { TemplateIcon } from "./TemplateIcon";
+import { TemplateTrust } from "./TemplateTrust";
 import { cardByline } from "../../lib/teamTemplates/exchangeModel";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 
@@ -17,14 +18,47 @@ const FILTERS: { value: GalleryFilter; label: string }[] = [
 
 const same = (a: TemplateSummary, b: TemplateSummary) => a.name === b.name && a.version === b.version;
 
-function SourceTag({ summary }: { summary: TemplateSummary }) {
+function TemplateCard({ summary, selected, choice, onSelect, onExport, onDelete }: {
+  summary: TemplateSummary;
+  selected: boolean;
+  choice: TeamTemplateChoice;
+  onSelect: () => void;
+  onExport: (summary: TemplateSummary, share?: boolean) => void;
+  onDelete: () => void;
+}) {
+  const title = templateTitle(summary);
   const source = templateSource(summary);
-  const chip = summary.provenance !== "imported";
+  const byline = cardByline(summary, source.owned);
   return (
-    <span className={`shrink-0 text-[11px] ${chip ? "ct-small-pill" : ""} text-[var(--ct-muted-fg)]`} data-testid="template-source">
-      {source.unverified && <span aria-hidden="true" className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--ct-yellow,#d97706)]" />}
-      {source.label}
-    </span>
+    <li className={`ct-card group flex min-w-0 items-start gap-1 ${selected ? "border-[color-mix(in_srgb,var(--ct-accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--ct-accent)_7%,var(--ct-bg))]" : ""}`}>
+      <button type="button" aria-pressed={selected} onClick={onSelect} onDoubleClick={() => choice.choose(summary)}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-[inherit] py-2.5 pl-3 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
+        <TemplateIcon icon={summary.icon} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span className="truncate text-[13px] font-medium">{title}</span>
+            {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
+          </span>
+          <span className="block truncate text-[12px] text-[var(--ct-muted-fg)]" title={summary.description}>{summary.description}</span>
+          {byline && <span className="block truncate text-[11px] text-[var(--ct-muted-fg)]" data-testid="template-byline">{byline}</span>}
+        </span>
+      </button>
+      <div className="flex shrink-0 items-center gap-1 self-start py-2.5 pr-2">
+        <Button variant="ghost" className="text-xs opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+          aria-label={`Use ${title}`} onClick={() => choice.choose(summary)}>Use</Button>
+        <TemplateTrust summary={summary} />
+        {summary.provenance !== "builtin" && (
+          <DropdownMenu menuLabel={`${title} actions`} placement="bottom-end" items={[
+            { label: "Details", onClick: () => choice.showSummaryDetails(summary) },
+            ...(source.owned ? [
+              { label: "Export…", onClick: () => onExport(summary) },
+              { label: "Share to Neighborhood…", onClick: () => onExport(summary, true) },
+            ] : []),
+            { label: "Delete", onClick: onDelete },
+          ]} trigger={<Button variant="icon" aria-label={`More actions for ${title}`} aria-haspopup="menu"><KebabGlyph /></Button>} />
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -51,36 +85,10 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
       </div>
       <Segmented aria-label="Template source" value={filter} options={FILTERS} onChange={setFilter} />
       <ul className={`flex max-h-[340px] flex-col gap-1.5 overflow-y-auto ${isDragOver ? "opacity-40" : ""}`} aria-label="Templates" aria-busy={!catalog}>
-        {entries.map((summary) => {
-          const isSelected = same(summary, selected);
-          return (
-            <li key={`${summary.name}@${summary.version}`} className="flex items-start gap-1">
-              <button type="button" aria-pressed={isSelected} onClick={() => setSelected(summary)} onDoubleClick={() => choice.choose(summary)}
-                className={`ct-card flex min-w-0 flex-1 items-start gap-3 p-3 text-left ${isSelected ? "border-[var(--ct-accent)]" : ""}`}>
-                <TemplateIcon icon={summary.icon} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline gap-2">
-                    <span className="truncate text-[13px] font-medium">{templateTitle(summary)}</span>
-                    {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
-                  </span>
-                  <span className="block truncate text-[12px] text-[var(--ct-muted-fg)]">{summary.description}</span>
-                  {cardByline(summary) && <span className="block truncate text-[11px] text-[var(--ct-muted-fg)]" data-testid="template-byline">{cardByline(summary)}</span>}
-                </span>
-                <SourceTag summary={summary} />
-              </button>
-              {summary.provenance !== "builtin" && (
-                <DropdownMenu menuLabel={`${templateTitle(summary)} actions`} items={[
-                  { label: "Details", onClick: () => choice.showSummaryDetails(summary) },
-                  ...(templateSource(summary).owned ? [
-                    { label: "Export…", onClick: () => onExport(summary) },
-                    { label: "Share to Neighborhood…", onClick: () => onExport(summary, true) },
-                  ] : []),
-                  { label: "Delete", onClick: () => setConfirming(summary) },
-                ]} trigger={<Button variant="icon" aria-label={`More actions for ${templateTitle(summary)}`} aria-haspopup="menu"><KebabGlyph /></Button>} />
-              )}
-            </li>
-          );
-        })}
+        {entries.map((summary) => (
+          <TemplateCard key={`${summary.name}@${summary.version}`} summary={summary} selected={same(summary, selected)} choice={choice}
+            onSelect={() => setSelected(summary)} onExport={onExport} onDelete={() => setConfirming(summary)} />
+        ))}
         {catalog?.error && <li className="text-[12px] text-[var(--ct-muted-fg)]">{catalog.error}</li>}
         {confirming && (
           <li role="alertdialog" aria-label={`Delete ${templateTitle(confirming)}`} className="ct-card ct-card--static flex flex-wrap items-center gap-2 p-2.5 text-[12px]">

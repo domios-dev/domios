@@ -8,6 +8,8 @@ import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { ChevronLeft, ChevronRight, ClipboardList, LogOut, PackagePlus, Pencil, UserPlus } from "lucide-react";
 import { SaveTemplateDialog } from "../TeamTemplates/SaveTemplateDialog";
+import { TemplateExportDialog } from "../TeamTemplates/TemplateExportDialog";
+import { templateTitle, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -101,6 +103,7 @@ function TeamMenu({
 }: TeamMenuProps) {
   const [open, setOpen] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [exportingTemplate, setExportingTemplate] = useState<TemplateSummary | null>(null);
   const [providerRole, setProviderRole] = useState<TeamMemberRole | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   // Derive from `providers` (not a captured object) so a catalog refresh — e.g.
@@ -371,7 +374,11 @@ function TeamMenu({
           )}
         </div>
       </AnchoredPopover>
-      {savingTemplate && teamName && <SaveTemplateDialog teamId={teamId} teamName={teamName} onClose={() => setSavingTemplate(false)} />}
+      {savingTemplate && teamName && <SaveTemplateDialog teamId={teamId} teamName={teamName} onClose={() => setSavingTemplate(false)}
+        onSaved={(saved) => actions && createNoticePublisher(actions)({ kind: "toast", id: `team-template-saved-${teamId}`,
+          title: `Saved ${templateTitle(saved)} to My templates`, severity: "Info", tabId: null, workspaceId: null,
+          actions: [{ label: "Export…", run: () => setExportingTemplate(saved) }] })} />}
+      {exportingTemplate && <TemplateExportDialog summary={exportingTemplate} onClose={() => setExportingTemplate(null)} />}
     </div>
   );
 }

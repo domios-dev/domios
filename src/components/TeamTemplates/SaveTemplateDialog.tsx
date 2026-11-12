@@ -5,7 +5,7 @@ import { Button } from "../shared/Button";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { teamTemplatesTransport } from "../../lib/transport/orchestrationRuntime";
 import type { TeamTemplatesTransport, TemplateDistillRequest, TemplateDistillResult } from "../../lib/transport/teamTemplates";
-import { startErrorView, type TemplateSummary } from "../../lib/teamTemplates/startModel";
+import { startErrorView, withKept, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { distillDescription, distillName, SAVE_VERSION_DEFAULT } from "../../lib/teamTemplates/exchangeModel";
 import { TemplateBrings } from "./TemplateBrings";
 import { ScrubReportCard, TemplateExportDialog } from "./TemplateExportDialog";
@@ -15,11 +15,15 @@ const FIELD = "w-full rounded-full border border-[var(--ct-border)] bg-[var(--ct
 
 interface Identity { title: string; description: string; version: string; license: string }
 
-/** Bakes a live Team into My templates: the server reviews it first (dry run), then saves the exact package it showed. */
-export function SaveTemplateDialog({ teamId, teamName, onClose, transport = teamTemplatesTransport }: {
+/**
+ * Bakes a live Team into My templates: the server reviews it first (dry run), then saves the exact package it showed.
+ * A plain save closes the dialog and hands the saved template to `onSaved`, which confirms it with a toast.
+ */
+export function SaveTemplateDialog({ teamId, teamName, onClose, onSaved, transport = teamTemplatesTransport }: {
   teamId: string;
   teamName: string;
   onClose: () => void;
+  onSaved: (saved: TemplateSummary) => void;
   transport?: () => TeamTemplatesTransport;
 }) {
   const titleId = useId();
@@ -32,7 +36,6 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, transport = team
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<TemplateSummary | null>(null);
-  const [saved, setSaved] = useState<TemplateSummary | null>(null);
 
   const request = useMemo((): TemplateDistillRequest => ({
     team_id: teamId,
@@ -70,7 +73,10 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, transport = team
         return;
       }
       if (thenExport) setExporting(result.saved);
-      else setSaved(result.saved);
+      else {
+        onSaved(result.saved);
+        onClose();
+      }
     } catch (failure) {
       setError(startErrorView(failure).message);
     } finally {
@@ -84,12 +90,9 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, transport = team
   const ready = missing === null && includes !== null;
   return (
     <FormDialog titleId={titleId} descriptionId={descriptionId} className="max-w-lg" onCancel={onClose}
-      onSubmit={(event) => { event.preventDefault(); if (saved) onClose(); else if (ready) void save(false); }}>
+      onSubmit={(event) => { event.preventDefault(); if (ready && !busy) void save(false); }}>
       <h2 id={titleId} className="text-base font-semibold">Save as template</h2>
-      <p id={descriptionId} className="text-sm text-[var(--ct-muted)]">
-        {saved ? `Saved ${saved.title ?? saved.name} ${saved.version} to My templates.` : `From the team ${teamName}. Saved to My templates.`}
-      </p>
-      {!saved && <>
+      <p id={descriptionId} className="text-sm text-[var(--ct-muted)]">From the team {teamName}. Saved to My templates.</p>
         <label className="flex flex-col gap-1 text-[11px] text-[var(--ct-muted-fg)]">Name
           <input className={FIELD} value={identity.title} onChange={(event) => set("title")(event.target.value)} required />
         </label>
@@ -105,10 +108,10 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, transport = team
               options={LICENSES.map((license) => ({ value: license, label: license || "None" }))} />
           </div>
         </div>
-        <p className="text-[11px] text-[var(--ct-muted-fg)]">Keeps its managers and workers with their models and instructions, the asks and the inputs. Saved as <span className="font-mono">{request.name}</span>.</p>
+        <p className="text-[11px] text-[var(--ct-muted-fg)]">Keeps its managers and workers with their models and instructions, the asks and the inputs.</p>
         {includes === null && !error && <p className="text-[12px] text-[var(--ct-muted-fg)]" aria-busy="true">Reading the team…</p>}
         {includes && <TemplateBrings title="Includes" defaultOpen payload={includes} optOut={optOut}
-          onToggle={(id, kept) => setOptOut((current) => { const next = new Set(current); if (kept) next.delete(id); else next.add(id); return next; })} />}
+          onToggle={(ids, kept) => setOptOut((current) => withKept(current, ids, kept))} />}
         {review && <div className="flex flex-col gap-1">
           <div className="text-[11px] text-[var(--ct-muted-fg)]">Removed before saving</div>
           <ScrubReportCard report={review.scrub} />
@@ -120,15 +123,12 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, transport = team
         {review && !review.check.valid && <ul className="text-[12px] text-[var(--ct-red)]">
           {review.check.diagnostics.map((diagnostic) => <li key={`${diagnostic.file}:${diagnostic.path}:${diagnostic.code}`}>{diagnostic.message}</li>)}
         </ul>}
-      </>}
       {error && <p role="alert" className="text-[12px] text-[var(--ct-red)]">{error}</p>}
-      {!saved && !error && missing && <p role="status" className="text-[12px] text-[var(--ct-muted-fg)]">Add {missing} to save it.</p>}
+      {!error && missing && <p role="status" className="text-[12px] text-[var(--ct-muted-fg)]">Add {missing} to save it.</p>}
       <div className="flex justify-end gap-2">
-        {saved ? <Button type="submit" variant="primary">Done</Button> : <>
-          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button type="button" variant="ghost" disabled={!ready || busy} onClick={() => { void save(true); }}>Save and export…</Button>
-          <Button type="submit" variant="primary" loading={busy} disabled={!ready}>Save template</Button>
-        </>}
+        <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button type="button" variant="ghost" disabled={!ready || busy} onClick={() => { void save(true); }}>Save and export…</Button>
+        <Button type="submit" variant="primary" loading={busy} disabled={!ready}>Save template</Button>
       </div>
     </FormDialog>
   );

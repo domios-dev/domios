@@ -1,4 +1,4 @@
-import { kindDisplayName } from "../roleKind";
+import { humanizeRoleKey, kindDisplayName, roleDisplayLabel } from "../roleKind";
 import type { TemplatePreview, TemplateRecall, TemplateStartRequest } from "../transport/teamTemplates";
 
 type ManagerSlot = import("../../../gen/ManagerSlot").ManagerSlot;
@@ -18,13 +18,26 @@ export type ScrubReport = import("../../../gen/ScrubReport").ScrubReport;
 
 export const MANAGER_SLOTS: readonly ManagerSlot[] = ["orchestrator", "planner", "cartographer", "curator"];
 
+/** A package id's last segment in sentence case, for packages that carry no title; the id itself stays in team.yaml. */
+export function humanizePackageName(name: string): string {
+  const slug = name.split("/").filter(Boolean).pop() ?? name;
+  return humanizeRoleKey(slug.replace(/\.team(\.ya?ml)?$/i, ""));
+}
+
 export function templateTitle(summary: Pick<TemplateSummary, "title" | "name">): string {
-  return summary.title?.trim() || summary.name;
+  return summary.title?.trim() || humanizePackageName(summary.name);
+}
+
+/** Effort ids read as words in sentence case: "medium" → "Medium". */
+export function effortLabel(effort: string): string {
+  const text = effort.trim();
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
 }
 
 export function managerLabel(slot: string, displayName: string): string {
   const slotName = kindDisplayName(slot);
-  return displayName && displayName !== slot && displayName !== slotName ? `${slotName} · ${displayName}` : slotName;
+  const name = roleDisplayLabel(slot, displayName);
+  return name !== slotName ? `${slotName} · ${name}` : slotName;
 }
 
 export function splitModel(model: string): { providerId: string; modelId: string } {
@@ -53,7 +66,7 @@ function substitutes(models: readonly string[]): DecisionAction[] {
   return models.map((model): DecisionAction => ({ kind: "substitute", model }));
 }
 
-export function decisionNotice(decision: ModelDecision): DecisionNotice | null {
+export function decisionNotice(decision: ModelDecision, harnessName: (id: string) => string = (id) => id): DecisionNotice | null {
   const alternatives = (decision.alternatives ?? []).map((option) => option.model);
   const blocked = decision.blocked;
   if (!blocked) {
@@ -63,11 +76,11 @@ export function decisionNotice(decision: ModelDecision): DecisionNotice | null {
   }
   switch (blocked.kind) {
     case "absent_harness":
-      return { tone: "blocked", text: `${blocked.harness} isn't installed`, actions: [{ kind: "install", harness: blocked.harness }, ...substitutes(alternatives)] };
+      return { tone: "blocked", text: `${harnessName(blocked.harness)} isn't installed`, actions: [{ kind: "install", harness: blocked.harness }, ...substitutes(alternatives)] };
     case "not_signed_in":
-      return { tone: "blocked", text: `${blocked.harness} isn't signed in`, actions: [{ kind: "sign_in", harness: blocked.harness }, ...substitutes(alternatives)] };
+      return { tone: "blocked", text: `${harnessName(blocked.harness)} isn't signed in`, actions: [{ kind: "sign_in", harness: blocked.harness }, ...substitutes(alternatives)] };
     case "quota":
-      return { tone: "blocked", text: `${blocked.harness} is out of quota`, actions: [...substitutes(alternatives), { kind: "wait" }] };
+      return { tone: "blocked", text: `${harnessName(blocked.harness)} is out of quota`, actions: [...substitutes(alternatives), { kind: "wait" }] };
     case "unknown_model":
       return { tone: "blocked", text: `${blocked.model} isn't a known model`, actions: substitutes(blocked.suggestions) };
     case "no_reasoning_effort":
@@ -82,11 +95,11 @@ export function decisionNotice(decision: ModelDecision): DecisionNotice | null {
 }
 
 /** A harness blocker belongs to the row only while that row runs on the blocked harness; another chosen harness is unaffected. */
-export function rowDecisionNotice(decision: ModelDecision, rowProviderId: string): DecisionNotice | null {
+export function rowDecisionNotice(decision: ModelDecision, rowProviderId: string, harnessName?: (id: string) => string): DecisionNotice | null {
   const blocked = decision.blocked;
   const harness = blocked && "harness" in blocked ? blocked.harness : null;
   if (harness && rowProviderId && rowProviderId !== harness) return null;
-  return decisionNotice(decision);
+  return decisionNotice(decision, harnessName);
 }
 
 const PAIR_MANAGERS: readonly TemplateRoleSummary[] = [
@@ -112,17 +125,25 @@ export function effortNote(decision: ModelDecision): string | null {
   return effort.reason?.trim() || `Asked for ${effort.requested}; runs at ${effort.applied}`;
 }
 
-function durationText(value: string): string {
+function durationMinutes(value: string): number | null {
   const match = /^(\d+)([mh])$/.exec(value.trim());
-  if (!match) return value.trim();
-  return `${match[1]} ${match[2] === "m" ? "min" : "h"}`;
+  if (!match) return null;
+  return Number(match[1]) * (match[2] === "h" ? 60 : 1);
+}
+
+/** Both ends in their smaller common unit, smallest first: "45m..2h" reads "45 to 120 min". */
+function scheduleText(values: readonly string[]): string {
+  const minutes = values.map(durationMinutes);
+  if (minutes.some((value) => value === null)) return values.map((value) => value.trim()).join(" to ");
+  const sorted = (minutes as number[]).sort((a, b) => a - b);
+  const hours = sorted.every((value) => value % 60 === 0);
+  return `${sorted.map((value) => hours ? value / 60 : value).join(" to ")} ${hours ? "h" : "min"}`;
 }
 
 export function roleTiming(start: RoleStart): string | null {
   if (start === "with_team") return null;
   if (start === "on_demand") return "Joins when the Orchestrator needs it";
-  const [min, max] = start.schedule.split("..");
-  return max ? `Visits every ${durationText(min)} to ${durationText(max)}` : `Visits every ${durationText(min)}`;
+  return `Visits every ${scheduleText(start.schedule.split("..").filter(Boolean))}`;
 }
 
 export const PAYLOAD_GROUPS: readonly { kind: PayloadKind; title: string; one: string; many: string }[] = [
@@ -140,6 +161,38 @@ export function bringsSummary(payload: readonly TemplatePayloadItem[], optOut: R
   return parts.length ? parts.join(", ") : "Nothing";
 }
 
+const ICON_FILE = /(^|\/)icon\.(svg|png)$/i;
+
+/** The package icon is its identity, not something it brings; it stays in the package but out of Brings and Includes. */
+export function visiblePayload(payload: readonly TemplatePayloadItem[]): TemplatePayloadItem[] {
+  return payload.filter((item) => !(item.kind === "file" && ICON_FILE.test(item.label) && !(item.used_by ?? []).length));
+}
+
+function basename(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+/** A document reads by its description, else its humanized file name, with the path underneath; other kinds keep their label. */
+export function payloadItemText(item: Pick<TemplatePayloadItem, "kind" | "label" | "description">): { name: string; detail: string | null } {
+  if (item.kind !== "file") return { name: item.label, detail: item.description?.trim() || null };
+  const name = item.description?.trim() || humanizeRoleKey(basename(item.label).replace(/\.[^.]+$/, ""));
+  return { name, detail: item.label };
+}
+
+/** Whether every item of `items` is kept, none is, or some are; the toggle link turns the group all on or all off. */
+export function groupKeptState(items: readonly Pick<TemplatePayloadItem, "id">[], optOut: ReadonlySet<string>): "all" | "none" | "some" {
+  const kept = items.filter((item) => !optOut.has(item.id)).length;
+  return kept === items.length ? "all" : kept === 0 ? "none" : "some";
+}
+
+export function withKept(optOut: ReadonlySet<string>, ids: readonly string[], kept: boolean): ReadonlySet<string> {
+  const next = new Set(optOut);
+  for (const id of ids) {
+    if (kept) next.delete(id); else next.add(id);
+  }
+  return next;
+}
+
 export function initialInputs(fields: readonly TemplateInputField[]): Record<string, string> {
   return Object.fromEntries(fields.map((field) => [field.key, field.default ?? ""]));
 }
@@ -148,17 +201,33 @@ export function missingInputs(fields: readonly TemplateInputField[], values: Rec
   return fields.filter((field) => field.required && !values[field.key]?.trim()).map((field) => field.key);
 }
 
+export type StartBlocker =
+  | { kind: "inputs"; keys: string[] }
+  | { kind: "secret"; name: string }
+  | { kind: "harness"; harness: string }
+  | { kind: "tool"; tool: string };
+
 /** The one reason Start stays disabled, shown beside it; null when the template can start. */
-export function startBlocker(preview: TemplatePreview, inputs: Record<string, string>, secretBindings: Record<string, string> = {}, remotePeer: string | null = null): string | null {
+export function startBlocker(preview: TemplatePreview, inputs: Record<string, string>, secretBindings: Record<string, string> = {}, remotePeer: string | null = null): StartBlocker | null {
   const missing = missingInputs(preview.form.inputs ?? [], inputs);
-  if (missing.length) return `Fill in ${missing.join(", ")}`;
+  if (missing.length) return { kind: "inputs", keys: missing };
   // A peer binds secrets from its own vault and checks its own harnesses when its owner answers.
   if (remotePeer) return null;
   const unbound = (preview.asks ?? []).find((ask) => ask.kind === "secret" && ask.required && !secretBindings[ask.name]);
-  if (unbound?.kind === "secret") return `Choose a secret for ${unbound.name}`;
+  if (unbound?.kind === "secret") return { kind: "secret", name: unbound.name };
   const need = preview.where_needed?.needs[0];
-  if (need) return need.kind === "missing_harness" ? `Needs ${need.harness} on this machine` : `Needs ${need.tool} on this machine`;
+  if (need) return need.kind === "missing_harness" ? { kind: "harness", harness: need.harness } : { kind: "tool", tool: need.tool };
   return null;
+}
+
+/** A missing input is the owner's to fill (amber); a missing harness or tool stops the start until it is installed (red). */
+export function blockerView(blocker: StartBlocker, harnessName: (id: string) => string): { tone: "amber" | "red"; text: string } {
+  switch (blocker.kind) {
+    case "inputs": return { tone: "amber", text: `Fill in ${blocker.keys.map((key) => humanizeRoleKey(key).toLowerCase()).join(", ")}.` };
+    case "secret": return { tone: "amber", text: `Choose a secret for ${blocker.name}.` };
+    case "harness": return { tone: "red", text: `Install ${harnessName(blocker.harness)} to start.` };
+    case "tool": return { tone: "red", text: `Connect ${blocker.tool} to start.` };
+  }
 }
 
 export function buildStartRequest({ preview, inputs, optOut, managerModels, secretBindings = {}, rolePlacements = {} }: {
@@ -210,7 +279,7 @@ function refusalView(refusal: TemplateStartRefusal): StartErrorView {
   switch (refusal.code) {
     case "missing_inputs": return { message: "Fill in the missing inputs", reasons: refusal.inputs, choices: [] };
     case "consent_required": return { message: "Review this template and use it before starting", reasons: refusal.reasons, choices: [] };
-    case "not_found": return { message: `${refusal.template.name} isn't available`, reasons: [], choices: [] };
+    case "not_found": return { message: `${humanizePackageName(refusal.template.name)} isn't available`, reasons: [], choices: [] };
     case "invalid_package": return { message: "This template isn't a valid package", reasons: refusal.diagnostics.map((diagnostic) => diagnostic.message), choices: [] };
     case "invalid_placement": return { message: placementText(refusal.role, refusal.peer, refusal.problem), reasons: [], choices: [] };
   }
@@ -268,8 +337,9 @@ export function templateSource(origin: Pick<TemplateSummary, "provenance" | "rec
   if (origin.provenance === "saved") return { filter: "mine", label: "Mine", unverified: false, owned: true };
   const unverified = !origin.verified;
   const sender = origin.received_from?.trim();
-  const base = sender ? `From ${sender}` : "Mine";
-  return { filter: sender ? "friends" : "mine", label: unverified ? `${base} · unverified` : base, unverified, owned: !sender };
+  // Until its first Use a file is a source like any other; afterwards the owner's own import is simply Mine.
+  const label = unverified ? `From ${sender || "file"} · unverified` : sender ? `From ${sender}` : "Mine";
+  return { filter: sender ? "friends" : "mine", label, unverified, owned: !sender };
 }
 
 const key = (summary: TemplateSummary) => `${summary.name}@${summary.version}`;
@@ -300,17 +370,25 @@ export function exportFormats(summary: Pick<TemplateSummary, "name" | "icon">): 
 
 export const DEFAULT_EXPORT_FORMAT: PackageFormat = "team";
 
-function secretNamesDetail(names: readonly string[]): string {
-  if (names.length === 0) return "names kept";
-  return names.length === 1 ? `${names[0]} kept as a name, value dropped` : `${names.join(", ")} kept as names, values dropped`;
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
 }
 
-export function scrubRows(report: ScrubReport): { label: string; detail: string; count: number }[] {
-  return [
-    { label: "Machines", detail: "names dropped", count: report.machines_removed },
-    { label: "Paths", detail: "made relative to the project", count: report.paths_generalized },
-    { label: "Secret values", detail: secretNamesDetail(report.secret_names ?? []), count: report.secret_values_removed },
-    { label: "Keys found in instructions", detail: "turned into a secret ask", count: report.secret_asks_added },
-    { label: "Chats and history", detail: "never saved", count: report.history_removed },
+function secretNamesDetail(count: number, names: readonly string[]): string {
+  if (names.length === 0) return `${plural(count, "value", "values")} dropped, ${count === 1 ? "its name" : "their names"} kept`;
+  return names.length === 1 ? `${names[0]} kept as a name, its value dropped` : `${names.join(", ")} kept as names, their values dropped`;
+}
+
+export interface ScrubRow { label: string; detail: string; count: number | null }
+
+/** Only what was actually removed; chats and history are never saved, so that row carries no count. */
+export function scrubRows(report: ScrubReport): ScrubRow[] {
+  const rows: ScrubRow[] = [
+    { label: "Machines", detail: `${plural(report.machines_removed, "machine name", "machine names")} dropped`, count: report.machines_removed },
+    { label: "Paths", detail: `${plural(report.paths_generalized, "absolute path", "absolute paths")} made relative to {project}`, count: report.paths_generalized },
+    { label: "Secret values", detail: secretNamesDetail(report.secret_values_removed, report.secret_names ?? []), count: report.secret_values_removed },
+    { label: "Keys found in instructions", detail: `${plural(report.secret_asks_added, "key", "keys")} turned into a secret ask`, count: report.secret_asks_added },
   ];
+  const removed = rows.filter((row) => (row.count ?? 0) > 0);
+  return report.history_removed > 0 ? [...removed, { label: "Chats and history", detail: "never saved", count: null }] : removed;
 }

@@ -16,7 +16,8 @@ describe("template exchange model", () => {
       { name: "Example Labs", url: "javascript:alert(1)" },
     ], links: { homepage: "https://example.com/desk", repository: "file:///etc/passwd", docs: "http://docs.example.com/" } };
     expect(authorLine(summary)).toBe("by Jane Doe, Example Labs");
-    expect(cardByline({ ...summary, workers: 4 })).toBe("by Jane Doe, Example Labs · 4 workers");
+    expect(cardByline({ ...summary, workers: 4 })).toBe("by Jane Doe · 4 workers");
+    expect(cardByline({ ...summary, workers: 2 }, true)).toBe("by you · 2 workers");
     expect(cardByline({ workers: 1 })).toBe("1 worker");
     expect(cardByline({ workers: 0 })).toBeNull();
     expect(authorRows(summary)).toEqual([
@@ -29,7 +30,8 @@ describe("template exchange model", () => {
 
   it("says which roles use an item", () => {
     const [brief] = exchange.distill_result.includes;
-    expect(usedByLine(brief)).toBe("used by Orchestrator, researcher");
+    expect(usedByLine(brief)).toBe("used by Orchestrator, Researcher");
+    expect(usedByLine({ used_by: ["build_owner"] })).toBe("used by Build owner");
     expect(usedByLine({ used_by: [] })).toBeNull();
   });
 
@@ -42,7 +44,7 @@ describe("template exchange model", () => {
 
   it("lists what an update changes", () => {
     expect(updateDiffLines(exchange.import_result.update as TemplateUpdateDiff)).toEqual([
-      "Roles added: editor", "Roles changed: checker", "No longer brings: memory:1", "New asks: network for api.example.com",
+      "Roles added: Editor", "Roles changed: Checker", "No longer brings: memory:1", "New asks: network for api.example.com",
     ]);
   });
 

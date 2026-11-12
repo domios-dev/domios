@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  templateListFixture, templatePreviewFixture, templateRecallFixture, templateStartResultFixtures,
+  modelDecisionFixtures, templateListFixture, templatePreviewFixture, templateRecallFixture, templateStartResultFixtures,
 } from "../../lib/transport/teamTemplates.testdata";
 
 const fixture = vi.hoisted(() => {
@@ -118,7 +118,7 @@ async function renderPicker() {
 
 async function chooseResearchDesk() {
   await click(button("Change template"));
-  const card = buttons().find((candidate) => candidate.getAttribute("aria-pressed") !== null && candidate.textContent?.includes("com.example/research-desk"));
+  const card = buttons().find((candidate) => candidate.getAttribute("aria-pressed") !== null && candidate.textContent?.includes("Research desk"));
   await click(card);
   await click(button("Use template"));
 }
@@ -158,7 +158,7 @@ describe("Team template start in the session dialog", () => {
     await click(button("Use template"));
     const form = dialog().querySelector('[data-testid="template-start-form"]')!;
     expect(form).not.toBeNull();
-    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.textContent).toBe("Fill in question");
+    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("amber");
     expect(start().disabled).toBe(true);
     await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
     expect(start().disabled).toBe(false);
@@ -193,7 +193,7 @@ describe("Team template start in the session dialog", () => {
     await renderPicker();
     expect(dialog().querySelector('[data-testid="template-header"] [data-template-icon="fallback"]')).not.toBeNull();
     await chooseResearchDesk();
-    const icon = dialog().querySelector<HTMLImageElement>('[data-testid="template-header"] img[data-template-icon="image"]')!;
+    const icon = dialog().querySelector<HTMLImageElement>('[data-testid="template-header"] [data-template-icon] img, [data-testid="template-header"] img[data-template-icon]')!;
     expect(icon.getAttribute("src")).toBe(templatePreviewFixture.form.template.icon?.data_url);
     expect(dialog().querySelector('[data-testid="template-header"] svg')).toBeNull();
   });
@@ -204,7 +204,9 @@ describe("Team template start in the session dialog", () => {
     await chooseResearchDesk();
     const asks = Array.from(dialog().querySelectorAll("[data-ask]")).map((row) => row.getAttribute("data-ask"));
     expect(asks).toEqual(["shell"]);
-    expect(dialog().querySelector('[data-testid="template-where"]')?.textContent).toContain("codex isn't installed");
+    expect(dialog().querySelector('[data-testid="template-where"] [data-testid="template-where-issue"]')?.textContent).toMatch(/codex isn't installed on this machine/i);
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("red");
   });
 
   it("blocks start until a required secret is bound when the vault has no entry of that name", async () => {
@@ -213,7 +215,8 @@ describe("Team template start in the session dialog", () => {
     await renderPicker();
     await chooseResearchDesk();
     await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
-    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.textContent).toBe("Choose a secret for SEARCH_API_KEY");
+    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.textContent).toBe("Choose a secret for SEARCH_API_KEY.");
+    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("amber");
     expect(start().disabled).toBe(true);
     expect(dialog().querySelector('[aria-label^="Secret for SEARCH_API_KEY"]')).not.toBeNull();
   });
@@ -233,8 +236,15 @@ describe("Team template start in the session dialog", () => {
     fixture.templates.preview.mockImplementation(async (template: { name: string }) => template.name === "dev.domios/default" ? defaultPreview : startablePreview);
     await renderPicker();
     const roster = dialog().querySelector('[data-testid="pair-affordance"]')!;
-    expect(Array.from(roster.querySelectorAll('[role="listitem"]')).map((row) => row.getAttribute("data-pair-role"))).toEqual(["orchestrator", "planner", "cartographer", "curator"]);
+    const rows = () => Array.from(roster.querySelectorAll('[role="listitem"]')).map((row) => row.getAttribute("data-pair-role"));
+    expect(rows()).toEqual(["orchestrator", "planner", "later"]);
+    const later = button("Joins later (2)")!;
+    expect(later.getAttribute("aria-expanded")).toBe("false");
+    await click(later);
+    expect(rows()).toEqual(["orchestrator", "planner", "later", "cartographer", "curator"]);
     expect(roster.textContent).toContain("Joins when the Orchestrator needs it");
+    // An on-demand manager with no model shows the Orchestrator's current pick, never a blank row.
+    expect(roster.querySelector('[data-pair-role="cartographer"] button[aria-label^="Cartographer provider"]')?.getAttribute("aria-label")).toBe("Cartographer provider: Claude Code");
     expect(dialog().querySelector('[role="group"][aria-label="Workers on demand"]')?.textContent).toContain("QA");
     expect(dialog().querySelector('[data-testid="template-where"]')).not.toBeNull();
     await click(button("Details"));
@@ -253,13 +263,13 @@ describe("Team template start in the session dialog", () => {
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);
     await renderPicker();
+    expect(dialog().querySelector('button[aria-label^="Cartographer provider"]')).toBeNull();
+    await click(button("Joins later (1)"));
     const provider = dialog().querySelector<HTMLButtonElement>('button[aria-label^="Cartographer provider"]')!;
-    expect(provider.getAttribute("aria-label")).toBe("Cartographer provider: Chosen when it joins");
     expect(provider.disabled).toBe(false);
-    expect(dialog().querySelector('[aria-label^="Cartographer model"]')).toBeNull();
-    expect(dialog().querySelector('[data-pair-role="cartographer"]')?.textContent).not.toContain("No models published");
-    await choose("Cartographer provider", "Claude Code");
     expect(dialog().querySelector('[aria-label^="Cartographer model"]')).not.toBeNull();
+    // Showing the Orchestrator's pick is not a choice; only the owner's pick moves the start to the template.
+    await choose("Cartographer provider", "Claude Code");
     await click(start());
     const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { template: unknown; manager_models: Record<string, { model: string }> } };
     expect(input.template.template).toEqual({ name: templateRecallFixture.fallback.name, version: templateRecallFixture.fallback.version });
@@ -267,10 +277,47 @@ describe("Team template start in the session dialog", () => {
     expect(input.template.manager_models.cartographer.model.startsWith("claude:")).toBe(true);
   });
 
+  it("keeps a same-as manager on the Orchestrator's model until the owner chooses one, and can return to it", async () => {
+    const sameAs = modelDecisionFixtures.find((decision) => decision.reason === "same_as")!;
+    const defaultPreview = {
+      ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [],
+        template: templateRecallFixture.fallback, pickers: [{ slot: "curator" as const, label: "curator", decision: sameAs }],
+        roles: [{ group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } }] },
+    };
+    fixture.templates.preview.mockImplementation(async () => defaultPreview);
+    await renderPicker();
+    await click(button("Joins later (1)"));
+    expect(dialog().querySelector('[aria-label^="Curator model"]')?.getAttribute("aria-label")).toMatch(/^Curator model: Same as Orchestrator · /);
+    expect(dialog().querySelector('[aria-label^="Curator provider"]')).toBeNull();
+    await choose("Curator model", "Choose a model…");
+    expect(dialog().querySelector('[aria-label^="Curator provider"]')).not.toBeNull();
+    await click(button("Use the Orchestrator's model"));
+    expect(dialog().querySelector('[aria-label^="Curator provider"]')).toBeNull();
+    await click(start());
+    expect(fixture.actions.createOrchestrationPair.mock.calls[0][0]).not.toHaveProperty("template");
+  });
+
+  it("uses a gallery card in one action and reads role instructions inside the same dialog", async () => {
+    fixture.templates.file.mockResolvedValue({ path: "managers/lead.md", text: "# Lead\n\nPlan the research." });
+    await renderPicker();
+    await click(button("Change template"));
+    await click(button("Use Research desk"));
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
+    const read = buttons().find((candidate) => candidate.textContent?.startsWith("Read the instructions for"));
+    await click(read);
+    const step = dialog().querySelector('[data-testid="template-instructions"]')!;
+    expect(step).not.toBeNull();
+    expect(fixture.templates.file).toHaveBeenCalledWith(expect.objectContaining({ template: { name: "com.example/research-desk", version: "2.1.0" } }), expect.anything());
+    expect(step.querySelector("h1")?.textContent).toBe("Lead");
+    expect(dialog().querySelector('[data-testid="picker-confirm"]')).toBeNull();
+    await click(button("Back to Research desk"));
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
+  });
+
   it("returns from a gallery row's Details to the gallery", async () => {
     await renderPicker();
     await click(button("Change template"));
-    const kebab = button("More actions for com.example/research-desk");
+    const kebab = button("More actions for Research desk");
     await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
     await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
     expect(dialog().querySelector('[data-testid="template-review-detail"]')).not.toBeNull();
@@ -282,7 +329,7 @@ describe("Team template start in the session dialog", () => {
     fixture.templates.delete.mockResolvedValue(exchange.delete_result);
     await renderPicker();
     await click(button("Change template"));
-    const kebab = button("More actions for com.example/research-desk");
+    const kebab = button("More actions for Research desk");
     expect(kebab).toBeDefined();
     await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
     const remove = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Delete");
@@ -300,7 +347,7 @@ describe("Team template start in the session dialog", () => {
     openTemplatePreview({ id: "workspace", cwd: "/workspace" }, { name: "com.example/research-desk", version: "2.1.0" }, update);
     await renderPicker();
     expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
-    expect(dialog().querySelector('[data-testid="template-update-diff"]')?.textContent).toContain("Roles added: editor");
+    expect(dialog().querySelector('[data-testid="template-update-diff"]')?.textContent).toContain("Roles added: Editor");
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 
@@ -335,7 +382,7 @@ describe("Team template start in the session dialog", () => {
     await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
     await click(button("Run some roles on another machine"));
     expect(dialog().querySelector('[aria-label^="Machine for Lead"]')).toBeNull();
-    await choose("Machine for researcher", "eight");
+    await choose("Machine for Researcher", "eight");
     await click(start());
     const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { role_placements?: Record<string, string> } };
     expect(input.template.role_placements).toEqual({ researcher: "eight" });
@@ -347,7 +394,7 @@ describe("Team template start in the session dialog", () => {
     await renderPicker();
     await chooseResearchDesk();
     await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
-    await click(button("Run this team on another machine…"));
+    await click(button("Run some roles on another machine"));
     await choose("Machine for this team", "eight");
     await click(start());
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();

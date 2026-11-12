@@ -151,12 +151,12 @@ describe("NewSessionPicker modal", () => {
     expect(content).not.toContain("will open");
     expect(dialog().querySelector('[data-testid="workspace-help"]')).toBeNull();
     await act(async () => buttonNamed("Team")!.click());
+    // Team rows are compact: one model · effort pill opens the unified model picker; there is no separate effort select.
     expect(buttonNamed("Orchestrator model")).not.toBeNull();
     expect(buttonNamed("Planner model")).not.toBeNull();
-    expect(buttonNamed("Orchestrator effort")).not.toBeNull();
-    expect(buttonNamed("Planner effort")).not.toBeNull();
-    expect(buttonNamed("Orchestrator model")?.textContent?.trim()).toBe("Model value");
-    expect(buttonNamed("Planner effort")?.textContent?.trim()).toBe("High");
+    expect(buttonNamed("Orchestrator effort")).toBeNull();
+    expect(buttonNamed("Orchestrator model")?.textContent?.trim()).toBe("Model value · High");
+    expect(buttonNamed("Planner model")?.getAttribute("aria-haspopup")).toBe("dialog");
     expect(dialog().textContent).not.toContain("MODEL");
     expect(dialog().textContent).not.toContain("EFFORT");
   });
@@ -184,7 +184,7 @@ describe("NewSessionPicker modal", () => {
     await renderPicker();
     expect(buttonNamed("Team")?.getAttribute("aria-pressed")).toBe("true");
     expect(buttonNamed("Orchestrator model")).not.toBeNull();
-    expect(buttonNamed("Planner effort")).not.toBeNull();
+    expect(buttonNamed("Planner model")?.textContent?.trim()).toBe("Plan · Low");
     await act(async () => buttonNamed("Single agent")!.click());
     expect(buttonNamed("Single agent")?.getAttribute("aria-pressed")).toBe("true");
     expect(buttonNamed("Agent model")?.getAttribute("data-value")).toBe("lead");
