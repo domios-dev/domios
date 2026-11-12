@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::RemoteDispatchState;
+use codeterm_service_core::service::team_template_remote::{self, HostedRole};
 use codeterm_service_core::service::ServiceState;
 
 use super::{dispatch_authorized_gates, invalid_dispatch, owned_str};
@@ -78,11 +79,6 @@ pub(super) fn dispatch(
             "launch_profile selection is local-only for task dispatch; dispatch on the provider host or use agent spawn --mesh with --profile",
         ));
     }
-    if owned_str(p, "role").is_some_and(|role| role != "worker") {
-        return Err(invalid_dispatch(
-            "--role worker types are local-only; mesh dispatch does not compose local Worker role prompts",
-        ));
-    }
     let peer_target = owned_str(p, "mesh_peer")
         .filter(|peer| !peer.trim().is_empty())
         .ok_or_else(|| {
@@ -122,6 +118,7 @@ pub(super) fn dispatch(
         .plan_store
         .worker_task_preparation_projection(&plan_id, &task_id)
         .map_err(super::super::plan::plan_rpc_err)?;
+    let hosted_role = hosted_role(svc, p, task.owner_tab_id.as_deref())?;
     let canonical_cwd = if task.canonical_project_path.trim().is_empty() {
         task.project_path.clone()
     } else {
@@ -184,7 +181,7 @@ pub(super) fn dispatch(
         .as_ref()
         .filter(|_| peer_state == PeerState::Online)
     {
-        require_remote_dispatch_capability(client, &peer_name)?;
+        require_remote_dispatch_capability(client, &peer_name, hosted_role.is_some())?;
     }
     svc.plan_store
         .begin_remote_dispatch_attempt(
@@ -236,6 +233,10 @@ pub(super) fn dispatch(
         .instance_id
         .clone();
     let brief = remote_worker_brief(brief, &plan_id, &task_id, &attempt_id, &origin_id);
+    let brief = match &hosted_role {
+        Some(role) => team_template_remote::compose_hosted_brief(&brief, role),
+        None => brief,
+    };
     let origin_tab_id = owned_str(p, "caller_tab_id")
         .or(task.owner_tab_id.clone())
         .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
@@ -260,6 +261,7 @@ pub(super) fn dispatch(
         "description": description,
         "task_description_managed": description_override.is_none(),
         "brief": brief,
+        "clone_url": team_template_remote::origin_clone_url(&canonical_cwd),
     });
     let Some(client) = peer_client else {
         return Err(remote_failure(
@@ -680,17 +682,44 @@ fn resolve_dispatch_peer<'a>(
     )
 }
 
+/// `--role` names a worker type of the dispatching Orchestrator's Team; the origin composes
+/// its guidance because the peer holds no registry for this Team. Placement on another
+/// peer than its registration names is the Orchestrator's explicit alternate placement.
+fn hosted_role(
+    svc: &ServiceState,
+    params: Option<&Value>,
+    owner_tab_id: Option<&str>,
+) -> Result<Option<HostedRole>, JsonRpcError> {
+    let Some(role) = owned_str(params, "role").filter(|role| {
+        let role = role.trim();
+        !role.is_empty() && role != "worker"
+    }) else {
+        return Ok(None);
+    };
+    let parent = owned_str(params, "caller_tab_id").or_else(|| owner_tab_id.map(str::to_string));
+    let team_id = parent.and_then(|tab| svc.mux.read().get_tab(&tab)?.team_id.clone());
+    team_template_remote::hosted_role(team_id.as_deref(), role.trim())
+        .map(Some)
+        .map_err(|error| invalid_dispatch(&error))
+}
+
 /// An unreachable identify is left to the offline path; only a peer that
 /// answers without the feature is refused up front, before any attempt exists.
+/// Its version comes from that identify answer, never from the peer list.
 fn require_remote_dispatch_capability(
     client: &codeterm_service_core::mesh::transport::PeerClient,
     peer_name: &str,
+    hosts_role_type: bool,
 ) -> Result<(), JsonRpcError> {
     let Ok(identify) =
         codeterm_service_core::async_runtime::block_on(client.auth_get_json("/api/identify"))
     else {
         return Ok(());
     };
+    if hosts_role_type {
+        team_template_remote::hosting_gate(&identify, peer_name)
+            .map_err(|error| invalid_dispatch(&error))?;
+    }
     if identify_advertises(
         &identify,
         codeterm_service_core::ports::socket::REMOTE_TASK_DISPATCH_FEATURE,

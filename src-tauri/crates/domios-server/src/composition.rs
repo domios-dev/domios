@@ -11,6 +11,29 @@ pub struct ComposedService {
     pub frontend_bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
 }
 
+/// Hosted-role leases hold this keepawake; peer-hosting questions answer the owner's taps.
+fn register_peer_hosting(
+    service: &ServiceState,
+    keepawake: &codeterm_service_core::KeepAwakeStateHandle,
+) {
+    use codeterm_service_core::ports::daemon_question::DaemonQuestions;
+    use codeterm_service_core::service::team_template_remote::HostingKeepAwake;
+    if service
+        .register_host_extension(Arc::new(HostingKeepAwake(keepawake.clone())))
+        .is_err()
+    {
+        log::warn!("[peer-hosting] keepawake host already registered");
+    }
+    let questions =
+        codeterm_api::mesh_routes::template_hosting::PeerHostingQuestions::new(service.clone());
+    if service
+        .register_host_extension(Arc::new(DaemonQuestions::new(Arc::new(questions))))
+        .is_err()
+    {
+        log::warn!("[peer-hosting] daemon question handler already registered");
+    }
+}
+
 pub(crate) fn compose_observed(
     ui_factory: impl FnOnce(codeterm_events::EventBroadcasterState) -> Arc<dyn UiEvents>,
     shell: Arc<dyn Shell>,
@@ -427,6 +450,7 @@ pub(crate) fn compose_observed(
     }
     codeterm_service_core::mem_ops::embedder::start(&service_state);
     codeterm_service_core::ports::orchestration::install(&service_state);
+    register_peer_hosting(&service_state, &states.keepawake);
     service_state
         .chat_send_ledger
         .bind_settlement_owner(&service_state);

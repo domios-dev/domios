@@ -288,6 +288,20 @@ fn main_impl() {
             mesh_cli::run_plan_task_dispatch_origin(cli, &mesh_target);
             return;
         }
+        if matches!(
+            &cli.command,
+            Commands::Team {
+                action: TeamAction::Template { action },
+            } if cmd::team::template_start::hosted_on_peer(action)
+        ) {
+            if let Commands::Team {
+                action: TeamAction::Template { action },
+            } = cli.command
+            {
+                cmd::team::template_start::handle_peer(cli.json, action, &mesh_target);
+            }
+            return;
+        }
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(
             cli.command,
