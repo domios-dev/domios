@@ -1,9 +1,8 @@
 // Caller: build.sh ci-tests; CI action.yml, release-linux-arm64.yml, release-linux.yml, release-macos-build.yml, release-windows.yml, tests-fast.yml, tests-pr.yml; scripts rust-warnings-report.mjs, collect-rust-warnings.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { childExit } from './child-exit.mjs';
+import { startBuild } from './ci-build-process.mjs';
 
 export const stripAnsi = text => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 export const warningKey = w => JSON.stringify([w.target, w.file, w.line, w.code, w.message]);
@@ -102,11 +101,11 @@ export async function capture(program, args, log, { drainMs, stdout = process.st
     output = fs.createWriteStream(log, { flags: 'a' });
     output.on('error', () => { output = undefined; });
   } catch { output = undefined; }
-  const child = spawn(program, args, { stdio: ['inherit', 'pipe', 'pipe'] });
+  const { child, result } = startBuild(program, args, { drainMs, warn: message => stderr.write(message + '\n') });
   for (const [source, destination] of [[child.stdout, stdout], [child.stderr, stderr]]) {
     source.on('data', chunk => { destination.write(chunk); output?.write(chunk); });
   }
-  const { code, error } = await childExit(child, { drainMs, warn: message => stderr.write(message + '\n') });
+  const { code, error } = await result;
   if (output) await new Promise(resolve => { output.on('error', resolve); output.end(resolve); });
   if (error) throw error;
   return code ?? 1;

@@ -133,10 +133,12 @@ jobs:
         run: |-
           set -euo pipefail
           cp "$RUNNER_TEMP/arm64-handoff.tar" arm64-handoff.tar
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -euo pipefail -c '
+          exec node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -euo pipefail -c '
               node scripts/release-arm64-handoff.mjs unpack aarch64-unknown-linux-gnu "${{ inputs.tag }}" "${{ inputs.source_ref }}" arm64-handoff.tar "${{ steps.compile.outputs.sha256 }}"
               node scripts/release-bundle-smoke.mjs linux src-tauri/target/aarch64-unknown-linux-gnu/release/bundle "${{ inputs.source_ref }}" arm64
             '
+      - name: Copy verified Linux arm64 packages
+        run: |
           mkdir -p "$ART/out"
           cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb "$ART/out/"
           cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage "$ART/out/"
