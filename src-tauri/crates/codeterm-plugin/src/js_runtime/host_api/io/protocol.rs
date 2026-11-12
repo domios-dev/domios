@@ -82,9 +82,32 @@ pub(super) enum Request {
     ExecStart {
         options: Value,
     },
+    ExecPoll {
+        job: String,
+    },
+    ExecClose {
+        job: String,
+    },
     FetchStart {
         options: Value,
     },
+    FetchStreamStart {
+        options: Value,
+    },
+    FetchStreamPoll {
+        job: String,
+    },
+    FetchStreamClose {
+        job: String,
+    },
+    Progress {
+        options: Value,
+    },
+    LocalRecordingStatus,
+    LocalRecordingSetEnabled {
+        enabled: bool,
+    },
+    ReceiverStatusReport,
     ProviderVersion,
     CredentialPublic {
         id: String,
@@ -163,6 +186,9 @@ impl Request {
                 | Self::AnalyticsQuery { .. }
                 | Self::WorkspaceTabs { .. }
                 | Self::WorkerPoll { .. }
+                | Self::ExecPoll { .. }
+                | Self::LocalRecordingStatus
+                | Self::ReceiverStatusReport
                 | Self::AgentPoll { .. }
                 | Self::ReceiverTarget
                 | Self::JsonBooleanRecord { grant: false, .. }

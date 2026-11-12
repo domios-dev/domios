@@ -17,6 +17,25 @@ pub(super) fn execute(
         .check()
         .map_err(|error| Failure::from(error.to_string()))?;
     match request {
+        Progress { options } => {
+            operation.begin_effect().map_err(|error| error.to_string())?;
+            Ok(json!(service.progress_raw_json(sandbox.plugin_id(), &options.to_string())))
+        }
+        LocalRecordingStatus => parsed(service.local_recording_status_json(sandbox.plugin_id())),
+        LocalRecordingSetEnabled { enabled } => {
+            if enabled && !sandbox.local_recording_allowed() {
+                return Err("local_recording_grant_required".into());
+            }
+            operation.begin_effect().map_err(|error| error.to_string())?;
+            parsed(service.local_recording_enabled_json(sandbox.plugin_id(), enabled))
+        }
+        ReceiverStatusReport => {
+            if !sandbox.local_recording_allowed() {
+                return Err("local_recording_grant_required".into());
+            }
+            let query = sandbox.receiver_status_query().ok_or("receiver_status_not_declared")?;
+            parsed(service.receiver_status_report_json(sandbox.plugin_id(), query))
+        }
         SecretGet { name } => {
             if !sandbox.secrets_allowed() {
                 return Ok(Value::Null);
