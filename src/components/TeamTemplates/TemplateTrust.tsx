@@ -1,15 +1,25 @@
 import { templateSource, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 
+const DOT = "h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ct-yellow,#d97706)]";
+
 /**
  * Where a package came from, one element everywhere: an amber dot and "From file · unverified" until its first Use,
- * then a plain chip ("Mine", "From Mira", "Built-in").
+ * then a plain chip ("Mine", "From Mira", "Built-in"). `inline` is the same words as muted meta text, for a narrow card.
  */
-export function TemplateTrust({ summary }: { summary: Pick<TemplateSummary, "provenance" | "received_from" | "verified"> }) {
+export function TemplateTrust({ summary, inline = false }: { summary: Pick<TemplateSummary, "provenance" | "received_from" | "verified">; inline?: boolean }) {
   const source = templateSource(summary);
+  if (inline) {
+    return (
+      <span className="inline-flex items-center gap-1 whitespace-nowrap" title={source.label} data-unverified={source.unverified || undefined}>
+        {source.unverified && <span aria-hidden="true" className={DOT} />}
+        {source.label}
+      </span>
+    );
+  }
   if (source.unverified) {
     return (
       <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[11px] text-[var(--ct-muted-fg)]" data-testid="template-source" data-unverified="true">
-        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--ct-yellow,#d97706)]" />
+        <span aria-hidden="true" className={DOT} />
         {source.label}
       </span>
     );

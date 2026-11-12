@@ -5,11 +5,13 @@ type TemplateAsk = import("../../../gen/TemplateAsk").TemplateAsk;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
 type TemplatePayloadItem = import("../../../gen/TemplatePayloadItem").TemplatePayloadItem;
 type PackageAuthor = import("../../../gen/PackageAuthor").PackageAuthor;
+type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 
-/** "by Jane Doe, Example Labs", or null when the package names no author. */
-export function authorLine(summary: Pick<TemplateSummary, "authors">): string | null {
-  const names = (summary.authors ?? []).map((author) => author.name.trim()).filter(Boolean);
-  return names.length ? `by ${names.join(", ")}` : null;
+/** "by you" for a template saved here, else "by" its first package author; null when the package names none. */
+export function authorLine(summary: Pick<TemplateSummary, "authors" | "provenance">): string | null {
+  if (summary.provenance === "saved") return "by you";
+  const first = (summary.authors ?? []).map((author) => author.name.trim()).find(Boolean);
+  return first ? `by ${first}` : null;
 }
 
 const BYLINE_NAMES = 3;
@@ -23,11 +25,9 @@ function rosterText(summary: Pick<TemplateSummary, "workers" | "worker_names" | 
   return [...shown, ...(more > 0 ? [`${more} more`] : [])].join(", ");
 }
 
-/** The gallery card's meta line: "by Jane Doe · Researcher, Checker, source-check, 2 more", or "by you" for the owner's own; each part only when there is one. */
-export function cardByline(summary: Pick<TemplateSummary, "authors" | "workers" | "worker_names" | "skills" | "skill_names">, mine = false): string | null {
-  const first = (summary.authors ?? []).map((author) => author.name.trim()).find(Boolean);
-  const by = mine ? "by you" : first ? `by ${first}` : null;
-  const parts = [by, rosterText(summary)].filter(Boolean);
+/** The gallery card's meta line: "by Jane Doe · Researcher, Checker, source-check, 2 more"; each part only when there is one. */
+export function cardByline(summary: Pick<TemplateSummary, "authors" | "provenance" | "workers" | "worker_names" | "skills" | "skill_names">): string | null {
+  const parts = [authorLine(summary), rosterText(summary)].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
 
@@ -63,9 +63,11 @@ export function linkRows(summary: Pick<TemplateSummary, "links">): { label: stri
   });
 }
 
-export function usedByLine(item: Pick<TemplatePayloadItem, "used_by">): string | null {
-  const roles = item.used_by ?? [];
-  return roles.length ? `used by ${roles.map((role) => roleDisplayLabel(role)).join(", ")}` : null;
+/** "used by Lead, Checker": each role by its display name when the package names it, else its humanized id. */
+export function usedByLine(item: Pick<TemplatePayloadItem, "used_by">, roles: readonly Pick<TemplateRoleSummary, "role" | "label">[] = []): string | null {
+  const used = item.used_by ?? [];
+  const name = (id: string) => roleDisplayLabel(id, roles.find((role) => role.role === id)?.label);
+  return used.length ? `used by ${used.map(name).join(", ")}` : null;
 }
 
 function askText(ask: TemplateAsk): string {
@@ -124,7 +126,7 @@ export function harnessRequirements(required: readonly string[], missing: Readon
 
 export const SAVE_VERSION_DEFAULT = "1.0.0";
 
-/** The editable "What it does" seed; the server refuses an empty description, even for a review. */
+/** The dry run's description while "What it does" is still empty (the server refuses an empty one); never shown in the field. */
 export function distillDescription(teamName: string): string {
   return `Starts a team like ${teamName.trim() || "this one"}.`;
 }

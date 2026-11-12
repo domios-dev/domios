@@ -134,6 +134,12 @@ fn portable_projections_come_from_the_package_alone() {
         Some("source-check/scripts/fetch.py")
     );
     assert!(item("memory:0").used_by.is_empty() && item("memory:0").script_path.is_none());
+    assert_eq!(item("memory:0").memory_kind, Some(crate::MemoryKind::Rule));
+    assert_eq!(
+        item("memory:1").memory_kind,
+        Some(crate::MemoryKind::Learning)
+    );
+    assert!(item("skill:source-check").memory_kind.is_none());
     assert_eq!(summary.license.as_deref(), Some("Apache-2.0"));
     assert_eq!(summary.authors[0].name, "Jane Doe");
 
@@ -156,6 +162,8 @@ fn portable_projections_come_from_the_package_alone() {
         cartographer.start,
         crate::RoleStart::Mode(crate::StartMode::OnDemand)
     );
+    assert_eq!(curator.same_as.as_deref(), Some("orchestrator"));
+    assert!(cartographer.same_as.is_none());
     assert_eq!(roles[0].label, "Lead");
 
     let inputs = input_fields(&package);

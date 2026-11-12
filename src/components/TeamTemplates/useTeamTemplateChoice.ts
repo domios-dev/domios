@@ -7,8 +7,9 @@ import { initialSecretBindings } from "../../lib/teamTemplates/exchangeModel";
 import { takePendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
 import { listHostPeers, type HostPeer } from "../../lib/teamTemplates/hostPeers";
+import { webUpload } from "../../lib/webApi";
 import {
-  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, withKept,
+  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, templateSource, withKept,
   type PickerSeed, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import type { ManagerSeats } from "./TemplateManagers";
@@ -34,14 +35,20 @@ function basename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
+/** Only an unverified package passes through the review before its form; Built-in and Mine go straight to it, still carrying their consent decision. */
+function needsReview(preview: TemplatePreview): boolean {
+  return preview.consent != null && templateSource(preview.form.template).unverified;
+}
+
 /** Template choice for the Team form; the default is always available and starts today's pair without `template`. */
-export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames, hostPeers = listHostPeers }: {
+export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames, hostPeers = listHostPeers, upload = webUpload }: {
   enabled: boolean;
   recallQuery: string;
   onSeedPair: (seats: Partial<Record<"orchestrator" | "planner", PickerSeed>>) => void;
   transport?: () => TeamTemplatesTransport;
   vaultNames?: () => Promise<string[]>;
   hostPeers?: () => Promise<HostPeer[]>;
+  upload?: (file: Blob, name: string) => Promise<{ path: string }>;
 }) {
   const [view, setView] = useState<TemplateView>({ kind: "form" });
   const [catalog, setCatalog] = useState<TemplateCatalog | null>(null);
@@ -119,7 +126,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
       const preview = await transport().preview(template);
       setOptOut(new Set());
       if (detail) setView({ kind: "review", preview, mode: "detail", back: "gallery" });
-      else if (preview.consent) setView({ kind: "review", preview, mode: "consent", back: "gallery" });
+      else if (needsReview(preview)) setView({ kind: "review", preview, mode: "consent", back: "gallery" });
       else select(preview, new Set());
     } catch (error) {
       setNotice(startErrorView(error).message);
@@ -140,7 +147,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     void openPreview(summary);
   }, [defaultSummary.name, openPreview]);
 
-  const importPath = useCallback(async (path: string) => {
+  const importPath = useCallback(async (path: string, shownName = basename(path)) => {
     setPending(true);
     setNotice(null);
     try {
@@ -150,11 +157,26 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     } catch (error) {
       const failure = startErrorView(error);
       const reason = (failure.reasons[0] ?? failure.message).replace(/\.$/, "");
-      setNotice(`${basename(path)} isn't a team package: ${reason}.`);
+      setNotice(`${shownName} isn't a team package: ${reason}.`);
     } finally {
       setPending(false);
     }
   }, [openPreview, transport]);
+
+  /** A browser has files, not paths: the file is uploaded to the daemon first, then imported like a dropped path. */
+  const importUpload = useCallback(async (file: Blob, name: string) => {
+    setPending(true);
+    setNotice(null);
+    let uploaded: string;
+    try {
+      uploaded = (await upload(file, name)).path;
+    } catch (error) {
+      setNotice(`${name} couldn't be read: ${startErrorView(error).message.replace(/\.$/, "")}.`);
+      setPending(false);
+      return;
+    }
+    await importPath(uploaded, name);
+  }, [importPath, upload]);
 
   const remove = useCallback(async (summary: TemplateSummary) => {
     setPending(true);
@@ -226,10 +248,11 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
       if (view.kind !== "review") return;
       if (view.preview === chosen) setView({ kind: "form" });
       else if (view.preview.form.template.name === defaultSummary.name) choose(defaultSummary);
-      else if (view.mode === "detail" && view.preview.consent) setView({ ...view, mode: "consent" });
+      else if (view.mode === "detail" && needsReview(view.preview)) setView({ ...view, mode: "consent" });
       else select(view.preview, optOut);
     },
     importPath: (path: string) => { void importPath(path); },
+    importUpload: (file: Blob, name: string) => { void importUpload(file, name); },
     remove: (summary: TemplateSummary) => { void remove(summary); },
     setSecret: (name: string, entry: string) => setSecrets((current) => ({ ...current, [name]: entry })),
     wantPeers: () => setPeersWanted(true),

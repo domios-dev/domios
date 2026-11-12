@@ -40,7 +40,7 @@
     "roles": [
       { "group": "manager", "role": "orchestrator", "label": "Lead", "start": "with_team" },
       { "group": "manager", "role": "cartographer", "label": "cartographer", "start": "on_demand" },
-      { "group": "manager", "role": "curator", "label": "curator", "start": { "schedule": "45m..2h" } },
+      { "group": "manager", "role": "curator", "label": "curator", "start": { "schedule": "45m..2h" }, "same_as": "orchestrator" },
       {
         "group": "worker",
         "role": "researcher",
@@ -98,7 +98,7 @@
       "description": "Our research method; read before planning",
       "executable": false
     },
-    { "id": "memory:0", "kind": "memory", "label": "Prefer filings over press releases", "executable": false },
+    { "id": "memory:0", "kind": "memory", "label": "Prefer filings over press releases", "executable": false, "memory_kind": "rule" },
     {
       "id": "skill:source-check",
       "kind": "skill",

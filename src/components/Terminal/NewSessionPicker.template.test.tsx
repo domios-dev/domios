@@ -292,7 +292,7 @@ describe("Team template start in the session dialog", () => {
     const defaultPreview = {
       ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [],
         template: templateRecallFixture.fallback, pickers: [{ slot: "curator" as const, label: "curator", decision: sameAs }],
-        roles: [{ group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } }] },
+        roles: [{ group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" }, same_as: "orchestrator" }] },
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);
     await renderPicker();
@@ -305,6 +305,29 @@ describe("Team template start in the session dialog", () => {
     expect(dialog().querySelector('[aria-label^="Curator provider"]')).toBeNull();
     await click(start());
     expect(fixture.actions.createOrchestrationPair.mock.calls[0][0]).not.toHaveProperty("template");
+  });
+
+  it("names a later manager's same_as from its role and lets a declared model win over the Orchestrator prefill", async () => {
+    const declared = { choice: { model: "claude:sonnet" }, reason: "first_preference" as const, amber: false };
+    const undecided = { reason: "needs_choice" as const, amber: false };
+    const defaultPreview = {
+      ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [], pickers: [],
+        template: templateRecallFixture.fallback,
+        roles: [
+          { group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const, model: declared },
+          { group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" }, model: undecided, same_as: "orchestrator" },
+        ] },
+    };
+    fixture.templates.preview.mockImplementation(async () => defaultPreview);
+    await renderPicker();
+    await click(button("Joins later (2)"));
+    expect(dialog().querySelector('[aria-label^="Curator model"]')?.getAttribute("aria-label")).toMatch(/^Curator model: Same as Orchestrator · /);
+    expect(dialog().querySelector('[aria-label^="Curator provider"]')).toBeNull();
+    expect(dialog().querySelector('[aria-label^="Cartographer model"]')?.getAttribute("aria-label")).toContain("sonnet");
+    await click(button("Details"));
+    const managers = dialog().querySelector('[data-testid="template-review-detail"] section[aria-label="Managers"]')!.textContent;
+    expect(managers).toContain("Same as Orchestrator");
+    expect(managers).toContain("sonnet");
   });
 
   it("uses a gallery card in one action and reads role instructions inside the same dialog", async () => {
@@ -322,6 +345,20 @@ describe("Team template start in the session dialog", () => {
     expect(dialog().querySelector('[data-testid="picker-confirm"]')).toBeNull();
     await click(button("Back to Research desk"));
     expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
+  });
+
+  it("takes a Built-in straight to its form on one-click Use, still carrying its consent decision", async () => {
+    const builtin = { ...startablePreview.form.template, provenance: "builtin" as const, verified: true };
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, form: { ...startablePreview.form, template: builtin } });
+    await renderPicker();
+    await click(button("Change template"));
+    await click(button("Use Research desk"));
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).toBeNull();
+    expect(dialog().querySelector('[data-testid="template-start-form"]')).not.toBeNull();
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    await click(start());
+    const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { decision_id?: string } };
+    expect(input.template.decision_id).toBe(startablePreview.consent?.decision_id);
   });
 
   it("returns from a gallery row's Details to the gallery", async () => {
@@ -345,7 +382,9 @@ describe("Team template start in the session dialog", () => {
     const remove = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Delete");
     await click(remove);
     expect(fixture.templates.delete).not.toHaveBeenCalled();
-    const confirm = dialog().querySelector('[role="alertdialog"]')!;
+    const confirm = dialog().querySelector('ul[aria-label="Templates"] [role="group"][aria-label="Delete Research desk"]')!;
+    expect(confirm.textContent).toContain("Delete Research desk?");
+    expect(button("More actions for Research desk")).toBeUndefined();
     await click(Array.from(confirm.querySelectorAll<HTMLButtonElement>("button")).find((candidate) => candidate.textContent?.trim() === "Delete"));
     expect(fixture.templates.delete).toHaveBeenCalledWith({ name: "com.example/research-desk", version: "2.1.0" });
     expect(fixture.templates.list).toHaveBeenCalledTimes(2);

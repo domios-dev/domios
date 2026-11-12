@@ -274,15 +274,18 @@ pub fn manager_pickers(
         .collect()
 }
 
-/// Every role summary, with each worker's model from the same shared decisions.
+/// Every role summary with its model from the same shared decisions; with_team managers carry theirs as pickers instead.
 fn decided_roles(
     resolved: &ResolvedTemplate,
     decisions: &BTreeMap<String, ModelDecision>,
 ) -> Vec<TemplateRoleSummary> {
+    let picked = with_team_slots(resolved);
     role_summaries(&resolved.package)
         .into_iter()
         .map(|mut role| {
-            if role.group == TeamRoleGroup::Worker {
+            let has_picker = role.group == TeamRoleGroup::Manager
+                && picked.iter().any(|slot| slot.as_str() == role.role);
+            if !has_picker {
                 role.model = decisions.get(&role.role).cloned();
             }
             role

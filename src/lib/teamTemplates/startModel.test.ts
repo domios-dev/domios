@@ -4,7 +4,7 @@ import {
 } from "../transport/teamTemplates.testdata";
 import {
   blockerView, bringsSummary, buildStartRequest, decisionNotice, effortLabel, effortNote, exportFormats, galleryEntries, groupKeptState, humanizePackageName,
-  payloadItemText, pickerSeed, roleTiming, scrubRows, startBlocker, startErrorView, managerRoles, rowDecisionNotice, templateSource, templateTitle,
+  payloadItemText, pickerSeed, skillScriptPath, roleTiming, scrubRows, startBlocker, startErrorView, managerRoles, rowDecisionNotice, templateSource, templateTitle,
   visiblePayload, withKept,
 } from "./startModel";
 
@@ -43,7 +43,7 @@ describe("template start model", () => {
   it("says when non-starting roles join", () => {
     expect(roleTiming("with_team")).toBeNull();
     expect(roleTiming("on_demand")).toBe("Joins when the Orchestrator needs it");
-    expect(roleTiming({ schedule: "45m..2h" })).toBe("Visits every 45 to 120 min");
+    expect(roleTiming({ schedule: "45m..2h" })).toBe("Visits every 45 min to 2 h");
     expect(roleTiming({ schedule: "90m..1h" })).toBe("Visits every 60 to 90 min");
     expect(roleTiming({ schedule: "1h..2h" })).toBe("Visits every 1 to 2 h");
   });
@@ -61,6 +61,12 @@ describe("template start model", () => {
     expect(visiblePayload([icon, doc])).toEqual([doc]);
     expect(payloadItemText(doc)).toEqual({ name: "How we research", detail: "docs/how-we-research.md" });
     expect(payloadItemText({ ...doc, description: "How we research a market" }).name).toBe("How we research a market");
+    expect(payloadItemText({ kind: "memory", label: "Prefer filings", memory_kind: "rule" })).toEqual({ name: "Prefer filings", detail: "Rule" });
+    expect(payloadItemText({ kind: "automation", label: "stale-task-nudge", description: "Nudges the lead" })).toEqual({ name: "Nudges the lead", detail: null });
+    expect(payloadItemText({ kind: "automation", label: "stale-task-nudge" }).name).toBe("Stale task nudge");
+    const skill = { id: "skill:source-check", label: "source-check", script_path: "source-check/scripts/fetch.py" };
+    expect(skillScriptPath(skill)).toBe("scripts/fetch.py");
+    expect(skillScriptPath({ id: "skill:skills/sizing", label: "sizing", script_path: "skills/sizing/bin/run" })).toBe("bin/run");
   });
 
   it("selects or clears a whole group of payload items at once", () => {
@@ -85,18 +91,22 @@ describe("template start model", () => {
     expect(bringsSummary(payload, new Set(["memory:0", "skill:source-check"]))).toBe("1 document, 1 automation");
   });
 
-  it("blocks start on a missing input, then on a missing harness", () => {
-    expect(startBlocker(templatePreviewFixture, { question: "", depth: "standard" })).toEqual({ kind: "inputs", keys: ["question"] });
-    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" })).toEqual({ kind: "secret", name: "SEARCH_API_KEY" });
+  it("lists every blocker of a start in one line, by field label", () => {
+    const none = { inputs: [], secrets: [], harnesses: [], tools: [] };
+    const noWhere = { ...templatePreviewFixture, where_needed: null };
+    expect(startBlocker(noWhere, { question: "", depth: "standard" })).toEqual({ ...none, inputs: ["question"], secrets: ["SEARCH_API_KEY"] });
     const bound = { SEARCH_API_KEY: "research-desk/search" };
     const harness = startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, bound);
-    expect(harness).toEqual({ kind: "harness", harness: "codex" });
-    expect(startBlocker({ ...templatePreviewFixture, where_needed: null }, { question: "EU heat pumps" }, bound)).toBeNull();
+    expect(harness).toEqual({ ...none, harnesses: ["codex"], tools: ["mcp:io.github.example/search"] });
+    expect(startBlocker(noWhere, { question: "EU heat pumps" }, bound)).toBeNull();
     expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, {}, "eight")).toBeNull();
-    expect(startBlocker(templatePreviewFixture, { question: "" }, {}, "eight")).toEqual({ kind: "inputs", keys: ["question"] });
+    expect(startBlocker(templatePreviewFixture, { question: "" }, {}, "eight")).toEqual({ ...none, inputs: ["question"] });
     const names = (id: string) => id === "codex" ? "Codex" : id;
-    expect(blockerView({ kind: "secret", name: "SEARCH_API_KEY" }, names).tone).toBe("amber");
-    expect(blockerView(harness!, names)).toEqual({ tone: "red", text: "Install Codex to start." });
+    expect(blockerView({ ...none, inputs: ["question"], secrets: ["SEARCH_API_KEY"] }, names))
+      .toEqual({ tone: "amber", text: "Fill in Question and choose a secret for SEARCH_API_KEY." });
+    expect(blockerView(harness!, names)).toEqual({ tone: "red", text: "Install Codex and connect mcp:io.github.example/search to start." });
+    expect(blockerView({ ...none, harnesses: ["codex"] }, names)).toEqual({ tone: "red", text: "Install Codex to start." });
+    expect(blockerView({ ...none, inputs: ["question"], harnesses: ["codex"] }, names).text).toBe("Fill in Question and install Codex to start.");
   });
 
   it("carries the owner decision id, opt-outs and filled inputs on the start request", () => {

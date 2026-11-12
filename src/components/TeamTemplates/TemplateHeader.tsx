@@ -22,10 +22,13 @@ export function TemplateHeader({ summary, onChange, onDetails }: {
         <p className="mt-0.5 truncate text-[12px] leading-snug text-[var(--ct-muted-fg)]" title={summary.description}>{summary.description}</p>
         <div className="flex flex-wrap items-center gap-x-1 text-[12px] text-[var(--ct-muted-fg)]">
           {author && <span>{author}</span>}
-          {author && onDetails && <span aria-hidden="true">·</span>}
-          {onDetails && <button type="button" className={LINK} onClick={onDetails}>Details</button>}
-          {(author || onDetails) && <span aria-hidden="true">·</span>}
-          <button type="button" className={LINK} onClick={onChange}>Change template</button>
+          {author && <span aria-hidden="true">·</span>}
+          {/* The links wrap as one group, so "Details ·" never ends a line on a phone. */}
+          <span className="inline-flex items-center gap-x-1 whitespace-nowrap" data-testid="template-header-links">
+            {onDetails && <button type="button" className={LINK} onClick={onDetails}>Details</button>}
+            {onDetails && <span aria-hidden="true">·</span>}
+            <button type="button" className={LINK} onClick={onChange}>Change template</button>
+          </span>
         </div>
       </div>
     </div>

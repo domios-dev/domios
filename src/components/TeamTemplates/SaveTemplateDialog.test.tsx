@@ -55,23 +55,32 @@ describe("Save as template", () => {
     await renderDialog();
     expect(distill).toHaveBeenCalledOnce();
     expect(distill.mock.calls[0][0]).toMatchObject({ team_id: "team_7", dry_run: true });
-    expect(dialog().querySelector('[data-payload-item="skill:source-check"] [data-executable="true"]')?.textContent).toContain("source-check/scripts/fetch.py");
+    // The skill's script reads relative to the skill folder; View still opens the full path.
+    expect(dialog().querySelector('[data-payload-item="skill:source-check"] [data-executable="true"]')?.textContent).toContain("Runs scripts/fetch.py");
     expect(dialog().querySelector('[data-payload-item="file:notes/brief.md"]')?.textContent).toContain("used by Orchestrator, Researcher");
     expect(dialog().querySelector('[aria-label="Removed before saving"]')?.textContent).toContain("SEARCH_API_KEY kept as a name");
+    const [, description] = Array.from(dialog().querySelectorAll<HTMLInputElement>("input"));
+    await type(description, "Researches a market question.");
     await act(async () => button("Show team.yaml")!.click());
     expect(dialog().querySelector('[aria-label="team.yaml"]')?.textContent).toBe(review.yaml);
   });
 
-  it("is ready to save without typing, because the review never sends an empty description", async () => {
+  it("starts What it does empty and still reviews, because the dry run alone uses a default", async () => {
     distill.mockImplementation(async (request: { description: string; dry_run?: boolean }) => {
       if (!request.description.trim()) throw new Error("invalid_package: description cannot be empty");
       return request.dry_run ? { ...review, saved: null, path: null } : review;
     });
     await renderDialog();
+    const [, description] = Array.from(dialog().querySelectorAll<HTMLInputElement>("input"));
+    expect(description.value).toBe("");
+    expect(description.placeholder).toBe("One line on what this team does");
     expect(distill.mock.calls[0][0].description).not.toBe("");
     expect(dialog().querySelector('[role="alert"]')).toBeNull();
-    expect(button("Save template")!.disabled).toBe(false);
+    expect(dialog().querySelector('[aria-label="Includes"]')).not.toBeNull();
+    expect(button("Save template")!.disabled).toBe(true);
+    await type(description, "Researches a market question.");
     await act(async () => button("Save template")!.click());
+    expect(distill.mock.calls[distill.mock.calls.length - 1][0]).toMatchObject({ description: "Researches a market question.", save: true });
     expect(onSaved).toHaveBeenCalledExactlyOnceWith(review.saved);
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -81,9 +90,10 @@ describe("Save as template", () => {
     await renderDialog();
     expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("version is not semver");
     expect(button("Save template")!.disabled).toBe(true);
-    const [, , version] = Array.from(dialog().querySelectorAll<HTMLInputElement>("input"));
+    const [, description, version] = Array.from(dialog().querySelectorAll<HTMLInputElement>("input"));
     await type(version, "1.0.1");
     expect(dialog().querySelector('[role="alert"]')).toBeNull();
+    await type(description, "Researches a market question.");
     expect(button("Save template")!.disabled).toBe(false);
   });
 
@@ -117,6 +127,8 @@ describe("Save as template", () => {
     expect(Array.from(includes.querySelectorAll('[role="switch"]')).map((toggle) => toggle.getAttribute("aria-checked"))).toEqual(["false", "false"]);
     expect(includes.querySelector('[data-payload-item="skill:source-check"] [data-executable="true"]')).not.toBeNull();
     await act(async () => includes.querySelector<HTMLButtonElement>('button[aria-label="Select all includes"]')!.click());
+    const [, description] = Array.from(dialog().querySelectorAll<HTMLInputElement>("input"));
+    await type(description, "Researches a market question.");
     await act(async () => button("Save template")!.click());
     expect(distill.mock.calls[distill.mock.calls.length - 1][0]).toMatchObject({ opt_out: [], save: true });
   });

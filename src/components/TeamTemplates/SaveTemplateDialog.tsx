@@ -28,7 +28,7 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, onSaved, transpo
 }) {
   const titleId = useId();
   const descriptionId = useId();
-  const [identity, setIdentity] = useState<Identity>({ title: teamName, description: distillDescription(teamName), version: SAVE_VERSION_DEFAULT, license: "" });
+  const [identity, setIdentity] = useState<Identity>({ title: teamName, description: "", version: SAVE_VERSION_DEFAULT, license: "" });
   const [optOut, setOptOut] = useState<ReadonlySet<string>>(new Set());
   const [includes, setIncludes] = useState<TemplateDistillResult["includes"] | null>(null);
   const [review, setReview] = useState<TemplateDistillResult | null>(null);
@@ -51,16 +51,17 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, onSaved, transpo
   // The first review fills Includes; later ones run only while it is missing or team.yaml is shown, so a fixed field recovers.
   const wantsReview = includes === null || showYaml;
   useEffect(() => {
-    if (!wantsReview || !request.description) return;
+    if (!wantsReview) return;
     const controller = new AbortController();
-    transport().distill({ ...request, dry_run: true }, { signal: controller.signal })
+    // The server refuses an empty description even for a review; the dry run alone uses a default the owner never sees.
+    transport().distill({ ...request, description: request.description || distillDescription(teamName), dry_run: true }, { signal: controller.signal })
       .then((result) => {
         setIncludes((current) => current ?? result.includes);
         setReview(result);
         setError(null);
       }, (failure: unknown) => { if (!controller.signal.aborted) setError(startErrorView(failure).message); });
     return () => controller.abort();
-  }, [request, wantsReview, transport]);
+  }, [request, wantsReview, transport, teamName]);
 
   const save = async (thenExport: boolean) => {
     setBusy(true);
@@ -97,7 +98,7 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, onSaved, transpo
           <input className={FIELD} value={identity.title} onChange={(event) => set("title")(event.target.value)} required />
         </label>
         <label className="flex flex-col gap-1 text-[11px] text-[var(--ct-muted-fg)]">What it does
-          <input className={FIELD} value={identity.description} onChange={(event) => set("description")(event.target.value)} required />
+          <input className={FIELD} value={identity.description} placeholder="One line on what this team does" onChange={(event) => set("description")(event.target.value)} required />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-[11px] text-[var(--ct-muted-fg)]">Version
@@ -119,16 +120,17 @@ export function SaveTemplateDialog({ teamId, teamName, onClose, onSaved, transpo
         <button type="button" aria-expanded={showYaml} onClick={() => setShowYaml(!showYaml)} className="flex items-center gap-1.5 self-start text-[12px] text-[var(--ct-accent)] hover:underline">
           <Eye size={12} aria-hidden="true" /> {showYaml ? "Hide team.yaml" : "Show team.yaml"}
         </button>
-        {showYaml && review && <pre aria-label="team.yaml" className="max-h-64 overflow-auto rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2.5 font-mono text-[11px] leading-snug">{review.yaml}</pre>}
+        {showYaml && review && !request.description && <p className="text-[11px] text-[var(--ct-muted-fg)]">Add what it does to see its team.yaml.</p>}
+        {showYaml && review && request.description && <pre aria-label="team.yaml" className="max-h-64 overflow-auto rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2.5 font-mono text-[11px] leading-snug">{review.yaml}</pre>}
         {review && !review.check.valid && <ul className="text-[12px] text-[var(--ct-red)]">
           {review.check.diagnostics.map((diagnostic) => <li key={`${diagnostic.file}:${diagnostic.path}:${diagnostic.code}`}>{diagnostic.message}</li>)}
         </ul>}
       {error && <p role="alert" className="text-[12px] text-[var(--ct-red)]">{error}</p>}
       {!error && missing && <p role="status" className="text-[12px] text-[var(--ct-muted-fg)]">Add {missing} to save it.</p>}
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button type="button" variant="ghost" disabled={!ready || busy} onClick={() => { void save(true); }}>Save and export…</Button>
-        <Button type="submit" variant="primary" loading={busy} disabled={!ready}>Save template</Button>
+        <Button type="button" variant="ghost" className="text-xs" onClick={onClose}>Cancel</Button>
+        <Button type="button" variant="ghost" className="text-xs" disabled={!ready || busy} onClick={() => { void save(true); }}>Save and export…</Button>
+        <Button type="submit" variant="primary" className="text-xs" loading={busy} disabled={!ready}>Save template</Button>
       </div>
     </FormDialog>
   );

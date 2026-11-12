@@ -262,6 +262,7 @@
   "src/components/TeamTemplates/TemplateShareCardView.test.tsx",
   "src/components/TeamTemplates/TemplateExportDialog.test.tsx",
   "src/lib/teamTemplates/vaultSecrets.test.ts",
+  "src/lib/teamTemplates/storedZip.test.ts",
   "src/components/Terminal/NewSessionPickerHost.test.tsx",
   "src/lib/frontendUpdate/model.test.ts",
   "src/lib/frontendUpdate/checkpoint.test.ts",

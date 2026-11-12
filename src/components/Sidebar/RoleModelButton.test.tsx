@@ -55,4 +55,18 @@ describe("a role's model pill", () => {
     expect(onChange).toHaveBeenCalledOnce();
     expect(onChange.mock.calls[0][0]).toBe("fast");
   });
+
+  it("exposes models as listbox options and Enter on a focused row picks that row", async () => {
+    const onChange = vi.fn();
+    await act(async () => {
+      root!.render(<RoleModelButton label="Planner" provider={provider} modelId="deep" effortId="high" onChange={onChange} testId="pill" />);
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="pill"]')!.click());
+    const listbox = document.body.querySelector<HTMLElement>('[role="listbox"][aria-label="Models"]')!;
+    const fast = Array.from(listbox.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent?.startsWith("Fast"))!;
+    fast.focus();
+    await act(async () => fast.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true })));
+    expect(onChange).toHaveBeenCalledOnce();
+    expect(onChange.mock.calls[0][0]).toBe("fast");
+  });
 });

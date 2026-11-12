@@ -6,13 +6,14 @@ import { AgentIcon } from "../AgentIcon";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { OrchestrationRoleRow, TeamRosterMember, type OrchestrationPairValues } from "../Sidebar/OrchestrationPairForm";
 import { modelEffortText } from "../Sidebar/RoleModelButton";
+import { kindDisplayName } from "../../lib/roleKind";
 import {
-  effortNote, managerLabel, managerRoles, MANAGER_SLOTS, pickerSeed, roleTiming, rowDecisionNotice, splitModel,
+  effortNote, managerDecision, managerLabel, managerRoles, MANAGER_SLOTS, pickerSeed, roleSameAs, roleTiming, rowDecisionNotice, splitModel,
   type DecisionAction, type PickerSeed,
 } from "../../lib/teamTemplates/startModel";
 
 type ManagerSlot = import("../../../gen/ManagerSlot").ManagerSlot;
-type ManagerModelPicker = import("../../../gen/ManagerModelPicker").ManagerModelPicker;
+type ModelDecision = import("../../../gen/ModelDecision").ModelDecision;
 type TemplateStartForm = import("../../../gen/TemplateStartForm").TemplateStartForm;
 type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 
@@ -66,14 +67,14 @@ function DecisionActionView({ action, harnessName, onAction }: { action: Decisio
   }
 }
 
-function DecisionLines({ picker, providerId, harnessName, onAction }: {
-  picker: ManagerModelPicker;
+function DecisionLines({ decision, providerId, harnessName, onAction }: {
+  decision: ModelDecision;
   providerId: string;
   harnessName: (id: string) => string;
   onAction: (action: DecisionAction) => void;
 }) {
-  const notice = rowDecisionNotice(picker.decision, providerId, harnessName);
-  const effort = effortNote(picker.decision);
+  const notice = rowDecisionNotice(decision, providerId, harnessName);
+  const effort = effortNote(decision);
   if (!notice && !effort) return null;
   return (
     <div className="flex flex-wrap items-center gap-2 text-[10px]" data-decision={notice?.tone ?? "effort"}>
@@ -100,8 +101,8 @@ export function harnessNames(providers: readonly ProviderDescriptor[]) {
 }
 
 /**
- * A manager past the pair. `same_as: orchestrator` is one select that follows the Orchestrator live; a role with no
- * model of its own shows the Orchestrator's current pick until the owner picks one.
+ * A manager past the pair. A role following the Orchestrator or Planner (`same_as`) is one select that follows that seat
+ * live. A declared model wins; a later role with no model of its own shows the Orchestrator's pick until the owner picks one.
  */
 function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context: RowContext }) {
   const { form, providers, disabledProviderIds, pair, seats, onSeatChange, onSeatClear, onInstallProvider } = context;
@@ -111,28 +112,29 @@ function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context:
   const seatProviders = providers.filter((provider) => !provider.agent_runtime?.launchProfiles);
   const effortFor = (providerId: string, modelId: string, current?: string) =>
     resolveEffort(providers.find((provider) => provider.id === providerId), modelId, current);
-  const picker = form.pickers.find((candidate) => candidate.slot === slot);
-  const decision = picker?.decision;
-  const sameAs = decision?.reason === "same_as";
+  const decision = managerDecision(form.pickers, role);
+  const target = roleSameAs(role);
+  const followsPair = target !== null && isPairSlot(target) ? target : null;
   const orchestrator = pairSeat("orchestrator", pair);
   const picked = seats[slot];
   const declared = decision ? pickerSeed(decision) : null;
   const waits = role.start !== "with_team";
   const shown = picked ?? declared ?? (waits ? orchestrator : { providerId: "", modelId: "" });
   const timing = roleTiming(role.start);
-  if (sameAs && !picked) {
-    const orchestratorProvider = providers.find((provider) => provider.id === orchestrator.providerId);
-    const followed = modelEffortText(orchestratorProvider, orchestrator.modelId, orchestrator.effortId);
+  if (followsPair && !picked) {
+    const followed = pairSeat(followsPair, pair);
+    const followedProvider = providers.find((provider) => provider.id === followed.providerId);
+    const followedText = modelEffortText(followedProvider, followed.modelId, followed.effortId);
     return (
       <TeamRosterMember role={slot} icon={SLOT_ICON[slot] ?? null}>
         <div className="orchestration-role-row flex flex-col gap-1.5" data-testid={`orchestration-role-${label.toLowerCase()}`}>
           <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{label}</div>
           <DropdownSelect aria-label={`${label} model`} value={SAME_AS}
-            leading={orchestrator.providerId ? <AgentIcon providerId={orchestrator.providerId} className="text-[12px] shrink-0" /> : undefined}
-            options={[{ value: SAME_AS, label: `Same as Orchestrator · ${followed}` }, { value: CHOOSE, label: "Choose a model…" }]}
-            onChange={(value) => { if (value === CHOOSE) onSeatChange(slot, orchestrator); }} />
+            leading={followed.providerId ? <AgentIcon providerId={followed.providerId} className="text-[12px] shrink-0" /> : undefined}
+            options={[{ value: SAME_AS, label: `Same as ${kindDisplayName(followsPair)} · ${followedText}` }, { value: CHOOSE, label: "Choose a model…" }]}
+            onChange={(value) => { if (value === CHOOSE) onSeatChange(slot, followed); }} />
         </div>
-        {picker && <DecisionLines picker={picker} providerId={orchestrator.providerId} harnessName={harnessName} onAction={(action) => {
+        {decision && <DecisionLines decision={decision} providerId={followed.providerId} harnessName={harnessName} onAction={(action) => {
           if (action.kind === "install") onInstallProvider(action.harness);
           if (action.kind === "substitute") onSeatChange(slot, { ...splitModel(action.model) });
         }} />}
@@ -152,7 +154,7 @@ function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context:
         onModelChange={(modelId) => onSeatChange(slot, { ...shown, modelId, effortId: effortFor(shown.providerId, modelId, shown.effortId) })}
         onEffortChange={(effortId) => onSeatChange(slot, { ...shown, effortId })}
         onSelectionChange={(modelId, effortId) => onSeatChange(slot, { ...shown, modelId, effortId })} />
-      {picker && <DecisionLines picker={picker} providerId={shown.providerId} harnessName={harnessName} onAction={(action) => {
+      {decision && <DecisionLines decision={decision} providerId={shown.providerId} harnessName={harnessName} onAction={(action) => {
         if (action.kind === "install") onInstallProvider(action.harness);
         if (action.kind === "substitute") {
           const next = splitModel(action.model);
@@ -160,8 +162,8 @@ function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context:
         }
       }} />}
       {timing && <div className={MUTED_LINE}>{timing}</div>}
-      {sameAs && picked && <button type="button" className="self-start text-[10px] text-[var(--ct-accent)] hover:underline" onClick={() => onSeatClear(slot)}>
-        Use the Orchestrator's model
+      {followsPair && picked && <button type="button" className="self-start text-[10px] text-[var(--ct-accent)] hover:underline" onClick={() => onSeatClear(slot)}>
+        Use the {kindDisplayName(followsPair)}'s model
       </button>}
     </TeamRosterMember>
   );
@@ -236,7 +238,7 @@ export function TemplateManagers({ form, providers, disabledProviderIds, pair, o
               onModelChange={(modelId) => setSeat({ ...seat, modelId, effortId: effortFor(seat.providerId, modelId, seat.effortId) })}
               onEffortChange={(effortId) => setSeat({ ...seat, effortId })}
               onSelectionChange={(modelId, effortId) => setSeat({ ...seat, modelId, effortId })} />
-            {picker && <DecisionLines picker={picker} providerId={seat.providerId} harnessName={harnessName} onAction={(action) => {
+            {picker && <DecisionLines decision={picker.decision} providerId={seat.providerId} harnessName={harnessName} onAction={(action) => {
               if (action.kind === "install") onInstallProvider(action.harness);
               if (action.kind === "substitute") {
                 const next = splitModel(action.model);

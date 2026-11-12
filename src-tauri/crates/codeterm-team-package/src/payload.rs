@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::document::{PackageAutomation, PackageSkill, TeamRole};
+use crate::document::{MemoryKind, PackageAutomation, PackageSkill, TeamRole};
 use crate::paths::within;
 use crate::Package;
 
@@ -34,6 +34,9 @@ pub struct TemplatePayloadItem {
     /// The first runnable path the item carries, shown beside its script ask.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
+    /// A memory item's kind, which the owner reads as its second line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_kind: Option<MemoryKind>,
 }
 
 /// True for content a host would run: a shebang, a script or binary extension, or a `scripts/`/`bin/` folder.
@@ -94,6 +97,7 @@ pub fn payload_items(package: &Package) -> Vec<TemplatePayloadItem> {
             executable,
             used_by: used_by(package, &file.path, |role| role.files.as_slice()),
             script_path: executable.then(|| file.path.clone()),
+            memory_kind: None,
         }
     });
     let memory = document
@@ -108,6 +112,7 @@ pub fn payload_items(package: &Package) -> Vec<TemplatePayloadItem> {
             executable: false,
             used_by: Vec::new(),
             script_path: None,
+            memory_kind: Some(item.kind),
         });
     let skills = document.skills.iter().map(|skill| {
         let key = match skill {
@@ -127,6 +132,7 @@ pub fn payload_items(package: &Package) -> Vec<TemplatePayloadItem> {
             },
             executable: script_path.is_some(),
             script_path,
+            memory_kind: None,
         }
     });
     let automation = document.automation.iter().map(|automation| {
@@ -144,6 +150,7 @@ pub fn payload_items(package: &Package) -> Vec<TemplatePayloadItem> {
             executable: false,
             used_by: Vec::new(),
             script_path: None,
+            memory_kind: None,
         }
     });
     files
