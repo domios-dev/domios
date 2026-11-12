@@ -9,7 +9,7 @@ import { neighborName } from "../Neighbors/neighborModel";
 import { teamTemplatesTransport } from "../../lib/transport/orchestrationRuntime";
 import type { TeamTemplatesTransport, TemplateExportResult } from "../../lib/transport/teamTemplates";
 import {
-  DEFAULT_EXPORT_FORMAT, exportFormats, scrubRows, startErrorView, templateTitle,
+  DEFAULT_EXPORT_FORMAT, exportFormats, scrubRows, startErrorView, templateSource, templateTitle,
   type PackageFormat, type ScrubReport, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 
@@ -50,11 +50,12 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
   const titleId = useId();
   const descriptionId = useId();
   const options = exportFormats(summary);
+  const shareable = templateSource(summary).owned;
   const [format, setFormat] = useState<PackageFormat>(DEFAULT_EXPORT_FORMAT);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TemplateExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [share, setShare] = useState(shareInitially);
+  const [share, setShare] = useState(shareInitially && shareable);
   const [friends, setFriends] = useState<{ friendship: string; name: string }[] | null>(null);
   const [friend, setFriend] = useState("");
   const [sent, setSent] = useState<string | null>(null);
@@ -114,7 +115,7 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
           ))}
         </fieldset>
       )}
-      {!result && (
+      {!result && shareable && (
         <div className="flex flex-col gap-1.5">
           <label className="flex items-center justify-between gap-3 text-[12px]">
             Also share to Neighborhood

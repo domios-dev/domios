@@ -4,9 +4,10 @@
 use std::collections::BTreeMap;
 
 use codeterm_team_package::contracts::{
-    declared_asks, input_fields, role_summaries, ManagerModelPicker, PlacementProblem,
-    TemplateConsent, TemplateList, TemplatePreview, TemplateRef, TemplateRuntimeNeed,
-    TemplateStartForm, TemplateStartRefusal, TemplateStartRequest, TemplateSummary, TemplateWhere,
+    declared_asks, input_fields, role_summaries, ManagerModelPicker, ModelDecision,
+    PlacementProblem, TemplateConsent, TemplateList, TemplatePreview, TemplateRef,
+    TemplateRoleSummary, TemplateRuntimeNeed, TemplateStartForm, TemplateStartRefusal,
+    TemplateStartRequest, TemplateSummary, TemplateWhere,
 };
 use codeterm_team_package::{payload_items, ManagerSlot, RoleStart, StartMode, TeamRoleGroup};
 use serde_json::Value;
@@ -250,13 +251,11 @@ pub fn with_team_slots(resolved: &ResolvedTemplate) -> Vec<ManagerSlot> {
         .collect()
 }
 
-/// The pickers for with_team managers, decided on `target` by the shared decision service.
+/// The pickers for with_team managers, from the shared decisions of the package's roles.
 pub fn manager_pickers(
     resolved: &ResolvedTemplate,
-    target: &TargetCatalogue,
-    inputs: &TeamModelInputs,
+    decisions: &BTreeMap<String, ModelDecision>,
 ) -> Vec<ManagerModelPicker> {
-    let decisions = decide_team_models(&resolved.package.document, inputs, target);
     let labels = role_summaries(&resolved.package);
     with_team_slots(resolved)
         .into_iter()
@@ -271,6 +270,22 @@ pub fn manager_pickers(
                 label,
                 decision,
             })
+        })
+        .collect()
+}
+
+/// Every role summary, with each worker's model from the same shared decisions.
+fn decided_roles(
+    resolved: &ResolvedTemplate,
+    decisions: &BTreeMap<String, ModelDecision>,
+) -> Vec<TemplateRoleSummary> {
+    role_summaries(&resolved.package)
+        .into_iter()
+        .map(|mut role| {
+            if role.group == TeamRoleGroup::Worker {
+                role.model = decisions.get(&role.role).cloned();
+            }
+            role
         })
         .collect()
 }
@@ -303,12 +318,17 @@ pub fn preview_on(
         decision_id: ledger.issue(&resolved.identity(), &reasons),
         reasons,
     });
+    let decisions = decide_team_models(
+        &resolved.package.document,
+        &TeamModelInputs::default(),
+        target,
+    );
     Ok(TemplatePreview {
         form: TemplateStartForm {
             template: super::team_exchange::library::TemplateLibrary::global()
                 .summarize(&resolved.package, resolved.provenance),
-            pickers: manager_pickers(&resolved, target, &TeamModelInputs::default()),
-            roles: role_summaries(&resolved.package),
+            pickers: manager_pickers(&resolved, &decisions),
+            roles: decided_roles(&resolved, &decisions),
             inputs: input_fields(&resolved.package),
         },
         where_needed: runtime_needs(&resolved, target),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import exchange from "../../../src-tauri/crates/codeterm-team-package/fixtures/contracts/exchange.json";
-import { templatePreviewFixture } from "../transport/teamTemplates.testdata";
+import { templateListFixture, templatePreviewFixture } from "../transport/teamTemplates.testdata";
 import {
   authorLine, authorRows, cardByline, distillName, initialSecretBindings, isTemplateFileName, linkRows, shareAsksSummary, updateDiffLines, usedByLine,
 } from "./exchangeModel";
@@ -16,9 +16,11 @@ describe("template exchange model", () => {
       { name: "Example Labs", url: "javascript:alert(1)" },
     ], links: { homepage: "https://example.com/desk", repository: "file:///etc/passwd", docs: "http://docs.example.com/" } };
     expect(authorLine(summary)).toBe("by Jane Doe, Example Labs");
-    expect(cardByline({ ...summary, workers: 4 })).toBe("by Jane Doe · 4 workers");
-    expect(cardByline({ ...summary, workers: 2 }, true)).toBe("by you · 2 workers");
-    expect(cardByline({ workers: 1 })).toBe("1 worker");
+    const [, desk] = templateListFixture.templates;
+    expect(cardByline({ ...desk, ...summary })).toBe("by Jane Doe · Researcher, Checker, Writer, 3 more");
+    expect(cardByline(desk, true)).toBe("by you · Researcher, Checker, Writer, 3 more");
+    expect(cardByline({ workers: 1, worker_names: ["build_owner"], skills: 1, skill_names: ["source-check"] })).toBe("Build owner, source-check");
+    expect(cardByline({ workers: 0, skills: 2, skill_names: ["source-check", "market-sizing"] })).toBe("source-check, market-sizing");
     expect(cardByline({ workers: 0 })).toBeNull();
     expect(authorRows(summary)).toEqual([
       { name: "Jane Doe", role: "maintainer", url: "https://example.com/jane" },
@@ -44,7 +46,8 @@ describe("template exchange model", () => {
 
   it("lists what an update changes", () => {
     expect(updateDiffLines(exchange.import_result.update as TemplateUpdateDiff)).toEqual([
-      "Roles added: Editor", "Roles changed: Checker", "No longer brings: memory:1", "New asks: network for api.example.com",
+      "Roles added: Editor", "Roles changed: Checker", "Brings now: citations", "No longer brings: Market sizes older than two years mislead",
+      "New asks: network for api.example.com",
     ]);
   });
 

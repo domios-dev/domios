@@ -49,6 +49,19 @@ describe("Export with Neighborhood sharing", () => {
     expect(dialog().textContent).toContain("sent to Mira");
   });
 
+  it("exports a built-in in the chosen format without offering Neighborhood sharing", async () => {
+    const builtin = { name: "dev.domios/default", version: "1.0.0", title: "Default team", description: "Default.", provenance: "builtin" as const, workers: 0, verified: false };
+    await act(async () => {
+      root!.render(<TemplateExportDialog summary={builtin} share onClose={vi.fn()} transport={transport} neighbors={neighbors} />);
+    });
+    expect(dialog().querySelector('[aria-label="Also share to Neighborhood"]')).toBeNull();
+    await act(async () => dialog().querySelector<HTMLInputElement>('input[name="template-format"][value="folder"]')!.click());
+    await act(async () => exportButton().click());
+    expect(exportPackage).toHaveBeenCalledWith({ template: { name: "dev.domios/default", version: "1.0.0" }, format: "folder" });
+    expect(neighbors.friends).not.toHaveBeenCalled();
+    expect(neighbors.send).not.toHaveBeenCalled();
+  });
+
   it("exports without sending anything when sharing stays off", async () => {
     await renderDialog(false);
     await act(async () => exportButton().click());

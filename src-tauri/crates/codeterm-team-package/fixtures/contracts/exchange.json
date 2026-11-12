@@ -71,7 +71,8 @@
       "to_version": "1.1.0",
       "roles_added": ["editor"],
       "roles_changed": ["checker"],
-      "payload_removed": ["memory:1"],
+      "payload_added": [{ "id": "skill:citations", "label": "citations" }],
+      "payload_removed": [{ "id": "memory:1", "label": "Market sizes older than two years mislead" }],
       "asks_added": [{ "kind": "network", "hosts": ["api.example.com"] }]
     }
   },

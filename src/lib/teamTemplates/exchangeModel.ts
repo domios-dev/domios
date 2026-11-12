@@ -12,12 +12,22 @@ export function authorLine(summary: Pick<TemplateSummary, "authors">): string | 
   return names.length ? `by ${names.join(", ")}` : null;
 }
 
-/** The gallery card's meta line: "by Jane Doe · 4 workers", or "by you" for the owner's own; each part only when there is one. */
-export function cardByline(summary: Pick<TemplateSummary, "authors" | "workers">, mine = false): string | null {
-  const workers = summary.workers;
+const BYLINE_NAMES = 3;
+
+/** The worker names, then skill names, the card shows, and how many it leaves out. */
+function rosterText(summary: Pick<TemplateSummary, "workers" | "worker_names" | "skills" | "skill_names">): string | null {
+  const names = [...(summary.worker_names ?? []).map((name) => roleDisplayLabel(name)), ...(summary.skill_names ?? [])];
+  const shown = names.slice(0, BYLINE_NAMES);
+  if (shown.length === 0) return null;
+  const more = summary.workers + (summary.skills ?? 0) - shown.length;
+  return [...shown, ...(more > 0 ? [`${more} more`] : [])].join(", ");
+}
+
+/** The gallery card's meta line: "by Jane Doe · Researcher, Checker, source-check, 2 more", or "by you" for the owner's own; each part only when there is one. */
+export function cardByline(summary: Pick<TemplateSummary, "authors" | "workers" | "worker_names" | "skills" | "skill_names">, mine = false): string | null {
   const first = (summary.authors ?? []).map((author) => author.name.trim()).find(Boolean);
   const by = mine ? "by you" : first ? `by ${first}` : null;
-  const parts = [by, workers > 0 ? `${workers} ${workers === 1 ? "worker" : "workers"}` : null].filter(Boolean);
+  const parts = [by, rosterText(summary)].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
 
@@ -90,8 +100,8 @@ export function updateDiffLines(diff: TemplateUpdateDiff): string[] {
     ...list("Roles added", diff.roles_added?.map(kindDisplayName)),
     ...list("Roles removed", diff.roles_removed?.map(kindDisplayName)),
     ...list("Roles changed", diff.roles_changed?.map(kindDisplayName)),
-    ...list("Brings now", diff.payload_added),
-    ...list("No longer brings", diff.payload_removed),
+    ...list("Brings now", diff.payload_added?.map((item) => item.label)),
+    ...list("No longer brings", diff.payload_removed?.map((item) => item.label)),
     ...list("New asks", diff.asks_added?.map(askText)),
   ];
 }

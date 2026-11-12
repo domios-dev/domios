@@ -93,6 +93,15 @@ fn portable_projections_come_from_the_package_alone() {
 
     let summary = TemplateSummary::from_package(&package, TemplateProvenance::Imported);
     assert_eq!(summary.name, "com.example/research-desk");
+    assert_eq!(summary.workers, 4);
+    assert_eq!(
+        summary.worker_names,
+        vec!["researcher", "checker", "qa", "writer"]
+    );
+    assert_eq!(summary.skills, 2);
+    assert!(["source-check", "market-sizing"]
+        .iter()
+        .all(|skill| summary.skill_names.iter().any(|name| name == skill)));
     assert!(summary
         .icon
         .is_some_and(|icon| icon.data_url.starts_with("data:image/svg+xml;base64,")));

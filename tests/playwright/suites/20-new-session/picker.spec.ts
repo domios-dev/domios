@@ -201,22 +201,29 @@ async function settleOnUsableModel(page: Page, providerTestId: string, modelTest
     .toBe(true);
 }
 
-/** Opens a DropdownSelect and clicks the first option whose value differs from
- *  the current one; returns the value it landed on. */
+/** Opens a role's compact model pill, stages the first available model other than
+ *  the current one in the unified picker and applies it; returns the model id it landed on. */
 async function selectFirstDifferentOption(page: Page, testId: string): Promise<string> {
-  const current = await dropdown(page, testId).getAttribute("data-value");
-  await dropdown(page, testId).click();
-  const next = (await readDropdownOptions(page, testId)).find(
-    (o) => o.value && o.value !== current && !o.disabled,
-  );
-  if (!next) {
+  const pill = dropdown(page, testId);
+  const current = await pill.getAttribute("data-value");
+  await pill.click();
+  const picker = page.locator('[data-testid="status-model-picker"]');
+  await expect(picker).toBeVisible();
+  // An available row's title is its model id; an unavailable row is aria-disabled.
+  const options = picker.locator('[role="option"]:not([aria-disabled="true"])');
+  const ids = await options.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title") ?? ""));
+  const index = ids.findIndex((id) => id && id !== current);
+  if (index < 0) {
     await page.keyboard.press("Escape");
     // Returning `current` here would let the caller "prove" persistence by
     // round-tripping an unchanged value — a pass that asserts nothing.
     throw new Error(`${testId} offers no selectable alternative to "${current}"`);
   }
-  await clickOption(page, testId, next.value);
-  return next.value;
+  await options.nth(index).click();
+  await picker.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(picker).toBeHidden();
+  await expect(pill).toHaveAttribute("data-value", ids[index]);
+  return ids[index];
 }
 
 function tabCount(tabs: Tab[]): number {

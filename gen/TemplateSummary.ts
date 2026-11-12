@@ -11,6 +11,18 @@ export type TemplateSummary = { name: string, version: string, title?: string | 
  */
 workers: number, 
 /**
+ * The first [`SUMMARY_NAME_LIMIT`] worker display names, in declaration order.
+ */
+worker_names?: Array<string>, 
+/**
+ * How many skills the package brings.
+ */
+skills?: number, 
+/**
+ * The first [`SUMMARY_NAME_LIMIT`] skill names.
+ */
+skill_names?: Array<string>, 
+/**
  * The friend's display name when the template arrived through a share card.
  */
 received_from?: string | null, 
