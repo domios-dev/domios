@@ -83,17 +83,19 @@ exit "$status"`, 'caller', ownerScript,
   assert.equal(terminal.state, 'cancelled');
   assert.equal(terminal.outcome, 'cancelled');
   assert.ok(terminal.ended_at);
+  assert.equal(fs.existsSync(path.join(directory, 'jobs', `${job.job_id}.cancel-request`)), false);
   let caller;
   do {
     caller = await lines.next();
     assert.equal(caller.done, false, errors);
   } while (!caller.value.startsWith('CALLER_RESULT '));
-  assert.equal(caller.value, 'CALLER_RESULT 130', errors);
+  const expectedExit = unix ? 137 : 130;
+  assert.equal(caller.value, `CALLER_RESULT ${expectedExit}`, errors);
   assert.equal(launcher.exitCode, null, 'calling shell must survive the cancelled command');
   launcher.stdin.end('release\n');
   const [exitCode, exitSignal] = await exited;
   assert.equal(exitSignal, null);
-  assert.equal(exitCode, 130, errors);
+  assert.equal(exitCode, expectedExit, errors);
   await closed;
   for (const pid of descendants) {
     if (process.platform === 'linux' && fs.existsSync(`/proc/${pid}/stat`)) {

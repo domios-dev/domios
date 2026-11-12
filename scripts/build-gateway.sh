@@ -271,12 +271,7 @@ ct_gateway_cancel_unix_tree() (
   trap 'for stopped in "${CT_GATEWAY_STOPPED_PIDS[@]}"; do kill -CONT "$stopped" 2>/dev/null || true; done' EXIT
   trap 'exit 130' INT TERM HUP
   ct_gateway_identity_alive "$1" "$2" || exit 1
-  command -v pgrep >/dev/null 2>&1 || exit 2
-  kill -STOP "$1" || exit 1
-  CT_GATEWAY_STOPPED_PIDS+=("$1")
-  children="$(pgrep -P "$1")" || { rc=$?; [ "$rc" -eq 1 ] || exit "$rc"; }
-  for child in $children; do ct_gateway_terminate_descendant_tree "$child" || exit "$?"; done
-  kill -TERM "$1" && kill -CONT "$1"
+  ct_gateway_terminate_descendant_tree "$1"
 )
 
 ct_gateway_terminate_descendants() {
@@ -668,6 +663,7 @@ ct_gateway_cancel() {
     if [ "$rc" -eq 0 ]; then
       if ct_gateway_recorded_owner_gone "$dir/lock"; then
         CT_BUILD_JOB_ID="$job_id" ct_gateway_update_job cancelled 130 cancelled "" "$(ct_gateway_now)" || rc=$?
+        if [ "$rc" -eq 0 ]; then rm -f "$dir/jobs/$job_id.cancel-request" || rc=$?; fi
         if [ "$rc" -eq 0 ]; then rm -rf "$dir/lock" || rc=$?; fi
       else
         rc=1
