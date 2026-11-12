@@ -54,7 +54,7 @@ fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
     assert!(!data.exists());
     assert!(sandbox.can_write(data.to_str().unwrap()));
     let setup = format!(
-        "host.fs.expandHome = function(path) {{ return path === '~/.domios/rotterdom' ? {} : null; }};",
+        "host.fs.expandHome = function(path) {{ return path === '~/.codeterm/rotterdom' ? {} : null; }};",
         serde_json::to_string(&data).unwrap()
     );
     let vm = PluginVm::from_source_sandboxed(
