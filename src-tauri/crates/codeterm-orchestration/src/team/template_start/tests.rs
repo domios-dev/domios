@@ -10,8 +10,9 @@ use codeterm_service_core::service::team_template_start::{
     admit, resolve, AdmittedTemplate, ConsentLedger, ResolvedTemplate,
 };
 use codeterm_team_package::contracts::{
-    ConsentReason, ManagerStartFailure, ModelBlockedReason, TemplateItemState, TemplateProvenance,
-    TemplateRef, TemplateStartRefusal, TemplateStartRequest, TemplateStartResult,
+    ConsentReason, ManagerStartFailure, ModelBlockedReason, PlacementProblem, TemplateItemState,
+    TemplateProvenance, TemplateRef, TemplateStartRefusal, TemplateStartRequest,
+    TemplateStartResult,
 };
 use codeterm_team_package::{
     check_archive, check_entries, check_yaml, CheckOptions, DiagnosticCode, ManagerSlot,
@@ -43,6 +44,7 @@ fn request(name: &str) -> TemplateStartRequest {
         decision_id: None,
         secret_bindings: BTreeMap::new(),
         manager_models: BTreeMap::new(),
+        role_placements: BTreeMap::new(),
     }
 }
 
@@ -386,6 +388,7 @@ fn only_opted_in_payload_reaches_the_payload_leaf() {
         resolved,
         inputs: BTreeMap::new(),
         decision_id: None,
+        placements: BTreeMap::new(),
     };
     let (_, opt_out) = payload_request(&rail(admitted, &[skipped.as_str()])).unwrap();
     assert_eq!(opt_out, vec![skipped]);
@@ -470,6 +473,7 @@ fn every_package_form_starts_identically_and_keeps_skill_warnings() {
                 resolved,
                 inputs: BTreeMap::new(),
                 decision_id: None,
+                placements: BTreeMap::new(),
             };
             registrations_for(TEAM, &admitted, 1)
         })
@@ -487,6 +491,53 @@ fn every_package_form_starts_identically_and_keeps_skill_warnings() {
         ResolvedTemplate::from_checked(malformed, TemplateProvenance::Saved),
         Err(TemplateStartRefusal::InvalidPackage { .. })
     ));
+}
+
+#[test]
+fn placed_workers_carry_their_peer_and_managers_stay_home() {
+    let mut admitted = default_admitted();
+    let worker = admitted
+        .resolved
+        .package
+        .document
+        .roles()
+        .into_iter()
+        .find(|(group, _, _)| *group == TeamRoleGroup::Worker)
+        .map(|(_, name, _)| name.to_string())
+        .expect("the default package declares a worker");
+    admitted.placements.insert(worker.clone(), "eight".into());
+    let registrations = registrations_for(TEAM, &admitted, 1);
+    assert!(registrations
+        .iter()
+        .any(|registration| registration.name == worker));
+    for registration in &registrations {
+        let expected = (registration.name == worker).then(|| "eight".to_string());
+        assert_eq!(
+            registration.placement_peer, expected,
+            "{}",
+            registration.name
+        );
+    }
+}
+
+#[test]
+fn placements_name_only_declared_worker_types() {
+    let ledger = ConsentLedger::default();
+    for (role, problem) in [
+        ("orchestrator", PlacementProblem::NotAWorker),
+        ("no_such_role", PlacementProblem::UnknownRole),
+    ] {
+        let mut start = request("dev.domios/default");
+        start.role_placements.insert(role.into(), "eight".into());
+        assert_eq!(
+            admit(Some(&start), &ledger).unwrap_err(),
+            TemplateStartRefusal::InvalidPlacement {
+                role: role.into(),
+                peer: "eight".into(),
+                problem,
+            }
+        );
+    }
 }
 
 #[test]

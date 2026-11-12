@@ -4,9 +4,9 @@
 use std::collections::BTreeMap;
 
 use codeterm_team_package::contracts::{
-    declared_asks, input_fields, role_summaries, ManagerModelPicker, TemplateConsent, TemplateList,
-    TemplatePreview, TemplateRef, TemplateRuntimeNeed, TemplateStartForm, TemplateStartRefusal,
-    TemplateStartRequest, TemplateSummary, TemplateWhere,
+    declared_asks, input_fields, role_summaries, ManagerModelPicker, PlacementProblem,
+    TemplateConsent, TemplateList, TemplatePreview, TemplateRef, TemplateRuntimeNeed,
+    TemplateStartForm, TemplateStartRefusal, TemplateStartRequest, TemplateSummary, TemplateWhere,
 };
 use codeterm_team_package::{payload_items, ManagerSlot, RoleStart, StartMode, TeamRoleGroup};
 use serde_json::Value;
@@ -42,6 +42,8 @@ pub struct AdmittedTemplate {
     /// Every declared input with its value or default; only declared keys survive.
     pub inputs: BTreeMap<String, String>,
     pub decision_id: Option<String>,
+    /// Worker role type to the paired peer that hosts it.
+    pub placements: BTreeMap<String, String>,
 }
 
 pub fn list(_svc: &ServiceContext) -> TemplateList {
@@ -89,6 +91,8 @@ pub fn admit(
     if !missing.is_empty() {
         return Err(TemplateStartRefusal::MissingInputs { inputs: missing });
     }
+    let placements = request.map_or(&empty, |request| &request.role_placements);
+    worker_placements(&resolved, placements)?;
     let reasons = consent_reasons(&resolved.package, resolved.provenance);
     let decision_id = request.and_then(|request| request.decision_id.clone());
     if !reasons.is_empty() && !ledger.admits(decision_id.as_deref(), &resolved.identity(), &reasons)
@@ -96,6 +100,7 @@ pub fn admit(
         return Err(TemplateStartRefusal::ConsentRequired { reasons });
     }
     Ok(AdmittedTemplate {
+        placements: placements.clone(),
         resolved,
         inputs,
         decision_id: if reasons.is_empty() {
@@ -104,6 +109,68 @@ pub fn admit(
             decision_id
         },
     })
+}
+
+fn placement_refusal(role: &str, peer: &str, problem: PlacementProblem) -> TemplateStartRefusal {
+    TemplateStartRefusal::InvalidPlacement {
+        role: role.to_string(),
+        peer: peer.to_string(),
+        problem,
+    }
+}
+
+/// Only worker role types the package declares can run elsewhere; managers are the Team's home.
+fn worker_placements(
+    resolved: &ResolvedTemplate,
+    placements: &BTreeMap<String, String>,
+) -> Result<(), TemplateStartRefusal> {
+    let roles = resolved.package.document.roles();
+    for (role, peer) in placements {
+        match roles.iter().find(|(_, name, _)| *name == role.as_str()) {
+            None => return Err(placement_refusal(role, peer, PlacementProblem::UnknownRole)),
+            Some((TeamRoleGroup::Manager, _, _)) => {
+                return Err(placement_refusal(role, peer, PlacementProblem::NotAWorker))
+            }
+            Some((TeamRoleGroup::Worker, _, _)) => {}
+        }
+    }
+    Ok(())
+}
+
+/// Each placement names a paired peer with Full access; the peer's own name is what dispatch uses.
+pub fn resolve_placements(
+    svc: &ServiceContext,
+    admitted: &mut AdmittedTemplate,
+) -> Result<(), TemplateStartRefusal> {
+    if admitted.placements.is_empty() {
+        return Ok(());
+    }
+    let handle = svc.try_ext::<crate::MeshStateHandle>();
+    let mesh = handle.map(|handle| handle.lock());
+    for (role, peer) in admitted.placements.iter_mut() {
+        let paired = mesh.as_ref().and_then(|mesh| {
+            crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, peer.as_str())
+                .ok()
+                .map(|paired| {
+                    (
+                        paired.access_level == crate::mesh::types::AccessLevel::Full,
+                        paired.instance_name.clone(),
+                    )
+                })
+        });
+        match paired {
+            None => return Err(placement_refusal(role, peer, PlacementProblem::UnknownPeer)),
+            Some((false, _)) => {
+                return Err(placement_refusal(
+                    role,
+                    peer,
+                    PlacementProblem::NotFullAccess,
+                ))
+            }
+            Some((true, name)) => *peer = name,
+        }
+    }
+    Ok(())
 }
 
 /// Manager slots the package starts with the Team, Orchestrator first.

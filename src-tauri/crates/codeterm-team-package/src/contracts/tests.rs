@@ -41,6 +41,8 @@ struct Exchange {
     transfer_request: TemplateTransferRequest,
     share_card: TemplateShareCard,
     share_actions: Vec<TemplateShareAction>,
+    peer_start_request: TemplatePeerStartRequest,
+    peer_start_accepted: TemplatePeerStartAccepted,
 }
 
 #[test]

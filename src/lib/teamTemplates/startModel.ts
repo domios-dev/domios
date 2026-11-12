@@ -9,6 +9,9 @@ type RoleStart = import("../../../gen/RoleStart").RoleStart;
 type TemplateInputField = import("../../../gen/TemplateInputField").TemplateInputField;
 type TemplatePayloadItem = import("../../../gen/TemplatePayloadItem").TemplatePayloadItem;
 type TemplateProvenance = import("../../../gen/TemplateProvenance").TemplateProvenance;
+type TemplateStartRefusal = import("../../../gen/TemplateStartRefusal").TemplateStartRefusal;
+type TemplateStartResult = import("../../../gen/TemplateStartResult").TemplateStartResult;
+type PlacementProblem = import("../../../gen/PlacementProblem").PlacementProblem;
 export type TemplateSummary = import("../../../gen/TemplateSummary").TemplateSummary;
 export type PackageFormat = import("../../../gen/PackageFormat").PackageFormat;
 export type ScrubReport = import("../../../gen/ScrubReport").ScrubReport;
@@ -122,28 +125,38 @@ export function missingInputs(fields: readonly TemplateInputField[], values: Rec
 }
 
 /** The one reason Start stays disabled, shown beside it; null when the template can start. */
-export function startBlocker(preview: TemplatePreview, inputs: Record<string, string>): string | null {
+export function startBlocker(preview: TemplatePreview, inputs: Record<string, string>, secretBindings: Record<string, string> = {}, remotePeer: string | null = null): string | null {
   const missing = missingInputs(preview.form.inputs ?? [], inputs);
   if (missing.length) return `Fill in ${missing.join(", ")}`;
+  // A peer binds secrets from its own vault and checks its own harnesses when its owner answers.
+  if (remotePeer) return null;
+  const unbound = (preview.asks ?? []).find((ask) => ask.kind === "secret" && ask.required && !secretBindings[ask.name]);
+  if (unbound?.kind === "secret") return `Choose a secret for ${unbound.name}`;
   const need = preview.where_needed?.needs[0];
   if (need) return need.kind === "missing_harness" ? `Needs ${need.harness} on this machine` : `Needs ${need.tool} on this machine`;
   return null;
 }
 
-export function buildStartRequest({ preview, inputs, optOut, managerModels }: {
+export function buildStartRequest({ preview, inputs, optOut, managerModels, secretBindings = {}, rolePlacements = {} }: {
   preview: TemplatePreview;
   inputs: Record<string, string>;
   optOut: ReadonlySet<string>;
   managerModels: Partial<Record<ManagerSlot, ManagerModelChoice>>;
+  secretBindings?: Record<string, string>;
+  rolePlacements?: Record<string, string>;
 }): TemplateStartRequest {
   const { name, version } = preview.form.template;
   const filled = Object.fromEntries(Object.entries(inputs).filter(([, value]) => value.trim()));
+  const bound = Object.fromEntries(Object.entries(secretBindings).filter(([, entry]) => entry));
+  const placed = Object.fromEntries(Object.entries(rolePlacements).filter(([, peer]) => peer));
   return {
     template: { name, version },
     inputs: filled,
     opt_out: [...optOut].sort(),
     ...(preview.consent ? { decision_id: preview.consent.decision_id } : {}),
     ...(Object.keys(managerModels).length ? { manager_models: managerModels } : {}),
+    ...(Object.keys(bound).length ? { secret_bindings: bound } : {}),
+    ...(Object.keys(placed).length ? { role_placements: placed } : {}),
   };
 }
 
@@ -159,26 +172,46 @@ function embeddedJson(text: string): unknown {
   }
 }
 
+function placementText(role: string, peer: string, problem: PlacementProblem): string {
+  const name = kindDisplayName(role);
+  switch (problem) {
+    case "unknown_role": return `This template has no ${name} role to run on ${peer}`;
+    case "not_a_worker": return `The ${name} is a manager and runs on this machine`;
+    case "unknown_peer": return `${peer} isn't a paired machine`;
+    case "not_full_access": return `${peer} needs Full access to run the ${name}`;
+  }
+}
+
+function refusalView(refusal: TemplateStartRefusal): StartErrorView {
+  switch (refusal.code) {
+    case "missing_inputs": return { message: "Fill in the missing inputs", reasons: refusal.inputs, choices: [] };
+    case "consent_required": return { message: "Review this template and use it before starting", reasons: refusal.reasons, choices: [] };
+    case "not_found": return { message: `${refusal.template.name} isn't available`, reasons: [], choices: [] };
+    case "invalid_package": return { message: "This template isn't a valid package", reasons: refusal.diagnostics.map((diagnostic) => diagnostic.message), choices: [] };
+    case "invalid_placement": return { message: placementText(refusal.role, refusal.peer, refusal.problem), reasons: [], choices: [] };
+  }
+}
+
+/** The typed outcome of a template start that did not start the Team. */
+export function startResultView(result: TemplateStartResult): StartErrorView | null {
+  switch (result.status) {
+    case "started": return null;
+    case "manager_failed":
+      return { message: `The ${kindDisplayName(result.failure.slot)} couldn't start`, reasons: [result.failure.reason], choices: result.failure.choices ?? [] };
+    case "needs_choice":
+      return { message: "Choose a model first", reasons: result.choices.map((choice) => managerLabel(choice.slot, choice.label)), choices: [] };
+    case "refused": return refusalView(result.refusal);
+  }
+}
+
+const START_STATUSES: readonly string[] = ["started", "needs_choice", "manager_failed", "refused"];
+
 function resultView(value: Record<string, unknown>): StartErrorView | null {
   if (typeof value.error === "string") return startErrorView(value.error);
-  if (value.code === "template_unavailable" && typeof value.message === "string") return { message: value.message, reasons: [], choices: [] };
-  const result = value as { status?: unknown; failure?: unknown; choices?: unknown; refusal?: unknown };
-  switch (result.status) {
-    case "manager_failed": {
-      const failure = result.failure as { slot: string; reason: string; choices?: string[] };
-      return { message: `The ${kindDisplayName(failure.slot)} couldn't start`, reasons: [failure.reason], choices: failure.choices ?? [] };
-    }
-    case "needs_choice": {
-      const choices = result.choices as { slot: string; label: string }[];
-      return { message: "Choose a model first", reasons: choices.map((choice) => managerLabel(choice.slot, choice.label)), choices: [] };
-    }
-    case "refused": {
-      const refusal = result.refusal as { code: string; inputs?: string[]; reasons?: string[]; diagnostics?: { message: string }[]; template?: { name: string } };
-      if (refusal.code === "missing_inputs") return { message: "Fill in the missing inputs", reasons: refusal.inputs ?? [], choices: [] };
-      if (refusal.code === "consent_required") return { message: "Review this template and use it before starting", reasons: refusal.reasons ?? [], choices: [] };
-      if (refusal.code === "not_found") return { message: `${refusal.template?.name ?? "This template"} isn't available`, reasons: [], choices: [] };
-      return { message: "This template isn't a valid package", reasons: (refusal.diagnostics ?? []).map((diagnostic) => diagnostic.message), choices: [] };
-    }
+  if (typeof value.status === "string" && START_STATUSES.includes(value.status)) return startResultView(value as TemplateStartResult);
+  if (typeof value.code === "string" && typeof value.message === "string") {
+    const diagnostics = Array.isArray(value.diagnostics) ? value.diagnostics as { message?: unknown }[] : [];
+    return { message: value.message, reasons: diagnostics.flatMap((diagnostic) => typeof diagnostic.message === "string" ? [diagnostic.message] : []), choices: [] };
   }
   return null;
 }
@@ -229,11 +262,16 @@ export function exportFormats(summary: Pick<TemplateSummary, "name" | "icon">): 
 
 export const DEFAULT_EXPORT_FORMAT: PackageFormat = "team";
 
+function secretNamesDetail(names: readonly string[]): string {
+  if (names.length === 0) return "names kept";
+  return names.length === 1 ? `${names[0]} kept as a name, value dropped` : `${names.join(", ")} kept as names, values dropped`;
+}
+
 export function scrubRows(report: ScrubReport): { label: string; detail: string; count: number }[] {
   return [
     { label: "Machines", detail: "names dropped", count: report.machines_removed },
     { label: "Paths", detail: "made relative to the project", count: report.paths_generalized },
-    { label: "Secret values", detail: "names kept", count: report.secret_values_removed },
+    { label: "Secret values", detail: secretNamesDetail(report.secret_names ?? []), count: report.secret_values_removed },
     { label: "Keys found in instructions", detail: "turned into a secret ask", count: report.secret_asks_added },
     { label: "Chats and history", detail: "never saved", count: report.history_removed },
   ];

@@ -7,12 +7,14 @@ use codeterm_orchestration::OrchestrationPairExt;
 use codeterm_service_core::ports::daemon_question::DaemonQuestionHandler;
 use codeterm_service_core::service::team_template_remote::{
     admit_from_peer, clone_destination, precheck_peer_start, record_owner_decision,
-    scrub_remote_url, unbound_secrets, PeerAsk, PeerAsks, PeerStartAsk, PeerStartRefusal,
-    SpentDecisions, CLONE_ACCEPT, PEER_ASK_DECLINE, PEER_ASK_PREFIX, START_ACCEPT,
+    scrub_remote_url, unbound_secrets, PeerAsk, PeerAsks, PeerStartRefusal, SpentDecisions,
+    CLONE_ACCEPT, PEER_ASK_DECLINE, PEER_ASK_PREFIX, START_ACCEPT,
 };
 use codeterm_service_core::service::team_template_start::ConsentLedger;
 use codeterm_service_core::service::ServiceState;
-use codeterm_team_package::contracts::{TemplateStartRequest, TemplateStartResult};
+use codeterm_team_package::contracts::{
+    TemplatePeerStartAsk, TemplateStartRequest, TemplateStartResult,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -83,7 +85,7 @@ fn unbound_from(request: &TemplateStartRequest, present: &[(String, bool)]) -> V
 pub async fn mesh_template_start(
     AxumState(state): AxumState<AppState>,
     headers: axum::http::HeaderMap,
-    Json(ask): Json<PeerStartAsk>,
+    Json(ask): Json<TemplatePeerStartAsk>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let origin = super::relay::check_mesh_relay_auth(&state, &headers)?;
     let (full_access, origin_name) = origin_access(&state, &origin);
@@ -244,7 +246,7 @@ fn answer_ask(svc: &ServiceState, request: &str, label: &str) -> Value {
     outcome
 }
 
-fn start_accepted(svc: &ServiceState, origin: &str, ask: PeerStartAsk) -> Value {
+fn start_accepted(svc: &ServiceState, origin: &str, ask: TemplatePeerStartAsk) -> Value {
     let present = codeterm_service_core::async_runtime::block_on(async {
         let vault = svc.secrets.read().await;
         let mut present = Vec::new();

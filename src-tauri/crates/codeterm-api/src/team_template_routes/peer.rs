@@ -4,9 +4,12 @@
 use axum::{extract::State, http::StatusCode, Json};
 use codeterm_service_core::mesh::transport::PeerClient;
 use codeterm_service_core::service::messenger::{MessageEnvelope, Messenger};
-use codeterm_service_core::service::team_template_remote::{hosting_gate, PeerStartAsk};
+use codeterm_service_core::service::team_template_remote::hosting_gate;
 use codeterm_service_core::service::ServiceState;
-use codeterm_team_package::contracts::{TemplateStartResult, TemplateTransferRequest};
+use codeterm_team_package::contracts::{
+    TemplatePeerStartAccepted, TemplatePeerStartRequest, TemplatePeerStartState,
+    TemplateStartResult, TemplateTransferRequest,
+};
 use codeterm_team_package::PackageFormat;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -96,19 +99,11 @@ fn peer_refusal(error: String) -> (StatusCode, Json<Value>) {
     }
 }
 
-#[derive(Deserialize)]
-pub(super) struct PeerStartBody {
-    peer: String,
-    start: PeerStartAsk,
-    #[serde(default)]
-    caller_tab_id: Option<String>,
-}
-
 /// Asks a paired peer Main to start a template. The peer's owner answers there; the origin
 /// watches the peer's event stream for that answer and delivers the outcome to the caller.
 pub(super) async fn peer_start(
     State(state): State<AppState>,
-    Json(body): Json<PeerStartBody>,
+    Json(body): Json<TemplatePeerStartRequest>,
 ) -> PeerRouteResult {
     let peer = select_peer(&state, &body.peer)?;
     require_hosting(&peer).await?;
@@ -149,12 +144,12 @@ pub(super) async fn peer_start(
         notification_id.clone(),
         body.caller_tab_id,
     ));
-    Ok(Json(json!({
-        "state": "awaiting_owner",
-        "peer_id": id,
-        "peer_name": name,
-        "request_id": request_id,
-        "notification_id": notification_id,
+    Ok(Json(json!(TemplatePeerStartAccepted {
+        state: TemplatePeerStartState::AwaitingOwner,
+        peer_id: id,
+        peer_name: name,
+        request_id,
+        notification_id,
     })))
 }
 

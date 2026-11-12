@@ -17,8 +17,8 @@ mod asks;
 mod hosting_awake;
 
 pub use asks::{
-    clone_destination, origin_clone_url, scrub_remote_url, PeerAsk, PeerAsks, PeerStartAsk,
-    CLONE_ACCEPT, PEER_ASK_DECLINE, PEER_ASK_PREFIX, START_ACCEPT,
+    clone_destination, origin_clone_url, scrub_remote_url, PeerAsk, PeerAsks, CLONE_ACCEPT,
+    PEER_ASK_DECLINE, PEER_ASK_PREFIX, START_ACCEPT,
 };
 pub use hosting_awake::{acquire_hosting_lease, restore_hosting_leases, HostingKeepAwake};
 

@@ -1,6 +1,23 @@
 import type { ReactNode } from "react";
 import { Globe, GitBranch, KeyRound, SquareTerminal, Wrench, MonitorSmartphone, FileCode } from "lucide-react";
 import { kindDisplayName } from "../../lib/roleKind";
+import { DropdownSelect } from "../shared/DropdownMenu";
+import { openSecretsSettings } from "../../lib/teamTemplates/vaultSecrets";
+
+const ADD_SECRET = "\u0000add";
+
+export interface SecretBinding { bindings: Record<string, string>; vault: readonly string[] | null; onBind: (name: string, entry: string) => void }
+
+/** A secret ask binds to a local vault entry by name; the value never enters the form. */
+function SecretSelect({ ask, binding }: { ask: { name: string; required: boolean }; binding: SecretBinding }) {
+  const options = [
+    { value: "", label: ask.required ? "Choose a secret" : "Skip" },
+    ...(binding.vault ?? []).map((name) => ({ value: name, label: name })),
+    { value: ADD_SECRET, label: "Add a secret…" },
+  ];
+  return <DropdownSelect className="ml-auto w-44 shrink-0" aria-label={`Secret for ${ask.name}`} options={options} value={binding.bindings[ask.name] ?? ""}
+    disabled={binding.vault === null} onChange={(value) => value === ADD_SECRET ? openSecretsSettings() : binding.onBind(ask.name, value)} />;
+}
 
 type TemplateAsk = import("../../../gen/TemplateAsk").TemplateAsk;
 
@@ -17,7 +34,7 @@ function askRow(ask: TemplateAsk): { icon: ReactNode; title: string; detail?: st
 }
 
 /** Only the real asks a package makes; absent asks are never shown. */
-export function TemplateAsks({ asks }: { asks: readonly TemplateAsk[] }) {
+export function TemplateAsks({ asks, secrets }: { asks: readonly TemplateAsk[]; secrets?: SecretBinding }) {
   if (asks.length === 0) return null;
   return (
     <section aria-label="Asks for" className="flex flex-col gap-1">
@@ -31,6 +48,7 @@ export function TemplateAsks({ asks }: { asks: readonly TemplateAsk[] }) {
               <span className={ask.kind === "secret" ? "font-mono" : ""}>{row.title}</span>
               {row.detail && <span className="truncate text-[var(--ct-muted-fg)]">· {row.detail}</span>}
               {ask.kind === "script" && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--ct-yellow,#d97706)]" />}
+              {ask.kind === "secret" && secrets && <SecretSelect ask={ask} binding={secrets} />}
             </li>
           );
         })}

@@ -271,6 +271,9 @@ pub struct TemplateStartRequest {
     /// Choices for with_team managers beyond the pair's own Orchestrator and Planner fields.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub manager_models: BTreeMap<ManagerSlot, ManagerModelChoice>,
+    /// Worker role type to the paired peer Main that hosts it; managers always stay home.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub role_placements: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -300,10 +303,36 @@ pub struct ManagerStartFailure {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "code", rename_all = "snake_case")]
 pub enum TemplateStartRefusal {
-    ConsentRequired { reasons: Vec<ConsentReason> },
-    InvalidPackage { diagnostics: Vec<PackageDiagnostic> },
-    NotFound { template: TemplateRef },
-    MissingInputs { inputs: Vec<String> },
+    ConsentRequired {
+        reasons: Vec<ConsentReason>,
+    },
+    InvalidPackage {
+        diagnostics: Vec<PackageDiagnostic>,
+    },
+    NotFound {
+        template: TemplateRef,
+    },
+    MissingInputs {
+        inputs: Vec<String>,
+    },
+    /// A `role_placements` entry the start cannot honour; nothing was created.
+    InvalidPlacement {
+        role: String,
+        peer: String,
+        problem: PlacementProblem,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PlacementProblem {
+    /// The package declares no role of that name.
+    UnknownRole,
+    /// Managers are the Team's home and never move.
+    NotAWorker,
+    UnknownPeer,
+    /// Hosting a role needs Full mesh access on that peer.
+    NotFullAccess,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -489,6 +518,60 @@ pub struct TemplateDeleteRequest {
 pub struct TemplateDeleteResult {
     /// The `name@version` entries removed from My templates.
     pub removed: Vec<String>,
+}
+
+/// Read one file inside a builtin or saved package, by its package-relative path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateFileRequest {
+    pub template: TemplateRef,
+    pub path: String,
+}
+
+/// One package file as text, for review before the owner keeps it; nothing runs it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplateFileText {
+    pub path: String,
+    pub text: String,
+}
+
+/// What an origin asks a peer Main to start; the pair fields are the peer's own choices.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplatePeerStartAsk {
+    pub template: TemplateStartRequest,
+    #[serde(default)]
+    pub orchestrator_agent: String,
+    #[serde(default)]
+    pub orchestrator_model: Option<String>,
+    #[serde(default)]
+    pub planner_agent: String,
+    #[serde(default)]
+    pub planner_model: Option<String>,
+}
+
+/// Start a template on a paired peer Main; the peer's owner answers there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplatePeerStartRequest {
+    pub peer: String,
+    pub start: TemplatePeerStartAsk,
+    /// The tab that receives the outcome once the peer's owner answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_tab_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplatePeerStartState {
+    AwaitingOwner,
+}
+
+/// The peer asked its owner; nothing has started until they tap Start here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplatePeerStartAccepted {
+    pub state: TemplatePeerStartState,
+    pub peer_id: String,
+    pub peer_name: String,
+    pub request_id: String,
+    pub notification_id: String,
 }
 
 /// Send a checked package to a paired peer Main's My templates over the mesh.
@@ -742,6 +825,10 @@ pub fn export_typescript(config: &ts_rs::Config) -> Result<(), ts_rs::ExportErro
     TemplateDeleteRequest::export_all(config)?;
     TemplateDeleteResult::export_all(config)?;
     TemplateTransferRequest::export_all(config)?;
+    TemplateFileRequest::export_all(config)?;
+    TemplateFileText::export_all(config)?;
+    TemplatePeerStartRequest::export_all(config)?;
+    TemplatePeerStartAccepted::export_all(config)?;
     TemplateShareCard::export_all(config)?;
     TemplateShareAction::export_all(config)?;
     PayloadApplyResult::export_all(config)?;

@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use codeterm_service_core::service::messenger::{MessageEnvelope, Messenger};
 use codeterm_service_core::service::model_decision::TargetCatalogue;
 use codeterm_service_core::service::team_roles::TeamRoleStore;
-use codeterm_service_core::service::team_template_start::{admit, AdmittedTemplate, ConsentLedger};
+use codeterm_service_core::service::team_template_start::{
+    admit, resolve_placements, AdmittedTemplate, ConsentLedger,
+};
 use codeterm_service_core::service::{blocking, team_template_payload};
 use codeterm_service_core::service::{ServiceContext, SpawnAgentParams};
 use codeterm_team_package::contracts::{
@@ -123,7 +125,8 @@ pub(crate) async fn prepare(
     params: &OrchestrationPairParams,
 ) -> Result<TemplateRail, String> {
     let request = params.template.as_ref();
-    let admitted = admit(request, ConsentLedger::global()).map_err(refused)?;
+    let mut admitted = admit(request, ConsentLedger::global()).map_err(refused)?;
+    resolve_placements(svc, &mut admitted).map_err(refused)?;
     let mut picks = owner_picks(params);
     for (slot, pick) in picks.iter_mut() {
         pick.outside_catalogue = outside_catalogue(svc, *slot, pick)?;

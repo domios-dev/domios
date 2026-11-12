@@ -6,7 +6,8 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { describeError } from "../../lib/describeError";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
-import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, ClipboardList, LogOut, PackagePlus, Pencil, UserPlus } from "lucide-react";
+import { SaveTemplateDialog } from "../TeamTemplates/SaveTemplateDialog";
 import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -83,6 +84,7 @@ interface TeamMenuProps {
   addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: () => void;
+  teamName?: string;
 }
 
 function TeamMenu({
@@ -95,8 +97,10 @@ function TeamMenu({
   addableRoles,
   onAddMember,
   onCloseTeam,
+  teamName,
 }: TeamMenuProps) {
   const [open, setOpen] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const [providerRole, setProviderRole] = useState<TeamMemberRole | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   // Derive from `providers` (not a captured object) so a catalog refresh — e.g.
@@ -351,6 +355,7 @@ function TeamMenu({
             <>
               {onOpenPlan && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onOpenPlan)}><span className="ct-menu-row__icon"><ClipboardList size={14} /></span> Open Plan</button>}
               {onRename && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onRename)}><span className="ct-menu-row__icon"><Pencil size={14} /></span> Rename</button>}
+              {teamName && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(() => setSavingTemplate(true))}><span className="ct-menu-row__icon"><PackagePlus size={14} /></span> Save as template…</button>}
               {onAddMember && (addableRoles ?? (["orchestrator", "planner", "worker"] as const)).map((role) => (
                 <button className="ct-menu-row" type="button" role="menuitem" aria-haspopup="menu" key={role} onClick={() => setProviderRole(role)}>
                   <span className="ct-menu-row__icon"><UserPlus size={14} /></span> Add {role} <ChevronRight size={14} className="ct-menu-row__chevron ml-auto" />
@@ -366,6 +371,7 @@ function TeamMenu({
           )}
         </div>
       </AnchoredPopover>
+      {savingTemplate && teamName && <SaveTemplateDialog teamId={teamId} teamName={teamName} onClose={() => setSavingTemplate(false)} />}
     </div>
   );
 }
@@ -675,6 +681,7 @@ export function TeamUnit({
               addableRoles={addableRoles}
               onAddMember={onAddMember}
               onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
+              teamName={displayTitle}
             />
         </span>
       </div>
