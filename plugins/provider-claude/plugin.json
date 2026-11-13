@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.28",
+  "version": "1.14.29",
   "minCodeterm": "1.19.0",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
@@ -123,7 +123,7 @@
     },
     {
       "id": "fable",
-      "displayName": "Fable 5.1",
+      "displayName": "Fable 5.2",
       "description": "Most capable for your hardest and longest-running tasks.",
       "primary": true
     },

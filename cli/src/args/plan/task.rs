@@ -393,10 +393,15 @@ pub enum PlanTaskAction {
         authorized_gates: Vec<String>,
         #[arg(
             long = "canonical-writer",
-            help = "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred"
+            help = "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred; needs a git repository with a commit"
         )]
         canonical_writer: bool,
-        #[arg(long, value_parser = ["shared", "lane"], conflicts_with = "canonical_writer")]
+        #[arg(
+            long,
+            value_parser = ["shared", "lane"],
+            conflicts_with = "canonical_writer",
+            help = "Mutating placement: shared (declared disjoint edit files; the only placement in a project folder without git) or lane (isolated worktree; needs git history)"
+        )]
         placement: Option<String>,
         #[arg(
             long = "role",

@@ -483,6 +483,7 @@ where
             ))
         }
     };
+    let without_git = canonical_writer::dispatch_without_git(&execution_intent, &task)?;
     let (placement, placement_reason) = canonical_writer::resolve_placement(
         p,
         &execution_intent,
@@ -494,6 +495,7 @@ where
                 &task.canonical_project_path
             })
             .map_err(plan_rpc_err)?,
+        without_git,
     )?;
     let worker_profile = role.profile;
     let allowance_capability = svc
@@ -588,7 +590,9 @@ where
             })
         } else if requires_repository {
             if !placement.is_isolated_lane() {
-                canonical_writer::verify_canonical_writer_checkout(&canonical_cwd)?;
+                if !without_git {
+                    canonical_writer::verify_canonical_writer_checkout(&canonical_cwd)?;
+                }
                 Some(lane_resolution::DispatchLaneResolution {
                     spawn_cwd: canonical_cwd.clone(),
                     existing: None,
@@ -663,6 +667,7 @@ where
             &authorized_gates,
         ),
         placement,
+        without_git,
     );
     let will_provision_lane = lane_placement
         .as_ref()

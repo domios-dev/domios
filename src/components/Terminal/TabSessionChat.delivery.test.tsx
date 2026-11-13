@@ -47,7 +47,7 @@ async function openDeliveryActions(bubble: Element) {
   const status = bubble.querySelector('[role="status"]');
   assert(status?.textContent === "", "recovery stays hidden beside the bubble");
   const trigger = status.querySelector<HTMLButtonElement>("button");
-  assert(trigger?.getAttribute("aria-label"), "the dot is an accessible button");
+  assert(trigger && trigger.getAttribute("aria-label"), "the dot is an accessible button");
   await act(async () => trigger.click());
   assert(document.querySelector('[role="dialog"]'), "activating the dot opens recovery");
 }
@@ -645,15 +645,16 @@ test("an own send keeps its position before the live operation through confirmat
     assert(queued?.textContent === "", "held input shows only the dot");
     assert(!queued.querySelector("button"), "held input has no delivery controls");
 
-    latest = status("written", 2);
-    await act(async () => dispatch("chat-send-status", latest));
-    const written = held.querySelector('[role="status"][aria-label="Awaiting confirmation"]');
-    assert(written?.textContent === "" && !written.querySelector("button"), "written input keeps a quiet accessible indicator");
-    assertStable();
-    latest = status("submit_unconfirmed", 3);
-    await act(async () => dispatch("chat-send-status", latest));
-    assert(held.querySelector('[role="status"][data-state="uncertain"]'), "uncertainty retains the bubble");
-    assertStable();
+    const waitingLabel = queued.getAttribute("aria-label");
+    for (const [state, sequence] of [["written", 2], ["submit_unconfirmed", 3]] as const) {
+      latest = status(state, sequence);
+      await act(async () => dispatch("chat-send-status", latest));
+      const waiting = held.querySelector<HTMLElement>('[role="status"]');
+      assert(waiting?.getAttribute("data-state") === "queued" && waiting.getAttribute("aria-label") === waitingLabel,
+        `${state} input keeps the same waiting dot while the turn runs`);
+      assert(waiting.textContent === "" && !waiting.querySelector("button"), `${state} input offers no recovery while the turn runs`);
+      assertStable();
+    }
     latest = status("delivered", 4);
     await act(async () => dispatch("chat-send-status", latest));
     const delivered = Array.from(bubbles()).filter((bubble) => bubble.textContent?.includes("opaque-held"));

@@ -65,6 +65,7 @@ impl PlanDatabase {
              SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),EXISTS(SELECT 1 FROM selected_task),
                 (SELECT json_object('attempt_id',json_extract(a.row_json,'$.id'),'executor_tab_id',json_extract(a.row_json,'$.executor_tab_id'),
                     'checkout',json_extract(a.row_json,'$.checkout_path'),'start_sha',json_extract(a.row_json,'$.shared_start_sha'),
+                    'start_files',json(json_extract(a.row_json,'$.shared_start_files')),
                     'files',json(coalesce(json_extract(t.row_json,'$.files'),'{{}}')))
                  FROM chosen c JOIN plan_task_attempts a ON a.plan_id=c.plan_id AND a.task_id=c.task_id AND a.position=c.position
                     JOIN selected_task t ON t.plan_id=c.plan_id AND t.task_id=c.task_id

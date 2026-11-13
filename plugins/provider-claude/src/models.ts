@@ -2,6 +2,7 @@ import { ioJson, ioEncoded, type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 import { modelWithCapabilities } from "./modelCapabilities";
+import { readClaudeOAuthToken } from "./credentials";
 
 interface AnthropicModelsResponse { data?: AnthropicModel[] }
 interface AnthropicModel { id?: string; display_name?: string; displayName?: string }
@@ -33,7 +34,6 @@ export function decideAvailability(
 export function* discoverAnthropicModels(): HostIoSteps<ModelInfo[] | null> {
   const installed = (yield* probeInstalledCli());
   const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
-  if (!key) return applyInstalledCapabilities(manifestModels(), installed);
   const live = (yield* fetchLiveModels(key));
   if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
@@ -51,15 +51,20 @@ export function manifestModels(): ModelInfo[] {
   }));
 }
 
-function* fetchLiveModels(key: string): HostIoSteps<AnthropicModel[] | null> {
+function* fetchLiveModels(key: string | null): HostIoSteps<AnthropicModel[] | null> {
   let raw: string;
   try {
+    const token = key ? null : yield* readClaudeOAuthToken(host);
+    if (!key && !token) return null;
     raw = (yield* ioEncoded(host.io.fetch({
-      url: "https://api.anthropic.com/v1/models",
+      url: "https://api.anthropic.com/v1/models?limit=1000",
       method: "GET",
       timeoutMs: 3000,
       headers: {
-        "x-api-key": key,
+        ...(key ? { "x-api-key": key } : {
+          Authorization: `Bearer ${token}`,
+          "anthropic-beta": "oauth-2025-04-20",
+        }),
         "anthropic-version": "2023-06-01",
       },
     })));
@@ -131,7 +136,7 @@ function mapAliasesToLive(aliases: ModelInfo[], live: AnthropicModel[]): ModelIn
       id: alias.id,
       displayName: match && alias.primary && liveDisplay(match)
         ? liveDisplay(match)
-        : match && !alias.id.endsWith("[1m]")
+        : match
         ? withVersion(alias.displayName, versionOf(match))
         : alias.displayName,
     };
@@ -198,8 +203,10 @@ function versionKey(v: string): number {
 // word and any suffix like "(1M context)"; append if there's no version token.
 function withVersion(displayName: string, version: string): string {
   if (!version) return displayName;
-  if (/\d+(?:\.\d+)?/.test(displayName)) return displayName.replace(/\d+(?:\.\d+)?/, version);
-  return displayName + " " + version;
+  const suffixIndex = displayName.indexOf(" (");
+  const label = suffixIndex === -1 ? displayName : displayName.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : displayName.slice(suffixIndex);
+  return (/\d+(?:\.\d+)?/.test(label) ? label.replace(/\d+(?:\.\d+)?/, version) : label + " " + version) + suffix;
 }
 
 function safeJson(s: string | null | undefined): unknown {

@@ -23,6 +23,7 @@ fn reference(task: &crate::plan::Task, reporter: &str) -> Option<SharedReportRea
         executor_tab_id: attempt.executor_tab_id.clone(),
         checkout: attempt.checkout_path.clone(),
         start_sha: attempt.shared_start_sha.clone(),
+        start_files: attempt.shared_start_files.clone(),
         files: task.files.clone(),
     })
 }
@@ -39,7 +40,7 @@ fn configure(plan: &mut Plan) {
 
 #[test]
 fn shared_inspection_preserves_latest_attempt_epoch_and_snapshot_fields() {
-    for variant in 0..16 {
+    for variant in 0..17 {
         let directory = tempfile::tempdir().unwrap();
         let mut plan = authority_plan(directory.path());
         configure(&mut plan);
@@ -73,6 +74,12 @@ fn shared_inspection_preserves_latest_attempt_epoch_and_snapshot_fields() {
                 plan.tasks[0].execution_attempts[0].interruption.owner_epoch = u64::MAX;
             }
             15 => plan.tasks[0].execution_intent = crate::plan::TaskExecutionIntent::NonRepository,
+            16 => {
+                let attempt = &mut plan.tasks[0].execution_attempts[0];
+                attempt.shared_start_sha = None;
+                attempt.shared_start_files =
+                    Some([("notes.md".to_string(), "sha256:a".to_string())].into());
+            }
             _ => {}
         }
         let database = fixtures::database(directory.path(), &plan);

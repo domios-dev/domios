@@ -18,6 +18,7 @@ fn dispatched_worker_launch_prompt_carries_ack_instruction_persona_and_brief() {
     let brief = super::super::canonical_writer::compose_dispatch_brief(
         build_brief_with_manifest((&t, &[][..]), "plan_dispatched_brief", &[], &[]),
         codeterm_service_core::plan::WorkerPlacement::IsolatedLane,
+        false,
     );
     let mut spawn_params = codeterm_service_core::service::SpawnAgentParams {
         role: Some("Worker".into()),
