@@ -43,7 +43,10 @@ impl crate::service::ServiceContext {
     }
 
     /// Spawn params from a JSON request, with `--role` resolved against the caller's Team.
-    pub fn spawn_params_from_json(&self, params: &serde_json::Value) -> Result<SpawnAgentParams, String> {
+    pub fn spawn_params_from_json(
+        &self,
+        params: &serde_json::Value,
+    ) -> Result<SpawnAgentParams, String> {
         let team = self.spawn_role_team(
             json_str(params, "team_id").as_deref(),
             json_str(params, "parent_tab_id")
@@ -295,7 +298,7 @@ fn normalize_manager_profile(profile: &str) -> Result<String, String> {
     }
     // A Domios worker kind is never a Manager profile; a Team role's kind comes from its
     // registration through `--role`, never from a hand-built structural pair.
-    if role_kind::builtin_kind(&normalized).is_some_and(|kind| kind.is_taskless_worker()) {
+    if role_kind::builtins::is_taskless_worker_kind(&normalized) {
         return Err(format!(
             "Worker-only role_profile '{profile}' cannot be used with Manager"
         ));

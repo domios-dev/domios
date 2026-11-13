@@ -164,3 +164,30 @@ pub(super) fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -
 
 #[cfg(test)]
 mod tests;
+
+/// What a spawn holds from admission until its tab carries the role.
+pub(super) struct SpawnRoleAdmission {
+    pub(super) _manager: Option<crate::service::team_manager_spawn::ManagerReservation>,
+    pub(super) worker_persona:
+        Option<crate::service::worker_persona::WorkerPersonaReservationGuard>,
+}
+
+impl ServiceContext {
+    /// The role admission every spawn entry point runs on normalized params, before any tab
+    /// exists: one door, so no transport can skip a custom manager's single-instance rule.
+    pub(super) fn admit_spawn_role(
+        &self,
+        params: &mut SpawnAgentParams,
+    ) -> Result<SpawnRoleAdmission, String> {
+        let manager = self.admit_custom_manager_spawn(params)?;
+        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(params)?;
+        crate::service::spawn_params::reject_team_with_binding(params)?;
+        self.preflight_worker_plan_task_spawn(params)?;
+        self.prepare_worker_plan_task_spawn(params)?;
+        let worker_persona = self.reserve_worker_persona(params)?;
+        Ok(SpawnRoleAdmission {
+            _manager: manager,
+            worker_persona,
+        })
+    }
+}

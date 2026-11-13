@@ -87,11 +87,7 @@ impl ServiceContext {
                 .ok_or("Planner requires --plan <id>")?;
             params.parent_tab_id = Some(self.resolve_planner_parent_for_spawn(plan_id)?);
         }
-        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
-        crate::service::spawn_params::reject_team_with_binding(&params)?;
-        self.preflight_worker_plan_task_spawn(&params)?;
-        self.prepare_worker_plan_task_spawn(&mut params)?;
-        let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
+        let admission = self.admit_spawn_role(&mut params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
         let plan_id = params.plan_id.clone();
@@ -145,7 +141,7 @@ impl ServiceContext {
         let model_identity = self.tab_model_identity(&handle.tab_id);
         self.bind_worker_plan_task_or_rollback_tab(&bind_params, &handle.tab_id)?;
         self.bind_planner_spawn(plan_id.as_deref(), role_profile.as_deref(), &handle.tab_id);
-        if let Some(reservation) = worker_persona_reservation {
+        if let Some(reservation) = admission.worker_persona {
             reservation.commit_to_tab(&handle.tab_id);
         }
         let title = self.mux.read().display_label_for_tab(&handle.tab_id);
@@ -223,12 +219,7 @@ impl ServiceContext {
         params.description =
             crate::service::tab::normalize_optional_tab_description(params.description.take())?;
         params.normalize_role_profile()?;
-        let _manager_reservation = self.admit_custom_manager_spawn(&mut params)?;
-        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
-        crate::service::spawn_params::reject_team_with_binding(&params)?;
-        self.preflight_worker_plan_task_spawn(&params)?;
-        self.prepare_worker_plan_task_spawn(&mut params)?;
-        let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
+        let mut admission = self.admit_spawn_role(&mut params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
         if params.spawns_anchor() && params.workspace_id.is_none() && params.parent_tab_id.is_none()
@@ -320,7 +311,7 @@ impl ServiceContext {
                 role_profile.as_deref(),
                 &handle.tab_id,
             );
-            if let Some(reservation) = worker_persona_reservation {
+            if let Some(reservation) = admission.worker_persona.take() {
                 reservation.commit_to_tab(&handle.tab_id);
             }
             let title = self.mux.read().display_label_for_tab(&handle.tab_id);
@@ -858,7 +849,7 @@ impl ServiceContext {
 
         let title = self.mux.read().display_label_for_tab(&tab_id);
 
-        if let Some(reservation) = worker_persona_reservation {
+        if let Some(reservation) = admission.worker_persona.take() {
             reservation.commit_to_tab(&tab_id);
         }
         self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);

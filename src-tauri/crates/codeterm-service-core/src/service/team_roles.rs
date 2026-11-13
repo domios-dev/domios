@@ -42,15 +42,17 @@ fn validate(registration: &RoleRegistration) -> Result<(), String> {
         return Err(format!("`{name}` is not a role name"));
     }
     if name == builtins::WATCHER || name == builtins::GENERAL_AGENT {
-        return Err(format!("`{name}` is owned by the host and is never a package role"));
+        return Err(format!(
+            "`{name}` is owned by the host and is never a package role"
+        ));
     }
     if registration.kind == RoleKind::Worker && is_builtin_manager(name) {
-        return Err(format!("`{name}` is a built-in manager name, never a worker"));
+        return Err(format!(
+            "`{name}` is a built-in manager name, never a worker"
+        ));
     }
     // Spawn refuses a Manager under a Domios worker kind, so such a manager could never start.
-    let worker_kind = codeterm_types::agent::role_kind::builtin_kind(name)
-        .is_some_and(|kind| kind.is_taskless_worker());
-    if registration.kind == RoleKind::Manager && worker_kind {
+    if registration.kind == RoleKind::Manager && builtins::is_taskless_worker_kind(name) {
         return Err(format!("`{name}` is a Domios worker kind, never a manager"));
     }
     if registration.instructions.trim().is_empty() {

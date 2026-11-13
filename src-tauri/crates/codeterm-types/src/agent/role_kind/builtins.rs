@@ -51,6 +51,11 @@ pub fn is_builtin(kind_id: &str) -> bool {
     lookup(kind_id).is_some()
 }
 
+/// A Domios worker kind (`qa`, `reviewer`, `release_manager`): never a manager name.
+pub fn is_taskless_worker_kind(kind_id: &str) -> bool {
+    lookup(kind_id).is_some_and(RoleKindDescriptor::is_taskless_worker)
+}
+
 /// An unknown kind id resolves to leaf capability, never to anchoring.
 pub fn capability_for(kind_id: &str) -> RoleKindCapability {
     match lookup(kind_id) {
