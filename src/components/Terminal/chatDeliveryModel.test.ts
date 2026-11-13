@@ -255,7 +255,8 @@ test("a held send stays one bubble at send time until its exact echo replaces it
   assert.equal(queuedBehindTurn(held, "idle"), true);
   assert.deepEqual(projectTranscript(running, deliveryProjectionSends([held])).rows.map((row) => row.id), ["turn", "work", "bubble"]);
   const written = applyDeliveryStatus(held, status("written", 2));
-  assert.equal(queuedBehindTurn(written, "working"), false);
+  assert.equal(queuedBehindTurn(written, "working"), true);
+  assert.equal(queuedBehindTurn(written, "idle"), false);
   assert.deepEqual(projectTranscript(running, deliveryProjectionSends([written])).rows.map((row) => row.id), ["turn", "work", "bubble"]);
   const echoed = reduceTranscript(running, {
     kind: "delta", authority, range: null,
@@ -325,21 +326,31 @@ test("a held status with no local send counts as queued elsewhere; settled and o
   assert.equal(unownedHeldSends([], [{ ...other, correlationId: undefined }]), 0);
 });
 
-test("written and unconfirmed receipts keep their meaning across agent activity", () => {
-  for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
-    const current = applyDeliveryStatus(send(), status(ledgerState, 2));
-    const before = JSON.stringify(current);
-    const expected = ledgerState === "written" ? "written" : "uncertain";
-    assert.equal(deliveryPresentation(current, "working"), expected);
-    for (const activity of ["starting", "waiting-on-user", "failed"] as const) {
-      assert.equal(deliveryPresentation(current, activity), expected);
-    }
-    assert.equal(deliveryPresentation(current, "idle"), expected);
-    assert.equal(JSON.stringify(current), before);
-    const delivered = applyDeliveryStatus(current, status("delivered", 3));
-    assert.equal(deliveryPresentation(delivered, "working"), "delivered");
-    assert.equal(deliveryPresentation(delivered, "idle"), "delivered");
+test("written input waits for the running turn and becomes uncertain only once that turn ends without evidence", () => {
+  const written = applyDeliveryStatus(send(), status("written", 2));
+  const unconfirmed = applyDeliveryStatus(written, status("submit_unconfirmed", 3));
+  const before = JSON.stringify(unconfirmed);
+  for (const [label, current] of [["written", written], ["submit_unconfirmed", unconfirmed]] as const) {
+    assert.equal(deliveryPresentation(current, "working"), "queued", label);
+    assert.equal(queuedBehindTurn(current, "working"), true, label);
   }
+  assert.equal(deliveryPresentation(written, "idle"), "written");
+  for (const activity of ["idle", "starting", "waiting-on-user", "failed"] as const) {
+    assert.equal(deliveryPresentation(unconfirmed, activity), "uncertain", activity);
+    assert.equal(queuedBehindTurn(unconfirmed, activity), false, activity);
+  }
+  assert.equal(JSON.stringify(unconfirmed), before, "presentation never rewrites the receipt");
+  const delivered = applyDeliveryStatus(unconfirmed, status("delivered", 4));
+  for (const activity of ["working", "idle"] as const) {
+    assert.equal(deliveryPresentation(delivered, activity), "delivered");
+    assert.equal(queuedBehindTurn(delivered, activity), false);
+  }
+});
+
+test("a written prompt the agent refused while busy stays uncertain during the turn", () => {
+  const refused = applyDeliveryStatus(send(), { ...status("submit_unconfirmed", 2), error: "agent_refused_while_busy: opaque" });
+  assert.equal(deliveryPresentation(refused, "working"), "uncertain");
+  assert.equal(queuedBehindTurn(refused, "working"), false);
 });
 
 test("activity never changes held or proven terminal outcomes", () => {
