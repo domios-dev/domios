@@ -559,13 +559,13 @@ impl ServiceContext {
             let mux = self.mux.read();
             mux.resolve_tab_id(tab_id).filter(|id| {
                 mux.get_tab(id)
-                    .is_some_and(|tab| super::lazy_restore::wake_eligible(tab, true))
+                    .is_some_and(super::lazy_restore::wake_on_open_eligible)
             })
         };
         if let Some(target) = target {
             let service = self.clone();
             crate::async_runtime::spawn_blocking(move || {
-                if let Err(reason) = service.wake_tab_on_request(&target) {
+                if let Err(reason) = service.wake_tab_on_open(&target) {
                     log::warn!("[tab-focus] wake failed tab={target}: {reason}");
                 }
             });

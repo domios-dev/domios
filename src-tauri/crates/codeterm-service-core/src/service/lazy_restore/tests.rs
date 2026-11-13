@@ -44,48 +44,177 @@ fn opening_a_tab_never_reloads_a_session_the_provider_lost() {
 }
 
 #[test]
-fn focus_wakes_failed_sleeping_chat_on_its_own_session() {
+fn opening_sleeping_chat_and_explicit_retry_keep_its_own_session() {
+    for explicit in [false, true] {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.protected = false;
+        tab.frozen = true;
+        tab.restored_from_snapshot = true;
+        tab.agent_type = Some("fixture-runtime".into());
+        tab.agent_session_id = Some("own-thread".into());
+        tab.session_binding_nonce = Some("own-nonce".into());
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "fixture-runtime".into(),
+            session_id: "own-thread".into(),
+        };
+        tab.boot_stage = Some(if explicit {
+            BootStage::SpawnFailed
+        } else {
+            BootStage::AgentReady
+        });
+        let fixture = ServiceFixture::new(mux);
+        let service = fixture.service.clone();
+        let target = id.clone();
+        let (completed, completion) = std::sync::mpsc::channel();
+        let _port = test_boundary::Boundary::install(
+            &id,
+            std::sync::Arc::new(move || {
+                let mut mux = service.mux.write();
+                let tab = mux.get_tab_mut(&target).unwrap();
+                assert!(!tab.frozen);
+                assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
+                assert_eq!(tab.session_binding_nonce.as_deref(), Some("own-nonce"));
+                tab.reported_session_binding_nonce = Some("own-nonce".into());
+                tab.restored_from_snapshot = false;
+                super::super::boot_stage::apply_boot_stage(tab, BootStage::AgentReady, None);
+                completed.send(()).unwrap();
+                Ok(())
+            }),
+        );
+        if explicit {
+            fixture.service.wake_tab_on_request(&id).unwrap();
+        } else {
+            fixture.service.focus_tab(&id).unwrap();
+        }
+        completion
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+        assert!(tab.pty_id.is_none());
+    }
+}
+
+#[test]
+fn opening_failed_tabs_preserves_failure_until_explicit_retry() {
+    for frozen in [false, true] {
+        for (stage, reason) in [
+            (Some(BootStage::SpawnFailed), "opaque launch failure"),
+            (None, r#"{"class":"requires_workspace_repair"}"#),
+            (
+                Some(BootStage::AgentReady),
+                r#"{"code":"workspace_cwd_missing"}"#,
+            ),
+        ] {
+            let (mut mux, id) = MultiplexerState::new();
+            let tab = mux.get_tab_mut(&id).unwrap();
+            tab.protected = false;
+            tab.frozen = frozen;
+            tab.pty_id = None;
+            tab.boot_stage = stage;
+            tab.boot_failure_reason = Some(reason.into());
+            tab.agent_session_id = Some("own-session".into());
+            let fixture = ServiceFixture::new(mux);
+            let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let observed = calls.clone();
+            let _port = test_boundary::Boundary::install(
+                &id,
+                std::sync::Arc::new(move || {
+                    observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err("explicit retry reached materialization".into())
+                }),
+            );
+            for _ in 0..4 {
+                fixture
+                    .service
+                    .record_client_selection(None, Some(&id))
+                    .unwrap();
+                fixture.service.focus_tab(&id).unwrap();
+                fixture.service.wake_tab_on_open(&id).unwrap();
+                let mux = fixture.service.mux.read();
+                let tab = mux.get_tab(&id).unwrap();
+                assert_eq!(tab.boot_stage, stage);
+                assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason));
+                assert_eq!(tab.frozen, frozen);
+                assert_eq!(tab.agent_session_id.as_deref(), Some("own-session"));
+            }
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+            {
+                let mut mux = fixture.service.mux.write();
+                mux.get_tab_mut(&id).unwrap().boot_stage = Some(BootStage::SpawnFailed);
+            }
+            assert_eq!(
+                fixture.service.wake_tab_on_request(&id).unwrap_err(),
+                "explicit retry reached materialization"
+            );
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        }
+    }
+}
+
+#[test]
+fn queued_open_rechecks_failure_before_materialization() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.protected = false;
-    tab.frozen = true;
-    tab.restored_from_snapshot = true;
-    tab.agent_type = Some("fixture-runtime".into());
-    tab.agent_session_id = Some("own-thread".into());
-    tab.session_binding_nonce = Some("own-nonce".into());
-    tab.backing = TabBacking::ChatBackend {
-        plugin_id: "fixture-runtime".into(),
-        session_id: "own-thread".into(),
-    };
+    tab.pty_id = None;
+    assert!(wake_on_open_eligible(tab));
     tab.boot_stage = Some(BootStage::SpawnFailed);
     let fixture = ServiceFixture::new(mux);
-    let service = fixture.service.clone();
-    let target = id.clone();
-    let (completed, completion) = std::sync::mpsc::channel();
     let _port = test_boundary::Boundary::install(
         &id,
-        std::sync::Arc::new(move || {
-            let mut mux = service.mux.write();
-            let tab = mux.get_tab_mut(&target).unwrap();
-            assert!(!tab.frozen);
-            assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
-            assert_eq!(tab.session_binding_nonce.as_deref(), Some("own-nonce"));
-            tab.reported_session_binding_nonce = Some("own-nonce".into());
-            tab.restored_from_snapshot = false;
-            super::super::boot_stage::apply_boot_stage(tab, BootStage::AgentReady, None);
-            completed.send(()).unwrap();
-            Ok(())
-        }),
+        std::sync::Arc::new(|| panic!("queued open retried a failed launch")),
     );
-    fixture.service.focus_tab(&id).unwrap();
-    completion
-        .recv_timeout(std::time::Duration::from_secs(2))
-        .unwrap();
-    let mux = fixture.service.mux.read();
-    let tab = mux.get_tab(&id).unwrap();
-    assert_eq!(mux.get_focused_tab_id(), Some(id.as_str()));
-    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
-    assert!(tab.pty_id.is_none());
+    fixture.service.wake_tab_on_open(&id).unwrap();
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&id).unwrap().boot_stage,
+        Some(BootStage::SpawnFailed)
+    );
+}
+
+#[test]
+fn wake_refuses_missing_cwd_before_starting_or_materializing() {
+    for explicit in [false, true] {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.protected = false;
+        tab.frozen = true;
+        tab.pty_id = None;
+        let fixture = ServiceFixture::new(mux);
+        fixture.service.mux.write().get_tab_mut(&id).unwrap().cwd = Some(
+            fixture
+                .temp
+                .path()
+                .join("missing-workspace")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let _port = test_boundary::Boundary::install(
+            &id,
+            std::sync::Arc::new(|| panic!("invalid cwd reached materialization")),
+        );
+        let error = if explicit {
+            fixture.service.wake_tab_on_request(&id)
+        } else {
+            fixture.service.wake_tab_on_open(&id)
+        }
+        .unwrap_err();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&error).unwrap()["class"],
+            "requires_workspace_repair"
+        );
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        assert!(
+            tab.frozen,
+            "preflight failure must not enter the starting transition"
+        );
+        assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
+        assert_eq!(tab.boot_failure_reason.as_deref(), Some(error.as_str()));
+        assert!(tab.pty_id.is_none());
+    }
 }
 
 #[test]

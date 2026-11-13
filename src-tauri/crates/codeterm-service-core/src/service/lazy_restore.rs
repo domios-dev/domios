@@ -22,6 +22,7 @@ struct WakeRequest(String);
 enum WakeIntent {
     Resume,
     Restart,
+    Open,
 }
 
 impl Drop for WakeRequest {
@@ -52,6 +53,33 @@ pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
                         .close_restore
                         .as_ref()
                         .is_some_and(|closed| closed.stopped))
+}
+
+pub(crate) fn wake_on_open_eligible(tab: &Tab) -> bool {
+    let repair = tab
+        .boot_failure_reason
+        .as_deref()
+        .and_then(|reason| serde_json::from_str::<serde_json::Value>(reason).ok())
+        .is_some_and(|reason| {
+            reason["class"] == super::spawn_cwd::CwdRefusal::CLASS
+                || reason["code"] == super::spawn_cwd::CwdRefusal::CODE
+        });
+    tab.boot_stage != Some(BootStage::SpawnFailed) && !repair && wake_eligible(tab, true)
+}
+
+fn wake_eligible_for_intent(tab: &Tab, allow_failed: bool, intent: WakeIntent) -> bool {
+    if intent == WakeIntent::Open {
+        wake_on_open_eligible(tab)
+    } else {
+        wake_eligible(tab, allow_failed)
+    }
+}
+
+fn wake_needs_agent_restart(tab: &Tab) -> bool {
+    !tab.frozen
+        && tab.boot_stage == Some(BootStage::SpawnFailed)
+        && !tab.restored_from_snapshot
+        && tab.agent_type.is_some()
 }
 
 pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
@@ -131,39 +159,49 @@ impl ServiceContext {
     }
 
     pub fn wake_frozen_tab(&self, tab_id: &str) -> Result<(), String> {
-        self.wake_tab(tab_id, false)
+        self.wake_tab(tab_id, false, WakeIntent::Resume)
     }
 
     pub fn wake_tab_on_request(&self, tab_id: &str) -> Result<(), String> {
-        self.wake_tab(tab_id, true)
+        self.wake_tab(tab_id, true, WakeIntent::Resume)
     }
 
-    fn wake_tab(&self, tab_id: &str, allow_failed: bool) -> Result<(), String> {
-        wake_with(self, tab_id, allow_failed, |id, retry_started_agent| {
-            #[cfg(test)]
-            if let Some(result) = test_boundary::materialize(id) {
-                return result;
-            }
-            if retry_started_agent {
-                return self
-                    .agent_restart(id, false, super::agent_restart::DEFAULT_GRACE_SECS)
-                    .map(|_| ())
-                    .map_err(|reason| match reason {
-                        super::agent_restart::AgentRestartError::NotFound(reason)
-                        | super::agent_restart::AgentRestartError::BadRequest(reason)
-                        | super::agent_restart::AgentRestartError::Internal(reason) => reason,
-                        other => format!("{other:?}"),
-                    });
-            }
-            if self.tab_chat_backing(id).is_some() {
-                self.chatbackend_reopen_if_restored(id).map(|_| ())
-            } else {
-                let cwd = self.mux.read().get_tab(id).and_then(|tab| tab.cwd.clone());
-                self.validate_request_cwd(None, Some(id), cwd.as_deref())
-                    .map_err(|error| error.data().to_string())?;
-                self.ensure_tab_pty_for_send(id)
-            }
-        })
+    pub(super) fn wake_tab_on_open(&self, tab_id: &str) -> Result<(), String> {
+        self.wake_tab(tab_id, false, WakeIntent::Open)
+    }
+
+    fn wake_tab(&self, tab_id: &str, allow_failed: bool, intent: WakeIntent) -> Result<(), String> {
+        wake_with_intent(
+            self,
+            tab_id,
+            allow_failed,
+            intent,
+            |id, retry_started_agent| {
+                #[cfg(test)]
+                if let Some(result) = test_boundary::materialize(id) {
+                    return result;
+                }
+                if retry_started_agent {
+                    return self
+                        .agent_restart(id, false, super::agent_restart::DEFAULT_GRACE_SECS)
+                        .map(|_| ())
+                        .map_err(|reason| match reason {
+                            super::agent_restart::AgentRestartError::NotFound(reason)
+                            | super::agent_restart::AgentRestartError::BadRequest(reason)
+                            | super::agent_restart::AgentRestartError::Internal(reason) => reason,
+                            other => format!("{other:?}"),
+                        });
+                }
+                if self.tab_chat_backing(id).is_some() {
+                    self.chatbackend_reopen_if_restored(id).map(|_| ())
+                } else {
+                    let cwd = self.mux.read().get_tab(id).and_then(|tab| tab.cwd.clone());
+                    self.validate_request_cwd(None, Some(id), cwd.as_deref())
+                        .map_err(|error| error.data().to_string())?;
+                    self.ensure_tab_pty_for_send(id)
+                }
+            },
+        )
     }
 }
 
@@ -188,6 +226,13 @@ fn wake_with_intent(
         let resolved = mux
             .resolve_tab_id(tab_id)
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+        if intent == WakeIntent::Open
+            && !mux
+                .get_tab(&resolved)
+                .is_some_and(|tab| wake_eligible_for_intent(tab, allow_failed, intent))
+        {
+            return Ok(());
+        }
         if let Some(tab) = mux.get_tab_mut(&resolved) {
             tab.record_activity();
         }
@@ -207,7 +252,7 @@ fn wake_with_intent(
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
         if !mux
             .get_tab(&id)
-            .is_some_and(|tab| wake_eligible(tab, allow_failed))
+            .is_some_and(|tab| wake_eligible_for_intent(tab, allow_failed, intent))
         {
             return Ok(());
         }
@@ -223,23 +268,43 @@ fn wake_with_intent(
         .get_tab(&id)
         .is_some_and(|tab| tab.restorable_launch.permission_bypass_requested);
     svc.require_neighbor_restore_grant(&id, bypass)?;
+    {
+        let cwd = {
+            let mux = svc.mux.read();
+            mux.get_tab(&id)
+                .filter(|tab| {
+                    tab.pty_id.is_none()
+                        || intent == WakeIntent::Restart
+                        || wake_needs_agent_restart(tab)
+                })
+                .map(|tab| tab.cwd.clone())
+        };
+        if let Some(cwd) = cwd {
+            if let Err(error) = svc.validate_request_cwd(None, Some(&id), cwd.as_deref()) {
+                let reason = error.data().to_string();
+                if let Some(tab) = svc.mux.write().get_tab_mut(&id) {
+                    tab.agent_booting = false;
+                    super::boot_stage::apply_boot_stage(tab, BootStage::SpawnFailed, Some(&reason));
+                }
+                svc.emit_state_changed(MuxEmitCause::TabLifecycle);
+                return Err(reason);
+            }
+        }
+    }
     let (retry_started_agent, retained_pty_progress) = {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(&id).ok_or("Sleeping tab closed")?;
-        if !wake_eligible(tab, allow_failed) {
+        if !wake_eligible_for_intent(tab, allow_failed, intent) {
             return Ok(());
         }
-        let retry_started_agent = !tab.frozen
-            && tab.boot_stage == Some(BootStage::SpawnFailed)
-            && !tab.restored_from_snapshot
-            && tab.agent_type.is_some();
+        let retry_started_agent = wake_needs_agent_restart(tab);
         tab.frozen = false;
         tab.record_activity();
         let chat_backend = matches!(
             tab.backing,
             crate::multiplexer::types::TabBacking::ChatBackend { .. }
         );
-        let retained_pty_progress = intent == WakeIntent::Resume
+        let retained_pty_progress = intent != WakeIntent::Restart
             && !retry_started_agent
             && !chat_backend
             && tab.pty_id.is_some();
