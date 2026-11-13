@@ -61,7 +61,6 @@ export interface ChatTranscriptRowProps {
   reports: readonly OutboundReportEntry[];
   asks: readonly Notification[];
   liveActivityLabel?: string;
-  hideMessage?: boolean;
   deliverySend?: DeliverySend;
   deliveryView?: DeliveryState;
   deliveryBehindTurn?: boolean;
@@ -126,7 +125,7 @@ function sameRowProps(left: ChatTranscriptRowProps, right: ChatTranscriptRowProp
 }
 
 /** One transcript row; it renders again only when its own message, rails, delivery or selection change. */
-export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel, hideMessage,
+export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel,
   deliverySend, deliveryView, deliveryBehindTurn, sourceOrdinal, selected, joinNext, selecting, cursor, streaming, latestFailedToolCall,
   forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
@@ -142,7 +141,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   return (
     <ChatWindowRow message={msg} liveActivityLabel={liveActivityLabel}>
       <ChatDaySeparator label={daySeparator} />
-      {!hideMessage && <ChatHighlightRow id={msg.id}>
+      <ChatHighlightRow id={msg.id}>
         <ChatMessageRow
           msg={msg}
           timestamp={messageRowTime(msg, item, origin)?.timestamp}
@@ -194,7 +193,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             onJumpToMessage={context.onJumpToMessage}
           />
         </ChatMessageRow>
-      </ChatHighlightRow>}
+      </ChatHighlightRow>
       {reports.map((report) => <OutboundReportRow key={report.descriptor.reportId} entry={report} context={context} />)}
       {asks.map((ask) => <AskRow key={ask.id} ask={ask} context={context} />)}
     </ChatWindowRow>

@@ -10,7 +10,6 @@
   "src/components/Extensions/PluginDetailPanel.test.tsx",
   "src/lib/providerPromptLifecycle.test.ts",
   "src/components/Terminal/permissionPromptStartup.test.tsx",
-  "src/components/Terminal/ChatLiveOperation.test.tsx",
   "src/components/Automation/blueprint/replayModel.test.ts",
   "src/components/Automation/blueprint/triggerModel.test.tsx",
   "src/components/Jobs/useTabJobs.blueprints.test.tsx",
