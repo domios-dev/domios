@@ -87,7 +87,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Install pinned nextest prerequisite
-        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
         with:
           tool: cargo-nextest@0.9.148
       - name: Install pinned Python test dependencies
