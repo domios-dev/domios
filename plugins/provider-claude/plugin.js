@@ -1147,6 +1147,36 @@ function* detectClaudeLaunchSession(evidence) {
   return null;
 }
 
+// plugins/provider-claude/src/credentials.ts
+function* readClaudeOAuthToken(host2) {
+  const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
+  const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
+  const fileCredentials = credentialsPath ? parseCredentials(yield* host2.io.fs.readFile(credentialsPath)) : null;
+  const credentials = (inheritedHome ? null : yield* readMacOsCredentials(host2)) ?? fileCredentials;
+  const oauth = credentials?.claudeAiOauth;
+  const token = oauth && typeof oauth === "object" ? oauth.accessToken : null;
+  return typeof token === "string" && token ? token : null;
+}
+function* readMacOsCredentials(host2) {
+  if (host2.platform() !== "macos") return null;
+  const user = host2.envGet("USER");
+  const args = ["find-generic-password"];
+  if (user) args.push("-a", user);
+  args.push("-w", "-s", "Claude Code-credentials");
+  const result = parseCredentials(yield* ioEncoded(host2.io.exec({ bin: "security", args, timeoutMs: 5e3 })));
+  if (result?.code !== 0) return null;
+  return parseCredentials(result.stdout);
+}
+function parseCredentials(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // plugins/provider-claude/src/usage.ts
 function usageNormalize(raw) {
   let out = "";
@@ -1163,12 +1193,7 @@ function usageNormalize(raw) {
 }
 var CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 function* fetchClaudeUsage(host2) {
-  const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
-  const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
-  const fileCredentials = credentialsPath ? safeJson(yield* host2.io.fs.readFile(credentialsPath)) : null;
-  const credentials = (inheritedHome ? null : yield* readMacOsCredentials(host2)) ?? fileCredentials;
-  const oauth = objectAt(credentials, "claudeAiOauth");
-  const accessToken = stringAt(oauth, "accessToken");
+  const accessToken = yield* readClaudeOAuthToken(host2);
   if (!accessToken) throw new Error("usage credentials unavailable");
   const response = safeJson(yield* ioEncoded(host2.io.fetch({
     url: "https://api.anthropic.com/api/oauth/usage",
@@ -1242,16 +1267,6 @@ function normalizeClaudeUsage(body) {
 }
 function objectAtValue(value, key) {
   return value && typeof value === "object" ? value[key] : void 0;
-}
-function* readMacOsCredentials(host2) {
-  if (host2.platform() !== "macos") return null;
-  const user = host2.envGet("USER");
-  const args = ["find-generic-password"];
-  if (user) args.push("-a", user);
-  args.push("-w", "-s", "Claude Code-credentials");
-  const result = safeJson(yield* ioEncoded(host2.io.exec({ bin: "security", args, timeoutMs: 5e3 })));
-  if (numberAt(result, "code") !== 0) return null;
-  return safeJson(stringAt(result, "stdout"));
 }
 function parseFetchedClaudeUsage(raw, nowMs) {
   const fetched = safeJson(raw);
@@ -1444,7 +1459,6 @@ function decideAvailability(probe, minimum, declared) {
 function* discoverAnthropicModels() {
   const installed = yield* probeInstalledCli();
   const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
-  if (!key) return applyInstalledCapabilities(manifestModels(), installed);
   const live = yield* fetchLiveModels(key);
   if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
@@ -1463,12 +1477,17 @@ function manifestModels() {
 function* fetchLiveModels(key) {
   let raw;
   try {
+    const token = key ? null : yield* readClaudeOAuthToken(host);
+    if (!key && !token) return null;
     raw = yield* ioEncoded(host.io.fetch({
-      url: "https://api.anthropic.com/v1/models",
+      url: "https://api.anthropic.com/v1/models?limit=1000",
       method: "GET",
       timeoutMs: 3e3,
       headers: {
-        "x-api-key": key,
+        ...key ? { "x-api-key": key } : {
+          Authorization: `Bearer ${token}`,
+          "anthropic-beta": "oauth-2025-04-20"
+        },
         "anthropic-version": "2023-06-01"
       }
     }));
@@ -1530,7 +1549,7 @@ function mapAliasesToLive(aliases, live) {
     const mapped = {
       ...alias,
       id: alias.id,
-      displayName: match && alias.primary && liveDisplay(match) ? liveDisplay(match) : match && !alias.id.endsWith("[1m]") ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
+      displayName: match && alias.primary && liveDisplay(match) ? liveDisplay(match) : match ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
     };
     if (alias.description) mapped.description = alias.description;
     mapped.available = !!match;
@@ -1589,8 +1608,10 @@ function versionKey(v) {
 }
 function withVersion(displayName, version) {
   if (!version) return displayName;
-  if (/\d+(?:\.\d+)?/.test(displayName)) return displayName.replace(/\d+(?:\.\d+)?/, version);
-  return displayName + " " + version;
+  const suffixIndex = displayName.indexOf(" (");
+  const label = suffixIndex === -1 ? displayName : displayName.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : displayName.slice(suffixIndex);
+  return (/\d+(?:\.\d+)?/.test(label) ? label.replace(/\d+(?:\.\d+)?/, version) : label + " " + version) + suffix;
 }
 function safeJson2(s) {
   try {

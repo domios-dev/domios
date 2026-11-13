@@ -1,5 +1,5 @@
 import { ioEncoded, type HostIoSteps } from "@codeterm/plugin-sdk";
-import { effectiveReadPath } from "../../provider-shared/readHome";
+import { readClaudeOAuthToken } from "./credentials";
 
 export function usageNormalize(raw: string): string {
   let out = "";
@@ -19,12 +19,7 @@ type UsageHost = Pick<import("@codeterm/plugin-sdk").Host, "io" | "expandHome" |
 const CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 
 export function* fetchClaudeUsage(host: UsageHost): HostIoSteps<string> {
-  const inheritedHome = host.envGet("CLAUDE_CONFIG_DIR");
-  const credentialsPath = effectiveReadPath(inheritedHome, host.expandHome("~/.claude/.credentials.json"), ".credentials.json", host.platform() === "windows" ? "\\" : "/");
-  const fileCredentials = credentialsPath ? safeJson((yield* host.io.fs.readFile(credentialsPath))) : null;
-  const credentials = (inheritedHome ? null : (yield* readMacOsCredentials(host))) ?? fileCredentials;
-  const oauth = objectAt(credentials, "claudeAiOauth");
-  const accessToken = stringAt(oauth, "accessToken");
+  const accessToken = yield* readClaudeOAuthToken(host);
   if (!accessToken) throw new Error("usage credentials unavailable");
   const response = safeJson((yield* ioEncoded(host.io.fetch({
     url: "https://api.anthropic.com/api/oauth/usage",
@@ -93,17 +88,6 @@ export function normalizeClaudeUsage(body: Record<string, unknown> | null) {
 
 function objectAtValue(value: unknown, key: string): unknown {
   return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
-}
-
-function* readMacOsCredentials(host: UsageHost): HostIoSteps<Record<string, unknown> | null> {
-  if (host.platform() !== "macos") return null;
-  const user = host.envGet("USER");
-  const args = ["find-generic-password"];
-  if (user) args.push("-a", user);
-  args.push("-w", "-s", "Claude Code-credentials");
-  const result = safeJson((yield* ioEncoded(host.io.exec({ bin: "security", args, timeoutMs: 5000 }))));
-  if (numberAt(result, "code") !== 0) return null;
-  return safeJson(stringAt(result, "stdout"));
 }
 
 export function parseFetchedClaudeUsage(raw: string, nowMs: number): unknown | undefined {
