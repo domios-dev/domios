@@ -276,9 +276,14 @@ pub fn resolve_in(
     let (team, builtin) = effective(team);
     let host_owned = kind_id == builtins::GENERAL_AGENT || kind_id == builtins::WATCHER;
     let registered = registration(&team, resolved_role, &kind_id).filter(|_| !host_owned);
+    // A declared display name wins; a builtin name keeps the host label; any other name is itself.
+    let builtin_label = role_kind::registered_descriptor(resolved_role, &kind_id)
+        .filter(|descriptor| descriptor.origin() == RoleKindOrigin::Builtin)
+        .map(|descriptor| descriptor.label().to_string());
     let label = registered
         .map(|registration| registration.label.clone())
-        .or_else(|| role_kind::kind_label(role, role_profile).map(str::to_string))
+        .filter(|label| *label != kind_id)
+        .or(builtin_label)
         .unwrap_or_else(|| kind_id.clone());
     let mut fragments = Vec::new();
     if let Some(registration) = registered {

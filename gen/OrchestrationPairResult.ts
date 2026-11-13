@@ -2,7 +2,11 @@
 import type { TabBudgetNotice } from "./TabBudgetNotice";
 import type { TemplateStartResult } from "./TemplateStartResult";
 
-export type OrchestrationPairResult = { plan_id?: string, orchestrator_tab_id: string, orchestrator_model?: string, planner_tab_id: string, planner_model?: string, warning?: string, 
+export type OrchestrationPairResult = { plan_id?: string, orchestrator_tab_id: string, orchestrator_model?: string, 
+/**
+ * Absent when the package lists no with_team planner: the Team has no Planner.
+ */
+planner_tab_id?: string, planner_model?: string, warning?: string, 
 /**
  * Advisory tab-budget nudge (task_4d649dfd) for the workspace AFTER both
  * tabs land — a pair adds two, so its count is the authoritative one.

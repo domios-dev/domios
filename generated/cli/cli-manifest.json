@@ -1874,7 +1874,7 @@
               "value_name": "ROLE",
               "possible_values": [],
               "default": null,
-              "help": "Role type: a manager slot (orchestrator, planner, cartographer, curator), watcher, or a worker type available to the Team (worker, qa, reviewer, release_manager or a registered name; reviewer is read-only by default)",
+              "help": "Role name the Team registers, or the host-only watcher. The Orchestrator starts a Team manager (built-in or custom) with it, one live instance per name; a name the Team does not list is refused. reviewer is read-only by default",
               "aliases": []
             },
             {
@@ -13750,7 +13750,7 @@
                   "value_name": "CANONICAL_WRITER",
                   "possible_values": [],
                   "default": null,
-                  "help": "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred",
+                  "help": "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred; needs a git repository with a commit",
                   "aliases": []
                 },
                 {
@@ -13816,7 +13816,7 @@
                     "lane"
                   ],
                   "default": null,
-                  "help": null,
+                  "help": "Mutating placement: shared (declared disjoint edit files; the only placement in a project folder without git) or lane (isolated worktree; needs git history)",
                   "aliases": []
                 },
                 {
@@ -13866,7 +13866,7 @@
                   "value_name": "ROLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Worker type to launch (worker, qa, reviewer, release_manager or a Team-registered name); the task's executor_role is unchanged",
+                  "help": "Worker the Team registers to launch; a manager or unlisted name is refused with the Team's workers. Omitted uses `worker` only when the Team lists it. The task's executor_role is unchanged",
                   "aliases": []
                 },
                 {
@@ -16052,7 +16052,7 @@
       "subcommands": [
         {
           "name": "list",
-          "about": "List the role types a Team can launch, with the package each comes from",
+          "about": "List exactly the roles a Team has, with kind, Domios authority (a built-in manager's, or none) and package",
           "aliases": [],
           "args": [
             {
@@ -16062,7 +16062,7 @@
               "value_name": "TEAM",
               "possible_values": [],
               "default": null,
-              "help": "Team whose registrations to include; without it, the builtin default package",
+              "help": "Team whose registrations to list; without it (or for a Team with none), the builtin default package",
               "aliases": []
             }
           ],
@@ -16088,7 +16088,7 @@
         },
         {
           "name": "show",
-          "about": "Render the exact text a role type receives at each delivery occasion",
+          "about": "Render a role's kind, authority and the exact text it receives at each delivery occasion",
           "aliases": [],
           "args": [
             {
@@ -16118,7 +16118,7 @@
               "value_name": "ROLE_TYPE",
               "possible_values": [],
               "default": "worker",
-              "help": "Role type: orchestrator, planner, cartographer, curator, watcher or a worker type",
+              "help": "Role name the Team registers, or watcher",
               "aliases": []
             },
             {
@@ -19607,10 +19607,10 @@
                   "name": "manager-model",
                   "positional": false,
                   "required": false,
-                  "value_name": "SLOT=HARNESS:MODEL",
+                  "value_name": "ROLE=HARNESS:MODEL",
                   "possible_values": [],
                   "default": null,
-                  "help": "Another with_team manager's model as `slot=harness:model`; repeatable",
+                  "help": "Another with_team manager's model as `role=harness:model`, by the package's role name; repeatable",
                   "aliases": []
                 },
                 {

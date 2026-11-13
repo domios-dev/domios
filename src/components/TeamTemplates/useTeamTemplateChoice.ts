@@ -225,8 +225,8 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const active = chosen ?? (customized ? defaultPreview : null);
   const startRequest = useCallback((): TemplateStartRequest | undefined => {
     if (!active) return undefined;
-    const managerModels = Object.fromEntries(Object.entries(seats).map(([slot, seat]) => [slot,
-      { model: `${seat.providerId}:${seat.modelId}`, reasoning_effort: seat.effortId ?? null }]));
+    const managerModels = Object.fromEntries(Object.entries(seats).flatMap(([role, seat]) => seat ? [[role,
+      { model: `${seat.providerId}:${seat.modelId}`, reasoning_effort: seat.effortId ?? null }] as const] : []));
     return buildStartRequest({ preview: active, inputs, optOut, managerModels, secretBindings: secrets, rolePlacements: remotePeer ? {} : placements });
   }, [active, inputs, optOut, seats, secrets, placements, remotePeer]);
 

@@ -203,7 +203,7 @@ fn opting_out_removes_the_item_and_every_role_reference_to_it() {
         .keys()
         .any(|path| path.starts_with("skills/market-sizing/")));
     assert!(!trimmed.entries.contains_key("data/competitors.csv"));
-    for (_, _, role) in trimmed.document.roles() {
+    for (_, role) in trimmed.document.roles() {
         assert!(!role.files.contains(&"data/competitors.csv".to_string()));
         assert!(!role.skills.contains(&"market-sizing".to_string()));
     }

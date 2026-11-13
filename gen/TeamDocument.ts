@@ -11,10 +11,13 @@ import type { PackageRequires } from "./PackageRequires";
 import type { PackageSecret } from "./PackageSecret";
 import type { PackageSkill } from "./PackageSkill";
 import type { ProjectNeed } from "./ProjectNeed";
-import type { TeamManagers } from "./TeamManagers";
 import type { TeamRole } from "./TeamRole";
 
 /**
  * One ATP package document: the typed form of `team.yaml`, in protocol field order.
  */
-export type TeamDocument = { name: string, version: string, title?: string | null, description: string, icon?: string | null, authors?: Array<PackageAuthor>, links?: PackageLinks | null, license?: string | null, when?: Array<string>, derived_from?: PackageLineage | null, project?: ProjectNeed | null, requires?: PackageRequires | null, inputs?: { [key in string]: PackageInput }, permissions?: PackagePermissions | null, secrets?: Array<PackageSecret>, files?: Array<PackageFile>, memory?: Array<PackageMemory>, skills?: Array<PackageSkill>, automation?: Array<PackageAutomation>, managers: TeamManagers, workers?: { [key in string]: TeamRole }, };
+export type TeamDocument = { name: string, version: string, title?: string | null, description: string, icon?: string | null, authors?: Array<PackageAuthor>, links?: PackageLinks | null, license?: string | null, when?: Array<string>, derived_from?: PackageLineage | null, project?: ProjectNeed | null, requires?: PackageRequires | null, inputs?: { [key in string]: PackageInput }, permissions?: PackagePermissions | null, secrets?: Array<PackageSecret>, files?: Array<PackageFile>, memory?: Array<PackageMemory>, skills?: Array<PackageSkill>, automation?: Array<PackageAutomation>, 
+/**
+ * Every team role by name, in package order; exactly one is `orchestrator`.
+ */
+roles: { [key in string]: TeamRole }, };

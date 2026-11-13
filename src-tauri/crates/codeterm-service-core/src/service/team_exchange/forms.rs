@@ -229,8 +229,7 @@ pub fn externalized(package: &Package) -> Result<Package, String> {
         .chain(
             document
                 .roles()
-                .into_iter()
-                .filter_map(|(_, _, role)| role.instructions_file.as_deref()),
+                .filter_map(|(_, role)| role.instructions_file.as_deref()),
         )
         .chain(document.automation.iter().filter_map(|item| match item {
             PackageAutomation::Path { path, .. } => Some(path.as_str()),

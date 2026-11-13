@@ -77,14 +77,16 @@ fn worker_kinds_default_to_mutating_and_support_task_bindings() {
             .is_ok(),
             "{kind}"
         );
+        // The daemon owns the parent rule: it defaults a Worker's parent to the spawning tab
+        // and refuses a non-anchoring role without one (multiplexer `set_tab_role_kind`).
         assert!(
             validate_spawn_context(&SpawnContext {
                 role: Some(role(kind)),
                 execution_intent: Some(READ_ONLY),
                 ..Default::default()
             })
-            .is_err(),
-            "{kind} without parent"
+            .is_ok(),
+            "{kind} without parent is the daemon's to judge"
         );
         assert!(
             validate_spawn_context(&SpawnContext {

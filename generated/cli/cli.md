@@ -32,7 +32,7 @@ A Team whose Orchestrator is gone is not stranded. Removing its final Orchestrat
 
 A Worker spawn without a task binding is permitted when it declares `--execution-intent read_only`: that is the canonical verification Worker `domios docs ORCHESTRATION-OPERATIONS` prescribes for post-merge QA. It is spawned under the plan it verifies (`--plan <plan_id>`), reports to `--parent-tab` / `--report-to`, and carries its command scope as repeated `--authorized-gate <command>` tokens, which are rendered into its brief. Holding no task, it can report against none and transition none — a report naming a task it does not hold is refused and writes nothing. The safeguard for source-changing work is unchanged: `--execution-intent mutating` without `--plan-task` (or `--plan` + `--task-id`) is refused, and so is `--role worker --plan <id>` with neither a task binding nor read-only intent. Declare gates on the dispatch (`plan task dispatch --authorized-gate`) for a task-bound Worker; `agent spawn --authorized-gate` is rejected alongside `--plan-task`.
 
-`domios plan task dispatch` defaults local mutating tasks to shared canonical with declared disjoint edit files. Automatic overlap or a `build-breaking` tag selects a lane; `--placement shared` refuses conflicts and names the owner, while `--placement lane` requests isolation. `domios plan task extend-files --edit-file <path>` atomically extends a shared Worker's set. The report-time guard refuses commits containing foreign or undeclared paths. After lane integration, a readiness report may name a canonical task commit when the lane tip is its ancestor and its diff touches only declared task paths. `domios plan task update <task> --untag <tag>` removes an exact tag after additions; repeat `--untag` for more tags. `plan task show --json` returns the task with its plan id and title. Exclusive `--canonical-writer`, mesh lanes and recorded lane safety remain explicit; see `domios docs LANES`.
+`domios plan task dispatch` defaults local mutating tasks to shared canonical with declared disjoint edit files. Automatic overlap or a `build-breaking` tag selects a lane; `--placement shared` refuses conflicts and names the owner, while `--placement lane` requests isolation. `domios plan task extend-files --edit-file <path>` atomically extends a shared Worker's set. The report-time guard refuses commits containing foreign or undeclared paths. After lane integration, a readiness report may name a canonical task commit when the lane tip is its ancestor and its diff touches only declared task paths. `domios plan task update <task> --untag <tag>` removes an exact tag after additions; repeat `--untag` for more tags. `plan task show --json` returns the task with its plan id and title. Exclusive `--canonical-writer`, mesh lanes and recorded lane safety remain explicit; see `domios docs LANES`. A project folder without git (no repository or no commit) needs no `git init`: its mutating work is always shared with declared edit files, its `in_review` report omits `--sha` and records content hashes, and `--placement lane` or `--canonical-writer` refuse there.
 
 `domios plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. A deliberate `--status blocked` update also requires a fresh nonblank `--status-label` with its reason and owner trigger, and is limited to the live Plan owner or Planner. A Worker `agent report --status blocked` is a proposal that preserves task state, assignment, lane, and report evidence until that owner decision. Stale-owner recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner`, `task_block_authority_required` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `domios plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
 
@@ -434,7 +434,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
-- `--role` — Role type: a manager slot (orchestrator, planner, cartographer, curator), watcher, or a worker type available to the Team (worker, qa, reviewer, release_manager or a registered name; reviewer is read-only by default)
+- `--role` — Role name the Team registers, or the host-only watcher. The Orchestrator starts a Team manager (built-in or custom) with it, one live instance per name; a name the Team does not list is refused. reviewer is read-only by default
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
@@ -3057,18 +3057,18 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 
 - `--agent` — Agent provider to spawn (e.g. claude, codex, opencode)
 - `--authorized-gate` — Gate token the worker may claim as executed; repeatable
-- `--canonical-writer` — Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred
+- `--canonical-writer` — Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred; needs a git repository with a commit
 - `--cwd`
 - `--description` — Worker tab description (defaults to a short summary of the task name)
 - `--execution-intent` — Explicit task intent; mutating work reports the advisory provider allowance
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
-- `--placement`
+- `--placement` — Mutating placement: shared (declared disjoint edit files; the only placement in a project folder without git) or lane (isolated worktree; needs git history)
 - `<plan_id>`
 - `--profile` — ACP launch profile declared by the provider
 - `--provider-reserve-pct` — Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
-- `--role` — Worker type to launch (worker, qa, reviewer, release_manager or a Team-registered name); the task's executor_role is unchanged
+- `--role` — Worker the Team registers to launch; a manager or unlisted name is refused with the Team's workers. Omitted uses `worker` only when the Team lists it. The task's executor_role is unchanged
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
@@ -3481,9 +3481,9 @@ Inspect the shared role resolver — kinds, overlays, and the exact text each de
 
 #### `domios role list`
 
-List the role types a Team can launch, with the package each comes from
+List exactly the roles a Team has, with kind, Domios authority (a built-in manager's, or none) and package
 
-- `--team` — Team whose registrations to include; without it, the builtin default package
+- `--team` — Team whose registrations to list; without it (or for a Team with none), the builtin default package
 
 #### `domios role reload`
 
@@ -3493,11 +3493,11 @@ Re-read a Team's role registrations from disk
 
 #### `domios role show`
 
-Render the exact text a role type receives at each delivery occasion
+Render a role's kind, authority and the exact text it receives at each delivery occasion
 
 - `--guidance` — Task-owned persona appended after the role's text, as a dispatch supplies it
 - `--occasion` — Render only this occasion
-- `<role_type>` — Role type: orchestrator, planner, cartographer, curator, watcher or a worker type
+- `<role_type>` — Role name the Team registers, or watcher
 - `--team` — Team whose registration of this type to render
 
 #### `domios send`
@@ -4288,7 +4288,7 @@ Start a Team from a template on the standard pair primitive
 - `--acknowledge-leaf` — Explicit leaf declaration, as for `team pair`
 - `--decision` — The consent decision id `team template preview` issued
 - `--input` — A template input as `key=value`; repeatable
-- `--manager-model` — Another with_team manager's model as `slot=harness:model`; repeatable
+- `--manager-model` — Another with_team manager's model as `role=harness:model`, by the package's role name; repeatable
 - `<name>` — Template name (`name[@version]`)
 - `--opt-out` — A payload item id to leave out; repeatable
 - `--orchestrator` — Orchestrator provider, optionally with a model (`provider[:model]`); omitted asks for a choice

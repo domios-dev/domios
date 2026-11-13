@@ -294,7 +294,8 @@ export function buildStartRequest({ preview, inputs, optOut, managerModels, secr
   preview: TemplatePreview;
   inputs: Record<string, string>;
   optOut: ReadonlySet<string>;
-  managerModels: Partial<Record<ManagerSlot, ManagerModelChoice>>;
+  /** Owner picks by manager role name; only roles with a pick are present. */
+  managerModels: Record<string, ManagerModelChoice>;
   secretBindings?: Record<string, string>;
   rolePlacements?: Record<string, string>;
 }): TemplateStartRequest {
