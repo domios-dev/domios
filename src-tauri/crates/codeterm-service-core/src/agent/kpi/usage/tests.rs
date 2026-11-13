@@ -362,3 +362,33 @@ fn record_timestamps_come_from_the_provider_line_not_the_ingest_clock() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn provider_usage_parser_failure_preserves_the_source_cursor() {
+    let dir = scratch("parser-failure");
+    let source = write_source(&dir, "record.jsonl", "{}\n");
+    let mut ingestor = UsageIngestor::default();
+    assert!(ingestor
+        .ingest_with_parser(&source, &|_| Err("provider parser failed".into()), None)
+        .is_err());
+    assert_eq!(ingestor.cursor(&source), None);
+    let batch = ingestor
+        .ingest_with_parser(
+            &source,
+            &|_| {
+                Ok(Some(ParsedUsage::Response {
+                    timestamp: 1,
+                    response_id: Some("response".into()),
+                    tokens: TokenCounts {
+                        input: 10,
+                        uncached_input: 10,
+                        output: 1,
+                    },
+                }))
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(batch.totals().input_tokens, 10);
+    std::fs::remove_dir_all(dir).unwrap();
+}

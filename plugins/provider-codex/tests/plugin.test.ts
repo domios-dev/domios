@@ -225,7 +225,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "discoverModels", "buildLaunchCommand", "buildLaunchSpec", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath", "sessionResume",
     "blueprintSubmit", "blueprintReconcile", "blueprintCancel",
     "parseSessionDelta", "parseSessionRecords", "parseSessionMessageRecords", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
-    "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
+    "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage", "usageAccounting", "parseUsageRecord",
     "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "checkForUpdate", "isDirectoryTrusted", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "parseSessionObservations", "classifyTabState",
     "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
     "updatePromptSafeChoice", "providerSelfUpdateCapability", "runtimePlan", "runtimeResponse", "runtimeReduce", "runtimeStoredHistory", "runtimeStoredHistoryAvailable", "runtimeStoredRecords",

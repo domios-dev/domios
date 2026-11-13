@@ -457,7 +457,8 @@
               "threadId": "session-fixture",
               "usage": {
                 "input_tokens": 20,
-                "output_tokens": 6
+                "output_tokens": 6,
+                "response_id": "send-fixture"
               }
             },
             {
@@ -537,7 +538,8 @@
         "threadId": "session-fixture",
         "usage": {
           "input_tokens": 20,
-          "output_tokens": 6
+          "output_tokens": 6,
+          "response_id": "send-fixture"
         }
       },
       {

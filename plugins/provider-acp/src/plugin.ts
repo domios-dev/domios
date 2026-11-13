@@ -12,4 +12,4 @@ const limitsPorts: LimitsPorts = {
 export function readProfileLimits(request: ProfileLimitsRequest, nowMs: number) {
   return readLimits(limitsPorts, request, nowMs);
 }
-export default defineProviderIo({ runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand, readProfileLimits }, () => host.io);
+export default defineProviderIo({ usageAccounting: () => "runtime_turn" as const, runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand, readProfileLimits }, () => host.io);

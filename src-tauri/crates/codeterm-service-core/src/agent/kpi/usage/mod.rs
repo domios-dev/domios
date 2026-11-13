@@ -1,10 +1,3 @@
-//! Incremental provider-usage ingestion. Every source is read forward-only from the
-//! cursor left by the previous pass, so a re-ingest of an unchanged session is a stat
-//! plus a zero-byte read — never a whole-file re-parse.
-//!
-//! Nothing here branches on a provider id: the source kind is decided by the sqlite
-//! magic header, and each record by its own field shape (see [`records`]).
-
 pub mod records;
 pub mod responses;
 
@@ -12,7 +5,17 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use records::{parse_record, ParsedUsage};
+use records::ParsedUsage;
+
+pub type RecordParser<'a> = dyn Fn(&serde_json::Value) -> Result<Option<ParsedUsage>, String> + 'a;
+
+fn default_parser(value: &serde_json::Value) -> Result<Option<ParsedUsage>, String> {
+    #[cfg(test)]
+    if let Some(record) = records::parse_record(value) {
+        return Ok(Some(record));
+    }
+    codeterm_plugin::token_usage::parse_archive_record(value)
+}
 use responses::{CollectedUsage, ResponseCollector};
 pub use responses::{CumulativeBaseline, UsageRecord};
 
@@ -163,9 +166,42 @@ impl UsageIngestor {
     /// Returns only records appended since the previous call for this source.
     pub fn ingest(&mut self, source: &UsageSource) -> Result<UsageBatch, String> {
         let cursor = self.cursors.get(source).copied().unwrap_or_default();
-        let (batch, next) = read_source(source, cursor, None)?;
+        let (batch, next) = read_source(
+            source,
+            cursor,
+            None,
+            &default_parser,
+            default_sql_query(source).as_deref(),
+        )?;
         self.cursors.insert(source.clone(), next);
         Ok(batch)
+    }
+
+    pub fn ingest_with_parser(
+        &mut self,
+        source: &UsageSource,
+        parser: &RecordParser<'_>,
+        sql_query: Option<&str>,
+    ) -> Result<UsageBatch, String> {
+        let cursor = self.cursors.get(source).copied().unwrap_or_default();
+        let (batch, next) = read_source(source, cursor, None, parser, sql_query)?;
+        self.cursors.insert(source.clone(), next);
+        Ok(batch)
+    }
+
+    pub fn read_through_with_parser(
+        source: &UsageSource,
+        until: u64,
+        parser: &RecordParser<'_>,
+        sql_query: Option<&str>,
+    ) -> Result<(UsageBatch, UsageCursor), String> {
+        read_source(
+            source,
+            UsageCursor::default(),
+            Some(until),
+            parser,
+            sql_query,
+        )
     }
 
     /// Re-reads a source from its start through `until`, the watermark it was committed at.
@@ -173,7 +209,13 @@ impl UsageIngestor {
         source: &UsageSource,
         until: u64,
     ) -> Result<(UsageBatch, UsageCursor), String> {
-        read_source(source, UsageCursor::default(), Some(until))
+        read_source(
+            source,
+            UsageCursor::default(),
+            Some(until),
+            &default_parser,
+            default_sql_query(source).as_deref(),
+        )
     }
 
     pub fn cursor(&self, source: &UsageSource) -> Option<UsageCursor> {
@@ -202,11 +244,19 @@ fn read_source(
     source: &UsageSource,
     cursor: UsageCursor,
     until: Option<u64>,
+    parser: &RecordParser<'_>,
+    sql_query: Option<&str>,
 ) -> Result<(UsageBatch, UsageCursor), String> {
     if is_sqlite(&source.path)? {
-        read_sqlite_since(source, cursor, until)
+        read_sqlite_since(
+            source,
+            cursor,
+            until,
+            parser,
+            sql_query.ok_or("usage source has no provider SQL query")?,
+        )
     } else {
-        read_lines_since(source, cursor, until)
+        read_lines_since(source, cursor, until, parser)
     }
 }
 
@@ -226,6 +276,7 @@ fn read_lines_since(
     source: &UsageSource,
     cursor: UsageCursor,
     until: Option<u64>,
+    parser: &RecordParser<'_>,
 ) -> Result<(UsageBatch, UsageCursor), String> {
     let path = &source.path;
     let mut file = std::fs::File::open(path).map_err(|e| format!("open {:?}: {}", path, e))?;
@@ -268,7 +319,7 @@ fn read_lines_since(
         }
         let position = consumed;
         consumed += read as u64;
-        match parse_json_line(&line) {
+        match parse_json_line(&line, parser)? {
             ParsedLine::Usage(parsed) => collector.push(parsed, position),
             ParsedLine::NoUsage => {}
             ParsedLine::Unreadable => unreadable_lines += 1,
@@ -292,18 +343,18 @@ enum ParsedLine {
     Unreadable,
 }
 
-fn parse_json_line(line: &str) -> ParsedLine {
+fn parse_json_line(line: &str, parser: &RecordParser<'_>) -> Result<ParsedLine, String> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
-        return ParsedLine::NoUsage;
+        return Ok(ParsedLine::NoUsage);
     }
     let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
-        return ParsedLine::Unreadable;
+        return Ok(ParsedLine::Unreadable);
     };
-    match parse_record(&value) {
+    Ok(match parser(&value)? {
         Some(record) => ParsedLine::Usage(record),
         None => ParsedLine::NoUsage,
-    }
+    })
 }
 
 /// A message row's own primary key names its response when the JSON blob omits one.
@@ -327,6 +378,8 @@ fn read_sqlite_since(
     source: &UsageSource,
     cursor: UsageCursor,
     until: Option<u64>,
+    parser: &RecordParser<'_>,
+    sql: &str,
 ) -> Result<(UsageBatch, UsageCursor), String> {
     let path = &source.path;
     let conn = rusqlite::Connection::open_with_flags(
@@ -334,14 +387,6 @@ fn read_sqlite_since(
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
     )
     .map_err(|e| format!("open sqlite {:?}: {}", path, e))?;
-    // A shared log holds every session's rows, so a scoped source reads only its
-    // own. `session_id` is a column of the message table, not a JSON field.
-    let sql = if source.session_id.is_some() {
-        "SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 \
-         AND session_id = ?3 ORDER BY rowid ASC"
-    } else {
-        "SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 ORDER BY rowid ASC"
-    };
     let mut stmt = conn
         .prepare(sql)
         .map_err(|e| format!("prepare message scan: {}", e))?;
@@ -371,7 +416,7 @@ fn read_sqlite_since(
         last_rowid = rowid as u64;
         match serde_json::from_str::<serde_json::Value>(&data) {
             Ok(value) => {
-                if let Some(parsed) = parse_record(&value) {
+                if let Some(parsed) = parser(&value)? {
                     collector.push(with_row_identity(parsed, row_id), last_rowid);
                 }
             }
@@ -395,3 +440,16 @@ fn read_sqlite_since(
 mod dedupe_tests;
 #[cfg(test)]
 mod tests;
+
+fn default_sql_query(source: &UsageSource) -> Option<String> {
+    #[cfg(test)]
+    {
+        return Some(format!("SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 {}ORDER BY rowid ASC",
+        if source.session_id.is_some() { "AND session_id = ?3 " } else { "" }));
+    }
+    #[cfg(not(test))]
+    {
+        let _ = source;
+        None
+    }
+}

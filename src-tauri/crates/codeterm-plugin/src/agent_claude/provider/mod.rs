@@ -324,6 +324,18 @@ impl AgentProvider for ClaudeProvider {
         sessions::session_file_path(cwd, session_id)
     }
 
+    fn usage_accounting(&self) -> crate::token_usage::UsageAccounting {
+        crate::token_usage::UsageAccounting::Transcript
+    }
+
+    fn parse_usage_record(
+        &self,
+        record: &serde_json::Value,
+        now: u64,
+    ) -> Result<Option<crate::token_usage::ParsedUsage>, String> {
+        Ok(crate::token_usage::nested::parse_record(record, now))
+    }
+
     fn additional_usage_sources(
         &self,
         session_file: &std::path::Path,

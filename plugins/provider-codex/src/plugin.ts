@@ -1,3 +1,4 @@
+import { parseUsageRecord } from "./usageRecord";
 import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
 import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import { runPromptSteps } from "../../provider-shared/runPromptStep";
@@ -135,6 +136,8 @@ function hasPromptAndStatusFooter(screen: string): boolean {
 }
 
 const plugin = {
+  usageAccounting: () => "transcript" as const,
+  parseUsageRecord,
   ...runPromptSteps(() => host.agentRun, { sandbox: "read-only" }),
   ...cloudExports(() => host),
   sessionResume: () => ({ exact: true }),

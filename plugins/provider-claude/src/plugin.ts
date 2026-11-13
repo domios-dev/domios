@@ -1,3 +1,4 @@
+import { parseUsageRecord } from "./usageRecord";
 import { readIntegrationSettings } from "./integrationSettings";
 import { ioFileTransaction } from "@codeterm/plugin-sdk";
 import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
@@ -134,6 +135,8 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin = {
+  usageAccounting: () => "transcript" as const,
+  parseUsageRecord,
   ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,

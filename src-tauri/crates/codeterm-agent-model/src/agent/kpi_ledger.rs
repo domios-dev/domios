@@ -11,6 +11,7 @@ pub use codeterm_plan::service_plan::state::analytics::TabCreatedKind;
 
 mod analytics;
 mod board_queries;
+mod runtime_usage;
 mod usage_rows;
 pub use board_queries::DailyTokenUsage;
 
@@ -104,29 +105,10 @@ impl KpiEventKind {
 
 /// Token breakdown for `token_usage` events. `input` counts every input token the
 /// provider billed (cached included); `uncached_input` is the freshly-processed slice.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct TokenCounts {
-    pub input: u64,
-    pub uncached_input: u64,
-    pub output: u64,
-}
-
-impl TokenCounts {
-    pub fn total(&self) -> u64 {
-        self.input.saturating_add(self.output)
-    }
-
-    pub fn max_each(self, other: TokenCounts) -> TokenCounts {
-        TokenCounts {
-            input: self.input.max(other.input),
-            uncached_input: self.uncached_input.max(other.uncached_input),
-            output: self.output.max(other.output),
-        }
-    }
-}
+pub use codeterm_plugin::token_usage::TokenCounts;
 
 /// The ledger stamps `schema_version` and `id` at insert time; callers never supply them.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KpiEventInput {
     pub plan_id: Option<String>,
     pub task_id: Option<String>,
@@ -247,6 +229,8 @@ impl KpiLedger {
         )?;
         let user_version = Self::user_version(conn)?;
         Self::migrate(conn, user_version)?;
+        conn.execute_batch("CREATE TABLE IF NOT EXISTS kpi_usage_source_owners (source_key TEXT PRIMARY KEY, provider TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS kpi_runtime_usage (response_key TEXT PRIMARY KEY, event_json TEXT NOT NULL);")?;
         Ok(())
     }
 

@@ -1,0 +1,18 @@
+{
+  "repository": "rollacode/codeterm-plugins",
+  "sha": "30bcc49ce14481554cc8c55224f8eeb4f62cd36f",
+  "providers": [
+    {
+      "provider": "aider",
+      "source": "aider/tests/fixtures/recorded-edit.md",
+      "classification": "no_per_response_usage",
+      "evidence": "\n# aider chat started at 2026-10-08 16:43:16\n\n> Detected dumb terminal, disabling fancy input and pretty output.  \n\n#### Update sample.txt.  \n\nsample.txt\n```text\n<<<<<<< SEARCH\nbefore\n=======\nafter\n>>>>>>> REPLACE\n```\n\n> Applied edit to sample.txt  \n> Commit 680496f Update sample  \n"
+    },
+    {
+      "provider": "grok",
+      "source": "grok/tests/fixtures/first-user-turn.jsonl",
+      "classification": "no_per_response_usage",
+      "evidence": "{\"timestamp\":1791173869,\"params\":{\"update\":{\"sessionUpdate\":\"hook_execution\"}}}\n{\"timestamp\":1791173870,\"params\":{\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"Grok first turn exact marker 7f2a\"}}},\"_meta\":{\"eventId\":\"grok-first-user-turn\",\"agentTimestampMs\":1791173870000}}\n{\"timestamp\":1791173872,\"params\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"Acknowledged.\"}}},\"_meta\":{\"eventId\":\"grok-first-assistant-turn\",\"agentTimestampMs\":1791173872000}}\n"
+    }
+  ]
+}
