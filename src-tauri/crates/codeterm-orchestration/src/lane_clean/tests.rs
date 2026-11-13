@@ -694,3 +694,29 @@ fn lane_clean_reports_a_foreign_checkout_as_not_managed_and_never_touches_it() {
     assert_eq!(git(fixture.cwd(), &["show-ref"]).unwrap(), canonical_refs);
     assert_eq!(std::fs::read(foreign.join("QA.txt")).unwrap(), b"user work");
 }
+
+#[test]
+fn lane_clean_preview_lists_each_lane_once_and_keeps_leftovers_of_removed_lanes() {
+    let fixture = Fixture::new();
+    let row = run_lane(&fixture.lane, false, &[], None);
+    assert_eq!(row.action, "remove", "{row:?}");
+    let residues = || {
+        codeterm_service_core::service::lane_removal::residue::inventory(fixture.cwd(), &[])
+            .unwrap()
+    };
+    assert_eq!(
+        residues().len(),
+        1,
+        "the residue scan sees the registered lane"
+    );
+
+    assert!(unlisted_residues(std::slice::from_ref(&row), residues()).is_empty());
+
+    let removed = LaneCleanRow {
+        action: "removed",
+        ..row
+    };
+    let leftovers = unlisted_residues(&[removed], residues());
+    assert_eq!(leftovers.len(), 1);
+    assert!(!leftovers[0].0.starts_with(r"\?\"), "{}", leftovers[0].0);
+}

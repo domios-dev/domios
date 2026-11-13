@@ -170,3 +170,19 @@ fn residue_sweep_accepts_symlinked_ancestor_and_protects_linked_lane() {
     assert!(root.join("linked-lane").is_symlink());
     std::fs::remove_file(&alias).unwrap();
 }
+
+#[test]
+fn empty_lane_root_is_removed_and_a_non_empty_one_is_kept() {
+    let (_temp, project, root) = fixture();
+    let cwd = project.to_str().unwrap();
+    let stray = root.join("notes.txt");
+    std::fs::write(&stray, "user content").unwrap();
+
+    assert!(!remove_empty_root(cwd));
+    assert_eq!(std::fs::read_to_string(&stray).unwrap(), "user content");
+
+    std::fs::remove_file(&stray).unwrap();
+    assert!(remove_empty_root(cwd));
+    assert!(!root.exists());
+    assert!(!remove_empty_root(cwd), "an absent root is a no-op");
+}

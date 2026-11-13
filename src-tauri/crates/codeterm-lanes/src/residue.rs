@@ -238,7 +238,31 @@ pub fn remove(canonical: &str, path: &Path, tabs: &[LiveTabCwd]) -> Result<(), S
     if let Some(reason) = inspect(canonical, &root, &path, tabs, &snapshot)? {
         return Err(format!("{}: {reason}", path.display()));
     }
-    safe_tree::remove(&path)
+    safe_tree::remove(&path)?;
+    remove_empty_root(canonical);
+    Ok(())
+}
+
+/// Removes the Domios lane root once its last lane or residue is gone. Only an
+/// empty real directory goes: `remove_dir` refuses one with content, and a link stays.
+pub fn remove_empty_root(canonical: &str) -> bool {
+    let Ok(root) = worktree_root(Path::new(&codeterm_paths::strip_verbatim_prefix(canonical)))
+    else {
+        return false;
+    };
+    let Ok(metadata) = std::fs::symlink_metadata(&root) else {
+        return false;
+    };
+    if !metadata.is_dir() || safe_tree::is_link(&metadata) {
+        return false;
+    }
+    match std::fs::remove_dir(&root) {
+        Ok(()) => true,
+        Err(error) => {
+            log::debug!("[lane-root] kept '{}': {error}", root.display());
+            false
+        }
+    }
 }
 
 #[cfg(test)]

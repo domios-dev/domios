@@ -17,6 +17,8 @@ pub struct LaneAttemptRead {
     pub worktree_path: String,
     pub canonical_path: String,
     pub turn: u32,
+    pub branch: Option<String>,
+    pub ownership: Option<crate::plan::LaneOwnership>,
 }
 
 pub(super) fn canonical_path(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<String> {
@@ -73,12 +75,14 @@ impl PlanDatabase {
                 ORDER BY p.updated_at DESC,p.id,t.position,a.position DESC LIMIT 1
              ) SELECT p.id,c.task_id,a.attempt_id,json_extract(a.row_json,'$.worktree_path'),
                 p.project_path,coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),
-                coalesce((SELECT max(json_extract(s.value,'$.turn')) FROM json_each(a.row_json,'$.lane_turn_stats') s),0)
+                coalesce((SELECT max(json_extract(s.value,'$.turn')) FROM json_each(a.row_json,'$.lane_turn_stats') s),0),
+                json_extract(a.row_json,'$.branch'),json_extract(a.row_json,'$.lane_ownership')
              FROM chosen c JOIN plans p ON p.id=c.plan_id JOIN plan_task_attempts a
                 ON a.plan_id=c.plan_id AND a.task_id=c.task_id AND a.position=c.position", [tab],
             |row| Ok(LaneAttemptRead {
                 plan_id: column(row, 0)?,task_id: column(row, 1)?,attempt_id: column(row, 2)?,
                 worktree_path: column(row, 3)?,canonical_path: canonical_path(row, 4)?,turn: column(row, 6)?,
+                branch: column(row, 7)?,ownership: super::lane_readers::ownership(column(row, 8)?),
             }),
         ).optional().map_err(db_error)
     }

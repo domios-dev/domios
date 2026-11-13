@@ -336,3 +336,89 @@ fn lane_checkpoint_deletes_only_the_named_attempt_refs() {
         "refs/domios/checkpoints/attempt_keep/1"
     );
 }
+
+fn turn_target(
+    canonical: &Path,
+    worktree: &Path,
+    branch: &str,
+    ownership: Option<crate::plan::LaneOwnership>,
+) -> LaneAttemptTarget {
+    LaneAttemptTarget {
+        plan_id: "plan".into(),
+        task_id: "task".into(),
+        attempt_id: "attempt_turn".into(),
+        worktree_path: worktree.to_string_lossy().into_owned(),
+        canonical_path: canonical.to_string_lossy().into_owned(),
+        turn: 1,
+        branch: Some(branch.into()),
+        ownership,
+    }
+}
+
+fn captured_turn(target: &LaneAttemptTarget) -> LaneTurnChangeStats {
+    let mut stats = LaneTurnChangeStats::default();
+    capture_turn(target, &mut stats, Instant::now() + CHECKPOINT_DEADLINE);
+    stats
+}
+
+#[test]
+fn lane_turn_writes_no_refs_or_objects_into_a_foreign_checkout() {
+    let canonical = repository();
+    let foreign = repository();
+    fs::write(foreign.path().join("tracked.txt"), "base\nedited\n").unwrap();
+    fs::write(foreign.path().join("new.txt"), "untracked\n").unwrap();
+    let objects = || git_text(foreign.path(), &["count-objects", "-v"]);
+    let before = objects();
+
+    for ownership in [Some(crate::plan::LaneOwnership::ForeignCheckout), None] {
+        let target = turn_target(canonical.path(), foreign.path(), "feature", ownership);
+        let stats = captured_turn(&target);
+
+        assert!(stats
+            .numstat
+            .is_some_and(|numstat| numstat.contains("tracked.txt")));
+        assert_eq!(stats.checkpoint_ref, None);
+        assert_eq!(stats.checkpoint_refusal, None);
+    }
+    assert_eq!(
+        git_text(foreign.path(), &["for-each-ref", "refs/domios"]),
+        ""
+    );
+    assert_eq!(objects(), before);
+}
+
+#[test]
+fn lane_turn_still_checkpoints_a_domios_lane() {
+    let parent = tempfile::tempdir().unwrap();
+    let canonical = parent.path().join("project");
+    fs::create_dir(&canonical).unwrap();
+    git(&canonical, &["init"]);
+    git(&canonical, &["config", "user.name", "Lane Stats Test"]);
+    git(
+        &canonical,
+        &["config", "user.email", "lane-stats@example.invalid"],
+    );
+    fs::write(canonical.join("tracked.txt"), "base\n").unwrap();
+    git(&canonical, &["add", "tracked.txt"]);
+    git(&canonical, &["commit", "-m", "base"]);
+    let lane = parent.path().join("project-worktrees").join("slug");
+    git(
+        &canonical,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "lane/slug",
+            &lane.to_string_lossy(),
+        ],
+    );
+    fs::write(lane.join("tracked.txt"), "base\nlane\n").unwrap();
+
+    for ownership in [Some(crate::plan::LaneOwnership::DomiosLane), None] {
+        let target = turn_target(&canonical, &lane, "lane/slug", ownership);
+        assert_eq!(
+            captured_turn(&target).checkpoint_ref.as_deref(),
+            Some("refs/domios/checkpoints/attempt_turn/1")
+        );
+    }
+}

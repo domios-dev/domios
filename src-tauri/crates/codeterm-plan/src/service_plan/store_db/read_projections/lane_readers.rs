@@ -23,7 +23,7 @@ const COLUMNS: &str = "SELECT p.id,t.task_id,p.project_path,
     json_extract(t.row_json,'$.lane.ownership')
     FROM plans p JOIN plan_tasks t ON t.plan_id=p.id";
 
-fn ownership(raw: Option<String>) -> Option<crate::plan::LaneOwnership> {
+pub(super) fn ownership(raw: Option<String>) -> Option<crate::plan::LaneOwnership> {
     // An unknown value is not a recorded Domios lane, so it decodes to unrecorded.
     raw.and_then(|raw| serde_json::from_value(serde_json::Value::String(raw)).ok())
 }
