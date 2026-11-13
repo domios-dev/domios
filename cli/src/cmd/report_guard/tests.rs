@@ -203,6 +203,36 @@ fn one_committed_lane_commit_reports_its_files_since_base() {
 }
 
 #[test]
+fn bound_foreign_checkout_reports_commits_since_it_was_bound() {
+    let dir = repo();
+    let bound_at = branch_head(dir.path());
+    fs::write(dir.path().join("QA.txt"), "qa\n").unwrap();
+    run(dir.path(), &["add", "QA.txt"]);
+    run(dir.path(), &["commit", "-m", "qa change"]);
+    let scope = crate::cmd::report_lane::TaskReadinessScope {
+        worktree_path: Some(dir.path().to_path_buf()),
+        recorded_checkout: true,
+        start_sha: Some(bound_at),
+        requires_repository: true,
+        ..crate::cmd::report_lane::TaskReadinessScope::default()
+    };
+
+    let (_, sha, changed) = enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        None,
+        Some(branch_head(dir.path())),
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .expect("a clean bound checkout at its own HEAD reports");
+
+    assert_eq!(sha, Some(branch_head(dir.path())));
+    assert_eq!(changed.unwrap(), vec!["QA.txt"]);
+}
+
+#[test]
 fn multiple_commits_report_union_since_base() {
     let dir = repo();
     let base = branch_head(dir.path());

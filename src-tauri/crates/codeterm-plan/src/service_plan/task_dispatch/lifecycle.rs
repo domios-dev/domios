@@ -69,6 +69,7 @@ impl PlanStore {
                 task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
                 attempt.interruption.owner_epoch = task.interruption.owner_epoch;
                 attempt.worktree_path = task.lane.worktree_path.clone();
+                attempt.lane_ownership = task.lane.ownership;
                 attempt.branch = task.lane.branch.clone();
                 attempt.base = task.lane.base.clone();
                 attempt.destination = task.lane.destination.clone();
@@ -88,6 +89,7 @@ impl PlanStore {
                         }
                         _ => canonical_checkout,
                     });
+                    attempt.lane_ownership = None;
                     attempt.base = None;
                 }
                 if attempt.acknowledged_at.is_some() {

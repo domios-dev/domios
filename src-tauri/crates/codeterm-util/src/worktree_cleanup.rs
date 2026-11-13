@@ -109,6 +109,58 @@ pub fn remove(canonical: &str, worktree: &str, force: bool) -> Result<(), String
     Ok(())
 }
 
+/// The one directory Domios provisions lane worktrees in: `<checkout>-worktrees`.
+pub fn lane_worktree_root(canonical: &Path) -> Result<std::path::PathBuf, String> {
+    let name = canonical
+        .file_name()
+        .ok_or("canonical checkout has no directory name")?;
+    let parent = canonical
+        .parent()
+        .ok_or("canonical checkout has no parent")?;
+    Ok(parent.join(format!("{}-worktrees", name.to_string_lossy())))
+}
+
+fn resolved(path: &str) -> std::path::PathBuf {
+    let plain = codeterm_paths::strip_verbatim_prefix(path);
+    std::fs::canonicalize(&plain).unwrap_or_else(|_| std::path::PathBuf::from(plain))
+}
+
+/// The lane slug when `worktree` sits directly in the canonical checkout's
+/// lane root; `None` for the checkout itself or any other location.
+pub fn lane_slug_under_root(canonical: &str, worktree: &str) -> Option<String> {
+    let root = lane_worktree_root(&resolved(canonical)).ok()?;
+    let lane = resolved(worktree);
+    let parent = lane.parent()?;
+    (comparable(&parent.to_string_lossy()) == comparable(&root.to_string_lossy()))
+        .then(|| {
+            lane.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .flatten()
+}
+
+/// Whether `porcelain` (`git worktree list --porcelain`) lists `worktree` as a
+/// linked worktree; the first record is the main checkout and never counts.
+pub fn lists_linked_worktree(porcelain: &str, worktree: &str) -> bool {
+    let expected = comparable(&resolved(worktree).to_string_lossy());
+    porcelain
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .skip(1)
+        .any(|listed| {
+            comparable(listed) == expected
+                || comparable(&resolved(listed).to_string_lossy()) == expected
+        })
+}
+
+pub fn is_linked_worktree_of(canonical: &str, worktree: &str) -> Result<bool, String> {
+    let listing = git(canonical, &["worktree", "list", "--porcelain"])?;
+    Ok(lists_linked_worktree(
+        &String::from_utf8_lossy(&listing.stdout),
+        worktree,
+    ))
+}
+
 fn comparable(path: &str) -> String {
     let path = codeterm_paths::strip_verbatim_prefix(path).replace('\\', "/");
     let path = path.trim_end_matches('/');

@@ -116,6 +116,7 @@ fn lane_remove(params: &Option<Value>, svc: &ServiceState) -> Result<Value, Json
             .and_then(Value::as_bool)
             .unwrap_or(false),
         canonical_cwd: optional_string(p, "project_path"),
+        ownership: None,
     };
     let outcome = svc
         .remove_owned_lane(&request)

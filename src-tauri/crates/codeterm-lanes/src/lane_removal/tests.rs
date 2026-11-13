@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::worker_lane::provision_lane_for_test;
+use codeterm_plan::service_plan::lane_ownership::FOREIGN_CHECKOUT;
 
 struct NullRepoEvents;
 
@@ -97,6 +98,7 @@ fn lane_removal_links_preserves_canonical_marker_and_removes_lane() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[],
@@ -120,6 +122,7 @@ fn lane_removal_links_refuses_a_lane_with_leftover_content() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[],
@@ -147,6 +150,7 @@ fn lane_removal_force_still_protects_dirty_source() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: true,
         },
         &[],
@@ -171,6 +175,7 @@ fn lane_removal_without_branch_still_protects_unmerged_work() {
             worktree_path: lane.cwd.clone(),
             branch: None,
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[],
@@ -211,6 +216,7 @@ fn lane_removal_links_force_cleans_internal_node_modules_junctions() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: true,
         },
         &[],
@@ -295,6 +301,7 @@ fn lane_removal_refuses_when_tab_holds_worktree() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[elsewhere, holder],
@@ -344,6 +351,7 @@ fn lane_removal_succeeds_when_worktree_unheld() {
             worktree_path: lane_cwd.clone(),
             branch: Some(branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &live_tabs,
@@ -369,6 +377,7 @@ fn lane_removal_refuses_unmerged_branch_before_deleting_worktree() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[],
@@ -392,6 +401,7 @@ fn canonical_checkout_is_refused_as_a_lane() {
             worktree_path: project.display().to_string(),
             branch: None,
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[],
@@ -439,6 +449,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
             worktree_path: lane_path.clone(),
             branch: Some(branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[],
@@ -503,6 +514,7 @@ fn lane_checkpoint_refs_are_deleted_when_lane_is_removed() {
             worktree_path: lane_path,
             branch: Some(branch),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[],
@@ -566,6 +578,7 @@ fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
             worktree_path: lane_path.clone(),
             branch: Some(branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[],
@@ -608,6 +621,7 @@ fn lane_remove_reports_a_missing_branch_as_already_removed() {
             worktree_path: worktree.display().to_string(),
             branch: Some("lane/already-gone".into()),
             canonical_cwd: Some(project.display().to_string()),
+            ownership: None,
             force: false,
         },
         &[],
@@ -789,4 +803,138 @@ mod consumer_loads {
             .is_none());
         assert_never_loaded(&store, &[&other]);
     }
+}
+
+fn refs(repository: &Path) -> String {
+    let mut command = Command::new("git");
+    process_util::no_window_std(&mut command);
+    let output = command
+        .current_dir(repository)
+        .args(["for-each-ref", "--format=%(objectname) %(refname)"])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+#[test]
+fn lane_remove_refuses_a_foreign_repository_root_and_a_user_worktree() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let foreign = fixture_project(&root.path().join("foreign"));
+    let user_worktree = root.path().join("user-feature");
+    git(
+        &foreign,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature",
+            user_worktree.to_str().unwrap(),
+        ],
+    );
+    let before = (refs(&project), refs(&foreign));
+    let cases = [
+        (
+            foreign.clone(),
+            Some("main"),
+            Some(LaneOwnership::ForeignCheckout),
+            Some(&foreign),
+        ),
+        (foreign.clone(), Some("main"), None, None),
+        (user_worktree.clone(), Some("feature"), None, Some(&foreign)),
+        (
+            user_worktree.clone(),
+            None,
+            Some(LaneOwnership::ForeignCheckout),
+            None,
+        ),
+        (
+            user_worktree.clone(),
+            Some("lane/feature"),
+            Some(LaneOwnership::DomiosLane),
+            Some(&project),
+        ),
+    ];
+    for (worktree, branch, ownership, canonical) in cases {
+        let request = LaneRemovalRequest {
+            worktree_path: worktree.display().to_string(),
+            branch: branch.map(str::to_string),
+            force: true,
+            canonical_cwd: canonical.map(|path| path.display().to_string()),
+            ownership,
+        };
+        for removal in [
+            remove_lane(&request, &[]),
+            remove_cancelled_worktree(
+                &LaneRemovalRequest {
+                    branch: None,
+                    force: false,
+                    ..request.clone()
+                },
+                &[],
+            ),
+        ] {
+            let error = removal.unwrap_err();
+            assert!(
+                error.contains("not managed") || error.contains("canonical checkout"),
+                "{request:?}: {error}"
+            );
+        }
+    }
+    assert_eq!((refs(&project), refs(&foreign)), before);
+    assert!(user_worktree.join("README.md").is_file());
+    assert!(foreign.join("README.md").is_file());
+}
+
+#[test]
+fn lane_remove_honours_a_recorded_foreign_claim_over_a_lane_shaped_path() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "claimed").unwrap();
+    let (store, plan, task) = task_store(root.path(), &project);
+    record_lane(&store, &plan, &task, &lane);
+    store
+        .edit_plan_fixture(&plan, 4, |plan| {
+            let task = plan.tasks.iter_mut().find(|t| t.id == task).unwrap();
+            task.lane.ownership = Some(LaneOwnership::ForeignCheckout);
+            Ok(())
+        })
+        .unwrap();
+    let request = LaneRemovalRequest {
+        worktree_path: lane.cwd.clone(),
+        branch: Some(lane.branch.clone()),
+        force: false,
+        canonical_cwd: Some(project.display().to_string()),
+        ownership: Some(LaneOwnership::DomiosLane),
+    };
+
+    let error =
+        remove_lane_and_clear_task_references(&store, &repo_watch(), &request, &[]).unwrap_err();
+
+    assert!(error.contains(FOREIGN_CHECKOUT), "{error}");
+    assert!(Path::new(&lane.cwd).is_dir());
+    assert!(branch_exists(&project, &lane.branch));
+}
+
+#[test]
+fn lane_remove_still_removes_an_unrecorded_provisioned_lane_by_its_fingerprint() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "legacy").unwrap();
+    let (store, plan, task) = task_store(root.path(), &project);
+    record_lane(&store, &plan, &task, &lane);
+    let request = LaneRemovalRequest {
+        worktree_path: lane.cwd.clone(),
+        branch: Some(lane.branch.clone()),
+        force: false,
+        canonical_cwd: None,
+        ownership: None,
+    };
+
+    remove_lane_and_clear_task_references(&store, &repo_watch(), &request, &[])
+        .expect("a provisioned lane without an ownership record keeps cleaning");
+
+    assert!(!Path::new(&lane.cwd).exists());
+    assert!(!branch_exists(&project, &lane.branch));
 }

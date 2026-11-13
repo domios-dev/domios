@@ -1,5 +1,5 @@
 use super::{column, decode, record_query};
-use crate::plan::{Plan, Task, TaskStatus};
+use crate::plan::{LaneOwnership, Plan, Task, TaskStatus};
 use crate::service_plan::store_db::{db_error, PlanDatabase};
 use crate::service_plan::{PlanError, PlanStore};
 use rusqlite::OptionalExtension;
@@ -35,6 +35,8 @@ pub struct LaneCleanupFieldsRead {
     pub base: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destination: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ownership: Option<LaneOwnership>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -48,6 +50,8 @@ pub struct LaneCleanupAttemptRead {
     pub base: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destination: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane_ownership: Option<LaneOwnership>,
 }
 
 impl From<&Task> for LaneCleanupTaskRead {
@@ -62,6 +66,7 @@ impl From<&Task> for LaneCleanupTaskRead {
                 branch: task.lane.branch.clone(),
                 base: task.lane.base.clone(),
                 destination: task.lane.destination.clone(),
+                ownership: task.lane.ownership,
             },
             remote: task
                 .execution_attempts
@@ -82,6 +87,7 @@ impl From<&Task> for LaneCleanupTaskRead {
                     branch: a.branch.clone(),
                     base: a.base.clone(),
                     destination: a.destination.clone(),
+                    lane_ownership: a.lane_ownership,
                 })
                 .collect(),
         }
@@ -113,12 +119,14 @@ impl PlanDatabase {
                     'id',t.task_id,'status',t.status,'assigned_tab_id',t.assigned_tab_id,
                     'lane',json_object('tab_id',json_extract(t.row_json,'$.lane.tab_id'),
                         'worktree_path',json_extract(t.row_json,'$.lane.worktree_path'),'branch',json_extract(t.row_json,'$.lane.branch'),
-                        'base',json_extract(t.row_json,'$.lane.base'),'destination',json_extract(t.row_json,'$.lane.destination')),
+                        'base',json_extract(t.row_json,'$.lane.base'),'destination',json_extract(t.row_json,'$.lane.destination'),
+                        'ownership',json_extract(t.row_json,'$.lane.ownership')),
                     'remote',json(CASE WHEN EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
                         AND json_extract(a.row_json,'$.remote_worktree_path') IS NOT NULL) THEN 'true' ELSE 'false' END),
                     'execution_attempts',json((SELECT json_group_array(json(attempt)) FROM (SELECT json_object(
                         'executor_tab_id',a.executor_tab_id,'worktree_path',json_extract(a.row_json,'$.worktree_path'),
-                        'branch',json_extract(a.row_json,'$.branch'),'base',json_extract(a.row_json,'$.base'),'destination',json_extract(a.row_json,'$.destination')) AS attempt
+                        'branch',json_extract(a.row_json,'$.branch'),'base',json_extract(a.row_json,'$.base'),'destination',json_extract(a.row_json,'$.destination'),
+                        'lane_ownership',json_extract(a.row_json,'$.lane_ownership')) AS attempt
                         FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id AND (
                             json_extract(a.row_json,'$.worktree_path') IS NOT NULL OR json_extract(a.row_json,'$.branch') IS NOT NULL
                             OR json_extract(a.row_json,'$.base') IS NOT NULL OR json_extract(a.row_json,'$.destination') IS NOT NULL) ORDER BY a.position)))
@@ -187,7 +195,8 @@ impl PlanDatabase {
             "SELECT json_object('id',p.id,'project_path',p.project_path,'canonical_project_path',coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),
                 'task',json((SELECT json_object('id',t.task_id,'status',t.status,'assigned_tab_id',t.assigned_tab_id,
                     'lane',json_object('tab_id',json_extract(t.row_json,'$.lane.tab_id'),'worktree_path',json_extract(t.row_json,'$.lane.worktree_path'),
-                        'branch',json_extract(t.row_json,'$.lane.branch'),'base',json_extract(t.row_json,'$.lane.base'),'destination',json_extract(t.row_json,'$.lane.destination')),
+                        'branch',json_extract(t.row_json,'$.lane.branch'),'base',json_extract(t.row_json,'$.lane.base'),'destination',json_extract(t.row_json,'$.lane.destination'),
+                        'ownership',json_extract(t.row_json,'$.lane.ownership')),
                     'workspace_id',json_extract(t.row_json,'$.lane.workspace_id'),'workspace_name',json_extract(t.row_json,'$.lane.workspace_name'),
                     'cleanup_status',json_extract(t.row_json,'$.lane.cleanup_status'),
                     'executor_tabs',json((SELECT json_group_array(executor) FROM (SELECT json_extract(a.row_json,'$.executor_tab_id') AS executor

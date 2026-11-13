@@ -275,6 +275,7 @@ pub fn new_assignment_attempt_with_id(
         mesh_peer: peer.map(str::to_string).or_else(|| task.peer.clone()),
         branch: task.lane.branch.clone(),
         worktree_path: task.lane.worktree_path.clone(),
+        lane_ownership: task.lane.ownership,
         base: task.lane.base.clone(),
         destination: task.lane.destination.clone(),
         assigned_at: Some(now_ms),
@@ -828,6 +829,7 @@ impl PlanStore {
                 attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
                 if draft.branch.is_some() {
                     attempt.worktree_path = Some(draft.cwd.clone());
+                    attempt.lane_ownership = Some(crate::plan::LaneOwnership::DomiosLane);
                     attempt.branch = draft.branch.clone();
                     attempt.base = draft.base.clone();
                     attempt.destination = draft.destination.clone();

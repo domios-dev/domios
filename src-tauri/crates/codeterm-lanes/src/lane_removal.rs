@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::process::Command;
 
+use codeterm_plan::plan::LaneOwnership;
+use codeterm_plan::service_plan::lane_ownership::{strictest_ownership, unmanaged_lane_reason_git};
 use codeterm_plan::service_plan::{PlanStore, TaskLaneUpdate};
 use codeterm_util::process_util;
 
@@ -21,6 +23,9 @@ pub struct LaneRemovalRequest {
     /// Canonical checkout the lane was branched from. Derived from the lane's
     /// own git common dir when the caller does not name one.
     pub canonical_cwd: Option<String>,
+    /// The dispatch record for this lane; `None` means unrecorded, which only
+    /// the exact provisioned fingerprint may clean.
+    pub ownership: Option<LaneOwnership>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -187,12 +192,19 @@ fn remove_lane_with_policy(
             "✗ lane removal refused: '{worktree}' is the canonical checkout, not a lane worktree. Nothing was removed."
         ));
     }
-    let registered = worktree_registered(&canonical, worktree)?;
     let branch = request
         .branch
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    if let Some(reason) =
+        unmanaged_lane_reason_git(request.ownership, &canonical, Some(worktree), branch)
+    {
+        return Err(format!(
+            "✗ lane removal refused for '{worktree}': {reason}. Nothing was removed."
+        ));
+    }
+    let registered = worktree_registered(&canonical, worktree)?;
     let branch_exists = branch
         .map(|branch| branch_exists(&canonical, branch))
         .transpose()?
@@ -527,13 +539,53 @@ pub fn project_for_recorded_lane(
         .map(|task| task.canonical_path))
 }
 
+/// Every record naming this worktree, task lanes and attempt history alike,
+/// folded to the strictest claim; a path no record names stays unrecorded.
+pub fn recorded_lane_ownership(
+    store: &PlanStore,
+    worktree_path: &str,
+) -> Result<Option<LaneOwnership>, String> {
+    let target = comparable_path(worktree_path);
+    let tasks = store
+        .recorded_task_lanes_projection()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|task| {
+            task.worktree_path
+                .as_deref()
+                .is_some_and(|path| comparable_path(path) == target)
+        })
+        .map(|task| task.ownership);
+    let attempts = store
+        .attempt_lane_paths()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|row| comparable_path(&row.worktree_path) == target)
+        .map(|row| row.lane_ownership);
+    Ok(tasks.chain(attempts).reduce(strictest_ownership).flatten())
+}
+
+/// Fills the request's ownership from the plan records before removal.
+pub fn with_recorded_ownership(
+    store: &PlanStore,
+    request: &LaneRemovalRequest,
+) -> Result<LaneRemovalRequest, String> {
+    let mut request = request.clone();
+    let recorded = recorded_lane_ownership(store, &request.worktree_path)?;
+    request.ownership = match request.ownership {
+        Some(claimed) => strictest_ownership(Some(claimed), recorded),
+        None => recorded,
+    };
+    Ok(request)
+}
+
 pub fn remove_lane_and_clear_task_references(
     store: &PlanStore,
     repo_watch: &codeterm_repowatch::RepoWatchRegistryHandle,
     request: &LaneRemovalRequest,
     live_tabs: &[LiveTabCwd],
 ) -> Result<LaneRemovalOutcome, String> {
-    let mut request = request.clone();
+    let mut request = with_recorded_ownership(store, request)?;
     if request.canonical_cwd.as_deref().is_none_or(str::is_empty) {
         request.canonical_cwd = project_for_recorded_lane(store, &request.worktree_path)?;
     }

@@ -22,6 +22,21 @@ pub struct TaskLaneMetadata {
     pub cleanup_status: Option<String>,
     #[serde(default)]
     pub cleanup_hints: Vec<String>,
+    /// Recorded by dispatch; cleanup removes only what this says Domios created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub ownership: Option<LaneOwnership>,
+}
+
+/// Who created the checkout an attempt works in. Absent on records written
+/// before dispatch recorded it; cleanup then requires the provisioned fingerprint.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum LaneOwnership {
+    /// A worktree and `lane/` branch Domios provisioned for this task.
+    DomiosLane,
+    /// A checkout the caller bound with an explicit cwd; never a cleanup candidate.
+    ForeignCheckout,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
@@ -222,6 +237,9 @@ pub struct TaskExecutionAttempt {
     pub branch: Option<String>,
     #[serde(default)]
     pub worktree_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub lane_ownership: Option<LaneOwnership>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub checkout_path: Option<String>,

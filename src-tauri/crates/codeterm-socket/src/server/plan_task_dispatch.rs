@@ -876,6 +876,11 @@ where
     if replaces_recorded_lane {
         lane_commit::clear_replaced_lane_routing_fields(&mut lane_for_commit);
     }
+    lane_for_commit.ownership = lane_commit::dispatch_lane_ownership(
+        &task.lane,
+        initial_provenance.as_ref(),
+        provisioned_lane.is_some(),
+    );
     if let Some((workspace_id, workspace_name)) =
         svc.resolve_spawn_workspace_identity(&spawn_params)
     {

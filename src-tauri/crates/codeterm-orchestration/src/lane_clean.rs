@@ -190,6 +190,11 @@ fn run_lane_with_inventory(
         row.reason = "lane worktree and branches already removed".into();
         return Ok(row);
     }
+    if let Some(reason) = close::unmanaged_reason(lane, Some(&inventory.worktrees)) {
+        row.action = "not_managed";
+        row.reason = reason;
+        return Ok(row);
+    }
     if let Some(reason) = preflight_with_inventory(lane, &tabs, inventory) {
         row.reason = reason;
         return Ok(row);
@@ -243,8 +248,10 @@ pub fn cleanup_inventory(plan: &LaneCleanupPlanRead) -> Vec<TeamCloseLane> {
             task.lane.branch.as_deref(),
             task.lane.base.as_deref(),
             task.lane.destination.as_deref(),
+            task.lane.ownership,
         );
         for attempt in &task.execution_attempts {
+            let own_lane = attempt.worktree_path.is_some() || attempt.branch.is_some();
             close::push_lane(
                 &mut recorded,
                 &plan.id,
@@ -260,6 +267,11 @@ pub fn cleanup_inventory(plan: &LaneCleanupPlanRead) -> Vec<TeamCloseLane> {
                     .destination
                     .as_deref()
                     .or(task.lane.destination.as_deref()),
+                if own_lane {
+                    attempt.lane_ownership
+                } else {
+                    task.lane.ownership
+                },
             );
         }
     }
@@ -275,6 +287,11 @@ pub fn cleanup_inventory(plan: &LaneCleanupPlanRead) -> Vec<TeamCloseLane> {
             if existing.destination != lane.destination {
                 existing.hold_reason = Some("conflicting recorded lane destinations".into());
             }
+            existing.ownership =
+                codeterm_service_core::service::plan::lane_ownership::strictest_ownership(
+                    existing.ownership,
+                    lane.ownership,
+                );
         } else {
             lanes.push(lane);
         }
