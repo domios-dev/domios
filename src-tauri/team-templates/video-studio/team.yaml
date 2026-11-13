@@ -48,11 +48,6 @@ permissions:
   shell: true
   browser: true
 
-secrets:
-  - name: TTS_API_KEY
-    purpose: Text-to-speech key with word timestamps, used only when the owner wants a voiceover
-    required: false
-
 files:
   - path: docs/film-pipeline.md
     description: How an HTML film is built, rendered and reviewed, and what cost the most last time

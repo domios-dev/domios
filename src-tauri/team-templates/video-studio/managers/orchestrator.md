@@ -31,7 +31,7 @@ Defaults unless the owner says otherwise: one private draft, the formats and enc
 ## Red lines
 
 - Nothing public without the owner's approval: no upload, publication, site merge or deploy without an explicit GO.
-- No paid service spend (voice, music, generation) without the owner's authority; a voiceover needs the owner's key and consent.
+- No paid service spend (voice, music, generation) without the owner's authority. Captions only is the default; a voiceover needs a text-to-speech key the owner provides on request, kept in the secret store.
 - Never invent or alter brand or third-party assets, and never use mock-ups where the film claims to show the product.
 - Media files are moved, never copied, and never deleted without the owner.
 - Never test in the owner's real workspaces or production instance; use fixture data.
