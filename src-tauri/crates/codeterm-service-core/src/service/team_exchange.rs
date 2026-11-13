@@ -369,13 +369,17 @@ fn refuse_secret_values(package: &Package) -> Result<(), ExchangeError> {
 /// Checks a package file or folder in any form; nothing is saved unless it is valid and safe.
 /// Links inside a package are refused by the reader; the path the owner named may be one.
 pub fn check_import(path: &Path) -> Result<Package, ExchangeError> {
+    check_import_report(path).map(|(package, _)| package)
+}
+
+fn check_import_report(path: &Path) -> Result<(Package, PackageCheckReport), ExchangeError> {
     if !path.is_absolute() {
         return Err(ExchangeError::invalid("`path` must be an absolute path"));
     }
     let checked = check_path(path, &CheckOptions::default());
     let package = checked
         .package
-        .ok_or_else(|| ExchangeError::package(checked.report))?;
+        .ok_or_else(|| ExchangeError::package(checked.report.clone()))?;
     super::team_template_start::refuse_host_owned_roles(&package).map_err(|refusal| {
         let role = match refusal {
             TemplateStartRefusal::HostOwnedRole { role } => role,
@@ -386,7 +390,7 @@ pub fn check_import(path: &Path) -> Result<Package, ExchangeError> {
         ))
     })?;
     refuse_secret_values(&package)?;
-    Ok(package)
+    Ok((package, checked.report))
 }
 
 #[derive(serde::Deserialize)]
@@ -407,14 +411,7 @@ pub fn import(svc: &ServiceContext, params: Option<&Value>) -> Outcome {
         )?),
     };
     let path = PathBuf::from(&request.path);
-    let package = check_import(&path)?;
-    let check = check_entries(
-        PackageFormat::Folder,
-        package.archive_entries(),
-        Vec::new(),
-        &CheckOptions::default(),
-    )
-    .report;
+    let (package, check) = check_import_report(&path)?;
     let (mut template, update) = save(svc, &package, TemplateProvenance::Imported)?;
     if let Some(friend) = received_from {
         TemplateLibrary::global()

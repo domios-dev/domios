@@ -125,13 +125,13 @@ pub fn reindex_in(mem: &MemManager, library: &TemplateLibrary) -> Result<(), Str
         .map(|package| package.document.name.clone())
         .collect();
     names.extend(library.list().into_iter().map(|summary| summary.name));
-    for name in &names {
-        index_in(mem, library, name)?;
-    }
     for (id, indexed) in indexed_ids(mem, None)? {
         if !names.contains(&indexed) {
             archive(mem, &id)?;
         }
+    }
+    for name in &names {
+        index_in(mem, library, name)?;
     }
     Ok(())
 }
