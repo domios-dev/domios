@@ -199,6 +199,7 @@ impl StartupAccount {
                 .map(|verdict| Access::from_effective(&verdict.effective())),
             stale: true,
             checking: true,
+            verification: None,
             grant: verdict,
         })
     }

@@ -45,7 +45,7 @@ async fn valid_signed_grant_wins_over_unsigned_free_and_transport_failure() {
 }
 
 #[tokio::test]
-async fn unsigned_admin_or_paid_stays_verifying_and_never_creates_workspace_locks() {
+async fn unsigned_admin_or_paid_is_unconfirmed_and_never_creates_workspace_locks() {
     for mut unsigned in [reading(UNSIGNED), reading(ADMIN_GRANT)] {
         unsigned.grant = None;
         let expected = unsigned.entitlements.as_ref().unwrap().plan.clone();
@@ -56,7 +56,8 @@ async fn unsigned_admin_or_paid_stays_verifying_and_never_creates_workspace_lock
                 .refresh(Some(&user), RefreshEvent::CheckoutReturned, Instant::now())
                 .await;
             assert_eq!(snapshot.entitlements.plan, expected);
-            assert!(snapshot.checking);
+            assert!(!snapshot.checking);
+            assert_eq!(snapshot.verification, Some(Verification::Unconfirmed));
             assert!(!billing.limit_gate().summary().enforcing);
             assert!(billing
                 .limit_gate()
@@ -112,6 +113,44 @@ async fn paid_grant_expiry_does_not_invent_free_locks() {
     assert!(!billing.limit_gate().summary().enforcing);
     assert!(billing.snapshot(Some(&user)).checking);
     assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
+}
+
+#[tokio::test]
+async fn paid_answer_without_installation_sign_in_names_it_instead_of_checking() {
+    let (_, clock) = clock(1_700_000_060);
+    let mut unproven = paid_grant();
+    unproven.grant = None;
+    unproven.installation_sign_in_required = true;
+    let billing = Billing::new(GrantReplies::new(vec![Ok(unproven), Ok(paid_grant())]))
+        .with_test_grants(
+            activation("fixture-online-v1"),
+            "fixture-installation",
+            Arc::new(MemoryGrants::default()),
+            clock,
+        );
+    let user = session("fixture-user");
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    assert_eq!(snapshot.entitlements.plan, Plan::Pro);
+    assert!(!snapshot.checking);
+    assert_eq!(snapshot.verification, Some(Verification::SignInRequired));
+    assert_eq!(snapshot.access.unwrap().authority, Authority::Free);
+    assert_eq!(
+        billing.verification("fixture-user"),
+        Some(Verification::SignInRequired)
+    );
+    assert_eq!(billing.verification("other"), None);
+    assert!(billing.neighbors_locked("fixture-user"));
+    assert!(!billing.limit_gate().summary().enforcing);
+
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    assert!(!snapshot.checking);
+    assert_eq!(snapshot.verification, None);
+    assert_eq!(snapshot.access.unwrap().authority, Authority::Billing);
+    assert!(!billing.neighbors_locked("fixture-user"));
 }
 
 #[test]

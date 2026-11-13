@@ -306,12 +306,17 @@ pub async fn neighbors(
         }
         _ => return Err((StatusCode::FORBIDDEN, "Account access is local-only".into())),
     }
-    state
-        .svc
-        .neighbor_registry(command)
+    explained(&state, state.svc.neighbor_registry(command).await)
         .await
         .map(Json)
         .map_err(unavailable)
+}
+
+async fn explained<T>(state: &AppState, result: Result<T, String>) -> Result<T, String> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(message) => Err(state.svc.explain_neighbor_refusal(message).await),
+    }
 }
 
 pub async fn neighbor_runtime(
@@ -328,12 +333,16 @@ pub async fn neighbor_runtime(
         Some(CallerIdentity::Local) => (None, None),
         _ => return Err((StatusCode::FORBIDDEN, "Account access is local-only").into_response()),
     };
-    state
-        .svc
-        .neighbor_runtime(command, tab.as_deref(), nonce)
-        .await
-        .map(Json)
-        .map_err(neighbor_failure)
+    explained(
+        &state,
+        state
+            .svc
+            .neighbor_runtime(command, tab.as_deref(), nonce)
+            .await,
+    )
+    .await
+    .map(Json)
+    .map_err(neighbor_failure)
 }
 
 fn file_failure(message: &str) -> Option<Response> {
@@ -374,12 +383,16 @@ pub async fn neighbor_read(
         )
             .into_response());
     }
-    state
-        .svc
-        .neighbor_mark_read(command.friendship_id, command.through_message_id)
-        .await
-        .map(Json)
-        .map_err(neighbor_failure)
+    explained(
+        &state,
+        state
+            .svc
+            .neighbor_mark_read(command.friendship_id, command.through_message_id)
+            .await,
+    )
+    .await
+    .map(Json)
+    .map_err(neighbor_failure)
 }
 
 pub async fn neighbor_files(
@@ -395,9 +408,7 @@ pub async fn neighbor_files(
         ),
         _ => return Err((StatusCode::FORBIDDEN, "Account access is local-only").into_response()),
     };
-    state
-        .svc
-        .neighbor_files(command, tab, nonce)
+    explained(&state, state.svc.neighbor_files(command, tab, nonce).await)
         .await
         .map(Json)
         .map_err(neighbor_failure)
