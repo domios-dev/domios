@@ -1,6 +1,6 @@
 # Team templates
 
-Every Team starts from a template: the builtin default unless one is named. A template is an ATP package (`domios docs TEAM-FORMAT`): roles, their instructions, and what travels with them (files, memory, skills, Blueprints). Only the managers that start with the Team are created; every other role is registered and dispatched on demand through ordinary `--role`.
+Every Team starts from a template: the builtin default unless one is named. A template is an ATP package (`domios docs TEAM-FORMAT`): one `roles` map whose every role has a `kind` (manager or worker) and its own instructions, plus what travels with them (files, memory, skills, Blueprints). A Team has exactly the roles its package lists. Only the `with_team` managers start with the Team; every other role is registered and started on demand through ordinary `--role`.
 
 ## Choose a template
 
@@ -43,11 +43,18 @@ Good to know:
 - Consent decisions live in memory: after a Domios restart, preview the template again and start with the new `decision_id`.
 - A reasoning effort the chosen model does not offer runs at the nearest level it does offer instead of being refused.
 - Manager models are checked before anything is created: a harness that is not installed, signed in or within quota answers `needs_choice` and no Tab or Team appears.
-- A curator `start: {schedule: "<min>..<max>"}` sets how often the Curator visits, kept within 45m..2h; owner Auto, Heartbeat and Off modes still decide whether it runs.
-- Every Team starts with an Orchestrator and a Planner.
+- A curator manager with `start: {schedule: "<min>..<max>"}` sets how often the Curator visits, kept within 45m..2h; owner Auto, Heartbeat and Off modes still decide whether it runs. A Team without a scheduled curator has no Curator rounds. A schedule on any other role is refused at preview and start with `schedule_unsupported_role`.
+- Every Team starts with its Orchestrator. A Planner starts only when the template lists a `planner` manager that starts with the Team; without one the Orchestrator drafts the plan itself. Other `with_team` managers, custom ones included, join at start.
+- `refused` can also be `schedule_unsupported_role` or `host_owned_role` (`watcher` and `general_agent` are Domios names, never package roles).
 - `domios team check <path>` validates a package; the format is `domios docs TEAM-FORMAT`.
 
-`domios role list --team <team-id>` shows the role types a Team can launch and the package each comes from. A Team keeps the template version it started from: saving or importing a newer version never changes an active Team.
+`domios role list --team <team-id>` shows exactly the roles a Team has, each with its kind, its Domios authority (a built-in manager's, or none) and the package it comes from; `domios role show <name> --team <team-id>` renders one. A Team with no registrations is the builtin default package as a whole. A Team keeps the template version it started from: saving or importing a newer version never changes an active Team.
+
+## Roles at run time
+
+- **Managers** are started by the Orchestrator with `domios agent spawn --role <name>`: built-in or custom, one live instance per name per Team (a second is refused with `team_role_already_live`). A manager is a Team member parented to the Orchestrator and never takes a task binding.
+- **Workers** are dispatched with `domios plan task dispatch <plan> <task> --role <name>`. Only workers the Team lists are accepted; a manager name or an unlisted name, built-in or not, is refused with the Team's worker names. Without `--role` dispatch uses `worker` only when the Team lists it.
+- **Authority** follows the built-in manager names only: `orchestrator`, `planner`, `cartographer` and `curator` of kind manager keep their Domios duties. A custom manager has none: it cannot spawn, approve or edit plans, accept or release tasks, or staff the Team. It advises, does what the Orchestrator asks, and asks the Orchestrator for anything else. Package text never grants authority.
 
 ## Peer Mains
 
@@ -76,7 +83,7 @@ domios team template start <owner/slug> --mesh <peer> [--orchestrator <provider[
 
 Coordinators bake a Team whose way of working should be reused. Distil only what the Team already holds; never invent roles.
 
-1. Read the roles: `domios role list --team <team-id>`. Every registered manager and worker is baked, including types that were never spawned.
+1. Read the roles: `domios role list --team <team-id>`. Every registered role is baked with its kind and full instructions, custom managers and roles that were never spawned included.
 2. Write the runbook into a pad file: how this Team works, in order, as instructions to the next orchestrator (how work is split, who checks what, when to stop). Put durable lessons there; chats and session history never travel.
 3. Review without writing anything:
    ```
@@ -85,7 +92,7 @@ Coordinators bake a Team whose way of working should be reused. Distil only what
    The result holds the exact `team.yaml`, the Includes list (each item has an opt-out id) and the scrub report. Show the owner the YAML and the report; secrets appear only as names.
 4. Save or export: repeat without `--dry-run`, adding `--opt-out <id>` per item the owner leaves out, `--license <spdx>` when the owner names one, and `--save` to put it in My templates. `--format yaml` (default) writes one file; a PNG icon or other binary files need `--format team` (ZIP) or `--format folder`.
 
-The bake keeps each role's instructions, models (a role without a model stays without one), effort and start, the runbook inside the orchestrator's instructions, the Team's knowledge files, seeded memory, plan skills and Blueprints. When the Team was started from a template, `derived_from` records that template's name and version.
+The bake writes the `roles` map with `kind` first in each role and keeps each role's full instructions, models (a role without a model stays without one), effort and start, the runbook inside the orchestrator's instructions, the Team's knowledge files, seeded memory, plan skills and Blueprints. When the Team was started from a template, `derived_from` records that template's name and version.
 
 **The scrub report** says what left the package: machine names (placements become needs), personal and workspace paths (rewritten to the literal `{workspace}`), secret values (the name stays and becomes a secret ask), and chats/history. Prose, authors and the license are kept as written. Nothing is interpolated: `{workspace}` and `[secret NAME]` are plain text.
 
@@ -98,4 +105,4 @@ The bake keeps each role's instructions, models (a role without a model stays wi
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

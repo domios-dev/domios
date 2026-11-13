@@ -87,7 +87,7 @@ fn icons_become_base64_data_urls() {
 #[test]
 fn portable_projections_come_from_the_package_alone() {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/corpus/valid/reference");
-    let package = check_folder(&folder, &CheckOptions::domios())
+    let package = check_folder(&folder, &CheckOptions::default())
         .package
         .expect("reference is valid");
 
@@ -164,6 +164,11 @@ fn portable_projections_come_from_the_package_alone() {
     );
     assert_eq!(curator.same_as.as_deref(), Some("orchestrator"));
     assert!(cartographer.same_as.is_none());
+    assert_eq!(curator.authority, RoleAuthority::Builtin);
+    assert!(roles
+        .iter()
+        .filter(|role| role.kind == RoleKind::Worker)
+        .all(|role| role.authority == RoleAuthority::None));
     assert_eq!(roles[0].label, "Lead");
 
     let inputs = input_fields(&package);
@@ -175,4 +180,20 @@ fn portable_projections_come_from_the_package_alone() {
     }));
     assert!(asks.contains(&TemplateAsk::RepoWrite));
     assert!(!asks.contains(&TemplateAsk::Browser));
+}
+
+#[test]
+fn authority_follows_a_builtin_manager_name_of_kind_manager_only() {
+    assert_eq!(
+        RoleAuthority::of(RoleKind::Manager, "planner"),
+        RoleAuthority::Builtin
+    );
+    assert_eq!(
+        RoleAuthority::of(RoleKind::Manager, "security_lead"),
+        RoleAuthority::None
+    );
+    assert_eq!(
+        RoleAuthority::of(RoleKind::Worker, "curator"),
+        RoleAuthority::None
+    );
 }

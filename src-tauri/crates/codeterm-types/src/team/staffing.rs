@@ -20,6 +20,15 @@ pub const TEAM_CALLER_CANNOT_SPAWN: &str = "team_caller_cannot_spawn";
 /// Neither the caller nor the Team resolves to a workspace to place the member in.
 pub const TEAM_WORKSPACE_UNRESOLVED: &str = "team_workspace_unresolved";
 
+/// A manager of that name already runs in the Team; each manager has one live instance.
+pub const TEAM_ROLE_ALREADY_LIVE: &str = "team_role_already_live";
+
+/// A Team manager is started by the Team's Orchestrator only.
+pub const TEAM_ROLE_REQUIRES_ORCHESTRATOR: &str = "team_role_requires_orchestrator";
+
+/// A Team manager lives with the Team and never takes a task binding.
+pub const TEAM_ROLE_NOT_TASK_BOUND: &str = "team_role_not_task_bound";
+
 /// `--team` was combined with a role that does not anchor a Team.
 pub const TEAM_SPAWN_ROLE_MUST_ANCHOR: &str = "team_spawn_role_must_anchor";
 

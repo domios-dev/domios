@@ -28,7 +28,7 @@ pub(super) fn prepare(
         ));
     }
     let role_type = body.role.clone().unwrap_or_else(|| "worker".into());
-    let role = super::validate_spawn_role(Some(&role_type))
+    let role = super::validate_spawn_role(None, Some(&role_type))
         .map_err(|(status, message)| SpawnRejection::new(status, "bad_request", message))?;
     if role.role.as_deref() != Some("Worker") {
         return Err(SpawnRejection::new(

@@ -7,11 +7,11 @@ pub enum SpawnLocation {
     Cloud,
 }
 
-pub use codeterm_types::agent::role_kind::RoleType;
+pub use codeterm_types::agent::role_kind::RoleName;
 
-/// `--role` names a role type; the structural role derives from it.
-pub fn parse_role_type(value: &str) -> Result<RoleType, String> {
-    RoleType::parse(value).map_err(|error| error.to_string())
+/// `--role` names a role of the Team; the Team's registration decides its kind.
+pub fn parse_role_name(value: &str) -> Result<RoleName, String> {
+    RoleName::parse(value).map_err(|error| error.to_string())
 }
 
 /// Worker-declared outcome for `agent report --status`. Lowercase value names
@@ -335,9 +335,9 @@ pub enum AgentAction {
         /// absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths.
         #[arg(long)]
         cwd: Option<String>,
-        /// Role type: a manager slot (orchestrator, planner, cartographer, curator), watcher, or a worker type available to the Team (worker, qa, reviewer, release_manager or a registered name; reviewer is read-only by default).
-        #[arg(long, value_parser = parse_role_type)]
-        role: Option<RoleType>,
+        /// Role name the Team registers, or the host-only watcher. The Orchestrator starts a Team manager (built-in or custom) with it, one live instance per name; a name the Team does not list is refused. reviewer is read-only by default.
+        #[arg(long, value_parser = parse_role_name)]
+        role: Option<RoleName>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved
         /// from --plan (its Orchestrator) when omitted.
         #[arg(long = "parent-tab")]

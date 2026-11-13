@@ -3,17 +3,16 @@
 
 use std::collections::BTreeMap;
 
-use codeterm_service_core::service::builtin_roles::builtin_prose;
 use codeterm_service_core::service::team_roles::TeamRoleStore;
 use codeterm_service_core::service::team_template_payload::role_file_refs;
 use codeterm_service_core::service::team_template_start::AdmittedTemplate;
 use codeterm_team_package::contracts::{TemplateItemState, TemplateStartItem};
-use codeterm_team_package::{ManagerSlot, TeamRoleGroup};
+use codeterm_team_package::RoleKind;
 use codeterm_types::team::role_registration::{RoleRegistration, RoleRegistrationOutcome};
 
 use super::seats::Seat;
 
-/// The registrations one start asks for, in package order (managers first).
+/// The registrations one start asks for: every package role, in package order.
 pub(crate) fn registrations_for(
     team_id: &str,
     admitted: &AdmittedTemplate,
@@ -24,34 +23,26 @@ pub(crate) fn registrations_for(
     package
         .document
         .roles()
-        .into_iter()
-        .filter_map(|(group, name, role)| {
-            let slot = match group {
-                TeamRoleGroup::Manager => ManagerSlot::parse(name),
-                TeamRoleGroup::Worker => None,
-            };
-            // A role without its own text inherits the host's builtin of the same name.
-            let instructions = package
-                .role_instructions(name)
-                .or_else(|| builtin_prose(name))?
-                .to_string();
+        .filter_map(|(name, role)| {
+            // Every valid package role carries its own instructions; there is no host default.
+            let instructions = package.role_instructions(name)?.to_string();
             // The payload leaf owns where a role's files live once applied.
             let files = role_file_refs(team_id, package, role);
             Some(RoleRegistration {
                 team_id: team_id.to_string(),
-                group,
+                kind: role.kind,
                 name: name.to_string(),
                 label: role.name.clone().unwrap_or_else(|| name.to_string()),
                 description: role.description.clone(),
-                start: role.effective_start(slot),
+                start: role.effective_start(name),
                 package: identity.clone(),
                 instructions,
                 model: role.model.clone(),
                 reasoning: role.reasoning.clone(),
                 // Managers are the Team's home; only workers run on another machine.
-                placement_peer: match group {
-                    TeamRoleGroup::Worker => admitted.placements.get(name).cloned(),
-                    TeamRoleGroup::Manager => None,
+                placement_peer: match role.kind {
+                    RoleKind::Worker => admitted.placements.get(name).cloned(),
+                    RoleKind::Manager => None,
                 },
                 consent_decision_id: admitted.decision_id.clone(),
                 files,
@@ -66,14 +57,14 @@ pub(crate) fn registrations_for(
 /// its on-demand launch reads; started managers already launched on their seat.
 pub(crate) fn record_later_seats(
     registrations: &mut [RoleRegistration],
-    seats: &BTreeMap<ManagerSlot, Seat>,
-    started: &[ManagerSlot],
+    seats: &BTreeMap<String, Seat>,
+    started: &[String],
 ) {
     for registration in registrations {
-        let Some(slot) = registration.slot().filter(|slot| !started.contains(slot)) else {
+        if !registration.is_manager() || started.contains(&registration.name) {
             continue;
-        };
-        let Some(seat) = seats.get(&slot) else {
+        }
+        let Some(seat) = seats.get(&registration.name) else {
             continue;
         };
         if let Some(preference) = seat.preference() {
@@ -93,7 +84,7 @@ pub(crate) fn register_all(
     for registration in registrations {
         let team_id = registration.team_id.clone();
         let identity = registration.package.clone();
-        let group = registration.group;
+        let kind = registration.kind;
         let role = registration.name.clone();
         let state = match store.register(registration)? {
             RoleRegistrationOutcome::Created => TemplateItemState::Created,
@@ -110,7 +101,7 @@ pub(crate) fn register_all(
                 }
             }
         };
-        items.push(TemplateStartItem { group, role, state });
+        items.push(TemplateStartItem { kind, role, state });
     }
     Ok(items)
 }

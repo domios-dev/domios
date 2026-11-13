@@ -6,9 +6,9 @@ use crate::service::team_exchange::DEFAULT_TEMPLATE;
 
 fn package(version: &str, when: &str) -> Package {
     let text = format!(
-        "name: ada/orchid-desk\nversion: {version}\ntitle: Orchid desk\ndescription: Grows rare orchids from seed.\nwhen:\n  - {when}\nmanagers:\n  orchestrator:\n    instructions: |\n      Lead the greenhouse.\n"
+        "name: ada/orchid-desk\nversion: {version}\ntitle: Orchid desk\ndescription: Grows rare orchids from seed.\nwhen:\n  - {when}\nroles:\n  orchestrator:\n    kind: manager\n    instructions: |\n      Lead the greenhouse.\n"
     );
-    check_yaml(&text, &CheckOptions::domios())
+    check_yaml(&text, &CheckOptions::default())
         .package
         .expect("probe package is valid")
 }

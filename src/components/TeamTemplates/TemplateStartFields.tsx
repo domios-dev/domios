@@ -2,7 +2,7 @@ import { useId } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { humanizeRoleKey, roleDisplayLabel } from "../../lib/roleKind";
 import { DropdownSelect } from "../shared/DropdownMenu";
-import { inputFieldLabel } from "../../lib/teamTemplates/startModel";
+import { inputFieldLabel, roleTiming } from "../../lib/teamTemplates/startModel";
 import type { OrchestrationPairValues } from "../Sidebar/OrchestrationPairForm";
 import { TemplateHeader } from "./TemplateHeader";
 import { TemplateManagers, type PairRoleControls } from "./TemplateManagers";
@@ -41,14 +41,23 @@ function InputField({ field, value, onChange }: { field: TemplateInputField; val
   );
 }
 
-/** The workers a template brings on demand; nothing is spawned at start. */
+/** The workers a template brings, each with what it does and when it joins; nothing is spawned at start. */
 export function WorkerChips({ preview }: { preview: TemplatePreview }) {
-  const workers = preview.form.roles.filter((role) => role.group === "worker");
+  const workers = preview.form.roles.filter((role) => role.kind === "worker");
   if (workers.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[11px]" aria-label="Workers on demand" role="group">
+    <div className="flex flex-col gap-1 text-[11px]" aria-label="Workers on demand" role="group">
       <span className="text-[var(--ct-muted-fg)]">Workers on demand</span>
-      {workers.map((role) => <span key={role.role} className="ct-small-pill" title={role.description ?? undefined}>{roleDisplayLabel(role.role, role.label)}</span>)}
+      <ul className="flex flex-col gap-0.5" aria-label="Workers">
+        {workers.map((role) => {
+          const timing = role.start === "on_demand" ? null : roleTiming(role.start);
+          const details = [role.description?.trim(), timing].filter(Boolean).join(" · ");
+          return <li key={role.role} className="flex min-w-0 items-baseline gap-1.5">
+            <span className="shrink-0">{roleDisplayLabel(role.role, role.label)}</span>
+            {details && <span className="truncate text-[var(--ct-muted-fg)]" title={details}>{details}</span>}
+          </li>;
+        })}
+      </ul>
     </div>
   );
 }

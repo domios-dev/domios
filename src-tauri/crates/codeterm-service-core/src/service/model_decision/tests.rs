@@ -4,7 +4,7 @@ use codeterm_plan::service_plan::state::mission_control::ProviderAllowance;
 use codeterm_team_package::contracts::{
     ModelBlockedReason, ModelDecision, ModelDecisionReason, ModelOption,
 };
-use codeterm_team_package::{ModelPreference, TeamDocument, TeamRoleGroup};
+use codeterm_team_package::{ModelPreference, RoleKind, TeamDocument};
 use serde_json::json;
 
 use super::target::allowance_exhausted;
@@ -83,9 +83,9 @@ fn list(models: &[&str]) -> ModelPreference {
     ModelPreference::List(models.iter().map(|model| (*model).into()).collect())
 }
 
-fn request(group: TeamRoleGroup, preference: Option<&ModelPreference>) -> RoleModelRequest<'_> {
+fn request(kind: RoleKind, preference: Option<&ModelPreference>) -> RoleModelRequest<'_> {
     RoleModelRequest {
-        group,
+        kind,
         preference,
         effort: None,
         owner_choices: &[],
@@ -96,7 +96,7 @@ fn request(group: TeamRoleGroup, preference: Option<&ModelPreference>) -> RoleMo
 }
 
 fn manager(preference: &ModelPreference) -> RoleModelRequest<'_> {
-    request(TeamRoleGroup::Manager, Some(preference))
+    request(RoleKind::Manager, Some(preference))
 }
 
 fn models(options: &[ModelOption]) -> Vec<&str> {
@@ -109,7 +109,7 @@ fn choice(decision: &ModelDecision) -> Option<&str> {
 
 #[test]
 fn missing_manager_model_needs_owner_choice() {
-    let decision = decide_model(&request(TeamRoleGroup::Manager, None), None, &target());
+    let decision = decide_model(&request(RoleKind::Manager, None), None, &target());
     assert_eq!(decision.reason, ModelDecisionReason::NeedsChoice);
     assert_eq!(choice(&decision), None);
     assert_eq!(decision.blocked, None);
@@ -132,7 +132,7 @@ fn missing_manager_model_needs_owner_choice() {
 
 #[test]
 fn model_less_worker_takes_normal_dispatch_defaults() {
-    let decision = decide_model(&request(TeamRoleGroup::Worker, None), None, &target());
+    let decision = decide_model(&request(RoleKind::Worker, None), None, &target());
     assert_eq!(decision.reason, ModelDecisionReason::NormalDefault);
     assert_eq!(choice(&decision), None);
     assert!(decision.alternatives.is_empty());
@@ -211,11 +211,11 @@ fn same_as_takes_the_referenced_roles_resolved_model() {
         "name": "dev.example/decide",
         "version": "1.0.0",
         "description": "Decision fixture.",
-        "managers": {
-            "orchestrator": {"model": ["gemini:pro", "codex:gpt-6-sol"], "reasoning": "high"},
-            "planner": {"model": {"same_as": "orchestrator"}}
-        },
-        "workers": {"reviewer": {}}
+        "roles": {
+            "orchestrator": {"kind": "manager", "model": ["gemini:pro", "codex:gpt-6-sol"], "reasoning": "high"},
+            "planner": {"kind": "manager", "model": {"same_as": "orchestrator"}},
+            "reviewer": {"kind": "worker"}
+        }
     }))
     .unwrap();
     let before = document.clone();

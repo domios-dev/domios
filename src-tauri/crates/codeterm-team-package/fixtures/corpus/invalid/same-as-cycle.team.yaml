@@ -1,13 +1,20 @@
 name: dev.example/probe
 version: 1.0.0
 description: Probe package.
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: |
       Lead.
   planner:
+    kind: manager
     model:
       same_as: curator
+    instructions: |
+      Plan.
   curator:
+    kind: manager
     model:
       same_as: planner
+    instructions: |
+      Curate.

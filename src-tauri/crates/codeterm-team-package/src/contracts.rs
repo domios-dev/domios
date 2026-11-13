@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    payload_items, IconKind, ManagerSlot, ModelPreference, Package, PackageAuthor,
-    PackageCheckReport, PackageDiagnostic, PackageFormat, PackageLineage, PackageLinks,
-    PackageNetwork, PayloadKind, RoleStart, TeamRoleGroup, TemplatePayloadItem,
+    payload_items, IconKind, ModelPreference, Package, PackageAuthor, PackageCheckReport,
+    PackageDiagnostic, PackageFormat, PackageLineage, PackageLinks, PackageNetwork, PayloadKind,
+    RoleKind, RoleStart, TemplatePayloadItem,
 };
 
 /// Names one template: a builtin or saved package, optionally pinned to a version.
@@ -76,11 +76,12 @@ pub struct TemplateSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TemplateRoleSummary {
-    pub group: TeamRoleGroup,
-    /// The manager slot id or the worker name.
+    pub kind: RoleKind,
+    /// The role name, the key in the package's `roles`.
     pub role: String,
     /// The manager display name, or the role id.
     pub label: String,
+    pub authority: RoleAuthority,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub start: RoleStart,
@@ -185,11 +186,34 @@ pub struct ModelDecision {
     pub effort: Option<EffortDecision>,
 }
 
+/// The Domios authority a role carries; clients render it and never derive it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RoleAuthority {
+    /// A built-in manager name of kind manager keeps its Domios duties.
+    Builtin,
+    /// A custom manager or a worker: no Domios authority.
+    None,
+}
+
+impl RoleAuthority {
+    /// The one decision: authority follows a built-in manager name, and only for kind manager.
+    pub fn of(kind: RoleKind, name: &str) -> Self {
+        if kind == RoleKind::Manager && crate::is_builtin_manager(name) {
+            Self::Builtin
+        } else {
+            Self::None
+        }
+    }
+}
+
 /// A model/effort picker for a with_team manager the owner must choose for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ManagerModelPicker {
-    pub slot: ManagerSlot,
+    /// The manager's role name.
+    pub role: String,
     pub label: String,
+    pub authority: RoleAuthority,
     pub decision: ModelDecision,
 }
 
@@ -299,9 +323,9 @@ pub struct TemplateStartRequest {
     /// Secret name to the local vault entry that supplies it; values never travel.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secret_bindings: BTreeMap<String, String>,
-    /// Choices for with_team managers beyond the pair's own Orchestrator and Planner fields.
+    /// Choices for with_team managers by role name, beyond the pair's own Orchestrator and Planner fields.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub manager_models: BTreeMap<ManagerSlot, ManagerModelChoice>,
+    pub manager_models: BTreeMap<String, ManagerModelChoice>,
     /// Worker role type to the paired peer Main that hosts it; managers always stay home.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub role_placements: BTreeMap<String, String>,
@@ -318,14 +342,15 @@ pub enum TemplateItemState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TemplateStartItem {
-    pub group: TeamRoleGroup,
+    pub kind: RoleKind,
     pub role: String,
     pub state: TemplateItemState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ManagerStartFailure {
-    pub slot: ManagerSlot,
+    /// The manager's role name.
+    pub role: String,
     pub reason: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<String>,
@@ -351,6 +376,15 @@ pub enum TemplateStartRefusal {
         role: String,
         peer: String,
         problem: PlacementProblem,
+    },
+    /// Domios runs scheduled rounds only for the curator; a schedule on another role is valid
+    /// ATP that this host does not start.
+    ScheduleUnsupportedRole {
+        role: String,
+    },
+    /// A package role under a name the host owns (`watcher`, `general_agent`).
+    HostOwnedRole {
+        role: String,
     },
 }
 
@@ -419,7 +453,9 @@ impl TemplateStartResult {
                 TemplateStartRefusal::NotFound { .. } => "not_found",
                 TemplateStartRefusal::InvalidPackage { .. }
                 | TemplateStartRefusal::MissingInputs { .. }
-                | TemplateStartRefusal::InvalidPlacement { .. } => "invalid_argument",
+                | TemplateStartRefusal::InvalidPlacement { .. }
+                | TemplateStartRefusal::ScheduleUnsupportedRole { .. }
+                | TemplateStartRefusal::HostOwnedRole { .. } => "invalid_argument",
             },
         })
     }
@@ -539,12 +575,23 @@ pub struct TemplateUpdateDiff {
     pub roles_removed: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles_changed: Vec<String>,
+    /// Roles kept by name whose kind changed; each is also listed in `roles_changed`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles_kind_changed: Vec<RoleKindChange>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub payload_added: Vec<TemplateDiffItem>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub payload_removed: Vec<TemplateDiffItem>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub asks_added: Vec<TemplateAsk>,
+}
+
+/// A role an update keeps by name but moves to another kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RoleKindChange {
+    pub role: String,
+    pub from: RoleKind,
+    pub to: RoleKind,
 }
 
 /// A payload item an update adds or removes: its opt-out id and the label the owner reads.
@@ -778,8 +825,7 @@ impl TemplateSummary {
     pub fn from_package(package: &Package, provenance: TemplateProvenance) -> Self {
         let document = &package.document;
         let worker_names = document
-            .workers
-            .iter()
+            .roles_of(RoleKind::Worker)
             .take(SUMMARY_NAME_LIMIT)
             .map(|(name, role)| role.name.clone().unwrap_or_else(|| name.to_string()))
             .collect();
@@ -802,7 +848,7 @@ impl TemplateSummary {
             authors: document.authors.clone(),
             links: document.links.clone(),
             license: document.license.clone(),
-            workers: u32::try_from(document.workers.len()).unwrap_or(u32::MAX),
+            workers: u32::try_from(document.roles_of(RoleKind::Worker).count()).unwrap_or(u32::MAX),
             worker_names,
             skills: u32::try_from(skills.len()).unwrap_or(u32::MAX),
             skill_names: skills.into_iter().take(SUMMARY_NAME_LIMIT).collect(),
@@ -812,29 +858,24 @@ impl TemplateSummary {
     }
 }
 
-/// Every role with its display label and effective start, managers first.
+/// Every role with its display label and effective start, managers first, each kind in package order.
 pub fn role_summaries(package: &Package) -> Vec<TemplateRoleSummary> {
-    package
-        .document
-        .roles()
-        .into_iter()
-        .map(|(group, role, declared)| {
-            let slot = match group {
-                TeamRoleGroup::Manager => ManagerSlot::parse(role),
-                TeamRoleGroup::Worker => None,
-            };
-            TemplateRoleSummary {
-                group,
-                role: role.to_string(),
-                label: declared.name.clone().unwrap_or_else(|| role.to_string()),
-                description: declared.description.clone(),
-                start: declared.effective_start(slot),
-                model: None,
-                same_as: match &declared.model {
-                    Some(ModelPreference::SameAs { same_as }) => Some(same_as.clone()),
-                    _ => None,
-                },
-            }
+    let document = &package.document;
+    document
+        .roles_of(RoleKind::Manager)
+        .chain(document.roles_of(RoleKind::Worker))
+        .map(|(role, declared)| TemplateRoleSummary {
+            kind: declared.kind,
+            role: role.to_string(),
+            label: declared.name.clone().unwrap_or_else(|| role.to_string()),
+            authority: RoleAuthority::of(declared.kind, role),
+            description: declared.description.clone(),
+            start: declared.effective_start(role),
+            model: None,
+            same_as: match &declared.model {
+                Some(ModelPreference::SameAs { same_as }) => Some(same_as.clone()),
+                _ => None,
+            },
         })
         .collect()
 }
@@ -887,7 +928,7 @@ pub fn declared_asks(package: &Package) -> Vec<TemplateAsk> {
             required: secret.is_required(),
         });
     }
-    for (_, role, declared) in document.roles() {
+    for (role, declared) in document.roles() {
         for tool in &declared.tools {
             asks.push(TemplateAsk::Tool {
                 role: role.to_string(),

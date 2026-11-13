@@ -7,12 +7,12 @@ use codeterm_service_core::service::model_decision::{
     decide_model, decide_team_models, HarnessReadiness, RoleModelRequest, TargetCatalogue,
     TeamModelInputs,
 };
-use codeterm_service_core::service::team_template_start::{with_team_slots, ResolvedTemplate};
+use codeterm_service_core::service::team_template_start::{with_team_managers, ResolvedTemplate};
 use codeterm_team_package::contracts::{
     role_summaries, ManagerModelChoice, ManagerModelPicker, ModelBlockedReason, ModelDecision,
-    ModelDecisionReason,
+    ModelDecisionReason, RoleAuthority,
 };
-use codeterm_team_package::{ManagerSlot, ModelPreference, TeamRoleGroup};
+use codeterm_team_package::{ModelPreference, RoleKind};
 
 /// One manager launch: provider, optional model id (provider default when absent) and effort.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +22,7 @@ pub(crate) struct Seat {
     pub effort: Option<String>,
 }
 
-/// What the caller chose for one slot.
+/// What the caller chose for one manager.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct OwnerPick {
     pub provider: String,
@@ -91,7 +91,7 @@ pub(crate) fn local_endpoints(provider: &str, model: &str) -> Option<Result<(), 
 /// Every with_team manager seat, or the pickers the owner must choose before anything starts.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SeatPlan {
-    Seats(BTreeMap<ManagerSlot, Seat>),
+    Seats(BTreeMap<String, Seat>),
     NeedsChoice(Vec<ManagerModelPicker>),
 }
 
@@ -135,7 +135,7 @@ fn needs_choice() -> ModelDecision {
 /// provider keeps its launch default once the harness is ready.
 fn decide_pick(
     resolved: &ResolvedTemplate,
-    slot: ManagerSlot,
+    name: &str,
     pick: &OwnerPick,
     target: &TargetCatalogue,
     endpoints: EndpointLookup<'_>,
@@ -178,11 +178,11 @@ fn decide_pick(
         };
     };
     let document = &resolved.package.document;
-    let declared = document.managers.slot(slot);
+    let declared = document.manager(name);
     let preference = ModelPreference::List(vec![candidate.clone()]);
     let owner_choices = [candidate];
     let request = RoleModelRequest {
-        group: TeamRoleGroup::Manager,
+        kind: RoleKind::Manager,
         preference: Some(&preference),
         effort: pick
             .effort
@@ -221,62 +221,54 @@ impl Seat {
     }
 }
 
-/// The pair primitive always seats an Orchestrator and a Planner; other with_team managers join them.
-pub(crate) fn started_slots(resolved: &ResolvedTemplate) -> Vec<ManagerSlot> {
-    let mut slots = with_team_slots(resolved);
-    for slot in [ManagerSlot::Orchestrator, ManagerSlot::Planner] {
-        if !slots.contains(&slot) {
-            slots.push(slot);
-        }
-    }
-    slots.sort();
-    slots
+/// The managers this start launches: the Orchestrator always, a Planner only when the package
+/// lists one with_team, and every other with_team manager, custom ones included.
+pub(crate) fn started_managers(resolved: &ResolvedTemplate) -> Vec<String> {
+    with_team_managers(resolved)
 }
 
 /// Decides every started manager plus each later manager the owner picked a model for;
 /// one refusal anywhere returns every picker that needs a hand.
 pub(crate) fn plan_seats(
     resolved: &ResolvedTemplate,
-    picks: &BTreeMap<ManagerSlot, OwnerPick>,
+    picks: &BTreeMap<String, OwnerPick>,
     target: &TargetCatalogue,
     endpoints: EndpointLookup<'_>,
 ) -> SeatPlan {
     let mut inputs = TeamModelInputs::default();
-    for (slot, pick) in picks {
+    for (name, pick) in picks {
         if let Some(candidate) = pick.qualified() {
-            inputs
-                .owner_choices
-                .insert(slot.as_str().to_string(), vec![candidate]);
+            inputs.owner_choices.insert(name.clone(), vec![candidate]);
         }
         if let Some(effort) = &pick.effort {
-            inputs
-                .efforts
-                .insert(slot.as_str().to_string(), effort.clone());
+            inputs.efforts.insert(name.clone(), effort.clone());
         }
     }
-    let package_decisions = decide_team_models(&resolved.package.document, &inputs, target);
+    let document = &resolved.package.document;
+    let package_decisions = decide_team_models(document, &inputs, target);
     let labels = role_summaries(&resolved.package);
-    let label = |slot: ManagerSlot| {
+    let label = |name: &str| {
         labels
             .iter()
-            .find(|role| role.group == TeamRoleGroup::Manager && role.role == slot.as_str())
-            .map_or_else(|| slot.as_str().to_string(), |role| role.label.clone())
+            .find(|role| role.kind == RoleKind::Manager && role.role == name)
+            .map_or_else(|| name.to_string(), |role| role.label.clone())
     };
     let mut seats = BTreeMap::new();
     let mut pickers = Vec::new();
-    let mut slots = started_slots(resolved);
-    let later: Vec<ManagerSlot> = picks
+    let mut names = started_managers(resolved);
+    // A pick for a role the package does not list as a manager is not a seat.
+    let later: Vec<String> = picks
         .keys()
-        .copied()
-        .filter(|slot| !slots.contains(slot))
+        .filter(|name| !names.contains(name) && document.manager(name).is_some())
+        .cloned()
         .collect();
-    slots.extend(later);
-    for slot in slots {
-        let outcome = match picks.get(&slot) {
-            Some(pick) => decide_pick(resolved, slot, pick, target, endpoints),
+    names.extend(later);
+    for name in names {
+        let outcome = match picks.get(&name) {
+            Some(pick) => decide_pick(resolved, &name, pick, target, endpoints),
             None => {
                 let decision = package_decisions
-                    .get(slot.as_str())
+                    .get(&name)
                     .cloned()
                     .unwrap_or_else(needs_choice);
                 seat_from_decision(&decision, None).ok_or(decision)
@@ -284,11 +276,12 @@ pub(crate) fn plan_seats(
         };
         match outcome {
             Ok(seat) => {
-                seats.insert(slot, seat);
+                seats.insert(name, seat);
             }
             Err(decision) => pickers.push(ManagerModelPicker {
-                slot,
-                label: label(slot),
+                label: label(&name),
+                authority: RoleAuthority::of(RoleKind::Manager, &name),
+                role: name,
                 decision,
             }),
         }

@@ -10,9 +10,13 @@ One canonical writer produces every export, so export, import and export again y
 
 ## Roles
 
-Manager slots are fixed and carry host-known duties: one orchestrator, and optionally a planner, cartographer and curator. Worker types have free names; a worker named like a host builtin replaces it, and builtins the package does not name stay available. Each role carries its own instructions; there is no package-wide instruction or brief, and the Team's way of working lives in the orchestrator's instructions. Host runtime text is appended by the host and can never be removed or replaced by a package, so a package grants no authority.
+A package lists its roles in one map; each role names its kind, manager or worker. A manager lives with the Team across tasks as one instance per name; a worker serves one task or assignment and many may run. The kinds differ by lifecycle, not by authority. Exactly one role is the orchestrator, and it anchors the Team. A Team has exactly the roles its package lists: there are no host default roles or field inheritance, so an omitted planner or curator means the Team has none, and a worker the package does not list cannot be dispatched. A Team created without a template is the builtin default package as a whole.
 
-A role's model is an ordered preference list, a reference to another role's resolved model, or left to the owner (managers) and the normal defaults (workers). Only the managers that start with the Team start; every other role is registered and dispatched on demand.
+Every role carries its own instructions; there is no package-wide instruction or brief, and the Team's way of working lives in the orchestrator's instructions. Host runtime text is appended by the host per kind and per built-in manager name, and can never be removed or replaced by a package.
+
+Authority comes from the host, never from the package: it is keyed only by the built-in manager names orchestrator, planner, cartographer and curator, and only when that role is a manager. Any other manager is a custom manager with no host authority; it advises and works through the orchestrator and can never spawn, approve, accept or release. Workers are leaves.
+
+A role's model is an ordered preference list, a reference to another role's resolved model, or left to the owner (managers) and the normal defaults (workers). Only the managers that start with the Team start; every other role is registered and started on demand.
 
 ## Consent and provenance
 

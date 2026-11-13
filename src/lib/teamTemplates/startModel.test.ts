@@ -4,7 +4,8 @@ import {
 } from "../transport/teamTemplates.testdata";
 import {
   blockerView, bringsSummary, buildStartRequest, decisionNotice, effortLabel, effortNote, exportFormats, galleryEntries, groupKeptState, humanizePackageName,
-  payloadItemText, pickerSeed, skillScriptPath, roleTiming, scrubRows, startBlocker, startErrorView, managerRoles, rowDecisionNotice, templateSource, templateTitle,
+  lacksAuthority, payloadItemText, pickerSeed, skillScriptPath, roleTiming, scrubRows, startBlocker, startErrorView, startRefusalView, managerRoles, rowDecisionNotice,
+  templateSource, templateTitle,
   visiblePayload, withKept,
 } from "./startModel";
 
@@ -166,13 +167,22 @@ describe("template start model", () => {
     expect(rowDecisionNotice(unknownModel, "codex")).toEqual(decisionNotice(unknownModel));
   });
 
-  it("always lists the Planner a start launches, in slot order", () => {
-    const curator = { group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } };
-    const orchestrator = { group: "manager" as const, role: "orchestrator", label: "Lead", start: "with_team" as const };
-    const worker = { group: "worker" as const, role: "qa", label: "qa", start: "on_demand" as const };
-    expect(managerRoles([curator, worker, orchestrator]).map((role) => [role.role, role.label])).toEqual([
-      ["orchestrator", "Lead"], ["planner", "planner"], ["curator", "curator"],
-    ]);
+  it("lists exactly the package's managers, built-in slots first, and never implies a Planner", () => {
+    const security = { kind: "manager" as const, role: "security_lead", label: "Security lead", authority: "none" as const, start: "with_team" as const };
+    const curator = { kind: "manager" as const, role: "curator", label: "curator", authority: "builtin" as const, start: { schedule: "45m..2h" } };
+    const orchestrator = { kind: "manager" as const, role: "orchestrator", label: "Lead", authority: "builtin" as const, start: "with_team" as const };
+    const worker = { kind: "worker" as const, role: "qa", label: "qa", authority: "none" as const, start: "on_demand" as const };
+    expect(managerRoles([security, curator, worker, orchestrator]).map((role) => role.role)).toEqual(["orchestrator", "curator", "security_lead"]);
+    expect([security, curator, worker, orchestrator].filter(lacksAuthority).map((role) => role.role)).toEqual(["security_lead"]);
+  });
+
+  it("reads a typed schedule refusal as a blocked start with its reason", () => {
+    const refused = templateStartResultFixtures.find((result) => result.status === "refused" && result.refusal.code === "schedule_unsupported_role")!;
+    const view = startRefusalView(new Error(`/api/templates/preview → HTTP 422: ${JSON.stringify(refused)}`));
+    expect(view?.reasons).toHaveLength(1);
+    expect(view?.reasons[0]).toContain("Security lead");
+    expect(startRefusalView(new Error(JSON.stringify(templateStartResultFixtures[2])))).toBeNull();
+    expect(startRefusalView(new Error("network down"))).toBeNull();
   });
 
   it("files an owner's import under Mine and a Neighborhood receipt under From friends, unverified until consented", () => {

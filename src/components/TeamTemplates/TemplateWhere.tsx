@@ -40,7 +40,7 @@ export function TemplateWhere({ choice, preview, providers, onInstallProvider }:
   onInstallProvider: (providerId: string) => void;
 }) {
   const [open, setOpen] = useState(choice.remotePeer !== null);
-  const workers = preview.form.roles.filter((role) => role.group === "worker");
+  const workers = preview.form.roles.filter((role) => role.kind === "worker");
   const needs = choice.remotePeer ? [] : preview.where_needed?.needs ?? [];
   const peers = choice.peers;
   const options = [{ value: HOME, label: "This machine" }, ...(peers ?? []).map((peer) => ({ value: peer.name, label: peer.name }))];

@@ -342,8 +342,8 @@ fn spawn_role_is_a_type_and_structural_literals_are_refused() {
             action: AgentAction::Spawn { role, .. },
         } => {
             let role = role.expect("role set");
-            assert_eq!(role.role.label(), "Manager");
-            assert_eq!(role.kind_id, "planner");
+            assert!(role.is_manager_name());
+            assert_eq!(role.as_str(), "planner");
         }
         _ => panic!("expected agent spawn"),
     }
@@ -372,8 +372,8 @@ fn spawn_watcher_type_derives_the_manager_role() {
             action: AgentAction::Spawn { role, .. },
         } => {
             let role = role.expect("role set");
-            assert_eq!(role.role.label(), "Manager");
-            assert_eq!(role.kind_id, "watcher");
+            assert!(role.host_owned().is_some());
+            assert_eq!(role.as_str(), "watcher");
         }
         _ => panic!("expected agent spawn"),
     }
@@ -405,7 +405,7 @@ fn spawn_worker_plan_task_parses() {
                 },
         } => {
             assert_eq!(
-                role.as_ref().map(|role| role.kind_id.as_str()),
+                role.as_ref().map(|role| role.as_str()),
                 Some("worker")
             );
             assert_eq!(plan.as_deref(), Some("pl_test"));
@@ -437,7 +437,7 @@ fn agent_spawn_unplanned_parses_reason() {
             ..
         } => {
             assert_eq!(
-                role.as_ref().map(|role| role.kind_id.as_str()),
+                role.as_ref().map(|role| role.as_str()),
                 Some("worker")
             );
             assert!(unplanned);
@@ -477,7 +477,7 @@ fn spawn_read_only_worker_parses_without_a_plan_task() {
             ..
         } => {
             assert_eq!(
-                role.as_ref().map(|role| role.kind_id.as_str()),
+                role.as_ref().map(|role| role.as_str()),
                 Some("worker")
             );
             assert_eq!(plan.as_deref(), Some("pl_test"));
@@ -517,7 +517,7 @@ fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
             authorized_gates,
             ..
         } => {
-            assert_eq!(role.as_ref().map(|role| role.kind_id.as_str()), Some("qa"));
+            assert_eq!(role.as_ref().map(|role| role.as_str()), Some("qa"));
             assert_eq!(parent.as_deref(), Some("parent_tab"));
             assert!(plan.is_none());
             assert!(plan_task.is_none());
@@ -550,7 +550,7 @@ fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
             ..
         } => {
             assert_eq!(
-                role.as_ref().map(|role| role.kind_id.as_str()),
+                role.as_ref().map(|role| role.as_str()),
                 Some("reviewer")
             );
             assert_eq!(task.as_deref(), Some("Review the exact diff named here"));
@@ -618,7 +618,7 @@ fn spawn_provider_args_preserve_hyphen_values_after_codeterm_bindings() {
             ..
         } => {
             assert_eq!(
-                role.as_ref().map(|role| role.kind_id.as_str()),
+                role.as_ref().map(|role| role.as_str()),
                 Some("worker")
             );
             assert_eq!(plan.as_deref(), Some("pl_x"));
@@ -653,7 +653,7 @@ fn spawn_without_provider_args_is_unaffected() {
     match action {
         AgentAction::Spawn { role, args, .. } => {
             assert_eq!(
-                role.as_ref().map(|role| role.kind_id.as_str()),
+                role.as_ref().map(|role| role.as_str()),
                 Some("worker")
             );
             assert!(args.is_none());
@@ -740,7 +740,7 @@ fn spawn_team_parses_with_an_anchoring_role() {
         AgentAction::Spawn { team, role, .. } => {
             assert_eq!(team.as_deref(), Some("team_alpha"));
             assert_eq!(
-                role.as_ref().map(|role| role.kind_id.as_str()),
+                role.as_ref().map(|role| role.as_str()),
                 Some("orchestrator")
             );
         }
@@ -847,7 +847,7 @@ fn agent_spawn_profile_is_separate_from_role_type_and_model() {
     };
     assert_eq!(agent.as_deref(), Some("acp"));
     assert_eq!(launch_profile.as_deref(), Some("deepseek-harness"));
-    assert_eq!(role.as_ref().map(|role| role.kind_id.as_str()), Some("qa"));
+    assert_eq!(role.as_ref().map(|role| role.as_str()), Some("qa"));
     assert!(model.is_none());
     for removed in ["--kind", "--role-profile"] {
         assert!(Cli::try_parse_from(["domios", "agent", "spawn", "acp", removed, "qa"]).is_err());

@@ -529,9 +529,9 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
 
     for kind in ["qa", "release_manager"] {
         for task_id in [None, Some(task.id.as_str())] {
-            let profile = codeterm_types::agent::role_kind::RoleType::parse(kind)
+            let profile = codeterm_types::agent::role_kind::RoleName::parse(kind)
                 .unwrap()
-                .kind_id;
+                .to_string();
             let mut params = codeterm_service_core::service::SpawnAgentParams {
                 role: Some("Worker".into()),
                 role_profile: Some(profile),
@@ -678,4 +678,61 @@ fn placement_without_git_stays_shared_and_refuses_lanes_while_git_keeps_lanes() 
         place(None, &facts, false).unwrap().0,
         WorkerPlacement::Shared
     );
+}
+
+#[test]
+fn default_intent_task_without_git_dispatches_shared_and_refuses_an_overlap() {
+    use super::super::canonical_writer::{dispatch_without_git, resolve_placement};
+    use codeterm_service_core::service::plan::shared_checkout::{
+        CheckoutAttemptRead, CheckoutPeerRead, CheckoutTaskRead, NO_GIT_HISTORY,
+    };
+    let project = tempfile::tempdir().unwrap();
+    let mut task = super::task(json!({
+        "id": "task_plain", "name": "plain", "type": "code", "status": "pending",
+        "files": {"edit": ["notes.md"]}, "execution_intent": "non_repository"
+    }));
+    task.execution_intent =
+        super::super::super::plan_fields::execution_intent_field(Some(&json!({}))).unwrap();
+    let mut facts = preflight_facts(&task);
+    facts.project_path = project.path().to_string_lossy().into_owned();
+    let mutating = ExecutionIntent::Mutating;
+
+    let without_git = dispatch_without_git(&mutating, &facts).unwrap();
+    assert!(without_git);
+    let (placement, reason) = resolve_placement(None, &mutating, &facts, &[], without_git).unwrap();
+    assert_eq!(placement, WorkerPlacement::Shared, "{reason}");
+
+    let live_peer = CheckoutPeerRead {
+        id: "plan_other".into(),
+        checkout: facts.project_path.clone(),
+        tasks: vec![CheckoutTaskRead {
+            id: "task_peer".into(),
+            files: task.files.clone(),
+            execution_attempts: vec![CheckoutAttemptRead {
+                id: "attempt_peer".into(),
+                placement: WorkerPlacement::Shared,
+            }],
+        }],
+    };
+    for requested in [None, Some(json!({"placement": "shared"}))] {
+        let refusal = resolve_placement(
+            requested.as_ref(),
+            &mutating,
+            &facts,
+            std::slice::from_ref(&live_peer),
+            without_git,
+        )
+        .unwrap_err();
+        assert!(
+            refusal.message.contains("overlaps task 'task_peer'"),
+            "{}",
+            refusal.message
+        );
+        assert_eq!(
+            refusal.message.contains(NO_GIT_HISTORY),
+            requested.is_none(),
+            "{}",
+            refusal.message
+        );
+    }
 }

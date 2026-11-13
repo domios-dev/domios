@@ -226,22 +226,7 @@ pub fn scrub_package(package: &mut Package, context: &ScrubContext) -> ScrubRepo
             }
         }
     }
-    let mut roles: Vec<(String, &mut codeterm_team_package::TeamRole)> = Vec::new();
-    let managers = &mut document.managers;
-    roles.push(("orchestrator".into(), &mut managers.orchestrator));
-    for (name, slot) in [
-        ("planner", managers.planner.as_mut()),
-        ("cartographer", managers.cartographer.as_mut()),
-        ("curator", managers.curator.as_mut()),
-    ] {
-        if let Some(role) = slot {
-            roles.push((name.into(), role));
-        }
-    }
-    for (name, role) in document.workers.iter_mut() {
-        roles.push((name.to_string(), role));
-    }
-    for (name, role) in roles {
+    for (name, role) in document.roles.iter_mut() {
         let at = format!("the {name} instructions");
         scrubber.option(&mut role.instructions, &at);
         scrubber.option(&mut role.description, &at);

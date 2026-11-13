@@ -9,39 +9,46 @@ authors:
     url: https://domios.dev
 license: Apache-2.0
 
-managers:
+roles:
   orchestrator:
+    kind: manager
     start: with_team
     instructions_file: managers/orchestrator.md
 
   planner:
+    kind: manager
     start: with_team
     instructions_file: managers/planner.md
 
   cartographer:
+    kind: manager
     start: on_demand
     instructions_file: managers/cartographer.md
 
   curator:
+    kind: manager
     start:
       schedule: 45m..2h
     model:
       same_as: orchestrator
     instructions_file: managers/curator.md
 
-workers:
   worker:
+    kind: worker
     description: Implements one task in its lane.
     instructions_file: workers/worker.md
 
   qa:
+    kind: worker
     description: Verifies live on DEV, then tests.
     instructions_file: workers/qa.md
 
   reviewer:
+    kind: worker
     description: Read-only code review of a lane diff.
     instructions_file: workers/reviewer.md
 
   release_manager:
+    kind: worker
     description: Runs CI, qualification and the release PR.
     instructions_file: workers/release_manager.md

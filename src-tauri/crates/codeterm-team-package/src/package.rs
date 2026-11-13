@@ -8,7 +8,7 @@ use ts_rs::TS;
 
 use crate::archive::{self, entry_error};
 use crate::diagnostics::{DiagnosticCode, PackageCheckReport, PackageDiagnostic, Sink};
-use crate::document::{PackageAutomation, PackageSkill, TeamDocument, TeamRoleGroup};
+use crate::document::{PackageAutomation, PackageSkill, TeamDocument};
 use crate::image::{check_icon, IconKind};
 use crate::paths::{within, ROOT_DOCUMENT};
 use crate::{parse, serialize, validate, yaml, CheckOptions, ExtensionValue, OrderedMap};
@@ -371,18 +371,9 @@ fn references(
             None => resolver.require(sink, &file.path, &format!("{at}.path"), false),
         }
     }
-    for (group, name, role) in document.roles() {
+    for (name, role) in document.roles() {
         if let Some(path) = &role.instructions_file {
-            let section = match group {
-                TeamRoleGroup::Manager => "managers",
-                TeamRoleGroup::Worker => "workers",
-            };
-            resolver.require(
-                sink,
-                path,
-                &format!("{section}.{name}.instructions_file"),
-                true,
-            );
+            resolver.require(sink, path, &format!("roles.{name}.instructions_file"), true);
         }
     }
     let mut skill_names = BTreeSet::new();
@@ -420,14 +411,10 @@ fn references(
             }
         }
     }
-    for (group, name, role) in document.roles() {
-        let section = match group {
-            TeamRoleGroup::Manager => "managers",
-            TeamRoleGroup::Worker => "workers",
-        };
+    for (name, role) in document.roles() {
         for (index, skill) in role.skills.iter().enumerate() {
             if !skill_names.contains(skill) {
-                let at = format!("{section}.{name}.skills[{index}]");
+                let at = format!("roles.{name}.skills[{index}]");
                 sink.warning(
                     DiagnosticCode::UnresolvedSkill,
                     &at,

@@ -1,5 +1,7 @@
 use super::{RoleKindCapability, RoleKindDescriptor};
 
+pub use codeterm_team_package::{is_builtin_manager, BUILTIN_MANAGERS};
+
 pub const ORCHESTRATOR: &str = "orchestrator";
 pub const GENERAL_AGENT: &str = "general_agent";
 pub const PLANNER: &str = "planner";
@@ -12,6 +14,8 @@ pub const REVIEWER: &str = "reviewer";
 /// carries no spawn, plan, release or team-staffing authority.
 pub const CARTOGRAPHER: &str = "cartographer";
 pub const CURATOR: &str = "curator";
+/// The id of the one host-owned descriptor every other manager name resolves to.
+pub const CUSTOM_MANAGER: &str = "custom_manager";
 
 // Embedded in the binary and non-overridable: a disk overlay able to rewrite
 // these rows could mint a Team-anchoring, plan-owning agent.
@@ -27,6 +31,11 @@ static BUILTINS: [RoleKindDescriptor; 10] = [
     RoleKindDescriptor::managing_leaf_withheld(CARTOGRAPHER, "Cartographer"),
     RoleKindDescriptor::managing_leaf_withheld(CURATOR, "Curator"),
 ];
+
+/// A package manager without a built-in name: the Cartographer's limits (a managing leaf with
+/// no spawn, team authority, plan approval or edit, task acceptance or release), owned by the host.
+static CUSTOM_MANAGER_KIND: RoleKindDescriptor =
+    RoleKindDescriptor::generic_manager(CUSTOM_MANAGER, "Manager");
 
 pub fn all() -> &'static [RoleKindDescriptor] {
     &BUILTINS
@@ -47,5 +56,19 @@ pub fn capability_for(kind_id: &str) -> RoleKindCapability {
     match lookup(kind_id) {
         Some(descriptor) => descriptor.capability(),
         None => RoleKindCapability::LEAF,
+    }
+}
+
+/// The host-owned descriptor of every custom manager.
+pub fn custom_manager() -> &'static RoleKindDescriptor {
+    &CUSTOM_MANAGER_KIND
+}
+
+/// The descriptor a manager named `name` resolves to: a managing builtin keeps its own, and
+/// every other name, a builtin worker name included, gets the one generic manager descriptor.
+pub fn manager_descriptor(name: &str) -> &'static RoleKindDescriptor {
+    match lookup(name) {
+        Some(descriptor) if descriptor.manages() => descriptor,
+        _ => custom_manager(),
     }
 }

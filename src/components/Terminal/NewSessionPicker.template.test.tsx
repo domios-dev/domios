@@ -229,11 +229,11 @@ describe("Team template start in the session dialog", () => {
       ...startablePreview, consent: null, asks: [], payload: [], form: { ...startablePreview.form, inputs: [], pickers: [],
         template: templateRecallFixture.fallback,
         roles: [
-          { group: "manager" as const, role: "orchestrator", label: "orchestrator", start: "with_team" as const },
-          { group: "manager" as const, role: "planner", label: "planner", start: "with_team" as const },
-          { group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const },
-          { group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } },
-          { group: "worker" as const, role: "qa", label: "qa", start: "on_demand" as const },
+          { kind: "manager" as const, role: "orchestrator", label: "orchestrator", authority: "builtin" as const, start: "with_team" as const },
+          { kind: "manager" as const, role: "planner", label: "planner", authority: "builtin" as const, start: "with_team" as const },
+          { kind: "manager" as const, role: "cartographer", label: "cartographer", authority: "builtin" as const, start: "on_demand" as const },
+          { kind: "manager" as const, role: "curator", label: "curator", authority: "builtin" as const, start: { schedule: "45m..2h" } },
+          { kind: "worker" as const, role: "qa", label: "qa", authority: "none" as const, start: "on_demand" as const },
         ] },
     };
     fixture.templates.preview.mockImplementation(async (template: { name: string }) => template.name === "dev.domios/default" ? defaultPreview : startablePreview);
@@ -269,7 +269,7 @@ describe("Team template start in the session dialog", () => {
     const defaultPreview = {
       ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [], pickers: [],
         template: templateRecallFixture.fallback,
-        roles: [{ group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const }] },
+        roles: [{ kind: "manager" as const, role: "cartographer", label: "cartographer", authority: "builtin" as const, start: "on_demand" as const }] },
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);
     await renderPicker();
@@ -291,8 +291,8 @@ describe("Team template start in the session dialog", () => {
     const sameAs = modelDecisionFixtures.find((decision) => decision.reason === "same_as")!;
     const defaultPreview = {
       ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [],
-        template: templateRecallFixture.fallback, pickers: [{ slot: "curator" as const, label: "curator", decision: sameAs }],
-        roles: [{ group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" }, same_as: "orchestrator" }] },
+        template: templateRecallFixture.fallback, pickers: [{ role: "curator", label: "curator", authority: "builtin" as const, decision: sameAs }],
+        roles: [{ kind: "manager" as const, role: "curator", label: "curator", authority: "builtin" as const, start: { schedule: "45m..2h" }, same_as: "orchestrator" }] },
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);
     await renderPicker();
@@ -314,8 +314,8 @@ describe("Team template start in the session dialog", () => {
       ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [], pickers: [],
         template: templateRecallFixture.fallback,
         roles: [
-          { group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const, model: declared },
-          { group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" }, model: undecided, same_as: "orchestrator" },
+          { kind: "manager" as const, role: "cartographer", label: "cartographer", authority: "builtin" as const, start: "on_demand" as const, model: declared },
+          { kind: "manager" as const, role: "curator", label: "curator", authority: "builtin" as const, start: { schedule: "45m..2h" }, model: undecided, same_as: "orchestrator" },
         ] },
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);
@@ -328,6 +328,77 @@ describe("Team template start in the session dialog", () => {
     const managers = dialog().querySelector('[data-testid="template-review-detail"] section[aria-label="Managers"]')!.textContent;
     expect(managers).toContain("Same as Orchestrator");
     expect(managers).toContain("sonnet");
+  });
+
+  it("gives every with_team manager its own picker by role name, places a custom manager among the managers and implies no Planner", async () => {
+    const undecided = { reason: "needs_choice" as const, amber: false };
+    const customPreview = {
+      ...startablePreview, consent: null, form: { ...startablePreview.form, inputs: [],
+        pickers: [
+          { role: "orchestrator", label: "Lead", authority: "builtin" as const, decision: undecided },
+          { role: "security_lead", label: "Security lead", authority: "none" as const, decision: undecided },
+        ],
+        roles: [
+          { kind: "manager" as const, role: "orchestrator", label: "Lead", authority: "builtin" as const, start: "with_team" as const },
+          { kind: "manager" as const, role: "security_lead", label: "Security lead", authority: "none" as const, start: "with_team" as const, description: "Reviews threat models." },
+          { kind: "worker" as const, role: "researcher", label: "researcher", authority: "none" as const, start: "on_demand" as const, description: "Researches one angle." },
+          { kind: "worker" as const, role: "writer", label: "writer", authority: "none" as const, start: "on_demand" as const },
+        ] },
+    };
+    fixture.templates.preview.mockResolvedValue(customPreview);
+    await renderPicker();
+    await chooseResearchDesk();
+    const roster = dialog().querySelector('[data-testid="template-managers"]')!;
+    const rows = Array.from(roster.querySelectorAll('[role="listitem"]')).map((row) => row.getAttribute("data-pair-role"));
+    expect(rows).toEqual(["orchestrator", "security_lead"]);
+    expect(dialog().querySelector('[aria-label^="Planner"]')).toBeNull();
+    expect(roster.querySelector('[data-pair-role="security_lead"] [data-authority="none"]')).not.toBeNull();
+    expect(roster.querySelector('[data-pair-role="orchestrator"] [data-authority]')).toBeNull();
+    expect(dialog().querySelectorAll('[role="group"][aria-label="Workers on demand"] [aria-label="Workers"] li')).toHaveLength(2);
+    await choose("Security lead provider", "Claude Code");
+    await click(start());
+    const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { manager_models: Record<string, { model: string }> } };
+    expect(Object.keys(input.template.manager_models)).toEqual(["security_lead"]);
+    expect(input.template.manager_models.security_lead.model.startsWith("claude:")).toBe(true);
+  });
+
+  it("groups the review by kind with the custom manager among the managers", async () => {
+    const customPreview = {
+      ...startablePreview, consent: null, form: { ...startablePreview.form,
+        roles: [
+          { kind: "worker" as const, role: "researcher", label: "researcher", authority: "none" as const, start: "on_demand" as const },
+          { kind: "manager" as const, role: "security_lead", label: "Security lead", authority: "none" as const, start: "on_demand" as const },
+          { kind: "manager" as const, role: "orchestrator", label: "Lead", authority: "builtin" as const, start: "with_team" as const },
+        ] },
+    };
+    fixture.templates.preview.mockResolvedValue(customPreview);
+    await renderPicker();
+    await click(button("Change template"));
+    const kebab = button("More actions for Research desk");
+    await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
+    await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
+    const review = dialog().querySelector('[data-testid="template-review-detail"]')!;
+    const kinds = (section: string) => Array.from(review.querySelectorAll(`section[aria-label="${section}"] [data-role-kind]`)).map((row) => row.getAttribute("data-role-kind"));
+    expect(kinds("Managers")).toEqual(["manager", "manager"]);
+    expect(kinds("Workers on demand")).toEqual(["worker"]);
+    expect(review.querySelectorAll('section[aria-label="Managers"] [data-authority="none"]')).toHaveLength(1);
+    expect(review.querySelector('section[aria-label="Workers on demand"] [data-authority]')).toBeNull();
+  });
+
+  it("shows a typed schedule refusal from the preview as a blocked start with its reason", async () => {
+    const refused = templateStartResultFixtures.find((result) => result.status === "refused" && result.refusal.code === "schedule_unsupported_role")!;
+    fixture.templates.preview.mockImplementation(async (template: { name: string }) => {
+      if (template.name === "dev.domios/default") throw new Error("no default preview");
+      throw new Error(`/api/templates/preview → HTTP 422: ${JSON.stringify(refused)}`);
+    });
+    await renderPicker();
+    await click(button("Change template"));
+    await click(button("Use Research desk"));
+    const blocked = dialog().querySelector('[role="alert"][data-testid="template-blocked-start"]')!;
+    expect(blocked).not.toBeNull();
+    expect(blocked.textContent).toContain("Security lead");
+    expect(dialog().querySelector('[data-testid="template-start-form"]')).toBeNull();
+    expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 
   it("uses a gallery card in one action and reads role instructions inside the same dialog", async () => {

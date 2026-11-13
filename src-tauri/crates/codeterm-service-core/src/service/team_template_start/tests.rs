@@ -17,13 +17,13 @@ fn the_default_preview_asks_nothing_and_offers_both_pair_pickers() {
         preview.form.template.name,
         resolve(None).unwrap().package.document.name
     );
-    let slots: Vec<_> = preview
+    let roles: Vec<_> = preview
         .form
         .pickers
         .iter()
-        .map(|picker| picker.slot)
+        .map(|picker| picker.role.as_str())
         .collect();
-    assert_eq!(slots, vec![ManagerSlot::Orchestrator, ManagerSlot::Planner]);
+    assert_eq!(roles, vec!["orchestrator", "planner"]);
     assert!(preview.consent.is_none());
     assert!(preview.asks.is_empty());
 }
@@ -36,7 +36,7 @@ fn preview_roles_carry_their_model_decision_unless_a_picker_does() {
         .form
         .roles
         .iter()
-        .partition(|role| role.group == TeamRoleGroup::Worker);
+        .partition(|role| role.kind == RoleKind::Worker);
     assert!(!workers.is_empty());
     for worker in workers {
         let decision = worker
@@ -54,7 +54,7 @@ fn preview_roles_carry_their_model_decision_unless_a_picker_does() {
         .form
         .pickers
         .iter()
-        .map(|picker| picker.slot.as_str())
+        .map(|picker| picker.role.as_str())
         .collect();
     for manager in managers {
         assert_eq!(
@@ -158,4 +158,51 @@ fn a_binding_to_an_absent_vault_entry_refuses_as_a_missing_input() {
         .insert("TOKEN".into(), "entry-present".into());
     let unbound = super::super::team_template_remote::unbound_secrets(&start, present);
     assert!(admit_bound(Some(&start), &ledger, &unbound).is_ok());
+}
+
+fn package(text: &str) -> codeterm_team_package::Package {
+    codeterm_team_package::check_yaml(text, &codeterm_team_package::CheckOptions::default())
+        .package
+        .expect("fixture package is valid ATP")
+}
+
+const HEAD: &str = "name: dev.example/probe\nversion: 1.0.0\ndescription: Probe package.\nroles:\n  orchestrator:\n    kind: manager\n    instructions: Lead.\n";
+
+fn with_role(name: &str, body: &str) -> codeterm_team_package::Package {
+    package(&format!("{HEAD}  {name}:\n    kind: manager\n{body}"))
+}
+
+#[test]
+fn a_schedule_on_any_role_but_the_curator_is_refused_by_this_host() {
+    let scheduled = "    start:\n      schedule: 45m..2h\n    instructions: Fixture.\n";
+    assert_eq!(
+        resolve::host_policy(&with_role("auditor", scheduled)),
+        Err(TemplateStartRefusal::ScheduleUnsupportedRole {
+            role: "auditor".into()
+        })
+    );
+    assert_eq!(resolve::host_policy(&with_role("curator", scheduled)), Ok(()));
+}
+
+#[test]
+fn host_owned_names_are_refused_as_package_roles() {
+    for name in ["watcher", "general_agent"] {
+        assert_eq!(
+            resolve::host_policy(&with_role(name, "    instructions: Fixture.\n")),
+            Err(TemplateStartRefusal::HostOwnedRole { role: name.into() })
+        );
+    }
+}
+
+#[test]
+fn custom_with_team_managers_get_pickers_keyed_by_role_name() {
+    let text = format!(
+        "{HEAD}  security_lead:\n    kind: manager\n    name: Warden\n    start: with_team\n    instructions: Review.\n  helper:\n    kind: manager\n    instructions: Help.\n"
+    );
+    let resolved = ResolvedTemplate {
+        package: package(&text),
+        provenance: codeterm_team_package::contracts::TemplateProvenance::Saved,
+        warnings: Vec::new(),
+    };
+    assert_eq!(with_team_managers(&resolved), ["orchestrator", "security_lead"]);
 }

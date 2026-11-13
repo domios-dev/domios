@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use codeterm_team_package::contracts::{
     EffortDecision, ModelBlockedReason, ModelDecision, ModelDecisionReason, ModelOption,
 };
-use codeterm_team_package::{ModelPreference, TeamDocument, TeamRoleGroup};
+use codeterm_team_package::{ModelPreference, RoleKind, TeamDocument};
 
 use super::spawn::spawn_model_catalogue::{
     close_catalogue_ids, find_catalogue_model, normalize_requested_model, preserve_context_suffix,
@@ -24,7 +24,7 @@ pub const ALTERNATIVE_LIMIT: usize = 10;
 /// Everything one role's decision reads; owner picks come from the Team registration or local preferences.
 #[derive(Debug, Clone, Copy)]
 pub struct RoleModelRequest<'a> {
-    pub group: TeamRoleGroup,
+    pub kind: RoleKind,
     pub preference: Option<&'a ModelPreference>,
     pub effort: Option<&'a str>,
     /// Human picks in precedence order: the Team registration choice, then the template default.
@@ -59,7 +59,7 @@ pub fn decide_team_models(
     target: &TargetCatalogue,
 ) -> BTreeMap<String, ModelDecision> {
     let mut decided = BTreeMap::new();
-    for (_, role, _) in document.roles() {
+    for (role, _) in document.roles() {
         decide_role(
             document,
             inputs,
@@ -83,10 +83,7 @@ fn decide_role(
     if let Some(decision) = decided.get(role) {
         return Some(decision.clone());
     }
-    let (group, _, declared) = document
-        .roles()
-        .into_iter()
-        .find(|(_, name, _)| *name == role)?;
+    let declared = document.role(role)?;
     if visiting.iter().any(|seen| seen == role) {
         return None;
     }
@@ -104,7 +101,7 @@ fn decide_role(
         .as_ref()
         .map_or(&empty, |requires| &requires.harnesses);
     let request = RoleModelRequest {
-        group,
+        kind: declared.kind,
         preference: declared.model.as_ref(),
         effort: inputs
             .efforts
@@ -149,9 +146,9 @@ pub fn decide_model(
         }
     }
     let mut decision = match request.preference {
-        None => match request.group {
-            TeamRoleGroup::Manager => needs_choice(None, alternatives(request, &[], target)),
-            TeamRoleGroup::Worker => undecided(ModelDecisionReason::NormalDefault),
+        None => match request.kind {
+            RoleKind::Manager => needs_choice(None, alternatives(request, &[], target)),
+            RoleKind::Worker => undecided(ModelDecisionReason::NormalDefault),
         },
         Some(ModelPreference::SameAs { same_as }) => {
             same_as_decision(request, same_as, referenced, target)

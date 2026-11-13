@@ -1,20 +1,33 @@
 use super::*;
 
 #[test]
-fn manager_slots_and_the_watcher_derive_the_manager_role() {
-    for value in MANAGER_TYPES.into_iter().chain([builtins::WATCHER]) {
-        let parsed = RoleType::parse(value).expect("manager type parses");
-        assert_eq!(parsed.role, AgentRole::Manager);
-        assert_eq!(parsed.kind_id, value);
+fn only_the_watcher_has_a_kind_without_a_team_registration() {
+    let watcher = RoleName::parse(builtins::WATCHER).expect("watcher parses");
+    assert_eq!(
+        watcher.host_owned(),
+        Some(RoleType::new(AgentRole::Manager, builtins::WATCHER))
+    );
+    for value in [
+        "orchestrator",
+        "planner",
+        "worker",
+        "qa",
+        "security_lead",
+        "checker_2",
+    ] {
+        let parsed = RoleName::parse(value).expect("role name parses");
+        assert_eq!(parsed.as_str(), value);
+        assert_eq!(parsed.host_owned(), None, "{value}");
     }
 }
 
 #[test]
-fn worker_names_derive_the_worker_role() {
-    for value in ["worker", "qa", "reviewer", "release_manager", "checker_2"] {
-        let parsed = RoleType::parse(value).expect("worker type parses");
-        assert_eq!(parsed.role, AgentRole::Worker);
-        assert_eq!(parsed.wire_pair(), ("Worker", value));
+fn reserved_manager_names_are_never_workers() {
+    for value in builtins::BUILTIN_MANAGERS.into_iter().chain([builtins::WATCHER]) {
+        assert!(RoleName::parse(value).unwrap().is_manager_name(), "{value}");
+    }
+    for value in ["worker", "qa", "security_lead"] {
+        assert!(!RoleName::parse(value).unwrap().is_manager_name(), "{value}");
     }
 }
 
@@ -22,19 +35,29 @@ fn worker_names_derive_the_worker_role() {
 fn structural_literals_host_kinds_and_malformed_names_are_refused() {
     for value in ["Manager", "Worker", "Orchestrator", "Planner", "Watcher"] {
         assert!(matches!(
-            RoleType::parse(value),
+            RoleName::parse(value),
             Err(RoleTypeError::StructuralLiteral(_))
         ));
     }
     assert!(matches!(
-        RoleType::parse(builtins::GENERAL_AGENT),
+        RoleName::parse(builtins::GENERAL_AGENT),
         Err(RoleTypeError::HostOwned(_))
     ));
     for value in ["Qa", "9lives", "release-manager", "a b"] {
         assert!(matches!(
-            RoleType::parse(value),
+            RoleName::parse(value),
             Err(RoleTypeError::Malformed(_))
         ));
     }
-    assert_eq!(RoleType::parse("  "), Err(RoleTypeError::Empty));
+    assert_eq!(RoleName::parse("  "), Err(RoleTypeError::Empty));
+}
+
+#[test]
+fn a_resolved_type_launches_as_its_registered_kind() {
+    let worker = RoleType::new(AgentRole::Worker, "checker");
+    assert!(worker.is_worker());
+    assert_eq!(worker.wire_pair(), ("Worker", "checker"));
+    let manager = RoleType::new(AgentRole::Manager, "security_lead");
+    assert!(!manager.is_worker());
+    assert_eq!(manager.wire_pair(), ("Manager", "security_lead"));
 }

@@ -7,7 +7,7 @@ import { BackPill } from "../shared/BackPill";
 import { Button } from "../shared/Button";
 import { kindDisplayName } from "../../lib/roleKind";
 import {
-  effortLabel, humanizePackageName, managerDecision, managerRoles, roleSameAs, roleTiming, splitModel, templateSource, templateTitle,
+  effortLabel, humanizePackageName, lacksAuthority, managerDecision, managerRoles, roleSameAs, roleTiming, splitModel, templateSource, templateTitle,
   visibleAsks, visiblePayload, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import { TemplateIcon } from "./TemplateIcon";
@@ -23,7 +23,8 @@ import { authorRows, harnessRequirements, linkRows, updateDiffLines } from "../.
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
 type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
-type ManagerSlot = import("../../../gen/ManagerSlot").ManagerSlot;
+/** A manager role name: a built-in manager or one of the package's own. */
+type ManagerSlot = string;
 
 const LINK = "inline-flex items-center gap-1 text-[var(--ct-accent)] hover:underline";
 const LINK_ICON: Record<string, ReactNode> = {
@@ -76,7 +77,7 @@ const CAPSULE = "ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-no
 const UNSET = `${CAPSULE} border border-dashed border-[color-mix(in_srgb,var(--ct-fg)_18%,transparent)] text-[var(--ct-muted-fg)]`;
 
 function ModelCapsule({ preview, role, providers }: { preview: TemplatePreview; role: TemplateRoleSummary; providers: readonly ProviderDescriptor[] }) {
-  const decision = role.group === "manager" ? managerDecision(preview.form.pickers, role) : role.model;
+  const decision = role.kind === "manager" ? managerDecision(preview.form.pickers, role) : role.model;
   const target = roleSameAs(role);
   if (target) return <span className={UNSET}>Same as {kindDisplayName(target)}</span>;
   if (!decision?.choice) return <span className={UNSET}>You pick</span>;
@@ -97,17 +98,16 @@ function RoleList({ title, roles, preview, providers }: { title: string; roles: 
       <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{title}</div>
       {roles.map((role) => {
         const heading = roleHeading(role);
-        const start = role.group === "manager"
-          ? roleTiming(role.start) ?? "Starts with the team"
-          : role.description ?? roleTiming(role.start) ?? "Starts with the team";
+        const start = [role.description?.trim(), roleTiming(role.start) ?? "Starts with the team"].filter(Boolean).join(" · ");
         return (
-          <div key={`${role.group}:${role.role}`} className="flex items-center gap-2.5 py-1 text-[12px]">
+          <div key={`${role.kind}:${role.role}`} className="flex items-center gap-2.5 py-1 text-[12px]" data-role-kind={role.kind}>
             <span aria-hidden="true" className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[7px] bg-[color-mix(in_srgb,var(--ct-accent)_12%,transparent)] text-[var(--ct-accent)]">
-              {role.group === "manager" ? SLOT_ICON[role.role as ManagerSlot] ?? <Users size={13} /> : <Users size={13} />}
+              {role.kind === "manager" ? SLOT_ICON[role.role as ManagerSlot] ?? <Users size={13} /> : <Users size={13} />}
             </span>
             <div className="min-w-0 flex-1">
               <div>{heading.name}{heading.slot && <span className="text-[var(--ct-muted-fg)]"> · {heading.slot}</span>}</div>
               <div className="text-[11.5px] text-[var(--ct-muted-fg)]">{start}</div>
+              {lacksAuthority(role) && <div className="text-[11px] text-[var(--ct-muted-fg)]" data-authority="none">No Domios authority</div>}
             </div>
             <ModelCapsule preview={preview} role={role} providers={providers} />
           </div>
@@ -157,7 +157,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
   const consent = mode === "consent";
   const back = choice.view.kind === "review" ? choice.view.back : "gallery";
   const managers = managerRoles(preview.form.roles);
-  const workers = preview.form.roles.filter((role) => role.group === "worker");
+  const workers = preview.form.roles.filter((role) => role.kind === "worker");
   const readable = reviewRoles(preview.form.roles);
   const unverified = consent && preview.consent?.reasons.includes("unverified_package");
   const twoColumns = visiblePayload(preview.payload ?? []).length > 0 || visibleAsks(preview.asks ?? []).length > 0;

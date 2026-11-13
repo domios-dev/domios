@@ -10,6 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "tab/lifecycle_exit.rs"]
 mod lifecycle_exit;
+mod runtime_shutdown;
+#[cfg(any(test, feature = "test-support"))]
+pub use runtime_shutdown::RuntimeStopOverride;
 #[cfg(test)]
 #[path = "tab/tests.rs"]
 mod tests;
@@ -150,8 +153,7 @@ impl ServiceContext {
         self.invalidate_guarded_agent_input(tab_id);
         super::background_work_watch::cancel(self, tab_id);
         crate::flow_trace::cancel_tab(tab_id);
-        self.chat_registry.shutdown_tab(tab_id);
-        super::agent_runtime::engine::stop_blocking(self, tab_id)?;
+        self.shutdown_tab_agent_runtime(tab_id)?;
         self.deferred_session_bindings.clear(tab_id);
 
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
@@ -559,13 +561,13 @@ impl ServiceContext {
             let mux = self.mux.read();
             mux.resolve_tab_id(tab_id).filter(|id| {
                 mux.get_tab(id)
-                    .is_some_and(|tab| super::lazy_restore::wake_eligible(tab, true))
+                    .is_some_and(super::lazy_restore::wake_on_open_eligible)
             })
         };
         if let Some(target) = target {
             let service = self.clone();
             crate::async_runtime::spawn_blocking(move || {
-                if let Err(reason) = service.wake_tab_on_request(&target) {
+                if let Err(reason) = service.wake_tab_on_open(&target) {
                     log::warn!("[tab-focus] wake failed tab={target}: {reason}");
                 }
             });

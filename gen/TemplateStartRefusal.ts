@@ -4,4 +4,4 @@ import type { PackageDiagnostic } from "./PackageDiagnostic";
 import type { PlacementProblem } from "./PlacementProblem";
 import type { TemplateRef } from "./TemplateRef";
 
-export type TemplateStartRefusal = { "code": "consent_required", reasons: Array<ConsentReason>, } | { "code": "invalid_package", diagnostics: Array<PackageDiagnostic>, } | { "code": "not_found", template: TemplateRef, } | { "code": "missing_inputs", inputs: Array<string>, } | { "code": "invalid_placement", role: string, peer: string, problem: PlacementProblem, };
+export type TemplateStartRefusal = { "code": "consent_required", reasons: Array<ConsentReason>, } | { "code": "invalid_package", diagnostics: Array<PackageDiagnostic>, } | { "code": "not_found", template: TemplateRef, } | { "code": "missing_inputs", inputs: Array<string>, } | { "code": "invalid_placement", role: string, peer: string, problem: PlacementProblem, } | { "code": "schedule_unsupported_role", role: string, } | { "code": "host_owned_role", role: string, };

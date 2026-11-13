@@ -221,7 +221,10 @@ pub struct OrchestrationPairResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub orchestrator_model: Option<String>,
-    pub planner_tab_id: String,
+    /// Absent when the package lists no with_team planner: the Team has no Planner.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub planner_tab_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub planner_model: Option<String>,

@@ -3,7 +3,8 @@ version: 1.0.0
 description: Probe package.
 tasks:
   - name: First task
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: |
       Lead.

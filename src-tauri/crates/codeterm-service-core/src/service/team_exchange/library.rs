@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use codeterm_team_package::contracts::{
-    declared_asks, TemplateDiffItem, TemplateProvenance, TemplateRef, TemplateSummary,
-    TemplateUpdateDiff,
+    declared_asks, RoleKindChange, TemplateDiffItem, TemplateProvenance, TemplateRef,
+    TemplateSummary, TemplateUpdateDiff,
 };
 use codeterm_team_package::{check_archive, payload_items, CheckOptions, Package};
 use parking_lot::Mutex;
@@ -79,8 +79,7 @@ pub fn update_diff(from: &Package, to: &Package) -> TemplateUpdateDiff {
         package
             .document
             .roles()
-            .into_iter()
-            .map(|(_, name, role)| (name.to_string(), role.clone()))
+            .map(|(name, role)| (name.to_string(), role.clone()))
             .collect::<Vec<_>>()
     };
     let (before, after) = (roles(from), roles(to));
@@ -102,6 +101,13 @@ pub fn update_diff(from: &Package, to: &Package) -> TemplateUpdateDiff {
                 if previous != *role
                     || from.role_instructions(name) != to.role_instructions(name) =>
             {
+                if previous.kind != role.kind {
+                    diff.roles_kind_changed.push(RoleKindChange {
+                        role: name.clone(),
+                        from: previous.kind,
+                        to: role.kind,
+                    });
+                }
                 diff.roles_changed.push(name.clone())
             }
             Some(_) => {}
@@ -201,7 +207,7 @@ impl TemplateLibrary {
         let archive = self.file(name, &version, ARCHIVE).ok()?;
         codeterm_util::safe_tree::refuse_linked_ancestors(&archive).ok()?;
         let bytes = std::fs::read(&archive).ok()?;
-        let package = check_archive(&bytes, &CheckOptions::domios()).package?;
+        let package = check_archive(&bytes, &CheckOptions::default()).package?;
         Some((package, self.record(name, &version).provenance))
     }
 

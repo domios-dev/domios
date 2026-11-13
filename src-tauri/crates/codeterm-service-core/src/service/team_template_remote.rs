@@ -72,14 +72,10 @@ pub struct HostedRole {
 
 /// Resolves `--role` against the origin Team's registry through the shared composition.
 pub fn hosted_role(team_id: Option<&str>, role: &str) -> Result<HostedRole, String> {
+    // The same rule as local dispatch: only a worker the origin Team registers travels.
     let role_type = super::team_roles::TeamRoleStore::global()
-        .role_type(team_id, role)
+        .worker_type(team_id, Some(role))
         .map_err(|error| error.to_string())?;
-    if !role_type.is_worker() {
-        return Err(format!(
-            "mesh dispatch launches a worker type; `{role}` is a manager type"
-        ));
-    }
     let guidance = super::persona::guidance_for(
         super::persona::Occasion::WorkerLaunchIdentity,
         &super::team_roles::registrations(team_id),

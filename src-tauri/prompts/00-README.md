@@ -9,7 +9,7 @@ Every system-level prompt in Domios is compiled into the binary via `include_str
 **Two in-binary prompt roots.** Host prompts live here; builtin role prose lives in the default team package:
 
 1. **`src-tauri/prompts/`** — all in-binary prompt sources. Loaded via `include_str!()` by the owning app or crate module. Includes the GA system prompt, host runtime text appended to roles, bridge memory protocol, cron suffixes, seed prompts, AND every memory-worker prompt (extraction, REM dreaming, reranking, worker preamble).
-2. **`src-tauri/team-templates/default/`** — the builtin default package: `team.yaml` plus one role file per manager slot and worker. Embedded by `codeterm-team-package` and read by `codeterm-prompts/src/builtin_roles.rs`.
+2. **`src-tauri/team-templates/default/`** — the builtin default package: `team.yaml` plus one role file per role in its `roles` map. Embedded by `codeterm-team-package` and read by `codeterm-prompts/src/builtin_roles.rs`.
 
 Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. A project-owned prompt source outside these two roots is a bug.
 
@@ -32,6 +32,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `interactive_child_pty.md` | `INTERACTIVE_CHILD_PTY_OPERATION` | Shared child PTY recovery procedure | — | `service/general_agent/instructions.rs`, `prompts.rs`, and `service/skill_mirror.rs` — delivered to the General Agent and codeterm skill; the Orchestrator trigger refers to it by capability id |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
 | `plan_task_flags.md` | `PLAN_TASK_FLAGS` | Manager host text | — | `role_preset.rs` — appended after the Orchestrator, Planner and Watcher prose |
+| `custom_manager.md` | `CUSTOM_MANAGER` | Manager host text | — | `role_preset.rs` — appended after the own instructions of every manager without a built-in name: no Domios authority, ask the Orchestrator, report |
 | `plugin_discovery_rule.md` | `PLUGIN_DISCOVERY_RULE` | Capability discovery pointer | — | `prompts.rs` — composed into agent control guidance |
 | `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/prompt_compose.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
 | `agent_routing_contract.md` | `AGENT_ROUTING_CONTRACT` | Shared routed-message trust and reply policy | — | `codeterm-service-core/src/prompts.rs`; composed after the Agent primer for spawned launches in `service/orchestrator/prompt_compose.rs` and `service/orchestrator/spawn/runtime_prompt.rs` |
@@ -112,40 +113,41 @@ Five of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 ## Role files
 
-Builtin role prose lives once in the default package. `check-prompts-doc.sh` requires a row here for every role file; `codeterm-team-package` requires `team.yaml` to reference each one. Role prose carries no `{placeholder}`: host runtime text is appended after it per group and manager slot, and a package can never remove or replace that text.
+Builtin role prose lives once in the default package. `check-prompts-doc.sh` requires a row here for every role file; `codeterm-team-package` requires `team.yaml` to reference each one. Role prose carries no `{placeholder}`: host runtime text is appended after it per kind, per built-in manager name, and as one generic text (`custom_manager.md`) for every other manager name, and a package can never remove or replace that text.
 
-| Role file | Group | Host text appended after it |
+| Role file | Role | Host text appended after it |
 |---|---|---|
-| `default/managers/orchestrator.md` | Manager slot `orchestrator`; served as `domios docs ORCHESTRATION` | `plan_task_flags.md`, `mem_management.md` |
-| `default/managers/planner.md` | Manager slot `planner` and the host-only `watcher`; served as `domios docs PLANNER` | `plan_task_flags.md`, `mem_management.md` |
-| `default/managers/cartographer.md` | Manager slot `cartographer` | — |
-| `default/managers/curator.md` | Manager slot `curator`, including its ask rubric | — |
-| `default/workers/worker.md` | Worker type `worker`; the base of an unregistered Worker type | `testing_discipline.md`, `qa_pipeline_discipline.md` |
-| `default/workers/qa.md` | Worker type `qa` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
-| `default/workers/reviewer.md` | Worker type `reviewer` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
-| `default/workers/release_manager.md` | Worker type `release_manager` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
+| `default/managers/orchestrator.md` | Manager `orchestrator`; served as `domios docs ORCHESTRATION` | `plan_task_flags.md`, `mem_management.md` |
+| `default/managers/planner.md` | Manager `planner` and the host-only `watcher`; served as `domios docs PLANNER` | `plan_task_flags.md`, `mem_management.md` |
+| `default/managers/cartographer.md` | Manager `cartographer` | — |
+| `default/managers/curator.md` | Manager `curator`, including its ask rubric | — |
+| `default/workers/worker.md` | Worker `worker` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
+| `default/workers/qa.md` | Worker `qa` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
+| `default/workers/reviewer.md` | Worker `reviewer` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
+| `default/workers/release_manager.md` | Worker `release_manager` | `testing_discipline.md`, `qa_pipeline_discipline.md` |
 
-Managers then receive the Team's worker types with their descriptions; every role receives its own registered files and skills.
+Managers then receive the Team's managers (display name, start mode, Domios authority or none, and how to start them) and its workers with their descriptions; every role receives its own registered files and skills.
 
 ## Role presets — one resolver, one composition table
 
-`service/role_preset.rs` is the sole role registry. It resolves a role type by
-precedence task > Team registration > builtin default package, by kind
-capability, never by provider literal or a separate Worker path. An omitted
-manager slot falls back to the default package; a same-named Team worker
-replaces the builtin entirely. Registrations live per Team in
-`<data-dir>/teams/<team_id>/roles.json` (`service/team_roles.rs`), are immutable
-once stored, and never change a role type's structural capability.
+`service/role_preset.rs` is the sole role registry. It resolves a role by
+precedence task > Team registration, never by provider literal or a separate
+Worker path. A Team has exactly the roles it registers: there is no per-role
+fallback, and a name the Team does not list resolves to no role prose. A Team
+with no registrations is the builtin default package as a whole (host policy).
+Registrations live per Team in `<data-dir>/teams/<team_id>/roles.json`
+(`service/team_roles.rs`), carry each role's `kind`, are immutable once stored,
+and never change a role's capability: the host decides authority from the kind
+and the name alone.
 
 A preset's guidance is a list of fragments, each with its own provenance, joined
 with a blank line in this order:
 
 | Fragment | Source | Meaning |
 |---|---|---|
-| `builtin` | the default package role file | Prose for a builtin role type |
+| `builtin` | the default package role file | Prose of a role in a Team with no registrations |
 | `team_registration` | the Team's `roles.json` | Prose pinned to the registering package |
-| `inherited_base` | `default/workers/worker.md` | The base an unregistered Worker type reads |
-| `host` | `src-tauri/prompts/` | Host runtime text per group and manager slot, then the Team's worker types (managers only) |
+| `host` | `src-tauri/prompts/` | Host runtime text per kind and manager name, then the Team's managers and workers (managers only) |
 | `task_overlay` | The dispatch | Task personality, `role_guidance`, and `executor_role` for this one delivery |
 
 `service/persona/occasion.rs` holds the single declarative table mapping a

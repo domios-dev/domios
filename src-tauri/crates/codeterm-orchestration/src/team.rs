@@ -15,6 +15,7 @@ pub mod close;
 mod close_busy;
 mod member_commit;
 pub use member_commit::commit_team_member_prepared;
+mod runtime_shutdown;
 mod storage_teardown;
 pub(crate) mod template_start;
 mod validation;
@@ -494,9 +495,7 @@ async fn close_team_inner(
     // Persist the authorized reduction before any fallible cleanup can
     // early-return and leave last.json still holding the member tabs.
     codeterm_service_core::service::session_persist::persist_session_after_close(svc);
-    for tab_id in &cleanup.member_tab_ids {
-        svc.chat_registry.shutdown_tab(tab_id);
-    }
+    let runtime_shutdown = runtime_shutdown::stop_members(svc, &cleanup.member_tab_ids).await;
     for (plugin_id, session_id) in &cleanup.chat_backings {
         let _ = svc.chatbackend_close(plugin_id, session_id);
     }
@@ -585,6 +584,7 @@ async fn close_team_inner(
             reason: flag.reason,
         })
         .collect();
+    runtime_shutdown?;
     Ok(TeamCloseResult {
         remote_members,
         team,

@@ -1,11 +1,12 @@
 name: dev.example/probe
 version: 1.0.0
 description: Probe package.
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: |
       Lead.
-workers:
   planner:
+    kind: worker
     instructions: |
       Plan.

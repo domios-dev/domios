@@ -3,7 +3,8 @@ version: 1.0.0
 description: Probe package.
 skills:
   - source-check
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: |
       Lead.

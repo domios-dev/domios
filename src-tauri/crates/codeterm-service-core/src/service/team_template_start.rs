@@ -5,11 +5,11 @@ use std::collections::BTreeMap;
 
 use codeterm_team_package::contracts::{
     declared_asks, input_fields, role_summaries, ManagerModelPicker, ModelDecision,
-    PlacementProblem, TemplateConsent, TemplateList, TemplatePreview, TemplateRef,
+    PlacementProblem, RoleAuthority, TemplateConsent, TemplateList, TemplatePreview, TemplateRef,
     TemplateRoleSummary, TemplateRuntimeNeed, TemplateStartForm, TemplateStartRefusal,
     TemplateStartRequest, TemplateSummary, TemplateWhere,
 };
-use codeterm_team_package::{payload_items, ManagerSlot, RoleStart, StartMode, TeamRoleGroup};
+use codeterm_team_package::{payload_items, RoleKind, RoleStart, StartMode, ORCHESTRATOR};
 use serde_json::Value;
 
 use super::model_decision::{
@@ -21,7 +21,9 @@ mod consent;
 mod resolve;
 
 pub use consent::{consent_reasons, ConsentLedger};
-pub use resolve::{builtin_templates, resolve, ResolvedTemplate};
+pub use resolve::{
+    builtin_templates, host_policy, refuse_host_owned_roles, resolve, ResolvedTemplate,
+};
 
 /// A template verb that could not answer: malformed parameters or a typed refusal.
 #[derive(Debug, Clone, PartialEq)]
@@ -187,14 +189,14 @@ fn worker_placements(
     resolved: &ResolvedTemplate,
     placements: &BTreeMap<String, String>,
 ) -> Result<(), TemplateStartRefusal> {
-    let roles = resolved.package.document.roles();
+    let document = &resolved.package.document;
     for (role, peer) in placements {
-        match roles.iter().find(|(_, name, _)| *name == role.as_str()) {
+        match document.role(role).map(|declared| declared.kind) {
             None => return Err(placement_refusal(role, peer, PlacementProblem::UnknownRole)),
-            Some((TeamRoleGroup::Manager, _, _)) => {
+            Some(RoleKind::Manager) => {
                 return Err(placement_refusal(role, peer, PlacementProblem::NotAWorker))
             }
-            Some((TeamRoleGroup::Worker, _, _)) => {}
+            Some(RoleKind::Worker) => {}
         }
     }
     Ok(())
@@ -236,37 +238,40 @@ pub fn resolve_placements(
     Ok(())
 }
 
-/// Manager slots the package starts with the Team, Orchestrator first.
-pub fn with_team_slots(resolved: &ResolvedTemplate) -> Vec<ManagerSlot> {
-    resolved
-        .package
-        .document
-        .managers
-        .iter()
-        .filter(|(slot, role)| {
-            *slot != ManagerSlot::Curator
-                && role.effective_start(Some(*slot)) == RoleStart::Mode(StartMode::WithTeam)
+/// The managers the package starts with the Team, Orchestrator first, then in package order.
+/// A curator runs on its schedule, never as a with_team member.
+pub fn with_team_managers(resolved: &ResolvedTemplate) -> Vec<String> {
+    let document = &resolved.package.document;
+    let mut names: Vec<String> = document
+        .roles_of(RoleKind::Manager)
+        .filter(|(name, role)| {
+            *name != codeterm_team_package::CURATOR
+                && role.effective_start(name) == RoleStart::Mode(StartMode::WithTeam)
         })
-        .map(|(slot, _)| slot)
-        .collect()
+        .map(|(name, _)| name.to_string())
+        .collect();
+    names.sort_by_key(|name| name.as_str() != ORCHESTRATOR);
+    names
 }
 
-/// The pickers for with_team managers, from the shared decisions of the package's roles.
+/// The pickers for with_team managers by role name, from the shared decisions of the
+/// package's roles.
 pub fn manager_pickers(
     resolved: &ResolvedTemplate,
     decisions: &BTreeMap<String, ModelDecision>,
 ) -> Vec<ManagerModelPicker> {
     let labels = role_summaries(&resolved.package);
-    with_team_slots(resolved)
+    with_team_managers(resolved)
         .into_iter()
-        .filter_map(|slot| {
-            let decision = decisions.get(slot.as_str())?.clone();
+        .filter_map(|name| {
+            let decision = decisions.get(&name)?.clone();
             let label = labels
                 .iter()
-                .find(|role| role.group == TeamRoleGroup::Manager && role.role == slot.as_str())
-                .map_or_else(|| slot.as_str().to_string(), |role| role.label.clone());
+                .find(|role| role.kind == RoleKind::Manager && role.role == name)
+                .map_or_else(|| name.clone(), |role| role.label.clone());
             Some(ManagerModelPicker {
-                slot,
+                authority: RoleAuthority::of(RoleKind::Manager, &name),
+                role: name,
                 label,
                 decision,
             })
@@ -279,12 +284,11 @@ fn decided_roles(
     resolved: &ResolvedTemplate,
     decisions: &BTreeMap<String, ModelDecision>,
 ) -> Vec<TemplateRoleSummary> {
-    let picked = with_team_slots(resolved);
+    let picked = with_team_managers(resolved);
     role_summaries(&resolved.package)
         .into_iter()
         .map(|mut role| {
-            let has_picker = role.group == TeamRoleGroup::Manager
-                && picked.iter().any(|slot| slot.as_str() == role.role);
+            let has_picker = role.kind == RoleKind::Manager && picked.contains(&role.role);
             if !has_picker {
                 role.model = decisions.get(&role.role).cloned();
             }

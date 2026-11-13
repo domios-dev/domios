@@ -3,7 +3,8 @@ version: 1.0.0
 description: Probe package.
 files:
   - path: docs/rubric.md
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: |
       Lead.

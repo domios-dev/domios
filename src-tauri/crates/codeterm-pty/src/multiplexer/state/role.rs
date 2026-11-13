@@ -99,7 +99,7 @@ impl MultiplexerState {
         let kind_id = role_kind::kind_id(Some(role), role_profile)
             .ok_or("Manager requires a named role_profile")?
             .to_string();
-        let capability = role_kind::capability_for_kind(&kind_id);
+        let capability = role_kind::registered_capability(role, &kind_id);
         let label = role_kind::kind_label(Some(role), role_profile).unwrap_or(role.label());
 
         if capability.anchors_team() {

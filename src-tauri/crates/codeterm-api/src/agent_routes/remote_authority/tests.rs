@@ -14,7 +14,7 @@ fn remote_agent_spawn_retains_agent_ownership_without_local_hierarchy_authority(
     let mut body: SpawnAgentBody =
         serde_json::from_value(json!({"agent":"opaque-provider", "task":"opaque-task"})).unwrap();
     prepare(&agent(), &mut body).unwrap_or_else(|error| panic!("{}", error.body));
-    let role = super::super::validate_spawn_role(body.role.as_deref()).unwrap();
+    let role = super::super::validate_spawn_role(None, body.role.as_deref()).unwrap();
     let ownership = body.ownership.clone();
     let params = super::super::spawn_request::into_params(body, role, ownership);
     assert_eq!(params.role.as_deref(), Some("Worker"));

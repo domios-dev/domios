@@ -36,7 +36,7 @@ export function TemplateInstructions({ preview, role, onRole, onBack, transport 
       {roles.length > 1 && <div role="group" aria-label="Roles" className="flex flex-wrap gap-1.5">
         {roles.map((candidate) => {
           const label = roleHeading(candidate);
-          return <button key={`${candidate.group}:${candidate.role}`} type="button" aria-pressed={candidate.role === role}
+          return <button key={`${candidate.kind}:${candidate.role}`} type="button" aria-pressed={candidate.role === role}
             className={`ct-small-pill ${candidate.role === role ? "text-[var(--ct-fg)] ring-1 ring-[var(--ct-accent)]" : "hover:text-[var(--ct-fg)]"}`}
             onClick={() => onRole(candidate.role)}>{label.name}</button>;
         })}

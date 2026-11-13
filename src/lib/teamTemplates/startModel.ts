@@ -1,7 +1,8 @@
 import { humanizeRoleKey, kindDisplayName, roleDisplayLabel } from "../roleKind";
 import type { TemplatePreview, TemplateRecall, TemplateStartRequest } from "../transport/teamTemplates";
 
-type ManagerSlot = import("../../../gen/ManagerSlot").ManagerSlot;
+/** A manager role name: a built-in manager or one of the package's own. */
+type ManagerSlot = string;
 type ManagerModelChoice = import("../../../gen/ManagerModelChoice").ManagerModelChoice;
 type ModelDecision = import("../../../gen/ModelDecision").ModelDecision;
 type PayloadKind = import("../../../gen/PayloadKind").PayloadKind;
@@ -102,20 +103,18 @@ export function rowDecisionNotice(decision: ModelDecision, rowProviderId: string
   return decisionNotice(decision, harnessName);
 }
 
-const PAIR_MANAGERS: readonly TemplateRoleSummary[] = [
-  { group: "manager", role: "orchestrator", label: "orchestrator", start: "with_team" },
-  { group: "manager", role: "planner", label: "planner", start: "with_team" },
-];
-
-/** The managers a start launches, in slot order: every Team starts an Orchestrator and a Planner even when the package omits them. */
+/** Exactly the package's managers, built-in slots first and then the package's own in package order; nothing is implied. */
 export function managerRoles(roles: readonly TemplateRoleSummary[]): TemplateRoleSummary[] {
-  const declared = roles.filter((role) => role.group === "manager");
-  const all = [...declared, ...PAIR_MANAGERS.filter((pair) => !declared.some((role) => role.role === pair.role))];
   const rank = (role: TemplateRoleSummary) => {
     const index = MANAGER_SLOTS.indexOf(role.role as ManagerSlot);
     return index < 0 ? MANAGER_SLOTS.length : index;
   };
-  return all.sort((a, b) => rank(a) - rank(b));
+  return roles.filter((role) => role.kind === "manager").sort((a, b) => rank(a) - rank(b));
+}
+
+/** The host's verdict that a role carries no Domios authority: a custom manager. */
+export function lacksAuthority(role: { kind?: TemplateRoleSummary["kind"]; authority: TemplateRoleSummary["authority"] }): boolean {
+  return role.kind !== "worker" && role.authority === "none";
 }
 
 /** The role whose model this one follows (`model: {same_as: <role>}`), named even while that model is undecided. */
@@ -124,8 +123,8 @@ export function roleSameAs(role: Pick<TemplateRoleSummary, "same_as">): string |
 }
 
 /** A manager's decision: a with_team manager's picker, else the decision its role summary carries. */
-export function managerDecision(pickers: readonly { slot: string; decision: ModelDecision }[], role: TemplateRoleSummary): ModelDecision | null {
-  return pickers.find((picker) => picker.slot === role.role)?.decision ?? role.model ?? null;
+export function managerDecision(pickers: readonly { role: string; decision: ModelDecision }[], role: TemplateRoleSummary): ModelDecision | null {
+  return pickers.find((picker) => picker.role === role.role)?.decision ?? role.model ?? null;
 }
 
 /** The quiet tooltip shown when the model cannot honour the requested effort. */
@@ -293,7 +292,8 @@ export function buildStartRequest({ preview, inputs, optOut, managerModels, secr
   preview: TemplatePreview;
   inputs: Record<string, string>;
   optOut: ReadonlySet<string>;
-  managerModels: Partial<Record<ManagerSlot, ManagerModelChoice>>;
+  /** Owner picks by manager role name; only roles with a pick are present. */
+  managerModels: Record<string, ManagerModelChoice>;
   secretBindings?: Record<string, string>;
   rolePlacements?: Record<string, string>;
 }): TemplateStartRequest {
@@ -341,6 +341,9 @@ function refusalView(refusal: TemplateStartRefusal): StartErrorView {
     case "not_found": return { message: `${humanizePackageName(refusal.template.name)} isn't available`, reasons: [], choices: [] };
     case "invalid_package": return { message: "This template isn't a valid package", reasons: refusal.diagnostics.map((diagnostic) => diagnostic.message), choices: [] };
     case "invalid_placement": return { message: placementText(refusal.role, refusal.peer, refusal.problem), reasons: [], choices: [] };
+    case "schedule_unsupported_role":
+      return { message: "This template can't start", reasons: [`${roleDisplayLabel(refusal.role, refusal.role)} runs on a schedule, which Domios doesn't run for this role`], choices: [] };
+    case "host_owned_role": return { message: `${refusal.role} is a Domios role and can't be part of a template`, reasons: [], choices: [] };
   }
 }
 
@@ -349,9 +352,9 @@ export function startResultView(result: TemplateStartResult): StartErrorView | n
   switch (result.status) {
     case "started": return null;
     case "manager_failed":
-      return { message: `The ${kindDisplayName(result.failure.slot)} couldn't start`, reasons: [result.failure.reason], choices: result.failure.choices ?? [] };
+      return { message: `The ${kindDisplayName(result.failure.role)} couldn't start`, reasons: [result.failure.reason], choices: result.failure.choices ?? [] };
     case "needs_choice":
-      return { message: "Choose a model first", reasons: result.choices.map((choice) => managerLabel(choice.slot, choice.label)), choices: [] };
+      return { message: "Choose a model first", reasons: result.choices.map((choice) => managerLabel(choice.role, choice.label)), choices: [] };
     case "refused": return refusalView(result.refusal);
   }
 }
@@ -366,6 +369,13 @@ function resultView(value: Record<string, unknown>): StartErrorView | null {
     return { message: value.message, reasons: diagnostics.flatMap((diagnostic) => typeof diagnostic.message === "string" ? [diagnostic.message] : []), choices: [] };
   }
   return null;
+}
+
+/** A typed start refusal carried by an error, shown as a blocked start; null for any other failure. */
+export function startRefusalView(error: unknown): StartErrorView | null {
+  const parsed = embeddedJson(error instanceof Error ? error.message : String(error));
+  const value = parsed && typeof parsed === "object" ? parsed as Partial<TemplateStartResult> : null;
+  return value?.status === "refused" && value.refusal ? refusalView(value.refusal) : null;
 }
 
 /** A start failure shown in the dialog, with the server's reasons and choices when it sent a typed result. */

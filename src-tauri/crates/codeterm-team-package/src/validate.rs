@@ -4,13 +4,12 @@ use crate::diagnostics::{DiagnosticCode as Code, Sink};
 use crate::document::*;
 use crate::paths;
 use crate::yaml::Locations;
-use crate::{CheckOptions, HostProfile, Limits};
+use crate::{CheckOptions, Limits};
 
 struct Check<'a> {
     sink: &'a mut Sink,
     locations: &'a Locations,
     limits: &'a Limits,
-    host: Option<&'a HostProfile>,
 }
 
 impl Check<'_> {
@@ -150,11 +149,8 @@ pub fn is_model_id(model: &str) -> bool {
             .any(|character| character.is_whitespace() || character.is_control())
 }
 
-fn role_path(group: TeamRoleGroup, name: &str) -> String {
-    match group {
-        TeamRoleGroup::Manager => format!("managers.{name}"),
-        TeamRoleGroup::Worker => format!("workers.{name}"),
-    }
+fn role_path(name: &str) -> String {
+    format!("roles.{name}")
 }
 
 fn identity(check: &mut Check<'_>, document: &TeamDocument) {
@@ -363,51 +359,29 @@ fn payload(check: &mut Check<'_>, document: &TeamDocument) {
     }
 }
 
-fn role(
-    check: &mut Check<'_>,
-    document: &TeamDocument,
-    group: TeamRoleGroup,
-    name: &str,
-    role: &TeamRole,
-) {
-    let path = role_path(group, name);
-    let slot = match group {
-        TeamRoleGroup::Manager => ManagerSlot::parse(name),
-        TeamRoleGroup::Worker => None,
-    };
-    if group == TeamRoleGroup::Worker {
-        if !is_role_name(name) {
-            check.error(
-                Code::InvalidRoleName,
-                &path,
-                format!("`{name}` must match [a-z][a-z0-9_]*"),
-            );
-        } else if ManagerSlot::parse(name).is_some() {
-            check.error(
-                Code::ReservedRoleName,
-                &path,
-                format!("`{name}` is a manager slot, not a worker name"),
-            );
-        } else if role.instructions.is_none() && role.instructions_file.is_none() {
-            let at = format!("{path}.instructions");
-            match check.host {
-                None => {
-                    let mark = check.locations.at(&path);
-                    check.sink.warning(
-                        Code::InheritsHostRole,
-                        &at,
-                        mark,
-                        format!("`{name}` has no instructions, so it inherits the host's default role `{name}`; invalid on hosts without one"),
-                    );
-                }
-                Some(host) if host.builtin_workers.iter().any(|builtin| builtin == name) => {}
-                Some(_) => check.error(
-                    Code::MissingField,
-                    &at,
-                    format!("`{name}` is not a builtin worker on this host, so it needs `instructions` or `instructions_file`"),
-                ),
-            }
-        }
+fn role(check: &mut Check<'_>, document: &TeamDocument, name: &str, role: &TeamRole) {
+    let path = role_path(name);
+    if !is_role_name(name) {
+        check.error(
+            Code::InvalidRoleName,
+            &path,
+            format!("`{name}` must match [a-z][a-z0-9_]*"),
+        );
+    } else if role.kind == RoleKind::Worker && is_builtin_manager(name) {
+        check.error(
+            Code::ReservedWorkerName,
+            &format!("{path}.kind"),
+            format!("`{name}` is a built-in manager name, so its kind must be `manager`"),
+        );
+    }
+    if role.instructions.is_none() && role.instructions_file.is_none() {
+        let mark = check.locations.at(&path);
+        check.sink.error(
+            Code::MissingInstructions,
+            &format!("{path}.instructions"),
+            mark,
+            format!("`{name}` needs `instructions` or `instructions_file`"),
+        );
     }
     match &role.start {
         Some(RoleStart::Schedule { schedule }) if schedule_window(schedule).is_none() => check
@@ -420,13 +394,23 @@ fn role(
         ),
         _ => {}
     }
-    if slot == Some(ManagerSlot::Orchestrator)
-        && role.effective_start(slot) != RoleStart::Mode(StartMode::WithTeam)
-    {
+    let declared = |mode: StartMode| {
+        role.start
+            .as_ref()
+            .is_some_and(|start| *start != RoleStart::Mode(mode))
+    };
+    if name == ORCHESTRATOR && declared(StartMode::WithTeam) {
         check.error(
             Code::InvalidStart,
             &format!("{path}.start"),
             "the orchestrator always starts with the Team".into(),
+        );
+    } else if name != ORCHESTRATOR && role.kind == RoleKind::Worker && declared(StartMode::OnDemand)
+    {
+        check.error(
+            Code::InvalidStart,
+            &format!("{path}.start"),
+            "a worker takes one task and ends, so it starts `on_demand`".into(),
         );
     }
     match &role.model {
@@ -492,24 +476,23 @@ fn role(
 }
 
 fn same_as_cycles(check: &mut Check<'_>, document: &TeamDocument) {
-    let targets: BTreeMap<String, (TeamRoleGroup, String)> = document
+    let targets: BTreeMap<String, String> = document
         .roles()
-        .into_iter()
-        .filter_map(|(group, name, role)| match &role.model {
+        .filter_map(|(name, role)| match &role.model {
             Some(ModelPreference::SameAs { same_as }) => {
-                Some((name.to_string(), (group, same_as.clone())))
+                Some((name.to_string(), same_as.clone()))
             }
             _ => None,
         })
         .collect();
-    for (start, (group, _)) in &targets {
+    for start in targets.keys() {
         let mut current = start.as_str();
         let mut seen = BTreeSet::new();
-        while let Some((_, next)) = targets.get(current) {
+        while let Some(next) = targets.get(current) {
             if next == start {
                 check.error(
                     Code::SameAsCycle,
-                    &format!("{}.model.same_as", role_path(*group, start)),
+                    &format!("{}.model.same_as", role_path(start)),
                     format!("`same_as` from `{start}` leads back to itself"),
                 );
                 break;
@@ -533,13 +516,12 @@ pub(crate) fn document(
         sink,
         locations,
         limits: &options.limits,
-        host: options.host.as_ref(),
     };
     identity(&mut check, document);
     asks(&mut check, document);
     payload(&mut check, document);
-    for (group, name, declared) in document.roles() {
-        role(&mut check, document, group, name, declared);
+    for (name, declared) in document.roles() {
+        role(&mut check, document, name, declared);
     }
     same_as_cycles(&mut check, document);
 }

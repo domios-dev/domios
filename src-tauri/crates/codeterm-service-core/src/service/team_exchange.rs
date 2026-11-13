@@ -10,7 +10,7 @@ use codeterm_team_package::contracts::{
     declared_asks, ScrubReport, TemplateDeleteRequest, TemplateDeleteResult,
     TemplateDistillRequest, TemplateDistillResult, TemplateExportRequest, TemplateExportResult,
     TemplateImportResult, TemplateProvenance, TemplateRef, TemplateShareCard, TemplateShareState,
-    TemplateSummary,
+    TemplateStartRefusal, TemplateSummary,
 };
 use codeterm_team_package::{
     builtin, check_entries, check_path, check_yaml, payload_items, CheckOptions, Package,
@@ -107,7 +107,7 @@ pub fn builtin_packages() -> &'static [Package] {
     PACKAGES.get_or_init(|| {
         builtin::names()
             .iter()
-            .filter_map(|name| builtin::check(name, &CheckOptions::domios()))
+            .filter_map(|name| builtin::check(name, &CheckOptions::default()))
             .filter_map(|checked| checked.package)
             .collect()
     })
@@ -179,7 +179,7 @@ pub fn run_pipeline(
         PackageFormat::Folder,
         package.archive_entries(),
         Vec::new(),
-        &CheckOptions::domios(),
+        &CheckOptions::default(),
     );
     let Some(package) = canonical.package else {
         return Err(ExchangeError::package(canonical.report));
@@ -187,7 +187,7 @@ pub fn run_pipeline(
     let (form, written) = forms::render(&package, format).map_err(ExchangeError::invalid)?;
     let yaml = form.to_yaml();
     let check = match format {
-        PackageFormat::Yaml => check_yaml(&yaml, &CheckOptions::domios()).report,
+        PackageFormat::Yaml => check_yaml(&yaml, &CheckOptions::default()).report,
         _ => {
             let mut report = canonical.report;
             report.format = format;
@@ -372,10 +372,19 @@ pub fn check_import(path: &Path) -> Result<Package, ExchangeError> {
     if !path.is_absolute() {
         return Err(ExchangeError::invalid("`path` must be an absolute path"));
     }
-    let checked = check_path(path, &CheckOptions::domios());
+    let checked = check_path(path, &CheckOptions::default());
     let package = checked
         .package
         .ok_or_else(|| ExchangeError::package(checked.report))?;
+    super::team_template_start::refuse_host_owned_roles(&package).map_err(|refusal| {
+        let role = match refusal {
+            TemplateStartRefusal::HostOwnedRole { role } => role,
+            other => format!("{other:?}"),
+        };
+        ExchangeError::invalid(format!(
+            "role `{role}` is owned by Domios and cannot be a package role"
+        ))
+    })?;
     refuse_secret_values(&package)?;
     Ok(package)
 }
@@ -403,7 +412,7 @@ pub fn import(svc: &ServiceContext, params: Option<&Value>) -> Outcome {
         PackageFormat::Folder,
         package.archive_entries(),
         Vec::new(),
-        &CheckOptions::domios(),
+        &CheckOptions::default(),
     )
     .report;
     let (mut template, update) = save(svc, &package, TemplateProvenance::Imported)?;
@@ -451,7 +460,7 @@ pub fn share_card(params: Option<&Value>) -> Outcome {
     to_value(&TemplateShareCard {
         file_id: request.file_id,
         template: TemplateSummary::from_package(&package, TemplateProvenance::Imported),
-        roles: package.document.roles().len() as u32,
+        roles: package.document.roles.len() as u32,
         asks: declared_asks(&package),
         state: if saved {
             TemplateShareState::Previewed
