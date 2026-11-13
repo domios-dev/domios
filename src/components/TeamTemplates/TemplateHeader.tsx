@@ -4,11 +4,9 @@ import { authorLine } from "../../lib/teamTemplates/exchangeModel";
 
 const LINK = "text-[12px] text-[var(--ct-accent)] hover:underline";
 
-/** The chosen template in one card: its description in one line (full text on hover), then the author, Details and Change template. */
-export function TemplateHeader({ summary, onChange, onDetails }: {
+export function TemplateHeader({ summary, onChange }: {
   summary: TemplateSummary;
   onChange: () => void;
-  onDetails?: () => void;
 }) {
   const author = authorLine(summary);
   return (
@@ -23,10 +21,7 @@ export function TemplateHeader({ summary, onChange, onDetails }: {
         <div className="flex flex-wrap items-center gap-x-1 text-[12px] text-[var(--ct-muted-fg)]">
           {author && <span>{author}</span>}
           {author && <span aria-hidden="true">·</span>}
-          {/* The links wrap as one group, so "Details ·" never ends a line on a phone. */}
           <span className="inline-flex items-center gap-x-1 whitespace-nowrap" data-testid="template-header-links">
-            {onDetails && <button type="button" className={LINK} onClick={onDetails}>Details</button>}
-            {onDetails && <span aria-hidden="true">·</span>}
             <button type="button" className={LINK} onClick={onChange}>Change template</button>
           </span>
         </div>

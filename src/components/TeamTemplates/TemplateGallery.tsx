@@ -9,8 +9,6 @@ import { useTauriFileDrop } from "../../hooks/terminal/useTauriFileDrop";
 import { galleryEntries, templateSource, templateTitle, type GalleryFilter, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { folderEntryPath, storedZip } from "../../lib/teamTemplates/storedZip";
 import { TemplateIcon } from "./TemplateIcon";
-import { TemplateTrust } from "./TemplateTrust";
-import { cardByline } from "../../lib/teamTemplates/exchangeModel";
 import { PinnedFooter } from "./PinnedFooter";
 import { useSelectedTemplateCard } from "./useSelectedTemplateCard";
 import { templateCatalogKey, type TemplateCatalogStatus } from "./useTemplateCatalogRefusals";
@@ -53,10 +51,9 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
   const ready = status?.kind === "ready";
   const blocked = status?.kind === "refused";
   const failure = status && status.kind !== "ready" ? status.reason : null;
-  const reason = failure ? [failure.message, ...failure.reasons].join(" ") : undefined;
+  const reason = failure ? [failure.message, ...failure.reasons].join(" ") : !ready ? "Checking…" : undefined;
   const cardRef = useSelectedTemplateCard(selected && !confirming, reason);
   const source = templateSource(summary);
-  const byline = cardByline(summary);
   const [placement, setPlacement] = useState<"bottom-end" | "top-end">("bottom-end");
   const menuItems = [
     { label: "Details", onClick: () => { onSelect(); choice.showSummaryDetails(summary); } },
@@ -86,26 +83,27 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
   return (
     <li ref={cardRef} data-blocked={blocked || undefined} data-selected={selected} className="ct-card ct-card--choice template-gallery-card group flex min-w-0 flex-col">
       <div className="flex min-w-0 items-start gap-1">
-        <button type="button" aria-pressed={selected} aria-label={reason ? `${title}: ${reason}` : undefined} aria-describedby={reason ? reasonId : undefined} title={reason} onClick={onSelect} onDoubleClick={() => { if (ready) choice.choose(summary); }}
+        <button type="button" aria-pressed={selected} aria-label={reason ? `${title}: ${reason}` : undefined} aria-describedby={reason ? reasonId : undefined} title={reason ?? summary.description} aria-disabled={!ready || choice.pending} onClick={() => { onSelect(); if (ready && !choice.pending) choice.choose(summary); }}
+          onKeyDown={(event) => {
+            if (event.code === "Enter" || event.code === "Space") {
+              event.preventDefault();
+              if (!event.repeat) event.currentTarget.click();
+            }
+          }}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-[inherit] py-2.5 pl-3 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
           <TemplateIcon icon={summary.icon} />
           <span className="min-w-0 flex-1">
             <span className="flex items-baseline gap-2">
               <span className="truncate text-[13px] font-medium">{title}</span>
-              {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
             </span>
             <span className="block truncate text-[12px] text-[var(--ct-muted-fg)]" title={summary.description}>{summary.description}</span>
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-1 self-start py-2.5 pr-2">
-          <span className="grid h-7 w-[90px] shrink-0 items-center justify-items-end">
-            {!ready ? <span className={`text-[11px] ${blocked ? "text-[var(--ct-red)]" : "text-[var(--ct-muted-fg)]"}`}
-              title={reason} data-testid={blocked ? "template-card-blocked" : undefined}>
-              {blocked ? "Can't start" : status ? "Unavailable" : "Checking…"}
-            </span> : (
-            <Button variant="ghost" className="text-xs opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-              aria-label={`Use ${title}`} onClick={() => { onSelect(); choice.choose(summary); }}>Use</Button>)}
-          </span>
+          {!ready && <span className={`text-[11px] ${blocked ? "text-[var(--ct-red)]" : "text-[var(--ct-muted-fg)]"}`}
+            title={reason} data-testid={blocked ? "template-card-blocked" : undefined}>
+            {blocked ? "Can't start" : status ? "Unavailable" : "Checking…"}
+          </span>}
           {reason && <span id={reasonId} className="sr-only">{reason}</span>}
           {summary.provenance !== "builtin" && (
             <span className="inline-flex" onPointerDownCapture={(event) => placeMenu(event.currentTarget)}
@@ -116,12 +114,6 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
           )}
         </div>
       </div>
-      <span className="flex min-w-0 items-center gap-1 overflow-hidden px-3 pb-2.5 text-[11px] text-[var(--ct-muted-fg)]">
-        <span className="inline-flex min-w-0 max-w-full shrink-0 items-center gap-1">
-          <TemplateTrust summary={summary} inline />{byline && <span aria-hidden="true" className="shrink-0">·</span>}
-        </span>
-        {byline && <span className="min-w-0 flex-1 truncate" title={byline} data-testid="template-byline">{byline}</span>}
-      </span>
       {selected && failure && <div role="alert" data-testid="template-blocked-start" aria-label={`${title}: ${reason}`}
         className="border-t border-[var(--ct-border)] px-3 py-2 text-[12px]">
         <div className="font-medium">{title}</div>
@@ -180,16 +172,12 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
   const [selected, setSelected] = useState<TemplateSummary>(current);
   const [confirming, setConfirming] = useState<TemplateSummary | null>(null);
   const zoneRef = useRef<HTMLDivElement>(null);
-  const footerRef = useRef<HTMLDivElement>(null);
   const { isDragOver } = useTauriFileDrop({ containerRef: zoneRef, onPaths: (paths) => paths[0] && choice.importPath(paths[0]), onError: choice.setNotice });
   const catalog = choice.catalog;
   const entries = galleryEntries(catalog?.templates ?? [], catalog?.recall ?? null, choice.defaultSummary, filter, query);
-  const target = entries.length > 0 ? selected : null;
   const status = (summary: TemplateSummary): TemplateCatalogStatus | undefined => isBlocked(summary, choice.blocked)
     ? { kind: "refused", reason: choice.blocked!.refusal }
     : choice.catalogStatuses[templateCatalogKey(summary)];
-  const targetStatus = target ? status(target) : undefined;
-  const targetReady = targetStatus?.kind === "ready";
   return (
     <div className="flex flex-col gap-2.5" data-testid="template-gallery">
       <div className="flex items-center gap-2">
@@ -201,7 +189,7 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
       {/* A fixed height, so the dialog keeps its size while the filter changes. */}
       <ul className={`flex h-[340px] flex-col gap-1.5 overflow-y-auto ${isDragOver ? "opacity-40" : ""}`} aria-label="Templates" aria-busy={!catalog}>
         {entries.map((summary) => (
-          <TemplateCard key={`${summary.name}@${summary.version}`} summary={summary} selected={same(summary, selected)} status={status(summary)} choice={choice} footerRef={footerRef}
+          <TemplateCard key={`${summary.name}@${summary.version}`} summary={summary} selected={same(summary, selected)} status={status(summary)} choice={choice} footerRef={zoneRef}
             confirming={confirming !== null && same(summary, confirming)}
             onSelect={() => setSelected(summary)} onExport={onExport} onDelete={() => setConfirming(summary)} onCancelDelete={() => setConfirming(null)}
             onConfirmDelete={() => { choice.remove(summary); setConfirming(null); }} />
@@ -218,10 +206,6 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
           {choice.notice
             ? <span role="alert">{choice.notice}</span>
             : isDragOver ? "Release to preview" : <>Drop a <code>.team</code>, <code>.team.yaml</code> or folder here<OpenPackage choice={choice} /></>}
-        </div>
-        <div ref={footerRef} className="mt-2.5 flex justify-end">
-          <Button variant="primary" className="text-xs" loading={choice.pending} disabled={!targetReady}
-            onClick={() => { if (target && targetReady) choice.choose(target); }}>Use template</Button>
         </div>
       </PinnedFooter>
     </div>

@@ -6,8 +6,8 @@ import { TemplateHeader } from "./TemplateHeader";
 import { TemplateGallery } from "./TemplateGallery";
 import { TemplateReview } from "./TemplateReview";
 import { TemplateInstructions } from "./TemplateInstructions";
-import { TemplateStartFields, WorkerChips } from "./TemplateStartFields";
-import { TemplateWhere } from "./TemplateWhere";
+import { TemplateStartFields } from "./TemplateStartFields";
+import { TemplateStartAbout } from "./TemplateStartAbout";
 import { TemplateExportDialog } from "./TemplateExportDialog";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 import { LaterManagerRows, type PairRoleControls } from "./TemplateManagers";
@@ -37,11 +37,10 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
         : choice.chosen
           ? <TemplateStartFields choice={choice} preview={choice.chosen} {...form} />
           : <div className="flex flex-col gap-3">
-            <TemplateHeader summary={choice.defaultSummary} onChange={choice.openGallery} onDetails={fallback ? choice.showDetails : undefined} />
+            <TemplateHeader summary={choice.defaultSummary} onChange={choice.openGallery} />
             <div>{defaultForm(fallback ? <LaterManagerRows form={fallback.form} providers={form.providers} disabledProviderIds={form.disabledProviderIds}
               pair={form.pair} seats={choice.seats} onSeatChange={choice.setSeat} onSeatClear={choice.clearSeat} onInstallProvider={form.onInstallProvider} /> : null)}</div>
-            {fallback && <WorkerChips preview={fallback} />}
-            {fallback && <TemplateWhere choice={choice} preview={fallback} providers={form.providers} onInstallProvider={form.onInstallProvider} />}
+            {fallback && <TemplateStartAbout choice={choice} preview={fallback} providers={form.providers} onInstallProvider={form.onInstallProvider} />}
           </div>;
   const blocked = choice.blocked;
   return <>

@@ -1,63 +1,29 @@
-import { useId, type ReactNode } from "react";
+import { useId } from "react";
 import "./teamTemplates.css";
-import { BookOpen, Bug, Eye, GitBranch, Home, Users } from "lucide-react";
+import { Eye, Users } from "lucide-react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { AgentIcon } from "../AgentIcon";
 import { BackPill } from "../shared/BackPill";
 import { Button } from "../shared/Button";
 import { kindDisplayName } from "../../lib/roleKind";
 import {
-  effortLabel, humanizePackageName, lacksAuthority, managerDecision, managerRoles, roleSameAs, roleTiming, splitModel, templateSource, templateTitle,
+  effortLabel, humanizePackageName, lacksAuthority, managerDecision, managerRoles, roleSameAs, roleTiming, splitModel, templateSource,
   visibleAsks, visiblePayload, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
-import { TemplateIcon } from "./TemplateIcon";
-import { TemplateTrust } from "./TemplateTrust";
+import { TemplateIdentity } from "./TemplateIdentity";
 import { TemplateBrings } from "./TemplateBrings";
 import { TemplateAsks } from "./TemplateAsks";
 import { PinnedFooter } from "./PinnedFooter";
 import { managerIcon } from "./TemplateManagers";
 import { reviewRoles, roleHeading } from "./templateRoles";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
-import { authorRows, harnessRequirements, linkRows, updateDiffLines } from "../../lib/teamTemplates/exchangeModel";
+import { harnessRequirements, updateDiffLines } from "../../lib/teamTemplates/exchangeModel";
 
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
 type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
 
 const LINK = "inline-flex items-center gap-1 text-[var(--ct-accent)] hover:underline";
-const LINK_ICON: Record<string, ReactNode> = {
-  Homepage: <Home size={12} aria-hidden="true" />, Repository: <GitBranch size={12} aria-hidden="true" />,
-  Issues: <Bug size={12} aria-hidden="true" />, Docs: <BookOpen size={12} aria-hidden="true" />,
-};
-
-function Identity({ summary, titleId, descriptionId }: { summary: TemplateSummary; titleId: string; descriptionId: string }) {
-  const authors = authorRows(summary);
-  const links = linkRows(summary);
-  const lineage = summary.derived_from ? `based on ${humanizePackageName(summary.derived_from.name)} ${summary.derived_from.version}` : null;
-  const facts = [summary.license, lineage].filter(Boolean).join(" · ");
-  return (
-    <div className="flex gap-3.5" data-testid="template-identity">
-      <TemplateIcon icon={summary.icon} size={44} />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <h2 id={titleId} className="text-[15px] font-semibold">{templateTitle(summary)}</h2>
-          {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
-          <TemplateTrust summary={summary} />
-        </div>
-        <p id={descriptionId} className="mt-0.5 text-[12.5px] leading-snug text-[color-mix(in_srgb,var(--ct-fg)_85%,transparent)]">{summary.description}</p>
-        {(authors.length > 0 || facts) && <div className="mt-1.5 flex flex-wrap gap-x-3.5 gap-y-1 text-[11.5px] text-[var(--ct-muted-fg)]">
-          {authors.map((author, index) => <span key={`${author.name}:${index}`}>
-            {author.url ? <a href={author.url} target="_blank" rel="noreferrer noopener" className={LINK}>{author.name}</a> : author.name}
-            {author.role && ` · ${author.role}`}
-          </span>)}
-          {facts && <span>{facts}</span>}
-        </div>}
-        {links.length > 0 && <div className="mt-1 flex flex-wrap gap-x-3.5 gap-y-1 text-[11.5px]">{links.map((link) =>
-          <a key={link.label} href={link.url} target="_blank" rel="noreferrer noopener" className={LINK}>{LINK_ICON[link.label]}{link.label}</a>)}</div>}
-      </div>
-    </div>
-  );
-}
 
 function UpdateDiff({ diff }: { diff: TemplateUpdateDiff }) {
   const lines = updateDiffLines(diff);
@@ -162,7 +128,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
   return (
     <section aria-labelledby={titleId} aria-describedby={descriptionId} className="flex flex-col gap-3" data-testid={`template-review-${mode}`}>
       <div><BackPill label={back === "form" ? "the Team form" : "templates"} onBack={choice.backFromReview} /></div>
-      <Identity summary={summary} titleId={titleId} descriptionId={descriptionId} />
+      <TemplateIdentity summary={summary} titleId={titleId} descriptionId={descriptionId} />
       {unverified && <p className="text-[11.5px] text-[var(--ct-muted-fg)]">
         {summary.received_from?.trim() ? `${summary.received_from.trim()} shared this team` : "This team came from a file"}. Check what it brings and turn off anything you don't want.
       </p>}
