@@ -13,7 +13,12 @@ vi.mock("../../store/multiplexer/hooks", async () => {
   const { useSyncExternalStore } = await import("react");
   const subscribe = (listener: () => void) => { mux.listeners.add(listener); return () => { mux.listeners.delete(listener); }; };
   return {
-    useMultiplexer: () => ({}),
+    useMultiplexer: () => ({
+      setActiveTab: (workspaceId: string, tabId: string) => {
+        mux.state = { ...mux.state, active_workspace_id: workspaceId, activeTabIds: { ...mux.state.activeTabIds as Record<string, string>, [workspaceId]: tabId } };
+        for (const listener of [...mux.listeners]) listener();
+      },
+    }),
     useMuxSelector: (select: (state: object) => unknown) => select(useSyncExternalStore(subscribe, () => mux.state)),
   };
 });
@@ -154,4 +159,40 @@ it("plays the entrance for a member that joins the shown workspace, from its fir
   flushSync(() => view.render());
 
   expect(entering(view.host)).toEqual(["arrival"]);
+});
+
+it("selecting Team tabs retains General, Utilities and both rows of workspace cards without remeasurement", async () => {
+  const main = member("main", "general", { protected: true, role: "Manager", role_profile: "general_agent" });
+  const utility = member("utility", "general", { agent_type: undefined, purpose: "qa" });
+  const here = [manager("Pasteur", "home"), worker("Lattice", "home")];
+  const general = { ...workspaceOf("general", [main, utility]), protected: true };
+  const workspaces = [general, ...Array.from({ length: 8 }, (_, index) => workspaceOf(index === 7 ? "home" : `other-${index}`, index === 7 ? here : []))];
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(260);
+  const view = await mountSidebar(workspaces, [main, utility, ...here], "home");
+  try {
+    const pinned = view.host.querySelector<HTMLElement>('[data-testid="general-section"]')!;
+    const grid = view.host.querySelector<HTMLElement>('[data-testid="workspace-card-grid"]')!;
+    const utilities = pinned.querySelector('button[aria-label="UTILITIES 1"]')!;
+    expect(pinned).not.toBeNull();
+    expect(utilities?.getAttribute("aria-expanded")).toBe("false");
+    expect(grid.children).toHaveLength(9);
+    expect(grid.style.gridTemplateColumns).toBe("repeat(5, 42px)");
+    const pinnedStructure = pinned.innerHTML;
+    const gridStructure = grid.innerHTML;
+    const cards = [...grid.children];
+    const measured = width.mock.calls.length;
+    for (const tabId of ["Pasteur", "Lattice", "Pasteur", "Lattice"]) {
+      const button = row(view.host, tabId)?.querySelector<HTMLButtonElement>(`button[aria-label="Open tab ${tabId}"]`);
+      expect(button).toBeTruthy();
+      await act(async () => button!.click());
+      expect(button!.getAttribute("aria-current")).toBe("page");
+      expect(view.host.querySelector('[data-testid="general-section"]')).toBe(pinned);
+      expect(view.host.querySelector('[data-testid="workspace-card-grid"]')).toBe(grid);
+      expect(pinned.innerHTML).toBe(pinnedStructure);
+      expect(grid.innerHTML).toBe(gridStructure);
+      expect([...grid.children]).toEqual(cards);
+      expect(grid.style.gridTemplateColumns).toBe("repeat(5, 42px)");
+      expect(width.mock.calls.length).toBe(measured);
+    }
+  } finally { width.mockRestore(); }
 });
