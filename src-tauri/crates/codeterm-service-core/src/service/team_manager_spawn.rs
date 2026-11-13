@@ -63,6 +63,21 @@ fn reserved() -> &'static Mutex<BTreeSet<(String, String)>> {
     RESERVED.get_or_init(|| Mutex::new(BTreeSet::new()))
 }
 
+impl ManagerReservation {
+    fn take(team_id: &str, name: &str) -> Result<Self, String> {
+        let key = (team_id.to_string(), name.to_string());
+        let mut reserved = reserved()
+            .lock()
+            .map_err(|_| "manager reservations poisoned")?;
+        if !reserved.insert(key.clone()) {
+            return Err(format!(
+                "{TEAM_ROLE_ALREADY_LIVE}: Team {team_id} is already starting manager `{name}`"
+            ));
+        }
+        Ok(Self { key })
+    }
+}
+
 impl Drop for ManagerReservation {
     fn drop(&mut self) {
         if let Ok(mut reserved) = reserved().lock() {
@@ -103,6 +118,11 @@ impl ServiceContext {
                 .filter(|tab| tab.role_kind_id() == Some(builtins::ORCHESTRATOR))
                 .and_then(|tab| tab.team_id.clone())
         });
+        // Reserve before reading liveness, so a start that finished in between is always seen.
+        let reservation = orchestrator_team
+            .as_deref()
+            .map(|team_id| ManagerReservation::take(team_id, &name))
+            .transpose()?;
         let registered = orchestrator_team.as_deref().is_some_and(|team_id| {
             TeamRoleStore::global()
                 .effective(Some(team_id))
@@ -123,21 +143,16 @@ impl ServiceContext {
             live,
             task_bound: params.task_id.is_some() || params.plan_task.is_some(),
         };
-        let team_id = admit(&facts)?;
-        let key = (team_id.clone(), name.clone());
-        {
-            let mut reserved = reserved().lock().map_err(|_| "manager reservations poisoned")?;
-            if !reserved.insert(key.clone()) {
-                return Err(format!(
-                    "{TEAM_ROLE_ALREADY_LIVE}: Team {team_id} is already starting manager `{name}`"
-                ));
-            }
-        }
+        admit(&facts)?;
         params.parent_tab_id = caller;
-        Ok(Some(ManagerReservation { key }))
+        Ok(reservation)
     }
 }
 
 #[cfg(test)]
 #[path = "team_manager_spawn/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "team_manager_spawn/live_tests.rs"]
+mod live_tests;

@@ -5,7 +5,7 @@ use codeterm_team_package::{
     builtin, check_entries, CheckOptions, Checked, Package, PackageDiagnostic, PackageFormat,
     RoleKind, RoleStart, CURATOR,
 };
-use codeterm_types::agent::role_kind::builtins::{GENERAL_AGENT, WATCHER};
+use codeterm_types::agent::role_kind::builtins::{is_taskless_worker_kind, GENERAL_AGENT, WATCHER};
 use codeterm_types::team::role_registration::PinnedPackage;
 
 use crate::service::builtin_roles::DEFAULT_PACKAGE;
@@ -72,13 +72,14 @@ pub fn host_policy(package: &Package) -> Result<(), TemplateStartRefusal> {
     Ok(())
 }
 
-/// Domios owns `watcher` and `general_agent`; a package can never declare either as a role.
+/// Domios owns `watcher` and `general_agent`, and its worker kinds are never managers: a package
+/// declaring either is refused here, before a Team or a tab exists.
 pub fn refuse_host_owned_roles(package: &Package) -> Result<(), TemplateStartRefusal> {
-    match package
-        .document
-        .roles()
-        .find(|(name, _)| *name == WATCHER || *name == GENERAL_AGENT)
-    {
+    match package.document.roles().find(|(name, role)| {
+        *name == WATCHER
+            || *name == GENERAL_AGENT
+            || (role.kind == RoleKind::Manager && is_taskless_worker_kind(name))
+    }) {
         Some((name, _)) => Err(TemplateStartRefusal::HostOwnedRole {
             role: name.to_string(),
         }),
