@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Network } from "lucide-react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { roleDisplayLabel } from "../../lib/roleKind";
@@ -33,31 +33,18 @@ function PlacementRow({ label, select, muted = false }: { label: string; select:
  * Where the Team runs: this machine unless the owner moves some workers, or the whole Team, to a peer. One quiet link
  * opens the block; the whole-team choice lives inside it.
  */
-export function TemplateWhere({ choice, preview, providers, onInstallProvider }: {
+export function TemplateWhere({ choice, preview, open, onOpen }: {
   choice: TeamTemplateChoice;
   preview: TemplatePreview;
-  providers: readonly ProviderDescriptor[];
-  onInstallProvider: (providerId: string) => void;
+  open: boolean;
+  onOpen: () => void;
 }) {
-  const [open, setOpen] = useState(choice.remotePeer !== null);
   const workers = preview.form.roles.filter((role) => role.kind === "worker");
-  const needs = choice.remotePeer ? [] : preview.where_needed?.needs ?? [];
   const peers = choice.peers;
   const options = [{ value: HOME, label: "This machine" }, ...(peers ?? []).map((peer) => ({ value: peer.name, label: peer.name }))];
-  const harnessName = (id: string) => providers.find((provider) => provider.id === id)?.display_name ?? id;
-  const reveal = () => {
-    choice.wantPeers();
-    setOpen(true);
-  };
   return (
     <section aria-label="Where" className="flex flex-col gap-1.5 text-[12px]" data-testid="template-where">
-      {needs.map((need) => need.kind === "missing_harness" ? (
-        <IssueLine key={need.harness} text={`${harnessName(need.harness)} isn't installed on this machine`}>
-          <Button type="button" variant="ghost" className="text-xs" onClick={() => onInstallProvider(need.harness)}>Install</Button>
-          <Button type="button" variant="ghost" className="text-xs" onClick={reveal}>Run on another machine</Button>
-        </IssueLine>
-      ) : <IssueLine key={need.tool} text={`${need.tool} isn't available on this machine`} />)}
-      {!open && <button type="button" className={QUIET_LINK} onClick={reveal}>
+      {!open && <button type="button" className={QUIET_LINK} onClick={onOpen}>
         <Network size={12} aria-hidden="true" />{workers.length > 0 ? "Run some roles on another machine" : "Run this team on another machine"}
       </button>}
       {open && (
@@ -85,4 +72,24 @@ export function TemplateWhere({ choice, preview, providers, onInstallProvider }:
       )}
     </section>
   );
+}
+
+export function TemplateWhereIssues({ choice, preview, providers, onInstallProvider, onRunElsewhere }: {
+  choice: TeamTemplateChoice;
+  preview: TemplatePreview;
+  providers: readonly ProviderDescriptor[];
+  onInstallProvider: (providerId: string) => void;
+  onRunElsewhere: () => void;
+}) {
+  const needs = choice.remotePeer ? [] : preview.where_needed?.needs ?? [];
+  const harnessName = (id: string) => providers.find((provider) => provider.id === id)?.display_name ?? id;
+  if (needs.length === 0) return null;
+  return <div className="flex flex-col gap-1.5 text-[12px]">
+      {needs.map((need) => need.kind === "missing_harness" ? (
+        <IssueLine key={need.harness} text={`${harnessName(need.harness)} isn't installed on this machine`}>
+          <Button type="button" variant="ghost" className="text-xs" onClick={() => onInstallProvider(need.harness)}>Install</Button>
+          <Button type="button" variant="ghost" className="text-xs" onClick={onRunElsewhere}>Run on another machine</Button>
+        </IssueLine>
+      ) : <IssueLine key={need.tool} text={`${need.tool} isn't available on this machine`} />)}
+  </div>;
 }

@@ -250,10 +250,6 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     blocker: active ? startBlocker(active, inputs, secrets, remotePeer) : null,
     openGallery: () => { setNotice(null); setView({ kind: "gallery" }); },
     backToForm: () => setView({ kind: "form" }),
-    showDetails: () => {
-      const shown = chosen ?? defaultPreview;
-      if (shown) setView({ kind: "review", preview: shown, mode: "detail", back: "form" });
-    },
     showSummaryDetails: (summary: TemplateSummary) => { void openPreview(summary, true); },
     choose,
     backFromReview: () => setView(view.kind === "review" && view.back === "form" ? { kind: "form" } : { kind: "gallery" }),
@@ -286,8 +282,12 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     readInstructions: (role: string) => {
       if (view.kind === "review") setView({ kind: "instructions", review: view, role });
       else if (view.kind === "instructions") setView({ ...view, role });
+      else if (view.kind === "form") {
+        const preview = chosen ?? defaultPreview;
+        if (preview) setView({ kind: "instructions", review: { kind: "review", preview, mode: "detail", back: "form" }, role });
+      }
     },
-    backFromInstructions: () => { if (view.kind === "instructions") setView(view.review); },
+    backFromInstructions: () => { if (view.kind === "instructions") setView(view.review.back === "form" ? { kind: "form" } : view.review); },
     startRequest,
   };
 }
