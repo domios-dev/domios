@@ -13,6 +13,11 @@ pub fn normalize_usage_source_key(key: &str) -> String {
         .split_once(SCOPE_SEPARATOR)
         .map_or((key, None), |(path, scope)| (path, Some(scope)));
     let path = path.replace('\\', "/");
+    let path = if cfg!(windows) {
+        path.to_ascii_lowercase()
+    } else {
+        path
+    };
     match scope {
         Some(scope) => format!("{path}{SCOPE_SEPARATOR}{scope}"),
         None => path,
@@ -23,7 +28,15 @@ pub(super) fn source_key_sql(column: &str, key: &str) -> String {
     if !windows_path(key) {
         return column.to_owned();
     }
-    format!("replace(substr({column}, 1, instr({column} || char(1), char(1)) - 1), char(92), '/') || substr({column}, instr({column} || char(1), char(1)))")
+    let path = format!(
+        "replace(substr({column}, 1, instr({column} || char(1), char(1)) - 1), char(92), '/')"
+    );
+    let path = if cfg!(windows) {
+        format!("lower({path})")
+    } else {
+        path
+    };
+    format!("{path} || substr({column}, instr({column} || char(1), char(1)))")
 }
 
 #[cfg(test)]

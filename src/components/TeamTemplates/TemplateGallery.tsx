@@ -171,7 +171,8 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
   const catalog = choice.catalog;
   const entries = galleryEntries(catalog?.templates ?? [], catalog?.recall ?? null, choice.defaultSummary, filter, query);
   const target = entries.length > 0 ? selected : null;
-  const targetBlocked = target !== null && isBlocked(target, choice.blocked);
+  const blocked = (summary: TemplateSummary) => isBlocked(summary, choice.blocked) || choice.catalogRefusals.some((refusal) => isBlocked(summary, refusal));
+  const targetBlocked = target !== null && blocked(target);
   return (
     <div className="flex flex-col gap-2.5" data-testid="template-gallery">
       <div className="flex items-center gap-2">
@@ -183,7 +184,7 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
       {/* A fixed height, so the dialog keeps its size while the filter changes. */}
       <ul className={`flex h-[340px] flex-col gap-1.5 overflow-y-auto ${isDragOver ? "opacity-40" : ""}`} aria-label="Templates" aria-busy={!catalog}>
         {entries.map((summary) => (
-          <TemplateCard key={`${summary.name}@${summary.version}`} summary={summary} selected={same(summary, selected)} blocked={isBlocked(summary, choice.blocked)} choice={choice} footerRef={footerRef}
+          <TemplateCard key={`${summary.name}@${summary.version}`} summary={summary} selected={same(summary, selected)} blocked={blocked(summary)} choice={choice} footerRef={footerRef}
             confirming={confirming !== null && same(summary, confirming)}
             onSelect={() => setSelected(summary)} onExport={onExport} onDelete={() => setConfirming(summary)} onCancelDelete={() => setConfirming(null)}
             onConfirmDelete={() => { choice.remove(summary); setConfirming(null); }} />
@@ -193,15 +194,15 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
         </li>}
         {catalog?.error && <li className="text-[12px] text-[var(--ct-muted-fg)]">{catalog.error}</li>}
       </ul>
-      <div ref={zoneRef} data-testid="template-drop-zone" data-drag-over={isDragOver || undefined} data-invalid={choice.notice ? true : undefined}
-        className={`rounded-lg border border-dashed px-3 py-2.5 text-center text-[12px] text-[var(--ct-muted-fg)] ${choice.notice ? "border-[var(--ct-red)]" : isDragOver ? "border-[var(--ct-accent)]" : "border-[var(--ct-border)]"}`}>
-        {choice.notice
-          ? <span role="alert">{choice.notice}</span>
-          : isDragOver ? "Release to preview" : <>Drop a <code>.team</code>, <code>.team.yaml</code> or folder here<OpenPackage choice={choice} /></>}
-      </div>
       {/* Pinned like the form's footer, so a refusal above the list never pushes it out of the dialog. */}
       <PinnedFooter sentinelClassName="-mt-[11px]" className="bg-[var(--ct-surface)]">
-        <div ref={footerRef} className="flex justify-end">
+        <div ref={zoneRef} data-testid="template-drop-zone" data-drag-over={isDragOver || undefined} data-invalid={choice.notice ? true : undefined}
+          className={`rounded-lg border border-dashed px-3 py-2.5 text-center text-[12px] text-[var(--ct-muted-fg)] ${choice.notice ? "border-[var(--ct-red)]" : isDragOver ? "border-[var(--ct-accent)]" : "border-[var(--ct-border)]"}`}>
+          {choice.notice
+            ? <span role="alert">{choice.notice}</span>
+            : isDragOver ? "Release to preview" : <>Drop a <code>.team</code>, <code>.team.yaml</code> or folder here<OpenPackage choice={choice} /></>}
+        </div>
+        <div ref={footerRef} className="mt-2.5 flex justify-end">
           <Button variant="primary" className="text-xs" loading={choice.pending} disabled={target === null || targetBlocked}
             onClick={() => { if (target && !targetBlocked) choice.choose(target); }}>Use template</Button>
         </div>
