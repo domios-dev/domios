@@ -12,13 +12,21 @@ pub struct TaskLaneReferenceRead {
     pub worktree_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ownership: Option<crate::plan::LaneOwnership>,
 }
 
 const COLUMNS: &str = "SELECT p.id,t.task_id,p.project_path,
     coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),
     json_extract(t.row_json,'$.lane.worktree_path'),
-    json_extract(t.row_json,'$.lane.branch')
+    json_extract(t.row_json,'$.lane.branch'),
+    json_extract(t.row_json,'$.lane.ownership')
     FROM plans p JOIN plan_tasks t ON t.plan_id=p.id";
+
+fn ownership(raw: Option<String>) -> Option<crate::plan::LaneOwnership> {
+    // An unknown value is not a recorded Domios lane, so it decodes to unrecorded.
+    raw.and_then(|raw| serde_json::from_value(serde_json::Value::String(raw)).ok())
+}
 
 fn lane_reference(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskLaneReferenceRead> {
     let project: String = column(row, 2)?;
@@ -33,6 +41,7 @@ fn lane_reference(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskLaneReference
         },
         worktree_path: column(row, 4)?,
         branch: column(row, 5)?,
+        ownership: ownership(column(row, 6)?),
     })
 }
 

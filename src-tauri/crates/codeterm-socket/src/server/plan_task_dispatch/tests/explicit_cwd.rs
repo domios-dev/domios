@@ -228,3 +228,55 @@ fn foreign_checkout_binding_records_git_root_and_refuses_rebinding_or_fallback()
         std::fs::canonicalize(&foreign).unwrap()
     );
 }
+
+#[test]
+fn dispatch_records_lane_ownership_from_what_it_did_not_from_the_path() {
+    use super::super::lane_commit::dispatch_lane_ownership;
+    use codeterm_service_core::plan::LaneOwnership;
+    use codeterm_service_core::service::WorkerLaneProvenance;
+
+    let (_root, checkout) = git_project();
+    let checkout = checkout.display().to_string();
+    let provenance = WorkerLaneProvenance {
+        canonical_cwd: checkout.clone(),
+        worktree_path: checkout.clone(),
+        branch: "main".into(),
+        base: "base".into(),
+        destination: None,
+    };
+    let unrecorded = TaskLaneMetadata::default();
+    let recorded = |ownership| TaskLaneMetadata {
+        worktree_path: Some(checkout.clone()),
+        ownership,
+        ..Default::default()
+    };
+
+    assert_eq!(dispatch_lane_ownership(&unrecorded, None, false), None);
+    assert_eq!(
+        dispatch_lane_ownership(&unrecorded, Some(&provenance), true),
+        Some(LaneOwnership::DomiosLane)
+    );
+    assert_eq!(
+        dispatch_lane_ownership(&unrecorded, Some(&provenance), false),
+        Some(LaneOwnership::ForeignCheckout)
+    );
+    for ownership in [
+        Some(LaneOwnership::DomiosLane),
+        Some(LaneOwnership::ForeignCheckout),
+        None,
+    ] {
+        assert_eq!(
+            dispatch_lane_ownership(&recorded(ownership), Some(&provenance), false),
+            ownership
+        );
+    }
+    let elsewhere = TaskLaneMetadata {
+        worktree_path: Some("elsewhere".into()),
+        ownership: Some(LaneOwnership::DomiosLane),
+        ..Default::default()
+    };
+    assert_eq!(
+        dispatch_lane_ownership(&elsewhere, Some(&provenance), false),
+        Some(LaneOwnership::ForeignCheckout)
+    );
+}

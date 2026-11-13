@@ -61,6 +61,7 @@ pub(super) fn dispatch(
                     &outcome,
                     codeterm_service_core::service::plan::lane_cleanup::LaneCleanupOutcome::Cleaned
                         | codeterm_service_core::service::plan::lane_cleanup::LaneCleanupOutcome::Partial(_)
+                        | codeterm_service_core::service::plan::lane_cleanup::LaneCleanupOutcome::NotManaged(_)
                 ) {
                     emit_plan_changed(svc, &id);
                 }

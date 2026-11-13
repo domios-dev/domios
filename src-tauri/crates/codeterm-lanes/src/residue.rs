@@ -9,13 +9,7 @@ pub struct Residue {
 }
 
 pub fn worktree_root(canonical: &Path) -> Result<PathBuf, String> {
-    let name = canonical
-        .file_name()
-        .ok_or("canonical checkout has no directory name")?;
-    let parent = canonical
-        .parent()
-        .ok_or("canonical checkout has no parent")?;
-    Ok(parent.join(format!("{}-worktrees", name.to_string_lossy())))
+    codeterm_util::worktree_cleanup::lane_worktree_root(canonical)
 }
 
 pub fn residue_decision(

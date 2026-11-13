@@ -267,8 +267,11 @@ fn readiness_validation_options(
     base: crate::cmd::report_attribution::ReportBase,
     acknowledge_dirty: bool,
 ) -> (Option<String>, bool) {
-    if task_scope.is_some_and(|scope| scope.canonical_writer || scope.recorded_checkout) {
+    if task_scope.is_some_and(|scope| scope.canonical_writer) {
         (None, false)
+    } else if let Some(scope) = task_scope.filter(|scope| scope.recorded_checkout) {
+        // A bound checkout's changes are everything since it was bound.
+        (scope.start_sha.clone(), false)
     } else {
         (
             base.resolve(task_scope.and_then(|scope| scope.base.clone())),

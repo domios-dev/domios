@@ -504,6 +504,28 @@ fn print_close_inventory(inventory: &Value) {
                 .unwrap_or("unknown")
         );
     }
+    for record in inventory
+        .get("not_managed")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        println!(
+            "Untouched path={} branch={}: {}",
+            record
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>"),
+            record
+                .get("branch")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>"),
+            record
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("not managed")
+        );
+    }
     for branch in inventory
         .get("orphan_branches")
         .and_then(Value::as_array)

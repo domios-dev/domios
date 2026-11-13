@@ -45,7 +45,9 @@ impl PlanStore {
                 Some(git(&["rev-parse", "--verify", "HEAD^{commit}"])?),
             ),
         };
-        let checkout_path = super::super::shared_checkout::canonical_path(&root);
+        // Stored with its real case like worktree_path; compared only by key.
+        let checkout_path = codeterm_paths::canonical_cwd(&root);
+        let checkout_key = super::super::shared_checkout::canonical_path(&checkout_path);
         self.with_task_rows(
             plan_id,
             task_id,
@@ -66,7 +68,7 @@ impl PlanStore {
                         Self::task_readback_error("attempt_checkout", "live attempt missing")
                     })?;
                 if attempt.checkout_path.as_ref().is_some_and(|bound| {
-                    super::super::shared_checkout::canonical_path(bound) != checkout_path
+                    super::super::shared_checkout::canonical_path(bound) != checkout_key
                 }) {
                     return Err(Self::task_readback_error(
                         "attempt_checkout",

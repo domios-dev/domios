@@ -32,6 +32,10 @@ pub struct TeamCloseInventory {
     pub removed: Vec<TeamCloseLaneRecord>,
     pub kept: Vec<TeamCloseLaneRecord>,
     pub orphan_branches: Vec<String>,
+    /// Checkouts Domios did not create; listed, never cleanup candidates.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<TeamCloseLaneRecord>>", optional)]
+    pub not_managed: Vec<TeamCloseLaneRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]

@@ -15,7 +15,7 @@ impl Fixture {
             root.path().canonicalize().unwrap().to_str().unwrap(),
         ));
         let project = root_path.join("project");
-        let path = root_path.join("lane");
+        let path = root_path.join("project-worktrees").join("clean");
         std::fs::create_dir(&project).unwrap();
         let cwd = project.to_str().unwrap();
         git(cwd, &["init", "-q", "--initial-branch=main"]).unwrap();
@@ -46,6 +46,7 @@ impl Fixture {
                 base: Some("main".into()),
                 destination: Some("HEAD".into()),
                 hold_reason: None,
+                ownership: Some(codeterm_service_core::plan::LaneOwnership::DomiosLane),
             },
         }
     }
@@ -426,6 +427,7 @@ fn lane_clean_inventory_git_call_count_is_constant_for_historical_lanes() {
                     base: None,
                     destination: Some("HEAD".into()),
                     hold_reason: None,
+                    ownership: None,
                 };
                 let row = run_lane_with_inventory(&lane, online, &inventory, || Ok((vec![], None)))
                     .unwrap();
@@ -477,6 +479,7 @@ fn lane_clean_inventory_preserves_remote_only_and_registered_lanes() {
         base: None,
         destination: Some("HEAD".into()),
         hold_reason: None,
+        ownership: None,
     };
     assert!(!inventory.absent(&lane));
     lane.branch = None;
@@ -606,6 +609,7 @@ fn lane_clean_absence_never_overrides_remote_or_live_worker_refusal() {
         base: None,
         destination: Some("HEAD".into()),
         hold_reason: None,
+        ownership: None,
     };
     for reason in [
         "remote lane requires cleanup on its owning peer",
@@ -651,4 +655,42 @@ fn lane_clean_batched_ancestry_distinguishes_merge_parents_and_checkout_heads() 
             .as_deref(),
         Some("invalid lane ancestry reference")
     );
+}
+
+#[test]
+fn lane_clean_reports_a_foreign_checkout_as_not_managed_and_never_touches_it() {
+    let fixture = Fixture::new();
+    let foreign = Path::new(fixture.cwd())
+        .parent()
+        .unwrap()
+        .join("q6fc-foreign");
+    std::fs::create_dir(&foreign).unwrap();
+    let foreign_cwd = foreign.to_str().unwrap();
+    git(foreign_cwd, &["init", "-q", "--initial-branch=main"]).unwrap();
+    git(foreign_cwd, &["config", "user.name", "Test"]).unwrap();
+    git(foreign_cwd, &["config", "user.email", "test@example.com"]).unwrap();
+    std::fs::write(foreign.join("QA.txt"), "user work").unwrap();
+    git(foreign_cwd, &["add", "."]).unwrap();
+    git(foreign_cwd, &["commit", "-qm", "user work"]).unwrap();
+    let foreign_refs = git(foreign_cwd, &["show-ref"]).unwrap();
+    let canonical_refs = git(fixture.cwd(), &["show-ref"]).unwrap();
+    for ownership in [
+        Some(codeterm_service_core::plan::LaneOwnership::ForeignCheckout),
+        None,
+    ] {
+        let lane = TeamCloseLane {
+            worktree_path: Some(foreign_cwd.into()),
+            branch: Some("main".into()),
+            ownership,
+            ..fixture.lane.clone()
+        };
+        for confirm in [false, true] {
+            let row = run_lane(&lane, confirm, &[], None);
+            assert_eq!(row.action, "not_managed", "{row:?}");
+            assert!(row.reason.contains("not managed"), "{row:?}");
+        }
+    }
+    assert_eq!(git(foreign_cwd, &["show-ref"]).unwrap(), foreign_refs);
+    assert_eq!(git(fixture.cwd(), &["show-ref"]).unwrap(), canonical_refs);
+    assert_eq!(std::fs::read(foreign.join("QA.txt")).unwrap(), b"user work");
 }
