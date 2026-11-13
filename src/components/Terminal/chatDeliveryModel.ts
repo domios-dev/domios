@@ -56,14 +56,23 @@ export function awaitsTranscriptEcho(sends: readonly DeliverySend[]): boolean {
   });
 }
 
-export function deliveryPresentation(send: DeliverySend, _activity: TabActivity["kind"]): DeliveryState {
+/** Written input lands when the running turn ends, so missing evidence is uncertain only once that turn is over. */
+function writtenAwaitingTurn(send: DeliverySend, activity: TabActivity["kind"]): boolean {
+  const status = send.status;
+  return activity === "working" && !send.echo && !status?.error
+    && (status?.state === "written" || status?.state === "submit_unconfirmed");
+}
+
+export function deliveryPresentation(send: DeliverySend, activity: TabActivity["kind"]): DeliveryState {
+  if (writtenAwaitingTurn(send, activity)) return "queued";
   return deliveryState(send) === "sending" && send.status?.state === "written" ? "written" : deliveryState(send);
 }
 
 const ACTIVE_TURN_HOLD = "held_active_turn";
 
-/** A held send waits for the running turn when the host says so, or while the agent is mid-turn. */
+/** A send waits for the running turn when the host holds it for that turn, or while the agent is mid-turn. */
 export function queuedBehindTurn(send: DeliverySend, activity: TabActivity["kind"]): boolean {
+  if (writtenAwaitingTurn(send, activity)) return true;
   return deliveryState(send) === "queued" && activity !== "failed"
     && (send.status?.pending_reason === ACTIVE_TURN_HOLD || activity === "working");
 }
