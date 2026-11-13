@@ -12,6 +12,8 @@ pub use codeterm_plan::service_plan::state::analytics::TabCreatedKind;
 mod analytics;
 mod board_queries;
 mod runtime_usage;
+mod source_keys;
+pub use source_keys::normalize_usage_source_key;
 mod usage_rows;
 pub use board_queries::DailyTokenUsage;
 

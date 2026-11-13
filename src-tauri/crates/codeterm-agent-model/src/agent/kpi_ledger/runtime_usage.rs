@@ -3,36 +3,26 @@ use rusqlite::{params, OptionalExtension};
 
 impl KpiLedger {
     pub fn remember_usage_provider(&self, source: &str, provider: &str) -> Result<(), String> {
-        let conn = self.conn.lock();
-        conn.execute(
-            "INSERT INTO kpi_usage_source_owners (source_key, provider) VALUES (?1, ?2)
-            ON CONFLICT(source_key) DO NOTHING",
-            params![source, provider],
-        )
-        .map_err(|e| e.to_string())?;
-        let owner: String = conn
-            .query_row(
-                "SELECT provider FROM kpi_usage_source_owners WHERE source_key = ?1",
-                [source],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        if owner != provider {
+        let source = super::normalize_usage_source_key(source);
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        if usage_owner(&tx, &source)?.is_some_and(|owner| owner != provider) {
             return Err("usage source already belongs to another provider".into());
         }
-        Ok(())
+        let identity = super::source_keys::source_key_sql("source_key", &source);
+        tx.execute(
+            &format!(
+                "DELETE FROM kpi_usage_source_owners WHERE {identity} = ?1 AND source_key != ?1"
+            ),
+            [&source],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute("INSERT INTO kpi_usage_source_owners (source_key, provider) VALUES (?1, ?2) ON CONFLICT(source_key) DO NOTHING", params![source, provider]).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())
     }
 
     pub fn usage_provider(&self, source: &str) -> Result<Option<String>, String> {
-        self.conn
-            .lock()
-            .query_row(
-                "SELECT provider FROM kpi_usage_source_owners WHERE source_key = ?1",
-                [source],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())
+        usage_owner(&self.conn.lock(), source)
     }
 
     pub fn record_runtime_usage(&self, event: &KpiEventInput) -> Result<(), String> {
@@ -105,6 +95,26 @@ impl KpiLedger {
         self.committed();
         outcome.sources = u64::from(outcome.responses > 0);
         Ok(outcome)
+    }
+}
+
+fn usage_owner(conn: &rusqlite::Connection, source: &str) -> Result<Option<String>, String> {
+    let source = super::normalize_usage_source_key(source);
+    let identity = super::source_keys::source_key_sql("source_key", &source);
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT DISTINCT provider FROM kpi_usage_source_owners WHERE {identity} = ?1 LIMIT 2"
+        ))
+        .map_err(|e| e.to_string())?;
+    let owners = stmt
+        .query_map([source], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    match owners.len() {
+        0 => Ok(None),
+        1 => Ok(owners.into_iter().next()),
+        _ => Err("usage source has conflicting recorded providers".into()),
     }
 }
 

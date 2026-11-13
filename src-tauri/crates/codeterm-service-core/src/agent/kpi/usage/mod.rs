@@ -66,12 +66,13 @@ impl UsageSource {
     /// Stable identity for this source's cursor and dedup keys. Two sessions that
     /// share one log must not share a cursor.
     pub fn key(&self) -> String {
-        match &self.session_id {
+        let key = match &self.session_id {
             Some(session_id) => {
                 format!("{}{}{}", self.path.to_string_lossy(), SCOPE_SEP, session_id)
             }
             None => self.path.to_string_lossy().into_owned(),
-        }
+        };
+        crate::agent::kpi_ledger::normalize_usage_source_key(&key)
     }
 }
 

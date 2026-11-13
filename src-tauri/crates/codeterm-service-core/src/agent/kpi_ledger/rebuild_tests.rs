@@ -306,3 +306,70 @@ fn kpi_usage_rebuild_counts_a_missing_transcript_and_keeps_its_rows() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn kpi_usage_rebuild_skips_providerless_aliases_and_matches_fresh_ingest() {
+    let dir = tempfile::tempdir().unwrap();
+    let transcript = dir.path().join("owned.jsonl");
+    let unknown = dir.path().join("unowned.jsonl");
+    write(&transcript, CODEX_REPEATED);
+    write(&unknown, "{}\n");
+    let registry = Arc::new(crate::agent::registry::AgentRegistry::new());
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session_file(
+            "usage-fixture",
+            transcript.clone(),
+        ),
+    ));
+    let attribution = KpiAttribution::for_tab("usage-tab").provider(Some("usage-fixture".into()));
+    let source = UsageSource::new(&transcript);
+    let fresh = Arc::new(KpiLedger::open(&dir.path().join("fresh")).unwrap());
+    let fresh_recorder = KpiRecorder::with_ledger(fresh.clone());
+    fresh_recorder.set_provider_registry(registry.clone());
+    fresh_recorder.request_ingest(source.clone(), attribution.clone());
+    fresh_recorder.drain();
+    let ledger_path = dir.path().join("rebuild");
+    let ledger = Arc::new(KpiLedger::open(&ledger_path).unwrap());
+    let recorder = KpiRecorder::with_ledger(ledger.clone());
+    recorder.set_provider_registry(registry);
+    recorder.request_ingest(source.clone(), attribution);
+    recorder.drain();
+    let db = Connection::open(ledger_path.join("kpi_ledger.db")).unwrap();
+    let unknown_key = UsageSource::new(&unknown).key();
+    let end = std::fs::metadata(&transcript).unwrap().len();
+    db.execute(
+        "INSERT INTO kpi_usage_cursors (source_path, cursor_offset) VALUES (?1, 3)",
+        [&unknown_key],
+    )
+    .unwrap();
+    if cfg!(windows) {
+        db.execute(
+            "INSERT INTO kpi_usage_cursors (source_path, cursor_offset) VALUES (?1, 3)",
+            [unknown_key.replace('/', "\\")],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO kpi_usage_cursors (source_path, cursor_offset) VALUES (?1, ?2)",
+            params![source.key().replace('/', "\\"), end as i64],
+        )
+        .unwrap();
+    }
+    let expected = provider_usage(&fresh, "usage-fixture");
+    for _ in 0..2 {
+        let outcome = recorder.rebuild_usage().unwrap();
+        assert_eq!(outcome.missing_sources, 1);
+        assert_eq!(outcome.sources, 1);
+        assert_eq!(outcome.responses, expected.0);
+        assert_eq!(provider_usage(&ledger, "usage-fixture"), expected);
+        assert_eq!(ledger.list_usage_cursors().unwrap().len(), 2);
+    }
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM kpi_usage_cursors WHERE source_path IN (?1, ?2)",
+            params![source.key(), source.key().replace('/', "\\")],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}

@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 
+use super::source_keys::{normalize_usage_source_key, source_key_sql};
 use super::{KpiEventInput, KpiEventKind, KpiLedger, TokenCounts};
 
 /// Running session totals a provider reports on every usage line.
@@ -106,9 +107,11 @@ impl KpiLedger {
 
     /// `None` if this source has never been ingested (a fresh forward-from-zero read).
     pub fn load_usage_cursor(&self, source_path: &str) -> Result<Option<UsageCursorState>, String> {
+        let source_path = normalize_usage_source_key(source_path);
+        let identity = source_key_sql("source_path", &source_path);
         let conn = self.conn.lock();
         conn.query_row(
-            &format!("SELECT {CURSOR_COLUMNS} FROM kpi_usage_cursors WHERE source_path = ?1"),
+            &format!("SELECT {CURSOR_COLUMNS} FROM kpi_usage_cursors WHERE {identity} = ?1 ORDER BY cursor_offset DESC, cumulative_total IS NOT NULL DESC LIMIT 1"),
             params![source_path],
             cursor_from_row,
         )
@@ -129,7 +132,17 @@ impl KpiLedger {
             .map_err(|e| format!("kpi ledger cursor list: {}", e))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("kpi ledger cursor row: {}", e))?;
-        Ok(rows)
+        let mut canonical = std::collections::BTreeMap::<String, UsageCursorState>::new();
+        for (key, state) in rows {
+            let key = normalize_usage_source_key(&key);
+            let held = canonical.entry(key).or_insert(state);
+            if state.offset > held.offset
+                || (state.offset == held.offset && held.cumulative.is_none())
+            {
+                *held = state;
+            }
+        }
+        Ok(canonical.into_iter().collect())
     }
 
     /// Replaces one source's line-counted rows with one keyed row per response, charged
@@ -270,6 +283,13 @@ fn upsert_cursor(
     source_path: &str,
     cursor: UsageCursorState,
 ) -> Result<(), String> {
+    let source_path = normalize_usage_source_key(source_path);
+    let identity = source_key_sql("source_path", &source_path);
+    conn.execute(
+        &format!("DELETE FROM kpi_usage_cursors WHERE {identity} = ?1 AND source_path != ?1"),
+        [&source_path],
+    )
+    .map_err(|e| format!("kpi ledger cursor normalization: {e}"))?;
     let totals = cursor.cumulative;
     conn.execute(
         r#"
