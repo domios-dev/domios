@@ -8,6 +8,10 @@ Shared ownership is reserved atomically across plans using the same checkout. Wo
 
 The report-time commit guard inspects the actual Git commit, requires it to follow dispatch and remain in canonical history, and refuses foreign or undeclared paths. Make one task commit and report its full literal SHA. Another Worker's newer HEAD or dirty files do not block that report; your own uncommitted paths do. The Orchestrator reviews shared commits in place. Lane integration waits while a canonical Worker holds the checkout.
 
+### Project folders without git
+
+A project folder with no git repository, or a repository with no commit yet, is a valid canonical project. Plan creation, Team start, dispatch, ACK, report and acceptance need no git, and Domios never runs `git init` or commits for the owner; agents must not either, nor tell the owner git is required. Mutating Workers there always run shared, in place, with disjoint declared edit files. Dispatch records content hashes of the declared files, and an `in_review` report omits `--sha`: the evidence is the declared files whose content changed, with their new hashes (`changed_file_hashes`), and at least one must change. Isolated lanes, `--placement lane` and `--canonical-writer` need git history, so they refuse there with the reason, and automatic placement refuses instead of choosing a lane for overlap or a `build-breaking` tag.
+
 The integrator pushes shared canonical commits on the integration branch. Lane work reaches canonical through real merges that leave foreign dirty files untouched; Git refuses a merge when it overlaps that dirt.
 
 **A lane dispatch with no recorded lane provisions one.** An explicit `--cwd` must be an existing directory
@@ -140,4 +144,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->

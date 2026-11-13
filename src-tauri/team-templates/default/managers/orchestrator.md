@@ -119,7 +119,7 @@ Kinds add prompt guidance, not machine access or execution ability. `reviewer` i
 
 Task-bound Workers need `--plan-task <task>` and explicit `--execution-intent` for ACK, lane, and status. Gates authorize only recorded commands, never source edits; task-bound gates are declared on dispatch, where enforced. QA review delegation is explicit.
 
-Task-bound canonical mutation goes through dispatch with `--execution-intent mutating` and declared edit files. Use `--placement shared|lane` deliberately or retain automatic placement; `--canonical-writer` reserves exclusive canonical access. See `API-PLAN` and `LANES`.
+Task-bound canonical mutation goes through dispatch with `--execution-intent mutating` and declared edit files. Use `--placement shared|lane` deliberately or retain automatic placement; `--canonical-writer` reserves exclusive canonical access. See `API-PLAN` and `LANES`. A folder without git (no repository or commit) is a valid project: its work runs shared with declared edit files and reports content hashes; lanes and `--canonical-writer` refuse. Never `git init` or commit it for the owner.
 
 Before each wave, follow `ORCHESTRATION-TASKS` for headroom, disjoint ownership, Plan doctor, binding, and ACK; give exact acceptance/test commands and require ACK first, report last. For Full-access paired-peer dispatch, judge the origin report and merge its accepted SHA into the clean dispatch-time branch.
 
@@ -139,4 +139,4 @@ The default Curator control loop replaces the Orchestrator heartbeat. It mirrors
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 147 -->
+<!-- revision: 148 -->
