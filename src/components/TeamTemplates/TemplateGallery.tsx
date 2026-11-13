@@ -11,7 +11,8 @@ import { folderEntryPath, storedZip } from "../../lib/teamTemplates/storedZip";
 import { TemplateIcon } from "./TemplateIcon";
 import { TemplateTrust } from "./TemplateTrust";
 import { cardByline } from "../../lib/teamTemplates/exchangeModel";
-import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
+import { PinnedFooter } from "./PinnedFooter";
+import type { BlockedTemplate, TeamTemplateChoice } from "./useTeamTemplateChoice";
 
 const FILTERS: { value: GalleryFilter; label: string }[] = [
   { value: "all", label: "All" }, { value: "builtin", label: "Built-in" }, { value: "mine", label: "Mine" }, { value: "friends", label: "From friends" },
@@ -29,10 +30,14 @@ const MENU_ROW = 30;
 const MENU_CHROME = 12;
 
 const same = (a: TemplateSummary, b: TemplateSummary) => a.name === b.name && a.version === b.version;
+const isBlocked = (summary: TemplateSummary, blocked: BlockedTemplate | null) =>
+  blocked !== null && blocked.name === summary.name && (blocked.version === null || blocked.version === summary.version);
 
-function TemplateCard({ summary, selected, confirming, choice, footerRef, onSelect, onExport, onDelete, onCancelDelete, onConfirmDelete }: {
+function TemplateCard({ summary, selected, blocked, confirming, choice, footerRef, onSelect, onExport, onDelete, onCancelDelete, onConfirmDelete }: {
   summary: TemplateSummary;
   selected: boolean;
+  /** The host refused to start this template; the card says so instead of offering Use. */
+  blocked: boolean;
   confirming: boolean;
   choice: TeamTemplateChoice;
   footerRef: RefObject<HTMLElement | null>;
@@ -72,8 +77,8 @@ function TemplateCard({ summary, selected, confirming, choice, footerRef, onSele
     );
   }
   return (
-    <li className={`ct-card group flex min-w-0 items-start gap-1 ${selected ? "border-[color-mix(in_srgb,var(--ct-accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--ct-accent)_7%,var(--ct-bg))]" : ""}`}>
-      <button type="button" aria-pressed={selected} onClick={onSelect} onDoubleClick={() => choice.choose(summary)}
+    <li data-blocked={blocked || undefined} className={`ct-card group flex min-w-0 items-start gap-1 ${selected ? "border-[color-mix(in_srgb,var(--ct-accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--ct-accent)_7%,var(--ct-bg))]" : ""}`}>
+      <button type="button" aria-pressed={selected} onClick={onSelect} onDoubleClick={() => { if (!blocked) choice.choose(summary); }}
         className="flex min-w-0 flex-1 items-center gap-3 rounded-[inherit] py-2.5 pl-3 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
         <TemplateIcon icon={summary.icon} />
         <span className="min-w-0 flex-1">
@@ -92,14 +97,15 @@ function TemplateCard({ summary, selected, confirming, choice, footerRef, onSele
         </span>
       </button>
       <div className="flex shrink-0 items-center gap-1 self-start py-2.5 pr-2">
-        {/* Use and the status share one slot: hover or focus swaps them, so the description keeps its width. */}
+        {blocked ? <span className="text-[11px] text-[var(--ct-red)]" data-testid="template-card-blocked">Can't start</span> : (
+        /* Use and the status share one slot: hover or focus swaps them, so the description keeps its width. */
         <span className="grid items-center justify-items-end">
           <span className="col-start-1 row-start-1 hidden transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 min-[480px]:inline-flex">
             <TemplateTrust summary={summary} />
           </span>
           <Button variant="ghost" className="col-start-1 row-start-1 text-xs opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-            aria-label={`Use ${title}`} onClick={() => choice.choose(summary)}>Use</Button>
-        </span>
+            aria-label={`Use ${title}`} onClick={() => { onSelect(); choice.choose(summary); }}>Use</Button>
+        </span>)}
         {summary.provenance !== "builtin" && (
           <span className="inline-flex" onPointerDownCapture={(event) => placeMenu(event.currentTarget)}
             onKeyDownCapture={(event) => placeMenu(event.currentTarget)}>
@@ -165,6 +171,7 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
   const catalog = choice.catalog;
   const entries = galleryEntries(catalog?.templates ?? [], catalog?.recall ?? null, choice.defaultSummary, filter, query);
   const target = entries.length > 0 ? selected : null;
+  const targetBlocked = target !== null && isBlocked(target, choice.blocked);
   return (
     <div className="flex flex-col gap-2.5" data-testid="template-gallery">
       <div className="flex items-center gap-2">
@@ -176,7 +183,7 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
       {/* A fixed height, so the dialog keeps its size while the filter changes. */}
       <ul className={`flex h-[340px] flex-col gap-1.5 overflow-y-auto ${isDragOver ? "opacity-40" : ""}`} aria-label="Templates" aria-busy={!catalog}>
         {entries.map((summary) => (
-          <TemplateCard key={`${summary.name}@${summary.version}`} summary={summary} selected={same(summary, selected)} choice={choice} footerRef={footerRef}
+          <TemplateCard key={`${summary.name}@${summary.version}`} summary={summary} selected={same(summary, selected)} blocked={isBlocked(summary, choice.blocked)} choice={choice} footerRef={footerRef}
             confirming={confirming !== null && same(summary, confirming)}
             onSelect={() => setSelected(summary)} onExport={onExport} onDelete={() => setConfirming(summary)} onCancelDelete={() => setConfirming(null)}
             onConfirmDelete={() => { choice.remove(summary); setConfirming(null); }} />
@@ -192,10 +199,13 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
           ? <span role="alert">{choice.notice}</span>
           : isDragOver ? "Release to preview" : <>Drop a <code>.team</code>, <code>.team.yaml</code> or folder here<OpenPackage choice={choice} /></>}
       </div>
-      <div ref={footerRef} className="flex justify-end">
-        <Button variant="primary" className="text-xs" loading={choice.pending} disabled={target === null}
-          onClick={() => { if (target) choice.choose(target); }}>Use template</Button>
-      </div>
+      {/* Pinned like the form's footer, so a refusal above the list never pushes it out of the dialog. */}
+      <PinnedFooter sentinelClassName="-mt-[11px]" className="bg-[var(--ct-surface)]">
+        <div ref={footerRef} className="flex justify-end">
+          <Button variant="primary" className="text-xs" loading={choice.pending} disabled={target === null || targetBlocked}
+            onClick={() => { if (target && !targetBlocked) choice.choose(target); }}>Use template</Button>
+        </div>
+      </PinnedFooter>
     </div>
   );
 }

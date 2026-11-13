@@ -396,8 +396,17 @@ describe("Team template start in the session dialog", () => {
     await click(button("Use Research desk"));
     const blocked = dialog().querySelector('[role="alert"][data-testid="template-blocked-start"]')!;
     expect(blocked).not.toBeNull();
+    expect(blocked.getAttribute("aria-label")).toContain("Research desk");
     expect(blocked.textContent).toContain("Security lead");
     expect(dialog().querySelector('[data-testid="template-start-form"]')).toBeNull();
+    // The refused card is marked and offers no Use; the footer stays reachable but cannot pick it.
+    expect(button("Use Research desk")).toBeUndefined();
+    const card = buttons().find((candidate) => candidate.getAttribute("aria-pressed") === "true" && candidate.textContent?.includes("Research desk"));
+    expect(card?.closest("li")?.hasAttribute("data-blocked")).toBe(true);
+    expect(button("Use template")?.disabled).toBe(true);
+    fixture.templates.preview.mockClear();
+    await click(button("Use template"));
+    expect(fixture.templates.preview).not.toHaveBeenCalled();
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 
