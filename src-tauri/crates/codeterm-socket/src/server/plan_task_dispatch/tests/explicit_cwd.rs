@@ -67,6 +67,45 @@ fn explicit_cwd_that_is_not_a_checkout_never_falls_back_to_the_workspace() {
 }
 
 #[test]
+fn foreign_checkout_never_becomes_a_shared_attempt_of_the_canonical_project() {
+    use super::super::canonical_writer::resolve_placement;
+    use codeterm_service_core::plan::{ExecutionIntent, WorkerPlacement};
+    use serde_json::json;
+
+    let (_canonical_root, canonical) = git_project();
+    let (_foreign_root, foreign) = git_project();
+    let task = super::task(json!({
+        "id": "task_foreign", "name": "foreign", "type": "code", "status": "pending",
+        "files": {"edit": ["owned.txt"]}
+    }));
+    let mut facts = super::preflight_facts(&task);
+    facts.project_path = canonical.display().to_string();
+    let mutating = ExecutionIntent::Mutating;
+    let place =
+        |params: serde_json::Value| resolve_placement(Some(&params), &mutating, &facts, &[], false);
+    let foreign = foreign.display().to_string();
+
+    assert_eq!(
+        place(json!({"cwd": foreign})).unwrap().0,
+        WorkerPlacement::IsolatedLane
+    );
+    for requested in ["shared", "canonical_writer"] {
+        let refusal = place(json!({"cwd": foreign, "placement": requested})).unwrap_err();
+        assert!(
+            refusal.message.contains("explicit"),
+            "{requested}: {}",
+            refusal.message
+        );
+    }
+    assert_eq!(
+        place(json!({"cwd": facts.project_path, "placement": "shared"}))
+            .unwrap()
+            .0,
+        WorkerPlacement::Shared
+    );
+}
+
+#[test]
 fn foreign_checkout_binding_records_git_root_and_refuses_rebinding_or_fallback() {
     use codeterm_service_core::plan::{ExecutionIntent, OrchestratorRef};
     use codeterm_service_core::service::plan::{NewTask, PlanStore};
