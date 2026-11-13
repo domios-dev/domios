@@ -208,11 +208,36 @@ fn a_foreign_record_is_never_managed_even_on_a_lane_shaped_path() {
 }
 
 #[test]
+fn unrecorded_lane_without_a_requested_branch_is_judged_by_the_branch_git_checked_out() {
+    let fixture = Fixture::new();
+    let lane = fixture.worktree(&fixture.lanes.join("task-a1b2"), "lane/task-a1b2");
+    let canonical = fixture.canonical();
+    assert_eq!(
+        unmanaged_lane_reason_git(None, canonical, Some(&lane), None),
+        None
+    );
+    let disagreeing = unmanaged_lane_reason_git(None, canonical, Some(&lane), Some("lane/other"));
+    assert!(disagreeing.unwrap().contains("not managed"));
+
+    let user_branch = fixture.worktree(&fixture.lanes.join("task-c3d4"), "feature");
+    let reason = unmanaged_lane_reason_git(None, canonical, Some(&user_branch), None).unwrap();
+    assert!(reason.contains("not managed"), "{reason}");
+    git(Path::new(&lane), &["checkout", "-q", "--detach"]);
+    let detached = unmanaged_lane_reason_git(None, canonical, Some(&lane), None).unwrap();
+    assert!(detached.contains("not managed"), "{detached}");
+    assert_eq!(
+        unmanaged_lane_reason_git(None, canonical, Some(&lane), Some("lane/task-a1b2")),
+        None
+    );
+}
+
+#[test]
 fn a_recorded_domios_lane_is_managed_inside_the_root_and_branch_namespace_only() {
     let fixture = Fixture::new();
     let lane = fixture.worktree(&fixture.lanes.join("task-a1b2"), "lane/task-a1b2");
     let owned = Some(LaneOwnership::DomiosLane);
-    let probe_unused = |_: &str| -> Result<bool, String> { panic!("record decides") };
+    let probe_unused =
+        |_: &str| -> Result<Option<Option<String>>, String> { panic!("record decides") };
     assert_eq!(
         unmanaged_lane_reason(
             owned,

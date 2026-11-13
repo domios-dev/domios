@@ -14,14 +14,16 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
 /// `None` when the lane is Domios's to clean; otherwise why it is not managed.
 /// A recorded `domios_lane` must still sit in the lane root on a `lane/` branch.
 /// An unrecorded lane (written before dispatch recorded ownership) counts only
-/// on the exact provisioned fingerprint: `<canonical>-worktrees/<slug>` on
-/// `lane/<slug>`, registered as a linked worktree of `canonical`.
+/// on the exact provisioned fingerprint: `<canonical>-worktrees/<slug>`
+/// registered as a linked worktree of `canonical` with `lane/<slug>` checked
+/// out. `registration` reports that branch (`None`: not a linked worktree);
+/// a requested branch must agree with it.
 pub fn unmanaged_lane_reason(
     ownership: Option<LaneOwnership>,
     canonical: &str,
     worktree: Option<&str>,
     branch: Option<&str>,
-    linked_worktree: impl FnOnce(&str) -> Result<bool, String>,
+    registration: impl FnOnce(&str) -> Result<Option<Option<String>>, String>,
 ) -> Option<String> {
     let worktree = non_empty(worktree);
     let branch = non_empty(branch);
@@ -57,19 +59,32 @@ pub fn unmanaged_lane_reason(
         return None;
     }
     let unrecorded = "lane ownership is not recorded and the lane does not match the Domios-provisioned fingerprint, not managed";
-    let (Some(path), Some(path_slug), Some(branch_slug)) = (worktree, slug_of_path, slug_of_branch)
-    else {
+    let (Some(path), Some(path_slug)) = (worktree, slug_of_path) else {
         return Some(unrecorded.into());
     };
-    if path_slug != branch_slug {
-        return Some(unrecorded.into());
-    }
-    match linked_worktree(path) {
-        Ok(true) => None,
-        Ok(false) => Some(unrecorded.into()),
-        Err(error) => Some(format!(
-            "lane ownership could not be verified, not managed: {error}"
-        )),
+    let registered = match registration(path) {
+        Ok(Some(registered)) => registered,
+        Ok(None) => return Some(unrecorded.into()),
+        Err(error) => {
+            return Some(format!(
+                "lane ownership could not be verified, not managed: {error}"
+            ))
+        }
+    };
+    // The lane's branch is the requested one when git agrees (or the worktree is
+    // detached), otherwise whatever git has checked out there.
+    let branch_slug = match (slug_of_branch, registered.as_deref()) {
+        (Some(requested), None) => Some(requested),
+        (Some(requested), Some(checked_out)) => {
+            (checked_out.strip_prefix(LANE_BRANCH_PREFIX) == Some(requested)).then_some(requested)
+        }
+        (None, Some(checked_out)) => checked_out.strip_prefix(LANE_BRANCH_PREFIX),
+        (None, None) => None,
+    };
+    if branch_slug == Some(path_slug.as_str()) {
+        None
+    } else {
+        Some(unrecorded.into())
     }
 }
 
@@ -92,15 +107,15 @@ pub fn unmanaged_lane_reason_listed(
     branch: Option<&str>,
     listing: Option<&str>,
 ) -> Option<String> {
-    use codeterm_util::worktree_cleanup::{is_linked_worktree_of, lists_linked_worktree};
+    use codeterm_util::worktree_cleanup::{linked_worktree_branch, registered_worktree_branch};
     unmanaged_lane_reason(
         ownership,
         canonical,
         worktree,
         branch,
         |path| match listing {
-            Some(listing) => Ok(lists_linked_worktree(listing, path)),
-            None => is_linked_worktree_of(canonical, path),
+            Some(listing) => Ok(linked_worktree_branch(listing, path)),
+            None => registered_worktree_branch(canonical, path),
         },
     )
 }

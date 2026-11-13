@@ -197,18 +197,21 @@ fn remove_lane_with_policy(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    if let Some(reason) =
-        unmanaged_lane_reason_git(request.ownership, &canonical, Some(worktree), branch)
-    {
-        return Err(format!(
-            "✗ lane removal refused for '{worktree}': {reason}. Nothing was removed."
-        ));
-    }
     let registered = worktree_registered(&canonical, worktree)?;
     let branch_exists = branch
         .map(|branch| branch_exists(&canonical, branch))
         .transpose()?
         .unwrap_or(false);
+    // Ownership guards deletion; a lane already gone has nothing left to delete.
+    if worktree_exists || registered || branch_exists {
+        if let Some(reason) =
+            unmanaged_lane_reason_git(request.ownership, &canonical, Some(worktree), branch)
+        {
+            return Err(format!(
+                "✗ lane removal refused for '{worktree}': {reason}. Nothing was removed."
+            ));
+        }
+    }
     if let Some(branch) = branch.filter(|_| branch_exists) {
         if !branch_is_ancestor(&canonical, branch)? {
             return Err(format!(

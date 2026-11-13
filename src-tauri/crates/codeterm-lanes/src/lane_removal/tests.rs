@@ -434,6 +434,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
                     executor_tab_id: "worker-tab".into(),
                     branch: Some(branch.clone()),
                     worktree_path: Some(lane_path.clone()),
+                    lane_ownership: Some(LaneOwnership::DomiosLane),
                     ..Default::default()
                 });
             Ok(())
@@ -603,7 +604,7 @@ fn lane_remove_reports_a_missing_branch_as_already_removed() {
         &root.path().to_string_lossy(),
     ));
     let project = fixture_project(&root_path);
-    let worktree = root_path.join("detached");
+    let worktree = root_path.join("project-worktrees").join("already-gone");
     git(
         &project,
         &[
@@ -621,7 +622,7 @@ fn lane_remove_reports_a_missing_branch_as_already_removed() {
             worktree_path: worktree.display().to_string(),
             branch: Some("lane/already-gone".into()),
             canonical_cwd: Some(project.display().to_string()),
-            ownership: None,
+            ownership: Some(LaneOwnership::DomiosLane),
             force: false,
         },
         &[],
@@ -655,6 +656,7 @@ fn cleanup_status_done_clears_vanished_lane_references() {
                     executor_tab_id: "worker-tab".into(),
                     branch: Some(branch.clone()),
                     worktree_path: Some(lane_path.clone()),
+                    lane_ownership: Some(LaneOwnership::DomiosLane),
                     ..Default::default()
                 });
             Ok(())

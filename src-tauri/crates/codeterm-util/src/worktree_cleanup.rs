@@ -139,23 +139,36 @@ pub fn lane_slug_under_root(canonical: &str, worktree: &str) -> Option<String> {
         .flatten()
 }
 
-/// Whether `porcelain` (`git worktree list --porcelain`) lists `worktree` as a
-/// linked worktree; the first record is the main checkout and never counts.
-pub fn lists_linked_worktree(porcelain: &str, worktree: &str) -> bool {
+/// How `porcelain` (`git worktree list --porcelain`) registers `worktree` as a
+/// linked worktree: `None` when it is not one (the first record is the main
+/// checkout and never counts), else its checked-out branch (`None` if detached).
+pub fn linked_worktree_branch(porcelain: &str, worktree: &str) -> Option<Option<String>> {
     let expected = comparable(&resolved(worktree).to_string_lossy());
-    porcelain
-        .lines()
-        .filter_map(|line| line.strip_prefix("worktree "))
-        .skip(1)
-        .any(|listed| {
-            comparable(listed) == expected
-                || comparable(&resolved(listed).to_string_lossy()) == expected
+    let porcelain = porcelain.replace("\r\n", "\n");
+    let mut records = porcelain
+        .split("\n\n")
+        .filter(|record| !record.trim().is_empty());
+    records.next();
+    records.find_map(|record| {
+        let listed = record
+            .lines()
+            .find_map(|line| line.strip_prefix("worktree "))?;
+        let matches = comparable(listed) == expected
+            || comparable(&resolved(listed).to_string_lossy()) == expected;
+        matches.then(|| {
+            record
+                .lines()
+                .find_map(|line| line.strip_prefix("branch refs/heads/").map(str::to_string))
         })
+    })
 }
 
-pub fn is_linked_worktree_of(canonical: &str, worktree: &str) -> Result<bool, String> {
+pub fn registered_worktree_branch(
+    canonical: &str,
+    worktree: &str,
+) -> Result<Option<Option<String>>, String> {
     let listing = git(canonical, &["worktree", "list", "--porcelain"])?;
-    Ok(lists_linked_worktree(
+    Ok(linked_worktree_branch(
         &String::from_utf8_lossy(&listing.stdout),
         worktree,
     ))
