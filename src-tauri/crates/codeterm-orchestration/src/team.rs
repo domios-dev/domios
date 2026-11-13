@@ -15,6 +15,7 @@ pub mod close;
 mod close_busy;
 mod member_commit;
 pub use member_commit::commit_team_member_prepared;
+mod runtime_shutdown;
 mod storage_teardown;
 pub(crate) mod template_start;
 mod validation;
@@ -494,27 +495,7 @@ async fn close_team_inner(
     // Persist the authorized reduction before any fallible cleanup can
     // early-return and leave last.json still holding the member tabs.
     codeterm_service_core::service::session_persist::persist_session_after_close(svc);
-    let runtime_service = svc.clone();
-    let runtime_tab_ids = cleanup.member_tab_ids.clone();
-    let runtime_shutdown = tokio::task::spawn_blocking(move || {
-        let mut errors = Vec::new();
-        for tab_id in runtime_tab_ids {
-            if let Err(error) = runtime_service.shutdown_tab_agent_runtime(&tab_id) {
-                errors.push(format!("{tab_id}: {error}"));
-            }
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(format!(
-                "Team runtime shutdown failed: {}",
-                errors.join("; ")
-            ))
-        }
-    })
-    .await
-    .map_err(|error| format!("Team runtime shutdown task failed: {error}"))
-    .and_then(|result| result);
+    let runtime_shutdown = runtime_shutdown::stop_members(svc, &cleanup.member_tab_ids).await;
     for (plugin_id, session_id) in &cleanup.chat_backings {
         let _ = svc.chatbackend_close(plugin_id, session_id);
     }
