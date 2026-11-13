@@ -7,7 +7,7 @@ import { BackPill } from "../shared/BackPill";
 import { Button } from "../shared/Button";
 import { kindDisplayName } from "../../lib/roleKind";
 import {
-  effortLabel, humanizePackageName, managerDecision, managerRoles, roleSameAs, roleTiming, splitModel, templateSource, templateTitle,
+  effortLabel, humanizePackageName, lacksAuthority, managerDecision, managerRoles, roleSameAs, roleTiming, splitModel, templateSource, templateTitle,
   visibleAsks, visiblePayload, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import { TemplateIcon } from "./TemplateIcon";
@@ -98,17 +98,16 @@ function RoleList({ title, roles, preview, providers }: { title: string; roles: 
       <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{title}</div>
       {roles.map((role) => {
         const heading = roleHeading(role);
-        const start = role.kind === "manager"
-          ? roleTiming(role.start) ?? "Starts with the team"
-          : role.description ?? roleTiming(role.start) ?? "Starts with the team";
+        const start = [role.description?.trim(), roleTiming(role.start) ?? "Starts with the team"].filter(Boolean).join(" · ");
         return (
-          <div key={`${role.kind}:${role.role}`} className="flex items-center gap-2.5 py-1 text-[12px]">
+          <div key={`${role.kind}:${role.role}`} className="flex items-center gap-2.5 py-1 text-[12px]" data-role-kind={role.kind}>
             <span aria-hidden="true" className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[7px] bg-[color-mix(in_srgb,var(--ct-accent)_12%,transparent)] text-[var(--ct-accent)]">
               {role.kind === "manager" ? SLOT_ICON[role.role as ManagerSlot] ?? <Users size={13} /> : <Users size={13} />}
             </span>
             <div className="min-w-0 flex-1">
               <div>{heading.name}{heading.slot && <span className="text-[var(--ct-muted-fg)]"> · {heading.slot}</span>}</div>
               <div className="text-[11.5px] text-[var(--ct-muted-fg)]">{start}</div>
+              {lacksAuthority(role) && <div className="text-[11px] text-[var(--ct-muted-fg)]" data-authority="none">No Domios authority</div>}
             </div>
             <ModelCapsule preview={preview} role={role} providers={providers} />
           </div>

@@ -5,7 +5,7 @@ type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRo
 
 /** Managers in slot order, then workers, as the review lists them. */
 export function reviewRoles(roles: readonly TemplateRoleSummary[]): TemplateRoleSummary[] {
-  return [...managerRoles(roles).filter((role) => roles.includes(role)), ...roles.filter((role) => role.kind === "worker")];
+  return [...managerRoles(roles), ...roles.filter((role) => role.kind === "worker")];
 }
 
 /** "Lead" with the muted slot "Orchestrator"; an undeclared manager is just its slot, a worker its humanized name. */

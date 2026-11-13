@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { partitionTeamMembers, type TeamTabMember } from "./workspaceTeamModel";
+import { roleShieldLabel } from "./orchestrationSections";
 import type { Tab } from "../../lib/types";
 
 function member(id: string, overrides: Partial<Tab> = {}, index = 0): TeamTabMember {
@@ -48,6 +49,19 @@ describe("partitionTeamMembers", () => {
     expect(ids(terminals)).toEqual(["shell"]);
     expect(ids(surfacesByOwner.get("chat") ?? [])).toEqual(["board-chat"]);
     expect(ids(surfacesByOwner.get("pty") ?? [])).toEqual(["board-pty"]);
+  });
+
+  it("places a running custom manager with the Team's managers under its registered label, never as a Worker", () => {
+    const custom = member("security", { role: "Manager", role_profile: "security_lead", role_label: "Security lead", parent_tab_id: "orch" });
+    const { managers, workers } = partitionTeamMembers([
+      member("worker", { role: "Worker", parent_tab_id: "orch" }),
+      custom,
+      member("orch", { role: "Manager", role_profile: "orchestrator" }),
+    ]);
+    expect(ids(managers)).toEqual(["orch", "security"]);
+    expect(ids(workers)).toEqual(["worker"]);
+    expect(roleShieldLabel(custom.tab)).toBe("Security lead");
+    expect(roleShieldLabel(managers[0].tab)).toBe("ORCHESTRATOR");
   });
 
   it("does not classify plugin surfaces as agents from a stale provider field", () => {

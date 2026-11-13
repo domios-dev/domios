@@ -9,8 +9,8 @@ import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
 import { listHostPeers, type HostPeer } from "../../lib/teamTemplates/hostPeers";
 import { webUpload } from "../../lib/webApi";
 import {
-  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, templateSource, withKept,
-  type PickerSeed, type TemplateSummary,
+  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, startRefusalView, templateSource, withKept,
+  type PickerSeed, type StartErrorView, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import type { ManagerSeats } from "./TemplateManagers";
 
@@ -59,6 +59,8 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const [seats, setSeats] = useState<ManagerSeats>({});
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** A template the host refused to start, with the typed refusal's reason. */
+  const [blocked, setBlocked] = useState<{ name: string; refusal: StartErrorView } | null>(null);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [vault, setVault] = useState<string[] | null>(null);
   const [update, setUpdate] = useState<TemplateUpdateDiff | null>(null);
@@ -122,6 +124,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const openPreview = useCallback(async (template: { name: string; version?: string | null }, detail = false, diff: TemplateUpdateDiff | null = null) => {
     setPending(true);
     setNotice(null);
+    setBlocked(null);
     setUpdate(diff);
     try {
       const preview = await transport().preview(template);
@@ -130,13 +133,16 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
       else if (needsReview(preview)) setView({ kind: "review", preview, mode: "consent", back: "gallery" });
       else select(preview, new Set());
     } catch (error) {
-      setNotice(startErrorView(error).message);
+      const refusal = startRefusalView(error);
+      if (refusal) setBlocked({ name: template.name, refusal });
+      else setNotice(startErrorView(error).message);
     } finally {
       setPending(false);
     }
   }, [select, transport]);
 
   const choose = useCallback((summary: TemplateSummary) => {
+    setBlocked(null);
     if (summary.name === defaultSummary.name) {
       setChosen(null);
       setSeats({});
@@ -231,7 +237,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   }, [active, inputs, optOut, seats, secrets, placements, remotePeer]);
 
   return {
-    view, catalog, chosen, inputs, optOut, seats, pending, notice, defaultSummary, defaultPreview, secrets, vault, update,
+    view, catalog, chosen, inputs, optOut, seats, pending, notice, blocked, defaultSummary, defaultPreview, secrets, vault, update,
     placements, remotePeer, peers,
     /** True when Start goes through the template start rather than today's default pair. */
     usesTemplate: active !== null,
