@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -7,6 +7,11 @@ import type { PlanView } from "../Canvas/planProjection";
 import { Sidebar } from "./Sidebar";
 import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
+import { usePtyConnection } from "../../hooks/terminal/usePtyConnection";
+import { invoke } from "../../lib/bridge";
+import { subscribeTabOutput } from "../../lib/outputStream";
+import type { Terminal } from "@xterm/xterm";
 
 const mux = vi.hoisted(() => ({ state: {} as Record<string, unknown>, listeners: new Set<() => void>() }));
 vi.mock("../../store/multiplexer/hooks", async () => {
@@ -25,6 +30,7 @@ vi.mock("../../store/multiplexer/hooks", async () => {
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false }) }));
 vi.mock("../../hooks/useTouchOptimizedUi", () => ({ useTouchOptimizedUi: () => false }));
 vi.mock("../../lib/bridge", async (actual) => ({ ...await actual<object>(), invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
+vi.mock("../../lib/outputStream", async actual => ({ ...await actual<object>(), subscribeTabOutput: vi.fn(() => () => {}) }));
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: { kind: "signed_out" } }) }));
 vi.mock("../Automation/hostAdapter", () => ({
   primeWorkspaceGraphs: async () => undefined,
@@ -108,13 +114,28 @@ function setMux(workspaces: Workspace[], tabs: readonly Tab[], active: string) {
     notifications: [], tabStatuses: {}, activeTabIds: {}, active_workspace_id: active, closedTabs: [], orphanedTabs: [],
   };
 }
-async function mountSidebar(workspaces: Workspace[], tabs: readonly Tab[], active: string) {
+async function mountSidebar(workspaces: Workspace[], tabs: readonly Tab[], active: string, terminal = false) {
   vi.stubGlobal("__CODETERM_DEV__", false);
   vi.stubGlobal("__APP_VERSION__", "test");
   setMux(workspaces, tabs, active);
   const { host, root } = mountHost();
-  await act(async () => root.render(<Sidebar config={config} />));
+  await act(async () => root.render(<><Sidebar config={config} />{terminal && <SelectedTerminal />}</>));
   return { host, render: () => { for (const listener of [...mux.listeners]) listener(); } };
+}
+
+function SelectedTerminal() {
+  const selected = useMuxSelector(state => state.activeTabIds[state.active_workspace_id ?? ""]);
+  const tab = useMuxSelector(state => selected ? state.tabs[selected] : undefined);
+  const termRef = useRef({ cols: 80, rows: 24,
+    buffer: { active: { type: "normal", viewportY: 0, baseY: 0 } },
+    scrollToBottom() {}, scrollToLine() {},
+    write(_data: string, done?: () => void) { done?.(); },
+  } as unknown as Terminal);
+  const connectedPtyRef = useRef<string | null>(null);
+  usePtyConnection({ termRef, connectedPtyRef, tabId: selected ?? "", ptyId: tab?.pty_id,
+    termReady: Boolean(selected), onShellReady() {}, onOutputChunk() {},
+  });
+  return null;
 }
 const entering = (host: Element) => [...host.querySelectorAll('[data-tab-id][data-entering="true"]')].map((element) => element.getAttribute("data-tab-id"));
 
@@ -195,4 +216,43 @@ it("selecting Team tabs retains General, Utilities and both rows of workspace ca
       expect(width.mock.calls.length).toBe(measured);
     }
   } finally { width.mockRestore(); }
+});
+
+it.each([null, "owned-pty"])("selecting a failed tab never restarts it or changes its activity and height-bearing content (pty=%s)", async ptyId => {
+  const tabs = [manager("Faraday", "home"), worker("Cxauthor", "home")].map(tab => ({
+    ...tab, boot_stage: "spawn_failed" as const, boot_failure_reason: "opaque launch failure", pty_id: ptyId,
+  }));
+  const view = await mountSidebar([workspaceOf("home", tabs)], tabs, "home", true);
+  const spawns: unknown[] = [];
+  vi.mocked(subscribeTabOutput).mockClear();
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "spawn_pty") {
+      spawns.push(args);
+      const tabId = args?.tabId as string;
+      const current = mux.state.tabs as Record<string, Tab>;
+      mux.state = { ...mux.state, tabs: { ...current, [tabId]: { ...current[tabId], boot_stage: "pty_starting" } } };
+      view.render();
+      return new Promise(() => {});
+    }
+    return [];
+  });
+  try {
+    const structure = (entry: HTMLElement) => [...entry.querySelectorAll(".sidebar-tab-body *")].map(element => [element.tagName, element.textContent]);
+    const contents = tabs.map(tab => structure(row(view.host, tab.id)!));
+    for (const tabId of ["Faraday", "Cxauthor", "Faraday", "Cxauthor"]) {
+      const button = row(view.host, tabId)!.querySelector<HTMLButtonElement>(`button[aria-label="Open tab ${tabId}, launch failed"]`)!;
+      expect(button).toBeTruthy();
+      await act(async () => button.click());
+      expect(spawns).toEqual([]);
+      expect(button.getAttribute("aria-current")).toBe("page");
+      if (ptyId) expect(subscribeTabOutput).toHaveBeenLastCalledWith(tabId, expect.any(Object), expect.any(Object), ptyId);
+      else expect(subscribeTabOutput).not.toHaveBeenCalled();
+      for (const [index, tab] of tabs.entries()) {
+        const entry = row(view.host, tab.id)!;
+        expect(entry.dataset.tabActivity).toBe("failed");
+        expect(entry.querySelector('[data-testid="tab-launch-failure-badge"]')).not.toBeNull();
+        expect(structure(entry)).toEqual(contents[index]);
+      }
+    }
+  } finally { vi.mocked(invoke).mockResolvedValue([]); }
 });
