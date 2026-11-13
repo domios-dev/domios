@@ -632,26 +632,7 @@ pub(crate) fn hybrid_rrf_with_embedding(
         let mut out = Vec::new();
         for (id, dist) in raw {
             if let Ok(Some(item)) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir) {
-                if let Some(ref k) = q.kind {
-                    if item.kind != *k {
-                        continue;
-                    }
-                }
-                if let Some(ref s) = q.scope {
-                    if item.scope != *s {
-                        continue;
-                    }
-                }
-                if let Some(ref a) = q.area {
-                    if item.area.as_deref() != Some(a) {
-                        continue;
-                    }
-                }
-                if cfg
-                    .source_filter
-                    .as_ref()
-                    .is_some_and(|source| item.source != *source)
-                {
+                if !ranking::matches_filters(&item, q, cfg) {
                     continue;
                 }
                 out.push(SearchHit { item, score: dist });

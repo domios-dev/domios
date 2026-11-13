@@ -135,15 +135,18 @@ fn removed_builtins_disappear_from_plain_mem_search_after_reindex() {
     let mem = MemManager::open_in_memory().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let library = TemplateLibrary::new(dir.path().canonicalize().unwrap());
+    let mut retired_ids = Vec::new();
     for name in ["release-train", "qa-sweep", "distributed-bets"] {
         let mut removed = package("1.0.0", "retired template probe");
         removed.document.name = format!("dev.domios/{name}");
-        mem.save_with_context(
-            item(&removed, TemplateProvenance::Builtin),
-            true,
-            WriteContext::system(ACTOR),
-        )
-        .unwrap();
+        let saved = mem
+            .save_with_context(
+                item(&removed, TemplateProvenance::Builtin),
+                true,
+                WriteContext::system(ACTOR),
+            )
+            .unwrap();
+        retired_ids.push(saved.id);
     }
     let query = SearchQuery {
         query: "retired template probe".into(),
@@ -152,6 +155,17 @@ fn removed_builtins_disappear_from_plain_mem_search_after_reindex() {
     assert_eq!(mem.search(&query).unwrap().len(), 3);
     reindex_in(&mem, &library).unwrap();
     reindex_in(&mem, &library).unwrap();
-    assert!(mem.search(&query).unwrap().is_empty());
+    let hits = mem.search(&query).unwrap();
+    assert!(
+        !hits.is_empty(),
+        "current templates still match the shared template keyword"
+    );
+    for id in retired_ids {
+        assert_eq!(mem.get(&id).unwrap().unwrap().kind, "archived");
+        assert!(
+            hits.iter().all(|hit| hit.item.id != id),
+            "retired template {id} returned by plain search"
+        );
+    }
     assert_eq!(indexed(&mem, DEFAULT_TEMPLATE), 1);
 }
