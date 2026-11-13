@@ -2,16 +2,16 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum RoleAction {
-    /// List the role types a Team can launch, with the package each comes from
+    /// List exactly the roles a Team has, with kind, Domios authority (a built-in manager's, or none) and package
     List {
-        /// Team whose registrations to include; without it, the builtin default package
+        /// Team whose registrations to list; without it (or for a Team with none), the builtin default package
         #[arg(long)]
         team: Option<String>,
     },
 
-    /// Render the exact text a role type receives at each delivery occasion
+    /// Render a role's kind, authority and the exact text it receives at each delivery occasion
     Show {
-        /// Role type: orchestrator, planner, cartographer, curator, watcher or a worker type
+        /// Role name the Team registers, or watcher
         #[arg(default_value = "worker")]
         role_type: String,
         /// Team whose registration of this type to render

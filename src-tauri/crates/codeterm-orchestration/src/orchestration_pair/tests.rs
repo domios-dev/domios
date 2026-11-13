@@ -78,7 +78,7 @@ fn pair_role_placement_preserves_reserved_team_and_launch_identity() {
     fixture
         .service
         .set_tab_role_with_profile(
-            &reserved.planner_tab_id,
+            reserved.planner_tab_id(),
             "Manager",
             Some("planner"),
             Some(&reserved.orchestrator_tab_id),
@@ -86,7 +86,7 @@ fn pair_role_placement_preserves_reserved_team_and_launch_identity() {
         )
         .unwrap();
     let mux = fixture.service.mux.read();
-    for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+    for tab_id in [&reserved.orchestrator_tab_id, reserved.planner_tab_id()] {
         assert_eq!(
             mux.get_tab(tab_id).unwrap().team_id.as_deref(),
             Some(bootstrap.team_id.as_str())
@@ -240,10 +240,14 @@ fn team_planner_bound_at_plan_create() {
 
 #[test]
 fn pair_retry_command_preserves_provider_models_and_workspace() {
-    let cmd = pair_retry_command("ws-1", "claude", Some("opus"), "codex", Some("gpt-5"));
+    let cmd = pair_retry_command("ws-1", "claude", Some("opus"), Some(("codex", Some("gpt-5"))));
     assert_eq!(
         cmd,
         "domios team pair --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
+    );
+    assert_eq!(
+        pair_retry_command("ws-1", "claude", None, None),
+        "domios team pair --orchestrator claude --workspace ws-1"
     );
 }
 
@@ -287,13 +291,14 @@ fn pair_tabs_are_reserved_before_either_agent_launches() {
         None,
         false,
         &CorrectiveShape::default(),
+        true,
     )
     .unwrap();
 
-    assert_ne!(reserved.orchestrator_tab_id, reserved.planner_tab_id);
+    assert_ne!(&reserved.orchestrator_tab_id, reserved.planner_tab_id());
     assert!(mux.get_tab(&reserved.orchestrator_tab_id).is_some());
-    assert!(mux.get_tab(&reserved.planner_tab_id).is_some());
-    for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+    assert!(mux.get_tab(reserved.planner_tab_id()).is_some());
+    for tab_id in [&reserved.orchestrator_tab_id, reserved.planner_tab_id()] {
         let tab = mux.get_tab(tab_id).unwrap();
         assert!(tab.agent_booting, "reserved Tab must announce booting");
         assert_eq!(
@@ -303,14 +308,14 @@ fn pair_tabs_are_reserved_before_either_agent_launches() {
         );
     }
     assert_eq!(
-        mux.display_label_for_tab(&reserved.planner_tab_id),
-        reserved.planner_name
+        &mux.display_label_for_tab(reserved.planner_tab_id()),
+        reserved.planner_name()
     );
     assert!(mux
         .claim_existing_tab(&workspace_id, &reserved.orchestrator_tab_id)
         .is_ok());
     assert!(mux
-        .claim_existing_tab(&workspace_id, &reserved.planner_tab_id)
+        .claim_existing_tab(&workspace_id, reserved.planner_tab_id())
         .is_ok());
 }
 
@@ -327,6 +332,7 @@ fn reserved_pair() -> (
         None,
         false,
         &CorrectiveShape::default(),
+        true,
     )
     .unwrap();
     (mux, workspace_id, reserved)
@@ -338,7 +344,7 @@ fn pair_reserves_one_shared_team_before_either_agent_launches() {
 
     assert!(reserved.team_minted, "a fresh pair mints its own Team");
     assert!(mux.get_team(&reserved.team.id).is_some());
-    for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+    for tab_id in [&reserved.orchestrator_tab_id, reserved.planner_tab_id()] {
         assert_eq!(
             mux.get_tab(tab_id).unwrap().team_id.as_deref(),
             Some(reserved.team.id.as_str()),
@@ -381,7 +387,7 @@ fn failed_pair_launch_releases_a_newly_minted_team() {
     release_minted_pair_team(&mut mux, &reserved);
 
     assert!(mux.get_team(&reserved.team.id).is_none());
-    for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+    for tab_id in [&reserved.orchestrator_tab_id, reserved.planner_tab_id()] {
         assert_eq!(mux.get_tab(tab_id).unwrap().team_id, None);
     }
 }
@@ -397,7 +403,7 @@ fn pair_startup_lease_covers_only_a_minted_team() {
         lease.member_tab_ids,
         vec![
             reserved.orchestrator_tab_id.clone(),
-            reserved.planner_tab_id.clone()
+            reserved.planner_tab_id().clone()
         ],
         "the lease owns exactly the two reserved launch attempts"
     );
@@ -410,6 +416,7 @@ fn pair_startup_lease_covers_only_a_minted_team() {
         Some(&claimed),
         false,
         &CorrectiveShape::default(),
+        true,
     )
     .unwrap();
 
@@ -434,6 +441,7 @@ fn failed_pair_launch_keeps_a_team_the_claimed_tab_already_had() {
         Some(&claimed),
         false,
         &CorrectiveShape::default(),
+        true,
     )
     .unwrap();
     assert!(!reserved.team_minted);
@@ -478,6 +486,7 @@ fn general_agent_team_guard_refuses_self_pairing_and_reserves_nothing() {
         Some(&general),
         false,
         &CorrectiveShape::default(),
+        true,
     )
     .expect_err("the General Agent may not claim the Orchestrator seat of a pair");
 
@@ -505,12 +514,13 @@ fn general_agent_team_guard_still_lets_the_general_agent_pair_for_other_agents()
         None,
         false,
         &CorrectiveShape::in_workspace(Some(&workspace_id)),
+        true,
     )
     .expect("creating a pair for OTHER agents is the General Agent's job");
 
     assert_eq!(mux.team_count(), teams_before + 1);
     assert!(reserved.team_minted);
-    for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+    for tab_id in [&reserved.orchestrator_tab_id, reserved.planner_tab_id()] {
         assert_eq!(
             mux.get_tab(tab_id).unwrap().team_id.as_deref(),
             Some(reserved.team.id.as_str())
@@ -560,11 +570,12 @@ fn owner_pair_reservation_ignores_selected_leaf_while_agent_creation_is_refused(
             None,
             false,
             &CorrectiveShape::default(),
+            true,
         )
         .unwrap();
 
         assert!(mux.get_team(&reserved.team.id).is_some());
-        for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+        for tab_id in [&reserved.orchestrator_tab_id, reserved.planner_tab_id()] {
             assert_eq!(
                 mux.get_tab(tab_id).unwrap().team_id.as_deref(),
                 Some(reserved.team.id.as_str())
@@ -751,6 +762,7 @@ fn pair_rollback_removes_both_reserved_tabs_and_minted_team() {
             None,
             false,
             &CorrectiveShape::default(),
+            true,
         )
         .expect("pair reservation")
     };
@@ -959,6 +971,7 @@ fn leaf_caller_pair_creation_is_attributed_to_the_leaf_tab_itself() {
         None,
         false,
         &CorrectiveShape::default(),
+        true,
     )
     .unwrap();
     let lease = pair_startup_lease(&leaf_tab_id, &reserved).expect("a minted pair Team is leased");
@@ -1002,6 +1015,7 @@ fn general_agent_team_guard_refusal_carries_the_requested_pair_shape() {
         false,
         &CorrectiveShape::in_workspace(Some(&workspace_id))
             .with_agents(Some(requested_orchestrator), Some(requested_planner)),
+        true,
     )
     .unwrap_err();
 
@@ -1104,4 +1118,36 @@ fn pair_preflight_validates_each_roles_launch_profile_before_reservation() {
         assert_eq!(mux.snapshot().tabs.len(), tabs_before);
         assert_eq!(mux.team_count(), teams_before);
     }
+}
+
+impl ReservedPairTabs {
+    fn planner_tab_id(&self) -> &String {
+        &self.planner.as_ref().expect("planner reserved").tab_id
+    }
+
+    fn planner_name(&self) -> &String {
+        &self.planner.as_ref().expect("planner reserved").name
+    }
+}
+
+#[test]
+fn an_orchestrator_only_pair_reserves_no_planner_tab() {
+    let (mut mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let before = mux.all_tabs().count();
+    let reserved = reserve_pair_tabs(
+        &mut mux,
+        &workspace_id,
+        None,
+        false,
+        &CorrectiveShape::default(),
+        false,
+    )
+    .unwrap();
+    assert!(reserved.planner.is_none());
+    assert_eq!(mux.all_tabs().count(), before + 1);
+    assert_eq!(
+        reserved_member_tab_ids(&reserved),
+        vec![reserved.orchestrator_tab_id.clone()]
+    );
 }

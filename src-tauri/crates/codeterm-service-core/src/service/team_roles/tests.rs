@@ -1,4 +1,4 @@
-use codeterm_team_package::{RoleStart, StartMode};
+use codeterm_team_package::{RoleKind, RoleStart, StartMode};
 use codeterm_types::agent::AgentRole;
 use codeterm_types::team::role_registration::PinnedPackage;
 
@@ -7,7 +7,7 @@ use super::*;
 fn worker(team_id: &str, name: &str, instructions: &str) -> RoleRegistration {
     RoleRegistration {
         team_id: team_id.into(),
-        group: TeamRoleGroup::Worker,
+        kind: RoleKind::Worker,
         name: name.into(),
         label: name.into(),
         description: None,
@@ -73,12 +73,20 @@ fn a_team_without_registrations_resolves_the_default_package() {
     ));
 }
 
+fn manager(team_id: &str, name: &str) -> RoleRegistration {
+    RoleRegistration {
+        kind: RoleKind::Manager,
+        ..worker(team_id, name, "fixture-prose")
+    }
+}
+
 #[test]
-fn registration_refuses_reserved_names_and_path_escapes() {
+fn registration_refuses_host_owned_names_reserved_workers_and_path_escapes() {
     let root = tempfile::tempdir().unwrap();
     let store = TeamRoleStore::new(root.path());
     for name in [
         builtins::ORCHESTRATOR,
+        builtins::PLANNER,
         builtins::WATCHER,
         builtins::GENERAL_AGENT,
     ] {
@@ -87,38 +95,114 @@ fn registration_refuses_reserved_names_and_path_escapes() {
             "{name}"
         );
     }
-    let mut manager = worker("team_a", "checker", "x");
-    manager.group = TeamRoleGroup::Manager;
-    assert!(store.register(manager).is_err());
+    for host_owned in [builtins::WATCHER, builtins::GENERAL_AGENT] {
+        assert!(store.register(manager("team_a", host_owned)).is_err(), "{host_owned}");
+    }
+    for worker_kind in [builtins::QA, builtins::REVIEWER, builtins::RELEASE_MANAGER] {
+        assert!(store.register(manager("team_a", worker_kind)).is_err(), "{worker_kind}");
+    }
     assert!(store.register(worker("../escape", "checker", "x")).is_err());
     assert!(store.register(worker("team_a", "checker", "  ")).is_err());
     assert!(!root.path().join("team_a").exists());
 }
 
 #[test]
-fn role_types_name_manager_slots_or_workers_available_to_the_team() {
+fn a_custom_manager_registers_and_resolves_as_a_manager() {
     let root = tempfile::tempdir().unwrap();
     let store = TeamRoleStore::new(root.path());
+    store.register(manager("team_a", builtins::ORCHESTRATOR)).unwrap();
+    assert_eq!(
+        store.register(manager("team_a", "security_lead")).unwrap(),
+        RoleRegistrationOutcome::Created
+    );
+    assert_eq!(
+        store.role_type(Some("team_a"), "security_lead").unwrap(),
+        RoleType::new(AgentRole::Manager, "security_lead")
+    );
+    assert_eq!(
+        store.worker_type(Some("team_a"), Some("security_lead")),
+        Err(RoleTypeError::NotAWorker {
+            name: "security_lead".into(),
+            workers: Vec::new()
+        })
+    );
+}
+
+#[test]
+fn a_team_has_exactly_its_roles_and_refuses_unlisted_names() {
+    let root = tempfile::tempdir().unwrap();
+    let store = TeamRoleStore::new(root.path());
+    store.register(manager("team_a", builtins::ORCHESTRATOR)).unwrap();
     store
         .register(worker("team_a", "checker", "fixture-prose"))
         .unwrap();
     assert_eq!(
-        store.role_type(Some("team_a"), "checker").unwrap().role,
-        AgentRole::Worker
+        store.role_type(Some("team_a"), "checker").unwrap(),
+        RoleType::new(AgentRole::Worker, "checker")
+    );
+    for unlisted in [builtins::QA, builtins::PLANNER, "scout"] {
+        assert!(
+            matches!(
+                store.role_type(Some("team_a"), unlisted),
+                Err(RoleTypeError::NotRegistered { .. })
+            ),
+            "{unlisted}"
+        );
+    }
+    assert_eq!(
+        store.worker_type(Some("team_a"), Some(builtins::QA)),
+        Err(RoleTypeError::NotRegistered {
+            name: builtins::QA.into(),
+            roles: vec!["checker".into()]
+        })
     );
     assert_eq!(
-        store.role_type(None, "planner").unwrap().role,
-        AgentRole::Manager
+        store.worker_type(Some("team_a"), Some(builtins::PLANNER)),
+        Err(RoleTypeError::NotAWorker {
+            name: builtins::PLANNER.into(),
+            workers: vec!["checker".into()]
+        })
     );
-    assert!(store.role_type(None, "qa").is_ok());
     assert_eq!(
-        store.role_type(Some("team_b"), "checker"),
-        Err(RoleTypeError::UnavailableWorker("checker".into()))
+        store.role_type(Some("team_a"), builtins::WATCHER).unwrap(),
+        RoleType::new(AgentRole::Manager, builtins::WATCHER)
     );
     assert!(matches!(
         store.role_type(Some("team_a"), "Manager"),
         Err(RoleTypeError::StructuralLiteral(_))
     ));
+}
+
+#[test]
+fn dispatch_without_a_role_uses_worker_only_when_the_team_lists_it() {
+    let root = tempfile::tempdir().unwrap();
+    let store = TeamRoleStore::new(root.path());
+    store.register(manager("team_a", builtins::ORCHESTRATOR)).unwrap();
+    store
+        .register(worker("team_a", "checker", "fixture-prose"))
+        .unwrap();
+    assert_eq!(
+        store.worker_type(Some("team_a"), None),
+        Err(RoleTypeError::NoDefaultWorker {
+            workers: vec!["checker".into()]
+        })
+    );
+    store
+        .register(worker("team_a", builtins::WORKER, "fixture-prose"))
+        .unwrap();
+    assert_eq!(
+        store.worker_type(Some("team_a"), None).unwrap(),
+        RoleType::new(AgentRole::Worker, builtins::WORKER)
+    );
+    // A Team with no registrations is the default package, which lists `worker`.
+    assert_eq!(
+        store.worker_type(Some("team_b"), None).unwrap(),
+        RoleType::new(AgentRole::Worker, builtins::WORKER)
+    );
+    assert_eq!(
+        store.role_type(Some("team_b"), builtins::QA).unwrap(),
+        RoleType::new(AgentRole::Worker, builtins::QA)
+    );
 }
 
 #[test]
@@ -136,33 +220,53 @@ fn reload_rereads_registrations_written_by_another_store() {
 
 fn curator(schedule: &str) -> RoleRegistration {
     RoleRegistration {
-        group: TeamRoleGroup::Manager,
-        name: "curator".into(),
         start: RoleStart::Schedule {
             schedule: schedule.into(),
         },
-        ..worker("team_a", "curator", "fixture-prose")
+        ..manager("team_a", "curator")
     }
 }
 
 #[test]
 fn a_curator_schedule_becomes_a_window_inside_the_host_bounds() {
     use codeterm_types::plan::CuratorWindow;
-    assert_eq!(window_of(&[]), CuratorWindow::HOST);
-    assert_eq!(window_of(&[curator("45m..2h")]), CuratorWindow::HOST);
+    assert_eq!(window_of(&[curator("45m..2h")]), Some(CuratorWindow::HOST));
     assert_eq!(
         window_of(&[curator("1h..90m")]),
-        CuratorWindow {
+        Some(CuratorWindow {
             min_secs: 3600,
             max_secs: 5400
-        }
+        })
     );
-    assert_eq!(window_of(&[curator("5m..12h")]), CuratorWindow::HOST);
-    // Workers never schedule the Curator.
-    assert_eq!(
-        window_of(&[worker("team_a", "checker", "fixture-prose")]),
-        CuratorWindow::HOST
-    );
+    assert_eq!(window_of(&[curator("5m..12h")]), Some(CuratorWindow::HOST));
+}
+
+#[test]
+fn a_team_without_a_scheduled_curator_manager_has_no_curator_rounds() {
+    assert_eq!(window_of(&[]), None);
+    assert_eq!(window_of(&[manager("team_a", builtins::ORCHESTRATOR)]), None);
+    let on_demand = RoleRegistration {
+        start: RoleStart::Mode(StartMode::OnDemand),
+        ..curator("45m..2h")
+    };
+    assert_eq!(window_of(&[on_demand]), None);
+    // A worker or a custom manager with a schedule never schedules Curator rounds.
+    let scheduled_worker = RoleRegistration {
+        start: RoleStart::Schedule {
+            schedule: "45m..2h".into(),
+        },
+        ..worker("team_a", "checker", "fixture-prose")
+    };
+    let scheduled_custom = RoleRegistration {
+        start: RoleStart::Schedule {
+            schedule: "45m..2h".into(),
+        },
+        ..manager("team_a", "auditor")
+    };
+    assert_eq!(window_of(&[scheduled_worker, scheduled_custom]), None);
+    // A Team with no registrations keeps the default package's curator rounds.
+    let default = crate::service::builtin_roles::default_registrations("team_a");
+    assert_eq!(window_of(&default), Some(codeterm_types::plan::CuratorWindow::HOST));
 }
 
 #[test]
@@ -242,7 +346,7 @@ fn labels_land_once_the_team_and_its_registrations_exist() {
         .unwrap();
     registered.lock().unwrap().extend([
         RoleRegistration {
-            group: TeamRoleGroup::Manager,
+            kind: RoleKind::Manager,
             label: "Conductor".into(),
             ..worker(&team, "orchestrator", "fixture-prose")
         },

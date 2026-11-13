@@ -2,16 +2,16 @@
 import type { ModelPreference } from "./ModelPreference";
 import type { PinnedPackage } from "./PinnedPackage";
 import type { RoleFileRef } from "./RoleFileRef";
+import type { RoleKind } from "./RoleKind";
 import type { RoleStart } from "./RoleStart";
-import type { TeamRoleGroup } from "./TeamRoleGroup";
 
 /**
- * One role type registered for a Team. Immutable once stored; it never spawns a
- * Worker and never widens the structural authority of its manager slot or worker name.
+ * One role registered for a Team. Immutable once stored; it never spawns an agent and
+ * grants nothing: the host decides authority from `kind` and `name` alone.
  */
-export type RoleRegistration = { team_id: string, group: TeamRoleGroup, 
+export type RoleRegistration = { team_id: string, kind: RoleKind, 
 /**
- * The manager slot id or the worker name.
+ * The role name, the key in the package's `roles`.
  */
 name: string, 
 /**

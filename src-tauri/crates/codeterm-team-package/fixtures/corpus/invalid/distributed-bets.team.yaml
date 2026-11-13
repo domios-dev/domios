@@ -42,8 +42,9 @@ automation:
   - path: blueprints/bets-digest.yaml
     description: Posts a progress digest while bets are simulated
 
-managers:
+roles:
   orchestrator:
+    kind: manager
     name: Guide
     start: with_team
     model: [claude:opus]
@@ -56,13 +57,14 @@ managers:
       You never simulate bets yourself; dispatch one Oracle per bet in parallel.
 
   planner:
+    kind: manager
     name: Atlas
     start: with_team
     instructions: |
       Each bet task carries docs/rubric.md as its acceptance.
 
-workers:
   oracle:
+    kind: worker
     description: Simulates one bet against the rubric.
     model: [claude:sonnet, codex:gpt-6.1-sol]
     reasoning: medium
@@ -75,6 +77,7 @@ workers:
       Simulate exactly one bet: assumptions, risks, score 1-10, kill criterion.
 
   skeptic:
+    kind: worker
     description: Attacks the top three bets.
     model: [claude:opus]
     instructions: |

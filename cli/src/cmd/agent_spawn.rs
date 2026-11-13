@@ -1,6 +1,6 @@
 use codeterm_types::team::staffing as team_codes;
 
-use crate::args::agent::{AgentAction, RoleType, SpawnLocation};
+use crate::args::agent::{AgentAction, RoleName, SpawnLocation};
 use crate::client::SocketClient;
 use codeterm_types::agent::role_kind::builtins;
 
@@ -9,7 +9,7 @@ use codeterm_types::agent::role_kind::builtins;
 /// task-less verification Worker gave `--execution-intent` a meaning of its own.
 #[derive(Default)]
 pub(super) struct SpawnContext<'a> {
-    pub role: Option<RoleType>,
+    pub role: Option<RoleName>,
     pub has_workspace: bool,
     pub has_team: bool,
     pub has_parent: bool,
@@ -22,22 +22,24 @@ pub(super) struct SpawnContext<'a> {
 }
 
 impl SpawnContext<'_> {
+    /// A name that may be a worker: the Team decides, and only the reserved manager names and
+    /// the watcher never are.
     fn is_worker(&self) -> bool {
-        self.role.as_ref().is_some_and(RoleType::is_worker)
+        self.role.as_ref().is_some_and(may_be_worker)
     }
 
     fn is(&self, kind_id: &str) -> bool {
         self.role
             .as_ref()
-            .is_some_and(|role| role.kind_id == kind_id)
+            .is_some_and(|role| role.as_str() == kind_id)
     }
 
     /// A worker type other than the plain `worker`.
     fn worker_type(&self) -> Option<&str> {
         self.role
             .as_ref()
-            .filter(|role| role.is_worker() && role.kind_id != builtins::WORKER)
-            .map(|role| role.kind_id.as_str())
+            .filter(|role| may_be_worker(role) && role.as_str() != builtins::WORKER)
+            .map(RoleName::as_str)
     }
 
     fn task_bound(&self) -> bool {
@@ -54,6 +56,12 @@ impl SpawnContext<'_> {
     pub(super) fn is_verification_worker(&self) -> bool {
         self.is_worker() && !self.task_bound() && self.read_only()
     }
+}
+
+/// Built-in manager names and the watcher are never workers; any other name is the Team's to
+/// resolve, so the daemon makes the final call.
+fn may_be_worker(role: &RoleName) -> bool {
+    !role.is_manager_name()
 }
 
 const READ_ONLY: &str = "read_only";
@@ -76,9 +84,6 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
         return Err(
             "--plan <id> is required when spawning --role planner (or pass --parent-tab)".into(),
         );
-    }
-    if ctx.worker_type().is_some() && !ctx.has_parent {
-        return Err("Worker types other than `worker` require --parent-tab".into());
     }
     if ctx.has_authorized_gates {
         if !ctx.is_worker() {
@@ -136,14 +141,14 @@ pub(super) fn team_spawn_fields(
 
 /// `--team` accepts exactly one role: the one that anchors a Team. Anything
 /// else takes its Team from its own binding and is refused by code.
-pub(super) fn validate_team_spawn_role(role: Option<&RoleType>) -> Result<(), String> {
+pub(super) fn validate_team_spawn_role(role: Option<&RoleName>) -> Result<(), String> {
     match role {
         None => Ok(()),
-        Some(role) if role.kind_id == builtins::ORCHESTRATOR => Ok(()),
+        Some(role) if role.as_str() == builtins::ORCHESTRATOR => Ok(()),
         Some(other) => Err(format!(
             "{}: --team accepts --role orchestrator only, got {}. A role-bound agent takes its Team from that binding.",
             team_codes::TEAM_SPAWN_ROLE_MUST_ANCHOR,
-            other.kind_id
+            other
         )),
     }
 }
@@ -151,8 +156,8 @@ pub(super) fn validate_team_spawn_role(role: Option<&RoleType>) -> Result<(), St
 /// The one `--team` + `--role` pair that is not a contradiction. It leaves the
 /// `agent.spawn` request entirely and calls the Team staffing verb instead, so
 /// the CLI and the UI add-member action reach the daemon the same way.
-pub(super) fn routes_to_team_staffing(role: Option<&RoleType>, team: Option<&str>) -> bool {
-    role.is_some_and(|role| role.kind_id == builtins::ORCHESTRATOR) && team.is_some()
+pub(super) fn routes_to_team_staffing(role: Option<&RoleName>, team: Option<&str>) -> bool {
+    role.is_some_and(|role| role.as_str() == builtins::ORCHESTRATOR) && team.is_some()
 }
 
 /// Flags the Team staffing verb does not carry. Naming them is the refusal —
@@ -299,8 +304,8 @@ pub(super) fn handle(
     };
     let worker_type = role
         .as_ref()
-        .filter(|role| role.is_worker() && role.kind_id != builtins::WORKER)
-        .map(|role| role.kind_id.clone());
+        .filter(|role| may_be_worker(role) && role.as_str() != builtins::WORKER)
+        .map(|role| role.as_str().to_string());
     let execution_intent = resolved_execution_intent(worker_type.as_deref(), execution_intent);
     let context = SpawnContext {
         role: role.clone(),
@@ -322,7 +327,7 @@ pub(super) fn handle(
             .as_deref()
             .map(str::trim)
             .filter(|reason| !reason.is_empty());
-        if !role.as_ref().is_some_and(RoleType::is_worker)
+        if !role.as_ref().is_some_and(may_be_worker)
             || reason.is_none()
             || execution_intent
                 .as_deref()
@@ -485,7 +490,7 @@ pub(super) fn handle(
             crate::cmd::print::fail(1, e.to_string());
         }
     };
-    let is_worker = role.as_ref().is_some_and(RoleType::is_worker);
+    let is_worker = role.as_ref().is_some_and(may_be_worker);
     for hint in crate::cmd::hints::worker_spawn_hints(
         is_worker,
         parent.is_some() || report_to.is_some(),
@@ -526,7 +531,7 @@ pub(super) fn handle(
         ));
     }
     if let Some(role) = &role {
-        body["role"] = serde_json::json!(role.kind_id);
+        body["role"] = serde_json::json!(role.as_str());
     }
     if let Some(p) = parent {
         body["parent_tab_id"] = serde_json::json!(p);

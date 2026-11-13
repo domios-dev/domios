@@ -3,11 +3,9 @@
 use std::io::Write;
 use std::path::Path;
 
-use codeterm_team_package::{
-    check_path, schema_document, CheckOptions, DiagnosticCode, HOST_PROFILES,
-};
+use codeterm_team_package::{check_path, schema_document, CheckOptions, DiagnosticCode};
 
-const USAGE: &str = "usage: atp-validate <path> [--host-profile none|domios] [--json]
+const USAGE: &str = "usage: atp-validate <path> [--json]
        atp-validate schema --spec-version <YYYY-MM-DD>
 ";
 
@@ -19,7 +17,6 @@ enum Command {
     Help,
     Check {
         path: String,
-        options: CheckOptions,
         json: bool,
     },
     Schema {
@@ -49,11 +46,7 @@ fn run(args: &[String], out: &mut impl Write, err: &mut impl Write) -> i32 {
     let written = match command {
         Command::Help => out.write_all(USAGE.as_bytes()).map(|()| EXIT_VALID),
         Command::Schema { spec_version } => write_schema(&spec_version, out),
-        Command::Check {
-            path,
-            options,
-            json,
-        } => write_check(&path, &options, json, out),
+        Command::Check { path, json } => write_check(&path, json, out),
     };
     written.unwrap_or_else(|error| {
         let _ = writeln!(err, "atp-validate: {error}");
@@ -69,13 +62,10 @@ fn parse(args: &[String]) -> Result<Command, String> {
         return parse_schema(&args[1..]);
     }
     let mut path = None;
-    let mut profile = "none".to_string();
     let mut json = false;
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
+    for arg in args {
         match arg.as_str() {
             "--json" => json = true,
-            "--host-profile" => profile = value_of(arg, rest.next())?,
             flag if flag.starts_with('-') && flag != "-" => {
                 return Err(format!("unknown option {flag}"))
             }
@@ -84,17 +74,7 @@ fn parse(args: &[String]) -> Result<Command, String> {
         }
     }
     let path = path.ok_or("missing package path")?;
-    let options = CheckOptions::for_profile(&profile).ok_or_else(|| {
-        format!(
-            "unknown host profile {profile}; expected one of {}",
-            HOST_PROFILES.join(", ")
-        )
-    })?;
-    Ok(Command::Check {
-        path,
-        options,
-        json,
-    })
+    Ok(Command::Check { path, json })
 }
 
 fn parse_schema(args: &[String]) -> Result<Command, String> {
@@ -136,13 +116,8 @@ fn write_schema(spec_version: &str, out: &mut impl Write) -> std::io::Result<i32
     Ok(EXIT_VALID)
 }
 
-fn write_check(
-    path: &str,
-    options: &CheckOptions,
-    json: bool,
-    out: &mut impl Write,
-) -> std::io::Result<i32> {
-    let report = check_path(Path::new(path), options).report;
+fn write_check(path: &str, json: bool, out: &mut impl Write) -> std::io::Result<i32> {
+    let report = check_path(Path::new(path), &CheckOptions::default()).report;
     if json {
         writeln!(out, "{}", report.to_json())?;
     } else {

@@ -14,7 +14,8 @@ import {
 } from "../../lib/teamTemplates/startModel";
 import type { ManagerSeats } from "./TemplateManagers";
 
-type ManagerSlot = import("../../../gen/ManagerSlot").ManagerSlot;
+/** A manager role name: a built-in manager or one of the package's own. */
+type ManagerSlot = string;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
 
 export type TemplateView =
@@ -104,8 +105,8 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     for (const picker of preview.form.pickers) {
       const seed = pickerSeed(picker.decision);
       if (!seed) continue;
-      if (picker.slot === "orchestrator" || picker.slot === "planner") pairSeeds[picker.slot] = seed;
-      else managerSeeds[picker.slot] = seed;
+      if (picker.role === "orchestrator" || picker.role === "planner") pairSeeds[picker.role] = seed;
+      else managerSeeds[picker.role] = seed;
     }
     onSeedPair(pairSeeds);
     setChosen(preview);
@@ -224,8 +225,8 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const active = chosen ?? (customized ? defaultPreview : null);
   const startRequest = useCallback((): TemplateStartRequest | undefined => {
     if (!active) return undefined;
-    const managerModels = Object.fromEntries(Object.entries(seats).map(([slot, seat]) => [slot,
-      { model: `${seat.providerId}:${seat.modelId}`, reasoning_effort: seat.effortId ?? null }]));
+    const managerModels = Object.fromEntries(Object.entries(seats).flatMap(([role, seat]) => seat ? [[role,
+      { model: `${seat.providerId}:${seat.modelId}`, reasoning_effort: seat.effortId ?? null }] as const] : []));
     return buildStartRequest({ preview: active, inputs, optOut, managerModels, secretBindings: secrets, rolePlacements: remotePeer ? {} : placements });
   }, [active, inputs, optOut, seats, secrets, placements, remotePeer]);
 

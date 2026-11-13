@@ -6,7 +6,8 @@ files:
   - path: assets/icon.svg
     content: |
       hello
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: |
       Lead.

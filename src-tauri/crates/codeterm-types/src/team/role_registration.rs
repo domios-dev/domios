@@ -1,4 +1,4 @@
-use codeterm_team_package::{ManagerSlot, ModelPreference, RoleStart, TeamRoleGroup};
+use codeterm_team_package::{ModelPreference, RoleKind, RoleStart};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -18,13 +18,13 @@ pub struct RoleFileRef {
     pub description: Option<String>,
 }
 
-/// One role type registered for a Team. Immutable once stored; it never spawns a
-/// Worker and never widens the structural authority of its manager slot or worker name.
+/// One role registered for a Team. Immutable once stored; it never spawns an agent and
+/// grants nothing: the host decides authority from `kind` and `name` alone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct RoleRegistration {
     pub team_id: String,
-    pub group: TeamRoleGroup,
-    /// The manager slot id or the worker name.
+    pub kind: RoleKind,
+    /// The role name, the key in the package's `roles`.
     pub name: String,
     /// Shown as the tab's role label: the manager display name or the worker name.
     pub label: String,
@@ -56,11 +56,22 @@ pub struct RoleRegistration {
 }
 
 impl RoleRegistration {
-    pub fn slot(&self) -> Option<ManagerSlot> {
-        match self.group {
-            TeamRoleGroup::Manager => ManagerSlot::parse(&self.name),
-            TeamRoleGroup::Worker => None,
-        }
+    pub fn is_manager(&self) -> bool {
+        self.kind == RoleKind::Manager
+    }
+
+    pub fn is_worker(&self) -> bool {
+        self.kind == RoleKind::Worker
+    }
+
+    /// A manager registered under one of the spec's built-in manager names.
+    pub fn is_builtin_manager(&self) -> bool {
+        self.is_manager() && codeterm_team_package::is_builtin_manager(&self.name)
+    }
+
+    /// Whether this registration names `name` as a role of `kind`.
+    pub fn names(&self, kind: RoleKind, name: &str) -> bool {
+        self.kind == kind && self.name == name
     }
 
     /// Two registrations of one role are the same when everything but the clock agrees.

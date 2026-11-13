@@ -848,7 +848,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 }
             }
             if let Some(role) = role {
-                body["role"] = serde_json::json!(role.kind_id);
+                body["role"] = serde_json::json!(role.as_str());
             }
             if let Some(p) = parent {
                 body["parent_tab_id"] = serde_json::json!(p);
@@ -926,7 +926,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             if let Some(sandbox) = sandbox { body["sandbox"] = serde_json::json!(sandbox); }
             let worker_type = role
                 .as_ref()
-                .is_some_and(|role| role.is_worker() && role.kind_id != "worker");
+                .is_some_and(|role| !role.is_manager_name() && role.as_str() != "worker");
             let execution_intent = execution_intent
                 .as_deref()
                 .or_else(|| worker_type.then_some("read_only"));

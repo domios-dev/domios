@@ -1,13 +1,12 @@
 //! Bake: turns a live Team's registrations, its source package and its collected payload
-//! into one package. Roles keep exactly what they were registered with, a role without a
-//! model stays without one, and the coordinator's runbook joins the orchestrator.
+//! into one package. The Team's roles are exactly its registrations, each with its kind and
+//! full instructions; a role without a model stays without one, and the coordinator's
+//! runbook joins the orchestrator.
 
 use std::collections::BTreeMap;
 
 use codeterm_team_package::contracts::TemplateDistillRequest;
-use codeterm_team_package::{
-    ManagerSlot, OrderedMap, Package, PackageLineage, TeamRole, TeamRoleGroup,
-};
+use codeterm_team_package::{OrderedMap, Package, PackageLineage, TeamRole, ORCHESTRATOR};
 use codeterm_types::team::role_registration::{PinnedPackage, RoleRegistration};
 
 use crate::service::team_template_payload::{package_path, Collected};
@@ -35,10 +34,8 @@ pub fn source_identity(registrations: &[RoleRegistration]) -> Option<PinnedPacka
 /// only files inside the Team's knowledge directory travel.
 fn role_from(team_id: &str, registration: &RoleRegistration, base: &Package) -> TeamRole {
     TeamRole {
-        name: match registration.group {
-            TeamRoleGroup::Manager => Some(registration.label.clone()),
-            TeamRoleGroup::Worker => None,
-        },
+        kind: registration.kind,
+        name: (registration.label != registration.name).then(|| registration.label.clone()),
         description: registration.description.clone(),
         start: Some(registration.start.clone()),
         model: registration.model.clone(),
@@ -105,52 +102,27 @@ pub fn bake(
         version: pinned.version,
     });
 
-    let mut managers = document.managers.clone();
-    for slot in ManagerSlot::ALL {
-        let registered = registrations.iter().find(|registration| {
-            registration.group == TeamRoleGroup::Manager && registration.slot() == Some(slot)
-        });
-        let role = match registered {
-            Some(registration) => Some(role_from(team_id, registration, base)),
-            None => base
-                .document
-                .managers
-                .slot(slot)
-                .map(|role| inline_role(base, slot.as_str(), role)),
-        };
-        match slot {
-            ManagerSlot::Orchestrator => {
-                if let Some(role) = role {
-                    managers.orchestrator = role;
-                }
-            }
-            ManagerSlot::Planner => managers.planner = role,
-            ManagerSlot::Cartographer => managers.cartographer = role,
-            ManagerSlot::Curator => managers.curator = role,
+    // A Team with no registrations is the base package as a whole.
+    let mut roles = OrderedMap::new();
+    if registrations.is_empty() {
+        for (name, role) in base.document.roles() {
+            roles.insert(name.to_string(), inline_role(base, name, role));
+        }
+    } else {
+        for registration in registrations {
+            roles.insert(
+                registration.name.clone(),
+                role_from(team_id, registration, base),
+            );
         }
     }
-    managers.orchestrator.instructions = with_runbook(
-        managers.orchestrator.instructions.take(),
-        request.runbook.as_deref(),
-    );
-    document.managers = managers;
-
-    let mut workers = OrderedMap::new();
-    for registration in registrations
-        .iter()
-        .filter(|registration| registration.group == TeamRoleGroup::Worker)
-    {
-        workers.insert(
-            registration.name.clone(),
-            role_from(team_id, registration, base),
+    if let Some(orchestrator) = roles.get_mut(ORCHESTRATOR) {
+        orchestrator.instructions = with_runbook(
+            orchestrator.instructions.take(),
+            request.runbook.as_deref(),
         );
     }
-    if registrations.is_empty() {
-        for (name, role) in base.document.workers.iter() {
-            workers.insert(name.to_string(), inline_role(base, name, role));
-        }
-    }
-    document.workers = workers;
+    document.roles = roles;
 
     document.files = collected.files;
     document.memory = collected.memory;

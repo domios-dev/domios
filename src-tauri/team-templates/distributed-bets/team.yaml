@@ -72,57 +72,67 @@ memory:
 skills:
   - path: skills/bet-map
 
-managers:
+roles:
   orchestrator:
+    kind: manager
     name: Compass
     files: [docs/bet-card.md]
     instructions_file: managers/orchestrator.md
 
   planner:
+    kind: manager
     files: [docs/bet-card.md]
     instructions_file: managers/planner.md
 
-workers:
   stance:
+    kind: worker
     description: Argues one stance in the consilium (architect, skeptic or consumer).
     files: [docs/bet-card.md]
     instructions_file: workers/stance.md
 
   chair:
+    kind: worker
     description: Turns the consilium's positions into one bet set with regions, hubs and gates.
     files: [docs/bet-card.md]
     instructions_file: workers/chair.md
 
   writer:
+    kind: worker
     description: Writes bet cards and spec one-pagers with file:line evidence.
     files: [docs/bet-card.md]
     instructions_file: workers/writer.md
 
   cold_critic:
+    kind: worker
     description: Reads the bets cold, opens every source itself and returns findings or CONVERGED.
     files: [docs/bet-card.md]
     instructions_file: workers/cold_critic.md
 
   loss_critic:
+    kind: worker
     description: Compares every rewrite with its preserved prior text and flags what was lost.
     instructions_file: workers/loss_critic.md
 
   auditor:
+    kind: worker
     description: Audits the bets against one source, the design record or the code.
     files: [docs/bet-card.md]
     instructions_file: workers/auditor.md
 
   pod:
+    kind: worker
     description: Simulates one bet in one wave as the team that would build it.
     files: [docs/bet-card.md]
     instructions_file: workers/pod.md
 
   sim_reviewer:
+    kind: worker
     description: Verifies each simulation's findings and the honesty of its scoring.
     files: [docs/bet-card.md]
     instructions_file: workers/sim_reviewer.md
 
   mapmaker:
+    kind: worker
     description: Builds the navigable bet map, its validator and the export.
     skills: [bet-map]
     files: [docs/bet-card.md]

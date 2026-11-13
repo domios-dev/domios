@@ -15,6 +15,9 @@ pub use codeterm_plan::service_plan::prompts_plan::{
 /// Plan and task flag corrections, delivered once to each surface that writes plan state.
 pub const PLAN_TASK_FLAGS: &str = include_str!("../../../prompts/plan_task_flags.md");
 
+/// Host runtime text for a manager without a built-in name, appended after its own instructions.
+pub const CUSTOM_MANAGER: &str = include_str!("../../../prompts/custom_manager.md");
+
 /// Delivered when an existing agent tab becomes an Orchestrator.
 pub const ORCHESTRATOR_ONBOARDING: &str =
     include_str!("../../../prompts/orchestrator_onboarding.md");

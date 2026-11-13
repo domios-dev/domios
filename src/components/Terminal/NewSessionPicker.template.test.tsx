@@ -229,11 +229,11 @@ describe("Team template start in the session dialog", () => {
       ...startablePreview, consent: null, asks: [], payload: [], form: { ...startablePreview.form, inputs: [], pickers: [],
         template: templateRecallFixture.fallback,
         roles: [
-          { group: "manager" as const, role: "orchestrator", label: "orchestrator", start: "with_team" as const },
-          { group: "manager" as const, role: "planner", label: "planner", start: "with_team" as const },
-          { group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const },
-          { group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } },
-          { group: "worker" as const, role: "qa", label: "qa", start: "on_demand" as const },
+          { kind: "manager" as const, role: "orchestrator", label: "orchestrator", start: "with_team" as const },
+          { kind: "manager" as const, role: "planner", label: "planner", start: "with_team" as const },
+          { kind: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const },
+          { kind: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } },
+          { kind: "worker" as const, role: "qa", label: "qa", start: "on_demand" as const },
         ] },
     };
     fixture.templates.preview.mockImplementation(async (template: { name: string }) => template.name === "dev.domios/default" ? defaultPreview : startablePreview);
@@ -269,7 +269,7 @@ describe("Team template start in the session dialog", () => {
     const defaultPreview = {
       ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [], pickers: [],
         template: templateRecallFixture.fallback,
-        roles: [{ group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const }] },
+        roles: [{ kind: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const }] },
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);
     await renderPicker();
@@ -291,8 +291,8 @@ describe("Team template start in the session dialog", () => {
     const sameAs = modelDecisionFixtures.find((decision) => decision.reason === "same_as")!;
     const defaultPreview = {
       ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [],
-        template: templateRecallFixture.fallback, pickers: [{ slot: "curator" as const, label: "curator", decision: sameAs }],
-        roles: [{ group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" }, same_as: "orchestrator" }] },
+        template: templateRecallFixture.fallback, pickers: [{ role: "curator", label: "curator", decision: sameAs }],
+        roles: [{ kind: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" }, same_as: "orchestrator" }] },
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);
     await renderPicker();
@@ -314,8 +314,8 @@ describe("Team template start in the session dialog", () => {
       ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [], pickers: [],
         template: templateRecallFixture.fallback,
         roles: [
-          { group: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const, model: declared },
-          { group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" }, model: undecided, same_as: "orchestrator" },
+          { kind: "manager" as const, role: "cartographer", label: "cartographer", start: "on_demand" as const, model: declared },
+          { kind: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" }, model: undecided, same_as: "orchestrator" },
         ] },
     };
     fixture.templates.preview.mockImplementation(async () => defaultPreview);

@@ -38,22 +38,25 @@ files:
   - path: docs/review-doc.md
     description: What every PR review doc contains and how findings are graded
 
-managers:
+roles:
   orchestrator:
+    kind: manager
     name: Marshal
     files: [docs/review-doc.md]
     instructions_file: managers/orchestrator.md
 
   planner:
+    kind: manager
     instructions_file: managers/planner.md
 
-workers:
   pr_reviewer:
+    kind: worker
     description: Reviews one pull request in its own lane, writes its review doc and fixes on the PR branch.
     files: [docs/review-doc.md]
     instructions_file: workers/pr_reviewer.md
 
   gatekeeper:
+    kind: worker
     description: Runs the final no-Criticals gate and the proof on the integration merge SHA.
     files: [docs/review-doc.md]
     instructions_file: workers/gatekeeper.md

@@ -245,13 +245,12 @@ fn print_pair(value: &Value) {
         .get("orchestrator_tab_id")
         .and_then(Value::as_str)
         .unwrap_or("?");
-    let planner_tab = value
-        .get("planner_tab_id")
-        .and_then(Value::as_str)
-        .unwrap_or("?");
     println!("Plan: {plan_id}");
     println!("Orchestrator: Tab {orch_tab}");
-    println!("Planner: Tab {planner_tab}");
+    match value.get("planner_tab_id").and_then(Value::as_str) {
+        Some(planner_tab) => println!("Planner: Tab {planner_tab}"),
+        None => println!("Planner: none (the Orchestrator drafts the plan)"),
+    }
     if let Some(warning) = value.get("warning").and_then(Value::as_str) {
         eprintln!("Warning: {warning}");
     }

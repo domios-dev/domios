@@ -105,8 +105,9 @@ automation:
       trigger: { idle_task: 2h }
       action: { notify: orchestrator }
 
-managers:
+roles:
   orchestrator:
+    kind: manager
     name: Lead
     start: with_team
     model: [claude:opus, codex:gpt-6.1-sol]
@@ -123,6 +124,7 @@ managers:
       Never publish outside the project without the owner's approval.
 
   planner:
+    kind: manager
     name: Atlas
     start: with_team
     instructions: |
@@ -130,17 +132,34 @@ managers:
       Start with the three biggest competitors, then widen.
 
   cartographer:
+    kind: manager
     start: on_demand
     model: [claude:sonnet]
+    files: [data/competitors.csv]
+    instructions: |
+      Map the ground before the team researches it. List the competitors,
+      segments and primary sources that bear on the question, using
+      data/competitors.csv as the starting list.
+      Mark each source as a filing, a dataset or secondary coverage, with its
+      date. Flag gaps where no primary source exists.
+      Return the map to the lead; do not research an angle yourself.
 
   curator:
+    kind: manager
     start:
       schedule: 45m..2h
     model:
       same_as: orchestrator
+    instructions: |
+      Keep the team's knowledge current between research rounds.
+      Review the latest findings and checker marks. Record a lesson only when
+      it will change how the next angle is researched, and retire lessons the
+      findings contradict.
+      Flag market sizes older than two years and sources that no longer resolve.
+      Report what you changed to the lead in a few lines.
 
-workers:
   researcher:
+    kind: worker
     description: Researches one angle of the question.
     model: [claude:sonnet, codex:gpt-6.1-sol]
     reasoning: medium
@@ -151,19 +170,22 @@ workers:
       Research exactly one angle. Every claim gets a source link and a date.
 
   checker:
+    kind: worker
     description: Verifies every claim in a researcher's report.
     model: [codex:gpt-6.1-sol]
     reasoning: high
     skills: [source-check]
-    instructions_file: workers/checker.md
+    instructions_file: roles/checker.md
 
   qa:
+    kind: worker
     description: Checks the final report renders and every link resolves.
     model: [claude:haiku]
     instructions: |
       Open the report, follow every link, list broken ones.
 
   writer:
+    kind: worker
     description: Turns merged findings into the final report.
     start: on_demand
     instructions: |

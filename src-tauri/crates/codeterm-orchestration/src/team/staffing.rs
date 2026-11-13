@@ -273,6 +273,7 @@ pub fn prepare_team_member_spawn(
         }
     }
     let (role, role_profile) = team_member_role(&params.role)
+        .or_else(|cause| registered_manager_role(team_id, &params.role).ok_or(cause))
         .map_err(|cause| refuse(team_id, &requested, codes::TEAM_MEMBER_ROLE_UNKNOWN, cause))?;
     let anchors =
         role_kind::anchors_team(AgentRole::from_str_compat(&role), role_profile.as_deref());
@@ -505,6 +506,17 @@ pub(crate) fn role_anchors_team(role: &str, role_profile: Option<&str>) -> bool 
     role_kind::anchors_team(AgentRole::from_str_compat(role), role_profile)
 }
 
+/// A manager the Team registers under a name of its own; it joins like the Cartographer and
+/// carries the host's generic manager authority.
+fn registered_manager_role(team_id: &str, requested: &str) -> Option<(String, Option<String>)> {
+    let name = requested.trim();
+    codeterm_service_core::service::team_roles::TeamRoleStore::global()
+        .effective(Some(team_id))
+        .iter()
+        .any(|registration| registration.is_manager() && registration.name == name)
+        .then(|| ("Manager".to_string(), Some(name.to_string())))
+}
+
 pub(crate) fn team_member_role(requested: &str) -> Result<(String, Option<String>), String> {
     match requested.trim().to_ascii_lowercase().as_str() {
         "worker" => Ok(("Worker".into(), None)),
@@ -512,7 +524,7 @@ pub(crate) fn team_member_role(requested: &str) -> Result<(String, Option<String
         "orchestrator" => Ok(("Manager".into(), Some(ORCHESTRATOR.into()))),
         "cartographer" => Ok(("Manager".into(), Some(CARTOGRAPHER.into()))),
         other => Err(format!(
-            "Team member role must be worker, planner, orchestrator, or cartographer, got '{other}'"
+            "Team member role must be worker, planner, orchestrator, cartographer or a manager the Team registers, got '{other}'"
         )),
     }
 }

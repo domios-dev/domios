@@ -8,7 +8,6 @@ const PLAN_TEMPLATE_KEYS: &[&str] = &["plan", "plans", "spec", "specs", "tasks",
 
 fn removed_hint(key: &str, top_level: bool) -> Option<&'static str> {
     Some(match key {
-        "kind" => "the group and the manager slot decide a role's kind",
         "persona" => "use `name` for a manager's display name",
         "extends" | "includes" => "each role carries its own complete instructions",
         "single" => "a worker that must run alone says so in its instructions",
@@ -18,7 +17,6 @@ fn removed_hint(key: &str, top_level: bool) -> Option<&'static str> {
             "write the team's way of working in the orchestrator's instructions"
         }
         "brief" if top_level => "put a starting hint in the planner's instructions",
-        "roles" if top_level => "declare `managers` slots and `workers`",
         _ => return None,
     })
 }
@@ -560,61 +558,43 @@ impl Reader<'_> {
         }
     }
 
-    fn managers(&mut self, node: &Node, path: &str) -> Option<TeamManagers> {
-        let entries = self.map(node, path)?;
-        let (mut orchestrator, mut planner, mut cartographer, mut curator) =
-            (None, None, None, None);
-        for (key, value) in entries {
-            let field = child_path(path, &key.text);
-            match key.text.as_str() {
-                "orchestrator" => orchestrator = self.role(value, &field),
-                "planner" => planner = self.role(value, &field),
-                "cartographer" => cartographer = self.role(value, &field),
-                "curator" => curator = self.role(value, &field),
-                _ => self.sink.error(
-                    Code::UnknownField,
-                    &field,
-                    Some(key.mark),
-                    format!(
-                        "`{}` is not a manager slot; slots are orchestrator, planner, cartographer and curator",
-                        key.text
-                    ),
-                ),
-            }
-        }
-        let Some(orchestrator) = orchestrator else {
-            if !entries.iter().any(|(key, _)| key.text == "orchestrator") {
-                self.missing(path, node, "orchestrator");
-            }
-            return None;
-        };
-        Some(TeamManagers {
-            orchestrator,
-            planner,
-            cartographer,
-            curator,
-        })
-    }
-
-    fn workers(&mut self, node: &Node, path: &str) -> OrderedMap<TeamRole> {
-        let mut workers = OrderedMap::new();
+    fn roles(&mut self, node: &Node, path: &str) -> OrderedMap<TeamRole> {
+        let mut roles = OrderedMap::new();
         let Some(entries) = self.map(node, path) else {
-            return workers;
+            return roles;
         };
         for (key, value) in entries {
             if let Some(role) = self.role(value, &child_path(path, &key.text)) {
-                workers.insert(key.text.clone(), role);
+                roles.insert(key.text.clone(), role);
             }
         }
-        workers
+        if !entries.iter().any(|(key, _)| key.text == ORCHESTRATOR) {
+            self.missing(path, node, ORCHESTRATOR);
+        }
+        roles
+    }
+
+    fn kind(&mut self, node: &Node, path: &str) -> Option<RoleKind> {
+        let value = self.string(node, path)?;
+        let kind = RoleKind::parse(&value);
+        if kind.is_none() {
+            self.invalid(
+                path,
+                node,
+                format!("kind is `manager` or `worker`, not `{value}`"),
+            );
+        }
+        kind
     }
 
     fn role(&mut self, node: &Node, path: &str) -> Option<TeamRole> {
         let entries = self.map(node, path)?;
-        let mut role = TeamRole::default();
+        let mut kind = None;
+        let mut role = TeamRole::new(RoleKind::Worker);
         for (key, value) in entries {
             let field = child_path(path, &key.text);
             match key.text.as_str() {
+                "kind" => kind = self.kind(value, &field),
                 "name" => role.name = self.string(value, &field),
                 "description" => role.description = self.string(value, &field),
                 "start" => role.start = self.start(value, &field),
@@ -640,6 +620,16 @@ impl Reader<'_> {
                 "a role has either `instructions` or `instructions_file`, not both",
             );
         }
+        if !entries.iter().any(|(key, _)| key.text == "kind") {
+            let at = child_path(path, "kind");
+            self.sink.error(
+                Code::MissingRoleKind,
+                &at,
+                Some(node.mark),
+                format!("`{at}` is required: `manager` or `worker`"),
+            );
+        }
+        role.kind = kind?;
         Some(role)
     }
 
@@ -750,7 +740,7 @@ pub(crate) fn document(
         (None, None, OrderedMap::new(), None, Vec::new());
     let (mut files, mut memory, mut skills, mut automation) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    let (mut managers, mut workers) = (None, OrderedMap::new());
+    let mut roles = OrderedMap::new();
     for (key, value) in entries {
         let path = key.text.as_str();
         match path {
@@ -773,8 +763,7 @@ pub(crate) fn document(
             "memory" => memory = reader.list(value, path, Reader::memory),
             "skills" => skills = reader.list(value, path, Reader::skill),
             "automation" => automation = reader.list(value, path, Reader::automation),
-            "managers" => managers = reader.managers(value, path),
-            "workers" => workers = reader.workers(value, path),
+            "roles" => roles = reader.roles(value, path),
             extension if extension.starts_with("x-") => {
                 extensions.insert(extension.to_string(), extension_value(value));
             }
@@ -791,10 +780,7 @@ pub(crate) fn document(
             "description",
             entries.iter().any(|(key, _)| key.text == "description"),
         ),
-        (
-            "managers",
-            entries.iter().any(|(key, _)| key.text == "managers"),
-        ),
+        ("roles", entries.iter().any(|(key, _)| key.text == "roles")),
     ] {
         if !present {
             reader.missing("", root, field);
@@ -820,8 +806,7 @@ pub(crate) fn document(
         memory,
         skills,
         automation,
-        managers: managers?,
-        workers,
+        roles,
     };
     Some((document, extensions))
 }

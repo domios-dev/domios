@@ -46,11 +46,10 @@ pub struct TeamDocument {
     pub skills: Vec<PackageSkill>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub automation: Vec<PackageAutomation>,
-    pub managers: TeamManagers,
-    #[serde(default, skip_serializing_if = "OrderedMap::is_empty")]
+    /// Every team role by name, in package order; exactly one is `orchestrator`.
     #[schemars(with = "BTreeMap<String, TeamRole>")]
     #[ts(as = "HashMap<String, TeamRole>")]
-    pub workers: OrderedMap<TeamRole>,
+    pub roles: OrderedMap<TeamRole>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -268,73 +267,46 @@ pub enum PackageAutomation {
     },
 }
 
-/// Fixed manager slots with host-known duties.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
-pub struct TeamManagers {
-    pub orchestrator: TeamRole,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub planner: Option<TeamRole>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cartographer: Option<TeamRole>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub curator: Option<TeamRole>,
+/// The spec's reserved built-in manager names; hosts attach authority only to these, and only
+/// when the role is kind manager.
+pub const BUILTIN_MANAGERS: [&str; 4] = ["orchestrator", "planner", "cartographer", "curator"];
+
+/// The role every team has; it anchors the team and always starts with it.
+pub const ORCHESTRATOR: &str = "orchestrator";
+pub const PLANNER: &str = "planner";
+pub const CARTOGRAPHER: &str = "cartographer";
+pub const CURATOR: &str = "curator";
+
+/// Whether `name` is one of the spec's reserved built-in manager names.
+pub fn is_builtin_manager(name: &str) -> bool {
+    BUILTIN_MANAGERS.contains(&name)
 }
 
+/// A role's lifecycle: a manager lives with the team, a worker serves one task or assignment.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema, TS,
 )]
 #[serde(rename_all = "snake_case")]
-pub enum ManagerSlot {
-    Orchestrator,
-    Planner,
-    Cartographer,
-    Curator,
+pub enum RoleKind {
+    Manager,
+    Worker,
 }
 
-impl ManagerSlot {
-    pub const ALL: [Self; 4] = [
-        Self::Orchestrator,
-        Self::Planner,
-        Self::Cartographer,
-        Self::Curator,
-    ];
-
+impl RoleKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Orchestrator => "orchestrator",
-            Self::Planner => "planner",
-            Self::Cartographer => "cartographer",
-            Self::Curator => "curator",
+            Self::Manager => "manager",
+            Self::Worker => "worker",
         }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|slot| slot.as_str() == value)
-    }
-}
-
-impl TeamManagers {
-    pub fn slot(&self, slot: ManagerSlot) -> Option<&TeamRole> {
-        match slot {
-            ManagerSlot::Orchestrator => Some(&self.orchestrator),
-            ManagerSlot::Planner => self.planner.as_ref(),
-            ManagerSlot::Cartographer => self.cartographer.as_ref(),
-            ManagerSlot::Curator => self.curator.as_ref(),
+        match value {
+            "manager" => Some(Self::Manager),
+            "worker" => Some(Self::Worker),
+            _ => None,
         }
     }
-
-    pub fn iter(&self) -> impl Iterator<Item = (ManagerSlot, &TeamRole)> {
-        ManagerSlot::ALL
-            .into_iter()
-            .filter_map(|slot| self.slot(slot).map(|role| (slot, role)))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
-#[serde(rename_all = "snake_case")]
-pub enum TeamRoleGroup {
-    Manager,
-    Worker,
 }
 
 /// An `x-*` vendor extension value: opaque to ATP, kept verbatim so it survives a round trip.
@@ -345,9 +317,10 @@ pub enum ExtensionValue {
     Map(OrderedMap<ExtensionValue>),
 }
 
-/// The same field set serves manager slots and workers.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+/// One team role; `kind` decides its lifecycle and the host decides its authority by name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct TeamRole {
+    pub kind: RoleKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -394,26 +367,42 @@ pub enum ModelPreference {
     SameAs { same_as: String },
 }
 
-impl ManagerSlot {
-    /// The start a slot takes when the package omits it.
-    pub fn default_start(self) -> RoleStart {
-        match self {
-            Self::Orchestrator | Self::Planner => RoleStart::Mode(StartMode::WithTeam),
-            Self::Cartographer => RoleStart::Mode(StartMode::OnDemand),
-            Self::Curator => RoleStart::Schedule {
-                schedule: "45m..2h".to_string(),
-            },
-        }
+/// The start a role takes when the package omits it: a built-in manager name keeps its
+/// documented start; any other manager and every worker starts on demand.
+pub fn default_start(kind: RoleKind, name: &str) -> RoleStart {
+    match (kind, name) {
+        (RoleKind::Manager, ORCHESTRATOR | PLANNER) => RoleStart::Mode(StartMode::WithTeam),
+        (RoleKind::Manager, CURATOR) => RoleStart::Schedule {
+            schedule: "45m..2h".to_string(),
+        },
+        _ => RoleStart::Mode(StartMode::OnDemand),
     }
 }
 
 impl TeamRole {
-    /// The declared start, or the slot default; workers start on demand.
-    pub fn effective_start(&self, slot: Option<ManagerSlot>) -> RoleStart {
-        self.start.clone().unwrap_or_else(|| match slot {
-            Some(slot) => slot.default_start(),
-            None => RoleStart::Mode(StartMode::OnDemand),
-        })
+    /// A role of `kind` with every optional field empty.
+    pub fn new(kind: RoleKind) -> Self {
+        Self {
+            kind,
+            name: None,
+            description: None,
+            start: None,
+            model: None,
+            reasoning: None,
+            skills: Vec::new(),
+            tools: Vec::new(),
+            files: Vec::new(),
+            instructions: None,
+            instructions_file: None,
+            extensions: OrderedMap::new(),
+        }
+    }
+
+    /// The declared start, or the default for this role's name and kind.
+    pub fn effective_start(&self, name: &str) -> RoleStart {
+        self.start
+            .clone()
+            .unwrap_or_else(|| default_start(self.kind, name))
     }
 }
 
@@ -423,23 +412,22 @@ impl TeamDocument {
         self.project.unwrap_or(ProjectNeed::NoProject)
     }
 
-    /// Every declared role as `(group, role name, role)`; manager names are their slot ids.
-    pub fn roles(&self) -> Vec<(TeamRoleGroup, &str, &TeamRole)> {
-        let managers = self
-            .managers
-            .iter()
-            .map(|(slot, role)| (TeamRoleGroup::Manager, slot.as_str(), role));
-        let workers = self
-            .workers
-            .iter()
-            .map(|(name, role)| (TeamRoleGroup::Worker, name, role));
-        managers.chain(workers).collect()
+    /// Every declared role as `(name, role)`, in package order.
+    pub fn roles(&self) -> impl Iterator<Item = (&str, &TeamRole)> {
+        self.roles.iter()
+    }
+
+    /// The roles of one kind, in package order.
+    pub fn roles_of(&self, kind: RoleKind) -> impl Iterator<Item = (&str, &TeamRole)> {
+        self.roles.iter().filter(move |(_, role)| role.kind == kind)
     }
 
     pub fn role(&self, name: &str) -> Option<&TeamRole> {
-        match ManagerSlot::parse(name) {
-            Some(slot) => self.managers.slot(slot),
-            None => self.workers.get(name),
-        }
+        self.roles.get(name)
+    }
+
+    /// A manager role by name; a worker of that name is not one.
+    pub fn manager(&self, name: &str) -> Option<&TeamRole> {
+        self.role(name).filter(|role| role.kind == RoleKind::Manager)
     }
 }

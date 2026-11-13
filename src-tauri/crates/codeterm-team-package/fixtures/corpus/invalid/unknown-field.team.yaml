@@ -2,7 +2,8 @@ name: dev.example/probe
 version: 1.0.0
 description: Probe package.
 colour: blue
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: |
       Lead.

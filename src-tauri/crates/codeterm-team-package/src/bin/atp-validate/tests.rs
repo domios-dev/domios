@@ -28,7 +28,7 @@ fn invoke(args: &[&str]) -> (i32, String, String) {
     (code, text(out), text(err))
 }
 
-// `team check` serializes `check_path(path, CheckOptions::domios()).report` and exits 1 when invalid.
+// `team check` serializes `check_path(path, &CheckOptions::default()).report` and exits 1 when invalid.
 #[test]
 fn json_report_and_exit_code_match_team_check_on_the_corpus() {
     let cases: Cases =
@@ -37,9 +37,9 @@ fn json_report_and_exit_code_match_team_check_on_the_corpus() {
     for case in cases.cases {
         let path = corpus().join(&case.path);
         let label = path.to_string_lossy().to_string();
-        let (code, out, err) = invoke(&[&label, "--host-profile", "domios", "--json"]);
+        let (code, out, err) = invoke(&[&label, "--json"]);
         let team_check =
-            serde_json::to_value(check_path(&path, &CheckOptions::domios()).report).unwrap();
+            serde_json::to_value(check_path(&path, &CheckOptions::default()).report).unwrap();
         let printed: serde_json::Value = serde_json::from_str(&out).expect("one JSON document");
         assert_eq!(printed, team_check, "{}", case.path);
         assert_eq!(code, if case.valid { 0 } else { 1 }, "{}: {err}", case.path);
@@ -48,13 +48,13 @@ fn json_report_and_exit_code_match_team_check_on_the_corpus() {
 
 #[test]
 fn human_output_lists_each_diagnostic_and_the_verdict() {
-    let path = corpus().join("invalid/removed-kind.team.yaml");
+    let path = corpus().join("invalid/role-persona.team.yaml");
     let label = path.to_string_lossy().to_string();
     let (code, out, _) = invoke(&[&label]);
     assert_eq!(code, 1);
     assert!(
         out.contains(&format!(
-            "{label}:6:5: error[removed_field] managers.orchestrator.kind:"
+            "{label}:7:5: error[removed_field] roles.orchestrator.persona:"
         )),
         "{out}"
     );
@@ -70,7 +70,7 @@ fn usage_and_io_failures_exit_two() {
     let missing = missing.to_string_lossy().to_string();
     for args in [
         vec![],
-        vec!["a.team.yaml", "--host-profile", "other"],
+        vec!["a.team.yaml", "--host-profile", "domios"],
         vec!["a.team.yaml", "--strict"],
         vec!["schema"],
         vec!["schema", "--spec-version", "2026-1-01"],
@@ -82,13 +82,13 @@ fn usage_and_io_failures_exit_two() {
 
 #[test]
 fn schema_subcommand_writes_the_identified_schema_with_one_trailing_newline() {
-    let (code, out, _) = invoke(&["schema", "--spec-version", "2026-11-01"]);
+    let (code, out, _) = invoke(&["schema", "--spec-version", "2026-11-11"]);
     assert_eq!(code, 0);
     assert!(out.ends_with("}\n") && !out.ends_with("\n\n"), "{out}");
     let schema: serde_json::Value = serde_json::from_str(&out).expect("schema JSON");
     assert_eq!(
         schema["$id"],
-        "https://atp.domios.dev/schema/2026-11-01/team.schema.json"
+        "https://atp.domios.dev/schema/2026-11-11/team.schema.json"
     );
     assert!(schema["$schema"].is_string());
 }

@@ -223,7 +223,7 @@ fn plan_task_dispatch_accepts_a_worker_type() {
         else {
             panic!("expected plan task dispatch")
         };
-        assert_eq!(role.map(|role| role.kind_id).as_deref(), Some(kind));
+        assert_eq!(role.as_ref().map(|role| role.as_str()), Some(kind));
     }
 }
 

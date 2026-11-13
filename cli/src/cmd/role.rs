@@ -74,9 +74,11 @@ fn provenance(value: Option<&Value>) -> String {
 
 fn render_show(view: &Value) -> String {
     let mut out = format!(
-        "{} ({})\nrole: {}\nlabel: {}\n\nfragments:\n",
+        "{} ({})\nkind: {}\nauthority: {}\nrole: {}\nlabel: {}\n\nfragments:\n",
         field(view, "type"),
         provenance(view.get("provenance")),
+        field(view, "kind"),
+        field(view, "authority"),
         field(view, "role"),
         field(view, "label"),
     );
@@ -139,11 +141,12 @@ fn render_list(view: &Value) -> String {
             ""
         };
         out.push_str(&format!(
-            "  {:<16} {:<8} {:<22} {} anchors={} authority={} spawn={}{host}\n",
+            "  {:<16} {:<8} {:<22} {} authority={} anchors={} team_authority={} spawn={}{host}\n",
             field(&role, "type"),
-            field(&role, "group"),
+            field(&role, "kind"),
             field(&role, "label"),
             provenance(role.get("provenance")),
+            field(&role, "authority"),
             role.get("anchors_team").and_then(Value::as_bool) == Some(true),
             role.get("team_authority").and_then(Value::as_bool) == Some(true),
             role.get("can_spawn").and_then(Value::as_bool) == Some(true),
@@ -163,6 +166,8 @@ mod tests {
         let rendered = render_show(&json!({
             "type": "checker",
             "role": "Worker",
+            "kind": "worker",
+            "authority": "none",
             "label": "Checker",
             "provenance": {"source": "team", "package": {"name": "com.example/desk", "version": "2.1.0"}},
             "fragments": [
@@ -176,6 +181,7 @@ mod tests {
         }));
 
         assert!(rendered.contains("checker (team com.example/desk@2.1.0)"));
+        assert!(rendered.contains("kind: worker\nauthority: none\n"));
         assert!(rendered.contains("[team_registration] <- com.example/desk@2.1.0 4 chars"));
         assert!(rendered.contains("[host] 4 chars"));
         assert!(rendered.contains("[task_overlay] 13 chars"));
@@ -193,18 +199,24 @@ mod tests {
         let rendered = render_list(&json!({
             "team_id": "team_a",
             "roles": [
-                {"type": "orchestrator", "group": "manager", "label": "Orchestrator",
+                {"type": "orchestrator", "kind": "manager", "authority": "Orchestrator", "label": "Orchestrator",
                  "provenance": {"source": "builtin", "package": {"name": "dev.domios/default", "version": "1.0.0"}},
                  "anchors_team": true, "team_authority": true, "can_spawn": true, "host_only": false},
-                {"type": "watcher", "group": "manager", "label": "Watcher",
+                {"type": "security_lead", "kind": "manager", "authority": "none", "label": "Warden",
+                 "provenance": {"source": "team", "package": {"name": "com.example/desk", "version": "2.1.0"}},
+                 "anchors_team": false, "team_authority": false, "can_spawn": false, "host_only": false},
+                {"type": "watcher", "kind": "manager", "label": "Watcher",
                  "provenance": {"source": "builtin", "package": {"name": "dev.domios/default", "version": "1.0.0"}},
                  "host_only": true}
             ]
         }));
 
         assert!(rendered.contains("team: team_a"));
-        assert!(rendered
-            .contains("builtin dev.domios/default@1.0.0 anchors=true authority=true spawn=true"));
+        assert!(rendered.contains(
+            "builtin dev.domios/default@1.0.0 authority=Orchestrator anchors=true team_authority=true spawn=true"
+        ));
+        assert!(rendered.contains("security_lead    manager  Warden"));
+        assert!(rendered.contains("authority=none anchors=false team_authority=false spawn=false"));
         assert!(rendered.contains("host-only"));
     }
 }

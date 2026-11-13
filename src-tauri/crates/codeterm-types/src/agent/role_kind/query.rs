@@ -27,22 +27,41 @@ fn is_worker_subtype(kind_id: &&str) -> bool {
     }
 }
 
+/// The descriptor a structural pair resolves to. A Manager's name selects a managing builtin or
+/// the one generic manager descriptor; a Worker resolves only to leaf descriptors.
 pub fn kind_descriptor(
     role: Option<AgentRole>,
     role_profile: Option<&str>,
 ) -> Option<&'static RoleKindDescriptor> {
-    builtins::lookup(kind_id(role, role_profile)?)
+    let kind_id = kind_id(role, role_profile)?;
+    registered_descriptor(role?, kind_id)
 }
 
 pub fn kind_capability(
     role: Option<AgentRole>,
     role_profile: Option<&str>,
 ) -> Option<RoleKindCapability> {
-    kind_id(role, role_profile).map(builtins::capability_for)
+    let kind_id = kind_id(role, role_profile)?;
+    Some(registered_capability(role?, kind_id))
 }
 
-/// Display label for a resolved kind. An overlay/unknown kind has no builtin
-/// label, so it falls back to the structural role name.
+/// The descriptor of a Team registration: its kind and its name decide, never package text.
+pub fn registered_descriptor(role: AgentRole, name: &str) -> Option<&'static RoleKindDescriptor> {
+    match role {
+        AgentRole::Manager => Some(builtins::manager_descriptor(name)),
+        AgentRole::Worker => builtins::lookup(name).filter(|descriptor| !descriptor.manages()),
+    }
+}
+
+/// The capability of a Team registration; a worker name is always leaf.
+pub fn registered_capability(role: AgentRole, name: &str) -> RoleKindCapability {
+    registered_descriptor(role, name)
+        .map(RoleKindDescriptor::capability)
+        .unwrap_or(RoleKindCapability::LEAF)
+}
+
+/// Display label for a resolved kind. A custom manager carries the generic label and an
+/// unknown worker name falls back to the structural role name.
 pub fn kind_label(role: Option<AgentRole>, role_profile: Option<&str>) -> Option<&'static str> {
     match kind_descriptor(role, role_profile) {
         Some(descriptor) => Some(descriptor.label()),

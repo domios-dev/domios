@@ -295,8 +295,13 @@ pub async fn spawn_agent(
         )),
         None => body.ownership.take(),
     };
-    let role_probe =
-        validate_spawn_role(body.role.as_deref()).map_err(|(s, m)| SpawnRejection {
+    let role_team = state.svc.spawn_role_team(
+        body.team_id.as_deref(),
+        body.parent_tab_id.as_deref(),
+        body.spawned_by_tab_id.as_deref(),
+    );
+    let role_probe = validate_spawn_role(role_team.as_deref(), body.role.as_deref()).map_err(
+        |(s, m)| SpawnRejection {
             status: s,
             body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
         })?;
@@ -529,10 +534,11 @@ async fn await_spawn_delivery(
 }
 
 fn validate_spawn_role(
+    role_team: Option<&str>,
     role_type: Option<&str>,
 ) -> Result<codeterm_service_core::service::SpawnAgentParams, (StatusCode, String)> {
     let (role, role_profile) =
-        codeterm_service_core::service::role_profile::role_type_pair(None, role_type)
+        codeterm_service_core::service::role_profile::role_type_pair(role_team, role_type)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let mut role_probe = codeterm_service_core::service::SpawnAgentParams {
         role,

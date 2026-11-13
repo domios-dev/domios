@@ -122,7 +122,7 @@ fn assert_pair_cwd(restored: bool) {
     await_bound_sessions(
         &fixture.service,
         &events,
-        &[&pair.orchestrator_tab_id, &pair.planner_tab_id],
+        &[&pair.orchestrator_tab_id, pair.planner_tab_id.as_ref().expect("default pair seats a Planner")],
     );
 
     {
@@ -132,7 +132,7 @@ fn assert_pair_cwd(restored: bool) {
             Some(&caller_cwd)
         );
         assert_ne!(caller_cwd, project);
-        for tab_id in [&pair.orchestrator_tab_id, &pair.planner_tab_id] {
+        for tab_id in [&pair.orchestrator_tab_id, pair.planner_tab_id.as_ref().expect("default pair seats a Planner")] {
             assert_eq!(
                 mux.find_workspace_for_tab(tab_id).as_ref(),
                 Some(&workspace_id)
@@ -140,7 +140,7 @@ fn assert_pair_cwd(restored: bool) {
             assert_eq!(mux.get_tab(tab_id).unwrap().cwd.as_ref(), Some(&project));
         }
         assert_eq!(
-            mux.get_tab(&pair.planner_tab_id)
+            mux.get_tab(pair.planner_tab_id.as_ref().expect("default pair seats a Planner"))
                 .unwrap()
                 .parent_tab_id
                 .as_ref(),
@@ -174,7 +174,7 @@ fn assert_pair_cwd(restored: bool) {
     );
     fixture.ui.unlisten(listener);
     fixture.service.close_tab(&override_spawn.tab_id).unwrap();
-    fixture.service.close_tab(&pair.planner_tab_id).unwrap();
+    fixture.service.close_tab(pair.planner_tab_id.as_ref().expect("default pair seats a Planner")).unwrap();
     fixture
         .service
         .close_tab(&pair.orchestrator_tab_id)

@@ -4,7 +4,8 @@ description: Probe package.
 instructions: |
   Work together.
 brief: Start small.
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: |
       Lead.

@@ -57,7 +57,7 @@ async fn batch_spawn(
     svc: &ServiceContext,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value, SpawnTargetRefusal> {
-    let p = SpawnAgentParams::from_json(params)?;
+    let p = svc.spawn_params_from_json(params)?;
     let provider = p
         .agent
         .clone()

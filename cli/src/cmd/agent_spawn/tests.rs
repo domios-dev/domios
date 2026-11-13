@@ -1,7 +1,7 @@
 use super::*;
 
-fn role(value: &str) -> RoleType {
-    RoleType::parse(value).expect("fixture role type")
+fn role(value: &str) -> RoleName {
+    RoleName::parse(value).expect("fixture role name")
 }
 use crate::cmd::hints::unbound_worker_binding_hint;
 use crate::cmd::report_guard::worker_binding_resolved;
@@ -77,14 +77,16 @@ fn worker_kinds_default_to_mutating_and_support_task_bindings() {
             .is_ok(),
             "{kind}"
         );
+        // The daemon owns the parent rule: it defaults a Worker's parent to the spawning tab
+        // and refuses a non-anchoring role without one (multiplexer `set_tab_role_kind`).
         assert!(
             validate_spawn_context(&SpawnContext {
                 role: Some(role(kind)),
                 execution_intent: Some(READ_ONLY),
                 ..Default::default()
             })
-            .is_err(),
-            "{kind} without parent"
+            .is_ok(),
+            "{kind} without parent is the daemon's to judge"
         );
         assert!(
             validate_spawn_context(&SpawnContext {
@@ -268,7 +270,7 @@ fn team_spawn_accepts_only_the_anchoring_role() {
             error.starts_with(team_codes::TEAM_SPAWN_ROLE_MUST_ANCHOR),
             "the refusal must lead with its code, got: {error}"
         );
-        if role.kind_id == "planner" {
+        if role.as_str() == "planner" {
             assert!(error.contains("got planner"));
         }
     }

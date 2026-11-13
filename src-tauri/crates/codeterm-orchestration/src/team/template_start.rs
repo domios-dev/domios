@@ -15,7 +15,7 @@ use codeterm_service_core::service::{ServiceContext, SpawnAgentParams};
 use codeterm_team_package::contracts::{
     PayloadApplyResult, TemplateItemState, TemplateStartItem, TemplateStartResult,
 };
-use codeterm_team_package::{payload_items, ManagerSlot, Package, TeamRoleGroup};
+use codeterm_team_package::{payload_items, Package, RoleKind, CURATOR, ORCHESTRATOR, PLANNER};
 
 use crate::OrchestrationPairParams;
 
@@ -31,19 +31,29 @@ use summary::{pinned_statuses, summary_text, PostStartStatus};
 /// Serializes template starts on one existing Team so concurrent re-runs settle identically.
 pub(crate) struct TemplateStartLocks(pub(crate) crate::team::staffing::TeamCartographerAttachLocks);
 
-/// A start that passed every gate: the package, its inputs and the manager seats.
+/// What the Orchestrator of a Team without a Planner reads instead of a counterpart.
+pub(crate) const SOLE_ORCHESTRATOR_INTRODUCTION: &str = "You are the Orchestrator of this team. It has no Planner: you draft and keep the plan yourself.";
+
+/// A start that passed every gate: the package, its inputs and the manager seats by role name.
 #[derive(Debug, Clone)]
 pub(crate) struct TemplateRail {
     pub(crate) admitted: AdmittedTemplate,
     pub(crate) opt_out: Vec<String>,
-    pub(crate) seats: BTreeMap<ManagerSlot, Seat>,
+    pub(crate) seats: BTreeMap<String, Seat>,
 }
 
 impl TemplateRail {
-    pub(crate) fn seat(&self, slot: ManagerSlot) -> Result<&Seat, String> {
+    pub(crate) fn seat(&self, name: &str) -> Result<&Seat, String> {
         self.seats
-            .get(&slot)
-            .ok_or_else(|| format!("template start decided no {} seat", slot.as_str()))
+            .get(name)
+            .ok_or_else(|| format!("template start decided no {name} seat"))
+    }
+
+    /// The pair seats a Planner only when the package lists a with_team planner manager.
+    pub(crate) fn starts_planner(&self) -> bool {
+        seats::started_managers(&self.admitted.resolved)
+            .iter()
+            .any(|name| name == PLANNER)
     }
 
     /// The manager introduction plus the start's inputs, which every manager reads.
@@ -66,14 +76,10 @@ fn refused(refusal: codeterm_team_package::contracts::TemplateStartRefusal) -> S
 }
 
 /// A chat backend or remote target has no model catalogue; the decision service skips it.
-fn outside_catalogue(
-    svc: &ServiceContext,
-    slot: ManagerSlot,
-    pick: &OwnerPick,
-) -> Result<bool, String> {
-    let (role, role_profile) = match slot {
-        ManagerSlot::Orchestrator => ("Orchestrator", None),
-        other => ("Manager", Some(other.as_str().to_string())),
+fn outside_catalogue(svc: &ServiceContext, name: &str, pick: &OwnerPick) -> Result<bool, String> {
+    let (role, role_profile) = match name {
+        ORCHESTRATOR => ("Orchestrator", None),
+        other => ("Manager", Some(other.to_string())),
     };
     let params = SpawnAgentParams {
         agent: Some(pick.provider.clone()),
@@ -87,32 +93,32 @@ fn outside_catalogue(
         .map_err(String::from)
 }
 
-fn owner_picks(params: &OrchestrationPairParams) -> BTreeMap<ManagerSlot, OwnerPick> {
+fn owner_picks(params: &OrchestrationPairParams) -> BTreeMap<String, OwnerPick> {
     let mut picks = BTreeMap::new();
     if let Some(request) = params.template.as_ref() {
-        for (slot, choice) in &request.manager_models {
+        for (name, choice) in &request.manager_models {
             if let Some(pick) = OwnerPick::from_choice(choice) {
-                picks.insert(*slot, pick);
+                picks.insert(name.clone(), pick);
             }
         }
     }
     let pair_fields = [
         (
-            ManagerSlot::Orchestrator,
+            ORCHESTRATOR,
             &params.orchestrator_agent,
             &params.orchestrator_model,
             &params.orchestrator_reasoning_effort,
         ),
         (
-            ManagerSlot::Planner,
+            PLANNER,
             &params.planner_agent,
             &params.planner_model,
             &params.planner_reasoning_effort,
         ),
     ];
-    for (slot, provider, model, effort) in pair_fields {
+    for (name, provider, model, effort) in pair_fields {
         if let Some(pick) = OwnerPick::new(provider, model.as_deref(), effort.as_deref()) {
-            picks.insert(slot, pick);
+            picks.insert(name.to_string(), pick);
         }
     }
     picks
@@ -140,8 +146,8 @@ pub(crate) async fn prepare(
     resolve_placements(svc, &mut admitted).map_err(refused)?;
     remember_consent(&admitted).await;
     let mut picks = owner_picks(params);
-    for (slot, pick) in picks.iter_mut() {
-        pick.outside_catalogue = outside_catalogue(svc, *slot, pick)?;
+    for (name, pick) in picks.iter_mut() {
+        pick.outside_catalogue = outside_catalogue(svc, name, pick)?;
     }
     let target_svc = svc.clone();
     let target = blocking::run(move || Ok(TargetCatalogue::local(&target_svc))).await?;
@@ -170,7 +176,7 @@ pub(crate) async fn register(
     registration::record_later_seats(
         &mut registrations,
         &rail.seats,
-        &seats::started_slots(&rail.admitted.resolved),
+        &seats::started_managers(&rail.admitted.resolved),
     );
     let items =
         blocking::run(move || registration::register_all(TeamRoleStore::global(), registrations))
@@ -191,42 +197,40 @@ pub(crate) fn forget_minted(team_id: &str) {
     }
 }
 
-fn manager_item(slot: ManagerSlot, state: TemplateItemState) -> TemplateStartItem {
+fn manager_item(name: &str, state: TemplateItemState) -> TemplateStartItem {
     TemplateStartItem {
-        group: TeamRoleGroup::Manager,
-        role: slot.as_str().to_string(),
+        kind: RoleKind::Manager,
+        role: name.to_string(),
         state,
     }
 }
 
-/// with_team managers beyond the pair join through the ordinary Team staffing path.
+/// with_team managers beyond the pair, custom ones included, join through the ordinary Team
+/// staffing path the Cartographer takes; the Curator runs on its schedule instead.
 async fn start_extra_manager(
     svc: &ServiceContext,
     team_id: &str,
     orchestrator_tab_id: &str,
-    slot: ManagerSlot,
+    name: &str,
     seat: &Seat,
 ) -> Result<(), String> {
-    match slot {
-        ManagerSlot::Cartographer => crate::team::add_team_member(
-            svc,
-            team_id,
-            Some(orchestrator_tab_id),
-            crate::team::AddTeamMemberParams {
-                provider: seat.provider.clone(),
-                role: slot.as_str().to_string(),
-                title: None,
-                task: None,
-                model: seat.model.clone(),
-            },
-        )
-        .await
-        .map(|_| ()),
-        other => Err(format!(
-            "the {} cannot start with the Team on this host",
-            other.as_str()
-        )),
+    if name == CURATOR {
+        return Err(format!("the {name} runs on its schedule, never with the Team"));
     }
+    crate::team::add_team_member(
+        svc,
+        team_id,
+        Some(orchestrator_tab_id),
+        crate::team::AddTeamMemberParams {
+            provider: seat.provider.clone(),
+            role: name.to_string(),
+            title: None,
+            task: None,
+            model: seat.model.clone(),
+        },
+    )
+    .await
+    .map(|_| ())
 }
 
 /// The package and opt-outs the payload leaf receives, or nothing when the package brings none.
@@ -304,7 +308,7 @@ async fn deliver_summary(
     }
 }
 
-/// After both pair managers are up: extra with_team managers, payload and the one summary.
+/// After the pair managers are up: extra with_team managers, payload and the one summary.
 pub(crate) async fn finish(
     svc: &ServiceContext,
     rail: &TemplateRail,
@@ -314,24 +318,27 @@ pub(crate) async fn finish(
 ) -> TemplateStartResult {
     let mut managers = Vec::new();
     let mut statuses = Vec::new();
-    for slot in [ManagerSlot::Orchestrator, ManagerSlot::Planner] {
-        managers.push(manager_item(slot, TemplateItemState::Created));
-        statuses.push(PostStartStatus::ok(slot.as_str(), "started"));
+    let pair = std::iter::once(ORCHESTRATOR).chain(rail.starts_planner().then_some(PLANNER));
+    for name in pair {
+        managers.push(manager_item(name, TemplateItemState::Created));
+        statuses.push(PostStartStatus::ok(name, "started"));
     }
-    let started = seats::started_slots(&rail.admitted.resolved);
-    for (slot, seat) in &rail.seats {
+    let started = seats::started_managers(&rail.admitted.resolved);
+    for name in &started {
         // A later manager's seat is recorded on its registration and used when it joins.
-        if matches!(slot, ManagerSlot::Orchestrator | ManagerSlot::Planner)
-            || !started.contains(slot)
-        {
+        if name == ORCHESTRATOR || name == PLANNER {
             continue;
         }
-        match start_extra_manager(svc, team_id, orchestrator_tab_id, *slot, seat).await {
+        let outcome = match rail.seat(name) {
+            Ok(seat) => start_extra_manager(svc, team_id, orchestrator_tab_id, name, seat).await,
+            Err(reason) => Err(reason),
+        };
+        match outcome {
             Ok(()) => {
-                managers.push(manager_item(*slot, TemplateItemState::Created));
-                statuses.push(PostStartStatus::ok(slot.as_str(), "started"));
+                managers.push(manager_item(name, TemplateItemState::Created));
+                statuses.push(PostStartStatus::ok(name.as_str(), "started"));
             }
-            Err(reason) => statuses.push(PostStartStatus::failed(slot.as_str(), reason)),
+            Err(reason) => statuses.push(PostStartStatus::failed(name.as_str(), reason)),
         }
     }
     statuses.extend(pinned_statuses(&registrations));

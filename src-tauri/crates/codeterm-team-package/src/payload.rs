@@ -76,9 +76,8 @@ fn used_by(package: &Package, name: &str, pick: fn(&TeamRole) -> &[String]) -> V
     package
         .document
         .roles()
-        .into_iter()
-        .filter(|(_, _, role)| pick(role).iter().any(|entry| entry == name))
-        .map(|(_, role, _)| role.to_string())
+        .filter(|(_, role)| pick(role).iter().any(|entry| entry == name))
+        .map(|(role, _)| role.to_string())
         .collect()
 }
 

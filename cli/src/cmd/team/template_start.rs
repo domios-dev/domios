@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use codeterm_team_package::contracts::{
     ManagerModelChoice, TemplateRef, TemplateStartRequest, TemplateStartResult,
 };
-use codeterm_team_package::ManagerSlot;
+use codeterm_team_package::is_role_name;
 use serde_json::{json, Value};
 
 use crate::args::team::template_start::{TemplateAction, TemplateStartArgs};
@@ -61,11 +61,12 @@ fn start_params(args: TemplateStartArgs) -> Result<Value, String> {
     template.opt_out = args.opt_out;
     template.decision_id = args.decision;
     template.team_id = args.team;
-    for (slot, model) in pairs(&args.manager_models, "manager-model")? {
-        let slot = ManagerSlot::parse(&slot)
-            .ok_or_else(|| format!("--manager-model names no manager slot: `{slot}`"))?;
+    for (role, model) in pairs(&args.manager_models, "manager-model")? {
+        if !is_role_name(&role) {
+            return Err(format!("--manager-model names no role: `{role}`"));
+        }
         template.manager_models.insert(
-            slot,
+            role,
             ManagerModelChoice {
                 model,
                 reasoning_effort: None,

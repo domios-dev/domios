@@ -502,22 +502,60 @@ fn unknown_kind_id_resolves_to_leaf_capability() {
     }
 }
 
+/// Any manager name outside the built-in set, a builtin worker name included, resolves to the
+/// one host-owned generic descriptor, whose authority matrix is the Cartographer's.
 #[test]
-fn unknown_manager_kind_resolves_to_leaf_through_the_query() {
+fn a_custom_manager_has_exactly_the_cartographer_authority_matrix() {
     let role = Some(AgentRole::Manager);
-    let leaf = Some(RoleKindCapability::LEAF);
-    for id in UNKNOWN_PROFILES.iter().copied() {
+    let cartographer = query::kind_capability(role, Some(CARTOGRAPHER)).expect("cartographer");
+    for id in UNKNOWN_PROFILES
+        .iter()
+        .copied()
+        .chain(["security_lead", QA, WORKER, REVIEWER])
+    {
         let profile = Some(id);
-        assert_eq!(query::kind_capability(role, profile), leaf, "{id}");
-        assert_eq!(query::kind_descriptor(role, profile), None, "{id}");
+        assert_eq!(query::kind_capability(role, profile), Some(cartographer), "{id}");
+        let descriptor = query::kind_descriptor(role, profile).expect("generic descriptor");
+        assert_eq!(descriptor.id(), builtins::CUSTOM_MANAGER, "{id}");
+        assert_eq!(descriptor.origin(), RoleKindOrigin::Generic, "{id}");
+        assert!(!descriptor.is_builtin(), "{id}");
+        assert!(query::manages(role, profile), "{id}");
         assert!(!query::anchors_team(role, profile), "{id}");
         assert!(!query::can_spawn(role, profile), "{id}");
         assert!(!query::has_team_authority(role, profile), "{id}");
-        assert!(!query::manages(role, profile), "{id}");
         assert!(!query::plan_approval(role, profile), "{id}");
         assert!(!query::plan_edit(role, profile), "{id}");
         assert!(!query::release(role, profile), "{id}");
         assert!(query::requires_parent(role, profile), "{id}");
+        assert!(!query::taskless_worker(role, profile), "{id}");
+    }
+}
+
+/// Authority follows the registration's kind and the name only: a built-in manager name is
+/// honored for kind manager, and as a worker it is a plain leaf.
+#[test]
+fn a_built_in_manager_name_is_honored_only_for_kind_manager() {
+    for name in builtins::BUILTIN_MANAGERS {
+        let manager = query::registered_descriptor(AgentRole::Manager, name).expect("manager");
+        assert_eq!(manager.id(), name);
+        assert_eq!(
+            Some(manager),
+            builtins::lookup(name),
+            "{name} keeps its own descriptor"
+        );
+        assert_eq!(
+            query::registered_descriptor(AgentRole::Worker, name),
+            None,
+            "{name}"
+        );
+        assert_eq!(
+            query::registered_capability(AgentRole::Worker, name),
+            RoleKindCapability::LEAF,
+            "{name}"
+        );
+    }
+    for name in ["checker", WORKER, QA, "security_lead"] {
+        assert!(!query::registered_capability(AgentRole::Worker, name).manages(), "{name}");
     }
 }
 

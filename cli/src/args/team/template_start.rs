@@ -40,8 +40,8 @@ pub struct TemplateStartArgs {
     /// Planner provider, optionally with a model (`provider[:model]`); omitted asks for a choice
     #[arg(long)]
     pub planner: Option<String>,
-    /// Another with_team manager's model as `slot=harness:model`; repeatable
-    #[arg(long = "manager-model", value_name = "SLOT=HARNESS:MODEL")]
+    /// Another with_team manager's model as `role=harness:model`, by the package's role name; repeatable
+    #[arg(long = "manager-model", value_name = "ROLE=HARNESS:MODEL")]
     pub manager_models: Vec<String>,
     /// A template input as `key=value`; repeatable
     #[arg(long = "input", value_name = "KEY=VALUE", allow_hyphen_values = true)]

@@ -85,29 +85,29 @@ fn configure_spawn_refuses_unconfirmed_delivery() {
 
 #[test]
 fn spawn_role_validation_treats_empty_strings_as_absent() {
-    let role_probe = validate_spawn_role(Some("  ")).unwrap();
+    let role_probe = validate_spawn_role(None, Some("  ")).unwrap();
     assert!(role_probe.role.is_none());
     assert!(role_probe.role_profile.is_none());
 }
 
 #[test]
 fn spawn_role_validation_rejects_unknown_role_with_body() {
-    let (status, body) = validate_spawn_role(Some("Lead")).unwrap_err();
+    let (status, body) = validate_spawn_role(None, Some("Lead")).unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(!body.is_empty());
 }
 
 #[test]
 fn spawn_role_is_a_type_and_structural_literals_are_refused() {
-    let planner = validate_spawn_role(Some("planner")).unwrap();
+    let planner = validate_spawn_role(None, Some("planner")).unwrap();
     assert_eq!(planner.role.as_deref(), Some("Manager"));
     assert_eq!(planner.role_profile.as_deref(), Some("planner"));
-    let qa = validate_spawn_role(Some("qa")).unwrap();
+    let qa = validate_spawn_role(None, Some("qa")).unwrap();
     assert_eq!(qa.role.as_deref(), Some("Worker"));
     assert_eq!(qa.role_profile.as_deref(), Some("qa"));
     for literal in ["Manager", "Worker", "Orchestrator"] {
         assert_eq!(
-            validate_spawn_role(Some(literal)).unwrap_err().0,
+            validate_spawn_role(None, Some(literal)).unwrap_err().0,
             StatusCode::BAD_REQUEST,
             "{literal}"
         );
