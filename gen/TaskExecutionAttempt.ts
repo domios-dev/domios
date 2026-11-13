@@ -4,6 +4,7 @@ import type { AttemptContinuationState } from "./AttemptContinuationState";
 import type { AttemptInterruptionState } from "./AttemptInterruptionState";
 import type { AttemptModelIdentityMismatch } from "./AttemptModelIdentityMismatch";
 import type { ExecutionIntent } from "./ExecutionIntent";
+import type { LaneOwnership } from "./LaneOwnership";
 import type { LaneTurnChangeStats } from "./LaneTurnChangeStats";
 import type { LoadedPlanSkillEvidence } from "./LoadedPlanSkillEvidence";
 import type { PlanSkillManifestEntry } from "./PlanSkillManifestEntry";
@@ -12,7 +13,7 @@ import type { TaskExecutionReportSnapshot } from "./TaskExecutionReportSnapshot"
 import type { TaskExecutorTermination } from "./TaskExecutorTermination";
 import type { WorkerPlacement } from "./WorkerPlacement";
 
-export type TaskExecutionAttempt = { id: string, executor_tab_id: string, executor_title: string | null, provider: string | null, agent_type: string | null, model: string | null, requested_model?: string, launch_profile?: string, provider_resolved_model?: string, reasoning_effort: string | null, actual_reasoning_effort: string | null, session_model: string | null, model_identity_mismatch?: AttemptModelIdentityMismatch, session_id: string | null, session_binding_nonce: string | null, binding_restorations?: Array<AttemptBindingRestorationReceipt>, role: string | null, parent_tab_id: string | null, orchestrator_tab_id: string | null, mesh_peer: string | null, remote_dispatch_state?: RemoteDispatchState, remote_worktree_path?: string, remote_lane_tip?: string, remote_merge_commit?: string, branch: string | null, worktree_path: string | null, checkout_path?: string, shared_start_sha?: string, 
+export type TaskExecutionAttempt = { id: string, executor_tab_id: string, executor_title: string | null, provider: string | null, agent_type: string | null, model: string | null, requested_model?: string, launch_profile?: string, provider_resolved_model?: string, reasoning_effort: string | null, actual_reasoning_effort: string | null, session_model: string | null, model_identity_mismatch?: AttemptModelIdentityMismatch, session_id: string | null, session_binding_nonce: string | null, binding_restorations?: Array<AttemptBindingRestorationReceipt>, role: string | null, parent_tab_id: string | null, orchestrator_tab_id: string | null, mesh_peer: string | null, remote_dispatch_state?: RemoteDispatchState, remote_worktree_path?: string, remote_lane_tip?: string, remote_merge_commit?: string, branch: string | null, worktree_path: string | null, lane_ownership?: LaneOwnership, checkout_path?: string, shared_start_sha?: string, 
 /**
  * Content hashes of the declared edit files at dispatch; present only for
  * a shared attempt in a project folder without git history.
