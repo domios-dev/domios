@@ -54,6 +54,7 @@ export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, 
   const items = visiblePayload(payload);
   if (items.length === 0) return null;
   const summary = bringsSummary(items, optOut);
+  const multipleGroups = new Set(items.map((item) => item.kind)).size > 1;
   return (
     <section className="flex flex-col gap-1.5" aria-label={title}>
       <div className="flex items-center gap-2">
@@ -79,7 +80,7 @@ export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, 
           <div key={group.kind} role="group" aria-label={group.title} className={`group/payload flex flex-col ${collapsible ? "pl-4" : ""}`}>
             <div className="flex items-center gap-1.5 py-1 text-[11px] font-medium text-[var(--ct-muted-fg)]">
               {GROUP_ICON[group.kind]}<span>{group.title}</span>
-              {onToggle && grouped.length > 1 && <BulkToggle items={grouped} optOut={optOut} onToggle={onToggle} scope={group.title.toLowerCase()} className={GROUP_LINK} />}
+              {onToggle && multipleGroups && grouped.length > 1 && <BulkToggle items={grouped} optOut={optOut} onToggle={onToggle} scope={group.title.toLowerCase()} className={GROUP_LINK} />}
             </div>
             {grouped.map((item) => {
               const kept = !optOut.has(item.id);

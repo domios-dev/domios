@@ -33,8 +33,8 @@ function InputField({ field, value, onChange }: { field: TemplateInputField; val
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-[11px] text-[var(--ct-muted-fg)]">{label}</label>
-      <input id={id} value={value} placeholder={field.description} required={field.required} onChange={(event) => onChange(event.target.value)}
-        className="rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-1.5 text-[12px] outline-none" />
+      <textarea id={id} rows={3} value={value} placeholder={field.description} required={field.required} onChange={(event) => onChange(event.target.value)}
+        className="w-full resize-y rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-1.5 text-[12px] outline-none" />
     </div>
   );
 }
@@ -50,14 +50,22 @@ export function TemplateStartFields({ choice, preview, providers, disabledProvid
   onInstallProvider: (providerId: string) => void;
   roleControls?: PairRoleControls;
 }) {
+  const fields = preview.form.inputs ?? [];
+  const optional = fields.filter((field) => !field.required);
   return (
     <div className="flex flex-col gap-3" data-testid="template-start-form">
       <TemplateHeader summary={preview.form.template} onChange={choice.openGallery} />
-      {(preview.form.inputs ?? []).map((field) => (
+      {fields.filter((field) => field.required).map((field) => (
         <InputField key={field.key} field={field} value={choice.inputs[field.key] ?? ""} onChange={(value) => choice.setInput(field.key, value)} />
       ))}
       <TemplateManagers form={preview.form} providers={providers} disabledProviderIds={disabledProviderIds} pair={pair} onPairChange={onPairChange}
         seats={choice.seats} onSeatChange={choice.setSeat} onSeatClear={choice.clearSeat} onInstallProvider={onInstallProvider} roleControls={roleControls} />
+      {optional.length > 0 && <details className="text-[12px]">
+        <summary className="cursor-pointer text-[var(--ct-muted-fg)]">Options</summary>
+        <div className="mt-3 flex flex-col gap-3">
+          {optional.map((field) => <InputField key={field.key} field={field} value={choice.inputs[field.key] ?? ""} onChange={(value) => choice.setInput(field.key, value)} />)}
+        </div>
+      </details>}
       <TemplateStartAbout choice={choice} preview={preview} providers={providers} onInstallProvider={onInstallProvider} />
     </div>
   );

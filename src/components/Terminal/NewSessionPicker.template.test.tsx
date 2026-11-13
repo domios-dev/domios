@@ -95,8 +95,8 @@ async function click(target: HTMLElement | undefined) {
   await act(async () => target!.click());
 }
 
-async function type(input: HTMLInputElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+async function type(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(input instanceof window.HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setter.call(input, value);
     input.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -164,8 +164,7 @@ describe("Team template start in the session dialog", () => {
     await click(button("Use template"));
     const form = dialog().querySelector('[data-testid="template-start-form"]')!;
     expect(form).not.toBeNull();
-    const details = form.querySelector<HTMLDetailsElement>("details")!;
-    expect(form.querySelectorAll("details")).toHaveLength(1);
+    const details = Array.from(form.querySelectorAll<HTMLDetailsElement>("details")).find((item) => item.querySelector("summary")?.textContent?.startsWith("About this team"))!;
     expect(details.open).toBe(false);
     expect(button("Details")).toBeUndefined();
     expect(form.querySelector('[role="group"][aria-label="Workers on demand"]')?.closest("details")).toBe(details);
@@ -177,7 +176,7 @@ describe("Team template start in the session dialog", () => {
     expect(details.textContent).not.toContain(startablePreview.form.template.description);
     expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("neutral");
     expect(start().disabled).toBe(true);
-    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
     expect(start().disabled).toBe(false);
     await click(start());
     const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: unknown };
@@ -191,12 +190,62 @@ describe("Team template start in the session dialog", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("keeps optional defaults editable in collapsed Options and carries edits into Start", async () => {
+    const longDefault = "a 16:9 1920x1080 master of 45-90 seconds, plus a 9:16 cut and captions for every delivery";
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null, form: { ...startablePreview.form,
+      inputs: [...(startablePreview.form.inputs ?? []), { key: "formats", description: "Delivery formats", required: false, default: longDefault }] } });
+    await renderPicker();
+    await chooseResearchDesk();
+    const form = dialog().querySelector('[data-testid="template-start-form"]')!;
+    const options = Array.from(form.querySelectorAll<HTMLDetailsElement>("details")).find((item) => item.querySelector("summary")?.textContent === "Options")!;
+    expect(options.open).toBe(false);
+    const question = form.querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!;
+    expect(question.closest("details")).toBeNull();
+    expect(document.activeElement).toBe(question);
+    expect(question.tabIndex).toBe(0);
+    expect(Array.from(form.querySelectorAll('textarea:not([required]), [aria-label*="optional"]')).every((field) => options.contains(field))).toBe(true);
+    await click(options.querySelector("summary")!);
+    expect(options.open).toBe(true);
+    const formats = options.querySelector<HTMLTextAreaElement>('textarea[placeholder="Delivery formats"]')!;
+    expect(formats.value).toBe(longDefault);
+    expect(Number(formats.getAttribute("rows"))).toBeGreaterThan(1);
+    const edited = `${longDefault}\nInclude a square crop.`;
+    await type(formats, edited);
+    await click(options.querySelector("summary")!);
+    expect(options.open).toBe(false);
+    await type(question, "EU heat pumps");
+    await click(start());
+    const request = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { inputs: Record<string, string> } };
+    expect(request.template.inputs).toEqual({ question: "EU heat pumps", depth: "standard", formats: edited });
+  });
+
+  it.each([false, true])("offers group bulk actions only for distinct scopes (multiple groups: %s)", async (multipleGroups) => {
+    const payload = [
+      { id: "file:brief.md", kind: "file" as const, label: "brief.md", executable: false },
+      { id: "file:notes.md", kind: "file" as const, label: "notes.md", executable: false },
+      ...(multipleGroups ? [{ id: "skill:review", kind: "skill" as const, label: "review", executable: false }] : []),
+    ];
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null, payload });
+    await renderPicker();
+    await chooseResearchDesk();
+    await click(Array.from(dialog().querySelectorAll<HTMLElement>("details > summary")).find((summary) => summary.textContent?.startsWith("About this team")));
+    const brings = dialog().querySelector('section[aria-label="Brings"]')!;
+    expect(brings.querySelectorAll('[role="switch"]')).toHaveLength(payload.length);
+    const clears = () => Array.from(brings.querySelectorAll<HTMLButtonElement>('button[aria-label^="Clear all"]'));
+    expect(clears()).toHaveLength(multipleGroups ? 2 : 1);
+    await click(button("Clear all brings"));
+    expect(Array.from(brings.querySelectorAll('[role="switch"]')).every((toggle) => toggle.getAttribute("aria-checked") === "false")).toBe(true);
+    expect(brings.querySelectorAll('button[aria-label^="Select all"]')).toHaveLength(multipleGroups ? 2 : 1);
+    await click(button("Select all brings"));
+    expect(Array.from(brings.querySelectorAll('[role="switch"]')).every((toggle) => toggle.getAttribute("aria-checked") === "true")).toBe(true);
+  });
+
   it("shows a manager start failure as the dialog's start error and stays open", async () => {
     fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
     fixture.actions.createOrchestrationPair.mockRejectedValue(new Error(`/api/orchestration/new → HTTP 400: ${JSON.stringify(templateStartResultFixtures[2])}`));
     await renderPicker();
     await chooseResearchDesk();
-    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
     await click(start());
     const error = dialog().querySelector('[data-testid="picker-start-error"]')!;
     expect(error.getAttribute("role")).toBe("alert");
@@ -227,13 +276,13 @@ describe("Team template start in the session dialog", () => {
     expect(dialog().querySelector('[data-testid="template-where-issue"]')?.textContent).toMatch(/codex isn't installed on this machine/i);
     const issue = dialog().querySelector('[data-testid="template-where-issue"]')!;
     expect(issue.closest("details")).toBeNull();
-    const details = dialog().querySelector<HTMLDetailsElement>("details")!;
+    const details = Array.from(dialog().querySelectorAll<HTMLDetailsElement>("details")).find((item) => item.querySelector("summary")?.textContent?.startsWith("About this team"))!;
     expect(details.open).toBe(false);
     expect(dialog().querySelector('[data-ask="shell"]')?.closest("details")).toBe(details);
     await click(button("Run on another machine"));
     expect(details.open).toBe(true);
     expect(dialog().querySelector('[role="group"][aria-label="Placement"]')).not.toBeNull();
-    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
     expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("red");
   });
 
@@ -260,7 +309,7 @@ describe("Team template start in the session dialog", () => {
     fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
     await renderPicker();
     await chooseResearchDesk();
-    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
     expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.textContent).toBe("Choose a secret for SEARCH_API_KEY.");
     expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("amber");
     expect(start().disabled).toBe(true);
@@ -297,7 +346,7 @@ describe("Team template start in the session dialog", () => {
     expect(dialog().querySelector('[role="group"][aria-label="Workers on demand"]')?.textContent).toContain("QA");
     expect(dialog().querySelector('[data-testid="template-where"]')).not.toBeNull();
     expect(button("Details")).toBeUndefined();
-    const details = dialog().querySelector<HTMLDetailsElement>("details")!;
+    const details = Array.from(dialog().querySelectorAll<HTMLDetailsElement>("details")).find((item) => item.querySelector("summary")?.textContent?.startsWith("About this team"))!;
     expect(details.open).toBe(false);
     expect(dialog().querySelector('[role="group"][aria-label="Workers on demand"]')?.closest("details")).toBe(details);
     await click(details.querySelector("summary")!);
@@ -565,8 +614,8 @@ describe("Team template start in the session dialog", () => {
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
     expect(dialog().querySelector('[data-testid="template-review-consent"]')).toBeNull();
     expect(dialog().querySelector('[data-testid="template-start-form"]')).not.toBeNull();
-    expect(document.activeElement).toBe(dialog().querySelector('input[placeholder="The market question to research"]'));
-    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
+    expect(document.activeElement).toBe(dialog().querySelector('textarea[placeholder="The market question to research"]'));
+    await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
     await click(start());
     const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { decision_id?: string } };
     expect(input.template.decision_id).toBe(startablePreview.consent?.decision_id);
@@ -643,8 +692,8 @@ describe("Team template start in the session dialog", () => {
     fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
     await renderPicker();
     await chooseResearchDesk();
-    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
-    await click(dialog().querySelector<HTMLElement>("details > summary")!);
+    await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
+    await click(Array.from(dialog().querySelectorAll<HTMLElement>("details > summary")).find((summary) => summary.textContent?.startsWith("About this team")));
     await click(button("Run on another machine"));
     expect(dialog().querySelector('[aria-label^="Machine for Lead"]')).toBeNull();
     await choose("Machine for Researcher", "eight");
@@ -658,8 +707,8 @@ describe("Team template start in the session dialog", () => {
     fixture.templates.peerStart.mockResolvedValue(exchange.peer_start_accepted);
     await renderPicker();
     await chooseResearchDesk();
-    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
-    await click(dialog().querySelector<HTMLElement>("details > summary")!);
+    await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
+    await click(Array.from(dialog().querySelectorAll<HTMLElement>("details > summary")).find((summary) => summary.textContent?.startsWith("About this team")));
     await click(button("Run on another machine"));
     await choose("Machine for this team", "eight");
     await click(start());
