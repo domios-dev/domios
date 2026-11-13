@@ -103,6 +103,8 @@ pub enum CuratorSuspension {
     Paused,
     Complete,
     WaitingOnHuman,
+    /// The Team registers no curator manager with a schedule, so it has no Curator rounds.
+    NoCurator,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
@@ -310,7 +312,7 @@ impl CuratorWindow {
 }
 
 impl ControlLoop {
-    /// The Team's Curator window, or the host window when the Team registers none.
+    /// The Team's Curator window; a Team without a scheduled curator runs no rounds at all.
     pub fn window(&self) -> CuratorWindow {
         self.curator_window.unwrap_or_default()
     }

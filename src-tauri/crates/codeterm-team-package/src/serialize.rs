@@ -190,6 +190,7 @@ fn input(input: &PackageInput) -> Value {
 
 fn role(role: &TeamRole) -> Value {
     let mut fields = Fields::default();
+    fields.text("kind", role.kind.as_str());
     fields.opt("name", &role.name);
     fields.opt("description", &role.description);
     match &role.start {
@@ -375,21 +376,9 @@ fn top_level(document: &TeamDocument, extensions: &OrderedMap<ExtensionValue>) -
         };
         add(block, &entry.key, entry.value);
     }
-    add(
-        9,
-        "managers",
-        roles(
-            document
-                .managers
-                .iter()
-                .map(|(slot, role)| (slot.as_str(), role)),
-        ),
-    );
-    if !document.workers.is_empty() {
-        add(10, "workers", roles(document.workers.iter()));
-    }
+    add(9, "roles", roles(document.roles()));
     for (key, value) in extensions.iter() {
-        add(11, key, extension(value));
+        add(10, key, extension(value));
     }
     out
 }

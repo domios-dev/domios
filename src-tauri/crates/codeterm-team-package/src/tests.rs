@@ -57,7 +57,7 @@ fn single_entry(text: &[u8]) -> Vec<(String, Vec<u8>)> {
 
 /// The same case read in every form it can take.
 fn forms(case: &str) -> Vec<(PackageFormat, Checked)> {
-    let options = CheckOptions::domios();
+    let options = CheckOptions::default();
     let full = corpus().join(case);
     if full.is_dir() {
         let mut diagnostics = Vec::new();
@@ -178,7 +178,7 @@ fn corpus_cases_report_the_same_codes_and_locations_in_every_form() {
 #[test]
 fn reference_single_file_needs_every_path_reference_inline() {
     let text = root_text("valid/reference");
-    let checked = check_yaml(&text, &CheckOptions::domios());
+    let checked = check_yaml(&text, &CheckOptions::default());
     assert!(!checked.report.valid);
     let missing: Vec<&str> = checked
         .report
@@ -193,7 +193,7 @@ fn reference_single_file_needs_every_path_reference_inline() {
         "files[4].path",
         "skills[1].path",
         "automation[0].path",
-        "workers.checker.instructions_file",
+        "roles.checker.instructions_file",
     ] {
         assert!(missing.contains(&path), "{path} missing from {missing:?}");
     }
@@ -201,7 +201,7 @@ fn reference_single_file_needs_every_path_reference_inline() {
 
 #[test]
 fn folder_and_archive_forms_export_the_same_bytes_deterministically() {
-    let options = CheckOptions::domios();
+    let options = CheckOptions::default();
     let folder = check_folder(&corpus().join("valid/reference"), &options)
         .package
         .expect("reference folder is valid");
@@ -222,11 +222,16 @@ fn folder_and_archive_forms_export_the_same_bytes_deterministically() {
 }
 
 fn probe(instructions: &str) -> Package {
-    let text = "name: dev.example/probe\nversion: 1.0.0\ndescription: Probe package.\nmanagers:\n  orchestrator:\n    instructions: |\n      Lead.\n";
+    let text = "name: dev.example/probe\nversion: 1.0.0\ndescription: Probe package.\nroles:\n  orchestrator:\n    kind: manager\n    instructions: |\n      Lead.\n";
     let mut package = check_yaml(text, &CheckOptions::default())
         .package
         .expect("probe base is valid");
-    package.document.managers.orchestrator.instructions = Some(instructions.to_string());
+    package
+        .document
+        .roles
+        .get_mut("orchestrator")
+        .expect("probe orchestrator")
+        .instructions = Some(instructions.to_string());
     package
 }
 
@@ -282,7 +287,7 @@ fn odd_characters_and_huge_prompts_round_trip_exactly() {
 fn crlf_input_is_normalized_and_canonical_output_is_lf() {
     let text = root_text("valid/reference-inline.team.yaml");
     let crlf = text.replace('\n', "\r\n");
-    let checked = check_yaml(&crlf, &CheckOptions::domios());
+    let checked = check_yaml(&crlf, &CheckOptions::default());
     let package = checked.package.expect("CRLF input is valid");
     assert_eq!(package.to_yaml(), text);
 }
@@ -295,10 +300,10 @@ fn zip_with(entries: &[(&str, &[u8])]) -> Vec<u8> {
     write_zip(&owned).expect("zip writes")
 }
 
-const MINIMAL: &[u8] = b"name: dev.example/probe\nversion: 1.0.0\ndescription: Probe package.\nmanagers:\n  orchestrator:\n    instructions: |\n      Lead.\n";
+const MINIMAL: &[u8] = b"name: dev.example/probe\nversion: 1.0.0\ndescription: Probe package.\nroles:\n  orchestrator:\n    kind: manager\n    instructions: |\n      Lead.\n";
 
 fn archive_codes(bytes: &[u8]) -> Vec<DiagnosticCode> {
-    check_archive(bytes, &CheckOptions::domios())
+    check_archive(bytes, &CheckOptions::default())
         .report
         .errors()
         .map(|error| error.code)
@@ -348,7 +353,7 @@ fn folder_links_are_refused_and_never_followed() {
     std::fs::create_dir_all(&dir).expect("temp dir");
     std::fs::write(dir.join("team.yaml"), MINIMAL).expect("team.yaml");
     std::os::unix::fs::symlink("/etc/hosts", dir.join("hosts.md")).expect("symlink");
-    let codes: Vec<DiagnosticCode> = check_folder(&dir, &CheckOptions::domios())
+    let codes: Vec<DiagnosticCode> = check_folder(&dir, &CheckOptions::default())
         .report
         .errors()
         .map(|error| error.code)
@@ -366,7 +371,6 @@ fn bounds_refuse_oversize_input_before_reading_it() {
             max_yaml_bytes: 4096,
             ..Limits::default()
         },
-        host: None,
     };
     let long = probe(&"x".repeat(100)).to_yaml();
     let codes = |text: &str| -> Vec<DiagnosticCode> {
@@ -386,20 +390,39 @@ fn bounds_refuse_oversize_input_before_reading_it() {
 }
 
 #[test]
-fn workers_without_instructions_follow_the_host_profile() {
-    let text = "name: dev.example/probe\nversion: 1.0.0\ndescription: Probe package.\nmanagers:\n  orchestrator:\n    instructions: |\n      Lead.\nworkers:\n  qa:\n    description: Host QA.\n  scout:\n    description: Unknown here.\n";
-    let format_only = check_yaml(text, &CheckOptions::default()).report;
-    assert!(format_only.valid);
+fn a_team_has_exactly_its_roles_and_every_role_carries_instructions() {
+    let text = "name: dev.example/probe\nversion: 1.0.0\ndescription: Probe package.\nroles:\n  orchestrator:\n    kind: manager\n    instructions: |\n      Lead.\n  qa:\n    kind: worker\n    description: Host QA.\n  security_lead:\n    kind: manager\n    instructions: |\n      Review.\n";
+    let report = check_yaml(text, &CheckOptions::default()).report;
+    let errors: Vec<(DiagnosticCode, &str)> = report
+        .errors()
+        .map(|error| (error.code, error.path.as_str()))
+        .collect();
     assert_eq!(
-        format_only
-            .warnings()
-            .filter(|warning| warning.code == DiagnosticCode::InheritsHostRole)
-            .count(),
-        2
+        errors,
+        vec![(DiagnosticCode::MissingInstructions, "roles.qa.instructions")]
     );
-    let domios = check_yaml(text, &CheckOptions::domios()).report;
-    let errors: Vec<&str> = domios.errors().map(|error| error.path.as_str()).collect();
-    assert_eq!(errors, vec!["workers.scout.instructions"]);
+    assert_eq!(report.warnings().count(), 0);
+}
+
+#[test]
+fn start_defaults_follow_the_role_name_and_kind() {
+    let manager = |name: &str| TeamRole::new(RoleKind::Manager).effective_start(name);
+    let with_team = RoleStart::Mode(StartMode::WithTeam);
+    let on_demand = RoleStart::Mode(StartMode::OnDemand);
+    assert_eq!(manager("orchestrator"), with_team);
+    assert_eq!(manager("planner"), with_team);
+    assert_eq!(manager("cartographer"), on_demand);
+    assert_eq!(
+        manager("curator"),
+        RoleStart::Schedule {
+            schedule: "45m..2h".into()
+        }
+    );
+    assert_eq!(manager("security_lead"), on_demand);
+    assert_eq!(
+        TeamRole::new(RoleKind::Worker).effective_start("planner"),
+        on_demand
+    );
 }
 
 #[test]
@@ -413,7 +436,7 @@ fn path_skills_are_named_by_their_frontmatter() {
         None
     );
     assert_eq!(frontmatter_name("name: no-frontmatter"), None);
-    let options = CheckOptions::domios();
+    let options = CheckOptions::default();
     let package = check_folder(&corpus().join("valid/reference"), &options)
         .package
         .expect("reference is valid");
@@ -450,10 +473,10 @@ fn grammars_follow_the_published_rules() {
 
 #[test]
 fn schema_document_carries_its_id_and_requires_the_four_protocol_fields() {
-    let schema = schema_document("2026-11-01");
+    let schema = schema_document("2026-11-11");
     assert_eq!(
         schema["$id"],
-        "https://atp.domios.dev/schema/2026-11-01/team.schema.json"
+        "https://atp.domios.dev/schema/2026-11-11/team.schema.json"
     );
     assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
     let required: Vec<&str> = schema["required"]
@@ -462,7 +485,7 @@ fn schema_document_carries_its_id_and_requires_the_four_protocol_fields() {
         .iter()
         .filter_map(serde_json::Value::as_str)
         .collect();
-    for field in ["name", "version", "description", "managers"] {
+    for field in ["name", "version", "description", "roles"] {
         assert!(
             required.contains(&field),
             "{field} missing from {required:?}"
@@ -472,7 +495,7 @@ fn schema_document_carries_its_id_and_requires_the_four_protocol_fields() {
 
 #[test]
 fn builtin_packages_are_valid_folder_packages() {
-    let options = CheckOptions::domios();
+    let options = CheckOptions::default();
     for name in builtin::names() {
         let checked = builtin::check(&name, &options).expect("indexed builtin has entries");
         assert!(
@@ -485,7 +508,7 @@ fn builtin_packages_are_valid_folder_packages() {
 
 #[test]
 fn authored_builtin_packages_are_indexed_and_valid() {
-    let options = CheckOptions::domios();
+    let options = CheckOptions::default();
     let names = builtin::names();
     for (folder, package) in [
         ("release-train", "dev.domios/release-train"),
@@ -516,42 +539,39 @@ fn authored_builtin_packages_are_indexed_and_valid() {
 }
 
 #[test]
-fn the_default_package_has_four_manager_slots_four_workers_and_no_models_but_the_curator() {
-    let package = builtin::check("default", &CheckOptions::domios())
+fn the_default_package_lists_eight_roles_with_instructions_and_no_models_but_the_curator() {
+    let package = builtin::check("default", &CheckOptions::default())
         .and_then(|checked| checked.package)
         .expect("default is a valid builtin");
     let document = &package.document;
-    assert!(document
-        .managers
-        .iter()
-        .all(|(_, role)| role.instructions.is_none()));
-    assert_eq!(document.managers.iter().count(), 4);
+    let names = |kind: RoleKind| {
+        document
+            .roles_of(kind)
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    };
     assert_eq!(
-        document.workers.keys().collect::<Vec<_>>(),
+        names(RoleKind::Manager),
+        ["orchestrator", "planner", "cartographer", "curator"]
+    );
+    assert_eq!(
+        names(RoleKind::Worker),
         ["worker", "qa", "reviewer", "release_manager"]
     );
-    for (slot, role) in document.managers.iter() {
-        let expected_model = (slot == ManagerSlot::Curator).then(|| ModelPreference::SameAs {
+    for (name, role) in document.roles() {
+        let expected_model = (name == CURATOR).then(|| ModelPreference::SameAs {
             same_as: "orchestrator".into(),
         });
-        assert_eq!(role.model, expected_model, "{slot:?}");
+        assert_eq!(role.model, expected_model, "{name}");
     }
-    assert!(document
-        .workers
-        .iter()
-        .all(|(_, role)| role.model.is_none()));
     assert_eq!(
-        document
-            .managers
-            .curator
-            .as_ref()
-            .and_then(|role| role.start.clone()),
+        document.manager(CURATOR).and_then(|role| role.start.clone()),
         Some(RoleStart::Schedule {
             schedule: "45m..2h".into()
         })
     );
     assert!(matches!(package.icon(), Some((IconKind::Svg, _))));
-    for (_, name, _) in document.roles() {
+    for (name, _) in document.roles() {
         let text = package.role_instructions(name).expect("role prose");
         assert!(!text.trim().is_empty(), "{name}");
         assert!(!text.contains("{plan_task_flags}"), "{name}");

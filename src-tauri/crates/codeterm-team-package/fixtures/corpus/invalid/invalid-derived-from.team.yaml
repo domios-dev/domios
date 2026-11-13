@@ -4,7 +4,8 @@ description: Probe package.
 derived_from:
   name: Research Desk
   version: two
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: |
       Lead.

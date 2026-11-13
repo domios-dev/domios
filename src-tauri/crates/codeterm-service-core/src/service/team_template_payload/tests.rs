@@ -73,7 +73,7 @@ impl PayloadPort for FakePort {
 fn reference() -> Package {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../codeterm-team-package/fixtures/corpus/valid/reference");
-    check_folder(&folder, &CheckOptions::domios())
+    check_folder(&folder, &CheckOptions::default())
         .package
         .expect("reference is valid")
 }
@@ -211,7 +211,7 @@ fn opting_out_removes_the_item_and_every_role_reference_to_it() {
         codeterm_team_package::PackageFormat::Folder,
         trimmed.archive_entries(),
         Vec::new(),
-        &CheckOptions::domios(),
+        &CheckOptions::default(),
     );
     assert!(checked.report.valid, "{:?}", checked.report.diagnostics);
     let icon = package.document.icon.clone().unwrap();

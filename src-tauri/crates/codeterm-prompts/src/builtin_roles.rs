@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use codeterm_team_package::{builtin, CheckOptions, Package};
 use codeterm_types::agent::role_kind::builtins;
-use codeterm_types::team::role_registration::PinnedPackage;
+use codeterm_types::team::role_registration::{PinnedPackage, RoleRegistration};
 
 pub const DEFAULT_PACKAGE: &str = "default";
 
@@ -10,7 +10,7 @@ pub const DEFAULT_PACKAGE: &str = "default";
 pub fn default_package() -> &'static Package {
     static PACKAGE: OnceLock<Package> = OnceLock::new();
     PACKAGE.get_or_init(|| {
-        builtin::check(DEFAULT_PACKAGE, &CheckOptions::domios())
+        builtin::check(DEFAULT_PACKAGE, &CheckOptions::default())
             .and_then(|checked| checked.package)
             .expect("the builtin default package passes team check")
     })
@@ -33,16 +33,37 @@ pub fn prose_role(kind_id: &str) -> &str {
     }
 }
 
+/// A role's prose in the builtin default package.
 pub fn builtin_prose(kind_id: &str) -> Option<&'static str> {
     default_package().role_instructions(prose_role(kind_id))
 }
 
-/// Builtin worker names and descriptions, in package order.
-pub fn builtin_workers() -> Vec<(String, Option<String>)> {
-    default_package()
+/// The default package as a whole, as the registrations of `team_id`. A Team with no
+/// registrations is exactly this Team: host policy, never a per-role fallback.
+pub fn default_registrations(team_id: &str) -> Vec<RoleRegistration> {
+    let package = default_package();
+    let identity = default_identity();
+    package
         .document
-        .workers
-        .iter()
-        .map(|(name, role)| (name.to_string(), role.description.clone()))
+        .roles()
+        .filter_map(|(name, role)| {
+            Some(RoleRegistration {
+                team_id: team_id.to_string(),
+                kind: role.kind,
+                name: name.to_string(),
+                label: role.name.clone().unwrap_or_else(|| name.to_string()),
+                description: role.description.clone(),
+                start: role.effective_start(name),
+                package: identity.clone(),
+                instructions: package.role_instructions(name)?.to_string(),
+                model: role.model.clone(),
+                reasoning: role.reasoning.clone(),
+                placement_peer: None,
+                consent_decision_id: None,
+                files: Vec::new(),
+                skills: role.skills.clone(),
+                registered_at: 0,
+            })
+        })
         .collect()
 }

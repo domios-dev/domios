@@ -1,7 +1,7 @@
 use super::*;
 
-fn role(value: &str) -> RoleType {
-    RoleType::parse(value).expect("fixture role type")
+fn role(value: &str) -> RoleName {
+    RoleName::parse(value).expect("fixture role name")
 }
 use crate::cmd::hints::unbound_worker_binding_hint;
 use crate::cmd::report_guard::worker_binding_resolved;
@@ -268,7 +268,7 @@ fn team_spawn_accepts_only_the_anchoring_role() {
             error.starts_with(team_codes::TEAM_SPAWN_ROLE_MUST_ANCHOR),
             "the refusal must lead with its code, got: {error}"
         );
-        if role.kind_id == "planner" {
+        if role.as_str() == "planner" {
             assert!(error.contains("got planner"));
         }
     }

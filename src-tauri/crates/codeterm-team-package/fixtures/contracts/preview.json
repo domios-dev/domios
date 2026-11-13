@@ -17,7 +17,7 @@
     },
     "pickers": [
       {
-        "slot": "orchestrator",
+        "role": "orchestrator",
         "label": "Lead",
         "decision": {
           "choice": { "model": "codex:gpt-6.1-sol" },
@@ -28,7 +28,7 @@
         }
       },
       {
-        "slot": "planner",
+        "role": "planner",
         "label": "Atlas",
         "decision": {
           "reason": "needs_choice",
@@ -38,11 +38,11 @@
       }
     ],
     "roles": [
-      { "group": "manager", "role": "orchestrator", "label": "Lead", "start": "with_team" },
-      { "group": "manager", "role": "cartographer", "label": "cartographer", "start": "on_demand" },
-      { "group": "manager", "role": "curator", "label": "curator", "start": { "schedule": "45m..2h" }, "same_as": "orchestrator" },
+      { "kind": "manager", "role": "orchestrator", "label": "Lead", "start": "with_team" },
+      { "kind": "manager", "role": "cartographer", "label": "cartographer", "start": "on_demand" },
+      { "kind": "manager", "role": "curator", "label": "curator", "start": { "schedule": "45m..2h" }, "same_as": "orchestrator" },
       {
-        "group": "worker",
+        "kind": "worker",
         "role": "researcher",
         "label": "researcher",
         "description": "Researches one angle of the question.",
@@ -56,7 +56,7 @@
         }
       },
       {
-        "group": "worker",
+        "kind": "worker",
         "role": "writer",
         "label": "writer",
         "description": "Turns merged findings into the final report.",
@@ -119,7 +119,7 @@
       "code": "unresolved_skill",
       "severity": "warning",
       "file": "team.yaml",
-      "path": "workers.researcher.skills[0]",
+      "path": "roles.researcher.skills[0]",
       "line": 152,
       "column": 15,
       "message": "skill `market-sizing` is not in this package; the role starts without it until it is installed"

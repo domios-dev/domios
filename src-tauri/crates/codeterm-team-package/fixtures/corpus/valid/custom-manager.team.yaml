@@ -1,0 +1,27 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+
+roles:
+  orchestrator:
+    kind: manager
+    instructions: |
+      Lead.
+
+  security_lead:
+    kind: manager
+    name: Warden
+    description: Reviews every change for security risks.
+    start: with_team
+    instructions: |
+      Review every change for security risks and report to the orchestrator.
+
+  editor:
+    kind: manager
+    instructions: |
+      Keep one voice across the report.
+
+  researcher:
+    kind: worker
+    instructions: |
+      Research exactly one angle.

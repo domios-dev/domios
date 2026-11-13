@@ -238,19 +238,7 @@ pub fn retain_opted_in(package: &Package, opt_out: &[String]) -> Package {
         role.files.retain(|path| !dropped_files.contains(path));
         role.skills.retain(|skill| !dropped_skills.contains(skill));
     };
-    let document = &mut package.document;
-    strip(&mut document.managers.orchestrator);
-    for role in [
-        document.managers.planner.as_mut(),
-        document.managers.cartographer.as_mut(),
-        document.managers.curator.as_mut(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        strip(role);
-    }
-    for (_, role) in document.workers.iter_mut() {
+    for (_, role) in package.document.roles.iter_mut() {
         strip(role);
     }
     package

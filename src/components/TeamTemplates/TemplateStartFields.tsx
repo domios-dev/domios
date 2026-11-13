@@ -43,7 +43,7 @@ function InputField({ field, value, onChange }: { field: TemplateInputField; val
 
 /** The workers a template brings on demand; nothing is spawned at start. */
 export function WorkerChips({ preview }: { preview: TemplatePreview }) {
-  const workers = preview.form.roles.filter((role) => role.group === "worker");
+  const workers = preview.form.roles.filter((role) => role.kind === "worker");
   if (workers.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-[11px]" aria-label="Workers on demand" role="group">

@@ -167,9 +167,9 @@ describe("template start model", () => {
   });
 
   it("always lists the Planner a start launches, in slot order", () => {
-    const curator = { group: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } };
-    const orchestrator = { group: "manager" as const, role: "orchestrator", label: "Lead", start: "with_team" as const };
-    const worker = { group: "worker" as const, role: "qa", label: "qa", start: "on_demand" as const };
+    const curator = { kind: "manager" as const, role: "curator", label: "curator", start: { schedule: "45m..2h" } };
+    const orchestrator = { kind: "manager" as const, role: "orchestrator", label: "Lead", start: "with_team" as const };
+    const worker = { kind: "worker" as const, role: "qa", label: "qa", start: "on_demand" as const };
     expect(managerRoles([curator, worker, orchestrator]).map((role) => [role.role, role.label])).toEqual([
       ["orchestrator", "Lead"], ["planner", "planner"], ["curator", "curator"],
     ]);

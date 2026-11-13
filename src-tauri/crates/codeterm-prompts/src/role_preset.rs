@@ -1,8 +1,11 @@
-//! One resolver for the text a role type carries: task > Team registration > builtin default package.
+//! One resolver for the text a role carries: task > Team registration. A Team has exactly the
+//! roles it registers; one with no registrations is the builtin default package as a whole.
 //! Role prose comes first; host runtime text follows it and no package can remove or replace it.
 
-use codeterm_team_package::TeamRoleGroup;
-use codeterm_types::agent::role_kind::{self, builtins};
+use std::borrow::Cow;
+
+use codeterm_team_package::{RoleStart, StartMode};
+use codeterm_types::agent::role_kind::{self, builtins, RoleKindOrigin};
 use codeterm_types::agent::AgentRole;
 use codeterm_types::team::role_registration::{PinnedPackage, RoleProvenance, RoleRegistration};
 
@@ -11,18 +14,17 @@ use crate::builtin_roles;
 /// Where one guidance fragment came from; rendered as provenance by `domios role show`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FragmentSource {
-    /// The role type's own prose, from the builtin package or the Team's registration.
+    /// The role's own prose: the Team's registration, or the default package for a Team
+    /// with no registrations.
     Role(RoleProvenance),
-    /// A Worker type with no prose of its own reads the builtin Worker's.
-    InheritedBase(PinnedPackage),
-    /// Host runtime text appended per group and manager slot.
+    /// Host runtime text appended per kind and manager name.
     Host,
     /// Caller-supplied persona/guidance owned by this delivery.
     Task,
 }
 
 impl FragmentSource {
-    /// Contract fragments describe the role type itself; task fragments describe one delivery.
+    /// Contract fragments describe the role itself; task fragments describe one delivery.
     pub fn is_contract(&self) -> bool {
         !matches!(self, Self::Task)
     }
@@ -30,8 +32,7 @@ impl FragmentSource {
     pub fn package(&self) -> Option<&PinnedPackage> {
         match self {
             Self::Role(RoleProvenance::Builtin { package })
-            | Self::Role(RoleProvenance::Team { package })
-            | Self::InheritedBase(package) => Some(package),
+            | Self::Role(RoleProvenance::Team { package }) => Some(package),
             Self::Host | Self::Task => None,
         }
     }
@@ -40,7 +41,6 @@ impl FragmentSource {
         match self {
             Self::Role(RoleProvenance::Builtin { .. }) => "builtin",
             Self::Role(RoleProvenance::Team { .. }) => "team_registration",
-            Self::InheritedBase(_) => "inherited_base",
             Self::Host => "host",
             Self::Task => "task_overlay",
         }
@@ -55,7 +55,7 @@ pub struct PresetFragment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RolePreset {
-    /// Structural role, derived from the role type's group and slot.
+    /// Structural role, derived from the registration's kind.
     pub role: AgentRole,
     pub kind_id: String,
     pub label: String,
@@ -68,7 +68,7 @@ impl RolePreset {
         self.join(|_| true)
     }
 
-    /// Everything the role type carries by itself, with the delivery's own persona left out.
+    /// Everything the role carries by itself, with the delivery's own persona left out.
     pub fn contract_guidance(&self) -> String {
         self.join(FragmentSource::is_contract)
     }
@@ -97,25 +97,35 @@ impl RolePreset {
     }
 }
 
-fn group_of(role: AgentRole) -> TeamRoleGroup {
-    match role {
-        AgentRole::Manager => TeamRoleGroup::Manager,
-        AgentRole::Worker => TeamRoleGroup::Worker,
+/// The registrations a Team resolves against: its own, or the default package as a whole when
+/// it has none. The flag says whether they came from the default package.
+pub fn effective(team: &[RoleRegistration]) -> (Cow<'_, [RoleRegistration]>, bool) {
+    if team.is_empty() {
+        (Cow::Owned(builtin_roles::default_registrations("")), true)
+    } else {
+        (Cow::Borrowed(team), false)
     }
 }
 
-/// The Team's registration for a role type, matched by name and structural group.
+/// The Team's registration for a role, matched by name and kind.
 pub fn registration<'a>(
     team: &'a [RoleRegistration],
     role: AgentRole,
     kind_id: &str,
 ) -> Option<&'a RoleRegistration> {
-    let name = builtin_roles::prose_role(kind_id);
     team.iter()
-        .find(|registration| registration.name == name && registration.group == group_of(role))
+        .find(|registration| registration.names(role.package_kind(), kind_id))
 }
 
-/// Host runtime text for a group and manager slot, in delivery order.
+/// Whether a manager name gets the generic custom-manager host text: no built-in name and
+/// not a host-owned kind.
+pub fn is_custom_manager(kind_id: &str) -> bool {
+    !builtins::is_builtin_manager(kind_id)
+        && kind_id != builtins::WATCHER
+        && kind_id != builtins::GENERAL_AGENT
+}
+
+/// Host runtime text for a kind and manager name, in delivery order.
 pub fn host_fragments(role: AgentRole, kind_id: &str) -> Vec<&'static str> {
     match (role, kind_id) {
         (AgentRole::Worker, _) => vec![
@@ -128,11 +138,73 @@ pub fn host_fragments(role: AgentRole, kind_id: &str) -> Vec<&'static str> {
                 crate::prompts::MEM_MANAGEMENT,
             ]
         }
+        (AgentRole::Manager, kind) if is_custom_manager(kind) => {
+            vec![crate::prompts::CUSTOM_MANAGER]
+        }
         (AgentRole::Manager, _) => Vec::new(),
     }
 }
 
-/// A manager's view of the Team's worker types, plus any role's own files and skills.
+/// The Domios authority a role carries: a built-in manager descriptor's label, or none.
+pub fn authority_label(role: AgentRole, kind_id: &str) -> &'static str {
+    match role_kind::registered_descriptor(role, kind_id) {
+        Some(descriptor)
+            if role == AgentRole::Manager && descriptor.origin() == RoleKindOrigin::Builtin =>
+        {
+            descriptor.label()
+        }
+        _ => "none",
+    }
+}
+
+fn start_line(registration: &RoleRegistration) -> String {
+    match &registration.start {
+        RoleStart::Mode(StartMode::WithTeam) => "starts with the Team".to_string(),
+        RoleStart::Mode(StartMode::OnDemand) => format!(
+            "on demand, start it with `domios agent spawn --role {}`",
+            registration.name
+        ),
+        RoleStart::Schedule { schedule } => format!("runs on the schedule {schedule}"),
+    }
+}
+
+fn manager_lines(team: &[RoleRegistration]) -> Vec<String> {
+    let mut lines = vec!["Managers of this Team:".to_string()];
+    lines.extend(
+        team.iter()
+            .filter(|registration| registration.is_manager())
+            .map(|registration| {
+                let label = if registration.label == registration.name {
+                    String::new()
+                } else {
+                    format!(" ({})", registration.label)
+                };
+                format!(
+                    "- `{}`{label}: {}; Domios authority: {}",
+                    registration.name,
+                    start_line(registration),
+                    authority_label(AgentRole::Manager, &registration.name)
+                )
+            }),
+    );
+    lines
+}
+
+fn worker_lines(team: &[RoleRegistration]) -> Vec<String> {
+    let mut lines =
+        vec!["Workers of this Team (`domios plan task dispatch --role <name>`):".to_string()];
+    lines.extend(
+        team.iter()
+            .filter(|registration| registration.is_worker())
+            .map(|registration| match &registration.description {
+                Some(description) => format!("- `{}`: {description}", registration.name),
+                None => format!("- `{}`", registration.name),
+            }),
+    );
+    lines
+}
+
+/// A manager's view of the Team's managers and workers, plus any role's own files and skills.
 /// Workers dispatch nobody, so their launch carries only their own files and skills.
 pub fn team_context(
     team: &[RoleRegistration],
@@ -140,7 +212,11 @@ pub fn team_context(
     own: Option<&RoleRegistration>,
 ) -> String {
     let mut lines = match role {
-        AgentRole::Manager => worker_type_lines(team),
+        AgentRole::Manager => {
+            let mut lines = manager_lines(team);
+            lines.extend(worker_lines(team));
+            lines
+        }
         AgentRole::Worker => Vec::new(),
     };
     if let Some(own) = own {
@@ -158,30 +234,7 @@ pub fn team_context(
     lines.join("\n")
 }
 
-fn worker_type_lines(team: &[RoleRegistration]) -> Vec<String> {
-    let mut workers = builtin_roles::builtin_workers();
-    for registration in team
-        .iter()
-        .filter(|registration| registration.group == TeamRoleGroup::Worker)
-    {
-        let entry = (registration.name.clone(), registration.description.clone());
-        match workers
-            .iter_mut()
-            .find(|(name, _)| *name == registration.name)
-        {
-            Some(existing) => *existing = entry,
-            None => workers.push(entry),
-        }
-    }
-    let mut lines = vec!["Worker types available to this Team:".to_string()];
-    lines.extend(workers.iter().map(|(name, description)| match description {
-        Some(description) => format!("- `{name}`: {description}"),
-        None => format!("- `{name}`"),
-    }));
-    lines
-}
-
-/// Resolves with the builtin default package only.
+/// Resolves against the builtin default package as a whole.
 pub fn resolve(
     role: Option<AgentRole>,
     role_profile: Option<&str>,
@@ -190,9 +243,9 @@ pub fn resolve(
     resolve_in(&[], role, role_profile, task_guidance)
 }
 
-/// A builtin role type's contract (prose plus host text) under its structural role.
+/// A default-package role's contract (prose plus host text) under its kind.
 pub fn builtin_guidance(kind_id: &str) -> Option<String> {
-    let role = if builtins::lookup(kind_id).is_some_and(|descriptor| descriptor.manages()) {
+    let role = if builtins::is_builtin_manager(kind_id) || kind_id == builtins::WATCHER {
         AgentRole::Manager
     } else {
         AgentRole::Worker
@@ -200,6 +253,16 @@ pub fn builtin_guidance(kind_id: &str) -> Option<String> {
     resolve(Some(role), Some(kind_id), None)
         .filter(|preset| preset.kind_id == kind_id && preset.provenance().is_some())
         .map(|preset| preset.contract_guidance())
+}
+
+/// The Watcher is host-owned: it reads the default package's Planner prose, never a Team's.
+fn watcher_prose() -> Option<PresetFragment> {
+    builtin_roles::builtin_prose(builtins::WATCHER).map(|prose| PresetFragment {
+        source: FragmentSource::Role(RoleProvenance::Builtin {
+            package: builtin_roles::default_identity(),
+        }),
+        text: prose.trim().to_string(),
+    })
 }
 
 pub fn resolve_in(
@@ -210,37 +273,26 @@ pub fn resolve_in(
 ) -> Option<RolePreset> {
     let resolved_role = role?;
     let kind_id = role_kind::kind_id(role, role_profile)?.to_string();
-    let registered = registration(team, resolved_role, &kind_id)
-        .filter(|_| kind_id != builtins::GENERAL_AGENT && kind_id != builtins::WATCHER);
+    let (team, builtin) = effective(team);
+    let host_owned = kind_id == builtins::GENERAL_AGENT || kind_id == builtins::WATCHER;
+    let registered = registration(&team, resolved_role, &kind_id).filter(|_| !host_owned);
     let label = registered
         .map(|registration| registration.label.clone())
         .or_else(|| role_kind::kind_label(role, role_profile).map(str::to_string))
         .unwrap_or_else(|| kind_id.clone());
-    let kind_manages = builtins::lookup(&kind_id).is_some_and(|descriptor| descriptor.manages());
     let mut fragments = Vec::new();
-    match (registered, builtin_roles::builtin_prose(&kind_id)) {
-        (Some(registration), _) => fragments.push(PresetFragment {
-            source: FragmentSource::Role(RoleProvenance::Team {
-                package: registration.package.clone(),
+    if let Some(registration) = registered {
+        let package = registration.package.clone();
+        fragments.push(PresetFragment {
+            source: FragmentSource::Role(if builtin {
+                RoleProvenance::Builtin { package }
+            } else {
+                RoleProvenance::Team { package }
             }),
             text: registration.instructions.trim().to_string(),
-        }),
-        (None, Some(prose)) => fragments.push(PresetFragment {
-            source: FragmentSource::Role(RoleProvenance::Builtin {
-                package: builtin_roles::default_identity(),
-            }),
-            text: prose.trim().to_string(),
-        }),
-        (None, None) if resolved_role == AgentRole::Worker && !kind_manages => {
-            fragments.push(PresetFragment {
-                source: FragmentSource::InheritedBase(builtin_roles::default_identity()),
-                text: builtin_roles::builtin_prose(builtins::WORKER)
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string(),
-            })
-        }
-        (None, None) => {}
+        });
+    } else if kind_id == builtins::WATCHER {
+        fragments.extend(watcher_prose());
     }
     if !fragments.is_empty() {
         fragments.extend(
@@ -251,7 +303,7 @@ pub fn resolve_in(
                     text: text.trim().to_string(),
                 }),
         );
-        let context = team_context(team, resolved_role, registered);
+        let context = team_context(&team, resolved_role, registered);
         if !context.is_empty() {
             fragments.push(PresetFragment {
                 source: FragmentSource::Host,
@@ -276,7 +328,7 @@ pub fn resolve_in(
     })
 }
 
-/// Every builtin role type composed from the default package, keyed by type.
+/// Every default-package role and the host-only Watcher, composed, keyed by name.
 pub fn builtin_presets() -> Vec<(&'static str, RolePreset)> {
     let managers = [
         builtins::ORCHESTRATOR,

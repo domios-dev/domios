@@ -6,8 +6,8 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::ExecutionIntent;
 use crate::service::SpawnIdentityProvenance;
 
-/// The wire `role` names a role type; the structural pair derives from it, and a
-/// worker type must be builtin or registered for `team_id`.
+/// The wire `role` names a role of the Team; the structural pair derives from its registration
+/// (the default package as a whole for a Team with none), and an unlisted name is refused.
 pub fn role_type_pair(
     team_id: Option<&str>,
     value: Option<&str>,
@@ -23,12 +23,49 @@ pub fn role_type_pair(
     Ok((Some(role_type.role.label().to_string()), profile))
 }
 
-impl SpawnAgentParams {
-    pub fn from_json(params: &serde_json::Value) -> Result<Self, String> {
-        let (role, role_profile) = role_type_pair(
+impl crate::service::ServiceContext {
+    /// The Team a spawn request's `--role` resolves against: its `--team`, else the Team of its
+    /// parent or of the tab that asked for it.
+    pub fn spawn_role_team(
+        &self,
+        team_id: Option<&str>,
+        parent_tab_id: Option<&str>,
+        spawned_by_tab_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(team_id) = team_id {
+            return Some(team_id.to_string());
+        }
+        let mux = self.mux.read();
+        [parent_tab_id, spawned_by_tab_id]
+            .into_iter()
+            .flatten()
+            .find_map(|tab_id| mux.get_tab(tab_id).and_then(|tab| tab.team_id.clone()))
+    }
+
+    /// Spawn params from a JSON request, with `--role` resolved against the caller's Team.
+    pub fn spawn_params_from_json(&self, params: &serde_json::Value) -> Result<SpawnAgentParams, String> {
+        let team = self.spawn_role_team(
             json_str(params, "team_id").as_deref(),
-            json_str(params, "role").as_deref(),
-        )?;
+            json_str(params, "parent_tab_id")
+                .or_else(|| json_str(params, "parent"))
+                .as_deref(),
+            json_str(params, "spawned_by_tab_id").as_deref(),
+        );
+        SpawnAgentParams::from_json_in_team(params, team.as_deref())
+    }
+}
+
+impl SpawnAgentParams {
+    /// Parses a request whose `--role` resolves against `team_id` (or the default package).
+    pub fn from_json(params: &serde_json::Value) -> Result<Self, String> {
+        Self::from_json_in_team(params, json_str(params, "team_id").as_deref())
+    }
+
+    pub fn from_json_in_team(
+        params: &serde_json::Value,
+        role_team: Option<&str>,
+    ) -> Result<Self, String> {
+        let (role, role_profile) = role_type_pair(role_team, json_str(params, "role").as_deref())?;
         let mut out = Self {
             agent: json_str(params, "agent"),
             agent_name: json_str(params, "agent_name"),
@@ -256,11 +293,6 @@ fn normalize_manager_profile(profile: &str) -> Result<String, String> {
     {
         return Err(format!("Invalid Manager role_profile '{profile}'"));
     }
-    if role_kind::builtin_kind(&normalized).is_some_and(|kind| kind.is_taskless_worker()) {
-        return Err(format!(
-            "Worker-only role_profile '{profile}' cannot be used with Manager"
-        ));
-    }
     Ok(normalized)
 }
 
@@ -474,8 +506,11 @@ mod normalization_tests {
     fn dispatch_worker_kind_composes_the_selected_prompt_with_or_without_a_task() {
         for kind in [QA, RELEASE_MANAGER, REVIEWER] {
             for task_id in [None, Some("task-bound")] {
-                let role_type = codeterm_types::agent::role_kind::RoleType::parse(kind)
-                    .expect("the selected builtin Worker type parses");
+                let role_type = crate::service::team_roles::resolve_worker(
+                    &crate::service::builtin_roles::default_registrations("team_fixture"),
+                    Some(kind),
+                )
+                .expect("the default package lists the worker");
                 assert!(role_type.is_worker());
                 let profile = role_type.kind_id;
                 let mut params = SpawnAgentParams {
@@ -507,10 +542,10 @@ mod normalization_tests {
 
     #[test]
     fn dispatch_worker_kind_refuses_unknown_and_managing_profiles() {
-        for kind in ["unknown-kind", "planner", "cartographer"] {
+        let team = crate::service::builtin_roles::default_registrations("team_fixture");
+        for kind in ["unknown-kind", "unregistered", "planner", "cartographer"] {
             assert!(
-                codeterm_types::agent::role_kind::RoleType::parse(kind)
-                    .map_or(true, |role_type| !role_type.is_worker()),
+                crate::service::team_roles::resolve_worker(&team, Some(kind)).is_err(),
                 "{kind}"
             );
         }

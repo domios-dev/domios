@@ -8,40 +8,47 @@ authors:
     url: https://domios.dev
 license: Apache-2.0
 
-managers:                       # fixed slots, each with its own duties
+roles:                          # managers live with the team across tasks; workers take one task and end
   orchestrator:                 # exactly one; owns the goal, dispatch, review, integration
+    kind: manager
     start: with_team
     instructions_file: managers/orchestrator.md
     # no model: the owner picks at start
 
   planner:                      # shapes the plan and tasks
+    kind: manager
     start: with_team
     instructions_file: managers/planner.md
 
   cartographer:                 # keeps product essences and the project map
+    kind: manager
     start: on_demand
     instructions_file: managers/cartographer.md
 
   curator:                      # reviews team health, asks the orchestrator
+    kind: manager
     start:
       schedule: 45m..2h
     model:
       same_as: orchestrator     # follows the orchestrator's resolved model
     instructions_file: managers/curator.md
 
-workers:                        # free names; the orchestrator spawns them on demand
-  worker:
+  worker:                       # kind worker; the orchestrator starts workers on demand
+    kind: worker
     description: Implements one task in its lane.
     instructions_file: workers/worker.md
 
   qa:
+    kind: worker
     description: Verifies live on DEV, then tests.
     instructions_file: workers/qa.md
 
   reviewer:
+    kind: worker
     description: Read-only code review of a lane diff.
     instructions_file: workers/reviewer.md
 
   release_manager:
+    kind: worker
     description: Runs CI, qualification and the release PR.
     instructions_file: workers/release_manager.md

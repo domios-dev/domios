@@ -3,7 +3,9 @@ use std::sync::OnceLock;
 use codeterm_team_package::contracts::{TemplateProvenance, TemplateRef, TemplateStartRefusal};
 use codeterm_team_package::{
     builtin, check_entries, CheckOptions, Checked, Package, PackageDiagnostic, PackageFormat,
+    RoleKind, RoleStart, CURATOR,
 };
+use codeterm_types::agent::role_kind::builtins::{GENERAL_AGENT, WATCHER};
 use codeterm_types::team::role_registration::PinnedPackage;
 
 use crate::service::builtin_roles::DEFAULT_PACKAGE;
@@ -24,11 +26,14 @@ impl ResolvedTemplate {
     ) -> Result<Self, TemplateStartRefusal> {
         let Checked { report, package } = checked;
         match package.filter(|_| report.valid) {
-            Some(package) => Ok(Self {
-                package,
-                provenance,
-                warnings: report.warnings().cloned().collect(),
-            }),
+            Some(package) => {
+                host_policy(&package)?;
+                Ok(Self {
+                    package,
+                    provenance,
+                    warnings: report.warnings().cloned().collect(),
+                })
+            }
             None => Err(TemplateStartRefusal::InvalidPackage {
                 diagnostics: report.errors().cloned().collect(),
             }),
@@ -49,6 +54,35 @@ impl ResolvedTemplate {
             .as_ref()
             .map(|requires| requires.harnesses.as_slice())
             .unwrap_or_default()
+    }
+}
+
+/// What Domios refuses in a valid package: its own host-owned names as roles, and a schedule
+/// on any role but a curator manager, the only role it runs scheduled rounds for.
+pub fn host_policy(package: &Package) -> Result<(), TemplateStartRefusal> {
+    refuse_host_owned_roles(package)?;
+    for (name, role) in package.document.roles() {
+        let scheduled = matches!(role.start, Some(RoleStart::Schedule { .. }));
+        if scheduled && !(name == CURATOR && role.kind == RoleKind::Manager) {
+            return Err(TemplateStartRefusal::ScheduleUnsupportedRole {
+                role: name.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Domios owns `watcher` and `general_agent`; a package can never declare either as a role.
+pub fn refuse_host_owned_roles(package: &Package) -> Result<(), TemplateStartRefusal> {
+    match package
+        .document
+        .roles()
+        .find(|(name, _)| *name == WATCHER || *name == GENERAL_AGENT)
+    {
+        Some((name, _)) => Err(TemplateStartRefusal::HostOwnedRole {
+            role: name.to_string(),
+        }),
+        None => Ok(()),
     }
 }
 
@@ -76,7 +110,7 @@ fn builtins() -> &'static [Builtin] {
         builtin::names()
             .into_iter()
             .filter_map(|folder| {
-                let checked = builtin::check(&folder, &CheckOptions::domios())?;
+                let checked = builtin::check(&folder, &CheckOptions::default())?;
                 let template =
                     ResolvedTemplate::from_checked(checked, TemplateProvenance::Builtin).ok()?;
                 Some(Builtin { folder, template })
@@ -121,7 +155,7 @@ pub fn resolve(template: Option<&TemplateRef>) -> Result<ResolvedTemplate, Templ
             PackageFormat::Folder,
             package.archive_entries(),
             Vec::new(),
-            &CheckOptions::domios(),
+            &CheckOptions::default(),
         ),
         provenance,
     )

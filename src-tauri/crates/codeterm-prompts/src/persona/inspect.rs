@@ -1,8 +1,9 @@
 //! Read-only view of the shared resolver: exactly the text a delivery occasion
 //! would emit, with the provenance of every fragment.
 
-use codeterm_team_package::{ManagerSlot, RoleStart, TeamRoleGroup};
+use codeterm_team_package::{RoleKind, RoleStart, StartMode};
 use codeterm_types::agent::role_kind::{self, builtins, RoleType};
+use codeterm_types::agent::AgentRole;
 use codeterm_types::team::role_registration::{PinnedPackage, RoleProvenance, RoleRegistration};
 use serde::Serialize;
 
@@ -35,6 +36,9 @@ pub struct PresetView {
     #[serde(rename = "type")]
     pub role_type: String,
     pub role: &'static str,
+    pub kind: RoleKind,
+    /// The Domios authority the name carries: a built-in manager's label, or `none`.
+    pub authority: &'static str,
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provenance: Option<RoleProvenance>,
@@ -48,7 +52,9 @@ pub struct PresetView {
 pub struct RoleListing {
     #[serde(rename = "type")]
     pub role_type: String,
-    pub group: TeamRoleGroup,
+    pub kind: RoleKind,
+    /// The Domios authority the name carries: a built-in manager's label, or `none`.
+    pub authority: &'static str,
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -117,6 +123,8 @@ pub fn show(
     Some(PresetView {
         role_type: role_type.kind_id.clone(),
         role: preset.role.label(),
+        kind: preset.role.package_kind(),
+        authority: role_preset::authority_label(preset.role, &role_type.kind_id),
         label: preset.label.clone(),
         provenance: preset.provenance().cloned(),
         guidance: preset.guidance(),
@@ -127,16 +135,18 @@ pub fn show(
 
 fn listing(
     role_type: &str,
-    group: TeamRoleGroup,
+    kind: RoleKind,
     description: Option<String>,
     start: RoleStart,
     provenance: RoleProvenance,
     label: String,
 ) -> RoleListing {
-    let capability = role_kind::capability_for_kind(role_type);
+    let role = AgentRole::from(kind);
+    let capability = role_kind::registered_capability(role, role_type);
     RoleListing {
         role_type: role_type.to_string(),
-        group,
+        kind,
+        authority: role_preset::authority_label(role, role_type),
         label,
         description,
         start,
@@ -148,79 +158,41 @@ fn listing(
     }
 }
 
-/// Every role type the Team can launch: its registrations, then the default package for the rest.
+/// Every role the Team has: exactly its registrations (the default package as a whole when it
+/// has none), then the host-only Watcher.
 pub fn list(team_id: Option<&str>, team: &[RoleRegistration]) -> RegistryView {
-    let package = builtin_roles::default_package();
-    let builtin = || RoleProvenance::Builtin {
-        package: builtin_roles::default_identity(),
-    };
-    let registered = |group: TeamRoleGroup, name: &str| {
-        team.iter()
-            .find(|registration| registration.group == group && registration.name == name)
-    };
-    let mut roles = Vec::new();
-    for slot in ManagerSlot::ALL {
-        let name = slot.as_str();
-        roles.push(match registered(TeamRoleGroup::Manager, name) {
-            Some(registration) => entry_for(registration),
-            None => {
-                let role = package.document.managers.slot(slot);
-                listing(
-                    name,
-                    TeamRoleGroup::Manager,
-                    role.and_then(|role| role.description.clone()),
-                    role.map_or_else(
-                        || slot.default_start(),
-                        |role| role.effective_start(Some(slot)),
-                    ),
-                    builtin(),
-                    role_kind::builtin_kind(name)
-                        .map_or(name.to_string(), |kind| kind.label().to_string()),
-                )
-            }
-        });
-    }
+    let (team, builtin) = role_preset::effective(team);
+    let mut roles: Vec<RoleListing> = team
+        .iter()
+        .map(|registration| {
+            let package = registration.package.clone();
+            listing(
+                &registration.name,
+                registration.kind,
+                registration.description.clone(),
+                registration.start.clone(),
+                if builtin {
+                    RoleProvenance::Builtin { package }
+                } else {
+                    RoleProvenance::Team { package }
+                },
+                registration.label.clone(),
+            )
+        })
+        .collect();
     roles.push(listing(
         builtins::WATCHER,
-        TeamRoleGroup::Manager,
+        RoleKind::Manager,
         None,
-        RoleStart::Mode(codeterm_team_package::StartMode::OnDemand),
-        builtin(),
+        RoleStart::Mode(StartMode::OnDemand),
+        RoleProvenance::Builtin {
+            package: builtin_roles::default_identity(),
+        },
         role_kind::builtin_kind(builtins::WATCHER)
             .map_or(String::new(), |kind| kind.label().to_string()),
     ));
-    for (name, role) in package.document.workers.iter() {
-        if registered(TeamRoleGroup::Worker, name).is_none() {
-            roles.push(listing(
-                name,
-                TeamRoleGroup::Worker,
-                role.description.clone(),
-                role.effective_start(None),
-                builtin(),
-                name.to_string(),
-            ));
-        }
-    }
-    roles.extend(
-        team.iter()
-            .filter(|registration| registration.group == TeamRoleGroup::Worker)
-            .map(entry_for),
-    );
     RegistryView {
         team_id: team_id.map(str::to_string),
         roles,
     }
-}
-
-fn entry_for(registration: &RoleRegistration) -> RoleListing {
-    listing(
-        &registration.name,
-        registration.group,
-        registration.description.clone(),
-        registration.start.clone(),
-        RoleProvenance::Team {
-            package: registration.package.clone(),
-        },
-        registration.label.clone(),
-    )
 }

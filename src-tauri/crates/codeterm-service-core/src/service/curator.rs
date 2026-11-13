@@ -202,6 +202,8 @@ impl ServiceContext {
             Some(CuratorSuspension::Paused)
         } else if *mode == PlanMode::Complete || *status == PlanStatus::Archived || complete {
             Some(CuratorSuspension::Complete)
+        } else if crate::service::team_roles::curator_window(team_id.as_deref()).is_none() {
+            Some(CuratorSuspension::NoCurator)
         } else if self.curator_human_wait(team_id) {
             Some(CuratorSuspension::WaitingOnHuman)
         } else {

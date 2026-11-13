@@ -3,53 +3,60 @@
     { "path": "valid/reference", "valid": true, "canonical": true },
     { "path": "valid/reference-inline.team.yaml", "valid": true, "canonical": true },
     { "path": "valid/role-extension.team.yaml", "valid": true, "canonical": true },
+    { "path": "valid/custom-manager.team.yaml", "valid": true, "canonical": true },
     {
       "path": "valid/unresolved-skill.team.yaml",
       "valid": true,
-      "expect": [{ "code": "unresolved_skill", "path": "managers.orchestrator.skills[0]", "line": 6 }]
+      "expect": [
+        { "code": "unresolved_skill", "path": "roles.orchestrator.skills[0]", "line": 7 }
+      ]
     },
     {
       "path": "invalid/release-train.team.yaml",
       "valid": false,
       "expect": [
         { "code": "removed_field", "path": "instructions", "line": 40 },
-        { "code": "removed_field", "path": "roles", "line": 47 },
-        { "code": "missing_field", "path": "managers" }
+        { "code": "invalid_value", "path": "roles.conductor.kind", "line": 49 },
+        { "code": "removed_field", "path": "roles.conductor.persona", "line": 50 },
+        { "code": "invalid_value", "path": "roles.planner.kind", "line": 57 },
+        { "code": "expected_string", "path": "roles.planner.files[0]", "line": 61 },
+        { "code": "missing_file", "path": "files[0].path", "line": 33 },
+        { "code": "missing_file", "path": "roles.release_manager.instructions_file", "line": 91 },
+        { "code": "missing_field", "path": "roles.orchestrator" }
       ]
     },
     {
       "path": "invalid/distributed-bets.team.yaml",
       "valid": false,
       "expect": [
-        { "code": "expected_string", "path": "workers.oracle.files[0]" },
+        { "code": "expected_string", "path": "roles.oracle.files[0]" },
         { "code": "missing_file", "path": "skills[0].path", "line": 33 },
         { "code": "missing_file", "path": "files[1].path", "line": 39 },
         { "code": "missing_file", "path": "automation[0].path", "line": 42 },
-        { "code": "unresolved_skill", "path": "workers.oracle.skills[0]", "line": 69 }
+        { "code": "unresolved_skill", "path": "roles.oracle.skills[0]", "line": 71 }
       ]
     },
     {
       "path": "invalid/default-path-only.team.yaml",
       "valid": false,
       "expect": [
-        { "code": "missing_file", "path": "managers.orchestrator.instructions_file", "line": 14 },
-        { "code": "missing_file", "path": "workers.release_manager.instructions_file", "line": 47 }
+        { "code": "missing_file", "path": "roles.orchestrator.instructions_file", "line": 15 },
+        { "code": "missing_file", "path": "roles.release_manager.instructions_file", "line": 54 }
       ]
     },
     {
       "path": "invalid/build-owner.md",
       "valid": false,
-      "expect": [{ "code": "multiple_documents", "path": "", "line": 15 }]
-    },
-    {
-      "path": "invalid/removed-kind.team.yaml",
-      "valid": false,
-      "expect": [{ "code": "removed_field", "path": "managers.orchestrator.kind", "line": 6 }]
+      "expect": [
+        { "code": "multiple_documents", "path": "", "line": 15 }
+      ]
     },
     {
       "path": "invalid/role-includes.team.yaml",
       "valid": false,
-      "expect": [{ "code": "removed_field", "path": "managers.orchestrator.includes", "line": 6 }]
+      "expect": [
+        { "code": "removed_field", "path": "roles.orchestrator.includes", "line": 7 }
+      ]
     },
     {
       "path": "invalid/removed-top-instructions.team.yaml",
@@ -62,60 +69,80 @@
     {
       "path": "invalid/removed-inherit.team.yaml",
       "valid": false,
-      "expect": [{ "code": "removed_inherit", "path": "managers.curator.model", "line": 9 }]
+      "expect": [
+        { "code": "removed_inherit", "path": "roles.curator.model", "line": 11 }
+      ]
     },
     {
       "path": "invalid/same-as-unknown.team.yaml",
       "valid": false,
-      "expect": [{ "code": "unknown_same_as", "path": "managers.curator.model.same_as", "line": 10 }]
+      "expect": [
+        { "code": "unknown_same_as", "path": "roles.curator.model.same_as", "line": 12 }
+      ]
     },
     {
       "path": "invalid/same-as-cycle.team.yaml",
       "valid": false,
       "expect": [
-        { "code": "same_as_cycle", "path": "managers.planner.model.same_as", "line": 10 },
-        { "code": "same_as_cycle", "path": "managers.curator.model.same_as", "line": 13 }
+        { "code": "same_as_cycle", "path": "roles.planner.model.same_as", "line": 12 },
+        { "code": "same_as_cycle", "path": "roles.curator.model.same_as", "line": 18 }
       ]
     },
     {
       "path": "invalid/icon-missing.team.yaml",
       "valid": false,
-      "expect": [{ "code": "missing_file", "path": "icon", "line": 4 }]
+      "expect": [
+        { "code": "missing_file", "path": "icon", "line": 4 }
+      ]
     },
     {
       "path": "invalid/icon-not-image.team.yaml",
       "valid": false,
-      "expect": [{ "code": "icon_not_image", "path": "icon", "line": 4 }]
+      "expect": [
+        { "code": "icon_not_image", "path": "icon", "line": 4 }
+      ]
     },
     {
       "path": "invalid/icon-svg-script.team.yaml",
       "valid": false,
-      "expect": [{ "code": "svg_script", "path": "icon", "line": 4 }]
+      "expect": [
+        { "code": "svg_script", "path": "icon", "line": 4 }
+      ]
     },
     {
       "path": "invalid/icon-svg-external.team.yaml",
       "valid": false,
-      "expect": [{ "code": "svg_external_reference", "path": "icon", "line": 4 }]
+      "expect": [
+        { "code": "svg_external_reference", "path": "icon", "line": 4 }
+      ]
     },
     {
       "path": "invalid/icon-png-inline.team.yaml",
       "valid": false,
-      "expect": [{ "code": "binary_inline", "path": "icon", "line": 4 }]
+      "expect": [
+        { "code": "binary_inline", "path": "icon", "line": 4 }
+      ]
     },
     {
       "path": "invalid/bare-skill.team.yaml",
       "valid": false,
-      "expect": [{ "code": "expected_mapping", "path": "skills[0]", "line": 5 }]
+      "expect": [
+        { "code": "expected_mapping", "path": "skills[0]", "line": 5 }
+      ]
     },
     {
       "path": "invalid/unknown-field.team.yaml",
       "valid": false,
-      "expect": [{ "code": "unknown_field", "path": "colour", "line": 4 }]
+      "expect": [
+        { "code": "unknown_field", "path": "colour", "line": 4 }
+      ]
     },
     {
       "path": "invalid/missing-orchestrator.team.yaml",
       "valid": false,
-      "expect": [{ "code": "missing_field", "path": "managers.orchestrator" }]
+      "expect": [
+        { "code": "missing_field", "path": "roles.orchestrator" }
+      ]
     },
     {
       "path": "invalid/invalid-derived-from.team.yaml",
@@ -128,61 +155,147 @@
     {
       "path": "invalid/duplicate-key.team.yaml",
       "valid": false,
-      "expect": [{ "code": "duplicate_key", "path": "name", "line": 4 }]
+      "expect": [
+        { "code": "duplicate_key", "path": "name", "line": 4 }
+      ]
     },
     {
       "path": "invalid/anchor-alias.team.yaml",
       "valid": false,
       "expect": [
-        { "code": "yaml_anchor", "path": "managers.orchestrator" },
-        { "code": "yaml_alias", "path": "managers.planner", "line": 8 },
-        { "code": "expected_mapping", "path": "managers.planner", "line": 8 }
+        { "code": "yaml_anchor", "path": "roles.orchestrator" },
+        { "code": "yaml_alias", "path": "roles.planner", "line": 9 },
+        { "code": "expected_mapping", "path": "roles.planner", "line": 9 }
       ]
     },
     {
       "path": "invalid/tab-indentation.team.yaml",
       "valid": false,
-      "expect": [{ "code": "tab_indentation", "path": "", "line": 5 }]
+      "expect": [
+        { "code": "tab_indentation", "path": "", "line": 5 }
+      ]
     },
     {
       "path": "invalid/plan-template.team.yaml",
       "valid": false,
-      "expect": [{ "code": "plan_template_unsupported", "path": "tasks", "line": 4 }]
+      "expect": [
+        { "code": "plan_template_unsupported", "path": "tasks", "line": 4 }
+      ]
     },
     {
       "path": "invalid/missing-file.team.yaml",
       "valid": false,
-      "expect": [{ "code": "missing_file", "path": "files[0].path", "line": 5 }]
+      "expect": [
+        { "code": "missing_file", "path": "files[0].path", "line": 5 }
+      ]
     },
     {
       "path": "invalid/reserved-worker.team.yaml",
       "valid": false,
-      "expect": [{ "code": "reserved_role_name", "path": "workers.planner", "line": 9 }]
+      "expect": [
+        { "code": "reserved_worker_name", "path": "roles.planner.kind", "line": 10 }
+      ]
     },
     {
       "path": "invalid/new-worker-no-instructions.team.yaml",
       "valid": false,
-      "expect": [{ "code": "missing_field", "path": "workers.researcher.instructions", "line": 9 }]
+      "expect": [
+        { "code": "missing_instructions", "path": "roles.researcher.instructions", "line": 9 }
+      ]
     },
     {
       "path": "invalid/invalid-model.team.yaml",
       "valid": false,
-      "expect": [{ "code": "invalid_model", "path": "managers.orchestrator.model[0]", "line": 6 }]
+      "expect": [
+        { "code": "invalid_model", "path": "roles.orchestrator.model[0]", "line": 7 }
+      ]
     },
     {
       "path": "invalid/orchestrator-on-demand.team.yaml",
       "valid": false,
-      "expect": [{ "code": "invalid_start", "path": "managers.orchestrator.start", "line": 6 }]
+      "expect": [
+        { "code": "invalid_start", "path": "roles.orchestrator.start", "line": 7 }
+      ]
     },
     {
       "path": "invalid/invalid-schedule.team.yaml",
       "valid": false,
-      "expect": [{ "code": "invalid_schedule", "path": "managers.curator.start.schedule", "line": 10 }]
+      "expect": [
+        { "code": "invalid_schedule", "path": "roles.curator.start.schedule", "line": 12 }
+      ]
     },
     {
       "path": "invalid/unreferenced-entry",
       "valid": false,
-      "expect": [{ "code": "unreferenced_entry", "path": "" }]
+      "expect": [
+        { "code": "unreferenced_entry", "path": "" }
+      ]
+    },
+    {
+      "path": "invalid/role-persona.team.yaml",
+      "valid": false,
+      "expect": [
+        { "code": "removed_field", "path": "roles.orchestrator.persona", "line": 7 }
+      ]
+    },
+    {
+      "path": "invalid/missing-kind.team.yaml",
+      "valid": false,
+      "expect": [
+        { "code": "missing_role_kind", "path": "roles.researcher.kind" }
+      ]
+    },
+    {
+      "path": "invalid/invalid-kind.team.yaml",
+      "valid": false,
+      "expect": [
+        { "code": "invalid_value", "path": "roles.researcher.kind", "line": 10 }
+      ]
+    },
+    {
+      "path": "invalid/builtin-name-no-instructions.team.yaml",
+      "valid": false,
+      "expect": [
+        { "code": "missing_instructions", "path": "roles.planner.instructions", "line": 9 }
+      ]
+    },
+    {
+      "path": "invalid/orchestrator-worker.team.yaml",
+      "valid": false,
+      "expect": [
+        { "code": "reserved_worker_name", "path": "roles.orchestrator.kind", "line": 6 }
+      ]
+    },
+    {
+      "path": "invalid/bad-role-name.team.yaml",
+      "valid": false,
+      "expect": [
+        { "code": "invalid_role_name", "path": "roles.Security-Lead", "line": 9 }
+      ]
+    },
+    {
+      "path": "invalid/worker-with-team.team.yaml",
+      "valid": false,
+      "expect": [
+        { "code": "invalid_start", "path": "roles.researcher.start", "line": 11 }
+      ]
+    },
+    {
+      "path": "invalid/instructions-both.team.yaml",
+      "valid": false,
+      "expect": [
+        { "code": "conflicting_fields", "path": "roles.researcher" },
+        { "code": "missing_file", "path": "roles.researcher.instructions_file", "line": 13 }
+      ]
+    },
+    {
+      "path": "invalid/old-shape.team.yaml",
+      "valid": false,
+      "expect": [
+        { "code": "unknown_field", "path": "managers", "line": 4 },
+        { "code": "unknown_field", "path": "workers", "line": 8 },
+        { "code": "missing_field", "path": "roles" }
+      ]
     }
   ]
 }

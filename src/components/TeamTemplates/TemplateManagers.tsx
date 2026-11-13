@@ -12,7 +12,8 @@ import {
   type DecisionAction, type PickerSeed,
 } from "../../lib/teamTemplates/startModel";
 
-type ManagerSlot = import("../../../gen/ManagerSlot").ManagerSlot;
+/** A manager role name: a built-in manager or one of the package's own. */
+type ManagerSlot = string;
 type ModelDecision = import("../../../gen/ModelDecision").ModelDecision;
 type TemplateStartForm = import("../../../gen/TemplateStartForm").TemplateStartForm;
 type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
@@ -191,8 +192,8 @@ export function JoinsLaterGroup({ roles, context }: { roles: TemplateRoleSummary
 function extraManagers(form: TemplateStartForm): { withTeam: TemplateRoleSummary[]; later: TemplateRoleSummary[] } {
   const declared = managerRoles(form.roles).filter((role) => !isPairSlot(role.role));
   const pickerOnly = form.pickers
-    .filter((picker) => !isPairSlot(picker.slot) && !declared.some((role) => role.role === picker.slot))
-    .map((picker): TemplateRoleSummary => ({ group: "manager", role: picker.slot, label: picker.label, start: "with_team" }));
+    .filter((picker) => !isPairSlot(picker.role) && !declared.some((role) => role.role === picker.role))
+    .map((picker): TemplateRoleSummary => ({ kind: "manager", role: picker.role, label: picker.label, start: "with_team" }));
   const all = [...declared, ...pickerOnly].sort((a, b) => MANAGER_SLOTS.indexOf(a.role as ManagerSlot) - MANAGER_SLOTS.indexOf(b.role as ManagerSlot));
   return { withTeam: all.filter((role) => role.start === "with_team"), later: all.filter((role) => role.start !== "with_team") };
 }
@@ -219,7 +220,7 @@ export function TemplateManagers({ form, providers, disabledProviderIds, pair, o
   return (
     <div className="team-roster" role="list" aria-label="Managers" data-testid="template-managers">
       {(["orchestrator", "planner"] as const).map((slot) => {
-        const picker = form.pickers.find((candidate) => candidate.slot === slot);
+        const picker = form.pickers.find((candidate) => candidate.role === slot);
         const role = roles.find((candidate) => candidate.role === slot);
         const label = managerLabel(slot, picker?.label ?? role?.label ?? slot);
         const seat = pairSeat(slot, pair);

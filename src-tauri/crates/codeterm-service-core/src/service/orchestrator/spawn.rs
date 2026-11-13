@@ -223,6 +223,7 @@ impl ServiceContext {
         params.description =
             crate::service::tab::normalize_optional_tab_description(params.description.take())?;
         params.normalize_role_profile()?;
+        let _manager_reservation = self.admit_custom_manager_spawn(&mut params)?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         crate::service::spawn_params::reject_team_with_binding(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;

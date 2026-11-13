@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use codeterm_team_package::{
-    frontmatter_name, InlineSkill, ManagerSlot, Package, PackageAutomation, PackageFormat,
-    PackageSkill, SkillFile, TeamDocument, TeamRole,
+    frontmatter_name, InlineSkill, Package, PackageAutomation, PackageFormat, PackageSkill,
+    RoleKind, SkillFile, TeamDocument, TeamRole,
 };
 
 /// The bytes or folder one export writes.
@@ -48,13 +48,7 @@ fn frontmatter(text: &str) -> &str {
 }
 
 fn role_mut<'a>(document: &'a mut TeamDocument, name: &str) -> Option<&'a mut TeamRole> {
-    match ManagerSlot::parse(name) {
-        Some(ManagerSlot::Orchestrator) => Some(&mut document.managers.orchestrator),
-        Some(ManagerSlot::Planner) => document.managers.planner.as_mut(),
-        Some(ManagerSlot::Cartographer) => document.managers.cartographer.as_mut(),
-        Some(ManagerSlot::Curator) => document.managers.curator.as_mut(),
-        None => document.workers.get_mut(name),
-    }
+    document.roles.get_mut(name)
 }
 
 /// A name usable as one path segment of a canonical location.
@@ -101,8 +95,8 @@ fn with_frontmatter(content: &str, name: &str, description: &str) -> String {
 }
 
 /// The `.team` and folder forms carry one package as the same bytes whatever form it arrived
-/// in: file and icon contents live in entries, role instructions in `managers/<slot>.md` or
-/// `workers/<name>.md`, skills under `skills/<name>/` and Blueprints in `blueprints/<name>.yaml`.
+/// in: file and icon contents live in entries, role instructions in `managers/<name>.md` or
+/// `workers/<name>.md` by kind, skills under `skills/<name>/` and Blueprints in `blueprints/<name>.yaml`.
 pub fn externalized(package: &Package) -> Result<Package, String> {
     let mut package = package.clone();
     let mut entries = std::mem::take(&mut package.entries);
@@ -119,15 +113,14 @@ pub fn externalized(package: &Package) -> Result<Package, String> {
         .files
         .retain(|file| icon.as_deref() != Some(file.path.as_str()) || file.description.is_some());
 
-    let names: Vec<String> = document
+    let names: Vec<(String, RoleKind)> = document
         .roles()
-        .into_iter()
-        .map(|(_, name, _)| name.to_string())
+        .map(|(name, role)| (name.to_string(), role.kind))
         .collect();
-    for name in names.iter().filter(|name| segment(name)) {
-        let home = match ManagerSlot::parse(name) {
-            Some(_) => format!("managers/{name}.md"),
-            None => format!("workers/{name}.md"),
+    for (name, kind) in names.iter().filter(|(name, _)| segment(name)) {
+        let home = match kind {
+            RoleKind::Manager => format!("managers/{name}.md"),
+            RoleKind::Worker => format!("workers/{name}.md"),
         };
         let Some(role) = role_mut(document, name) else {
             continue;
@@ -291,8 +284,7 @@ pub fn single_file(package: &Package) -> Result<Package, String> {
     let names: Vec<(String, String)> = package
         .document
         .roles()
-        .into_iter()
-        .filter_map(|(_, name, role)| {
+        .filter_map(|(name, role)| {
             role.instructions_file
                 .clone()
                 .map(|path| (name.to_string(), path))

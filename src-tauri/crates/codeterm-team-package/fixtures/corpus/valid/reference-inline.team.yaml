@@ -59,19 +59,23 @@ automation:
       schema_version: 2
       name: research-digest
 
-managers:
+roles:
   orchestrator:
+    kind: manager
     name: Lead
     model: [claude:opus]
     instructions: |
       Agree the question with the owner, then merge findings and cite every claim.
 
   curator:
+    kind: manager
     model:
       same_as: orchestrator
+    instructions: |
+      Keep the team's knowledge current between research rounds.
 
-workers:
   researcher:
+    kind: worker
     description: Researches one angle of the question.
     skills: [market-sizing]
     files: [data/competitors.csv]
@@ -79,6 +83,7 @@ workers:
       Research exactly one angle. Every claim gets a source link and a date.
 
   checker:
+    kind: worker
     description: Verifies every claim in a researcher's report.
     instructions: |
       Verify every claim against its cited source.

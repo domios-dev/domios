@@ -261,6 +261,7 @@ pub mod task_lane_guard;
 pub mod team_core;
 pub mod team_exchange;
 pub mod team_membership;
+pub mod team_manager_spawn;
 pub mod team_roles;
 pub use codeterm_prompts::builtin_roles;
 pub mod team_template_payload;

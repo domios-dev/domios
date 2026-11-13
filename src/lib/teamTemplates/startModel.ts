@@ -1,7 +1,8 @@
 import { humanizeRoleKey, kindDisplayName, roleDisplayLabel } from "../roleKind";
 import type { TemplatePreview, TemplateRecall, TemplateStartRequest } from "../transport/teamTemplates";
 
-type ManagerSlot = import("../../../gen/ManagerSlot").ManagerSlot;
+/** A manager role name: a built-in manager or one of the package's own. */
+type ManagerSlot = string;
 type ManagerModelChoice = import("../../../gen/ManagerModelChoice").ManagerModelChoice;
 type ModelDecision = import("../../../gen/ModelDecision").ModelDecision;
 type PayloadKind = import("../../../gen/PayloadKind").PayloadKind;
@@ -103,13 +104,13 @@ export function rowDecisionNotice(decision: ModelDecision, rowProviderId: string
 }
 
 const PAIR_MANAGERS: readonly TemplateRoleSummary[] = [
-  { group: "manager", role: "orchestrator", label: "orchestrator", start: "with_team" },
-  { group: "manager", role: "planner", label: "planner", start: "with_team" },
+  { kind: "manager", role: "orchestrator", label: "orchestrator", start: "with_team" },
+  { kind: "manager", role: "planner", label: "planner", start: "with_team" },
 ];
 
 /** The managers a start launches, in slot order: every Team starts an Orchestrator and a Planner even when the package omits them. */
 export function managerRoles(roles: readonly TemplateRoleSummary[]): TemplateRoleSummary[] {
-  const declared = roles.filter((role) => role.group === "manager");
+  const declared = roles.filter((role) => role.kind === "manager");
   const all = [...declared, ...PAIR_MANAGERS.filter((pair) => !declared.some((role) => role.role === pair.role))];
   const rank = (role: TemplateRoleSummary) => {
     const index = MANAGER_SLOTS.indexOf(role.role as ManagerSlot);
@@ -124,8 +125,8 @@ export function roleSameAs(role: Pick<TemplateRoleSummary, "same_as">): string |
 }
 
 /** A manager's decision: a with_team manager's picker, else the decision its role summary carries. */
-export function managerDecision(pickers: readonly { slot: string; decision: ModelDecision }[], role: TemplateRoleSummary): ModelDecision | null {
-  return pickers.find((picker) => picker.slot === role.role)?.decision ?? role.model ?? null;
+export function managerDecision(pickers: readonly { role: string; decision: ModelDecision }[], role: TemplateRoleSummary): ModelDecision | null {
+  return pickers.find((picker) => picker.role === role.role)?.decision ?? role.model ?? null;
 }
 
 /** The quiet tooltip shown when the model cannot honour the requested effort. */
@@ -341,6 +342,8 @@ function refusalView(refusal: TemplateStartRefusal): StartErrorView {
     case "not_found": return { message: `${humanizePackageName(refusal.template.name)} isn't available`, reasons: [], choices: [] };
     case "invalid_package": return { message: "This template isn't a valid package", reasons: refusal.diagnostics.map((diagnostic) => diagnostic.message), choices: [] };
     case "invalid_placement": return { message: placementText(refusal.role, refusal.peer, refusal.problem), reasons: [], choices: [] };
+    case "schedule_unsupported_role": return { message: `Domios runs scheduled rounds only for the curator, not ${roleDisplayLabel(refusal.role, refusal.role)}`, reasons: [], choices: [] };
+    case "host_owned_role": return { message: `${refusal.role} is a Domios role and can't be part of a template`, reasons: [], choices: [] };
   }
 }
 
@@ -349,9 +352,9 @@ export function startResultView(result: TemplateStartResult): StartErrorView | n
   switch (result.status) {
     case "started": return null;
     case "manager_failed":
-      return { message: `The ${kindDisplayName(result.failure.slot)} couldn't start`, reasons: [result.failure.reason], choices: result.failure.choices ?? [] };
+      return { message: `The ${kindDisplayName(result.failure.role)} couldn't start`, reasons: [result.failure.reason], choices: result.failure.choices ?? [] };
     case "needs_choice":
-      return { message: "Choose a model first", reasons: result.choices.map((choice) => managerLabel(choice.slot, choice.label)), choices: [] };
+      return { message: "Choose a model first", reasons: result.choices.map((choice) => managerLabel(choice.role, choice.label)), choices: [] };
     case "refused": return refusalView(result.refusal);
   }
 }

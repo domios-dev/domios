@@ -376,7 +376,7 @@ pub(super) fn run_dispatch(
         params["placement"] = json!(placement);
     }
     if let Some(role) = role {
-        params["role"] = json!(role.kind_id);
+        params["role"] = json!(role.as_str());
     }
     if let Some(agent) = agent {
         params["agent"] = json!(agent);

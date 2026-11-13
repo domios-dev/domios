@@ -46,6 +46,24 @@ impl AgentRole {
             Self::Worker => "Worker",
         }
     }
+
+    /// The package `kind` a role of this structural role registers as.
+    pub fn package_kind(self) -> codeterm_team_package::RoleKind {
+        match self {
+            Self::Manager => codeterm_team_package::RoleKind::Manager,
+            Self::Worker => codeterm_team_package::RoleKind::Worker,
+        }
+    }
+}
+
+/// The structural role a registration's kind launches as.
+impl From<codeterm_team_package::RoleKind> for AgentRole {
+    fn from(kind: codeterm_team_package::RoleKind) -> Self {
+        match kind {
+            codeterm_team_package::RoleKind::Manager => Self::Manager,
+            codeterm_team_package::RoleKind::Worker => Self::Worker,
+        }
+    }
 }
 
 pub fn is_legacy_cartographer_worker_binding(

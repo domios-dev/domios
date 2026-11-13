@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use codeterm_team_package::{is_role_name, ManagerSlot, RoleStart, TeamRoleGroup};
-use codeterm_types::agent::role_kind::{builtins, RoleType, RoleTypeError};
+use codeterm_team_package::{is_builtin_manager, is_role_name, RoleKind, RoleStart};
+use codeterm_types::agent::role_kind::{builtins, RoleName, RoleType, RoleTypeError};
+use codeterm_types::agent::AgentRole;
 use codeterm_types::team::role_registration::{RoleRegistration, RoleRegistrationOutcome};
 use parking_lot::Mutex;
 
@@ -40,18 +41,11 @@ fn validate(registration: &RoleRegistration) -> Result<(), String> {
     if !is_role_name(name) {
         return Err(format!("`{name}` is not a role name"));
     }
-    match registration.group {
-        TeamRoleGroup::Manager if ManagerSlot::parse(name).is_none() => {
-            return Err(format!("`{name}` is not a manager slot"));
-        }
-        TeamRoleGroup::Worker
-            if ManagerSlot::parse(name).is_some()
-                || name == builtins::WATCHER
-                || name == builtins::GENERAL_AGENT =>
-        {
-            return Err(format!("`{name}` is reserved for a host or manager role"));
-        }
-        _ => {}
+    if name == builtins::WATCHER || name == builtins::GENERAL_AGENT {
+        return Err(format!("`{name}` is owned by the host and is never a package role"));
+    }
+    if registration.kind == RoleKind::Worker && is_builtin_manager(name) {
+        return Err(format!("`{name}` is a built-in manager name, never a worker"));
     }
     if registration.instructions.trim().is_empty() {
         return Err(format!("`{name}` carries no instructions"));
@@ -178,30 +172,97 @@ impl TeamRoleStore {
         }
     }
 
-    /// Parses `--role` and checks that a worker type is available to the Team.
-    pub fn role_type(&self, team_id: Option<&str>, value: &str) -> Result<RoleType, RoleTypeError> {
-        let role_type = RoleType::parse(value)?;
-        if !role_type.is_worker() {
-            return Ok(role_type);
-        }
-        let builtin = crate::service::builtin_roles::builtin_workers()
-            .iter()
-            .any(|(name, _)| *name == role_type.kind_id);
-        let registered = team_id.is_some_and(|team_id| {
-            self.registrations(team_id).iter().any(|registration| {
-                registration.group == TeamRoleGroup::Worker
-                    && registration.name == role_type.kind_id
-            })
-        });
-        if builtin || registered {
-            Ok(role_type)
+    /// The roles the Team has: its registrations, or the default package as a whole when it
+    /// has none (host policy, never a per-role fallback).
+    pub fn effective(&self, team_id: Option<&str>) -> Vec<RoleRegistration> {
+        let stored = team_id
+            .filter(|team_id| valid_team_id(team_id).is_ok())
+            .map(|team_id| self.registrations(team_id))
+            .unwrap_or_default();
+        if stored.is_empty() {
+            crate::service::builtin_roles::default_registrations(team_id.unwrap_or_default())
         } else {
-            Err(RoleTypeError::UnavailableWorker(role_type.kind_id))
+            stored
         }
+    }
+
+    /// Resolves `--role` against the Team: the registration's kind gives the structural role.
+    /// Only the host-owned watcher resolves without one.
+    pub fn role_type(&self, team_id: Option<&str>, value: &str) -> Result<RoleType, RoleTypeError> {
+        resolve_role(&self.effective(team_id), value)
+    }
+
+    /// The worker `plan task dispatch` launches: `--role` must name a registered worker, and
+    /// without it the Team's `worker`, only when the Team lists one.
+    pub fn worker_type(
+        &self,
+        team_id: Option<&str>,
+        requested: Option<&str>,
+    ) -> Result<RoleType, RoleTypeError> {
+        resolve_worker(&self.effective(team_id), requested)
     }
 }
 
-/// The registrations every launch composes against.
+fn names_of(team: &[RoleRegistration], kind: Option<RoleKind>) -> Vec<String> {
+    team.iter()
+        .filter(|registration| kind.is_none_or(|kind| registration.kind == kind))
+        .map(|registration| registration.name.clone())
+        .collect()
+}
+
+/// A role name resolved against exactly the Team's roles.
+pub fn resolve_role(team: &[RoleRegistration], value: &str) -> Result<RoleType, RoleTypeError> {
+    let name = RoleName::parse(value)?;
+    if let Some(host_owned) = name.host_owned() {
+        return Ok(host_owned);
+    }
+    team.iter()
+        .find(|registration| registration.name == name.as_str())
+        .map(|registration| RoleType::new(AgentRole::from(registration.kind), &registration.name))
+        .ok_or_else(|| RoleTypeError::NotRegistered {
+            name: name.to_string(),
+            roles: names_of(team, None),
+        })
+}
+
+/// The dispatch rule: a registered worker by name, or `worker` by default when listed.
+pub fn resolve_worker(
+    team: &[RoleRegistration],
+    requested: Option<&str>,
+) -> Result<RoleType, RoleTypeError> {
+    let workers = names_of(team, Some(RoleKind::Worker));
+    let Some(value) = requested else {
+        return if workers.iter().any(|name| name == builtins::WORKER) {
+            Ok(RoleType::new(AgentRole::Worker, builtins::WORKER))
+        } else {
+            Err(RoleTypeError::NoDefaultWorker { workers })
+        };
+    };
+    let name = RoleName::parse(value)?;
+    match team
+        .iter()
+        .find(|registration| registration.name == name.as_str())
+    {
+        Some(registration) if registration.is_worker() => {
+            Ok(RoleType::new(AgentRole::Worker, &registration.name))
+        }
+        Some(_) => Err(RoleTypeError::NotAWorker {
+            name: name.to_string(),
+            workers,
+        }),
+        None if name.is_manager_name() => Err(RoleTypeError::NotAWorker {
+            name: name.to_string(),
+            workers,
+        }),
+        None => Err(RoleTypeError::NotRegistered {
+            name: name.to_string(),
+            roles: workers,
+        }),
+    }
+}
+
+/// The registrations stored for a Team; empty means the Team is the default package as a whole,
+/// which every resolver applies on its own.
 pub fn registrations(team_id: Option<&str>) -> Vec<RoleRegistration> {
     team_id
         .filter(|team_id| valid_team_id(team_id).is_ok())
@@ -209,16 +270,14 @@ pub fn registrations(team_id: Option<&str>) -> Vec<RoleRegistration> {
         .unwrap_or_default()
 }
 
-/// The label a tab shows for its registered role type: a display name the package declared,
-/// or the name of a type the host has no builtin label for. Builtin types keep the host label.
+/// The label a tab shows for its registered role: a display name the package declared, or the
+/// name of a role the host has no builtin label for. Builtin names keep the host label.
 pub fn role_label_for(
     team: &[RoleRegistration],
     role: codeterm_types::agent::AgentRole,
     kind_id: &str,
 ) -> Option<String> {
-    // A kind that borrows another role's prose (the Watcher) never borrows its label.
-    let registration = crate::service::role_preset::registration(team, role, kind_id)
-        .filter(|registration| registration.name == kind_id)?;
+    let registration = crate::service::role_preset::registration(team, role, kind_id)?;
     let declared = registration.label != registration.name;
     (declared || !builtins::is_builtin(kind_id)).then(|| registration.label.clone())
 }
@@ -270,29 +329,29 @@ fn stamp_team_with(
     }
 }
 
-/// The Curator window a Team's curator registration schedules, clamped into the host bounds.
-pub fn curator_window(team_id: Option<&str>) -> codeterm_types::plan::CuratorWindow {
-    window_of(&registrations(team_id))
+/// The Curator window a Team's curator manager schedules, clamped into the host bounds; `None`
+/// when the Team has no curator manager with a schedule, so it runs no Curator rounds.
+pub fn curator_window(team_id: Option<&str>) -> Option<codeterm_types::plan::CuratorWindow> {
+    window_of(&TeamRoleStore::global().effective(team_id))
 }
 
-fn window_of(team: &[RoleRegistration]) -> codeterm_types::plan::CuratorWindow {
+fn window_of(team: &[RoleRegistration]) -> Option<codeterm_types::plan::CuratorWindow> {
     team.iter()
-        .find(|registration| registration.slot() == Some(ManagerSlot::Curator))
+        .find(|registration| registration.names(RoleKind::Manager, builtins::CURATOR))
         .and_then(|registration| match &registration.start {
             RoleStart::Schedule { schedule } => codeterm_team_package::schedule_window(schedule),
             RoleStart::Mode(_) => None,
         })
         .map(|(min, max)| codeterm_types::plan::CuratorWindow::within_host(min, max))
-        .unwrap_or_default()
 }
 
-/// The registration that names this role type for the Team, if any.
+/// The Team's registration of this role, if the Team has it.
 pub fn registration_for(
     team_id: Option<&str>,
     role: codeterm_types::agent::AgentRole,
     kind_id: &str,
 ) -> Option<RoleRegistration> {
-    let team = registrations(team_id);
+    let team = TeamRoleStore::global().effective(team_id);
     crate::service::role_preset::registration(&team, role, kind_id).cloned()
 }
 

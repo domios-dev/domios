@@ -194,8 +194,8 @@ fn sanitize_cross_peer_parent(obj: &mut serde_json::Map<String, serde_json::Valu
     let worker = obj
         .get("role")
         .and_then(|v| v.as_str())
-        .and_then(|role| codeterm_types::agent::role_kind::RoleType::parse(role).ok())
-        .is_some_and(|role| role.is_worker());
+        .and_then(|role| codeterm_types::agent::role_kind::RoleName::parse(role).ok())
+        .is_some_and(|role| !role.is_manager_name());
     if !worker {
         return;
     }

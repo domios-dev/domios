@@ -12,9 +12,9 @@ use codeterm_service_core::service::ServiceContext;
 use codeterm_team_package::contracts::{
     ManagerStartFailure, TemplateItemState, TemplateStartResult,
 };
-use codeterm_team_package::ManagerSlot;
+use codeterm_team_package::{ORCHESTRATOR, PLANNER};
 
-use super::seats::started_slots;
+use super::seats::started_managers;
 use super::summary::pinned_statuses;
 use super::{
     apply_payload, deliver_summary, manager_item, refused, register, remember_consent,
@@ -22,17 +22,23 @@ use super::{
 };
 use crate::{OrchestrationPairParams, OrchestrationPairResult};
 
-/// The live manager Tab for each started slot in the Team.
+/// The live manager Tab for each started manager name in the Team.
 pub(super) fn live_managers(
     mux: &MultiplexerState,
     team_id: &str,
-    slots: &[ManagerSlot],
-) -> BTreeMap<ManagerSlot, String> {
+    names: &[String],
+) -> BTreeMap<String, String> {
     mux.all_tabs()
-        .filter(|tab| tab.team_id.as_deref() == Some(team_id))
+        .filter(|tab| {
+            tab.team_id.as_deref() == Some(team_id)
+                && tab.role == Some(codeterm_types::agent::AgentRole::Manager)
+        })
         .filter_map(|tab| {
-            let slot = ManagerSlot::parse(tab.role_kind_id()?)?;
-            slots.contains(&slot).then(|| (slot, tab.id.clone()))
+            let name = tab.role_kind_id()?;
+            names
+                .iter()
+                .any(|wanted| wanted == name)
+                .then(|| (name.to_string(), tab.id.clone()))
         })
         .collect()
 }
@@ -40,15 +46,14 @@ pub(super) fn live_managers(
 /// A re-run never replaces a manager: a missing one is returned to the caller with its reason.
 pub(super) fn missing_manager(
     team_id: &str,
-    slots: &[ManagerSlot],
-    live: &BTreeMap<ManagerSlot, String>,
+    names: &[String],
+    live: &BTreeMap<String, String>,
 ) -> Option<ManagerStartFailure> {
-    let slot = slots.iter().find(|slot| !live.contains_key(slot))?;
+    let name = names.iter().find(|name| !live.contains_key(*name))?;
     Some(ManagerStartFailure {
-        slot: *slot,
+        role: name.clone(),
         reason: format!(
-            "Team {team_id} has no live {}; a template re-run adds registrations only and never starts a replacement manager",
-            slot.as_str()
+            "Team {team_id} has no live {name}; a template re-run adds registrations only and never starts a replacement manager"
         ),
         choices: Vec::new(),
     })
@@ -73,7 +78,7 @@ pub(crate) async fn rerun(
         admitted,
         seats: BTreeMap::new(),
     };
-    let slots = started_slots(&rail.admitted.resolved);
+    let names = started_managers(&rail.admitted.resolved);
     let live = {
         let mux = svc.mux.read();
         if mux.get_team(team_id).is_none() {
@@ -90,13 +95,13 @@ pub(crate) async fn rerun(
                 "a member of another Team cannot re-run a template on Team {team_id}"
             ));
         }
-        live_managers(&mux, team_id, &slots)
+        live_managers(&mux, team_id, &names)
     };
-    if let Some(failure) = missing_manager(team_id, &slots, &live) {
+    if let Some(failure) = missing_manager(team_id, &names, &live) {
         return Err(TemplateStartResult::ManagerFailed { failure }.error_message());
     }
-    let orchestrator_tab_id = live[&ManagerSlot::Orchestrator].clone();
-    let planner_tab_id = live[&ManagerSlot::Planner].clone();
+    let orchestrator_tab_id = live[ORCHESTRATOR].clone();
+    let planner_tab_id = live.get(PLANNER).cloned();
     let registrations = register(svc, team_id, &rail).await?;
     let mut statuses = pinned_statuses(&registrations);
     statuses.extend(apply_payload(svc, team_id, &rail).await);
@@ -113,7 +118,7 @@ pub(crate) async fn rerun(
             team_id: team_id.to_string(),
             managers: live
                 .keys()
-                .map(|slot| manager_item(*slot, TemplateItemState::AlreadyPresent))
+                .map(|name| manager_item(name, TemplateItemState::AlreadyPresent))
                 .collect(),
             registrations,
             warnings: rail.admitted.resolved.warnings.clone(),

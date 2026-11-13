@@ -57,50 +57,11 @@ impl Default for Limits {
     }
 }
 
-/// What the checking host provides beyond the format: the builtin worker names roles may inherit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostProfile {
-    pub builtin_workers: Vec<String>,
-}
-
-impl HostProfile {
-    pub fn domios() -> Self {
-        Self {
-            builtin_workers: ["worker", "qa", "reviewer", "release_manager"]
-                .map(str::to_string)
-                .to_vec(),
-        }
-    }
-}
-
-/// Validator inputs: bounds, and the host profile when a host runs the check.
+/// Validator inputs: the size and count bounds. Validation is format-only.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CheckOptions {
     pub limits: Limits,
-    pub host: Option<HostProfile>,
 }
-
-impl CheckOptions {
-    /// The reference validator as Domios runs it.
-    pub fn domios() -> Self {
-        Self {
-            limits: Limits::default(),
-            host: Some(HostProfile::domios()),
-        }
-    }
-
-    /// Options for a named host profile: `none` checks the format alone, `domios` adds Domios's roles.
-    pub fn for_profile(name: &str) -> Option<Self> {
-        match name {
-            "none" => Some(Self::default()),
-            "domios" => Some(Self::domios()),
-            _ => None,
-        }
-    }
-}
-
-/// The names [`CheckOptions::for_profile`] accepts.
-pub const HOST_PROFILES: [&str; 2] = ["none", "domios"];
 
 /// The published `$id` of the `team.yaml` schema for one spec version.
 pub fn schema_id(spec_version: &str) -> String {

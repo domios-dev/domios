@@ -1,5 +1,7 @@
 ---
 name: market-sizing
-description: Size a market from cited figures and state the year of every number.
+description: Estimate a market size from cited figures.
 ---
-1. Collect sizes from primary sources. 2. Normalise to one year and currency. 3. Show the range, not a point.
+1. Collect sizes from primary sources and record each figure's year.
+2. Flag any figure older than two years.
+3. Give a range, not a point, and cite every input.

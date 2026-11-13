@@ -1,8 +1,12 @@
 name: dev.example/probe
 version: 1.0.0
 description: Probe package.
-managers:
+roles:
   orchestrator:
-    kind: coordinator
+    kind: manager
     instructions: |
       Lead.
+  researcher:
+    kind: coordinator
+    instructions: |
+      Research one angle.

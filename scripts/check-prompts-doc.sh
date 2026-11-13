@@ -29,11 +29,14 @@ for line in docs.read_text(encoding="utf-8").splitlines():
 
 role_rows = set()
 for line in docs.read_text(encoding="utf-8").splitlines():
-    m = re.match(r"\|\s*`([a-z0-9_-]+/(?:managers|workers)/[^`]+\.md)`\s*\|", line)
+    m = re.match(r"\|\s*`(default/[^`]+\.md)`\s*\|", line)
     if m:
         role_rows.add(m.group(1))
+# Role prose is whatever the default package's `roles` map names as instructions_file.
+default_team = (templates_dir / "default" / "team.yaml").read_text(encoding="utf-8")
 role_files = sorted(
-    p for p in (templates_dir / "default").rglob("*.md") if p.parent.name in {"managers", "workers"}
+    templates_dir / "default" / m.group(1)
+    for m in re.finditer(r"(?m)^\s+instructions_file:\s*(\S+)", default_team)
 )
 role_names = {p.relative_to(templates_dir).as_posix() for p in role_files}
 

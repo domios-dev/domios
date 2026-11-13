@@ -29,7 +29,7 @@ fn unbound_or_absent_owner_has_no_timed_wake_and_binding_resumes_once() {
 
 #[test]
 fn a_curator_round_runs_on_its_registered_pick_and_otherwise_mirrors_the_orchestrator() {
-    use codeterm_team_package::{ModelPreference, RoleStart, StartMode, TeamRoleGroup};
+    use codeterm_team_package::{ModelPreference, RoleKind, RoleStart, StartMode};
     use codeterm_types::team::role_registration::{PinnedPackage, RoleRegistration};
 
     let mirror = Mirror {
@@ -40,7 +40,7 @@ fn a_curator_round_runs_on_its_registered_pick_and_otherwise_mirrors_the_orchest
     };
     let registration = |model: Option<ModelPreference>| RoleRegistration {
         team_id: "team_probe".into(),
-        group: TeamRoleGroup::Manager,
+        kind: RoleKind::Manager,
         name: "curator".into(),
         label: "curator".into(),
         description: None,

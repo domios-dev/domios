@@ -1,32 +1,21 @@
 //! The ATP reference validator for `wasm-bindgen --target web`: each check returns the same
-//! JSON report `atp-validate --json` prints.
+//! JSON report `atp-validate --json` prints. Validation is format-only.
 
-use codeterm_team_package::{CheckOptions, HOST_PROFILES};
+use codeterm_team_package::CheckOptions;
 use wasm_bindgen::prelude::*;
 
-/// Validates the one-file `team.yaml` form under host profile `none` or `domios`.
+/// Validates the one-file `team.yaml` form.
 #[wasm_bindgen]
-pub fn check_yaml(text: &str, profile: &str) -> Result<String, JsError> {
-    let options = options(profile)?;
-    Ok(codeterm_team_package::check_yaml(text, &options)
+pub fn check_yaml(text: &str) -> String {
+    codeterm_team_package::check_yaml(text, &CheckOptions::default())
         .report
-        .to_json())
+        .to_json()
 }
 
-/// Validates the `.team` ZIP form under host profile `none` or `domios`.
+/// Validates the `.team` ZIP form.
 #[wasm_bindgen]
-pub fn check_archive(bytes: &[u8], profile: &str) -> Result<String, JsError> {
-    let options = options(profile)?;
-    Ok(codeterm_team_package::check_archive(bytes, &options)
+pub fn check_archive(bytes: &[u8]) -> String {
+    codeterm_team_package::check_archive(bytes, &CheckOptions::default())
         .report
-        .to_json())
-}
-
-fn options(profile: &str) -> Result<CheckOptions, JsError> {
-    CheckOptions::for_profile(profile).ok_or_else(|| {
-        JsError::new(&format!(
-            "unknown host profile {profile}; expected one of {}",
-            HOST_PROFILES.join(", ")
-        ))
-    })
+        .to_json()
 }

@@ -87,7 +87,7 @@ fn icons_become_base64_data_urls() {
 #[test]
 fn portable_projections_come_from_the_package_alone() {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/corpus/valid/reference");
-    let package = check_folder(&folder, &CheckOptions::domios())
+    let package = check_folder(&folder, &CheckOptions::default())
         .package
         .expect("reference is valid");
 

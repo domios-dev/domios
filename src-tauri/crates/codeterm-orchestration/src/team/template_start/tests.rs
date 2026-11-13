@@ -15,8 +15,8 @@ use codeterm_team_package::contracts::{
     TemplateStartResult,
 };
 use codeterm_team_package::{
-    check_archive, check_entries, check_yaml, CheckOptions, DiagnosticCode, ManagerSlot,
-    PackageFormat, RoleStart, StartMode, TeamRoleGroup,
+    check_archive, check_entries, check_yaml, CheckOptions, DiagnosticCode, PackageFormat,
+    RoleKind, RoleStart, StartMode,
 };
 
 use super::registration::{register_all, registrations_for};
@@ -116,9 +116,10 @@ fn the_default_package_registers_every_role_pinned_and_starts_no_worker() {
         .all(|registration| registration.package == identity
             && !registration.instructions.trim().is_empty()));
     assert_eq!(
-        super::seats::started_slots(&admitted.resolved),
-        vec![ManagerSlot::Orchestrator, ManagerSlot::Planner]
+        super::seats::started_managers(&admitted.resolved),
+        ["orchestrator", "planner"]
     );
+    assert!(rail(admitted, &[]).starts_planner());
 }
 
 #[test]
@@ -256,8 +257,8 @@ fn no_manager_pick_asks_for_a_choice_for_both_pair_managers() {
     ) else {
         panic!("a package without models needs a choice");
     };
-    let slots: Vec<_> = pickers.iter().map(|picker| picker.slot).collect();
-    assert_eq!(slots, vec![ManagerSlot::Orchestrator, ManagerSlot::Planner]);
+    let roles: Vec<_> = pickers.iter().map(|picker| picker.role.as_str()).collect();
+    assert_eq!(roles, ["orchestrator", "planner"]);
 }
 
 #[test]
@@ -265,22 +266,21 @@ fn a_later_manager_pick_lands_on_its_registration_and_its_attach_uses_it() {
     let admitted = default_admitted();
     let target = probe_target(&["m1"]);
     let mut picks = BTreeMap::new();
-    for slot in [
-        ManagerSlot::Orchestrator,
-        ManagerSlot::Planner,
-        ManagerSlot::Cartographer,
-    ] {
-        picks.insert(slot, OwnerPick::new("probe", Some("m1"), None).unwrap());
+    for name in ["orchestrator", "planner", "cartographer"] {
+        picks.insert(
+            name.to_string(),
+            OwnerPick::new("probe", Some("m1"), None).unwrap(),
+        );
     }
     let SeatPlan::Seats(mut seats) = plan_seats(&admitted.resolved, &picks, &target, &no_endpoints)
     else {
         panic!("every pick is eligible");
     };
     // The probe catalogue has no effort levels; the decided effort rides on the seat.
-    seats.get_mut(&ManagerSlot::Cartographer).unwrap().effort = Some("high".into());
-    let started = super::seats::started_slots(&admitted.resolved);
+    seats.get_mut("cartographer").unwrap().effort = Some("high".into());
+    let started = super::seats::started_managers(&admitted.resolved);
     assert!(
-        !started.contains(&ManagerSlot::Cartographer),
+        !started.iter().any(|name| name == "cartographer"),
         "the Cartographer joins on demand, so the start never launches it"
     );
     let mut registrations = registrations_for(TEAM, &admitted, 1);
@@ -343,11 +343,11 @@ fn owner_picks_go_through_the_decision_service() {
     let target = probe_target(&["m1"]);
     let mut picks = BTreeMap::new();
     picks.insert(
-        ManagerSlot::Orchestrator,
+        "orchestrator".to_string(),
         OwnerPick::new("probe", Some("m1"), None).unwrap(),
     );
     picks.insert(
-        ManagerSlot::Planner,
+        "planner".to_string(),
         OwnerPick::new("probe", Some("  "), None).unwrap(),
     );
     let SeatPlan::Seats(seats) = plan_seats(&admitted.resolved, &picks, &target, &no_endpoints)
@@ -355,14 +355,14 @@ fn owner_picks_go_through_the_decision_service() {
         panic!("both picks are eligible");
     };
     assert_eq!(
-        seats[&ManagerSlot::Orchestrator].model.as_deref(),
+        seats["orchestrator"].model.as_deref(),
         Some("m1")
     );
     // A bare provider keeps its launch default instead of promoting one to an explicit model.
-    assert_eq!(seats[&ManagerSlot::Planner].model, None);
+    assert_eq!(seats["planner"].model, None);
 
     picks.insert(
-        ManagerSlot::Orchestrator,
+        "orchestrator".to_string(),
         OwnerPick::new("probe", Some("m2"), None).unwrap(),
     );
     let SeatPlan::NeedsChoice(pickers) =
@@ -394,12 +394,12 @@ fn a_custom_endpoint_model_is_accepted_as_spawn_validation_accepts_it() {
     // The enforced harness catalogue does not list endpoint ids; the endpoint catalogue owns them.
     let target = probe_target(&["m1"]);
     let mut picks = BTreeMap::new();
-    for (slot, model) in [
-        (ManagerSlot::Orchestrator, "gateway/m9"),
-        (ManagerSlot::Planner, "probe:gateway/m9"),
+    for (name, model) in [
+        ("orchestrator", "gateway/m9"),
+        ("planner", "probe:gateway/m9"),
     ] {
         picks.insert(
-            slot,
+            name.to_string(),
             OwnerPick::new("probe", Some(model), Some("high")).unwrap(),
         );
     }
@@ -408,17 +408,17 @@ fn a_custom_endpoint_model_is_accepted_as_spawn_validation_accepts_it() {
         panic!("a configured endpoint model seats its manager");
     };
     assert_eq!(
-        seats[&ManagerSlot::Orchestrator].model.as_deref(),
+        seats["orchestrator"].model.as_deref(),
         Some("gateway/m9")
     );
     assert_eq!(
-        seats[&ManagerSlot::Planner].model.as_deref(),
+        seats["planner"].model.as_deref(),
         Some("probe:gateway/m9")
     );
-    assert_eq!(seats[&ManagerSlot::Planner].effort.as_deref(), Some("high"));
+    assert_eq!(seats["planner"].effort.as_deref(), Some("high"));
 
     picks.insert(
-        ManagerSlot::Orchestrator,
+        "orchestrator".to_string(),
         OwnerPick::new("probe", Some("gateway/absent"), None).unwrap(),
     );
     let SeatPlan::NeedsChoice(pickers) =
@@ -437,8 +437,11 @@ fn a_custom_endpoint_model_is_accepted_as_spawn_validation_accepts_it() {
 fn a_bare_provider_on_an_absent_harness_is_blocked() {
     let admitted = default_admitted();
     let mut picks = BTreeMap::new();
-    for slot in [ManagerSlot::Orchestrator, ManagerSlot::Planner] {
-        picks.insert(slot, OwnerPick::new("missing", None, None).unwrap());
+    for name in ["orchestrator", "planner"] {
+        picks.insert(
+            name.to_string(),
+            OwnerPick::new("missing", None, None).unwrap(),
+        );
     }
     let SeatPlan::NeedsChoice(pickers) = plan_seats(
         &admitted.resolved,
@@ -497,30 +500,31 @@ fn post_start_failures_become_one_summary_with_a_line_per_role() {
 
 #[test]
 fn a_rerun_reports_a_missing_manager_instead_of_replacing_it() {
-    let slots = [ManagerSlot::Orchestrator, ManagerSlot::Planner];
+    let names = ["orchestrator".to_string(), "planner".to_string()];
     let mut live = BTreeMap::new();
-    live.insert(ManagerSlot::Orchestrator, "tab-o".to_string());
-    let failure: ManagerStartFailure = missing_manager(TEAM, &slots, &live).unwrap();
-    assert_eq!(failure.slot, ManagerSlot::Planner);
-    live.insert(ManagerSlot::Planner, "tab-p".to_string());
-    assert!(missing_manager(TEAM, &slots, &live).is_none());
+    live.insert("orchestrator".to_string(), "tab-o".to_string());
+    let failure: ManagerStartFailure = missing_manager(TEAM, &names, &live).unwrap();
+    assert_eq!(failure.role, "planner");
+    live.insert("planner".to_string(), "tab-p".to_string());
+    assert!(missing_manager(TEAM, &names, &live).is_none());
 }
 
 const SKILLED: &str = "name: dev.example/skilled
 version: 1.0.0
 description: Probe package.
-managers:
+roles:
   orchestrator:
+    kind: manager
     instructions: opaque-orchestrator
-workers:
   scout:
+    kind: worker
     instructions: opaque-scout
     skills: [absent-skill]
 ";
 
 #[test]
 fn every_package_form_starts_identically_and_keeps_skill_warnings() {
-    let options = CheckOptions::domios();
+    let options = CheckOptions::default();
     let yaml =
         ResolvedTemplate::from_checked(check_yaml(SKILLED, &options), TemplateProvenance::Saved)
             .expect("an unresolved skill is a warning, not a refusal");
@@ -559,7 +563,7 @@ fn every_package_form_starts_identically_and_keeps_skill_warnings() {
     assert_eq!(started[0], started[2]);
     assert!(started[0]
         .iter()
-        .any(|registration| registration.group == TeamRoleGroup::Worker
+        .any(|registration| registration.kind == RoleKind::Worker
             && registration.name == "scout"
             && registration.skills == vec!["absent-skill".to_string()]));
 
@@ -577,10 +581,9 @@ fn placed_workers_carry_their_peer_and_managers_stay_home() {
         .resolved
         .package
         .document
-        .roles()
-        .into_iter()
-        .find(|(group, _, _)| *group == TeamRoleGroup::Worker)
-        .map(|(_, name, _)| name.to_string())
+        .roles_of(RoleKind::Worker)
+        .next()
+        .map(|(name, _)| name.to_string())
         .expect("the default package declares a worker");
     admitted.placements.insert(worker.clone(), "eight".into());
     let registrations = registrations_for(TEAM, &admitted, 1);
@@ -673,4 +676,146 @@ fn an_unknown_template_creates_nothing_through_the_pair_primitive() {
     assert_eq!(mux.snapshot().tabs.len(), tabs_before);
     assert_eq!(mux.team_count(), teams_before);
     assert!(fixture.service.plan_store.list_index().unwrap().is_empty());
+}
+
+fn saved(text: &str) -> AdmittedTemplate {
+    AdmittedTemplate {
+        resolved: ResolvedTemplate::from_checked(
+            check_yaml(text, &CheckOptions::default()),
+            TemplateProvenance::Saved,
+        )
+        .expect("fixture package admits"),
+        inputs: BTreeMap::new(),
+        decision_id: None,
+        placements: BTreeMap::new(),
+    }
+}
+
+const ORCHESTRATOR_ONLY: &str = "name: dev.example/solo
+version: 1.0.0
+description: Probe package.
+roles:
+  orchestrator:
+    kind: manager
+    instructions: opaque-orchestrator
+  scout:
+    kind: worker
+    instructions: opaque-scout
+";
+
+#[test]
+fn an_orchestrator_only_package_seats_no_planner_and_has_no_curator_rounds() {
+    let admitted = saved(ORCHESTRATOR_ONLY);
+    assert_eq!(
+        super::seats::started_managers(&admitted.resolved),
+        ["orchestrator"]
+    );
+    let registrations = registrations_for(TEAM, &admitted, 1);
+    assert!(registrations
+        .iter()
+        .all(|registration| registration.name != "planner" && registration.name != "curator"));
+    let pickers = match plan_seats(
+        &admitted.resolved,
+        &BTreeMap::new(),
+        &TargetCatalogue::default(),
+        &no_endpoints,
+    ) {
+        SeatPlan::NeedsChoice(pickers) => pickers,
+        SeatPlan::Seats(_) => panic!("a package without models needs a choice"),
+    };
+    let roles: Vec<_> = pickers.iter().map(|picker| picker.role.as_str()).collect();
+    assert_eq!(roles, ["orchestrator"]);
+    assert!(!rail(admitted, &[]).starts_planner());
+    // No curator registration means no Curator window, so no rounds.
+    assert!(registrations
+        .iter()
+        .all(|registration| !matches!(registration.start, RoleStart::Schedule { .. })));
+}
+
+const CUSTOM_WITH_TEAM: &str = "name: dev.example/warden
+version: 1.0.0
+description: Probe package.
+roles:
+  orchestrator:
+    kind: manager
+    instructions: opaque-orchestrator
+  security_lead:
+    kind: manager
+    name: Warden
+    start: with_team
+    instructions: opaque-security
+  auditor:
+    kind: manager
+    instructions: opaque-auditor
+";
+
+#[test]
+fn a_custom_with_team_manager_starts_with_the_team_and_an_on_demand_one_is_registered() {
+    let admitted = saved(CUSTOM_WITH_TEAM);
+    assert_eq!(
+        super::seats::started_managers(&admitted.resolved),
+        ["orchestrator", "security_lead"]
+    );
+    let mut picks = BTreeMap::new();
+    picks.insert(
+        "orchestrator".to_string(),
+        OwnerPick::new("probe", Some("m1"), None).unwrap(),
+    );
+    let SeatPlan::NeedsChoice(pickers) = plan_seats(
+        &admitted.resolved,
+        &picks,
+        &probe_target(&["m1"]),
+        &no_endpoints,
+    ) else {
+        panic!("the custom with_team manager needs its own pick");
+    };
+    assert_eq!(pickers.len(), 1);
+    assert_eq!((pickers[0].role.as_str(), pickers[0].label.as_str()), ("security_lead", "Warden"));
+    picks.insert(
+        "security_lead".to_string(),
+        OwnerPick::new("probe", Some("m1"), None).unwrap(),
+    );
+    let SeatPlan::Seats(seats) = plan_seats(
+        &admitted.resolved,
+        &picks,
+        &probe_target(&["m1"]),
+        &no_endpoints,
+    ) else {
+        panic!("every with_team manager is picked");
+    };
+    assert!(seats.contains_key("security_lead") && !seats.contains_key("auditor"));
+    let registrations = registrations_for(TEAM, &admitted, 1);
+    let auditor = registrations
+        .iter()
+        .find(|registration| registration.name == "auditor")
+        .expect("an on_demand custom manager is registered");
+    assert_eq!(auditor.kind, RoleKind::Manager);
+    assert_eq!(auditor.start, RoleStart::Mode(StartMode::OnDemand));
+}
+
+#[test]
+fn a_schedule_on_a_non_curator_role_is_refused_before_creation() {
+    let text = "name: dev.example/scheduled
+version: 1.0.0
+description: Probe package.
+roles:
+  orchestrator:
+    kind: manager
+    instructions: opaque-orchestrator
+  auditor:
+    kind: manager
+    start:
+      schedule: 45m..2h
+    instructions: opaque-auditor
+";
+    assert_eq!(
+        ResolvedTemplate::from_checked(
+            check_yaml(text, &CheckOptions::default()),
+            TemplateProvenance::Saved
+        )
+        .unwrap_err(),
+        TemplateStartRefusal::ScheduleUnsupportedRole {
+            role: "auditor".into()
+        }
+    );
 }

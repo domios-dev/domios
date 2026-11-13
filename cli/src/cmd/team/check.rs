@@ -46,7 +46,7 @@ fn render(path: &str, report: &PackageCheckReport) -> String {
 
 /// Validates a package in any of its three forms; exits 1 when it has errors.
 pub fn handle(json_output: bool, path: &str) {
-    let report = check_path(Path::new(path), &CheckOptions::domios()).report;
+    let report = check_path(Path::new(path), &CheckOptions::default()).report;
     let value = serde_json::to_value(&report).unwrap_or_default();
     if report.valid {
         if json_output {

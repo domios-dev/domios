@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use codeterm_team_package::contracts::{TemplateDistillRequest, TemplateProvenance, TemplateRef};
 use codeterm_team_package::{
-    check_folder, check_yaml, CheckOptions, ManagerSlot, ModelPreference, Package, PackageFormat,
-    PackageSkill, RoleStart, StartMode, TeamRoleGroup,
+    check_folder, check_yaml, CheckOptions, ModelPreference, Package, PackageFormat, PackageSkill,
+    RoleKind, RoleStart, StartMode,
 };
 use codeterm_types::team::role_registration::{PinnedPackage, RoleFileRef, RoleRegistration};
 
@@ -22,13 +22,13 @@ fn corpus() -> PathBuf {
 fn inline_reference() -> Package {
     let text = std::fs::read_to_string(corpus().join("valid/reference-inline.team.yaml"))
         .expect("fixture reads");
-    check_yaml(&text, &CheckOptions::domios())
+    check_yaml(&text, &CheckOptions::default())
         .package
         .expect("inline reference is valid")
 }
 
 fn folder_reference() -> Package {
-    check_folder(&corpus().join("valid/reference"), &CheckOptions::domios())
+    check_folder(&corpus().join("valid/reference"), &CheckOptions::default())
         .package
         .expect("folder reference is valid")
 }
@@ -91,6 +91,14 @@ fn export_import_export_is_byte_identical_in_every_form() {
     );
     round_trip(folder_reference(), PackageFormat::Team, "desk.team");
     round_trip(folder_reference(), PackageFormat::Folder, "desk");
+    let custom = custom_manager_package();
+    for (format, name) in [
+        (PackageFormat::Yaml, "custom.team.yaml"),
+        (PackageFormat::Team, "custom.team"),
+        (PackageFormat::Folder, "custom"),
+    ] {
+        round_trip(custom.clone(), format, name);
+    }
     for package in builtin_packages() {
         round_trip(package.clone(), PackageFormat::Team, "builtin.team");
         round_trip(package.clone(), PackageFormat::Yaml, "builtin.team.yaml");
@@ -129,8 +137,7 @@ fn a_svg_icon_stays_inline_and_a_png_refuses_the_one_file_form() {
     assert!(inline
         .document
         .roles()
-        .iter()
-        .all(|(_, _, role)| role.instructions_file.is_none()));
+        .all(|(_, role)| role.instructions_file.is_none()));
 
     let mut png = folder_reference();
     png.document.icon = Some("assets/logo.png".into());
@@ -180,7 +187,7 @@ fn a_scrubbed_package_asks_for_its_secrets_by_name_and_keeps_authors() {
     let mut package = inline_reference();
     package
         .document
-        .workers
+        .roles
         .get_mut("checker")
         .unwrap()
         .instructions = Some(
@@ -193,7 +200,7 @@ fn a_scrubbed_package_asks_for_its_secrets_by_name_and_keeps_authors() {
         tags: Vec::new(),
     }];
     let report = scrub_package(&mut package, &private_context());
-    let checker = package.document.workers.get("checker").unwrap();
+    let checker = package.document.role("checker").unwrap();
     assert_eq!(
         checker.instructions.as_deref(),
         Some("Use GITHUB_TOKEN: [secret GITHUB_TOKEN] from {workspace}/.config.\n")
@@ -229,6 +236,7 @@ fn malformed_or_unsafe_packages_never_reach_my_templates() {
         "unknown-field.team.yaml",
         "plan-template.team.yaml",
         "unreferenced-entry",
+        "old-shape.team.yaml",
     ] {
         let error = check_import(&invalid.join(case))
             .err()
@@ -239,7 +247,7 @@ fn malformed_or_unsafe_packages_never_reach_my_templates() {
     let dir = tempfile::tempdir().unwrap();
     let secret = dir.path().join("secret.team.yaml");
     let mut package = inline_reference();
-    package.document.managers.orchestrator.instructions =
+    package.document.roles.get_mut("orchestrator").unwrap().instructions =
         Some("Deploy with GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123\n".into());
     std::fs::write(&secret, package.to_yaml()).unwrap();
     let error = check_import(&secret)
@@ -251,7 +259,8 @@ fn malformed_or_unsafe_packages_never_reach_my_templates() {
 
     let huge = dir.path().join("huge.team.yaml");
     let mut big = inline_reference();
-    big.document.managers.orchestrator.instructions = Some("x".repeat(3 * 1024 * 1024));
+    big.document.roles.get_mut("orchestrator").unwrap().instructions =
+        Some("x".repeat(3 * 1024 * 1024));
     std::fs::write(&huge, big.to_yaml()).unwrap();
     assert!(
         check_import(&huge).is_err(),
@@ -283,7 +292,7 @@ fn many_scripted_skills_import_unverified_with_one_script_ask_each() {
     }
     package
         .document
-        .workers
+        .roles
         .get_mut("researcher")
         .unwrap()
         .skills
@@ -328,7 +337,7 @@ fn my_templates_keep_versions_refuse_rewrites_and_report_updates() {
     let mut next = first.clone();
     next.document.version = "2.2.0".into();
     next.document
-        .workers
+        .roles
         .get_mut("checker")
         .unwrap()
         .instructions = Some("Check twice.\n".into());
@@ -390,16 +399,12 @@ fn my_templates_keep_versions_refuse_rewrites_and_report_updates() {
     );
 }
 
-fn registration(
-    group: TeamRoleGroup,
-    name: &str,
-    model: Option<ModelPreference>,
-) -> RoleRegistration {
+fn registration(kind: RoleKind, name: &str, model: Option<ModelPreference>) -> RoleRegistration {
     RoleRegistration {
         team_id: "team_1".into(),
-        group,
+        kind,
         name: name.into(),
-        label: if group == TeamRoleGroup::Manager {
+        label: if name == "cartographer" {
             "Mapper".into()
         } else {
             name.into()
@@ -440,13 +445,15 @@ fn distill_request(runbook: Option<&str>) -> TemplateDistillRequest {
 fn bake_keeps_registered_roles_model_omission_runbook_and_lineage() {
     let base = default_package().unwrap().clone();
     let registrations = vec![
-        registration(TeamRoleGroup::Manager, "cartographer", None),
+        registration(RoleKind::Manager, "orchestrator", None),
+        registration(RoleKind::Manager, "cartographer", None),
+        registration(RoleKind::Manager, "security_lead", None),
         registration(
-            TeamRoleGroup::Worker,
+            RoleKind::Worker,
             "analyst",
             Some(ModelPreference::List(vec!["claude:opus".into()])),
         ),
-        registration(TeamRoleGroup::Worker, "scribe", None),
+        registration(RoleKind::Worker, "scribe", None),
     ];
     let collected = Collected {
         files: vec![codeterm_team_package::PackageFile {
@@ -474,38 +481,33 @@ fn bake_keeps_registered_roles_model_omission_runbook_and_lineage() {
         ("dev.domios/default", "1.0.0")
     );
     let orchestrator = document
-        .managers
-        .orchestrator
-        .instructions
-        .as_deref()
+        .role("orchestrator")
+        .and_then(|role| role.instructions.as_deref())
         .unwrap();
+    assert!(orchestrator.starts_with("Do the orchestrator work.\n"));
     assert!(orchestrator.ends_with(&format!("{RUNBOOK_HEADING}\n\nSplit by angle.\n")));
-    assert!(
-        orchestrator.len() > 200,
-        "the orchestrator keeps the source instructions"
+    let names: Vec<&str> = document.roles.keys().collect();
+    assert_eq!(
+        names,
+        ["orchestrator", "cartographer", "security_lead", "analyst", "scribe"],
+        "the bake carries exactly the registered roles, never-spawned ones included"
     );
-    let cartographer = document.managers.slot(ManagerSlot::Cartographer).unwrap();
+    let security = document.manager("security_lead").unwrap();
+    assert_eq!(
+        security.instructions.as_deref(),
+        Some("Do the security_lead work.\n")
+    );
+    let cartographer = document.manager("cartographer").unwrap();
     assert_eq!(cartographer.name.as_deref(), Some("Mapper"));
     assert_eq!(
         cartographer.instructions.as_deref(),
         Some("Do the cartographer work.\n")
     );
-    let workers: Vec<&str> = document.workers.keys().collect();
-    assert_eq!(
-        workers,
-        vec!["analyst", "scribe"],
-        "never-spawned registrations travel"
-    );
-    assert!(
-        document.workers.get("scribe").unwrap().model.is_none(),
-        "model omission survives"
-    );
-    assert_eq!(
-        document.workers.get("scribe").unwrap().files,
-        vec!["notes/brief.md".to_string()]
-    );
-    let planner = document.managers.planner.as_ref().unwrap();
-    assert!(planner.instructions_file.is_none() && planner.instructions.is_some());
+    let scribe = document.role("scribe").unwrap();
+    assert_eq!(scribe.kind, RoleKind::Worker);
+    assert!(scribe.model.is_none(), "model omission survives");
+    assert_eq!(scribe.files, vec!["notes/brief.md".to_string()]);
+    assert!(document.role("planner").is_none(), "a Team has exactly its roles");
 
     let exported = run_pipeline(baked, &private_context(), PackageFormat::Yaml, None)
         .expect("the bake checks");
@@ -517,10 +519,11 @@ fn bake_keeps_registered_roles_model_omission_runbook_and_lineage() {
         unstarted.document.derived_from.is_none(),
         "no template provenance, no lineage"
     );
-    assert_eq!(
-        unstarted.document.workers.len(),
-        base.document.workers.len()
-    );
+    assert_eq!(unstarted.document.roles.len(), base.document.roles.len());
+    assert!(unstarted
+        .document
+        .roles()
+        .all(|(_, role)| role.instructions.is_some() && role.instructions_file.is_none()));
     assert_eq!(
         source_identity(&registrations).unwrap().name,
         "dev.domios/default"
@@ -555,7 +558,10 @@ fn the_template_list_carries_my_templates_and_their_persisted_trust() {
     assert_eq!(&mine[0].name, name);
     assert_eq!(mine[0].received_from.as_deref(), Some("Friend-A"));
     assert!(mine[0].verified);
-    assert_eq!(mine[0].workers as usize, package.document.workers.len());
+    assert_eq!(
+        mine[0].workers as usize,
+        package.document.roles_of(RoleKind::Worker).count()
+    );
     // Preview and recall resolve the same package and must show the gallery's trust.
     let (resolved, provenance) = super::resolve_in(
         &restarted,
@@ -587,7 +593,7 @@ fn archive_forms_are_the_same_bytes_whatever_form_the_package_arrived_in() {
         let Ok(inline) = forms::single_file(package) else {
             continue;
         };
-        let from_yaml = check_yaml(&inline.to_yaml(), &CheckOptions::domios())
+        let from_yaml = check_yaml(&inline.to_yaml(), &CheckOptions::default())
             .package
             .expect("the one-file form imports");
         for (format, suffix) in [
@@ -618,8 +624,7 @@ fn archive_forms_are_the_same_bytes_whatever_form_the_package_arrived_in() {
     assert!(canonical
         .document
         .roles()
-        .iter()
-        .all(|(_, _, role)| role.instructions.is_none()));
+        .all(|(_, role)| role.instructions.is_none()));
     assert!(canonical
         .document
         .skills
@@ -630,4 +635,29 @@ fn archive_forms_are_the_same_bytes_whatever_form_the_package_arrived_in() {
         canonical.archive_entries(),
         "the canonical form is a fixed point"
     );
+}
+
+/// A package with a custom with_team manager and an on-demand one beside the built-ins.
+fn custom_manager_package() -> Package {
+    let text = std::fs::read_to_string(corpus().join("valid/custom-manager.team.yaml"))
+        .expect("fixture reads");
+    check_yaml(&text, &CheckOptions::default())
+        .package
+        .expect("custom manager fixture is valid")
+}
+
+#[test]
+fn a_custom_manager_exports_with_its_kind_first_and_full_instructions() {
+    let exported = run_pipeline(
+        custom_manager_package(),
+        &private_context(),
+        PackageFormat::Yaml,
+        None,
+    )
+    .expect("the custom manager package exports");
+    assert!(exported.check.valid);
+    let yaml = exported.yaml;
+    assert!(yaml.contains("  security_lead:\n    kind: manager\n    name: Warden\n"));
+    assert!(yaml.contains("Review every change for security risks"));
+    assert!(!yaml.contains("managers:") && !yaml.contains("workers:"));
 }

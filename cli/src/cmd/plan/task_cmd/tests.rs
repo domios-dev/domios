@@ -209,7 +209,7 @@ fn plan_task_dispatch_sends_the_selected_worker_type() {
         let PlanTaskAction::Dispatch { role, .. } = &mut action else {
             unreachable!()
         };
-        *role = Some(crate::args::agent::RoleType::parse(kind).expect("worker type"));
+        *role = Some(crate::args::agent::RoleName::parse(kind).expect("worker name"));
 
         let _ = run_dispatch(&mut client, true, action, None).expect("dispatch runs");
         let params = client

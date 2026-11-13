@@ -314,7 +314,7 @@ impl ServiceContext {
         // the host window stays implicit so default Teams write nothing new.
         let window = crate::service::team_roles::curator_window(plan.team_id.as_deref());
         loop_state.curator_window =
-            (window != codeterm_types::plan::CuratorWindow::HOST).then_some(window);
+            window.filter(|window| *window != codeterm_types::plan::CuratorWindow::HOST);
         if eligible && loop_state.running.is_some() {
             loop_state.agent_states = super::movement_sources::observed_agents(
                 self,
@@ -735,6 +735,7 @@ impl ServiceContext {
                 next_delay_secs: crate::service::team_roles::curator_window(
                     plan.team_id.as_deref(),
                 )
+                .unwrap_or_default()
                 .delay(None),
                 section_sizes: digest.section_sizes,
                 ..Default::default()

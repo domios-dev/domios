@@ -400,10 +400,10 @@ pub enum PlanTaskAction {
         placement: Option<String>,
         #[arg(
             long = "role",
-            value_parser = crate::args::agent::parse_role_type,
-            help = "Worker type to launch (worker, qa, reviewer, release_manager or a Team-registered name); the task's executor_role is unchanged"
+            value_parser = crate::args::agent::parse_role_name,
+            help = "Worker the Team registers to launch; a manager or unlisted name is refused with the Team's workers. Omitted uses `worker` only when the Team lists it. The task's executor_role is unchanged"
         )]
-        role: Option<crate::args::agent::RoleType>,
+        role: Option<crate::args::agent::RoleName>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(
