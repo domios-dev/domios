@@ -9,7 +9,8 @@ use crate::agent::kpi::usage::{UsageIngestor, UsageSource};
 use crate::agent::kpi::{KpiAttribution, KpiRecorder};
 
 const CLAUDE_STREAMED: &str = include_str!("../kpi/usage/fixtures/claude-streamed-responses.jsonl");
-const CODEX_REPEATED: &str = include_str!("../kpi/usage/fixtures/codex-repeated-token-count.jsonl");
+const CUMULATIVE_RESPONSES: &str =
+    include_str!("../kpi/usage/fixtures/codex-repeated-token-count.jsonl");
 const SUBAGENT_PARENT: &str = include_str!(
     "../../../../../../plugins/provider-claude/tests/fixtures/subagents/projects/C--Users-dev-AppData-Local-Temp-snake-demo/f44205ef-4a6f-4090-9506-1978b4eada1b.jsonl"
 );
@@ -116,7 +117,7 @@ fn kpi_usage_rebuild_restores_ground_truth_and_is_idempotent() {
     write(&claude, CLAUDE_STREAMED);
     write(&parent, SUBAGENT_PARENT);
     write(&sidechain, SIDECHAIN);
-    write(&codex, CODEX_REPEATED);
+    write(&codex, CUMULATIVE_RESPONSES);
     // The streamed fixture reuses sidechain lines verbatim, so two sources share line tuples.
     let db = dir.join("kpi_ledger.db");
     let claude_tab = |path: &PathBuf| LegacySource {
@@ -235,7 +236,7 @@ fn kpi_usage_rebuild_removes_lines_recorded_twice() {
 fn kpi_usage_rebuild_persists_codex_totals_for_the_next_ingest() {
     let dir = scratch("codex-resume");
     let codex = dir.join("rollout.jsonl");
-    write(&codex, &first_lines(CODEX_REPEATED, 6));
+    write(&codex, &first_lines(CUMULATIVE_RESPONSES, 6));
     let db = dir.join("kpi_ledger.db");
     legacy_ledger(
         &db,
@@ -266,7 +267,7 @@ fn kpi_usage_rebuild_persists_codex_totals_for_the_next_ingest() {
     );
 
     // The resumed session re-emits the second turn's totals before its third turn.
-    write(&codex, CODEX_REPEATED);
+    write(&codex, CUMULATIVE_RESPONSES);
     let attribution = KpiAttribution::for_tab("tab-codex")
         .plan(Some("pl_codex".into()), None)
         .provider(Some("codex".into()));
@@ -312,7 +313,7 @@ fn kpi_usage_rebuild_skips_providerless_aliases_and_matches_fresh_ingest() {
     let dir = tempfile::tempdir().unwrap();
     let transcript = dir.path().join("owned.jsonl");
     let unknown = dir.path().join("unowned.jsonl");
-    write(&transcript, CODEX_REPEATED);
+    write(&transcript, CUMULATIVE_RESPONSES);
     write(&unknown, "{}\n");
     let registry = Arc::new(crate::agent::registry::AgentRegistry::new());
     registry.register_provider(Box::new(
