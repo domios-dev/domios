@@ -35,7 +35,8 @@ reader() { tee -a "$1"; }
 reader "$2/output.log" < "$2/output.fifo" &
 printf '%s\\n' "$!" > "$2/reader.pid"
 exec > "$2/output.fifo" 2>&1
-node "$2/compiler.mjs"
+# Node must not set O_NONBLOCK on the caller's shared stdin pipe on macOS.
+node "$2/compiler.mjs" < /dev/null
 `);
   fs.writeFileSync(compilerScript, `import { spawn } from 'node:child_process';
 const child = spawn(process.execPath, ['-e', 'process.stdin.resume(); console.log(process.pid)'], {
