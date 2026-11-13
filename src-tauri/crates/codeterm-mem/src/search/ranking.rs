@@ -62,7 +62,8 @@ impl<'a> Scorer<'a> {
 }
 
 pub fn matches_filters(item: &MemItem, query: &SearchQuery, cfg: &SearchConfig) -> bool {
-    query.kind.as_ref().is_none_or(|kind| item.kind == *kind)
+    item.kind != crate::curation::calibration::archive::ARCHIVED_KIND
+        && query.kind.as_ref().is_none_or(|kind| item.kind == *kind)
         && query
             .scope
             .as_ref()
@@ -143,20 +144,8 @@ pub fn fuse(
             if let Some(entry) = rrf_scores.get_mut(*gid) {
                 entry.0 += rrf;
             } else if let Some(item) = graph_items.remove(*gid) {
-                if let Some(ref k) = q.kind {
-                    if item.kind != *k {
-                        continue;
-                    }
-                }
-                if let Some(ref s) = q.scope {
-                    if item.scope != *s {
-                        continue;
-                    }
-                }
-                if let Some(ref a) = q.area {
-                    if item.area.as_deref() != Some(a) {
-                        continue;
-                    }
+                if !matches_filters(&item, q, cfg) {
+                    continue;
                 }
                 rrf_scores.insert((*gid).clone(), (rrf, item));
             }

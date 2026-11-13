@@ -311,3 +311,83 @@ fn fts_path_unchanged_by_mode_flag() {
     assert_eq!(a.len(), b.len());
     assert_eq!(a[0].item.id, b[0].item.id);
 }
+
+#[test]
+fn archived_documents_with_retained_vectors_are_excluded_from_semantic_search() {
+    use crate::embedder::{index, EmbedderIdentity, StampedVector};
+
+    let (conn, blobs) = fresh();
+    let vector = StampedVector {
+        identity: EmbedderIdentity {
+            provider: "fixture".into(),
+            model: "fixture".into(),
+            dimension: 3,
+        },
+        vector: vec![1.0, 0.0, 0.0],
+    };
+    index::ensure(&conn, &vector.identity).unwrap();
+    let mut ids = Vec::new();
+    for title in ["Retired team template", "Current team template"] {
+        let id = insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Document,
+                scope: MemScope::Global,
+                title: title.into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "Team template for planning research".into(),
+                source: None,
+                importance: 0.5,
+                source_path: None,
+                pinned: false,
+            },
+            &blobs,
+        )
+        .unwrap();
+        index::insert_if_live(&conn, &id, 0, &vector).unwrap();
+        ids.push(id);
+    }
+    crate::test_support::archive_mem_item_conn(
+        &conn,
+        &ids[0],
+        "template removed",
+        "system:team-templates",
+    )
+    .unwrap();
+    assert_eq!(index::vector_count(&conn), 2);
+    let query = SearchQuery {
+        query: "template".into(),
+        ..Default::default()
+    };
+    for mode in [SearchMode::HybridRrf, SearchMode::VectorFirstRerank] {
+        let config = SearchConfig {
+            mode,
+            ..Default::default()
+        };
+        let hits =
+            hybrid_rrf_with_embedding(&conn, &query, &blobs, &config, Some(&vector)).unwrap();
+        assert_eq!(
+            hits.iter().map(|hit| &hit.item.id).collect::<Vec<_>>(),
+            vec![&ids[1]],
+            "{mode:?}"
+        );
+    }
+    let semantic_only = SearchQuery {
+        query: "unmatchedlexicaltoken".into(),
+        ..Default::default()
+    };
+    let hits = hybrid_rrf_with_embedding(
+        &conn,
+        &semantic_only,
+        &blobs,
+        &SearchConfig::default(),
+        Some(&vector),
+    )
+    .unwrap();
+    assert_eq!(
+        hits.iter().map(|hit| &hit.item.id).collect::<Vec<_>>(),
+        vec![&ids[1]]
+    );
+}

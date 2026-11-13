@@ -36,3 +36,30 @@ fn lexical_score_ties_preserve_candidate_order() {
         vec!["b", "z", "a", "c"]
     );
 }
+
+#[test]
+fn graph_fusion_excludes_archived_candidates() {
+    let query = super::SearchQuery {
+        query: "template".into(),
+        ..Default::default()
+    };
+    let config = super::SearchConfig {
+        graph_as_rrf_source: true,
+        ..Default::default()
+    };
+    let mut retired = hit("retired-template", 0.0).item;
+    retired.kind = "archived".into();
+    let hits = super::fuse(
+        &query,
+        &config,
+        vec![hit("current-template", 0.0)],
+        vec![hit("current-template", 0.0)],
+        vec![(retired.id.clone(), Some(retired))],
+    );
+    assert_eq!(
+        hits.iter()
+            .map(|hit| hit.item.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["current-template"]
+    );
+}
