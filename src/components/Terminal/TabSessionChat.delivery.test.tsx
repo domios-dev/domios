@@ -157,11 +157,12 @@ function muxActions(): MultiplexerActionsContextType {
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
 async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string,
-  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[]; general?: boolean } = {}): Promise<{
+  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[]; general?: boolean; pty?: boolean } = {}): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
   calls: string[];
+  setWorking: (working: boolean) => void;
 }> {
   setAgentDescriptors([{ id: "lmstudio", agent_runtime: { goals: { actions: ["read"] } } }] as unknown as ProviderDescriptor[]);
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
@@ -200,7 +201,8 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const state = tabState(tabId, runtimeState, seed.working);
+  let state = tabState(tabId, runtimeState, seed.working);
+  if (seed.pty) state.tabs[tabId] = { ...state.tabs[tabId], backing: { kind: "pty" } };
   if (seed.general) {
     state.tabs.general = { ...state.tabs[tabId], id: "general", protected: true };
     state.workspaces = [{ id: "general-workspace", protected: true, tabs: ["general"] }] as ExtendedState["workspaces"];
@@ -210,7 +212,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
     root.render(
       <MuxStateStoreContext.Provider value={store}>
         <MultiplexerActionsContext.Provider value={muxActions()}>
-          <TabSessionChat tabId={tabId} chatBackend isVisible />
+          <TabSessionChat tabId={tabId} chatBackend={!seed.pty} isVisible />
         </MultiplexerActionsContext.Provider>
       </MuxStateStoreContext.Provider>,
     );
@@ -223,6 +225,11 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
     host,
     root,
     calls,
+    setWorking: working => {
+      state = { ...state, tabs: { ...state.tabs, [tabId]: { ...state.tabs[tabId], agent_state: { state: working ? "working" : "idle" } } },
+        tabStatuses: { ...state.tabStatuses, [tabId]: working ? "Working" : "Idle" } };
+      store.notify();
+    },
     dispatch: (event, payload) => {
       for (const handler of listeners.get(event) ?? []) handler({ payload });
     },
@@ -535,7 +542,7 @@ test("three optimistic sends reconcile to ordered parts of one provider turn", a
   assert(bubbles.length === bodies.length, "merged turn renders each supplied part once");
   bodies.forEach((body, index) => {
     assert(bubbles[index]?.textContent?.includes(body), "ordered parts retain their supplied payload");
-    assert(bubbles[index]?.getAttribute("data-message-id") !== `send-${index}`, "committed parts replace optimistic rows");
+    assert(bubbles[index]?.getAttribute("data-message-id") === `send-${index}`, "committed parts retain their own send row identity");
   });
 
   await act(async () => root.unmount());
@@ -604,66 +611,72 @@ test("a written prompt the agent refused while busy says so without offering Ret
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-test("an own send keeps its position before the live operation through confirmation", async () => {
-  const tabId = "held-behind-live-tool";
-  const { __setInvokeForTest } = await import("../../lib/bridge");
-  const turn = [
-    { id: "turn-prompt", type: "user", content: "opaque-prompt" },
-    { id: "turn-text", type: "assistant", content: "opaque-preamble" },
-    { id: "turn-tool", type: "tool_call", content: "", toolId: "turn-tool", toolKind: "command", toolInput: { cmd: "opaque-command" },
-      toolStatus: "running", toolStartedAtMs: Date.now() - 1000 },
-  ];
-  const { host, root, dispatch } = await renderChat(tabId, undefined, undefined, undefined, { messages: turn, working: true });
-  const status = (state: "held" | "written" | "submit_unconfirmed" | "delivered", sequence: number) => ({
-    tab_id: tabId, send_id: "held-tx", correlationId: "held-send", state, sequence,
-    ledger_id: "ledger", retained_from: 1, error: null, pending_reason: state === "held" ? "held_active_turn" : undefined,
-  });
-  let latest = status("held", 1);
-  __setInvokeForTest(async <T,>(command: string) => (command === "chat_send_status" ? [latest] : []) as T);
-  const bubbles = () => host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
-  try {
-    await act(async () => addChatSend(tabId, { id: "held-send", correlationId: "held-send", content: "opaque-held", sentAtMs: Date.now() }));
-    const live = host.querySelectorAll('[data-testid="chat-live-operation"]');
-    const held = host.querySelector('[data-message-id="held-send"]');
-    assert(live.length === 1 && held, "one live operation and the held bubble render");
-    const stableOrder = () => Array.from(host.querySelectorAll('[data-chat-window-row], [data-testid="chat-live-operation"]'));
-    const initialOrder = stableOrder();
-    const assertStable = () => {
-      const current = stableOrder();
-      assert(current.length === initialOrder.length && current.every((row, index) => row === initialOrder[index]),
-        "the same transcript rows and operation keep their order");
-      assert(held.compareDocumentPosition(live[0]) & Node.DOCUMENT_POSITION_FOLLOWING, "the send stays before the running operation");
-    };
-    assertStable();
-    await act(async () => dispatch("chat-send-status", latest));
-    assertStable();
-    const rows = Array.from(host.querySelectorAll("[data-chat-window-row]"));
-    assert(rows[rows.length - 1]?.contains(held), "the held send is the last transcript row");
-    assert(!host.querySelector('[role="separator"]'), "an untimestamped turn gains no day divider from the held send");
-    const queued = held.querySelector<HTMLElement>('[role="status"][data-state="queued"]');
-    assert(queued?.getAttribute("aria-label"), "queued state exposes its reason");
-    assert(queued?.textContent === "", "held input shows only the dot");
-    assert(!queued.querySelector("button"), "held input has no delivery controls");
-
-    const waitingLabel = queued.getAttribute("aria-label");
-    for (const [state, sequence] of [["written", 2], ["submit_unconfirmed", 3]] as const) {
-      latest = status(state, sequence);
+for (const pty of [true, false]) {
+  test(`an own ${pty ? "queued" : "steered"} send keeps its row through turn end and transcript handoff`, async () => {
+    const tabId = `turn-end-${pty}`;
+    const at = Date.now();
+    const tool = { id: "turn-tool", type: "tool_call", content: "", toolId: "turn-tool", toolKind: "command",
+      toolInput: { cmd: "opaque-command" }, toolStatus: "running", toolStartedAtMs: at - 1000, timestamp: String(at - 1000) };
+    const turn = [
+      { id: "turn-prompt", type: "user", content: "opaque-prompt", timestamp: String(at - 2000) },
+      tool,
+      { id: "turn-answer", type: "assistant", content: "opaque-stream", timestamp: String(pty ? at + 1 : at - 500) },
+    ];
+    const { host, root, dispatch, setWorking } = await renderChat(tabId, undefined, undefined, undefined, { messages: turn, working: true, pty });
+    const { __setInvokeForTest } = await import("../../lib/bridge");
+    const status = (state: "written" | "submit_unconfirmed" | "delivered", sequence: number) => ({
+      tab_id: tabId, send_id: "turn-tx", correlationId: "turn-send", state, sequence,
+      ledger_id: "ledger", retained_from: 1, error: null,
+    });
+    let latest = status("written", 1);
+    __setInvokeForTest(async <T,>(command: string) => (command === "chat_send_status" ? [latest] : []) as T);
+    const emit = (messages: unknown[]) => dispatch(`tab-chat-msg-${tabId}`, {
+      tab_id: tabId, source_session_id: "session-1", session_binding_nonce: "nonce-1", messages,
+    });
+    try {
+      await act(async () => addChatSend(tabId, { id: "turn-send", correlationId: "turn-send", content: "opaque-send", sentAtMs: at }));
+      const bubble = host.querySelector('[data-message-id="turn-send"]');
+      const toolRow = host.querySelector('[data-chat-window-row="turn-tool"]');
+      assert(bubble && toolRow, "send and running tool render");
+      const stable = () => {
+        assert(host.querySelector('[data-message-id="turn-send"]') === bubble, "the bubble node never unmounts");
+        assert(host.querySelector('[data-chat-window-row="turn-tool"]') === toolRow, "the tool keeps its source row");
+        assert(toolRow.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING, "the running and finished tool stay before the send");
+        const answer = host.querySelector('[data-message-id="turn-answer"]');
+        assert(answer, "the answer is rendered");
+        assert(answer.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING,
+          "existing output stays before the queued or steered send");
+      };
+      stable();
+      for (const [state, sequence] of [["written", 2], ["submit_unconfirmed", 3]] as const) {
+        latest = status(state, sequence);
+        await act(async () => dispatch("chat-send-status", latest));
+        stable();
+      }
+      if (!pty) {
+        latest = status("delivered", 4);
+        await act(async () => dispatch("chat-send-status", latest));
+        stable();
+      }
+      await act(async () => emit([{ ...turn[2], content: "opaque-stream\n".repeat(600) }]));
+      stable();
+      await act(async () => {
+        emit([{ ...tool, toolStatus: "interrupted", toolDurationMs: 7000 }]);
+        setWorking(false);
+      });
+      stable();
+      latest = status("delivered", 5);
       await act(async () => dispatch("chat-send-status", latest));
-      const waiting = held.querySelector<HTMLElement>('[role="status"]');
-      assert(waiting?.getAttribute("data-state") === "queued" && waiting.getAttribute("aria-label") === waitingLabel,
-        `${state} input keeps the same waiting dot while the turn runs`);
-      assert(waiting.textContent === "" && !waiting.querySelector("button"), `${state} input offers no recovery while the turn runs`);
-      assertStable();
-    }
-    latest = status("delivered", 4);
-    await act(async () => dispatch("chat-send-status", latest));
-    const delivered = Array.from(bubbles()).filter((bubble) => bubble.textContent?.includes("opaque-held"));
-    assert(delivered.length === 1 && delivered[0].getAttribute("data-message-id") === "held-send", "delivery keeps the one bubble");
-    assertStable();
-  } finally {
-    await act(async () => root.unmount()); host.remove();
-  }
-});
+      stable();
+      const echo = { id: "source-send", type: "user", content: "opaque-send", timestamp: String(at + 2000), correlationId: "turn-send",
+        segments: [{ type: "text", text: "opaque-send", correlationId: "turn-send" }] };
+      await act(async () => emit([echo]));
+      assert(host.querySelector('[data-message-id="turn-send"]') === bubble, "a segmented source echo takes over the same bubble node");
+      assert(host.querySelectorAll('[data-message-id="turn-send"]').length === 1, "handoff renders exactly one bubble");
+      assert(host.querySelector('[data-chat-window-row="turn-tool"]') === toolRow, "source handoff keeps the finished tool row");
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+}
 
 const degradedRuntime: AgentRuntimeState = { state: "degraded", epoch: 2, failureCode: "provider_refused",
   reason: "opaque deadline exceeded; runtime recovery required" };

@@ -45,6 +45,7 @@ import {
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
 import { deliveryProjectionSends, sendForRow, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
+import { queuedDeliveryIds, stableDeliveryEntries, type DeliveryProjectionMemory } from "./chatDeliveryProjection";
 import { useChatSendDismissals } from "./useChatSendDismissals";
 import { cancelChatStartPaintTiming, paintChatStartTiming } from "./chatStartTiming";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
@@ -64,8 +65,10 @@ export function useChatWindowView({
   followTailRef,
   loadOlderPage,
   loadHistoryPage,
+  queueSendsBehindTurn = false,
 }: {
   tabId: string;
+  queueSendsBehindTurn?: boolean;
   agentSessionId?: string | null;
   windowKey: string;
   transcript: TranscriptState;
@@ -97,7 +100,14 @@ export function useChatWindowView({
     const index = lastSessionResetIndex(committedRows);
     return index >= 0 ? timestampMs(committedRows[index]?.timestamp) : null;
   }, [committedRows]);
-  const liveSends = useMemo(() => deliveryProjectionSends(sends, resetCutoffMs), [sends, resetCutoffMs]);
+  const deliveryMemory = useRef<DeliveryProjectionMemory>({ key: windowKey, seen: new Set(), queued: new Set(), pending: new Map() });
+  if (deliveryMemory.current.key !== windowKey) {
+    deliveryMemory.current = { key: windowKey, seen: new Set(), queued: new Set(), pending: new Map() };
+  }
+  const liveSends = useMemo(() => {
+    const queued = queuedDeliveryIds(sends, queueSendsBehindTurn, deliveryMemory.current);
+    return deliveryProjectionSends(sends, resetCutoffMs, queued);
+  }, [sends, resetCutoffMs, queueSendsBehindTurn, windowKey]);
   const projection = useMemo(() => projectTranscript(transcript, liveSends), [transcript, liveSends]);
   const compactDismissals = useMemo(() => hydration === "ready"
     ? readChatSendDismissalMarkers(tabId, projection.rows)
@@ -122,7 +132,9 @@ export function useChatWindowView({
   // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const gaps = useChatHistoryGaps(windowKey, loadHistoryPage);
-  const baseEntries = useMemo(() => conversationEntries(allMessages, enrichmentCacheRef.current), [allMessages]);
+  const baseEntries = useMemo(() => stableDeliveryEntries(
+    conversationEntries(allMessages, enrichmentCacheRef.current), liveSends, projection.echoes, deliveryMemory.current,
+  ), [allMessages, liveSends, projection.echoes, windowKey]);
   const gapEntries = useMemo(() => gaps.project(baseEntries), [baseEntries, gaps.project]);
   const leadingGap = gapEntries[0]?.msg.timelineMarker?.kind === "history_gap" ? gapEntries[0].msg : null;
   const allEntries = useMemo(() => leadingGap ? gapEntries.slice(1) : gapEntries, [gapEntries, leadingGap]);

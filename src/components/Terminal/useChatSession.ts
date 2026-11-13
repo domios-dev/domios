@@ -113,6 +113,7 @@ export function useChatSession({
   followTailRef: suppliedFollowTailRef,
   history,
   live = true,
+  queueSendsBehindTurn = false,
 }: {
   tabId: string;
   agentSessionId: string | null;
@@ -130,6 +131,7 @@ export function useChatSession({
   history?: RuntimeHistoryState;
   /** Rows keep committing to the store; a held view renders them when live again. */
   live?: boolean;
+  queueSendsBehindTurn?: boolean;
 }) {
   const activatedRef = useRef(false);
   if (active) activatedRef.current = true;
@@ -461,6 +463,7 @@ export function useChatSession({
   }, [tabId]);
 
   const view = useChatWindowView({
+    queueSendsBehindTurn,
     localAttempt,
     tabId,
     agentSessionId,

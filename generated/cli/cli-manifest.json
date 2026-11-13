@@ -13750,7 +13750,7 @@
                   "value_name": "CANONICAL_WRITER",
                   "possible_values": [],
                   "default": null,
-                  "help": "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred",
+                  "help": "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred; needs a git repository with a commit",
                   "aliases": []
                 },
                 {
@@ -13816,7 +13816,7 @@
                     "lane"
                   ],
                   "default": null,
-                  "help": null,
+                  "help": "Mutating placement: shared (declared disjoint edit files; the only placement in a project folder without git) or lane (isolated worktree; needs git history)",
                   "aliases": []
                 },
                 {

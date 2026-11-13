@@ -15,6 +15,8 @@ use crate::service::ServiceContext;
 const PROBE_PLUGIN: &str =
     r#"module.exports.default = { probe(query) { return host.analytics.query(query); } }"#;
 
+mod mixed_usage;
+
 struct Scene {
     fixture: ServiceFixture,
     ledger: Arc<KpiLedger>,
