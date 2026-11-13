@@ -10,9 +10,9 @@ export function TemplateTrust({ summary, inline = false }: { summary: Pick<Templ
   const source = templateSource(summary);
   if (inline) {
     return (
-      <span className="inline-flex items-center gap-1 whitespace-nowrap" title={source.label} data-unverified={source.unverified || undefined}>
+      <span className="inline-flex min-w-0 max-w-full items-center gap-1 whitespace-nowrap" title={source.label} data-unverified={source.unverified || undefined}>
         {source.unverified && <span aria-hidden="true" className={DOT} />}
-        {source.label}
+        <span className="template-trust-label">{source.label}</span>
       </span>
     );
   }

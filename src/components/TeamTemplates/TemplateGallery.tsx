@@ -12,6 +12,7 @@ import { TemplateIcon } from "./TemplateIcon";
 import { TemplateTrust } from "./TemplateTrust";
 import { cardByline } from "../../lib/teamTemplates/exchangeModel";
 import { PinnedFooter } from "./PinnedFooter";
+import { useSelectedTemplateCard } from "./useSelectedTemplateCard";
 import { templateCatalogKey, type TemplateCatalogStatus } from "./useTemplateCatalogRefusals";
 import type { BlockedTemplate, TeamTemplateChoice } from "./useTeamTemplateChoice";
 
@@ -53,6 +54,7 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
   const blocked = status?.kind === "refused";
   const failure = status && status.kind !== "ready" ? status.reason : null;
   const reason = failure ? [failure.message, ...failure.reasons].join(" ") : undefined;
+  const cardRef = useSelectedTemplateCard(selected && !confirming, reason);
   const source = templateSource(summary);
   const byline = cardByline(summary);
   const [placement, setPlacement] = useState<"bottom-end" | "top-end">("bottom-end");
@@ -82,7 +84,7 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
     );
   }
   return (
-    <li data-blocked={blocked || undefined} data-selected={selected} className="ct-card ct-card--choice template-gallery-card group flex min-w-0 flex-col">
+    <li ref={cardRef} data-blocked={blocked || undefined} data-selected={selected} className="ct-card ct-card--choice template-gallery-card group flex min-w-0 flex-col">
       <div className="flex min-w-0 items-start gap-1">
         <button type="button" aria-pressed={selected} aria-label={reason ? `${title}: ${reason}` : undefined} aria-describedby={reason ? reasonId : undefined} title={reason} onClick={onSelect} onDoubleClick={() => { if (ready) choice.choose(summary); }}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-[inherit] py-2.5 pl-3 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
@@ -93,12 +95,6 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
               {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
             </span>
             <span className="block truncate text-[12px] text-[var(--ct-muted-fg)]" title={summary.description}>{summary.description}</span>
-            <span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--ct-muted-fg)]">
-              <span className="inline-flex min-w-0 items-center gap-1 overflow-hidden">
-                <TemplateTrust summary={summary} inline />{byline && <span aria-hidden="true">·</span>}
-              </span>
-              {byline && <span className="truncate" data-testid="template-byline">{byline}</span>}
-            </span>
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-1 self-start py-2.5 pr-2">
@@ -120,6 +116,12 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
           )}
         </div>
       </div>
+      <span className="flex min-w-0 items-center gap-1 overflow-hidden px-3 pb-2.5 text-[11px] text-[var(--ct-muted-fg)]">
+        <span className="inline-flex min-w-0 max-w-full shrink-0 items-center gap-1">
+          <TemplateTrust summary={summary} inline />{byline && <span aria-hidden="true" className="shrink-0">·</span>}
+        </span>
+        {byline && <span className="min-w-0 flex-1 truncate" title={byline} data-testid="template-byline">{byline}</span>}
+      </span>
       {selected && failure && <div role="alert" data-testid="template-blocked-start" aria-label={`${title}: ${reason}`}
         className="border-t border-[var(--ct-border)] px-3 py-2 text-[12px]">
         <div className="font-medium">{title}</div>

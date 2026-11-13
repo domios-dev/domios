@@ -1,4 +1,5 @@
 import { act } from "react";
+import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -386,6 +387,26 @@ describe("Team template start in the session dialog", () => {
     expect(review.querySelector('section[aria-label="Workers on demand"] [data-authority]')).toBeNull();
   });
 
+  it("defines an ellipsis fallback for provenance labels", async () => {
+    fixture.templates.list.mockResolvedValue({ templates: templateListFixture.templates.map((summary) => summary.name === "com.example/research-desk"
+      ? { ...summary, provenance: "imported", verified: false } : summary) });
+    const style = document.createElement("style");
+    style.textContent = readFileSync("src/components/TeamTemplates/teamTemplates.css", "utf8");
+    document.head.append(style);
+    try {
+      await renderPicker();
+      await click(button("Change template"));
+      const label = Array.from(dialog().querySelectorAll<HTMLElement>('[title="From file · unverified"] > span')).find((node) => node.textContent === "From file · unverified");
+      expect(label).toBeDefined();
+      const computed = window.getComputedStyle(label!);
+      expect(computed.textOverflow).toBe("ellipsis");
+      expect(computed.overflow).toBe("hidden");
+      expect(computed.whiteSpace).toBe("nowrap");
+    } finally {
+      style.remove();
+    }
+  });
+
   it("offers Use only after host clearance, including when reopening the gallery", async () => {
     let clearResearch: (() => void) | undefined;
     fixture.templates.preview.mockImplementation((template: { name: string }, options?: { signal?: AbortSignal }) => {
@@ -441,7 +462,14 @@ describe("Team template start in the session dialog", () => {
     await click(button("Change template"));
     expect(button("Use Research desk")).toBeUndefined();
     const row = buttons().find((candidate) => candidate.getAttribute("aria-pressed") !== null && candidate.textContent?.includes("Research desk"));
-    await click(row);
+    const scroll = vi.spyOn(window.HTMLElement.prototype, "scrollIntoView").mockImplementation(() => undefined);
+    try {
+      await click(row);
+      expect(scroll).toHaveBeenCalledWith({ block: "nearest", behavior: "instant" });
+      expect(scroll.mock.contexts).toContain(row?.closest("li"));
+    } finally {
+      scroll.mockRestore();
+    }
     const selectedReason = Array.from(dialog().querySelectorAll('[role="alert"]')).find((alert) => alert.getAttribute("aria-label")?.includes("Research desk"));
     expect(selectedReason?.textContent).toContain("Security lead");
     expect(row?.closest("li")?.contains(selectedReason!)).toBe(true);
