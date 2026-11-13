@@ -2,6 +2,35 @@ use super::*;
 use crate::cmd::plugin::convert_action;
 use serde_json::json;
 
+#[test]
+fn mutation_keeps_the_identified_connection_and_only_absence_allows_offline() {
+    let action = install(Some("source".into()));
+    let (ctx, client) = mutation_context(PathBuf::new(), &action, Ok(Some(41)), |client| {
+        *client += 1;
+        Ok(json!({"version":"1.19.2"}))
+    })
+    .unwrap();
+    assert_eq!(ctx.version.as_deref(), Some("1.19.2"));
+    assert_eq!(client, Some(42));
+    let (ctx, client) =
+        mutation_context::<()>(PathBuf::new(), &action, Ok(None), |_| panic!("no daemon")).unwrap();
+    assert_eq!(ctx.version, None);
+    assert!(client.is_none());
+    assert!(mutation_context::<()>(
+        PathBuf::new(),
+        &action,
+        Err("connection uncertain".into()),
+        |_| panic!("must refuse")
+    )
+    .is_err());
+    assert!(
+        mutation_context(PathBuf::new(), &action, Ok(Some(())), |_| Err(
+            "identify failed".into()
+        ))
+        .is_err()
+    );
+}
+
 fn install(from_dir: Option<String>) -> PluginAction {
     PluginAction::Install {
         id: Some("needy".into()),

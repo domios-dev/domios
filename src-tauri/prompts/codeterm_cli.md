@@ -69,7 +69,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Config | `config get [key]`, `config set` | `docs CONFIG` |
 | Resolving an answered question | `notify resolve <id>` (asking tab only) after an answer elsewhere; owner chat leaves questions open | `docs NOTIFICATIONS` |
 | Notifying the user | `notify send "title" --from-pad PATH --level verbose\|action_needed\|failure` | `docs CONFIG` |
-| Plugins, provider CLIs | `plugin list` / `install` / `update` (installs require the running host for compatibility), `agent cli status <provider>` | `docs API-CLI` |
+| Plugins, provider CLIs | `plugin list` / `install` / `update` (the running daemon owns installs and updates; minimum host requirements fail closed offline), `agent cli status <provider>` | `docs API-CLI` |
 | Plugin app tabs (surfaces) | `surface list`, `surface open <plugin>:<surface>`, `surface close --tab <ID>`; surfaces take no `send` | `docs SURFACES` |
 | Model endpoints, presets | `model-provider --help`; keys go in on stdin only | `docs INTEGRATIONS` |
 | Account sign-in and identity | `account login|status|logout` (local machine; hosted sign-in opens the system browser) | `domios docs CONFIG` |
