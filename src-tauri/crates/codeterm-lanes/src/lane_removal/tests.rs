@@ -940,3 +940,30 @@ fn lane_remove_still_removes_an_unrecorded_provisioned_lane_by_its_fingerprint()
     assert!(!Path::new(&lane.cwd).exists());
     assert!(!branch_exists(&project, &lane.branch));
 }
+
+#[test]
+fn lane_removal_removes_the_lane_root_only_once_it_is_empty() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let first = provision_lane_for_test(project.to_str().unwrap(), "root-first").unwrap();
+    let second = provision_lane_for_test(project.to_str().unwrap(), "root-second").unwrap();
+    let lane_root = Path::new(&first.cwd).parent().unwrap().to_path_buf();
+    let remove = |worktree: &str, branch: &str| {
+        remove_lane(
+            &LaneRemovalRequest {
+                worktree_path: worktree.into(),
+                branch: Some(branch.into()),
+                canonical_cwd: Some(project.display().to_string()),
+                ownership: None,
+                force: false,
+            },
+            &[],
+        )
+        .unwrap();
+    };
+
+    remove(&first.cwd, &first.branch);
+    assert!(lane_root.is_dir(), "a root still holding a lane stays");
+    remove(&second.cwd, &second.branch);
+    assert!(!lane_root.exists());
+}

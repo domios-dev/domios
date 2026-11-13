@@ -8,6 +8,7 @@ use inventory::Inventory;
 
 use crate::team::close::{self, TeamCloseLane};
 use codeterm_service_core::plan::TaskStatus;
+use codeterm_service_core::service::lane_removal::residue::Residue;
 use codeterm_service_core::service::lane_removal::{find_lane_holder, LiveTabCwd};
 use codeterm_service_core::service::plan::{
     LaneCleanupPlanRead, LaneCleanupTaskRead, PlanError, TaskLaneUpdate,
@@ -495,10 +496,10 @@ pub fn clean_plan_lanes_with_progress(
             &inventory.worktree_paths(),
         )?
     };
-    for residue in residues {
+    for (path, residue) in unlisted_residues(&rows, residues) {
         let mut row = LaneCleanRow {
             task_id: String::new(),
-            worktree: Some(residue.path.display().to_string()),
+            worktree: Some(path),
             branch: None,
             action: "kept",
             reason: residue
@@ -527,6 +528,29 @@ pub fn clean_plan_lanes_with_progress(
     }
     log::debug!("[lane-clean] total: {:?}", started.elapsed());
     Ok(rows)
+}
+
+/// Residues paired with their displayed path, minus lanes that still have their own row:
+/// the scan would list such a lane again by another spelling. Leftovers of a removed or
+/// absent lane are real residue and stay.
+fn unlisted_residues(lane_rows: &[LaneCleanRow], residues: Vec<Residue>) -> Vec<(String, Residue)> {
+    let lane_paths: Vec<&str> = lane_rows
+        .iter()
+        .filter(|row| !matches!(row.action, "removed" | "absent"))
+        .filter_map(|row| row.worktree.as_deref())
+        .collect();
+    residues
+        .into_iter()
+        .map(|residue| {
+            let path = codeterm_paths::strip_verbatim_prefix(&residue.path.to_string_lossy());
+            (path, residue)
+        })
+        .filter(|(path, _)| {
+            !lane_paths
+                .iter()
+                .any(|lane| codeterm_service_core::service::worker_lane::same_path(lane, path))
+        })
+        .collect()
 }
 
 pub fn now_ms() -> u64 {

@@ -262,6 +262,9 @@ fn remove_lane_with_policy(
             })?;
         }
     }
+    if worktree_exists || registered {
+        crate::residue::remove_empty_root(&canonical);
+    }
     let branch_already_removed = branch.is_some() && !branch_exists;
     Ok(LaneRemovalOutcome {
         canonical_cwd: canonical,
