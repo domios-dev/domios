@@ -53,7 +53,7 @@ Plugin verbs accept `--from-pad PATH`, `--from-file PATH` or `--stdin` before `-
 
 ### Provider plugins and their CLIs
 
-`domios plugin install` and `domios plugin update` report each provider's CLI status from the installed manifest. Missing CLIs produce a warning with the exact installer for this OS and the management verb. Plugin installation and CLI installation are separate operations; chat backends require no CLI. When connected to the daemon, plugin install/update waits for live provider registration acknowledgement before returning. JSON `provider_registration` is `acknowledged`, or `offline` when no daemon connection is available. An offline install takes effect when the daemon loads plugins.
+`domios plugin install` and `domios plugin update` report each provider's CLI status from the installed manifest. Missing CLIs produce a warning with the exact installer for this OS and the management verb. Plugin installation and CLI installation are separate operations; chat backends require no CLI. Install (including `--from-dir`), update and update-system require the running daemon to report its host version for `minCodeterm` compatibility checks. An unavailable host version refuses installation. List and channel diff still work without a host version: declared minimums are reported as `compatible:false`, with an unknown-host `blocked_reason` in diff. Plugins without a declared minimum remain compatible. Plugin install/update waits for live provider registration acknowledgement before returning. JSON `provider_registration` is `acknowledged`, or `offline` if the daemon disconnects before registration; the installed plugin then takes effect when the daemon loads plugins.
 
 ```bash
 domios agent cli status <provider>
@@ -92,7 +92,7 @@ Message and pad file options accept `-` as UTF-8 stdin, including `plan task rem
 
 ### Plugin update diagnostics
 
-`domios plugin list --verbose` shows `update=<reason>` and `channel_version=<version>`. With `--json`, each installed row includes `update.availability` (the shared item below), `update.available`, `update.reason`, `update.channel`, `update.remote_version`, and `update.basis` (`channel_cache`). Listing is offline: refresh a named channel with `domios plugin channel refresh <name>` to check its current offer. `domios plugin update <id>` refreshes the recorded channel and installs only a newer compatible semantic version whose channel and plugin manifests agree. Bulk update skips plugins that are not updatable.
+`domios plugin list --verbose` shows `update=<reason>` and `channel_version=<version>`. With `--json`, each installed row includes `update.availability` (the shared item below), `update.available`, `update.reason`, `update.channel`, `update.remote_version`, and `update.basis` (`channel_cache`). Listing reads cached channel offers and the running host version: refresh a named channel with `domios plugin channel refresh <name>` to check its current offer. `domios plugin update <id>` refreshes the recorded channel and installs only a newer compatible semantic version whose channel and plugin manifests agree. Bulk update skips plugins that are not updatable.
 
 Same-version manifest hash drift remains a diagnostic in `plugin channel diff`; it does not produce an UPDATE badge or count. Local directory installs and source tree plugins have no channel update. Reinstall local changes with `domios plugin install --from-dir <path>`. Unknown install provenance or a missing channel cannot authorize an update. `plugin update-system` remains the explicit system synchronization and same-version repair operation; it preserves newer installed versions.
 
@@ -231,4 +231,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 84 -->
+<!-- revision: 85 -->
