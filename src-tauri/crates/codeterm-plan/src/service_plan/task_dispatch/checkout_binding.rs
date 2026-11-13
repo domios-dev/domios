@@ -30,8 +30,16 @@ impl PlanStore {
                 .map(|value| value.trim().to_string())
                 .map_err(|error| PlanError::Io(error.to_string()))
         };
-        let root = git(&["rev-parse", "--show-toplevel"])?;
-        let head = git(&["rev-parse", "--verify", "HEAD^{commit}"])?;
+        // A folder without git history binds the folder itself and has no start commit.
+        let (root, head) = match super::super::shared_checkout::project_history(&checkout_path)
+            .map_err(PlanError::Io)?
+        {
+            super::super::shared_checkout::ProjectHistory::NoGit => (checkout_path.clone(), None),
+            super::super::shared_checkout::ProjectHistory::Git => (
+                git(&["rev-parse", "--show-toplevel"])?,
+                Some(git(&["rev-parse", "--verify", "HEAD^{commit}"])?),
+            ),
+        };
         let checkout_path = super::super::shared_checkout::canonical_path(&root);
         self.with_task_rows(
             plan_id,
@@ -61,8 +69,8 @@ impl PlanStore {
                     ));
                 }
                 attempt.checkout_path = Some(checkout_path);
-                if attempt.shared_start_sha.is_none() {
-                    attempt.shared_start_sha = Some(head);
+                if attempt.shared_start_sha.is_none() && attempt.shared_start_files.is_none() {
+                    attempt.shared_start_sha = head;
                 }
                 task.updated_at = now_ms;
                 Ok(())

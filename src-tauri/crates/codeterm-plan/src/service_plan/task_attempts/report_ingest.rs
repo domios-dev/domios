@@ -158,15 +158,17 @@ impl PlanStore {
                     transition
                 };
                 let committed_review = accepted_transition == Some(TaskStatus::InReview);
+                let mut changed_file_hashes = Default::default();
                 if committed_review {
-                    if let Some(paths) =
+                    if let Some(inspected) =
                         super::super::shared_checkout::SharedReportInspection::recheck(
                             &edit.task,
                             reporter_tab,
                             shared_inspection.as_ref(),
                         )?
                     {
-                        report.changed_files = paths.to_vec();
+                        report.changed_files = inspected.changed_files.clone();
+                        changed_file_hashes = inspected.changed_file_hashes.clone();
                     }
                 }
                 if let Some(next) = accepted_transition
@@ -229,6 +231,7 @@ impl PlanStore {
                         sha: report.sha,
                         reporter_tab_id: None,
                         changed_files: report.changed_files,
+                        changed_file_hashes,
                         test_cmd: report.test_cmd,
                         test_result: report.test_result,
                         skipped: report.skipped,

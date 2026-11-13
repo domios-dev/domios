@@ -3,9 +3,16 @@ use super::{PlanError, PlanStore, TaskFiles, WorkerPlacement};
 use crate::plan::Task;
 use crate::service_plan::task_authority_projection::SharedReportRead as SharedReportSnapshot;
 
+/// Where a shared attempt starts: a commit, or declared-file hashes in a
+/// project folder without git history.
+pub(crate) enum SharedStart {
+    Commit(String),
+    Files(super::FileHashes),
+}
+
 pub(crate) struct SharedDispatchInspection {
     pub checkout: String,
-    pub head: String,
+    pub start: SharedStart,
     files: TaskFiles,
 }
 
@@ -43,6 +50,7 @@ impl SharedReportSnapshot {
             executor_tab_id: attempt.executor_tab_id.clone(),
             checkout: attempt.checkout_path.clone(),
             start_sha: attempt.shared_start_sha.clone(),
+            start_files: attempt.shared_start_files.clone(),
             files: task.files.clone(),
         })
     }
@@ -50,7 +58,9 @@ impl SharedReportSnapshot {
 
 pub(crate) struct SharedReportInspection {
     snapshot: SharedReportSnapshot,
-    changed_files: Vec<String>,
+    pub changed_files: Vec<String>,
+    /// Empty for a git project; the hash evidence for a folder without git.
+    pub changed_file_hashes: super::ChangedFileHashes,
 }
 
 impl SharedReportInspection {
@@ -58,11 +68,11 @@ impl SharedReportInspection {
         task: &Task,
         reporter: &str,
         inspected: Option<&'a Self>,
-    ) -> Result<Option<&'a [String]>, PlanError> {
+    ) -> Result<Option<&'a Self>, PlanError> {
         match (SharedReportSnapshot::capture(task, reporter), inspected) {
             (None, None) => Ok(None),
             (Some(current), Some(inspected)) if current == inspected.snapshot => {
-                Ok(Some(&inspected.changed_files))
+                Ok(Some(inspected))
             }
             _ => Err(PlanError::InvalidPlanText(
                 "shared report context changed during Git inspection; re-report".into(),
@@ -96,15 +106,24 @@ impl PlanStore {
         super::validate_edit_links_at(&super::canonical_path(&read.checkout), &read.files)
             .map_err(PlanError::InvalidPlanText)?;
         let checkout = read.checkout;
-        self.observe_shared_history(&checkout, now_ms);
-        let head = self
-            .shared_git(&checkout, &["rev-parse", "--verify", "HEAD^{commit}"])
-            .map_err(|error| PlanError::InvalidPlanText(error.to_string()))?
-            .trim()
-            .to_string();
+        let start = match super::project_history(&checkout).map_err(PlanError::InvalidPlanText)? {
+            super::ProjectHistory::NoGit => SharedStart::Files(
+                super::plain_folder::hash_declared_files(&checkout, &read.files)
+                    .map_err(PlanError::InvalidPlanText)?,
+            ),
+            super::ProjectHistory::Git => {
+                self.observe_shared_history(&checkout, now_ms);
+                SharedStart::Commit(
+                    self.shared_git(&checkout, &["rev-parse", "--verify", "HEAD^{commit}"])
+                        .map_err(|error| PlanError::InvalidPlanText(error.to_string()))?
+                        .trim()
+                        .to_string(),
+                )
+            }
+        };
         Ok(SharedDispatchInspection {
             checkout,
-            head,
+            start,
             files: read.files,
         })
     }
@@ -126,6 +145,22 @@ impl PlanStore {
         let checkout = snapshot.checkout.as_deref().ok_or_else(|| {
             PlanError::InvalidPlanText("shared attempt has no checkout binding".into())
         })?;
+        if let Some(start) = snapshot.start_files.as_ref() {
+            let current = super::plain_folder::hash_declared_files(checkout, &snapshot.files)
+                .map_err(PlanError::InvalidPlanText)?;
+            let changed_file_hashes = super::plain_folder::validate_report_without_git(
+                &snapshot.files,
+                start,
+                &current,
+                sha,
+            )
+            .map_err(|error| PlanError::SharedReportRejected(error.to_string()))?;
+            return Ok(Some(SharedReportInspection {
+                snapshot,
+                changed_files: changed_file_hashes.keys().cloned().collect(),
+                changed_file_hashes,
+            }));
+        }
         self.observe_shared_history(checkout, now_ms);
         let start = snapshot
             .start_sha
@@ -145,6 +180,7 @@ impl PlanStore {
         Ok(Some(SharedReportInspection {
             snapshot,
             changed_files,
+            changed_file_hashes: Default::default(),
         }))
     }
 }
