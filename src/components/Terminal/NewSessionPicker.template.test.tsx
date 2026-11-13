@@ -444,6 +444,12 @@ describe("Team template start in the session dialog", () => {
     await click(row);
     const selectedReason = Array.from(dialog().querySelectorAll('[role="alert"]')).find((alert) => alert.getAttribute("aria-label")?.includes("Research desk"));
     expect(selectedReason?.textContent).toContain("Security lead");
+    expect(row?.closest("li")?.contains(selectedReason!)).toBe(true);
+    expect(row?.closest("li")?.getAttribute("data-selected")).toBe("true");
+    await click(buttons().find((candidate) => candidate.getAttribute("aria-pressed") === "false" && candidate.textContent?.includes("Release train")));
+    expect(row?.closest("li")?.querySelector('[role="alert"]')).toBeNull();
+    expect(row?.closest("li")?.getAttribute("data-selected")).toBe("false");
+    await click(row);
     const kebab = button("More actions for Research desk");
     await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
     await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
