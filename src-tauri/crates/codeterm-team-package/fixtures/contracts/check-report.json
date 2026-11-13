@@ -9,7 +9,7 @@
       "path": "roles.orchestrator.persona",
       "line": 6,
       "column": 5,
-      "message": "`persona` was removed from ATP: use `name` for a manager's display name"
+      "message": "`persona` was removed from the Agentic Team Protocol: use `name` for a manager's display name"
     },
     {
       "code": "unreferenced_entry",

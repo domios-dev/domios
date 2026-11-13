@@ -6,7 +6,7 @@ use ts_rs::TS;
 
 use crate::OrderedMap;
 
-/// One ATP package document: the typed form of `team.yaml`, in protocol field order.
+/// One Agentic Team Protocol package document: the typed form of `team.yaml`, in protocol field order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct TeamDocument {
     pub name: String,
@@ -428,6 +428,7 @@ impl TeamDocument {
 
     /// A manager role by name; a worker of that name is not one.
     pub fn manager(&self, name: &str) -> Option<&TeamRole> {
-        self.role(name).filter(|role| role.kind == RoleKind::Manager)
+        self.role(name)
+            .filter(|role| role.kind == RoleKind::Manager)
     }
 }

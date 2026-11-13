@@ -140,7 +140,7 @@ impl Reader<'_> {
                 &path,
                 Some(key.mark),
                 format!(
-                    "`{}`: ATP v1 packages carry no plan, spec or task templates",
+                    "`{}`: Agentic Team Protocol packages carry no plan, spec or task templates",
                     key.text
                 ),
             );
@@ -149,7 +149,10 @@ impl Reader<'_> {
                 Code::RemovedField,
                 &path,
                 Some(key.mark),
-                format!("`{}` was removed from ATP: {hint}", key.text),
+                format!(
+                    "`{}` was removed from the Agentic Team Protocol: {hint}",
+                    key.text
+                ),
             );
         } else {
             self.sink.error(
@@ -682,7 +685,7 @@ impl Reader<'_> {
                     Code::RemovedInherit,
                     path,
                     Some(node.mark),
-                    "`model: inherit` was removed from ATP: use `model: {same_as: <role>}`",
+                    "`model: inherit` was removed from the Agentic Team Protocol: use `model: {same_as: <role>}`",
                 );
                 None
             }
