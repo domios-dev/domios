@@ -37,6 +37,7 @@ function AccountHeader({ identity, email, avatarUrl, initial, badge, summary }: 
       {badge ? <>
         <span className="ct-plan-badge" data-tier={badge.tier}>{badge.admin ? `Admin · ${badge.name}` : badge.name}</span>
         {badge.verifying && <span role="status">Verifying</span>}
+        {badge.unverified && <span role="status">{badge.unverified}</span>}
       </> : <span className="ct-plan-status" data-tone="inactive">Plan unavailable</span>}
     </div>
   </div>;

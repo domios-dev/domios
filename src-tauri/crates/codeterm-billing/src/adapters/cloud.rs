@@ -6,6 +6,9 @@ use std::time::Duration;
 mod refusal;
 use refusal::{callable_status, BillingRefusal};
 
+/// Proof refusal meaning only a fresh sign-in on this installation can restore proofs.
+pub const INSTALLATION_SIGN_IN_REQUIRED: &str = "Installation sign-in required";
+
 #[async_trait]
 pub trait InstallationProofSource: Send + Sync {
     async fn proof(
@@ -26,7 +29,12 @@ impl InstallationProofSource for codeterm_account::account_mesh::AccountMesh {
             .await
             .map_err(|refusal| {
                 log::debug!("Entitlement installation proof failed: kind={refusal:?}");
-                "Installation proof unavailable".into()
+                match refusal {
+                    codeterm_account::account_mesh::AccountMeshRefusal::ReauthRequired => {
+                        INSTALLATION_SIGN_IN_REQUIRED.into()
+                    }
+                    _ => "Installation proof unavailable".into(),
+                }
             })
     }
 }
@@ -284,12 +292,12 @@ impl BillingProvider for Cloud {
     }
     async fn entitlements(&self, session: &Session) -> Result<Reading> {
         let local = cfg!(debug_assertions) && self.local_entitlements(session);
-        let proof = if local {
-            None
-        } else if let Some(source) = &self.installation_proofs {
-            source.proof(session, &self.installation_id).await.ok()
-        } else {
-            None
+        let (proof, sign_in_required) = match &self.installation_proofs {
+            Some(source) if !local => match source.proof(session, &self.installation_id).await {
+                Ok(proof) => (Some(proof), false),
+                Err(error) => (None, error == INSTALLATION_SIGN_IN_REQUIRED),
+            },
+            _ => (None, false),
         };
         let has_proof = proof.is_some();
         let data = entitlements_request(&self.installation_id, proof)?;
@@ -297,7 +305,10 @@ impl BillingProvider for Cloud {
             .call::<ApplicationEnvelope>(session, "getEntitlements", data)
             .await
         {
-            Ok(envelope) => Ok(Reading::from(envelope)),
+            Ok(envelope) => Ok(Reading {
+                installation_sign_in_required: sign_in_required,
+                ..Reading::from(envelope)
+            }),
             Err(error)
                 if error != codeterm_account::session_revocation::SESSION_REVOKED && has_proof =>
             {
