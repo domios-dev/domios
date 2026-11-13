@@ -98,6 +98,9 @@ fn registration_refuses_host_owned_names_reserved_workers_and_path_escapes() {
     for host_owned in [builtins::WATCHER, builtins::GENERAL_AGENT] {
         assert!(store.register(manager("team_a", host_owned)).is_err(), "{host_owned}");
     }
+    for worker_kind in [builtins::QA, builtins::REVIEWER, builtins::RELEASE_MANAGER] {
+        assert!(store.register(manager("team_a", worker_kind)).is_err(), "{worker_kind}");
+    }
     assert!(store.register(worker("../escape", "checker", "x")).is_err());
     assert!(store.register(worker("team_a", "checker", "  ")).is_err());
     assert!(!root.path().join("team_a").exists());

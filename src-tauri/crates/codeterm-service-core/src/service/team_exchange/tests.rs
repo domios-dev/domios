@@ -410,7 +410,12 @@ fn registration(kind: RoleKind, name: &str, model: Option<ModelPreference>) -> R
             name.into()
         },
         description: Some(format!("{name} role")),
-        start: RoleStart::Mode(StartMode::OnDemand),
+        // A registration comes from a valid package, where the orchestrator always starts with the Team.
+        start: RoleStart::Mode(if name == "orchestrator" {
+            StartMode::WithTeam
+        } else {
+            StartMode::OnDemand
+        }),
         package: PinnedPackage {
             name: "dev.domios/default".into(),
             version: "1.0.0".into(),

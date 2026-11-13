@@ -47,6 +47,12 @@ fn validate(registration: &RoleRegistration) -> Result<(), String> {
     if registration.kind == RoleKind::Worker && is_builtin_manager(name) {
         return Err(format!("`{name}` is a built-in manager name, never a worker"));
     }
+    // Spawn refuses a Manager under a Domios worker kind, so such a manager could never start.
+    let worker_kind = codeterm_types::agent::role_kind::builtin_kind(name)
+        .is_some_and(|kind| kind.is_taskless_worker());
+    if registration.kind == RoleKind::Manager && worker_kind {
+        return Err(format!("`{name}` is a Domios worker kind, never a manager"));
+    }
     if registration.instructions.trim().is_empty() {
         return Err(format!("`{name}` carries no instructions"));
     }

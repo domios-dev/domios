@@ -295,7 +295,7 @@ fn pair_tabs_are_reserved_before_either_agent_launches() {
     )
     .unwrap();
 
-    assert_ne!(reserved.orchestrator_tab_id, reserved.planner_tab_id);
+    assert_ne!(&reserved.orchestrator_tab_id, reserved.planner_tab_id());
     assert!(mux.get_tab(&reserved.orchestrator_tab_id).is_some());
     assert!(mux.get_tab(reserved.planner_tab_id()).is_some());
     for tab_id in [&reserved.orchestrator_tab_id, reserved.planner_tab_id()] {

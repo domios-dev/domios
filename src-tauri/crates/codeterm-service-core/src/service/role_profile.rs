@@ -293,6 +293,13 @@ fn normalize_manager_profile(profile: &str) -> Result<String, String> {
     {
         return Err(format!("Invalid Manager role_profile '{profile}'"));
     }
+    // A Domios worker kind is never a Manager profile; a Team role's kind comes from its
+    // registration through `--role`, never from a hand-built structural pair.
+    if role_kind::builtin_kind(&normalized).is_some_and(|kind| kind.is_taskless_worker()) {
+        return Err(format!(
+            "Worker-only role_profile '{profile}' cannot be used with Manager"
+        ));
+    }
     Ok(normalized)
 }
 
