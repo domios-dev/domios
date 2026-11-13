@@ -52,7 +52,7 @@ describe("template start model", () => {
   it("names templates by title, else by the humanized last id segment, and capitalizes efforts", () => {
     expect(templateTitle({ name: "dev.weaverqa/secret-probe", title: null })).toBe("Secret probe");
     expect(templateTitle({ name: "me/release_train", title: "Release train" })).toBe("Release train");
-    expect(humanizePackageName("me/qa-sweep")).toBe("QA sweep");
+    expect(humanizePackageName("me/qa-desk")).toBe("QA desk");
     expect(effortLabel("medium")).toBe("Medium");
   });
 
@@ -153,7 +153,7 @@ describe("template start model", () => {
     const fallback = templateRecallFixture.fallback;
     const names = (entries: { name: string }[]) => entries.map((entry) => entry.name);
     expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "all", "")))
-      .toEqual(["dev.domios/release-train", "dev.domios/default", "com.example/research-desk"]);
+      .toEqual(["dev.domios/video-studio", "dev.domios/default", "com.example/research-desk"]);
     expect(names(galleryEntries(templateListFixture.templates, null, fallback, "all", ""))).toEqual(["dev.domios/default", "com.example/research-desk"]);
     expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "mine", ""))).toEqual(["com.example/research-desk"]);
     expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "all", "market"))).toEqual(["com.example/research-desk"]);

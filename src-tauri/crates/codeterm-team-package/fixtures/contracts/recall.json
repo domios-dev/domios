@@ -1,13 +1,13 @@
 {
   "matches": [
     {
-      "name": "dev.domios/release-train",
+      "name": "dev.domios/video-studio",
       "version": "1.0.0",
-      "title": "Release train",
-      "description": "Qualifies a release candidate, runs CI and gates, publishes after owner GO.",
-      "when": ["ship a release"],
+      "title": "Video studio",
+      "description": "Makes a product video in HTML from the real app and checks every export before the owner sees it.",
+      "when": ["make a launch video"],
       "provenance": "builtin",
-      "workers": 4,
+      "workers": 5,
       "verified": false
     }
   ],

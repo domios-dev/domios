@@ -77,14 +77,14 @@ fn preview_roles_carry_their_model_decision_unless_a_picker_does() {
 fn a_preview_issues_the_decision_its_start_must_carry() {
     let ledger = ConsentLedger::default();
     let preview = preview_on(
-        &template("release-train"),
+        &template("design-studio"),
         &TargetCatalogue::default(),
         &ledger,
     )
     .unwrap();
     let consent = preview.consent.expect("declared permissions need consent");
     assert_eq!(consent.reasons, vec![ConsentReason::NewGrants]);
-    let identity = resolve(Some(&template("release-train")))
+    let identity = resolve(Some(&template("design-studio")))
         .unwrap()
         .identity();
     assert!(ledger.admits(Some(&consent.decision_id), &identity, &consent.reasons));

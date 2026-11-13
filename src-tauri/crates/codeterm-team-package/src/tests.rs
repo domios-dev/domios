@@ -510,10 +510,10 @@ fn builtin_packages_are_valid_folder_packages() {
 fn authored_builtin_packages_are_indexed_and_valid() {
     let options = CheckOptions::default();
     let names = builtin::names();
+    assert_eq!(names, ["default", "design-studio", "video-studio"]);
     for (folder, package) in [
-        ("release-train", "dev.domios/release-train"),
-        ("qa-sweep", "dev.domios/qa-sweep"),
-        ("distributed-bets", "dev.domios/distributed-bets"),
+        ("video-studio", "dev.domios/video-studio"),
+        ("design-studio", "dev.domios/design-studio"),
     ] {
         assert!(
             names.iter().any(|name| name == folder),

@@ -64,7 +64,7 @@ describe("template exchange model", () => {
   it("recognises team package files and names a bake under the owner's namespace", () => {
     expect(["desk.team", "desk.team.yaml", "desk.TEAM.yml"].map(isTemplateFileName)).toEqual([true, true, true]);
     expect(["team.zip", "notes.yaml", "desk.teams"].map(isTemplateFileName)).toEqual([false, false, false]);
-    expect(distillName("Release train!")).toBe("me/release-train");
+    expect(distillName("Video studio!")).toBe("me/video-studio");
     expect(distillName("  ")).toBe("me/team");
   });
 

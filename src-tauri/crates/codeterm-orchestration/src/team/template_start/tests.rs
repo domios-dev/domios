@@ -185,12 +185,17 @@ fn concurrent_re_runs_create_each_registration_exactly_once() {
 #[test]
 fn missing_inputs_and_secrets_refuse_before_consent_or_creation() {
     let ledger = ConsentLedger::default();
-    let refusal = admit(Some(&request("release-train")), &ledger).unwrap_err();
-    let TemplateStartRefusal::MissingInputs { inputs } = refusal else {
-        panic!("expected missing inputs, got {refusal:?}");
-    };
-    assert!(inputs.contains(&"version".to_string()), "{inputs:?}");
-    assert!(inputs.contains(&"release_branch".to_string()), "{inputs:?}");
+    for (name, required) in [("video-studio", "goal"), ("design-studio", "surface")] {
+        let refusal = admit(Some(&request(name)), &ledger).unwrap_err();
+        let TemplateStartRefusal::MissingInputs { inputs } = refusal else {
+            panic!("{name}: expected missing inputs, got {refusal:?}");
+        };
+        assert_eq!(
+            inputs,
+            [required],
+            "{name}: inputs with a default are not asked"
+        );
+    }
 }
 
 fn filled(name: &str) -> TemplateStartRequest {
@@ -210,7 +215,7 @@ fn filled(name: &str) -> TemplateStartRequest {
 #[test]
 fn a_package_with_grants_starts_only_with_a_decision_issued_for_it() {
     let ledger = ConsentLedger::default();
-    let mut start = filled("release-train");
+    let mut start = filled("design-studio");
     let refusal = admit(Some(&start), &ledger).unwrap_err();
     assert_eq!(
         refusal,
@@ -219,7 +224,7 @@ fn a_package_with_grants_starts_only_with_a_decision_issued_for_it() {
         }
     );
 
-    let other = resolve(Some(&request("qa-sweep").template)).unwrap();
+    let other = resolve(Some(&request("video-studio").template)).unwrap();
     start.decision_id = Some(ledger.issue(&other.identity(), &[ConsentReason::NewGrants]));
     assert!(admit(Some(&start), &ledger).is_err());
 
@@ -460,7 +465,7 @@ fn a_bare_provider_on_an_absent_harness_is_blocked() {
 #[test]
 fn only_opted_in_payload_reaches_the_payload_leaf() {
     assert!(payload_request(&rail(default_admitted(), &[])).is_none());
-    let resolved = resolve(Some(&request("distributed-bets").template)).unwrap();
+    let resolved = resolve(Some(&request("video-studio").template)).unwrap();
     let items = codeterm_team_package::payload_items(&resolved.package);
     assert!(!items.is_empty(), "the fixture package brings payload");
     let skipped = items[0].id.clone();
