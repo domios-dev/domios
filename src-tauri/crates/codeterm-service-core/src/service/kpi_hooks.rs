@@ -193,6 +193,7 @@ impl ServiceContext {
         if !self.kpi.is_enabled() {
             return;
         }
+        self.kpi.set_provider_registry(self.agent_registry.clone());
         let Some(sources) = self.tab_usage_sources(tab_id) else {
             return;
         };
@@ -206,6 +207,51 @@ impl ServiceContext {
         for source in sources {
             self.kpi.request_ingest(source, attribution.clone());
         }
+    }
+
+    pub(crate) fn record_kpi_runtime_usage(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+        thread_id: &str,
+        usage: &codeterm_plugin::agent_runtime::TokenUsage,
+        at_ms: u64,
+    ) {
+        use codeterm_plugin::token_usage::UsageAccounting;
+        if !self.kpi.is_enabled() {
+            return;
+        }
+        let accounting = self
+            .agent_registry
+            .with_provider(provider_id, |p| p.usage_accounting());
+        if accounting != Some(UsageAccounting::RuntimeTurn) {
+            return;
+        }
+        let Some(response) = usage.response_id.as_deref().filter(|id| !id.is_empty()) else {
+            log::debug!("[kpi] runtime usage has no response identity");
+            return;
+        };
+        let attribution = match self.kpi_attribution(tab_id) {
+            Ok(attribution) if attribution.provider == provider_id => attribution,
+            Ok(_) => return,
+            Err(error) => {
+                log::warn!("[kpi] runtime usage attribution failed: {error}");
+                return;
+            }
+        };
+        let tokens = crate::agent::kpi_ledger::TokenCounts {
+            input: usage.input_tokens,
+            uncached_input: usage
+                .input_tokens
+                .saturating_sub(usage.cache_read_tokens.unwrap_or(0)),
+            output: usage.output_tokens,
+        };
+        let identity = serde_json::json!([provider_id, thread_id, response]);
+        self.kpi.record_runtime_usage(attribution.token_event_at(
+            tokens,
+            at_ms / 1000,
+            format!("usage:runtime:{identity}"),
+        ));
     }
 
     /// An unresolvable source used to return `None` without a trace, so a tab whose
@@ -235,6 +281,11 @@ impl ServiceContext {
         let (agent_type, cwd, session_id) = (agent_type?, cwd?, session_id?);
         // Every source is keyed off the tab's own session id, never a sibling's.
         let Some(sources) = self.agent_registry.with_provider(&agent_type, |provider| {
+            if provider.usage_accounting()
+                != codeterm_plugin::token_usage::UsageAccounting::Transcript
+            {
+                return Vec::new();
+            }
             provider.usage_sources(&cwd, &session_id)
         }) else {
             log::debug!("[kpi] tab {tab_id}: provider {agent_type} is not registered");

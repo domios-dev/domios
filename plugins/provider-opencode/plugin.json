@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.18",
-  "minCodeterm": "1.19.0",
+  "version": "1.14.19",
+  "minCodeterm": "1.19.2",
   "hostApi": 2,
   "capabilities": {
     "attachments": {

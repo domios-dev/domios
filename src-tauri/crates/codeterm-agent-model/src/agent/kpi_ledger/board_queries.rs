@@ -12,6 +12,20 @@ pub struct DailyTokenUsage {
 }
 
 impl KpiLedger {
+    pub fn usage_providers_by_plan(
+        &self,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<(Option<String>, String)>, String> {
+        let conn = self.conn.lock();
+        let mut statement = conn.prepare("SELECT plan_id, provider FROM kpi_events WHERE ts >= ?1 AND ts < ?2 AND provider != '' GROUP BY plan_id, provider").map_err(|e| e.to_string())?;
+        let rows = statement
+            .query_map(params![from, to], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
+    }
+
     pub fn daily_token_usage(&self, from: u64, to: u64) -> Result<Vec<DailyTokenUsage>, String> {
         let conn = self.conn.lock();
         let mut statement = conn

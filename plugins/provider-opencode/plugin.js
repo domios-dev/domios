@@ -24,6 +24,35 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/usageRecord.ts
+var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var count = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : void 0;
+function timestamp(value, now) {
+  const seconds = count(value.timestamp);
+  if (seconds !== void 0) return seconds;
+  if (typeof value.timestamp === "string" && value.timestamp.endsWith("Z")) {
+    const ms = Date.parse(value.timestamp);
+    if (Number.isFinite(ms) && ms >= 0) return Math.floor(ms / 1e3);
+  }
+  const created = count(object(value.time).created);
+  return created === void 0 ? now : Math.floor(created / 1e3);
+}
+
+// plugins/provider-opencode/src/usageRecord.ts
+function parseUsageRecord(raw, now) {
+  const value = object(raw), at = timestamp(value, now);
+  if (value.summary === true) return { kind: "compaction", timestamp: at };
+  const tokens = object(value.tokens), cache = object(tokens.cache), input = count(tokens.input);
+  if (input === void 0 || tokens.cache === null || typeof tokens.cache !== "object") return null;
+  const uncached = input + (count(cache.write) ?? 0);
+  return {
+    kind: "response",
+    timestamp: at,
+    response_id: typeof value.id === "string" ? value.id : null,
+    tokens: { input: uncached + (count(cache.read) ?? 0), uncached_input: uncached, output: (count(tokens.output) ?? 0) + (count(tokens.reasoning) ?? 0) }
+  };
+}
+
 // packages/plugin-sdk/src/ioPrograms.ts
 function defineProviderIo(source, io) {
   const exports = { ...source };
@@ -80,12 +109,12 @@ function updatePromptSafeChoice(prompt) {
 
 // plugins/provider-shared/runPromptStep.ts
 function bytes(text) {
-  let count = 0;
+  let count2 = 0;
   for (const point of text) {
     const code = point.codePointAt(0);
-    count += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+    count2 += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
   }
-  return count;
+  return count2;
 }
 function bounded(text) {
   if (bytes(JSON.stringify(text)) <= 60 * 1024) return text;
@@ -1044,17 +1073,17 @@ function capitalizeToken(token) {
   return token.charAt(0).toUpperCase() + token.substring(1);
 }
 function partToChatMsg(part, role, id, tsMs) {
-  const timestamp = String(tsMs);
+  const timestamp2 = String(tsMs);
   const type = part && part.type;
   if (type === "text") {
     const txt = part.text || "";
     if (!txt.trim()) return null;
-    return { id, type: role === "user" ? "user" : "assistant", content: txt, timestamp };
+    return { id, type: role === "user" ? "user" : "assistant", content: txt, timestamp: timestamp2 };
   }
   if (type === "reasoning") {
     const rtxt = part.text || "";
     if (!rtxt.trim()) return null;
-    return { id, type: "thinking", content: rtxt, timestamp };
+    return { id, type: "thinking", content: rtxt, timestamp: timestamp2 };
   }
   if (type === "tool") {
     const tool = part.tool || "tool";
@@ -1065,7 +1094,7 @@ function partToChatMsg(part, role, id, tsMs) {
       id,
       type: "tool_call",
       content: "",
-      timestamp,
+      timestamp: timestamp2,
       toolName: tool,
       toolKind: canonical.kind,
       toolSummary: canonical.summary,
@@ -1539,9 +1568,9 @@ var modelSwitch = {
   },
   *detectSessionModelAfterBoundary(_cwd, sessionId, boundary) {
     const db = opencodeDbPath();
-    const timestamp = Number(boundary.lastEntryTimestamp);
-    if (!boundary.boundaryFound || !Number.isFinite(timestamp) || !db || !(yield* host.io.fs.fileExists(db))) return null;
-    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT data FROM message WHERE session_id = ?1 AND (time_created > ?2 OR (time_created = ?2 AND id > ?3)) AND octet_length(data) <= ?4 ORDER BY time_created ASC, id ASC LIMIT 128", [sessionId, timestamp, boundary.lastEntryUuid ?? "", ASSISTANT_MESSAGE_MAX_BYTES]);
+    const timestamp2 = Number(boundary.lastEntryTimestamp);
+    if (!boundary.boundaryFound || !Number.isFinite(timestamp2) || !db || !(yield* host.io.fs.fileExists(db))) return null;
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT data FROM message WHERE session_id = ?1 AND (time_created > ?2 OR (time_created = ?2 AND id > ?3)) AND octet_length(data) <= ?4 ORDER BY time_created ASC, id ASC LIMIT 128", [sessionId, timestamp2, boundary.lastEntryUuid ?? "", ASSISTANT_MESSAGE_MAX_BYTES]);
     for (const row of rows) {
       const message = safeJson(row.data);
       if (message?.role === "assistant" && message.providerID && message.modelID && message.parentID) {
@@ -1766,6 +1795,9 @@ function withPadPermissionConfig(command, instructions, cleanup, launchConfig = 
   return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; CODETERM_RESUME_SESSION_ID=${q(resumeSession || "")}; export CODETERM_RESUME_SESSION_ID; ${command}${finish}`;
 }
 var plugin = {
+  usageAccounting: () => "transcript",
+  parseUsageRecord,
+  usageSqlQuery: (scoped) => `SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 ${scoped ? "AND session_id = ?3 " : ""}ORDER BY rowid ASC`,
   ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkOpencodeUpdate,

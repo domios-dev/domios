@@ -20,6 +20,8 @@ const TUI_FRAGMENTS = [
 ];
 
 const plugin = {
+  usageAccounting: () => "unreported" as const,
+  parseUsageRecord: () => null,
   sessionResume: () => ({ exact: false }),
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     if (prompt === "no_starter") return undefined;

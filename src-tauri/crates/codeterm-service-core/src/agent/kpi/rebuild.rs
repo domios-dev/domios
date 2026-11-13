@@ -7,6 +7,7 @@ use crate::agent::kpi_ledger::{KpiLedger, RebuiltResponse, UsageCursorState, Usa
 pub(super) fn rebuild_usage(
     ledger: &KpiLedger,
     ingestor: &mut UsageIngestor,
+    providers: Option<&std::sync::Arc<crate::agent::registry::AgentRegistry>>,
 ) -> Result<UsageRebuildOutcome, String> {
     let mut outcome = UsageRebuildOutcome::default();
     let mut transcript_lines = Vec::new();
@@ -16,7 +17,26 @@ pub(super) fn rebuild_usage(
             outcome.missing_sources += 1;
             continue;
         }
-        let (batch, reread) = UsageIngestor::read_through(&source, cursor.offset)?;
+        let (batch, reread) = match providers {
+            Some(registry) => {
+                let owner = ledger
+                    .usage_provider(&path)?
+                    .ok_or_else(|| format!("usage source {path} has no recorded provider"))?;
+                let provider = registry
+                    .provider_arc(&owner)
+                    .ok_or_else(|| format!("usage provider {owner} unavailable"))?;
+                let now = super::attribution::now_epoch_secs();
+                UsageIngestor::read_through_with_parser(
+                    &source,
+                    cursor.offset,
+                    &|record| provider.parse_usage_record(record, now),
+                    provider
+                        .usage_sql_query(source.session_id.is_some())
+                        .as_deref(),
+                )?
+            }
+            None => UsageIngestor::read_through(&source, cursor.offset)?,
+        };
         transcript_lines.extend(
             batch
                 .records
@@ -49,5 +69,6 @@ pub(super) fn rebuild_usage(
         ingestor.forget(&source);
     }
     outcome.legacy_rows_removed += ledger.remove_duplicate_legacy_rows(&transcript_lines)?;
+    outcome.absorb(ledger.rebuild_runtime_usage()?);
     Ok(outcome)
 }

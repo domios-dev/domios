@@ -403,3 +403,42 @@ fn team_spend_weekly_model_filter_is_rejected_without_attribution() {
         .unwrap_err()
         .contains("no model attribution"));
 }
+
+#[test]
+fn team_spend_distinguishes_unreported_providers_from_reported_zero() {
+    let plans = vec![
+        plan("own", "Own", Some("team"), PlanStatus::Active),
+        plan("foreign", "Foreign", Some("other"), PlanStatus::Active),
+    ];
+    let (_, team, _) = plan_summaries(&plans, "team");
+    let projection = project_tokens(
+        &plans,
+        &[event(Some("own"), "zero", None, "2026-01-01", 0, 0, 0)],
+        "team",
+        range("2026-01-01", "2026-01-01"),
+        ModelSelector::All,
+    );
+    let statuses = usage_providers(
+        vec![
+            (Some("own".into()), "unknown".into()),
+            (Some("own".into()), "zero".into()),
+            (Some("foreign".into()), "foreign".into()),
+            (None, "unassigned".into()),
+        ],
+        &team,
+        &projection.daily,
+    );
+    assert_eq!(
+        statuses,
+        vec![
+            TeamProviderUsage {
+                provider: "unknown".into(),
+                state: "no_usage_reported"
+            },
+            TeamProviderUsage {
+                provider: "zero".into(),
+                state: "reported"
+            }
+        ]
+    );
+}

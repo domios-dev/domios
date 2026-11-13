@@ -1194,3 +1194,6 @@ mod media_delivery;
 mod runtime_chat_descriptor;
 #[path = "parity_test/view_context.rs"]
 mod view_context;
+
+#[path = "parity_test/usage_records.rs"]
+mod usage_records;

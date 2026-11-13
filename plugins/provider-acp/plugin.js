@@ -1269,7 +1269,7 @@ function promoteQueued(ctx, state) {
     const settledQueued = settleStream(ctx, state.projection, queued.completed.cancelled ? "cancelled" : "end_turn");
     state.projection = settledQueued.state;
     state.inFlight = false;
-    if (queued.completed.usage) events.push({ kind: "usage", threadId: sessionId, usage: queued.completed.usage });
+    if (queued.completed.usage) events.push({ kind: "usage", threadId: sessionId, usage: accountedUsage(queued.completed.usage, queued.sendId) });
     events.push(...settledQueued.events);
   }
   return events;
@@ -1443,7 +1443,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     const settled = settleStream(ctx, projected.state, value.stopReason);
     state.projection = settled.state;
     const mapped = usage(value.usage);
-    const events = [...sessionAuthentication(state), ...mapped ? [{ kind: "usage", threadId: sessionId, usage: mapped }] : [], ...projected.events, ...settled.events];
+    const events = [...sessionAuthentication(state), ...mapped ? [{ kind: "usage", threadId: sessionId, usage: accountedUsage(mapped, op.sendId) }] : [], ...projected.events, ...settled.events];
     events.push(...promoteQueued(ctx, state));
     return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events };
   }
@@ -1499,6 +1499,9 @@ function runtimeReduce(ctx, raw, frames) {
   const bounded = fitTextReduction(projection, [...reduction.events, ...prompts]);
   state.projection = bounded.state;
   return bounded;
+}
+function accountedUsage(usage2, responseId) {
+  return { ...usage2, response_id: responseId };
 }
 
 // plugins/provider-acp/src/registry.ts
@@ -1769,4 +1772,4 @@ var limitsPorts = {
 function readProfileLimits2(request2, nowMs) {
   return readProfileLimits(limitsPorts, request2, nowMs);
 }
-var plugin_default = defineProviderIo({ runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand, readProfileLimits: readProfileLimits2 }, () => host.io);
+var plugin_default = defineProviderIo({ usageAccounting: () => "runtime_turn", runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand, readProfileLimits: readProfileLimits2 }, () => host.io);

@@ -1,7 +1,7 @@
 {
   "id": "acp",
-  "version": "0.1.7",
-  "minCodeterm": "1.19.1",
+  "version": "0.1.8",
+  "minCodeterm": "1.19.2",
   "hostApi": 2,
   "displayName": "ACP",
   "description": "Agent Client Protocol v1 runtime with host-owned launch profiles. See domios docs ACP for profiles, setup, registry and authentication.",

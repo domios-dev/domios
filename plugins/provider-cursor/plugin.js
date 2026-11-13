@@ -113,6 +113,8 @@ var TUI_FRAGMENTS = [
   "run everything"
 ];
 var plugin = {
+  usageAccounting: () => "unreported",
+  parseUsageRecord: () => null,
   sessionResume: () => ({ exact: false }),
   starterPromptText(prompt) {
     if (prompt === "no_starter") return void 0;
