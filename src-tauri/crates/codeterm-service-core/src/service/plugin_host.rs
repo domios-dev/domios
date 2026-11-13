@@ -96,8 +96,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     fn plugin_install_tabs(&self, id: &str) -> Vec<String> {
         self.mux
             .read()
-            .tabs
-            .values()
+            .all_tabs()
             .filter(|tab| tab.agent_type.as_deref() == Some(id))
             .map(|tab| format!("{} ({})", tab.title, tab.id))
             .collect()
