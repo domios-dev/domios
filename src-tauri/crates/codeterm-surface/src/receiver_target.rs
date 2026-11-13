@@ -163,6 +163,7 @@ pub struct TabMenuState {
 pub enum ReceiverTargetError {
     ReceiverNotFound,
     TabNotFound,
+    TabNotAgent,
     MenuItemNotFound,
     PersistFailed,
 }
@@ -172,6 +173,7 @@ impl ReceiverTargetError {
         match self {
             Self::ReceiverNotFound => "receiver_not_found",
             Self::TabNotFound => "tab_not_found",
+            Self::TabNotAgent => "tab_not_agent",
             Self::MenuItemNotFound => "menu_item_not_found",
             Self::PersistFailed => "persist_failed",
         }
@@ -181,6 +183,7 @@ impl ReceiverTargetError {
         match self {
             Self::ReceiverNotFound => "No active plugin with this id declares a webhook receiver",
             Self::TabNotFound => "Tab not found on this machine",
+            Self::TabNotAgent => "Receiver target requires an agent or chat backend; a plain shell cannot receive events",
             Self::MenuItemNotFound => "The plugin declares no such tab menu item",
             Self::PersistFailed => "The receiver target could not be recorded",
         }

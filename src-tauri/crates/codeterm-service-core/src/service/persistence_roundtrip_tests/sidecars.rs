@@ -145,6 +145,14 @@ fn receiver_target_round_trip_expected_pass() {
     instance
         .fixture
         .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_type = Some("fixture-agent".into());
+    instance
+        .fixture
+        .service
         .set_receiver_target(RECEIVER_ID, &tab_id)
         .expect("bind receiver through ServiceContext");
 

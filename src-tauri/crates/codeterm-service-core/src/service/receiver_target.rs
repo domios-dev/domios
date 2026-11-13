@@ -41,6 +41,15 @@ impl ServiceContext {
             let Some(tab) = mux.get_tab(tab_id) else {
                 return TargetLiveness::Absent;
             };
+            if super::message_gateway::system_notice_target_refusal(
+                tab.agent_type.is_some(),
+                tab.agent_booting,
+                matches!(tab.backing, TabBacking::ChatBackend { .. }),
+            )
+            .is_some()
+            {
+                return TargetLiveness::NotLive;
+            }
             (
                 tab.pty_id.clone(),
                 matches!(tab.backing, TabBacking::ChatBackend { .. }),
@@ -98,6 +107,9 @@ impl ServiceContext {
             .read()
             .resolve_tab_id(tab_id)
             .ok_or(ReceiverTargetError::TabNotFound)?;
+        if !super::message_gateway::DeliverySeam::accepts_system_notice(self, &tab_id) {
+            return Err(ReceiverTargetError::TabNotAgent);
+        }
         if self
             .receiver_target_store(plugin_id)
             .set(plugin_id, &tab_id)

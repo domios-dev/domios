@@ -68,11 +68,53 @@ pub(super) fn scene() -> Scene {
         .id;
     let tab = service.create_tab(&workspace).unwrap();
     let other = service.create_tab(&workspace).unwrap();
+    {
+        let mut mux = service.mux.write();
+        for id in [&tab, &other] {
+            mux.get_tab_mut(id).unwrap().agent_type = Some("fixture-agent".into());
+        }
+    }
     Scene {
         fixture,
         tab,
         other,
     }
+}
+
+#[test]
+fn plain_shell_receiver_binding_is_refused_and_existing_binding_is_not_live() {
+    let scene = scene();
+    let service = &scene.fixture.service;
+    service.set_receiver_target(RECEIVER, &scene.tab).unwrap();
+    service
+        .mux
+        .write()
+        .get_tab_mut(&scene.tab)
+        .unwrap()
+        .agent_type = None;
+    assert!(
+        !super::super::message_gateway::DeliverySeam::accepts_system_notice(service, &scene.tab)
+    );
+    assert_eq!(
+        service.set_receiver_target(RECEIVER, &scene.tab),
+        Err(ReceiverTargetError::TabNotAgent)
+    );
+    assert_eq!(
+        service
+            .run_tab_menu_item(RECEIVER, ITEM, &scene.other)
+            .unwrap()
+            .receiver_targets
+            .get(RECEIVER),
+        Some(&scene.other)
+    );
+    service
+        .ext::<crate::service::receiver_target::ReceiverTargets>()
+        .0
+        .set(RECEIVER, &scene.tab)
+        .unwrap();
+    assert!(!service.receiver_target(RECEIVER).unwrap().live);
+    assert_eq!(service.live_receiver_target(RECEIVER), None);
+    assert_eq!(ReceiverTargetError::TabNotAgent.code(), "tab_not_agent");
 }
 
 #[test]
