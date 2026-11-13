@@ -53,7 +53,7 @@ Plugin verbs accept `--from-pad PATH`, `--from-file PATH` or `--stdin` before `-
 
 ### Provider plugins and their CLIs
 
-`domios plugin install` and `domios plugin update` report each provider's CLI status from the installed manifest. Missing CLIs produce a warning with the exact installer for this OS and the management verb. Plugin installation and CLI installation are separate operations; chat backends require no CLI. Install (including `--from-dir`), update and update-system require the running daemon to report its host version for `minCodeterm` compatibility checks. An unavailable host version refuses installation. List and channel diff still work without a host version: declared minimums are reported as `compatible:false`, with an unknown-host `blocked_reason` in diff. Plugins without a declared minimum remain compatible. Plugin install/update waits for live provider registration acknowledgement before returning. JSON `provider_registration` is `acknowledged`, or `offline` if the daemon disconnects before registration; the installed plugin then takes effect when the daemon loads plugins.
+`domios plugin install` and `domios plugin update` report each provider's CLI status from the installed manifest. Missing CLIs produce a warning with the exact installer for this OS and the management verb. Plugin installation and CLI installation are separate operations; chat backends require no CLI. Install (including `--from-dir`), update and update-system require the running daemon to report its host version for `minCodeterm` compatibility checks. An unavailable host version refuses installation. When the host version is unknown, entries with a declared minimum report `compatible:false`, with an unknown-host `blocked_reason` in diff. Plugins without a declared minimum remain compatible. Plugin install/update waits for live provider registration acknowledgement before returning. JSON `provider_registration` is `acknowledged`, or `offline` if the daemon disconnects before registration; the installed plugin then takes effect when the daemon loads plugins.
 
 ```bash
 domios agent cli status <provider>
@@ -231,4 +231,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 85 -->
+<!-- revision: 86 -->
