@@ -56,14 +56,12 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
   const source = templateSource(summary);
   const [placement, setPlacement] = useState<"bottom-end" | "top-end">("bottom-end");
   const menuItems = [
-    { label: "Details", onClick: () => { onSelect(); choice.showSummaryDetails(summary); } },
     ...(source.owned ? [
       { label: "Export…", onClick: () => onExport(summary) },
       { label: "Share to Neighborhood…", onClick: () => onExport(summary, true) },
     ] : []),
     { label: "Delete", onClick: onDelete },
   ];
-  // Decided before the menu opens, so it never covers the footer's primary button.
   const placeMenu = (trigger: HTMLElement) => {
     const below = (footerRef.current?.getBoundingClientRect().top ?? window.innerHeight) - trigger.getBoundingClientRect().bottom;
     setPlacement(below < menuItems.length * MENU_ROW + MENU_CHROME ? "top-end" : "bottom-end");

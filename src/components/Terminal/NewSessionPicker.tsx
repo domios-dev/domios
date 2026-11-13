@@ -567,8 +567,8 @@ export function NewSessionPicker({
                 {startError.choices.length > 0 && <div className="text-[var(--ct-muted-fg)]">{startError.choices.join(" · ")}</div>}
               </div>
             ) : blocker ? (
-              <span data-testid="picker-start-blocker" data-tone={blocker.tone}
-                className={`min-w-0 flex-1 text-[12px] ${blocker.tone === "red" ? "text-[var(--ct-red)]" : "text-[var(--ct-yellow,#d97706)]"}`}>{blocker.text}</span>
+              <span data-testid="picker-start-blocker" data-tone={templates.touched ? blocker.tone : "neutral"}
+                className={`min-w-0 flex-1 text-[12px] ${!templates.touched ? "text-[var(--ct-muted-fg)]" : blocker.tone === "red" ? "text-[var(--ct-red)]" : "text-[var(--ct-yellow,#d97706)]"}`}>{blocker.text}</span>
             ) : <span aria-hidden="true" className="hidden flex-1 sm:block" />}
             <Button variant="primary" className="w-full text-xs sm:w-auto" data-testid="picker-confirm" disabled={!canStart} loading={busy} onClick={handleStart}>
               Start team

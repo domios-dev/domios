@@ -38,18 +38,18 @@ function askRow(ask: ShownAsk): { icon: ReactNode; title: string; detail?: strin
 }
 
 /** Only the real asks a package makes; absent asks are never shown. A secret's purpose wraps under its name, beside its select. */
-export function TemplateAsks({ asks, secrets }: { asks: readonly TemplateAsk[]; secrets?: SecretBinding }) {
+export function TemplateAsks({ asks, secrets, title = "Asks for" }: { asks: readonly TemplateAsk[]; secrets?: SecretBinding; title?: string }) {
   const shown = visibleAsks(asks);
   if (shown.length === 0) return null;
   return (
-    <section aria-label="Asks for" className="flex flex-col gap-1">
-      <div className="text-[11px] text-[var(--ct-muted-fg)]">Asks for</div>
+    <section aria-label={title} className="flex flex-col gap-1">
+      <div className="text-[11px] text-[var(--ct-muted-fg)]">{title}</div>
       <ul className="flex flex-col gap-1.5">
         {shown.map((ask, index) => {
           const row = askRow(ask);
           if (ask.kind === "secret") {
             return (
-              <li key={`${ask.kind}:${index}`} className="flex items-center gap-2 text-[12px]" data-ask={ask.kind}>
+              <li key={`${ask.kind}:${index}`} className="flex flex-wrap items-start gap-2 text-[12px]" data-ask={ask.kind}>
                 <span aria-hidden="true" className="self-start pt-0.5 text-[var(--ct-muted-fg)]">{row.icon}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block font-mono">{row.title}</span>
@@ -60,10 +60,10 @@ export function TemplateAsks({ asks, secrets }: { asks: readonly TemplateAsk[]; 
             );
           }
           return (
-            <li key={`${ask.kind}:${index}`} className="flex items-center gap-2 text-[12px]" data-ask={ask.kind}>
+            <li key={`${ask.kind}:${index}`} className="flex flex-wrap items-start gap-2 text-[12px]" data-ask={ask.kind}>
               <span aria-hidden="true" className="text-[var(--ct-muted-fg)]">{row.icon}</span>
-              <span>{row.title}</span>
-              {row.detail && <span className="truncate text-[var(--ct-muted-fg)]">· {row.detail}</span>}
+              <span className="min-w-0 break-words [overflow-wrap:anywhere]">{row.title}</span>
+              {row.detail && <span className="min-w-0 break-words text-[var(--ct-muted-fg)] [overflow-wrap:anywhere]">· {row.detail}</span>}
             </li>
           );
         })}

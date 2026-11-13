@@ -153,6 +153,7 @@ describe("Team template start in the session dialog", () => {
     await chooseResearchDesk();
     expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
     expect(start()).toBeNull();
+    expect(document.activeElement).toBe(dialog().querySelector('[data-testid="template-review-consent"] h2'));
     const workers = dialog().querySelector('section[aria-label="Workers on demand"]')!.textContent;
     expect(workers).toContain("sonnet · Medium");
     expect(workers).toContain("You pick");
@@ -172,8 +173,9 @@ describe("Team template start in the session dialog", () => {
     expect(form.querySelector('[data-testid="template-identity"]')?.closest("details")).toBe(details);
     await click(details.querySelector("summary")!);
     expect(details.open).toBe(true);
-    expect(details.textContent).toContain(startablePreview.form.template.description);
-    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("amber");
+    expect(details.querySelector("h2")).toBeNull();
+    expect(details.textContent).not.toContain(startablePreview.form.template.description);
+    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("neutral");
     expect(start().disabled).toBe(true);
     await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
     expect(start().disabled).toBe(false);
@@ -217,6 +219,9 @@ describe("Team template start in the session dialog", () => {
     fixture.templates.preview.mockResolvedValue({ ...templatePreviewFixture, consent: null, asks: [{ kind: "shell" }] });
     await renderPicker();
     await chooseResearchDesk();
+    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("neutral");
+    expect(start().disabled).toBe(true);
+    expect(buttons().filter((candidate) => candidate.textContent?.trim() === "Run on another machine")).toHaveLength(1);
     const asks = Array.from(dialog().querySelectorAll("[data-ask]")).map((row) => row.getAttribute("data-ask"));
     expect(asks).toEqual(["shell"]);
     expect(dialog().querySelector('[data-testid="template-where-issue"]')?.textContent).toMatch(/codex isn't installed on this machine/i);
@@ -230,6 +235,24 @@ describe("Team template start in the session dialog", () => {
     expect(dialog().querySelector('[role="group"][aria-label="Placement"]')).not.toBeNull();
     await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
     expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.getAttribute("data-tone")).toBe("red");
+  });
+
+  it.each([false, true])("uses only host-reported missing-tool readiness (reported: %s)", async (reported) => {
+    const tool = "mcp:weaverqa-missing-tool";
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null, asks: [{ kind: "tool", role: "researcher", tool }],
+      where_needed: reported ? { needs: [{ kind: "missing_tool", tool }] } : null });
+    await renderPicker();
+    await chooseResearchDesk();
+    const issue = dialog().querySelector('[data-testid="template-where-issue"]');
+    if (reported) {
+      expect(issue?.textContent).toContain(`${tool} isn't available`);
+      expect(issue?.closest("details")).toBeNull();
+      expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.textContent).toContain(tool);
+    } else {
+      expect(issue).toBeNull();
+      expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.textContent).not.toContain(tool);
+    }
+    expect(dialog().querySelector('[data-ask="tool"]')?.closest("details")).not.toBeNull();
   });
 
   it("blocks start until a required secret is bound when the vault has no entry of that name", async () => {
@@ -347,11 +370,10 @@ describe("Team template start in the session dialog", () => {
     expect(dialog().querySelector('[aria-label^="Curator model"]')?.getAttribute("aria-label")).toMatch(/^Curator model: Same as Orchestrator · /);
     expect(dialog().querySelector('[aria-label^="Curator provider"]')).toBeNull();
     expect(dialog().querySelector('[aria-label^="Cartographer model"]')?.getAttribute("aria-label")).toContain("sonnet");
-    await click(button("Change template"));
-    const kebab = button("More actions for Research desk");
-    await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
-    await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
-    const managers = dialog().querySelector('[data-testid="template-review-detail"] section[aria-label="Managers"]')!.textContent;
+    fixture.templates.preview.mockResolvedValue({ ...defaultPreview, consent: startablePreview.consent,
+      form: { ...defaultPreview.form, template: startablePreview.form.template } });
+    await chooseResearchDesk();
+    const managers = dialog().querySelector('[data-testid="template-review-consent"] section[aria-label="Managers"]')!.textContent;
     expect(managers).toContain("Same as Orchestrator");
     expect(managers).toContain("sonnet");
   });
@@ -390,7 +412,7 @@ describe("Team template start in the session dialog", () => {
 
   it("groups the review by kind with the custom manager among the managers", async () => {
     const customPreview = {
-      ...startablePreview, consent: null, form: { ...startablePreview.form,
+      ...startablePreview, form: { ...startablePreview.form,
         roles: [
           { kind: "worker" as const, role: "researcher", label: "researcher", authority: "none" as const, start: "on_demand" as const },
           { kind: "manager" as const, role: "security_lead", label: "Security lead", authority: "none" as const, start: "on_demand" as const },
@@ -399,11 +421,8 @@ describe("Team template start in the session dialog", () => {
     };
     fixture.templates.preview.mockResolvedValue(customPreview);
     await renderPicker();
-    await click(button("Change template"));
-    const kebab = button("More actions for Research desk");
-    await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
-    await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
-    const review = dialog().querySelector('[data-testid="template-review-detail"]')!;
+    await chooseResearchDesk();
+    const review = dialog().querySelector('[data-testid="template-review-consent"]')!;
     const kinds = (section: string) => Array.from(review.querySelectorAll(`section[aria-label="${section}"] [data-role-kind]`)).map((row) => row.getAttribute("data-role-kind"));
     expect(kinds("Managers")).toEqual(["manager", "manager"]);
     expect(kinds("Workers on demand")).toEqual(["worker"]);
@@ -507,15 +526,7 @@ describe("Team template start in the session dialog", () => {
     expect(row?.closest("li")?.querySelector('[role="alert"]')).toBeNull();
     expect(row?.closest("li")?.getAttribute("data-selected")).toBe("false");
     await click(row);
-    const kebab = button("More actions for Research desk");
-    await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
-    await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
-    const blocked = dialog().querySelector('[role="alert"][data-testid="template-blocked-start"]')!;
-    expect(blocked).not.toBeNull();
-    expect(blocked.getAttribute("aria-label")).toContain("Research desk");
-    expect(blocked.textContent).toContain("Security lead");
     expect(dialog().querySelector('[data-testid="template-start-form"]')).toBeNull();
-    // The refused card is marked and offers no Use; the footer stays reachable but cannot pick it.
     expect(button("Use Research desk")).toBeUndefined();
     const card = buttons().find((candidate) => candidate.getAttribute("aria-pressed") === "true" && candidate.textContent?.includes("Research desk"));
     expect(card?.closest("li")?.hasAttribute("data-blocked")).toBe(true);
@@ -554,21 +565,23 @@ describe("Team template start in the session dialog", () => {
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
     expect(dialog().querySelector('[data-testid="template-review-consent"]')).toBeNull();
     expect(dialog().querySelector('[data-testid="template-start-form"]')).not.toBeNull();
+    expect(document.activeElement).toBe(dialog().querySelector('input[placeholder="The market question to research"]'));
     await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
     await click(start());
     const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { decision_id?: string } };
     expect(input.template.decision_id).toBe(startablePreview.consent?.decision_id);
   });
 
-  it("returns from a gallery row's Details to the gallery", async () => {
+  it("keeps package actions without a second Details view", async () => {
     await renderPicker();
     await click(button("Change template"));
     const kebab = button("More actions for Research desk");
     await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
-    await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
-    expect(dialog().querySelector('[data-testid="template-review-detail"]')).not.toBeNull();
-    await click(button("Back to templates"));
-    expect(dialog().querySelector('[data-testid="template-gallery"]')).not.toBeNull();
+    const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) => item.textContent?.trim());
+    expect(items).not.toContain("Details");
+    expect(items).toContain("Export…");
+    expect(items).toContain("Share to Neighborhood…");
+    expect(items).toContain("Delete");
   });
 
   it("deletes a template from My templates only after an inline confirm", async () => {
@@ -632,7 +645,7 @@ describe("Team template start in the session dialog", () => {
     await chooseResearchDesk();
     await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
     await click(dialog().querySelector<HTMLElement>("details > summary")!);
-    await click(button("Run some roles on another machine"));
+    await click(button("Run on another machine"));
     expect(dialog().querySelector('[aria-label^="Machine for Lead"]')).toBeNull();
     await choose("Machine for Researcher", "eight");
     await click(start());
@@ -647,7 +660,7 @@ describe("Team template start in the session dialog", () => {
     await chooseResearchDesk();
     await type(dialog().querySelector<HTMLInputElement>('input[placeholder="The market question to research"]')!, "EU heat pumps");
     await click(dialog().querySelector<HTMLElement>("details > summary")!);
-    await click(button("Run some roles on another machine"));
+    await click(button("Run on another machine"));
     await choose("Machine for this team", "eight");
     await click(start());
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();

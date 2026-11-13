@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Network } from "lucide-react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { roleDisplayLabel } from "../../lib/roleKind";
 import { Button } from "../shared/Button";
@@ -8,7 +7,6 @@ import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
 
-const QUIET_LINK = "inline-flex items-center gap-1.5 self-start text-[12px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-accent)]";
 const HOME = "";
 
 function IssueLine({ text, children }: { text: string; children?: ReactNode }) {
@@ -33,20 +31,19 @@ function PlacementRow({ label, select, muted = false }: { label: string; select:
  * Where the Team runs: this machine unless the owner moves some workers, or the whole Team, to a peer. One quiet link
  * opens the block; the whole-team choice lives inside it.
  */
-export function TemplateWhere({ choice, preview, open, onOpen }: {
+export function TemplateWhere({ choice, preview, open, onOpen, showLink = true }: {
   choice: TeamTemplateChoice;
   preview: TemplatePreview;
   open: boolean;
   onOpen: () => void;
+  showLink?: boolean;
 }) {
   const workers = preview.form.roles.filter((role) => role.kind === "worker");
   const peers = choice.peers;
   const options = [{ value: HOME, label: "This machine" }, ...(peers ?? []).map((peer) => ({ value: peer.name, label: peer.name }))];
   return (
     <section aria-label="Where" className="flex flex-col gap-1.5 text-[12px]" data-testid="template-where">
-      {!open && <button type="button" className={QUIET_LINK} onClick={onOpen}>
-        <Network size={12} aria-hidden="true" />{workers.length > 0 ? "Run some roles on another machine" : "Run this team on another machine"}
-      </button>}
+      {!open && showLink && <Button type="button" variant="outline" className="self-start text-xs" onClick={onOpen}>Run on another machine</Button>}
       {open && (
         <div role="group" aria-label="Placement" className="flex flex-col gap-1.5">
           <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Where it runs</div>
@@ -87,9 +84,9 @@ export function TemplateWhereIssues({ choice, preview, providers, onInstallProvi
   return <div className="flex flex-col gap-1.5 text-[12px]">
       {needs.map((need) => need.kind === "missing_harness" ? (
         <IssueLine key={need.harness} text={`${harnessName(need.harness)} isn't installed on this machine`}>
-          <Button type="button" variant="ghost" className="text-xs" onClick={() => onInstallProvider(need.harness)}>Install</Button>
-          <Button type="button" variant="ghost" className="text-xs" onClick={onRunElsewhere}>Run on another machine</Button>
+          <Button type="button" variant="outline" className="text-xs" onClick={() => onInstallProvider(need.harness)}>Install</Button>
         </IssueLine>
       ) : <IssueLine key={need.tool} text={`${need.tool} isn't available on this machine`} />)}
+    <Button type="button" variant="outline" className="self-start text-xs" onClick={onRunElsewhere}>Run on another machine</Button>
   </div>;
 }

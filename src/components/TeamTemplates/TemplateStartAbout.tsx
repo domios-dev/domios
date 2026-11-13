@@ -28,19 +28,19 @@ export function TemplateStartAbout({ choice, preview, providers, onInstallProvid
     setPlacementOpen(true);
   };
   return <>
-    <TemplateAsks asks={asks.filter((ask) => ask.kind === "secret")} secrets={secrets} />
+    <TemplateAsks asks={asks.filter((ask) => ask.kind === "secret")} secrets={secrets} title="Secrets" />
     <TemplateWhereIssues choice={choice} preview={preview} providers={providers} onInstallProvider={onInstallProvider} onRunElsewhere={revealPlacement} />
     <details ref={details} className="text-[12px]">
       <summary className="cursor-pointer text-[var(--ct-muted-fg)]">About this team{workers > 0 ? ` · ${workers} workers` : ""}</summary>
       <div className="mt-3 flex flex-col gap-3">
-        <TemplateIdentity summary={preview.form.template} />
+        <TemplateIdentity summary={preview.form.template} metadataOnly />
         <WorkerChips preview={preview} />
         {readable.length > 0 && <button type="button" className="self-start text-[var(--ct-accent)] hover:underline" onClick={() => choice.readInstructions(readable[0].role)}>
           Read the instructions for {readable.length === 1 ? "1 role" : `${readable.length} roles`}
         </button>}
         <TemplateBrings payload={preview.payload ?? []} optOut={choice.optOut} onToggle={choice.setKept} collapsible={false} template={preview.form.template} roles={preview.form.roles} />
-        <TemplateAsks asks={asks.filter((ask) => ask.kind !== "secret")} />
-        <TemplateWhere choice={choice} preview={preview} open={placementOpen} onOpen={revealPlacement} />
+        <TemplateAsks asks={asks.filter((ask) => ask.kind !== "secret")} title="Permissions and tools" />
+        <TemplateWhere choice={choice} preview={preview} open={placementOpen} onOpen={revealPlacement} showLink={choice.remotePeer !== null || !(preview.where_needed?.needs.length)} />
       </div>
     </details>
   </>;

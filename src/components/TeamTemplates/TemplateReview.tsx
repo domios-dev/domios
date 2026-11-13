@@ -8,7 +8,7 @@ import { Button } from "../shared/Button";
 import { kindDisplayName } from "../../lib/roleKind";
 import {
   effortLabel, humanizePackageName, lacksAuthority, managerDecision, managerRoles, roleSameAs, roleTiming, splitModel, templateSource,
-  visibleAsks, visiblePayload, type TemplateSummary,
+  type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import { TemplateIdentity } from "./TemplateIdentity";
 import { TemplateBrings } from "./TemplateBrings";
@@ -64,7 +64,7 @@ function RoleList({ title, roles, preview, providers }: { title: string; roles: 
         const heading = roleHeading(role);
         const start = [role.description?.trim(), roleTiming(role.start) ?? "Starts with the team"].filter(Boolean).join(" · ");
         return (
-          <div key={`${role.kind}:${role.role}`} className="flex items-center gap-2.5 py-1 text-[12px]" data-role-kind={role.kind}>
+          <div key={`${role.kind}:${role.role}`} className="flex flex-wrap items-center gap-2.5 py-1 text-[12px]" data-role-kind={role.kind}>
             <span aria-hidden="true" className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[7px] bg-[color-mix(in_srgb,var(--ct-accent)_12%,transparent)] text-[var(--ct-accent)]">
               {role.kind === "manager" ? managerIcon(role.role) : <Users size={13} />}
             </span>
@@ -97,9 +97,9 @@ function HarnessNote({ preview, providers, onInstallProvider }: { preview: Templ
       {absent.map((harness) => <span key={harness} className="inline-flex items-center gap-1.5">
         <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--ct-red)]" />
         <span className="text-[var(--ct-fg)]">Needs {name(harness)} · not installed</span>
-        <Button type="button" variant="ghost" className="text-xs" onClick={() => onInstallProvider(harness)}>Install</Button>
+        <Button type="button" variant="outline" className="text-xs" onClick={() => onInstallProvider(harness)}>Install</Button>
       </span>)}
-      {tools.map((tool) => <span key={tool} className="text-[var(--ct-fg)]">Needs {tool}</span>)}
+      {tools.map((tool) => <span key={tool} className="text-[var(--ct-fg)]">Needs {tool} · not available on this machine</span>)}
     </span>
   );
 }
@@ -124,7 +124,6 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
   const workers = preview.form.roles.filter((role) => role.kind === "worker");
   const readable = reviewRoles(preview.form.roles);
   const unverified = consent && preview.consent?.reasons.includes("unverified_package");
-  const twoColumns = visiblePayload(preview.payload ?? []).length > 0 || visibleAsks(preview.asks ?? []).length > 0;
   return (
     <section aria-labelledby={titleId} aria-describedby={descriptionId} className="flex flex-col gap-3" data-testid={`template-review-${mode}`}>
       <div><BackPill label={back === "form" ? "the Team form" : "templates"} onBack={choice.backFromReview} /></div>
@@ -133,7 +132,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
         {summary.received_from?.trim() ? `${summary.received_from.trim()} shared this team` : "This team came from a file"}. Check what it brings and turn off anything you don't want.
       </p>}
       {update && <UpdateDiff diff={update} />}
-      <div className={`grid gap-5 ${twoColumns ? "sm:grid-cols-2" : ""}`} data-testid="template-review-body" data-columns={twoColumns ? 2 : 1}>
+      <div className="flex flex-col gap-4" data-testid="template-review-body">
         <div className="flex flex-col gap-3">
           <RoleList title="Managers" roles={managers} preview={preview} providers={providers} />
           <RoleList title="Workers on demand" roles={workers} preview={preview} providers={providers} />
@@ -141,26 +140,26 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
             <Eye size={12} aria-hidden="true" />Read the instructions for {readable.length === 1 ? "1 role" : `${readable.length} roles`}
           </button>}
         </div>
-        {twoColumns && <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
           <TemplateBrings payload={preview.payload ?? []} optOut={consent ? choice.optOut : new Set()} onToggle={consent ? choice.setKept : undefined}
             collapsible={false} template={summary} roles={preview.form.roles} />
           <TemplateAsks asks={preview.asks ?? []} />
-        </div>}
+        </div>
       </div>
       {/* One scroll container: the dialog scrolls and the footer stays pinned at its bottom edge. */}
       {/* The section's gap-3 precedes the sentinel; -13px cancels it and the sentinel's own pixel. */}
       <PinnedFooter sentinelClassName="-mt-[13px]"
-        className="flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] text-[11.5px] text-[var(--ct-muted-fg)] sm:flex-row sm:items-center">
+        className="flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] text-[11.5px] text-[var(--ct-muted-fg)]">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <HarnessNote preview={preview} providers={providers} onInstallProvider={onInstallProvider} />
           {/* Use only picks the template; the start is what the owner confirms, and only then is it verified. */}
           {consent && <span data-testid="template-consent-note">You'll confirm when you start.</span>}
         </div>
-        <div className="flex flex-col-reverse gap-2 sm:flex-row">
+        <div className="flex flex-col-reverse gap-2">
           {consent
-            ? <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={choice.openGallery}>Not now</Button>
-            : source.exportable && <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onExport}>Export…</Button>}
-          <Button type="button" variant="primary" className="w-full sm:w-auto" onClick={choice.acceptReviewed}>Use template</Button>
+            ? <Button type="button" variant="ghost" className="w-full" onClick={choice.openGallery}>Not now</Button>
+            : source.exportable && <Button type="button" variant="ghost" className="w-full" onClick={onExport}>Export…</Button>}
+          <Button type="button" variant="primary" className="w-full" onClick={choice.acceptReviewed}>Use template</Button>
         </div>
       </PinnedFooter>
     </section>

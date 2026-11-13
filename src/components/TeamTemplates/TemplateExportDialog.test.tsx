@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 const dialog = () => document.body.querySelector<HTMLElement>('[role="dialog"]')!;
-const exportButton = () => Array.from(dialog().querySelectorAll<HTMLButtonElement>("button")).find((candidate) => candidate.textContent?.trim() === "Export")!;
+const exportButton = () => Array.from(dialog().querySelectorAll<HTMLButtonElement>("button")).find((candidate) => ["Export", "Share"].includes(candidate.textContent?.trim() ?? ""))!;
 
 async function renderDialog(share: boolean) {
   await act(async () => {
@@ -42,7 +42,18 @@ async function renderDialog(share: boolean) {
 describe("Export with Neighborhood sharing", () => {
   it("exports the package and hands the written file to the ordinary Neighborhood send", async () => {
     await renderDialog(true);
-    expect(dialog().querySelector('[role="switch"][aria-label="Also share to Neighborhood"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(dialog().querySelector("h2")?.textContent).toBe("Share Research desk");
+    expect(exportButton().textContent).toBe("Share");
+    expect(exportButton().disabled).toBe(true);
+    expect(dialog().querySelector('[aria-label^="Share with"]')?.textContent).toContain("Choose a recipient");
+    await act(async () => dialog().dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    expect(exportPackage).not.toHaveBeenCalled();
+    expect(neighbors.send).not.toHaveBeenCalled();
+    const recipient = dialog().querySelector<HTMLElement>('[aria-label^="Share with"]')!;
+    await act(async () => recipient.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+    const mira = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')).find((item) => item.textContent?.trim() === "Mira")!;
+    await act(async () => mira.click());
+    expect(exportButton().disabled).toBe(false);
     await act(async () => exportButton().click());
     expect(exportPackage).toHaveBeenCalledWith({ template: { name: "me/research-desk", version: "1.0.0" }, format: "team" });
     expect(neighbors.send).toHaveBeenCalledWith("mira", "Shared the team Research desk 1.0.0", "/data/team-exports/research-desk.team");

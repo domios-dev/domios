@@ -65,17 +65,18 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
     neighbors.friends().then((list) => {
       if (!live) return;
       setFriends(list);
-      setFriend((current) => current || list[0]?.friendship || "");
     }, () => { if (live) setFriends([]); });
     return () => { live = false; };
   }, [share, friends, neighbors]);
+  const recipient = friends?.find((candidate) => candidate.friendship === friend);
   const submit = async () => {
+    if (busy || (share && !recipient)) return;
     setBusy(true);
     setError(null);
     try {
       const exported = await transport().export({ template: { name: summary.name, version: summary.version }, format });
       setResult(exported);
-      const to = friends?.find((candidate) => candidate.friendship === friend);
+      const to = recipient;
       if (share && to && exported.check.valid && exported.path) {
         try {
           await neighbors.send(to.friendship, `Shared the team ${templateTitle(summary)} ${summary.version}`, exported.path);
@@ -93,7 +94,7 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
   return (
     <FormDialog titleId={titleId} descriptionId={descriptionId} className="max-w-md" stacked onCancel={onClose}
       onSubmit={(event) => { event.preventDefault(); if (result) onClose(); else void submit(); }}>
-      <h2 id={titleId} className="text-base font-semibold">Export {templateTitle(summary)}</h2>
+      <h2 id={titleId} className="text-base font-semibold">{share ? "Share" : "Export"} {templateTitle(summary)}</h2>
       <p id={descriptionId} className="text-sm text-[var(--ct-muted)]">Machines, paths and secret values are removed from every export.</p>
       {result ? <>
         <ScrubReportCard report={result.scrub} />
@@ -118,13 +119,13 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
       )}
       {!result && shareable && (
         <div className="flex flex-col gap-1.5">
-          <label className="flex items-center justify-between gap-3 text-[12px]">
+          {!shareInitially && <label className="flex items-center justify-between gap-3 text-[12px]">
             Also share to Neighborhood
             <LiquidToggle checked={share} aria-label="Also share to Neighborhood" onCheckedChange={setShare} />
-          </label>
+          </label>}
           {share && (friends === null ? <p aria-busy="true" className="text-[11px] text-[var(--ct-muted-fg)]">Finding your Neighbors…</p>
             : friends.length === 0 ? <p className="text-[11px] text-[var(--ct-muted-fg)]">You have no Neighbors to share with yet.</p>
-              : <DropdownSelect aria-label="Share with" value={friend} onChange={setFriend}
+              : <DropdownSelect aria-label="Share with" placeholder="Choose a recipient" value={friend} onChange={setFriend}
                 options={friends.map((candidate) => ({ value: candidate.friendship, label: candidate.name }))} />)}
         </div>
       )}
@@ -132,7 +133,7 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
       {error && <p role="alert" className="text-[12px] text-[var(--ct-red)]">{error}</p>}
       <div className="flex justify-end gap-2">
         {!result && <Button type="button" variant="ghost" className="text-xs" onClick={onClose}>Cancel</Button>}
-        <Button type="submit" variant="primary" className="text-xs" loading={busy} disabled={!result && share && !friend}>{result ? "Done" : "Export"}</Button>
+        <Button type="submit" variant="primary" className="text-xs" loading={busy} disabled={!result && share && !recipient}>{result ? "Done" : share ? "Share" : "Export"}</Button>
       </div>
     </FormDialog>
   );

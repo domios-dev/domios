@@ -10,6 +10,7 @@ import { TemplateStartFields } from "./TemplateStartFields";
 import { TemplateStartAbout } from "./TemplateStartAbout";
 import { TemplateExportDialog } from "./TemplateExportDialog";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
+import { useTemplateViewFocus } from "./useTemplateViewFocus";
 import { LaterManagerRows, type PairRoleControls } from "./TemplateManagers";
 
 /** The Team panel of the session dialog: today's pair form under the default, or a chosen template's simple form. */
@@ -27,6 +28,7 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
   const [exporting, setExporting] = useState<{ summary: TemplateSummary; share: boolean } | null>(null);
   const view = choice.view;
   const fallback = choice.defaultPreview;
+  const bodyRef = useTemplateViewFocus(view.kind, choice.chosen?.form.template.name);
   const body = view.kind === "gallery"
     ? <TemplateGallery choice={choice} onExport={(summary, share = false) => setExporting({ summary, share })} />
     : view.kind === "review"
@@ -50,7 +52,7 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
       <div className="text-[var(--ct-red)]">{blocked.refusal.message}</div>
       {blocked.refusal.reasons.map((reason) => <div key={reason} className="text-[var(--ct-muted-fg)]">{reason}</div>)}
     </div>}
-    {body}
+    <div ref={bodyRef}>{body}</div>
     {exporting && <TemplateExportDialog summary={exporting.summary} share={exporting.share} onClose={() => setExporting(null)} />}
   </>;
 }

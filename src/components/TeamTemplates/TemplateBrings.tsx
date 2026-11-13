@@ -62,12 +62,12 @@ export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, 
             className="flex min-w-0 items-center gap-1.5 text-left text-[12px] text-[var(--ct-fg)]">
             <ChevronDown size={12} aria-hidden="true" className={`shrink-0 ${open ? "" : "-rotate-90"}`} />
             <span className="shrink-0 text-[var(--ct-muted-fg)]">{title}</span>
-            <span className="min-w-0 truncate" title={summary} data-testid="brings-summary">{summary}</span>
+            <span className="min-w-0 break-words" title={summary} data-testid="brings-summary">{summary}</span>
           </button>
         ) : (
-          <div className="flex min-w-0 items-baseline gap-1 whitespace-nowrap text-[12px]">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-1 text-[12px]">
             <span className="shrink-0 text-[11px] font-medium text-[var(--ct-muted-fg)]">{title}</span>
-            <span className="min-w-0 truncate" title={summary} data-testid="brings-summary">{summary}</span>
+            <span className="min-w-0 break-words" title={summary} data-testid="brings-summary">{summary}</span>
           </div>
         )}
         {open && onToggle && <BulkToggle items={items} optOut={optOut} onToggle={onToggle} scope={title.toLowerCase()} />}
@@ -93,9 +93,9 @@ export function TemplateBrings({ payload, optOut, onToggle, collapsible = true, 
                     <div className={`text-[12px] text-[var(--ct-fg)] ${item.kind === "skill" ? "font-mono" : ""}`}>{text.name}</div>
                     {detail && <div className="text-[11px] text-[var(--ct-muted-fg)]">{detail}</div>}
                     {item.executable && (
-                      <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px]" data-executable="true">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]" data-executable="true">
                         <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: AMBER }} />
-                        <span className="min-w-0 truncate" title={item.script_path ?? undefined}>
+                        <span className="min-w-0 break-words [overflow-wrap:anywhere]" title={item.script_path ?? undefined}>
                           {script ? <>Runs <span className="font-mono">{script}</span></> : "Runs scripts"}
                         </span>
                         {item.script_path && template && <button type="button" className="shrink-0 text-[var(--ct-accent)] hover:underline"

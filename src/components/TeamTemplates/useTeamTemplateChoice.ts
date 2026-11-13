@@ -58,6 +58,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const [view, setView] = useState<TemplateView>({ kind: "form" });
   const [catalog, setCatalog] = useState<TemplateCatalog | null>(null);
   const [chosen, setChosen] = useState<TemplatePreview | null>(null);
+  const [touched, setTouched] = useState(false);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [optOut, setOptOut] = useState<ReadonlySet<string>>(new Set());
   const [seats, setSeats] = useState<ManagerSeats>({});
@@ -116,6 +117,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
       else managerSeeds[picker.role] = seed;
     }
     onSeedPair(pairSeeds);
+    setTouched(false);
     setChosen(preview);
     setSecrets(initialSecretBindings(preview.asks ?? [], vault ?? []));
     setInputs(initialInputs(preview.form.inputs ?? []));
@@ -126,7 +128,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     setView({ kind: "form" });
   }, [onSeedPair, vault]);
 
-  const openPreview = useCallback(async (template: { name: string; version?: string | null; title?: string | null }, detail = false, diff: TemplateUpdateDiff | null = null,
+  const openPreview = useCallback(async (template: { name: string; version?: string | null; title?: string | null }, diff: TemplateUpdateDiff | null = null,
     title = templateTitle(template)) => {
     setPending(true);
     setNotice(null);
@@ -135,8 +137,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     try {
       const preview = await transport().preview(template);
       setOptOut(new Set());
-      if (detail) setView({ kind: "review", preview, mode: "detail", back: "gallery" });
-      else if (needsReview(preview)) setView({ kind: "review", preview, mode: "consent", back: "gallery" });
+      if (needsReview(preview)) setView({ kind: "review", preview, mode: "consent", back: "gallery" });
       else select(preview, new Set());
     } catch (error) {
       const refusal = startRefusalView(error);
@@ -150,6 +151,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const choose = useCallback((summary: TemplateSummary) => {
     setBlocked(null);
     if (summary.name === defaultSummary.name) {
+      setTouched(false);
       setChosen(null);
       setSeats({});
       setPlacements({});
@@ -166,7 +168,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     try {
       const imported = await transport().import(path);
       setCatalog(null);
-      await openPreview({ name: imported.template.name, version: imported.template.version }, false, imported.update ?? null, templateTitle(imported.template));
+      await openPreview({ name: imported.template.name, version: imported.template.version }, imported.update ?? null, templateTitle(imported.template));
     } catch (error) {
       const failure = startErrorView(error);
       const reason = (failure.reasons[0] ?? failure.message).replace(/\.$/, "");
@@ -210,7 +212,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     const request = takePendingTemplatePreview();
     if (!request) return;
     if ("file" in request) void importPath(request.file);
-    else void openPreview(request.template, false, request.update);
+    else void openPreview(request.template, request.update);
   }, [enabled, openPreview, importPath]);
 
   useEffect(() => {
@@ -243,14 +245,13 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   }, [active, inputs, optOut, seats, secrets, placements, remotePeer]);
 
   return {
-    view, catalog, chosen, inputs, optOut, seats, pending, notice, blocked, catalogStatuses, defaultSummary, defaultPreview, secrets, vault, update,
+    view, catalog, chosen, touched, inputs, optOut, seats, pending, notice, blocked, catalogStatuses, defaultSummary, defaultPreview, secrets, vault, update,
     placements, remotePeer, peers,
     /** True when Start goes through the template start rather than today's default pair. */
     usesTemplate: active !== null,
     blocker: active ? startBlocker(active, inputs, secrets, remotePeer) : null,
     openGallery: () => { setNotice(null); setView({ kind: "gallery" }); },
     backToForm: () => setView({ kind: "form" }),
-    showSummaryDetails: (summary: TemplateSummary) => { void openPreview(summary, true); },
     choose,
     backFromReview: () => setView(view.kind === "review" && view.back === "form" ? { kind: "form" } : { kind: "gallery" }),
     acceptReviewed: () => {
@@ -263,17 +264,17 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     importPath: (path: string) => { void importPath(path); },
     importUpload: (file: Blob, name: string) => { void importUpload(file, name); },
     remove: (summary: TemplateSummary) => { void remove(summary); },
-    setSecret: (name: string, entry: string) => setSecrets((current) => ({ ...current, [name]: entry })),
+    setSecret: (name: string, entry: string) => { setTouched(true); setSecrets((current) => ({ ...current, [name]: entry })); },
     wantPeers: () => setPeersWanted(true),
     /** Asks the chosen peer to start this Team; its owner answers there. */
     startOnPeer: (start: TemplatePeerStartRequest["start"]): Promise<TemplatePeerStartAccepted> =>
       transport().peerStart({ peer: remotePeer ?? "", start }),
-    setPlacement: (role: string, peer: string) => setPlacements((current) => ({ ...current, [role]: peer })),
-    setRemotePeer,
+    setPlacement: (role: string, peer: string) => { setTouched(true); setPlacements((current) => ({ ...current, [role]: peer })); },
+    setRemotePeer: (peer: string | null) => { setTouched(true); setRemotePeer(peer); },
     setNotice,
-    setInput: (key: string, value: string) => setInputs((current) => ({ ...current, [key]: value })),
-    setKept: (ids: readonly string[], kept: boolean) => setOptOut((current) => withKept(current, ids, kept)),
-    setSeat: (slot: ManagerSlot, seat: PickerSeed) => setSeats((current) => ({ ...current, [slot]: seat })),
+    setInput: (key: string, value: string) => { setTouched(true); setInputs((current) => ({ ...current, [key]: value })); },
+    setKept: (ids: readonly string[], kept: boolean) => { setTouched(true); setOptOut((current) => withKept(current, ids, kept)); },
+    setSeat: (slot: ManagerSlot, seat: PickerSeed) => { setTouched(true); setSeats((current) => ({ ...current, [slot]: seat })); },
     clearSeat: (slot: ManagerSlot) => setSeats((current) => {
       const next = { ...current };
       delete next[slot];

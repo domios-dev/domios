@@ -14,7 +14,7 @@ export function TemplateHeader({ summary, onChange }: {
       <TemplateIcon icon={summary.icon} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="truncate text-[13px] font-medium text-[var(--ct-fg)]">{templateTitle(summary)}</span>
+          <h3 tabIndex={-1} className="truncate text-[13px] font-medium text-[var(--ct-fg)] outline-none">{templateTitle(summary)}</h3>
           {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
         </div>
         <p className="mt-0.5 truncate text-[12px] leading-snug text-[var(--ct-muted-fg)]" title={summary.description}>{summary.description}</p>
