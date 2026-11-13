@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use codeterm_team_package::contracts::{
     declared_asks, input_fields, role_summaries, ManagerModelPicker, ModelDecision,
-    PlacementProblem, TemplateConsent, TemplateList, TemplatePreview, TemplateRef,
+    PlacementProblem, RoleAuthority, TemplateConsent, TemplateList, TemplatePreview, TemplateRef,
     TemplateRoleSummary, TemplateRuntimeNeed, TemplateStartForm, TemplateStartRefusal,
     TemplateStartRequest, TemplateSummary, TemplateWhere,
 };
@@ -270,6 +270,7 @@ pub fn manager_pickers(
                 .find(|role| role.kind == RoleKind::Manager && role.role == name)
                 .map_or_else(|| name.clone(), |role| role.label.clone());
             Some(ManagerModelPicker {
+                authority: RoleAuthority::of(RoleKind::Manager, &name),
                 role: name,
                 label,
                 decision,

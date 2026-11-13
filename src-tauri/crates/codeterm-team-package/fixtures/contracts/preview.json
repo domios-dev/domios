@@ -19,6 +19,7 @@
       {
         "role": "orchestrator",
         "label": "Lead",
+        "authority": "builtin",
         "decision": {
           "choice": { "model": "codex:gpt-6.1-sol" },
           "reason": "within_list_fallback",
@@ -30,6 +31,7 @@
       {
         "role": "planner",
         "label": "Atlas",
+        "authority": "builtin",
         "decision": {
           "reason": "needs_choice",
           "alternatives": [{ "model": "claude:opus" }, { "model": "codex:gpt-6.1-sol" }],
@@ -38,13 +40,14 @@
       }
     ],
     "roles": [
-      { "kind": "manager", "role": "orchestrator", "label": "Lead", "start": "with_team" },
-      { "kind": "manager", "role": "cartographer", "label": "cartographer", "start": "on_demand" },
-      { "kind": "manager", "role": "curator", "label": "curator", "start": { "schedule": "45m..2h" }, "same_as": "orchestrator" },
+      { "kind": "manager", "role": "orchestrator", "label": "Lead", "authority": "builtin", "start": "with_team" },
+      { "kind": "manager", "role": "cartographer", "label": "cartographer", "authority": "builtin", "start": "on_demand" },
+      { "kind": "manager", "role": "curator", "label": "curator", "authority": "builtin", "start": { "schedule": "45m..2h" }, "same_as": "orchestrator" },
       {
         "kind": "worker",
         "role": "researcher",
         "label": "researcher",
+        "authority": "none",
         "description": "Researches one angle of the question.",
         "start": "on_demand",
         "model": {
@@ -59,6 +62,7 @@
         "kind": "worker",
         "role": "writer",
         "label": "writer",
+        "authority": "none",
         "description": "Turns merged findings into the final report.",
         "start": "on_demand",
         "model": { "reason": "normal_default", "amber": false }

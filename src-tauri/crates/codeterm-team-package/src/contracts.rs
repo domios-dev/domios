@@ -81,6 +81,7 @@ pub struct TemplateRoleSummary {
     pub role: String,
     /// The manager display name, or the role id.
     pub label: String,
+    pub authority: RoleAuthority,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub start: RoleStart,
@@ -185,12 +186,34 @@ pub struct ModelDecision {
     pub effort: Option<EffortDecision>,
 }
 
+/// The Domios authority a role carries; clients render it and never derive it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RoleAuthority {
+    /// A built-in manager name of kind manager keeps its Domios duties.
+    Builtin,
+    /// A custom manager or a worker: no Domios authority.
+    None,
+}
+
+impl RoleAuthority {
+    /// The one decision: authority follows a built-in manager name, and only for kind manager.
+    pub fn of(kind: RoleKind, name: &str) -> Self {
+        if kind == RoleKind::Manager && crate::is_builtin_manager(name) {
+            Self::Builtin
+        } else {
+            Self::None
+        }
+    }
+}
+
 /// A model/effort picker for a with_team manager the owner must choose for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ManagerModelPicker {
     /// The manager's role name.
     pub role: String,
     pub label: String,
+    pub authority: RoleAuthority,
     pub decision: ModelDecision,
 }
 
@@ -552,12 +575,23 @@ pub struct TemplateUpdateDiff {
     pub roles_removed: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles_changed: Vec<String>,
+    /// Roles kept by name whose kind changed; each is also listed in `roles_changed`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles_kind_changed: Vec<RoleKindChange>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub payload_added: Vec<TemplateDiffItem>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub payload_removed: Vec<TemplateDiffItem>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub asks_added: Vec<TemplateAsk>,
+}
+
+/// A role an update keeps by name but moves to another kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RoleKindChange {
+    pub role: String,
+    pub from: RoleKind,
+    pub to: RoleKind,
 }
 
 /// A payload item an update adds or removes: its opt-out id and the label the owner reads.
@@ -814,8 +848,7 @@ impl TemplateSummary {
             authors: document.authors.clone(),
             links: document.links.clone(),
             license: document.license.clone(),
-            workers: u32::try_from(document.roles_of(RoleKind::Worker).count())
-                .unwrap_or(u32::MAX),
+            workers: u32::try_from(document.roles_of(RoleKind::Worker).count()).unwrap_or(u32::MAX),
             worker_names,
             skills: u32::try_from(skills.len()).unwrap_or(u32::MAX),
             skill_names: skills.into_iter().take(SUMMARY_NAME_LIMIT).collect(),
@@ -835,6 +868,7 @@ pub fn role_summaries(package: &Package) -> Vec<TemplateRoleSummary> {
             kind: declared.kind,
             role: role.to_string(),
             label: declared.name.clone().unwrap_or_else(|| role.to_string()),
+            authority: RoleAuthority::of(declared.kind, role),
             description: declared.description.clone(),
             start: declared.effective_start(role),
             model: None,

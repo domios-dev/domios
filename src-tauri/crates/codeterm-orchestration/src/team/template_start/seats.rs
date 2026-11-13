@@ -10,7 +10,7 @@ use codeterm_service_core::service::model_decision::{
 use codeterm_service_core::service::team_template_start::{with_team_managers, ResolvedTemplate};
 use codeterm_team_package::contracts::{
     role_summaries, ManagerModelChoice, ManagerModelPicker, ModelBlockedReason, ModelDecision,
-    ModelDecisionReason,
+    ModelDecisionReason, RoleAuthority,
 };
 use codeterm_team_package::{ModelPreference, RoleKind};
 
@@ -280,6 +280,7 @@ pub(crate) fn plan_seats(
             }
             Err(decision) => pickers.push(ManagerModelPicker {
                 label: label(&name),
+                authority: RoleAuthority::of(RoleKind::Manager, &name),
                 role: name,
                 decision,
             }),
