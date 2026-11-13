@@ -44,6 +44,7 @@ fn rpc_error(error: ReceiverTargetError) -> JsonRpcError {
         ReceiverTargetError::PersistFailed => -32603,
         ReceiverTargetError::ReceiverNotFound
         | ReceiverTargetError::TabNotFound
+        | ReceiverTargetError::TabNotAgent
         | ReceiverTargetError::MenuItemNotFound => -32602,
     };
     JsonRpcError {
