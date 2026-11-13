@@ -604,7 +604,7 @@ test("a written prompt the agent refused while busy says so without offering Ret
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-test("a held send waits after the running turn's live operation and becomes its one delivered bubble", async () => {
+test("an own send keeps its position before the live operation through confirmation", async () => {
   const tabId = "held-behind-live-tool";
   const { __setInvokeForTest } = await import("../../lib/bridge");
   const turn = [
@@ -614,7 +614,7 @@ test("a held send waits after the running turn's live operation and becomes its 
       toolStatus: "running", toolStartedAtMs: Date.now() - 1000 },
   ];
   const { host, root, dispatch } = await renderChat(tabId, undefined, undefined, undefined, { messages: turn, working: true });
-  const status = (state: "held" | "written" | "delivered", sequence: number) => ({
+  const status = (state: "held" | "written" | "submit_unconfirmed" | "delivered", sequence: number) => ({
     tab_id: tabId, send_id: "held-tx", correlationId: "held-send", state, sequence,
     ledger_id: "ledger", retained_from: 1, error: null, pending_reason: state === "held" ? "held_active_turn" : undefined,
   });
@@ -623,11 +623,20 @@ test("a held send waits after the running turn's live operation and becomes its 
   const bubbles = () => host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
   try {
     await act(async () => addChatSend(tabId, { id: "held-send", correlationId: "held-send", content: "opaque-held", sentAtMs: Date.now() }));
-    await act(async () => dispatch("chat-send-status", latest));
     const live = host.querySelectorAll('[data-testid="chat-live-operation"]');
     const held = host.querySelector('[data-message-id="held-send"]');
     assert(live.length === 1 && held, "one live operation and the held bubble render");
-    assert(live[0].compareDocumentPosition(held) & Node.DOCUMENT_POSITION_FOLLOWING, "the held send follows the running tool");
+    const stableOrder = () => Array.from(host.querySelectorAll('[data-chat-window-row], [data-testid="chat-live-operation"]'));
+    const initialOrder = stableOrder();
+    const assertStable = () => {
+      const current = stableOrder();
+      assert(current.length === initialOrder.length && current.every((row, index) => row === initialOrder[index]),
+        "the same transcript rows and operation keep their order");
+      assert(held.compareDocumentPosition(live[0]) & Node.DOCUMENT_POSITION_FOLLOWING, "the send stays before the running operation");
+    };
+    assertStable();
+    await act(async () => dispatch("chat-send-status", latest));
+    assertStable();
     const rows = Array.from(host.querySelectorAll("[data-chat-window-row]"));
     assert(rows[rows.length - 1]?.contains(held), "the held send is the last transcript row");
     assert(!host.querySelector('[role="separator"]'), "an untimestamped turn gains no day divider from the held send");
@@ -640,15 +649,16 @@ test("a held send waits after the running turn's live operation and becomes its 
     await act(async () => dispatch("chat-send-status", latest));
     const written = held.querySelector('[role="status"][aria-label="Awaiting confirmation"]');
     assert(written?.textContent === "" && !written.querySelector("button"), "written input keeps a quiet accessible indicator");
-    assert(live[0].compareDocumentPosition(held) & Node.DOCUMENT_POSITION_FOLLOWING,
-      "a written send keeps its place after the turn it waited behind");
-    latest = status("delivered", 3);
+    assertStable();
+    latest = status("submit_unconfirmed", 3);
+    await act(async () => dispatch("chat-send-status", latest));
+    assert(held.querySelector('[role="status"][data-state="uncertain"]'), "uncertainty retains the bubble");
+    assertStable();
+    latest = status("delivered", 4);
     await act(async () => dispatch("chat-send-status", latest));
     const delivered = Array.from(bubbles()).filter((bubble) => bubble.textContent?.includes("opaque-held"));
     assert(delivered.length === 1 && delivered[0].getAttribute("data-message-id") === "held-send", "delivery keeps the one bubble");
-    const stillLive = host.querySelector('[data-testid="chat-live-operation"]');
-    assert(stillLive && delivered[0].compareDocumentPosition(stillLive) & Node.DOCUMENT_POSITION_FOLLOWING,
-      "confirmed delivery resumes conversation placement");
+    assertStable();
   } finally {
     await act(async () => root.unmount()); host.remove();
   }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, waitsAfterTurn, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, type DeliverySend } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 
@@ -44,18 +44,23 @@ test("failed and uncertain formerly held sends return to send-time placement acr
   }
 });
 
-test("tail placement shares one rule for queued and formerly held active sends", () => {
-  for (const state of ["held", "written", "submit_unconfirmed", "failed", "delivered"] as const) {
-    for (const wasHeld of [false, true]) {
-      const current = { ...applyDeliveryStatus(send(), status(state, 1)), wasHeld };
-      const expected = state === "held" || (wasHeld && state === "written");
-      assert.equal(waitsAfterTurn(current), expected);
-      assert.equal(deliveryProjectionSends([current])[0].held, expected);
+test("own send ordering stays at send time through admission and every delivery state", () => {
+  const at = 1_800_000_000_000;
+  const transcript = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
+    rows: [
+      { id: "earlier", type: "assistant", content: "before", timestamp: String(at - 1000) },
+      { id: "later", type: "assistant", content: "after", timestamp: String(at + 1000) },
+    ],
+  }).state;
+  let current: DeliverySend = { ...send(), sentAtMs: at };
+  for (const [index, state] of ([undefined, "held", "written", "submit_unconfirmed", "delivered"] as const).entries()) {
+    if (state) current = applyDeliveryStatus(current, status(state, index));
+    for (const value of [current, JSON.parse(JSON.stringify(current)) as DeliverySend]) {
+      assert.deepEqual(projectTranscript(transcript, deliveryProjectionSends([value])).rows.map(row => row.id),
+        ["earlier", "bubble", "later"]);
     }
   }
-  const admitting = { ...send(), wasHeld: true };
-  assert.equal(waitsAfterTurn(admitting), true);
-  assert.equal(deliveryProjectionSends([admitting])[0].held, true);
 });
 
 test("sending becomes delivered without changing the bubble", () => {
@@ -216,7 +221,7 @@ test("two failed sends remain visible across reload alongside a similar new sess
   }
 });
 
-test("written sends flow above later rows while held and failed sends retain their state", () => {
+test("all sends flow above later rows while retaining their delivery state", () => {
   const at = 1_800_000_000_000;
   const transcript = reduceTranscript(createTranscriptState(), {
     kind: "snapshot", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
@@ -229,21 +234,21 @@ test("written sends flow above later rows while held and failed sends retain the
     const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(state, 2));
     const projected = projectTranscript(transcript, deliveryProjectionSends([current]));
     assert.deepEqual(projected.rows.map((row) => row.id),
-      state === "held" ? ["old", "new", "bubble"] : ["old", "bubble", "new"]);
+      ["old", "bubble", "new"]);
     assert.equal(projected.pending.length, 1);
     assert.equal(deliveryState(current), state === "written" ? "sending" : state === "submit_unconfirmed" ? "uncertain"
       : state === "held" ? "queued" : state);
   }
 });
 
-test("a held send stays one bubble after the running turn until its exact echo replaces it", () => {
+test("a held send stays one bubble at send time until its exact echo replaces it", () => {
   const at = 1_800_000_000_000;
   const authority = { sourceSessionId: "own", sessionBindingNonce: "launch" };
   const running = reduceTranscript(createTranscriptState(), {
     kind: "snapshot", authority, range: null,
     rows: [
       { id: "turn", type: "user", content: "earlier ask", timestamp: String(at - 1000) },
-      { id: "work", type: "assistant", content: "still working", timestamp: String(at + 1000) },
+      { id: "work", type: "assistant", content: "still working", timestamp: String(at - 500) },
     ],
   }).state;
   const held = applyDeliveryStatus({ ...send(), sentAtMs: at }, { ...status("held", 1), pending_reason: "held_active_turn" });

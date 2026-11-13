@@ -79,11 +79,6 @@ export function unownedHeldSends(sends: readonly DeliverySend[], statuses: reado
     && !sends.some((send) => send.correlationId === status.correlationId)).length;
 }
 
-export function waitsAfterTurn(send: DeliverySend): boolean {
-  const state = deliveryState(send);
-  return state === "queued" || (send.wasHeld === true && (state === "sending" || state === "written"));
-}
-
 export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus): DeliverySend {
   if (status.correlationId !== send.correlationId) return send;
   if (send.status?.ledger_id === status.ledger_id && send.status.sequence > status.sequence) return send;
@@ -165,7 +160,6 @@ export function deliveryProjectionSends(
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",
         flowAtMs: send.sentAtMs,
-        held: waitsAfterTurn(send),
       };
     });
 }

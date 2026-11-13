@@ -48,22 +48,6 @@ export function composerRunningTool<Message extends Pick<NormalizedChatMessage, 
   return messages.find((message) => message.type === "tool_call" && message.toolStatus === "running");
 }
 
-/** The live operation draws after its turn; sends queued behind that turn follow it, so it renders in the first of them. */
-export function liveOperationSlot<Row extends ChatTranscriptActivityRow>(
-  rows: readonly Row[],
-  liveToolId: string | null,
-  waitsBehindTurn: (message: Row["msg"]) => boolean,
-): string | null {
-  if (liveToolId == null) return null;
-  let slot: string | null = null;
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const message = rows[index].msg;
-    if (message.id === liveToolId || !waitsBehindTurn(message)) break;
-    slot = message.id;
-  }
-  return slot;
-}
-
 export function chatLiveOperationLabel(message: NormalizedChatMessage): string {
   const label = activityLabel(message);
   return label === "Working" ? message.toolSummary?.trim() || "Tool activity" : label;
