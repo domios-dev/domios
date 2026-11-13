@@ -774,36 +774,36 @@ impl ServiceContext {
         run_id: &str,
         now: u64,
     ) -> Result<(), String> {
-        self.extensions
+        let index = self
+            .extensions
             .try_get::<super::events::CuratorTabs>()
-            .ok_or("Curator runtime is unavailable")?
-            .0
-            .write()
-            .insert(tab_id.into(), plan_id.into());
-        let prior_rounds = self
-            .plan_store
-            .curator_real_rounds_projection(plan_id)
-            .map_err(|error| match error {
-                crate::service::plan::PlanError::NotFound => "plan absent".to_string(),
-                error => error.to_string(),
-            })?;
-        let number = self
-            .plan_store
-            .edit_curator_state(plan_id, now, |p| {
-                let run = p.control_loop.running.as_mut().ok_or_else(|| {
-                    crate::service::plan::PlanError::Validation("round absent".into())
+            .ok_or("Curator runtime is unavailable")?;
+        let number = self.with_curator_plan_gate(plan_id, || {
+            index.0.write().insert(tab_id.into(), plan_id.into());
+            let prior_rounds = self
+                .plan_store
+                .curator_real_rounds_projection(plan_id)
+                .map_err(|error| match error {
+                    crate::service::plan::PlanError::NotFound => "plan absent".to_string(),
+                    error => error.to_string(),
                 })?;
-                run.tab_id = Some(tab_id.into());
-                run.run_id = Some(run_id.into());
-                let number = run.number;
-                let close = run.synthesis_group_close_at;
-                p.control_loop.real_rounds_started = prior_rounds.saturating_add(1);
-                if close.is_some() {
-                    p.control_loop.last_synthesis_group_close_at = close;
-                }
-                Ok(number)
-            })
-            .map_err(|e| e.to_string())?;
+            self.plan_store
+                .edit_curator_state(plan_id, now, |p| {
+                    let run = p.control_loop.running.as_mut().ok_or_else(|| {
+                        crate::service::plan::PlanError::Validation("round absent".into())
+                    })?;
+                    run.tab_id = Some(tab_id.into());
+                    run.run_id = Some(run_id.into());
+                    let number = run.number;
+                    let close = run.synthesis_group_close_at;
+                    p.control_loop.real_rounds_started = prior_rounds.saturating_add(1);
+                    if close.is_some() {
+                        p.control_loop.last_synthesis_group_close_at = close;
+                    }
+                    Ok(number)
+                })
+                .map_err(|e| e.to_string())
+        })?;
         let plan =
             self.plan_store
                 .plan_identity_projection(plan_id)
