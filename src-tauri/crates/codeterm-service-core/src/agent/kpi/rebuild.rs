@@ -19,12 +19,16 @@ pub(super) fn rebuild_usage(
         }
         let (batch, reread) = match providers {
             Some(registry) => {
-                let owner = ledger
-                    .usage_provider(&path)?
-                    .ok_or_else(|| format!("usage source {path} has no recorded provider"))?;
-                let provider = registry
-                    .provider_arc(&owner)
-                    .ok_or_else(|| format!("usage provider {owner} unavailable"))?;
+                let Some(owner) = ledger.usage_provider(&path)? else {
+                    outcome.missing_sources += 1;
+                    log::warn!("[kpi] rebuild skipped usage source {path}: no recorded provider");
+                    continue;
+                };
+                let Some(provider) = registry.provider_arc(&owner) else {
+                    outcome.missing_sources += 1;
+                    log::warn!("[kpi] rebuild skipped usage source {path}: recorded provider {owner} unavailable");
+                    continue;
+                };
                 let now = super::attribution::now_epoch_secs();
                 UsageIngestor::read_through_with_parser(
                     &source,
