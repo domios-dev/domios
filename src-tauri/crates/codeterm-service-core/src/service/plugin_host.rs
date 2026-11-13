@@ -85,6 +85,24 @@ fn api_cfg_base_url(cfg: crate::config::schema::ApiConfig) -> String {
 // ── PluginHostCtx impl ───────────────────────────────────────────────────────
 
 impl codeterm_plugin::PluginHostCtx for ServiceContext {
+    fn suspend_plugin_watches(
+        &self,
+        destination: &std::path::Path,
+    ) -> Result<Box<dyn Send>, String> {
+        super::tab_chat::file_events::suspend_bundle(destination)
+            .map(|scope| Box::new(scope) as Box<dyn Send>)
+    }
+
+    fn plugin_install_tabs(&self, id: &str) -> Vec<String> {
+        self.mux
+            .read()
+            .tabs
+            .values()
+            .filter(|tab| tab.agent_type.as_deref() == Some(id))
+            .map(|tab| format!("{} ({})", tab.title, tab.id))
+            .collect()
+    }
+
     fn agent_run_start_json(
         &self,
         plugin: &str,

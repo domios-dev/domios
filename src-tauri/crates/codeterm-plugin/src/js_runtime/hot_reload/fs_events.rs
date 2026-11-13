@@ -3,7 +3,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvError};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 
 use notify::event::{AccessKind, AccessMode};
@@ -13,6 +13,9 @@ trait PathWatcher: Send {
     fn watch(&mut self, path: &Path, mode: RecursiveMode) -> notify::Result<()>;
     fn unwatch(&mut self, path: &Path) -> notify::Result<()>;
 }
+
+#[cfg(test)]
+pub(super) type HoldsPath = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
 
 impl PathWatcher for RecommendedWatcher {
     fn watch(&mut self, path: &Path, mode: RecursiveMode) -> notify::Result<()> {
@@ -96,6 +99,50 @@ fn relevant_with_case(event: &Event, roots: &[PathBuf], case: PathCase) -> bool 
 }
 
 impl FileEvents {
+    pub(super) fn take_receiver(&mut self) -> Receiver<()> {
+        std::mem::replace(&mut self.receiver, mpsc::sync_channel(1).1)
+    }
+
+    pub(super) fn release_bundle(&mut self, destination: &Path) -> notify::Result<()> {
+        let destination = canonical_root(destination).map_err(notify::Error::io)?;
+        let name = destination
+            .file_name()
+            .ok_or_else(|| notify::Error::generic("Plugin bundle has no name"))?
+            .to_string_lossy();
+        let staging = destination.with_file_name(format!("{name}.tmp-install"));
+        let backup = destination.with_file_name(format!("{name}.rollback.tmp-install"));
+        let paths: Vec<_> = self
+            .watched
+            .keys()
+            .filter(|path| {
+                [&destination, &staging, &backup]
+                    .iter()
+                    .any(|bundle| PathCase::native().within(path, bundle))
+            })
+            .cloned()
+            .collect();
+        for path in paths {
+            self.watcher.unwatch(&path)?;
+            self.watched.remove(&path);
+        }
+        let parent = destination
+            .parent()
+            .ok_or_else(|| notify::Error::generic("Plugin bundle has no parent"))?;
+        let mode = self
+            .watched
+            .get(parent)
+            .copied()
+            .unwrap_or(RecursiveMode::NonRecursive);
+        // Windows watch acknowledges queued removals; unwatch and Drop alone do not.
+        if self.watched.contains_key(parent) {
+            self.watcher.unwatch(parent)?;
+            self.watched.remove(parent);
+        }
+        self.watcher.watch(parent, mode)?;
+        self.watched.insert(parent.to_path_buf(), mode);
+        Ok(())
+    }
+
     pub(super) fn new(roots: Vec<PathBuf>) -> notify::Result<Self> {
         let roots = roots
             .iter()
@@ -121,10 +168,6 @@ impl FileEvents {
         };
         events.refresh()?;
         Ok(events)
-    }
-
-    pub(super) fn wait(&self) -> Result<(), RecvError> {
-        self.receiver.recv()
     }
 
     pub(super) fn refresh(&mut self) -> notify::Result<()> {
@@ -213,6 +256,13 @@ fn desired_watches(roots: &[PathBuf]) -> notify::Result<HashMap<PathBuf, Recursi
             for watch in codeterm_util::watch_plan::covering_set(root)
                 .map_err(|error| notify::Error::generic(&error))?
             {
+                if watch.path.strip_prefix(root).is_ok_and(|relative| {
+                    relative
+                        .components()
+                        .any(|part| part.as_os_str().to_string_lossy().ends_with(".tmp-install"))
+                }) {
+                    continue;
+                }
                 let mode = if watch.recursive {
                     RecursiveMode::Recursive
                 } else {
@@ -231,4 +281,4 @@ fn desired_watches(roots: &[PathBuf]) -> notify::Result<HashMap<PathBuf, Recursi
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

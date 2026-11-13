@@ -33,6 +33,8 @@ enum Command {
         Sender<Result<u64, String>>,
     ),
     Unsubscribe(u64),
+    Suspend(PathBuf, Sender<Result<(), String>>),
+    Resume(PathBuf, Sender<()>),
     Event(PathBuf, u64, notify::Result<Event>),
     #[cfg(test)]
     Inspect(Sender<Vec<(PathBuf, usize)>>),
@@ -58,8 +60,50 @@ impl Drop for WatchGuard {
 }
 
 struct RootWatch {
-    _watcher: Box<dyn Send>,
+    _watcher: Box<dyn DirectoryStream>,
     generation: u64,
+}
+
+trait DirectoryStream: Send {
+    fn stop(&mut self) -> Result<(), String>;
+}
+
+struct NativeStream {
+    watcher: notify::RecommendedWatcher,
+    root: PathBuf,
+    stopped: bool,
+}
+
+impl DirectoryStream for NativeStream {
+    fn stop(&mut self) -> Result<(), String> {
+        if !self.stopped {
+            self.watcher
+                .unwatch(&self.root)
+                .map_err(|error| error.to_string())?;
+            // Windows unwatch only enqueues removal; watch acknowledges the preceding removals.
+            #[cfg(windows)]
+            {
+                let data_root = crate::paths::data_dir();
+                let barrier = data_root
+                    .ancestors()
+                    .find(|path| path.is_dir())
+                    .ok_or("No directory for watcher release acknowledgement")?;
+                self.watcher
+                    .watch(barrier, RecursiveMode::NonRecursive)
+                    .map_err(|error| error.to_string())?;
+            }
+            self.stopped = true;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for NativeStream {
+    fn drop(&mut self) {
+        if let Err(error) = self.stop() {
+            log::error!("[tab_chat.watch] release {}: {error}", self.root.display());
+        }
+    }
 }
 
 struct Registry {
@@ -69,6 +113,7 @@ struct Registry {
     generation: u64,
     logged_counts: (usize, usize),
     backend: Arc<dyn DirectoryBackend>,
+    suspended: HashMap<PathBuf, usize>,
 }
 
 trait DirectoryBackend: Send + Sync {
@@ -79,7 +124,7 @@ trait DirectoryBackend: Send + Sync {
         mode: RecursiveMode,
         generation: u64,
         commands: &Sender<Command>,
-    ) -> Result<Box<dyn Send>, String>;
+    ) -> Result<Box<dyn DirectoryStream>, String>;
 }
 
 struct NativeBackend;
@@ -95,7 +140,7 @@ impl DirectoryBackend for NativeBackend {
         mode: RecursiveMode,
         generation: u64,
         commands: &Sender<Command>,
-    ) -> Result<Box<dyn Send>, String> {
+    ) -> Result<Box<dyn DirectoryStream>, String> {
         let events = commands.clone();
         let event_root = root.to_path_buf();
         let mut watcher = notify::recommended_watcher(move |event| {
@@ -105,7 +150,11 @@ impl DirectoryBackend for NativeBackend {
         watcher
             .watch(root, mode)
             .map_err(|error| error.to_string())?;
-        Ok(Box::new(watcher))
+        Ok(Box::new(NativeStream {
+            watcher,
+            root: root.to_path_buf(),
+            stopped: false,
+        }))
     }
 }
 
@@ -118,6 +167,7 @@ impl Default for Registry {
             generation: 0,
             logged_counts: (0, 0),
             backend: Arc::new(NativeBackend),
+            suspended: HashMap::new(),
         }
     }
 }
@@ -143,6 +193,47 @@ fn canonical_source(source: &Path) -> Result<PathBuf, String> {
 }
 
 impl Registry {
+    fn suspend(&mut self, path: PathBuf, commands: &Sender<Command>) -> Result<(), String> {
+        *self.suspended.entry(path.clone()).or_default() += 1;
+        let roots: Vec<_> = self
+            .roots
+            .keys()
+            .filter(|root| codeterm_util::watch_plan::PathCase::native().within(root, &path))
+            .cloned()
+            .collect();
+        let result = roots
+            .into_iter()
+            .try_for_each(|root| {
+                self.roots
+                    .get_mut(&root)
+                    .expect("existing root")
+                    ._watcher
+                    .stop()?;
+                self.roots.remove(&root);
+                Ok(())
+            })
+            .and_then(|()| self.relocate(&path, commands));
+        if result.is_err() {
+            self.resume(&path, commands);
+        }
+        result
+    }
+    fn resume(&mut self, path: &Path, commands: &Sender<Command>) {
+        if let Some(count) = self.suspended.get_mut(path) {
+            *count -= 1;
+            if *count == 0 {
+                self.suspended.remove(path);
+            }
+        }
+        if let Err(error) = self.relocate(path, commands) {
+            log::error!("[tab_chat.watch] restore bundle watches: {error}");
+        }
+        for subscriber in self.subscribers.values().filter(|subscriber| {
+            codeterm_util::watch_plan::PathCase::native().within(&subscriber.source, path)
+        }) {
+            let _ = subscriber.wake.try_send(());
+        }
+    }
     fn ensure_root(&mut self, root: &Path, commands: &Sender<Command>) -> Result<(), String> {
         if self.roots.contains_key(root) {
             return Ok(());
@@ -163,15 +254,54 @@ impl Registry {
     }
 
     fn locate(&mut self, source: &Path, commands: &Sender<Command>) -> Result<PathBuf, String> {
-        let mut root = self.backend.nearest(source)?;
+        let mut root = self.watch_root(source)?;
         loop {
             self.ensure_root(&root, commands)?;
-            let current = self.backend.nearest(source)?;
+            let current = self.watch_root(source)?;
             if current == root {
                 return Ok(root);
             }
             root = current;
         }
+    }
+
+    fn watch_root(&self, source: &Path) -> Result<PathBuf, String> {
+        let mut root = self.backend.nearest(source)?;
+        while let Some(bundle) = self
+            .suspended
+            .keys()
+            .find(|bundle| codeterm_util::watch_plan::PathCase::native().within(&root, bundle))
+        {
+            root = bundle
+                .parent()
+                .ok_or("Plugin bundle has no parent")?
+                .to_path_buf();
+        }
+        Ok(root)
+    }
+
+    fn relocate(&mut self, path: &Path, commands: &Sender<Command>) -> Result<(), String> {
+        let sources: Vec<_> = self
+            .subscribers
+            .iter()
+            .filter(|(_, subscriber)| {
+                codeterm_util::watch_plan::PathCase::native().within(&subscriber.source, path)
+            })
+            .map(|(id, subscriber)| (*id, subscriber.source.clone()))
+            .collect();
+        let mut result = Ok(());
+        for (id, source) in sources {
+            let located = self.locate(&source, commands);
+            if let Some(subscriber) = self.subscribers.get_mut(&id) {
+                subscriber.armed.store(located.is_ok(), Ordering::Release);
+                match located {
+                    Ok(root) => subscriber.root = root,
+                    Err(error) => result = Err(error),
+                }
+            }
+        }
+        self.prune();
+        result
     }
 
     fn prune(&mut self) {
@@ -302,6 +432,17 @@ fn start_registry() -> Result<Sender<Command>, String> {
                         registry.subscribers.remove(&id);
                         registry.prune();
                     }
+                    Command::Suspend(path, reply) => {
+                        let result = registry.suspend(path.clone(), &events);
+                        let suspended = result.is_ok();
+                        if reply.send(result).is_err() && suspended {
+                            registry.resume(&path, &events);
+                        }
+                    }
+                    Command::Resume(path, reply) => {
+                        registry.resume(&path, &events);
+                        let _ = reply.send(());
+                    }
                     Command::Event(root, generation, event) => {
                         registry.event(root, generation, event, &events)
                     }
@@ -331,13 +472,49 @@ fn start_registry() -> Result<Sender<Command>, String> {
     Ok(commands)
 }
 
-pub(crate) fn watch(source: &Path, wake: SyncSender<()>) -> Result<WatchGuard, String> {
+fn registry_commands() -> Result<Sender<Command>, String> {
     static REGISTRY: OnceLock<Result<Sender<Command>, String>> = OnceLock::new();
-    let commands = REGISTRY
+    Ok(REGISTRY
         .get_or_init(start_registry)
         .as_ref()
         .map_err(Clone::clone)?
-        .clone();
+        .clone())
+}
+
+pub(crate) struct BundleWatchScope {
+    commands: Sender<Command>,
+    path: PathBuf,
+}
+
+impl Drop for BundleWatchScope {
+    fn drop(&mut self) {
+        let (reply, result) = mpsc::channel();
+        if self
+            .commands
+            .send(Command::Resume(self.path.clone(), reply))
+            .is_ok()
+        {
+            let _ = result.recv();
+        }
+    }
+}
+
+pub(crate) fn suspend_bundle(path: &Path) -> Result<BundleWatchScope, String> {
+    let commands = registry_commands()?;
+    let path = canonical_source(&path.join("plugin.json"))?
+        .parent()
+        .ok_or("Plugin bundle has no parent")?
+        .to_path_buf();
+    let (reply, result) = mpsc::channel();
+    commands
+        .send(Command::Suspend(path.clone(), reply))
+        .map_err(|error| error.to_string())?;
+    result.recv().map_err(|error| error.to_string())??;
+    Ok(BundleWatchScope { commands, path })
+}
+
+pub(crate) fn watch(source: &Path, wake: SyncSender<()>) -> Result<WatchGuard, String> {
+    let commands = registry_commands()?;
     let (reply, result) = mpsc::channel();
     let armed = Arc::new(AtomicBool::new(true));
     commands
