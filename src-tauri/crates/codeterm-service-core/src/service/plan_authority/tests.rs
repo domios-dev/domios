@@ -959,6 +959,7 @@ fn an_unbound_authenticated_caller_is_the_owner() {
     );
 }
 
+mod custom_manager;
 mod lifecycle;
 
 #[tokio::test]

@@ -181,7 +181,10 @@ fn a_schedule_on_any_role_but_the_curator_is_refused_by_this_host() {
             role: "auditor".into()
         })
     );
-    assert_eq!(resolve::host_policy(&with_role("curator", scheduled)), Ok(()));
+    assert_eq!(
+        resolve::host_policy(&with_role("curator", scheduled)),
+        Ok(())
+    );
 }
 
 #[test]
@@ -191,6 +194,22 @@ fn host_owned_names_are_refused_as_package_roles() {
             resolve::host_policy(&with_role(name, "    instructions: Fixture.\n")),
             Err(TemplateStartRefusal::HostOwnedRole { role: name.into() })
         );
+    }
+}
+
+/// Start resolves through this policy before reserving anything, so the refusal is typed and
+/// no tab or Team exists yet.
+#[test]
+fn a_domios_worker_kind_declared_as_a_manager_is_refused_before_start() {
+    for name in ["qa", "reviewer", "release_manager"] {
+        assert_eq!(
+            resolve::host_policy(&with_role(name, "    instructions: Fixture.\n")),
+            Err(TemplateStartRefusal::HostOwnedRole { role: name.into() })
+        );
+        let as_worker = package(&format!(
+            "{HEAD}  {name}:\n    kind: worker\n    instructions: Fixture.\n"
+        ));
+        assert_eq!(resolve::host_policy(&as_worker), Ok(()), "{name}");
     }
 }
 
@@ -204,5 +223,8 @@ fn custom_with_team_managers_get_pickers_keyed_by_role_name() {
         provenance: codeterm_team_package::contracts::TemplateProvenance::Saved,
         warnings: Vec::new(),
     };
-    assert_eq!(with_team_managers(&resolved), ["orchestrator", "security_lead"]);
+    assert_eq!(
+        with_team_managers(&resolved),
+        ["orchestrator", "security_lead"]
+    );
 }
