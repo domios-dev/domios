@@ -30,6 +30,11 @@ impl PlanStore {
                 .map(|value| value.trim().to_string())
                 .map_err(|error| PlanError::Io(error.to_string()))
         };
+        if !std::path::Path::new(&checkout_path).is_dir() {
+            return Err(PlanError::Io(format!(
+                "launch checkout '{checkout_path}' is not an existing directory"
+            )));
+        }
         // A folder without git history binds the folder itself and has no start commit.
         let (root, head) = match super::super::shared_checkout::project_history(&checkout_path)
             .map_err(PlanError::Io)?

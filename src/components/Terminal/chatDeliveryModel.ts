@@ -158,7 +158,7 @@ export function reconcileDeliveryStatusesModel(
 }
 
 export function deliveryProjectionSends(
-  sends: readonly DeliverySend[], resetCutoffMs: number | null = null,
+  sends: readonly DeliverySend[], resetCutoffMs: number | null = null, queuedIds: ReadonlySet<string> = new Set(),
 ): readonly (DeliverySend & { echoEligible: boolean })[] {
   return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) !== "delivered" || send.sentAtMs >= resetCutoffMs)
     .map((send) => {
@@ -169,6 +169,7 @@ export function deliveryProjectionSends(
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",
         flowAtMs: send.sentAtMs,
+        held: queuedIds.has(send.id) || send.status?.pending_reason === ACTIVE_TURN_HOLD,
       };
     });
 }

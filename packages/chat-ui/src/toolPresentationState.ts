@@ -15,6 +15,7 @@ export function toolPresentationKey(message: NormalizedChatMessage, item?: Timel
 
 export function retainStreamedCommandShell(event: ToolEvent): boolean {
   if (event.kind !== "command" || event.stream || event.commandBatch || event.agents) return false;
+  if (toolCommandShape(event).kind === "group") return false;
   const key = toolPresentationKey(event.message, { kind: "tool", event });
   if (!retainedCommands.has(key)) {
     if (event.status !== "pending") return false;

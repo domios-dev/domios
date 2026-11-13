@@ -25,7 +25,6 @@ import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { composerRunningTool, projectChatTranscriptActivity } from "./chatTranscriptActivity";
-import { ChatLiveOperation } from "./ChatLiveOperation";
 import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { createDocumentInventory } from "./chatDocuments";
@@ -308,6 +307,8 @@ function TabSessionChatBody({
     followTailRef: chatFollowTailRef,
     history: runtime.state?.history,
     live: isActive || awaitsTranscriptEcho(deliverySends),
+    queueSendsBehindTurn: agentActivity.kind === "working" && (tab?.backing?.kind === "pty"
+      || descriptor?.transport === "pty" || descriptor?.agent_runtime?.turnScopedRequests?.includes("submitTurn") === true),
   });
   const transcriptTailId = allMessages[allMessages.length - 1]?.id;
   useEffect(() => {
@@ -402,7 +403,6 @@ function TabSessionChatBody({
     [agentActivity.kind, descriptor, effectiveChatBackend, renderedEnrichedMessages, tab?.backing, transcriptActivityAvailable],
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
-  const liveOperation = renderedEnrichedMessages.find(({ msg }) => msg.id === chatTranscriptActivity.liveToolId)?.msg ?? null;
   const chatUserScrollingRef = useRef(false);
   const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
     active: transcriptMounted, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
@@ -959,6 +959,7 @@ function TabSessionChatBody({
       <CompactToolRowsProvider surfaceRef={scrollRef}>
       <div
         ref={scrollRef}
+        style={{ scrollbarGutter: "stable" }}
         onScroll={handleScroll}
         onKeyDown={messageSelection.onKeyDown}
         data-selecting={messageSelection.active || undefined}
@@ -1022,7 +1023,7 @@ function TabSessionChatBody({
             <ChatTranscriptRow
               key={msg.id}
               entry={entry}
-              hideMessage={msg.id === liveOperation?.id}
+              liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? "Live operation" : undefined}
               daySeparator={daySeparators.get(messageIndex)}
               originProps={originPropsById.get(msg.id)}
               reports={following.length ? following.map((index) => outboundReports[index]).filter(Boolean) : NO_REPORTS}
@@ -1063,7 +1064,6 @@ function TabSessionChatBody({
         </ChatMessageRow>}
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
-        <ChatLiveOperation message={liveOperation} />
         {unownedHeld > 0 && <p role="status" data-testid="chat-unowned-held" className="py-1 text-center text-xs text-[var(--ct-muted-fg)]">
           {unownedHeld} {unownedHeld === 1 ? "message" : "messages"} from another window queued for this agent.
         </p>}

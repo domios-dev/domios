@@ -75,6 +75,7 @@ export function usePtyConnection({
     (a, b) => a === b,
   );
   const tabCwdRef = useRef(tabCwd);
+  const spawnBlocked = useMuxSelector(s => !ptyId && s.tabs[tabId]?.boot_stage === "spawn_failed");
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const viewportRestoreRequestRef = useRef(0);
   const [readinessFailed, setReadinessFailed] = useState(false);
@@ -117,7 +118,8 @@ export function usePtyConnection({
 
   useEffect(() => {
     const term = termRef.current;
-    if (!term || !termReady || !shouldAttachTerminalOutput(ioEnabled, renderEnabled)) return;
+    if (!term || !termReady || !shouldAttachTerminalOutput(ioEnabled, renderEnabled)
+      || spawnBlocked) return;
     let disposed = false;
     let framed = false;
     let unsubscribe: (() => void) | undefined;
@@ -199,7 +201,7 @@ export function usePtyConnection({
       connectedPtyRef.current = null;
       callbacks.current.onConnectionStateChange?.(false);
     };
-  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt]);
+  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt, spawnBlocked]);
 
   return { writePty, readinessFailed, retryConnection };
 }
