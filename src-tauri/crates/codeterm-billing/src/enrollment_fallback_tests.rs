@@ -144,8 +144,12 @@ async fn paid_answer_without_installation_sign_in_names_it_instead_of_checking()
     assert!(billing.neighbors_locked("fixture-user"));
     assert!(!billing.limit_gate().summary().enforcing);
 
+    let signed_in_again = codeterm_account::Session {
+        login_generation: user.login_generation + 1,
+        ..user
+    };
     let snapshot = billing
-        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .refresh(Some(&signed_in_again), RefreshEvent::SignIn, Instant::now())
         .await;
     assert!(!snapshot.checking);
     assert_eq!(snapshot.verification, None);
