@@ -27,3 +27,10 @@
   border-color: var(--ct-card-tone);
   background: color-mix(in srgb, var(--ct-card-tone) 7%, var(--ct-bg));
 }
+
+.template-gallery-card .template-trust-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
