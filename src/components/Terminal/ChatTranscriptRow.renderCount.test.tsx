@@ -138,7 +138,7 @@ it("a failed routed send offers no Retry and tells the owner how to resend it", 
       joinNext={false} selecting={false} cursor={false} streaming={false} latestFailedToolCall={false} forkable={false} revertible={false}
       context={{ ...context, retrySend }} deliverySend={send} deliveryView="failed" />));
     expect(Array.from(host.querySelectorAll("button")).some(button => button.textContent === "Retry")).toBe(false);
-    expect(host.querySelector('.ct-delivery[data-state="failed"] .ct-delivery__label:not(.sr-only)')?.textContent).toContain("domios send");
+    expect(host.querySelector('[role="status"][data-state="failed"]')?.getAttribute("aria-label")).toContain("domios send");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
