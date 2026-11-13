@@ -26,6 +26,7 @@
       {
         "role": "orchestrator",
         "label": "Lead",
+        "authority": "builtin",
         "decision": { "reason": "needs_choice", "alternatives": [{ "model": "claude:opus" }], "amber": false }
       }
     ]

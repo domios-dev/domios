@@ -47,7 +47,7 @@ describe("template exchange model", () => {
 
   it("lists what an update changes", () => {
     expect(updateDiffLines(exchange.import_result.update as TemplateUpdateDiff)).toEqual([
-      "Roles added: Editor", "Roles changed: Checker", "Brings now: citations", "No longer brings: Market sizes older than two years mislead",
+      "Roles added: Editor", "Roles changed: Checker", "Kind changed: Checker (worker → manager)", "Brings now: citations", "No longer brings: Market sizes older than two years mislead",
       "New asks: network for api.example.com",
     ]);
   });

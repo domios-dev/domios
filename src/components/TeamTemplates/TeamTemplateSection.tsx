@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import type { OrchestrationPairValues } from "../Sidebar/OrchestrationPairForm";
-import type { TemplateSummary } from "../../lib/teamTemplates/startModel";
+import { humanizePackageName, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { TemplateHeader } from "./TemplateHeader";
 import { TemplateGallery } from "./TemplateGallery";
 import { TemplateReview } from "./TemplateReview";
@@ -43,7 +43,14 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
             {fallback && <WorkerChips preview={fallback} />}
             {fallback && <TemplateWhere choice={choice} preview={fallback} providers={form.providers} onInstallProvider={form.onInstallProvider} />}
           </div>;
+  const blocked = choice.blocked;
   return <>
+    {blocked && <div role="alert" aria-label={`Can't start ${humanizePackageName(blocked.name)}`} data-testid="template-blocked-start"
+      className="mb-3 rounded-lg border border-[var(--ct-red)] px-3 py-2 text-[12px]">
+      <div className="font-medium">{humanizePackageName(blocked.name)}</div>
+      <div className="text-[var(--ct-red)]">{blocked.refusal.message}</div>
+      {blocked.refusal.reasons.map((reason) => <div key={reason} className="text-[var(--ct-muted-fg)]">{reason}</div>)}
+    </div>}
     {body}
     {exporting && <TemplateExportDialog summary={exporting.summary} share={exporting.share} onClose={() => setExporting(null)} />}
   </>;

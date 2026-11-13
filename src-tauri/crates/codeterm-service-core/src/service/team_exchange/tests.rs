@@ -247,7 +247,12 @@ fn malformed_or_unsafe_packages_never_reach_my_templates() {
     let dir = tempfile::tempdir().unwrap();
     let secret = dir.path().join("secret.team.yaml");
     let mut package = inline_reference();
-    package.document.roles.get_mut("orchestrator").unwrap().instructions =
+    package
+        .document
+        .roles
+        .get_mut("orchestrator")
+        .unwrap()
+        .instructions =
         Some("Deploy with GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123\n".into());
     std::fs::write(&secret, package.to_yaml()).unwrap();
     let error = check_import(&secret)
@@ -259,8 +264,11 @@ fn malformed_or_unsafe_packages_never_reach_my_templates() {
 
     let huge = dir.path().join("huge.team.yaml");
     let mut big = inline_reference();
-    big.document.roles.get_mut("orchestrator").unwrap().instructions =
-        Some("x".repeat(3 * 1024 * 1024));
+    big.document
+        .roles
+        .get_mut("orchestrator")
+        .unwrap()
+        .instructions = Some("x".repeat(3 * 1024 * 1024));
     std::fs::write(&huge, big.to_yaml()).unwrap();
     assert!(
         check_import(&huge).is_err(),
@@ -336,11 +344,7 @@ fn my_templates_keep_versions_refuse_rewrites_and_report_updates() {
 
     let mut next = first.clone();
     next.document.version = "2.2.0".into();
-    next.document
-        .roles
-        .get_mut("checker")
-        .unwrap()
-        .instructions = Some("Check twice.\n".into());
+    next.document.roles.get_mut("checker").unwrap().instructions = Some("Check twice.\n".into());
     next.document
         .memory
         .push(codeterm_team_package::PackageMemory {
@@ -359,6 +363,23 @@ fn my_templates_keep_versions_refuse_rewrites_and_report_updates() {
         ("2.1.0", "2.2.0")
     );
     assert_eq!(diff.roles_changed, vec!["checker".to_string()]);
+    assert!(
+        diff.roles_kind_changed.is_empty(),
+        "an instruction edit is no kind change"
+    );
+    let mut promoted = next.clone();
+    promoted.document.roles.get_mut("checker").unwrap().kind =
+        codeterm_team_package::RoleKind::Manager;
+    let kind_diff = super::library::update_diff(&next, &promoted);
+    assert_eq!(kind_diff.roles_changed, vec!["checker".to_string()]);
+    assert_eq!(
+        kind_diff.roles_kind_changed,
+        vec![codeterm_team_package::contracts::RoleKindChange {
+            role: "checker".into(),
+            from: codeterm_team_package::RoleKind::Worker,
+            to: codeterm_team_package::RoleKind::Manager,
+        }]
+    );
     assert_eq!(
         diff.payload_added,
         vec![codeterm_team_package::contracts::TemplateDiffItem {
@@ -494,7 +515,13 @@ fn bake_keeps_registered_roles_model_omission_runbook_and_lineage() {
     let names: Vec<&str> = document.roles.keys().collect();
     assert_eq!(
         names,
-        ["orchestrator", "cartographer", "security_lead", "analyst", "scribe"],
+        [
+            "orchestrator",
+            "cartographer",
+            "security_lead",
+            "analyst",
+            "scribe"
+        ],
         "the bake carries exactly the registered roles, never-spawned ones included"
     );
     let security = document.manager("security_lead").unwrap();
@@ -512,7 +539,10 @@ fn bake_keeps_registered_roles_model_omission_runbook_and_lineage() {
     assert_eq!(scribe.kind, RoleKind::Worker);
     assert!(scribe.model.is_none(), "model omission survives");
     assert_eq!(scribe.files, vec!["notes/brief.md".to_string()]);
-    assert!(document.role("planner").is_none(), "a Team has exactly its roles");
+    assert!(
+        document.role("planner").is_none(),
+        "a Team has exactly its roles"
+    );
 
     let exported = run_pipeline(baked, &private_context(), PackageFormat::Yaml, None)
         .expect("the bake checks");

@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use codeterm_team_package::contracts::{
-    declared_asks, TemplateDiffItem, TemplateProvenance, TemplateRef, TemplateSummary,
-    TemplateUpdateDiff,
+    declared_asks, RoleKindChange, TemplateDiffItem, TemplateProvenance, TemplateRef,
+    TemplateSummary, TemplateUpdateDiff,
 };
 use codeterm_team_package::{check_archive, payload_items, CheckOptions, Package};
 use parking_lot::Mutex;
@@ -101,6 +101,13 @@ pub fn update_diff(from: &Package, to: &Package) -> TemplateUpdateDiff {
                 if previous != *role
                     || from.role_instructions(name) != to.role_instructions(name) =>
             {
+                if previous.kind != role.kind {
+                    diff.roles_kind_changed.push(RoleKindChange {
+                        role: name.clone(),
+                        from: previous.kind,
+                        to: role.kind,
+                    });
+                }
                 diff.roles_changed.push(name.clone())
             }
             Some(_) => {}

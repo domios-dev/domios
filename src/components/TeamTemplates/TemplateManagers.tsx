@@ -8,7 +8,7 @@ import { OrchestrationRoleRow, TeamRosterMember, type OrchestrationPairValues } 
 import { modelEffortText } from "../Sidebar/RoleModelButton";
 import { kindDisplayName } from "../../lib/roleKind";
 import {
-  effortNote, managerDecision, managerLabel, managerRoles, MANAGER_SLOTS, pickerSeed, roleSameAs, roleTiming, rowDecisionNotice, splitModel,
+  effortNote, lacksAuthority, managerDecision, managerLabel, managerRoles, pickerSeed, roleSameAs, roleTiming, rowDecisionNotice, splitModel,
   type DecisionAction, type PickerSeed,
 } from "../../lib/teamTemplates/startModel";
 
@@ -35,6 +35,20 @@ const SAME_AS = "same";
 const CHOOSE = "choose";
 
 const isPairSlot = (slot: string): slot is "orchestrator" | "planner" => slot === "orchestrator" || slot === "planner";
+
+/** A pair seat is shown only when the package lists that manager to start with the team. */
+function startsWithTeam(form: TemplateStartForm, role: string): boolean {
+  return form.pickers.some((picker) => picker.role === role)
+    || form.roles.some((candidate) => candidate.kind === "manager" && candidate.role === role && candidate.start === "with_team");
+}
+
+/** What the role does and the quiet note the host's verdict asks for; workers and built-in managers carry no note. */
+function RoleNotes({ role }: { role: TemplateRoleSummary }) {
+  return <>
+    {role.description && <div className={MUTED_LINE}>{role.description}</div>}
+    {lacksAuthority(role) && <div className={MUTED_LINE} data-authority="none">No Domios authority</div>}
+  </>;
+}
 
 function pairSeat(slot: "orchestrator" | "planner", values: OrchestrationPairValues): PickerSeed {
   return slot === "orchestrator"
@@ -140,6 +154,7 @@ function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context:
           if (action.kind === "substitute") onSeatChange(slot, { ...splitModel(action.model) });
         }} />}
         {timing && <div className={MUTED_LINE}>{timing}</div>}
+        <RoleNotes role={role} />
       </TeamRosterMember>
     );
   }
@@ -163,6 +178,7 @@ function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context:
         }
       }} />}
       {timing && <div className={MUTED_LINE}>{timing}</div>}
+      <RoleNotes role={role} />
       {followsPair && picked && <button type="button" className="self-start text-[10px] text-[var(--ct-accent)] hover:underline" onClick={() => onSeatClear(slot)}>
         Use the {kindDisplayName(followsPair)}'s model
       </button>}
@@ -190,11 +206,11 @@ export function JoinsLaterGroup({ roles, context }: { roles: TemplateRoleSummary
 
 /** Non-pair managers split into those starting with the team and those joining later. */
 function extraManagers(form: TemplateStartForm): { withTeam: TemplateRoleSummary[]; later: TemplateRoleSummary[] } {
-  const declared = managerRoles(form.roles).filter((role) => !isPairSlot(role.role));
+  const declared = form.roles.filter((role) => !isPairSlot(role.role));
   const pickerOnly = form.pickers
     .filter((picker) => !isPairSlot(picker.role) && !declared.some((role) => role.role === picker.role))
-    .map((picker): TemplateRoleSummary => ({ kind: "manager", role: picker.role, label: picker.label, start: "with_team" }));
-  const all = [...declared, ...pickerOnly].sort((a, b) => MANAGER_SLOTS.indexOf(a.role as ManagerSlot) - MANAGER_SLOTS.indexOf(b.role as ManagerSlot));
+    .map((picker): TemplateRoleSummary => ({ kind: "manager", role: picker.role, label: picker.label, authority: picker.authority, start: "with_team" }));
+  const all = managerRoles([...declared, ...pickerOnly]);
   return { withTeam: all.filter((role) => role.start === "with_team"), later: all.filter((role) => role.start !== "with_team") };
 }
 
@@ -219,7 +235,7 @@ export function TemplateManagers({ form, providers, disabledProviderIds, pair, o
   const context: RowContext = { form, providers, disabledProviderIds, pair, seats, onSeatChange, onSeatClear, onInstallProvider };
   return (
     <div className="team-roster" role="list" aria-label="Managers" data-testid="template-managers">
-      {(["orchestrator", "planner"] as const).map((slot) => {
+      {(["orchestrator", "planner"] as const).filter((slot) => startsWithTeam(form, slot)).map((slot) => {
         const picker = form.pickers.find((candidate) => candidate.role === slot);
         const role = roles.find((candidate) => candidate.role === slot);
         const label = managerLabel(slot, picker?.label ?? role?.label ?? slot);

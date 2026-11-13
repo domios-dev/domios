@@ -102,6 +102,7 @@ export function updateDiffLines(diff: TemplateUpdateDiff): string[] {
     ...list("Roles added", diff.roles_added?.map(kindDisplayName)),
     ...list("Roles removed", diff.roles_removed?.map(kindDisplayName)),
     ...list("Roles changed", diff.roles_changed?.map(kindDisplayName)),
+    ...list("Kind changed", diff.roles_kind_changed?.map((change) => `${kindDisplayName(change.role)} (${change.from} → ${change.to})`)),
     ...list("Brings now", diff.payload_added?.map((item) => item.label)),
     ...list("No longer brings", diff.payload_removed?.map((item) => item.label)),
     ...list("New asks", diff.asks_added?.map(askText)),
