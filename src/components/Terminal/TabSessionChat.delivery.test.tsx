@@ -47,7 +47,7 @@ async function openDeliveryActions(bubble: Element) {
   const status = bubble.querySelector('[role="status"]');
   assert(status?.textContent === "", "recovery stays hidden beside the bubble");
   const trigger = status.querySelector<HTMLButtonElement>("button");
-  assert(trigger?.getAttribute("aria-label"), "the dot is an accessible button");
+  assert(trigger && trigger.getAttribute("aria-label"), "the dot is an accessible button");
   await act(async () => trigger.click());
   assert(document.querySelector('[role="dialog"]'), "activating the dot opens recovery");
 }

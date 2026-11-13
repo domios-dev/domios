@@ -1,5 +1,4 @@
 import { memo, useMemo, type ReactNode } from "react";
-import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { ChatDaySeparator, ChatHighlightRow, MessageBubble, MessageTimeFrame, OutboundReportCard, messageRowTime } from "@codeterm/chat-ui";
 import type { Notification } from "../../lib/types";
