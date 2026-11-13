@@ -101,7 +101,7 @@ test("team layout stacks orchestrator above planner as a roster", async () => {
       onChange={() => {}}
     />,
   );
-  const members = [...host.querySelectorAll('[role="list"][aria-label="Team"] > [role="listitem"]')];
+  const members = [...host.querySelectorAll('[role="list"][aria-label="Managers"] > [role="listitem"]')];
   assert(members.map((m) => m.getAttribute("data-pair-role")).join(",") === "orchestrator,planner", "roster lists orchestrator then planner");
   assert(host.textContent?.includes("Orchestrator"), "orchestrator label visible");
   assert(host.textContent?.includes("Planner"), "planner label visible");
