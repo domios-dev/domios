@@ -45,7 +45,7 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
           </div>;
   const blocked = choice.blocked;
   return <>
-    {blocked && <div role="alert" aria-label={`Can't start ${blocked.title}`} data-testid="template-blocked-start"
+    {blocked && view.kind !== "gallery" && <div role="alert" aria-label={`Can't start ${blocked.title}`} data-testid="template-blocked-start"
       className="mb-3 rounded-lg border border-[var(--ct-red)] px-3 py-2 text-[12px]">
       <div className="font-medium">{blocked.title}</div>
       <div className="text-[var(--ct-red)]">{blocked.refusal.message}</div>

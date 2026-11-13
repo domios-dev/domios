@@ -51,12 +51,13 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
   const reasonId = useId();
   const ready = status?.kind === "ready";
   const blocked = status?.kind === "refused";
-  const reason = status && status.kind !== "ready" ? [status.reason.message, ...status.reason.reasons].join(" ") : undefined;
+  const failure = status && status.kind !== "ready" ? status.reason : null;
+  const reason = failure ? [failure.message, ...failure.reasons].join(" ") : undefined;
   const source = templateSource(summary);
   const byline = cardByline(summary);
   const [placement, setPlacement] = useState<"bottom-end" | "top-end">("bottom-end");
   const menuItems = [
-    { label: "Details", onClick: () => choice.showSummaryDetails(summary) },
+    { label: "Details", onClick: () => { onSelect(); choice.showSummaryDetails(summary); } },
     ...(source.owned ? [
       { label: "Export…", onClick: () => onExport(summary) },
       { label: "Share to Neighborhood…", onClick: () => onExport(summary, true) },
@@ -81,49 +82,50 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
     );
   }
   return (
-    <li data-blocked={blocked || undefined} className={`ct-card group flex min-w-0 items-start gap-1 ${selected ? "border-[color-mix(in_srgb,var(--ct-accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--ct-accent)_7%,var(--ct-bg))]" : ""}`}>
-      <button type="button" aria-pressed={selected} aria-label={reason ? `${title}: ${reason}` : undefined} aria-describedby={reason ? reasonId : undefined} title={reason} onClick={onSelect} onDoubleClick={() => { if (ready) choice.choose(summary); }}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-[inherit] py-2.5 pl-3 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
-        <TemplateIcon icon={summary.icon} />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <span className="truncate text-[13px] font-medium">{title}</span>
-            {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
-          </span>
-          <span className="block truncate text-[12px] text-[var(--ct-muted-fg)]" title={summary.description}>{summary.description}</span>
-          {/* Below 480 px the source joins this meta line instead of crowding the actions. */}
-          <span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--ct-muted-fg)]">
-            <span className="inline-flex shrink-0 items-center gap-1 min-[480px]:hidden">
-              <TemplateTrust summary={summary} inline />{byline && <span aria-hidden="true">·</span>}
+    <li data-blocked={blocked || undefined} data-selected={selected} className="ct-card ct-card--choice template-gallery-card group flex min-w-0 flex-col">
+      <div className="flex min-w-0 items-start gap-1">
+        <button type="button" aria-pressed={selected} aria-label={reason ? `${title}: ${reason}` : undefined} aria-describedby={reason ? reasonId : undefined} title={reason} onClick={onSelect} onDoubleClick={() => { if (ready) choice.choose(summary); }}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-[inherit] py-2.5 pl-3 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
+          <TemplateIcon icon={summary.icon} />
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline gap-2">
+              <span className="truncate text-[13px] font-medium">{title}</span>
+              {summary.version && <span className="font-mono text-[11px] text-[var(--ct-muted-fg)]">{summary.version}</span>}
             </span>
-            {byline && <span className="truncate" data-testid="template-byline">{byline}</span>}
-          </span>
-        </span>
-      </button>
-      <div className="flex shrink-0 items-center gap-1 self-start py-2.5 pr-2">
-        <span className="grid h-7 w-[90px] shrink-0 items-center justify-items-end">
-          {!ready ? <span className={`text-[11px] ${blocked ? "text-[var(--ct-red)]" : "text-[var(--ct-muted-fg)]"}`}
-            title={reason} data-testid={blocked ? "template-card-blocked" : undefined}>
-            {blocked ? "Can't start" : status ? "Unavailable" : "Checking…"}
-          </span> : (
-          /* Use and the status share one slot: hover or focus swaps them, so the description keeps its width. */
-          <span className="grid items-center justify-items-end">
-            <span className="col-start-1 row-start-1 hidden transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 min-[480px]:inline-flex">
-              <TemplateTrust summary={summary} />
+            <span className="block truncate text-[12px] text-[var(--ct-muted-fg)]" title={summary.description}>{summary.description}</span>
+            <span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--ct-muted-fg)]">
+              <span className="inline-flex min-w-0 items-center gap-1 overflow-hidden">
+                <TemplateTrust summary={summary} inline />{byline && <span aria-hidden="true">·</span>}
+              </span>
+              {byline && <span className="truncate" data-testid="template-byline">{byline}</span>}
             </span>
-            <Button variant="ghost" className="col-start-1 row-start-1 text-xs opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-              aria-label={`Use ${title}`} onClick={() => { onSelect(); choice.choose(summary); }}>Use</Button>
-          </span>)}
-        </span>
-        {reason && <span id={reasonId} className="sr-only">{reason}</span>}
-        {summary.provenance !== "builtin" && (
-          <span className="inline-flex" onPointerDownCapture={(event) => placeMenu(event.currentTarget)}
-            onKeyDownCapture={(event) => placeMenu(event.currentTarget)}>
-            <DropdownMenu menuLabel={`${title} actions`} placement={placement} items={menuItems}
-              trigger={<Button variant="icon" aria-label={`More actions for ${title}`} aria-haspopup="menu"><KebabGlyph /></Button>} />
           </span>
-        )}
+        </button>
+        <div className="flex shrink-0 items-center gap-1 self-start py-2.5 pr-2">
+          <span className="grid h-7 w-[90px] shrink-0 items-center justify-items-end">
+            {!ready ? <span className={`text-[11px] ${blocked ? "text-[var(--ct-red)]" : "text-[var(--ct-muted-fg)]"}`}
+              title={reason} data-testid={blocked ? "template-card-blocked" : undefined}>
+              {blocked ? "Can't start" : status ? "Unavailable" : "Checking…"}
+            </span> : (
+            <Button variant="ghost" className="text-xs opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+              aria-label={`Use ${title}`} onClick={() => { onSelect(); choice.choose(summary); }}>Use</Button>)}
+          </span>
+          {reason && <span id={reasonId} className="sr-only">{reason}</span>}
+          {summary.provenance !== "builtin" && (
+            <span className="inline-flex" onPointerDownCapture={(event) => placeMenu(event.currentTarget)}
+              onKeyDownCapture={(event) => placeMenu(event.currentTarget)}>
+              <DropdownMenu menuLabel={`${title} actions`} placement={placement} items={menuItems}
+                trigger={<Button variant="icon" aria-label={`More actions for ${title}`} aria-haspopup="menu"><KebabGlyph /></Button>} />
+            </span>
+          )}
+        </div>
       </div>
+      {selected && failure && <div role="alert" data-testid="template-blocked-start" aria-label={`${title}: ${reason}`}
+        className="border-t border-[var(--ct-border)] px-3 py-2 text-[12px]">
+        <div className="font-medium">{title}</div>
+        <div>{failure.message}</div>
+        {failure.reasons.map((detail) => <div key={detail}>{detail}</div>)}
+      </div>}
     </li>
   );
 }
@@ -196,12 +198,6 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
       <Segmented aria-label="Template source" value={filter} options={FILTERS} onChange={setFilter} />
       {/* A fixed height, so the dialog keeps its size while the filter changes. */}
       <ul className={`flex h-[340px] flex-col gap-1.5 overflow-y-auto ${isDragOver ? "opacity-40" : ""}`} aria-label="Templates" aria-busy={!catalog}>
-        {targetStatus && targetStatus.kind !== "ready" && !isBlocked(selected, choice.blocked) && <li><div role="alert"
-          aria-label={`${templateTitle(selected)}: ${targetStatus.reason.message}`} className="rounded-lg border border-[var(--ct-border)] px-3 py-2 text-[12px]">
-          <div className="font-medium">{templateTitle(selected)}</div>
-          <div>{targetStatus.reason.message}</div>
-          {targetStatus.reason.reasons.map((reason) => <div key={reason}>{reason}</div>)}
-        </div></li>}
         {entries.map((summary) => (
           <TemplateCard key={`${summary.name}@${summary.version}`} summary={summary} selected={same(summary, selected)} status={status(summary)} choice={choice} footerRef={footerRef}
             confirming={confirming !== null && same(summary, confirming)}

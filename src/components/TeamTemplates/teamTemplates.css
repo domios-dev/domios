@@ -21,3 +21,9 @@
     padding: 0.75rem 1rem calc(1rem + var(--ct-safe-bottom, 0px));
   }
 }
+
+.template-gallery-card.ct-card--choice[data-selected="true"],
+.template-gallery-card.ct-card--choice[data-selected="true"]:is(:hover, :focus-within) {
+  border-color: var(--ct-card-tone);
+  background: color-mix(in srgb, var(--ct-card-tone) 7%, var(--ct-bg));
+}
