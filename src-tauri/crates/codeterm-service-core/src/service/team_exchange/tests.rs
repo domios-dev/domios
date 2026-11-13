@@ -696,3 +696,25 @@ fn a_custom_manager_exports_with_its_kind_first_and_full_instructions() {
     assert!(yaml.contains("Review every change for security risks"));
     assert!(!yaml.contains("managers:") && !yaml.contains("workers:"));
 }
+
+#[test]
+fn import_report_retains_the_checked_package_format() {
+    let dir = tempfile::tempdir().unwrap();
+    for (format, filename) in [
+        (PackageFormat::Yaml, "desk.team.yaml"),
+        (PackageFormat::Team, "desk.team"),
+        (PackageFormat::Folder, "desk"),
+    ] {
+        let path = dir.path().join(filename);
+        run_pipeline(
+            inline_reference(),
+            &private_context(),
+            format,
+            Some(path.clone()),
+        )
+        .unwrap();
+        let (_, report) = super::check_import_report(&path).unwrap();
+        assert!(report.valid);
+        assert_eq!(report.format, format);
+    }
+}

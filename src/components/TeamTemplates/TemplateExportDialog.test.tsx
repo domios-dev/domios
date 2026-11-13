@@ -11,13 +11,15 @@ const summary = { name: "me/research-desk", version: "1.0.0", title: "Research d
 const exported = { ...exportFixture.result, path: "/data/team-exports/research-desk.team" };
 const exportPackage = vi.fn();
 const transport = () => ({ export: exportPackage } as unknown as TeamTemplatesTransport);
+const friend = (id: string, receiving = true) => ({ uid: id, displayName: id === "mira" ? "Mira" : "Sam", photoURL: null, friendship_id: id, receiving, since: 0, inbound_per_hour: 10, outbound_per_hour: 10 });
+const list = (access: "paid" | "locked" = "paid", receiving = true) => ({ schema_version: 1 as const, access, friends: [friend("mira", receiving), friend("sam", receiving)], incoming: [], outgoing: [] });
 const neighbors = { friends: vi.fn(), send: vi.fn() } satisfies NeighborShare;
 let root: Root | null = null;
 let host: HTMLDivElement;
 
 beforeEach(() => {
   exportPackage.mockReset().mockResolvedValue(exported);
-  neighbors.friends.mockReset().mockResolvedValue([{ friendship: "mira", name: "Mira" }, { friendship: "sam", name: "Sam" }]);
+  neighbors.friends.mockReset().mockResolvedValue(list());
   neighbors.send.mockReset().mockResolvedValue({ status: "pending" });
   host = document.createElement("div");
   document.body.append(host);
@@ -39,6 +41,13 @@ async function renderDialog(share: boolean) {
   });
 }
 
+async function chooseMira() {
+  const recipient = dialog().querySelector<HTMLElement>('[aria-label^="Share with"]')!;
+  await act(async () => recipient.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+  const mira = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')).find((item) => item.textContent?.trim() === "Mira")!;
+  await act(async () => mira.click());
+}
+
 describe("Export with Neighborhood sharing", () => {
   it("exports the package and hands the written file to the ordinary Neighborhood send", async () => {
     await renderDialog(true);
@@ -49,15 +58,70 @@ describe("Export with Neighborhood sharing", () => {
     await act(async () => dialog().dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
     expect(exportPackage).not.toHaveBeenCalled();
     expect(neighbors.send).not.toHaveBeenCalled();
-    const recipient = dialog().querySelector<HTMLElement>('[aria-label^="Share with"]')!;
-    await act(async () => recipient.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
-    const mira = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')).find((item) => item.textContent?.trim() === "Mira")!;
-    await act(async () => mira.click());
+    await chooseMira();
     expect(exportButton().disabled).toBe(false);
     await act(async () => exportButton().click());
     expect(exportPackage).toHaveBeenCalledWith({ template: { name: "me/research-desk", version: "1.0.0" }, format: "team" });
     expect(neighbors.send).toHaveBeenCalledWith("mira", "Shared the team Research desk 1.0.0", "/data/team-exports/research-desk.team");
     expect(dialog().textContent).toContain("sent to Mira");
+  });
+
+  it("blocks a locked channel before exporting and explains the next step", async () => {
+    neighbors.friends.mockResolvedValue(list("locked"));
+    await renderDialog(true);
+    expect(exportButton().disabled).toBe(true);
+    expect(dialog().querySelector('[role="status"]')?.textContent).toContain("Settings > Account");
+    expect(dialog().textContent).not.toContain("friends_locked");
+    await act(async () => dialog().dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    expect(exportPackage).not.toHaveBeenCalled();
+    expect(neighbors.send).not.toHaveBeenCalled();
+  });
+
+  it.each(["not receiving", "paused", "files blocked"])("blocks a recipient who is %s", async (state) => {
+    const response = list();
+    Object.assign(response.friends[0], state === "not receiving" ? { receiving: false } : state === "paused" ? { their_paused: true } : { their_file_daily_limit_bytes: 0 });
+    neighbors.friends.mockResolvedValue(response);
+    await renderDialog(true);
+    await chooseMira();
+    expect(exportButton().disabled).toBe(true);
+    expect(dialog().querySelector('[role="status"]')?.textContent).toContain("Ask them");
+    await act(async () => dialog().dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    expect(exportPackage).not.toHaveBeenCalled();
+  });
+
+  it("offers only portable formats for sharing", async () => {
+    await renderDialog(true);
+    expect(Array.from(dialog().querySelectorAll<HTMLInputElement>('input[name="template-format"]')).map(input => input.value)).toEqual(["yaml", "team"]);
+  });
+
+  it("replaces a selected folder with a portable format when sharing is enabled", async () => {
+    await renderDialog(false);
+    await act(async () => dialog().querySelector<HTMLInputElement>('input[value="folder"]')!.click());
+    await act(async () => dialog().querySelector<HTMLButtonElement>('[aria-label="Also share to Neighborhood"]')!.click());
+    expect(dialog().querySelector('input[value="folder"]')).toBeNull();
+    await chooseMira();
+    await act(async () => exportButton().click());
+    expect(exportPackage.mock.calls[0][0].format).toBe("team");
+  });
+
+  it("keeps raw errors out of sharing failures", async () => {
+    neighbors.send.mockRejectedValue(new Error("friends_locked: Upgrade to use your Neighbors channel"));
+    await renderDialog(true);
+    await chooseMira();
+    await act(async () => exportButton().click());
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("Settings > Account");
+    expect(dialog().textContent).not.toContain("friends_locked");
+    expect(dialog().textContent).not.toContain("sent to Mira");
+  });
+
+  it("does not claim an unconfirmed or refused share was sent", async () => {
+    neighbors.send.mockResolvedValue({ status: "not_delivered", reason: "recipient_locked" });
+    await renderDialog(true);
+    await chooseMira();
+    await act(async () => exportButton().click());
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("could not be confirmed");
+    expect(dialog().textContent).not.toContain("sent to Mira");
+    expect(dialog().textContent).not.toContain("recipient_locked");
   });
 
   it("exports a built-in in the chosen format without offering Neighborhood sharing", async () => {

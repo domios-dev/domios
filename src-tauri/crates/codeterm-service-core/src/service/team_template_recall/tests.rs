@@ -129,3 +129,29 @@ fn templates_are_recalled_through_mem_and_follow_save_update_delete_and_reindex(
     let hit = recall_in(&mem, &library, "graft hybrids").unwrap();
     assert_eq!(hit.matches[0].provenance, TemplateProvenance::Imported);
 }
+
+#[test]
+fn removed_builtins_disappear_from_plain_mem_search_after_reindex() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let library = TemplateLibrary::new(dir.path().canonicalize().unwrap());
+    for name in ["release-train", "qa-sweep", "distributed-bets"] {
+        let mut removed = package("1.0.0", "retired template probe");
+        removed.document.name = format!("dev.domios/{name}");
+        mem.save_with_context(
+            item(&removed, TemplateProvenance::Builtin),
+            true,
+            WriteContext::system(ACTOR),
+        )
+        .unwrap();
+    }
+    let query = SearchQuery {
+        query: "retired template probe".into(),
+        ..Default::default()
+    };
+    assert_eq!(mem.search(&query).unwrap().len(), 3);
+    reindex_in(&mem, &library).unwrap();
+    reindex_in(&mem, &library).unwrap();
+    assert!(mem.search(&query).unwrap().is_empty());
+    assert_eq!(indexed(&mem, DEFAULT_TEMPLATE), 1);
+}
