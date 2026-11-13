@@ -6,6 +6,7 @@ import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
 import { isPlanLockedRefusal } from "../../lib/spawnErrorMessage";
+import { tabWakeRequiresRetry } from "../../lib/wakeOnOpen";
 import { shouldAttachTerminalOutput, writeTerminalOutputAndWait } from "./terminalOutputWrite";
 import { writeTerminalInput } from "./terminalInputWrite";
 import {
@@ -75,7 +76,7 @@ export function usePtyConnection({
     (a, b) => a === b,
   );
   const tabCwdRef = useRef(tabCwd);
-  const spawnBlocked = useMuxSelector(s => !ptyId && s.tabs[tabId]?.boot_stage === "spawn_failed");
+  const spawnBlocked = useMuxSelector(s => !ptyId && tabWakeRequiresRetry(s.tabs[tabId]));
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const viewportRestoreRequestRef = useRef(0);
   const [readinessFailed, setReadinessFailed] = useState(false);
