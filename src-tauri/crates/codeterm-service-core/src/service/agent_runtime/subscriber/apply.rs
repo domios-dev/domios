@@ -283,6 +283,17 @@ async fn publish_with_origin(
     }
     if run_completed {
         super::super::transcript::persist(session).await;
+        let owner = svc.clone();
+        let session = Arc::clone(session);
+        let tab_id = context.tab_id.clone();
+        tokio::task::spawn_blocking(move || {
+            let current_epoch = session.context.lock().epoch;
+            if current_epoch == epoch && engine::validate_binding(&owner, &session).is_ok() {
+                owner.request_kpi_usage_ingest(&tab_id);
+            }
+        })
+        .await
+        .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?;
     } else if run_chat_item {
         super::super::transcript::archive_tick(session);
     }
@@ -636,3 +647,7 @@ fn neighbor_message_id(correlation: &str) -> Option<&str> {
 #[cfg(test)]
 #[path = "apply/neighbor_tests.rs"]
 mod neighbor_tests;
+
+#[cfg(test)]
+#[path = "apply/kpi_tests.rs"]
+mod kpi_tests;

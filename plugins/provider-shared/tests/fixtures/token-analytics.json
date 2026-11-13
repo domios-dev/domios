@@ -1,0 +1,24 @@
+[
+  {
+    "provider": "claude",
+    "session": "claude-session",
+    "format": "jsonl",
+    "source": "src-tauri/crates/codeterm-service-core/src/agent/kpi/usage/fixtures/claude-session.jsonl",
+    "totals": { "new_input": 25600, "generated": 1800, "read_from_cache": 488428, "turns": 3 }
+  },
+  {
+    "provider": "codex",
+    "session": "codex-session",
+    "format": "jsonl",
+    "runtime": true,
+    "source": "src-tauri/crates/codeterm-service-core/src/agent/kpi/usage/fixtures/codex-repeated-token-count.jsonl",
+    "totals": { "new_input": 10000, "generated": 700, "read_from_cache": 40000, "turns": 3 }
+  },
+  {
+    "provider": "opencode",
+    "session": "ses_1",
+    "format": "sqlite",
+    "source": "src-tauri/crates/codeterm-service-core/src/agent/kpi/usage/fixtures/opencode-messages.sql",
+    "totals": { "new_input": 2000, "generated": 820, "read_from_cache": 53296, "turns": 2 }
+  }
+]
