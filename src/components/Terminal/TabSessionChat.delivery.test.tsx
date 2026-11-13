@@ -39,9 +39,18 @@ test("a local preparation failure exposes its retained reason under the original
       failChatSendRequest(tabId, "local-image", new Error("Image upload could not be read"));
     });
     const bubble = host.querySelector('[data-testid="user-bubble-row"]');
-    assert(bubble?.querySelector('[role="status"]')?.textContent?.includes("Image upload could not be read"), "local reason reaches the bubble footer");
+    assert(bubble?.querySelector('[role="status"]')?.getAttribute("aria-label")?.includes("Image upload could not be read"), "local reason reaches the dot");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+async function openDeliveryActions(bubble: Element) {
+  const status = bubble.querySelector('[role="status"]');
+  assert(status?.textContent === "", "recovery stays hidden beside the bubble");
+  const trigger = status.querySelector<HTMLButtonElement>("button");
+  assert(trigger?.getAttribute("aria-label"), "the dot is an accessible button");
+  await act(async () => trigger.click());
+  assert(document.querySelector('[role="dialog"]'), "activating the dot opens recovery");
+}
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -571,7 +580,7 @@ test("runtime image capability refusal is visible inside its retained bubble", a
     await act(async () => dispatch("chat-send-status", { tab_id: tabId, send_id: "refused-image", correlationId: "refused-image",
       state: "failed", error: `tab_busy_refused: Tab ${tabId} refused delivery (nothing written): runtime_rejected_before_write: ${reason}`, sequence: 1, ledger_id: "ledger", retained_from: 1 }));
     const bubble = host.querySelector('[data-testid="chat-message"][data-message-role="user"]');
-    assert(bubble?.querySelector('[role="status"]')?.textContent?.includes(reason), "the refusal reason reaches the bubble status");
+    assert(bubble?.querySelector('[role="status"]')?.getAttribute("aria-label")?.includes(reason), "the refusal reason reaches the accessible status");
     assert(bubble?.querySelector('[aria-label="Open image image.png"]'), "refused input retains its attachment chip");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
@@ -588,7 +597,8 @@ test("a written prompt the agent refused while busy says so without offering Ret
     const bubble = host.querySelector('[data-testid="chat-message"][data-message-role="user"]');
     const status = bubble?.querySelector('[role="status"]');
     assert(status?.getAttribute("data-state") === "uncertain", "the refused written prompt stays unconfirmed");
-    assert(status?.textContent?.includes(reason), "the refusal reason reaches the bubble status");
+    assert(status?.getAttribute("aria-label")?.includes(reason), "the refusal reason reaches the accessible status");
+    assert(status?.textContent === "", "the refused send has no visible label");
     assert(![...(bubble?.querySelectorAll("button") ?? [])].some((button) => button.textContent === "Retry"),
       "written input never offers Retry");
   } finally { await act(async () => root.unmount()); host.remove(); }
@@ -623,7 +633,7 @@ test("a held send waits after the running turn's live operation and becomes its 
     assert(!host.querySelector('[role="separator"]'), "an untimestamped turn gains no day divider from the held send");
     const queued = held.querySelector<HTMLElement>('[role="status"][data-state="queued"]');
     assert(queued?.getAttribute("aria-label"), "queued state exposes its reason");
-    assert(queued?.textContent === "Queued", "held input shows only the short queued label");
+    assert(queued?.textContent === "", "held input shows only the dot");
     assert(!queued.querySelector("button"), "held input has no delivery controls");
 
     latest = status("written", 2);
@@ -700,7 +710,8 @@ test("a never-written send settled by a degrade offers Retry across a reload and
     await act(async () => { await ensureChatSendTabHydrated(tabId); });
     const bubble = heldBubble(host);
     assert(bubble?.querySelector('[role="status"][data-state="failed"]'), "the reloaded bubble says it was not delivered");
-    assert(Array.from(bubble!.querySelectorAll("button")).some((button) => button.textContent === "Retry"), "never-written input offers Retry");
+    await openDeliveryActions(bubble!);
+    assert(document.querySelector('[role="dialog"]')?.textContent?.includes("Retry"), "never-written input offers Retry");
     await act(async () => observeChatSendDismissal(tabId, { send_id: "held-tx", send: { id: "held-send", correlationId: "held-send", content: "йо", sentAtMs: 1 } }));
     assert(!heldBubble(host), "dismissal is what removes it");
   } finally {
@@ -775,7 +786,8 @@ test("one bubble follows event state and Retry reuses it", async () => {
       await act(async () => { dispatch("chat-send-status", latest); });
       assert(bubble().length === 1, "state changes never add a row");
     }
-    const retry = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+    await openDeliveryActions(bubble()[0]);
+    const retry = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Retry");
     assert(retry, "failed send offers Retry");
     await act(async () => { retry.click(); retry.click(); });
     assert(requests === 1, "Retry admits once");
@@ -843,7 +855,8 @@ for (const reducedMotion of [false, true]) {
         && (focused as { workspaceId: string })?.workspaceId === "general-workspace", "setup brings General forward");
       assert(readChatSends(tabId).find(send => send.id === "voice")?.requestFailed, "setup leaves original failure unreplayed");
       await act(async () => failChatSendRequest(tabId, "voice", "Transport unavailable"));
-      const transportControls = [...(bubble.querySelector('[role="status"]')?.querySelectorAll("button") ?? [])].map(button => button.textContent);
+      await openDeliveryActions(bubble);
+      const transportControls = [...document.querySelectorAll('[role="dialog"] button')].map(button => button.textContent);
       assert(transportControls.includes("Retry") && transportControls.includes("Remove")
         && !transportControls.includes("Set up transcriber"), "ordinary voice send failures retain delivery recovery");
     } finally {
@@ -871,7 +884,8 @@ test("hydrated tokenless input exposes recovery and stays removed after reload",
     await act(async () => { await ensureChatSendTabHydrated(tabId); });
     const bubble = host.querySelector('[data-message-id="tokenless"]');
     assert(bubble && bubble.querySelector('[role="status"][data-state="uncertain"]'), "restored input has a reason");
-    const buttons = [...bubble.querySelectorAll("button")];
+    await openDeliveryActions(bubble);
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')];
     assert(buttons.some(button => button.textContent === "Edit and resend"), "restored input is editable");
     assert(!buttons.some(button => button.textContent === "Retry"), "restored input never offers replay");
     const remove = buttons.find(button => button.textContent === "Remove");
@@ -903,7 +917,8 @@ test("failed image send with an early runtime row renders one bubble with visibl
       state: "failed", error: null, sequence: 1, ledger_id: "ledger", retained_from: 1 }));
     const bubbles = host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
     assert(bubbles.length === 1, "same identity stays one bubble after failure");
-    const controls = [...bubbles[0].querySelectorAll("button")].map(button => button.textContent);
+    await openDeliveryActions(bubbles[0]);
+    const controls = [...document.querySelectorAll('[role="dialog"] button')].map(button => button.textContent);
     assert(controls.includes("Retry") && controls.includes("Remove"), "failure offers both visible exits");
     assert(bubbles[0].querySelector('[aria-label="Open image first.png"]'), "first image remains");
     assert(bubbles[0].querySelector('[aria-label="Open image second.png"]'), "second image remains");
@@ -933,7 +948,8 @@ test("Edit and resend restores text and images without sending and submits a fre
       }
       return [] as T;
     });
-    const edit = [...host.querySelectorAll("button")].find(button => button.textContent === "Edit and resend");
+    await openDeliveryActions(host.querySelector('[data-message-id="original"]')!);
+    const edit = [...document.querySelectorAll("button")].find(button => button.textContent === "Edit and resend");
     assert(edit, "uncertain bubble exposes edit");
     assert(![...host.querySelectorAll("button")].some(button => button.textContent === "Retry"), "no replay control");
     await act(async () => edit.click());

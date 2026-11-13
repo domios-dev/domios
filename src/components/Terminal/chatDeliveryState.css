@@ -18,39 +18,14 @@
 }
 
 .ct-user-bubble-row {
+  --ct-delivery-space: 7px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  max-width: calc(100% - var(--ct-delivery-space) - 8px);
 }
 
 .ct-user-bubble-row > .ct-delivery {
   grid-area: 1 / 1 / 2 / 2;
-}
-
-.ct-user-bubble-row:has(> .ct-delivery) {
-  --ct-delivery-space: 7px;
-  max-width: calc(100% - var(--ct-delivery-space) - 8px);
-}
-
-.ct-user-bubble-row:has(> .ct-delivery[data-state="queued"] .ct-delivery__label) {
-  --ct-delivery-space: 60px;
-}
-
-.ct-user-bubble-row:has(> .ct-delivery:is([data-state="failed"], [data-state="uncertain"])) {
-  --ct-delivery-space: min(320px, 45cqi);
-}
-
-.ct-delivery:not(.ct-delivery--inline) .ct-delivery__label {
-  min-width: 0;
-  max-width: calc(var(--ct-delivery-space) - 13px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ct-delivery:not(.ct-delivery--inline) .ct-delivery__retry {
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 /* Ring and fill are pseudo layers so the pulse animates only transform and opacity on the compositor. */
@@ -63,6 +38,25 @@
   height: 7px;
   border-radius: 999px;
   animation: ct-delivery-breathe var(--ct-delivery-duration) var(--ct-ease-liquid-settle, ease-in-out) infinite;
+}
+
+.ct-delivery__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  margin: -8px;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ct-delivery__trigger:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 1px;
+  border-radius: 999px;
 }
 
 .ct-delivery__dot::before,

@@ -113,7 +113,8 @@ it("offers Retry for a sendable refusal but never for an empty attachment-only d
     addChatSend("empty-retry", send); setChatSendDraft("empty-retry", send.id, draft); failChatSendRequest("empty-retry", send.id);
     expect(beginChatSendRetry("empty-retry", send.id)).toBeUndefined();
     await act(async () => root.render(render({ ...send, draft: { ...draft, text: "sendable" } })));
-    const retry = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Retry");
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="status"] button')!.click());
+    const retry = Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Retry");
     expect(retry).toBeDefined();
     await act(async () => retry!.click());
     expect(retrySend).toHaveBeenCalledExactlyOnceWith(send.id);
@@ -163,7 +164,8 @@ it("shows a refusal with an explicit Retry and removes it when delivery wins", a
     expect(deliveryState(send)).toBe("failed");
     expect(host.querySelector('[role="status"]')).not.toBeNull();
     expect(retrySend).not.toHaveBeenCalled();
-    const retry = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Retry");
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="status"] button')!.click());
+    const retry = Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Retry");
     expect(retry).toBeDefined();
     await act(async () => retry!.click());
     expect(retrySend).toHaveBeenCalledExactlyOnceWith(send.id);
