@@ -9,6 +9,66 @@ struct NativeSubscriptions {
 
 struct InjectedWatcher(Arc<Mutex<NativeSubscriptions>>);
 
+struct VanishingWatcher {
+    inner: InjectedWatcher,
+    vanished: PathBuf,
+    fail_existing: bool,
+}
+
+impl PathWatcher for VanishingWatcher {
+    fn watch(&mut self, path: &Path, mode: RecursiveMode) -> notify::Result<()> {
+        if path == self.vanished {
+            if !self.fail_existing {
+                std::fs::remove_dir(path).unwrap();
+            }
+            return Err(notify::Error::generic(
+                "Input watch path is neither a file nor a directory.",
+            ));
+        }
+        self.inner.watch(path, mode)
+    }
+
+    fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
+        self.inner.unwatch(path)
+    }
+}
+
+#[test]
+fn vanished_staging_subscription_is_skipped_but_existing_path_errors_propagate() {
+    for fail_existing in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        std::fs::write(root.join(".gitignore"), "output/\n").unwrap();
+        std::fs::create_dir(root.join("output")).unwrap();
+        let vanished = root.join("staging");
+        std::fs::create_dir(&vanished).unwrap();
+        let native = Arc::new(Mutex::new(NativeSubscriptions::default()));
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut events = FileEvents {
+            watcher: Box::new(VanishingWatcher {
+                inner: InjectedWatcher(native.clone()),
+                vanished: vanished.clone(),
+                fail_existing,
+            }),
+            receiver,
+            watched: HashMap::new(),
+            state: EventState {
+                roots: Arc::new(vec![root.into()]),
+                all_changed: Arc::new(AtomicBool::new(false)),
+                invalidated: Arc::new(Mutex::new(Vec::new())),
+                sender,
+            },
+        };
+        assert_eq!(events.refresh().is_err(), fail_existing);
+        assert!(!events.watched.contains_key(&vanished));
+        if !fail_existing {
+            events.refresh().unwrap();
+            assert_eq!(events.watched.get(root), Some(&RecursiveMode::NonRecursive));
+            assert_eq!(events.watched.len(), native.lock().active.len());
+        }
+    }
+}
+
 impl PathWatcher for InjectedWatcher {
     fn watch(&mut self, path: &Path, mode: RecursiveMode) -> notify::Result<()> {
         let mut state = self.0.lock();

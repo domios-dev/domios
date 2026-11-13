@@ -25,6 +25,37 @@ fn plaintext_storage_cannot_receive_account_credentials() {
 }
 
 #[tokio::test]
+async fn status_reports_the_actual_secret_file_path() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "domios-secret-status-{}-{unique}",
+        std::process::id()
+    ));
+    let data = root.join(".domios-dev");
+    let s = LocalStore::new(
+        SecretFile::new_at(&data, "status-test"),
+        Box::new(MemIndexStorage::new()),
+    );
+    s.save(req("endpoint-test", "value")).await.unwrap();
+    assert!(data.join(".secrets").is_file());
+    let StoreStatus::Unlocked { endpoint, .. } = s.status().await else {
+        panic!("file store should be unlocked");
+    };
+    assert_eq!(
+        endpoint,
+        Some(format!("file:{}", data.join(".secrets").display()))
+    );
+    let StoreStatus::Unlocked { endpoint, .. } = store().status().await else {
+        panic!("memory store should be unlocked");
+    };
+    assert_eq!(endpoint, None);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn round_trip_save_get() {
     let s = store();
     let r = s.save(req("openai-prod", "sk-abc")).await.unwrap();

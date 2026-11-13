@@ -161,12 +161,19 @@ impl FileEvents {
                 let _ = self.watcher.unwatch(path);
             }
         }
-        for (path, mode) in &desired {
-            if self.watched.get(path) != Some(mode) {
-                self.watcher.watch(path, *mode)?;
+        self.watched
+            .retain(|path, mode| desired.get(path) == Some(mode));
+        for (path, mode) in desired {
+            if self.watched.get(&path) != Some(&mode) {
+                match self.watcher.watch(&path, mode) {
+                    Ok(()) => {
+                        self.watched.insert(path, mode);
+                    }
+                    Err(_) if path.try_exists().is_ok_and(|exists| !exists) => {}
+                    Err(error) => return Err(error),
+                }
             }
         }
-        self.watched = desired;
         Ok(())
     }
 }
