@@ -147,16 +147,15 @@ pub(crate) fn data_root() -> PathBuf {
     dirs::home_dir().unwrap_or_default().join(".domios")
 }
 
-/// Running CodeTerm version. Prefers the active [`PluginCtx`]; falls back to the
-/// `CODETERM_VERSION` env var (tests, or a raw CLI invocation). `None` makes
-/// `compat_check` fail-open.
+/// Running host version from the active context. The environment fallback is
+/// only used without a context, for tests.
 pub(crate) fn ctx_version() -> Option<String> {
-    CTX.with(|c| c.borrow().as_ref().and_then(|x| x.version.clone()))
-        .or_else(|| {
-            std::env::var("CODETERM_VERSION")
-                .ok()
-                .filter(|s| !s.trim().is_empty())
-        })
+    CTX.with(|c| match c.borrow().as_ref() {
+        Some(ctx) => ctx.version.clone(),
+        None => std::env::var("CODETERM_VERSION")
+            .ok()
+            .filter(|s| !s.trim().is_empty()),
+    })
 }
 
 /// Plugin-management action. Mirrors the CLI's clap `PluginAction` minus the

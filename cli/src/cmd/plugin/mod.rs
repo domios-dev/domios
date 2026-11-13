@@ -6,25 +6,17 @@
 
 mod body_source;
 pub(crate) mod cli_status;
+mod context;
 mod receiver_target;
 mod update;
 mod validate;
 
 use crate::args::plugin::{PluginAction, PluginChannelAction};
-use codeterm_plugins::{PluginAction as Action, PluginChannelAction as ChannelAction, PluginCtx};
+use codeterm_plugins::{PluginAction as Action, PluginChannelAction as ChannelAction};
 use std::io::IsTerminal;
 
-fn plugin_ctx() -> PluginCtx {
-    PluginCtx {
-        data_root: crate::data_root(),
-        version: std::env::var("CODETERM_VERSION")
-            .ok()
-            .filter(|s| !s.trim().is_empty()),
-    }
-}
-
 pub fn handle_plugin(json: bool, action: PluginAction) {
-    let ctx = plugin_ctx();
+    let ctx = context::resolve(&action).unwrap_or_else(|error| crate::cmd::print::fail(1, error));
     let report_cli = matches!(
         &action,
         PluginAction::Install { .. }

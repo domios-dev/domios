@@ -300,11 +300,13 @@ pub(super) fn compat_reason(min: &str, app: Option<&str>) -> String {
     }
 }
 
-// no daemon); only block when we positively know app < min.
 pub(super) fn compat_check(min: Option<&str>) -> Result<(), String> {
     let Some(min) = min else { return Ok(()) };
     let Some(app) = app_version() else {
-        return Ok(());
+        return Err(format!(
+            "{}; running Domios version is unknown",
+            compat_reason(min, None)
+        ));
     };
     let app_version =
         semver::Version::parse(&app).map_err(|_| format!("invalid Domios version: {app}"))?;
