@@ -83,6 +83,14 @@ public sealed class DevRebuildProcess : IDevRebuildProcess, IDisposable
         int error = Marshal.GetLastWin32Error();
         process.Dispose();
         if (error == 87) return null;
+        if (error == 5)
+        {
+            using (var witness = OpenProcess(SYNCHRONIZE, false, pid))
+            {
+                if (witness.IsInvalid && Marshal.GetLastWin32Error() == 87) return null;
+                if (!witness.IsInvalid && WaitForSingleObject(witness, 0) == WAIT_OBJECT_0) return null;
+            }
+        }
         throw new Win32Exception(error, "OpenProcess(DEV)");
     }
 
