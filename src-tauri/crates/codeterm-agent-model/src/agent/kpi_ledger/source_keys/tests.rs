@@ -4,9 +4,18 @@ use rusqlite::params;
 
 #[test]
 fn usage_source_keys_normalize_windows_separators_without_changing_scope() {
-    let slash = "C:/usage/session.jsonl\u{1}thread\\scope";
-    let backslash = "C:\\usage\\session.jsonl\u{1}thread\\scope";
-    assert_eq!(normalize_usage_source_key(backslash), slash);
+    let slash = "c:/usage/session.jsonl\u{1}thread\\scope";
+    let backslash = if cfg!(windows) {
+        "C:\\Usage\\Session.jsonl\u{1}thread\\scope"
+    } else {
+        "c:\\usage\\session.jsonl\u{1}thread\\scope"
+    };
+    let canonical = if cfg!(windows) {
+        slash.to_owned()
+    } else {
+        backslash.replace('\\', "/")
+    };
+    assert_eq!(normalize_usage_source_key(backslash), canonical);
     assert_eq!(normalize_usage_source_key(slash), slash);
     if !cfg!(windows) {
         assert_eq!(
@@ -20,8 +29,12 @@ fn usage_source_keys_normalize_windows_separators_without_changing_scope() {
 fn usage_cursor_and_owner_aliases_share_one_canonical_write_and_lookup() {
     let root = tempfile::tempdir().unwrap();
     let ledger = KpiLedger::open(root.path()).unwrap();
-    let slash = "C:/usage/session.jsonl\u{1}thread\\scope";
-    let backslash = "C:\\usage\\session.jsonl\u{1}thread\\scope";
+    let slash = "c:/usage/session.jsonl\u{1}thread\\scope";
+    let backslash = if cfg!(windows) {
+        "C:\\Usage\\Session.jsonl\u{1}thread\\scope"
+    } else {
+        "c:\\usage\\session.jsonl\u{1}thread\\scope"
+    };
     {
         let conn = ledger.conn.lock();
         conn.execute(
@@ -82,8 +95,12 @@ fn usage_cursor_and_owner_aliases_share_one_canonical_write_and_lookup() {
 fn usage_rebuild_cursor_normalization_is_atomic_and_preserves_cumulative_data() {
     let root = tempfile::tempdir().unwrap();
     let ledger = KpiLedger::open(root.path()).unwrap();
-    let slash = "C:/usage/session.jsonl\u{1}thread\\scope";
-    let backslash = "C:\\usage\\session.jsonl\u{1}thread\\scope";
+    let slash = "c:/usage/session.jsonl\u{1}thread\\scope";
+    let backslash = if cfg!(windows) {
+        "C:\\Usage\\Session.jsonl\u{1}thread\\scope"
+    } else {
+        "c:\\usage\\session.jsonl\u{1}thread\\scope"
+    };
     let state = UsageCursorState {
         offset: 10,
         cumulative: Some(CumulativeUsage {
@@ -137,4 +154,18 @@ fn usage_rebuild_cursor_normalization_is_atomic_and_preserves_cumulative_data() 
     }
     assert_eq!(ledger.load_usage_cursor(backslash).unwrap(), Some(state));
     assert!(ledger.list_all().unwrap().is_empty());
+}
+
+#[test]
+fn usage_source_path_case_follows_platform_and_scope_stays_opaque() {
+    let upper = "D:/Developer/Codeterm/session.jsonl\u{1}ThreadABC\\Scope";
+    let lower = "d:/developer/codeterm/session.jsonl\u{1}ThreadABC\\Scope";
+    assert_eq!(
+        normalize_usage_source_key(upper),
+        if cfg!(windows) { lower } else { upper }
+    );
+    assert_ne!(
+        normalize_usage_source_key(upper),
+        normalize_usage_source_key("d:/developer/codeterm/session.jsonl\u{1}threadabc\\scope")
+    );
 }

@@ -144,6 +144,7 @@ describe("Team template start in the session dialog", () => {
     await renderPicker();
     await click(button("Change template"));
     expect(titles()[0]).toContain("Default team");
+    expect(fixture.templates.preview).toHaveBeenCalledWith({ name: "dev.domios/default", version: null }, expect.anything());
   });
 
   it("reviews an unverified package before use, then starts it with the decision id, opt-outs and inputs", async () => {
@@ -393,7 +394,17 @@ describe("Team template start in the session dialog", () => {
     });
     await renderPicker();
     await click(button("Change template"));
-    await click(button("Use Research desk"));
+    expect(button("Use Research desk")).toBeUndefined();
+    const refusedCard = buttons().find((candidate) => candidate.getAttribute("aria-pressed") === "false" && candidate.textContent?.includes("Research desk"));
+    expect(refusedCard?.closest("li")?.textContent).toContain("Can't start");
+    await click(button("Back to the Team form"));
+    await click(button("Change template"));
+    expect(button("Use Research desk")).toBeUndefined();
+    const row = buttons().find((candidate) => candidate.getAttribute("aria-pressed") !== null && candidate.textContent?.includes("Research desk"));
+    await click(row);
+    const kebab = button("More actions for Research desk");
+    await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
+    await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
     const blocked = dialog().querySelector('[role="alert"][data-testid="template-blocked-start"]')!;
     expect(blocked).not.toBeNull();
     expect(blocked.getAttribute("aria-label")).toContain("Research desk");

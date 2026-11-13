@@ -1,3 +1,4 @@
+import { useTemplateCatalogRefusals } from "./useTemplateCatalogRefusals";
 import { useCallback, useEffect, useState } from "react";
 import { teamTemplatesTransport } from "../../lib/transport/orchestrationRuntime";
 import type {
@@ -91,6 +92,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   }, [enabled, catalog, recallQuery, transport]);
 
   const defaultSummary = catalog?.recall?.fallback ?? DEFAULT_SUMMARY;
+  const catalogRefusals = useTemplateCatalogRefusals(enabled && view.kind === "gallery", catalog, defaultSummary, transport);
   const [defaultPreview, setDefaultPreview] = useState<TemplatePreview | null>(null);
 
   // The default form shows the whole default team; its start still goes through today's pair unless the owner moves roles.
@@ -241,7 +243,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   }, [active, inputs, optOut, seats, secrets, placements, remotePeer]);
 
   return {
-    view, catalog, chosen, inputs, optOut, seats, pending, notice, blocked, defaultSummary, defaultPreview, secrets, vault, update,
+    view, catalog, chosen, inputs, optOut, seats, pending, notice, blocked, catalogRefusals, defaultSummary, defaultPreview, secrets, vault, update,
     placements, remotePeer, peers,
     /** True when Start goes through the template start rather than today's default pair. */
     usesTemplate: active !== null,
