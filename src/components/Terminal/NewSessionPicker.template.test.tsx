@@ -137,7 +137,7 @@ describe("Team template start in the session dialog", () => {
     await renderPicker();
     await click(button("Change template"));
     const titles = () => Array.from(dialog().querySelectorAll('[aria-label="Templates"] button[aria-pressed]')).map((candidate) => candidate.textContent ?? "");
-    expect(titles()[0]).toContain("Release train");
+    expect(titles()[0]).toContain("Video studio");
     expect(titles()[1]).toContain("Default team");
     await act(async () => root!.unmount());
     fixture.templates.recall.mockRejectedValue(new Error("template_unavailable: template recall is not available in this Domios build yet"));
@@ -474,7 +474,7 @@ describe("Team template start in the session dialog", () => {
     expect(selectedReason?.textContent).toContain("Security lead");
     expect(row?.closest("li")?.contains(selectedReason!)).toBe(true);
     expect(row?.closest("li")?.getAttribute("data-selected")).toBe("true");
-    await click(buttons().find((candidate) => candidate.getAttribute("aria-pressed") === "false" && candidate.textContent?.includes("Release train")));
+    await click(buttons().find((candidate) => candidate.getAttribute("aria-pressed") === "false" && candidate.textContent?.includes("Video studio")));
     expect(row?.closest("li")?.querySelector('[role="alert"]')).toBeNull();
     expect(row?.closest("li")?.getAttribute("data-selected")).toBe("false");
     await click(row);

@@ -1,0 +1,99 @@
+# design-studio — Agentic Team Protocol (ATP) builtin package
+name: dev.domios/design-studio
+version: 1.0.0
+title: Design studio
+description: >-
+  Designs a screen, flow or set of launch assets on the project's own design system: a
+  spec with every state and its copy, drafts on the real tokens, implementation by separate
+  Workers, and a live review of the real build in dark and light at desktop and phone
+  widths, rechecked until nothing blocking is left. The owner approves anything public.
+icon: icon.svg
+authors:
+  - name: Domios
+    url: https://domios.dev
+license: Apache-2.0
+when:
+  - design a screen or flow on the existing design system
+  - write a design spec with every state and its copy
+  - review a UI build live in dark and light at desktop and phone widths
+  - make launch images such as a Product Hunt gallery, social cards and a logo kit
+  - prepare a directory listing pack and site badges
+  - keep the tagline, one-liner and banned words consistent across assets
+
+project: required
+
+inputs:
+  surface: Which screen, flow, page or asset set to design, and the change you want
+  tone:
+    description: The tone and anything banned, such as badges, banners or motion
+    required: false
+    default: quiet and calm; reuse the existing components; no decoration nobody asked for
+  may_touch:
+    description: What the team may change
+    required: false
+    choices: [drafts only, drafts and then this project's source]
+    default: drafts only
+  deadline:
+    description: The date the work is due, kept in this one place
+    required: false
+    default: none
+
+permissions:
+  network: true
+  repo_write: true
+  shell: true
+  browser: true
+
+files:
+  - path: docs/design-review.md
+    description: The spec, the review report format, the quality bar and the red lines
+  - path: docs/launch-assets.md
+    description: Launch image sizes, the logo kit, the listing pack and how they are reviewed
+
+roles:
+  orchestrator:
+    kind: manager
+    name: Lead
+    files: [docs/design-review.md, docs/launch-assets.md]
+    instructions_file: managers/orchestrator.md
+
+  planner:
+    kind: manager
+    files: [docs/design-review.md, docs/launch-assets.md]
+    instructions_file: managers/planner.md
+
+  designer:
+    kind: worker
+    description: Writes the spec and builds drafts on the real design tokens.
+    files: [docs/design-review.md]
+    instructions_file: workers/designer.md
+
+  copywriter:
+    kind: worker
+    description: Keeps the one-liner and banned words; writes every state's copy.
+    files: [docs/design-review.md, docs/launch-assets.md]
+    instructions_file: workers/copywriter.md
+
+  asset_maker:
+    kind: worker
+    description: Produces launch images and packs at their exact sizes.
+    files: [docs/launch-assets.md]
+    instructions_file: workers/asset_maker.md
+
+  implementer:
+    kind: worker
+    description: Builds the approved spec and review fixes in the product.
+    files: [docs/design-review.md]
+    instructions_file: workers/implementer.md
+
+  design_reviewer:
+    kind: worker
+    description: Reviews the real build live and rechecks every fix.
+    files: [docs/design-review.md, docs/launch-assets.md]
+    instructions_file: workers/design_reviewer.md
+
+  publisher:
+    kind: worker
+    description: Ships approved assets and verifies them live.
+    files: [docs/launch-assets.md]
+    instructions_file: workers/publisher.md

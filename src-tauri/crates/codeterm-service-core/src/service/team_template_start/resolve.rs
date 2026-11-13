@@ -124,7 +124,7 @@ pub fn builtin_templates() -> impl Iterator<Item = &'static ResolvedTemplate> {
     builtins().iter().map(|builtin| &builtin.template)
 }
 
-/// A builtin folder name (`default`, `release-train`) names its package.
+/// A builtin folder name (`default`, `video-studio`) names its package.
 fn package_name(template: &TemplateRef) -> TemplateRef {
     builtins()
         .iter()

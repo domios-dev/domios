@@ -208,11 +208,11 @@ fn pair_params_carry_a_template_only_when_named() {
         None,
         None,
         false,
-        Some("dev.domios/release-train@1.0.0"),
+        Some("dev.domios/video-studio@1.0.0"),
     );
     assert_eq!(
         params["template"],
-        serde_json::json!({ "template": { "name": "dev.domios/release-train", "version": "1.0.0" } })
+        serde_json::json!({ "template": { "name": "dev.domios/video-studio", "version": "1.0.0" } })
     );
     let unpinned = pair_params(
         "alpha",
