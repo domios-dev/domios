@@ -386,6 +386,41 @@ describe("Team template start in the session dialog", () => {
     expect(review.querySelector('section[aria-label="Workers on demand"] [data-authority]')).toBeNull();
   });
 
+  it("offers Use only after host clearance, including when reopening the gallery", async () => {
+    let clearResearch: (() => void) | undefined;
+    fixture.templates.preview.mockImplementation((template: { name: string }, options?: { signal?: AbortSignal }) => {
+      if (template.name === "com.example/research-desk" && options?.signal) {
+        return new Promise((resolve) => { clearResearch = () => resolve(startablePreview); });
+      }
+      return Promise.resolve(startablePreview);
+    });
+    await renderPicker();
+    await click(button("Change template"));
+    const row = buttons().find((candidate) => candidate.getAttribute("aria-pressed") !== null && candidate.textContent?.includes("Research desk"))!;
+    expect(button("Use Research desk")).toBeUndefined();
+    await click(row);
+    expect(button("Use template")?.disabled).toBe(true);
+    const previewCalls = fixture.templates.preview.mock.calls.length;
+    await act(async () => row.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true })));
+    await click(button("Use template"));
+    expect(fixture.templates.preview.mock.calls).toHaveLength(previewCalls);
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).toBeNull();
+    expect(clearResearch).toBeDefined();
+    await act(async () => clearResearch!());
+    expect(button("Use Research desk")).toBeDefined();
+    expect(button("Use template")?.disabled).toBe(false);
+    await click(button("Back to the Team form"));
+    await click(button("Change template"));
+    expect(button("Use Research desk")).toBeUndefined();
+    const abandonedClearance = clearResearch;
+    await click(button("Back to the Team form"));
+    await click(button("Change template"));
+    await act(async () => abandonedClearance!());
+    expect(button("Use Research desk")).toBeUndefined();
+    await act(async () => clearResearch!());
+    expect(button("Use Research desk")).toBeDefined();
+  });
+
   it("shows a typed schedule refusal from the preview as a blocked start with its reason", async () => {
     const refused = templateStartResultFixtures.find((result) => result.status === "refused" && result.refusal.code === "schedule_unsupported_role")!;
     fixture.templates.preview.mockImplementation(async (template: { name: string }) => {
@@ -397,11 +432,18 @@ describe("Team template start in the session dialog", () => {
     expect(button("Use Research desk")).toBeUndefined();
     const refusedCard = buttons().find((candidate) => candidate.getAttribute("aria-pressed") === "false" && candidate.textContent?.includes("Research desk"));
     expect(refusedCard?.closest("li")?.textContent).toContain("Can't start");
+    expect(refusedCard?.getAttribute("aria-label")).toContain("Security lead");
+    expect(refusedCard?.title).toContain("Security lead");
+    const descriptionId = refusedCard?.getAttribute("aria-describedby");
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId!)?.textContent).toContain("Security lead");
     await click(button("Back to the Team form"));
     await click(button("Change template"));
     expect(button("Use Research desk")).toBeUndefined();
     const row = buttons().find((candidate) => candidate.getAttribute("aria-pressed") !== null && candidate.textContent?.includes("Research desk"));
     await click(row);
+    const selectedReason = Array.from(dialog().querySelectorAll('[role="alert"]')).find((alert) => alert.getAttribute("aria-label")?.includes("Research desk"));
+    expect(selectedReason?.textContent).toContain("Security lead");
     const kebab = button("More actions for Research desk");
     await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
     await click(Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Details"));
