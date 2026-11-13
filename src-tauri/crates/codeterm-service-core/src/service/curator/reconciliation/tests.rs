@@ -274,6 +274,71 @@ fn curator_concurrent_repairs_reuse_the_running_protected_cron() {
 }
 
 #[test]
+fn curator_spawn_keeps_its_tab_index_against_a_reconcile_on_an_older_snapshot() {
+    let (mux, tab) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let cron = Arc::new(Mutex::new(CronStore::new_with_path_and_clock(
+        fixture.temp.path().join("crons.json"),
+        crate::cron::clock::MockClock::starting_at(NOW),
+    )));
+    assert!(service.set_ext(cron).is_ok());
+    assert!(service.set_ext(CuratorTabs::default()).is_ok());
+    let mut plan = crate::plan::Plan::new(
+        "Spawn ordering".into(),
+        fixture.temp.path().display().to_string(),
+        Default::default(),
+    );
+    plan.team_id = Some("fixture-team".into());
+    plan.control_loop.running = Some(crate::plan::CuratorRun {
+        number: 1,
+        started_at: NOW,
+        ..Default::default()
+    });
+    service.plan_store.save(&mut plan, NOW).unwrap();
+    let id = plan.id.clone();
+    let (snapshot_tx, snapshot_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let (progress_tx, progress_rx) = mpsc::channel();
+    let contended_tx = progress_tx.clone();
+    let first = AtomicBool::new(true);
+    let boundary = service
+        .extensions
+        .get_or_init(test_boundary::Boundary::default);
+    *boundary.0.lock() = Some(Arc::new(test_boundary::Probe {
+        plan_id: id.clone(),
+        snapshot: Arc::new(move || {
+            if first.swap(false, Ordering::SeqCst) {
+                snapshot_tx.send(()).unwrap();
+                release_rx.lock().recv_timeout(DEADLINE).unwrap();
+            }
+        }),
+        contended: Arc::new(move || {
+            let _ = contended_tx.send("contended");
+        }),
+    }));
+    std::thread::scope(|scope| {
+        let reconcile = scope.spawn(|| service.reconcile_curator_for_test(&id, NOW));
+        assert!(snapshot_rx.recv_timeout(DEADLINE).is_ok());
+        let spawn = scope.spawn(|| {
+            let spawned = service.curator_spawned(&id, &tab, "run", NOW);
+            let _ = progress_tx.send("spawned");
+            spawned
+        });
+        let progress = progress_rx.recv_timeout(DEADLINE);
+        release_tx.send(()).unwrap();
+        reconcile.join().unwrap();
+        spawn.join().unwrap().unwrap();
+        assert!(progress.is_ok(), "spawn neither finished nor contended");
+    });
+    *boundary.0.lock() = None;
+    assert_eq!(service.ext::<CuratorTabs>().0.read().get(&tab), Some(&id));
+    let running = service.plan_store.get(&id).unwrap().control_loop.running;
+    assert_eq!(running.unwrap().tab_id.as_deref(), Some(tab.as_str()));
+}
+
+#[test]
 fn curator_prepare_failure_keeps_fallback_and_rearms_protected_job() {
     use crate::service::role_policy::RolePolicy;
     let (fixture, id, cron) = fixture(false);

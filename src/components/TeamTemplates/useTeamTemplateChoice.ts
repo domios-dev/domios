@@ -9,7 +9,7 @@ import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
 import { listHostPeers, type HostPeer } from "../../lib/teamTemplates/hostPeers";
 import { webUpload } from "../../lib/webApi";
 import {
-  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, startRefusalView, templateSource, withKept,
+  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, startRefusalView, templateSource, templateTitle, withKept,
   type PickerSeed, type StartErrorView, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import type { ManagerSeats } from "./TemplateManagers";
@@ -24,6 +24,9 @@ export type TemplateView =
   | { kind: "review"; preview: TemplatePreview; mode: "consent" | "detail"; back: "form" | "gallery" }
   /** A role's instructions, a step inside the same dialog that returns to the review it came from. */
   | { kind: "instructions"; review: Extract<TemplateView, { kind: "review" }>; role: string };
+
+/** A template the host refused to start: its package identity, the title its card shows, and the typed refusal. */
+export interface BlockedTemplate { name: string; version: string | null; title: string; refusal: StartErrorView }
 
 export interface TemplateCatalog { templates: TemplateSummary[]; recall: TemplateRecall | null; error: string | null }
 
@@ -60,7 +63,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   /** A template the host refused to start, with the typed refusal's reason. */
-  const [blocked, setBlocked] = useState<{ name: string; refusal: StartErrorView } | null>(null);
+  const [blocked, setBlocked] = useState<BlockedTemplate | null>(null);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [vault, setVault] = useState<string[] | null>(null);
   const [update, setUpdate] = useState<TemplateUpdateDiff | null>(null);
@@ -121,7 +124,8 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     setView({ kind: "form" });
   }, [onSeedPair, vault]);
 
-  const openPreview = useCallback(async (template: { name: string; version?: string | null }, detail = false, diff: TemplateUpdateDiff | null = null) => {
+  const openPreview = useCallback(async (template: { name: string; version?: string | null; title?: string | null }, detail = false, diff: TemplateUpdateDiff | null = null,
+    title = templateTitle(template)) => {
     setPending(true);
     setNotice(null);
     setBlocked(null);
@@ -134,7 +138,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
       else select(preview, new Set());
     } catch (error) {
       const refusal = startRefusalView(error);
-      if (refusal) setBlocked({ name: template.name, refusal });
+      if (refusal) setBlocked({ name: template.name, version: template.version ?? null, title, refusal });
       else setNotice(startErrorView(error).message);
     } finally {
       setPending(false);
@@ -160,7 +164,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     try {
       const imported = await transport().import(path);
       setCatalog(null);
-      await openPreview({ name: imported.template.name, version: imported.template.version }, false, imported.update ?? null);
+      await openPreview({ name: imported.template.name, version: imported.template.version }, false, imported.update ?? null, templateTitle(imported.template));
     } catch (error) {
       const failure = startErrorView(error);
       const reason = (failure.reasons[0] ?? failure.message).replace(/\.$/, "");

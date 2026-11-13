@@ -77,3 +77,64 @@ fn usage_cursor_and_owner_aliases_share_one_canonical_write_and_lookup() {
         );
     }
 }
+
+#[test]
+fn usage_rebuild_cursor_normalization_is_atomic_and_preserves_cumulative_data() {
+    let root = tempfile::tempdir().unwrap();
+    let ledger = KpiLedger::open(root.path()).unwrap();
+    let slash = "C:/usage/session.jsonl\u{1}thread\\scope";
+    let backslash = "C:\\usage\\session.jsonl\u{1}thread\\scope";
+    let state = UsageCursorState {
+        offset: 10,
+        cumulative: Some(CumulativeUsage {
+            input: 20,
+            cached_input: 5,
+            output: 2,
+            total: 22,
+        }),
+    };
+    ledger.insert_usage_batch(&[], slash, state).unwrap();
+    {
+        let conn = ledger.conn.lock();
+        conn.execute(
+            "INSERT INTO kpi_usage_cursors (source_path, cursor_offset) VALUES (?1, 10)",
+            [backslash],
+        )
+        .unwrap();
+        conn.execute_batch("CREATE TRIGGER refuse_cursor_normalization BEFORE INSERT ON kpi_usage_cursors BEGIN SELECT RAISE(ABORT, 'cursor write refused'); END;").unwrap();
+    }
+    assert!(ledger.normalize_usage_cursors().is_err());
+    {
+        let conn = ledger.conn.lock();
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM kpi_usage_cursors", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        conn.execute_batch("DROP TRIGGER refuse_cursor_normalization")
+            .unwrap();
+    }
+    for _ in 0..2 {
+        assert_eq!(
+            ledger.normalize_usage_cursors().unwrap(),
+            vec![(slash.to_owned(), state)]
+        );
+        let conn = ledger.conn.lock();
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM kpi_usage_cursors", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.query_row("SELECT source_path FROM kpi_usage_cursors", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+            slash
+        );
+    }
+    assert_eq!(ledger.load_usage_cursor(backslash).unwrap(), Some(state));
+    assert!(ledger.list_all().unwrap().is_empty());
+}

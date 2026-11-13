@@ -33,6 +33,9 @@ pub struct RebuiltResponse {
 pub struct UsageRebuildOutcome {
     pub sources: u64,
     pub missing_sources: u64,
+    pub missing_file_sources: u64,
+    pub providerless_sources: u64,
+    pub unavailable_provider_sources: u64,
     pub responses: u64,
     pub legacy_rows_removed: u64,
     pub unattributed_responses: u64,
@@ -44,6 +47,9 @@ impl UsageRebuildOutcome {
     pub fn absorb(&mut self, other: UsageRebuildOutcome) {
         self.sources += other.sources;
         self.missing_sources += other.missing_sources;
+        self.missing_file_sources += other.missing_file_sources;
+        self.providerless_sources += other.providerless_sources;
+        self.unavailable_provider_sources += other.unavailable_provider_sources;
         self.responses += other.responses;
         self.legacy_rows_removed += other.legacy_rows_removed;
         self.unattributed_responses += other.unattributed_responses;
@@ -121,28 +127,25 @@ impl KpiLedger {
     }
 
     pub fn list_usage_cursors(&self) -> Result<Vec<(String, UsageCursorState)>, String> {
-        let conn = self.conn.lock();
-        let mut stmt = conn
-            .prepare(&format!(
-                "SELECT {CURSOR_COLUMNS} FROM kpi_usage_cursors ORDER BY source_path ASC"
-            ))
-            .map_err(|e| format!("kpi ledger cursor list prepare: {}", e))?;
-        let rows = stmt
-            .query_map([], cursor_from_row)
-            .map_err(|e| format!("kpi ledger cursor list: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("kpi ledger cursor row: {}", e))?;
-        let mut canonical = std::collections::BTreeMap::<String, UsageCursorState>::new();
-        for (key, state) in rows {
-            let key = normalize_usage_source_key(&key);
-            let held = canonical.entry(key).or_insert(state);
-            if state.offset > held.offset
-                || (state.offset == held.offset && held.cumulative.is_none())
-            {
-                *held = state;
+        read_cursors(&self.conn.lock()).map(|inventory| inventory.rows)
+    }
+
+    pub fn normalize_usage_cursors(&self) -> Result<Vec<(String, UsageCursorState)>, String> {
+        let mut conn = self.conn.lock();
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("kpi cursor normalization transaction: {e}"))?;
+        let inventory = read_cursors(&tx)?;
+        if inventory.changed {
+            tx.execute("DELETE FROM kpi_usage_cursors", [])
+                .map_err(|e| format!("kpi cursor normalization delete: {e}"))?;
+            for (source, cursor) in &inventory.rows {
+                store_cursor(&tx, source, *cursor)?;
             }
         }
-        Ok(canonical.into_iter().collect())
+        tx.commit()
+            .map_err(|e| format!("kpi cursor normalization commit: {e}"))?;
+        Ok(inventory.rows)
     }
 
     /// Replaces one source's line-counted rows with one keyed row per response, charged
@@ -278,6 +281,38 @@ fn cursor_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<(String, UsageCurs
     ))
 }
 
+struct CursorInventory {
+    rows: Vec<(String, UsageCursorState)>,
+    changed: bool,
+}
+
+fn read_cursors(conn: &Connection) -> Result<CursorInventory, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {CURSOR_COLUMNS} FROM kpi_usage_cursors ORDER BY source_path ASC"
+        ))
+        .map_err(|e| format!("kpi ledger cursor list prepare: {e}"))?;
+    let rows = stmt
+        .query_map([], cursor_from_row)
+        .map_err(|e| format!("kpi ledger cursor list: {e}"))?;
+    let mut canonical = std::collections::BTreeMap::<String, UsageCursorState>::new();
+    let mut changed = false;
+    for row in rows {
+        let (path, state) = row.map_err(|e| format!("kpi ledger cursor row: {e}"))?;
+        let key = normalize_usage_source_key(&path);
+        changed |= key != path || canonical.contains_key(&key);
+        let held = canonical.entry(key).or_insert(state);
+        if state.offset > held.offset || (state.offset == held.offset && held.cumulative.is_none())
+        {
+            *held = state;
+        }
+    }
+    Ok(CursorInventory {
+        rows: canonical.into_iter().collect(),
+        changed,
+    })
+}
+
 fn upsert_cursor(
     conn: &Connection,
     source_path: &str,
@@ -290,6 +325,14 @@ fn upsert_cursor(
         [&source_path],
     )
     .map_err(|e| format!("kpi ledger cursor normalization: {e}"))?;
+    store_cursor(conn, &source_path, cursor)
+}
+
+fn store_cursor(
+    conn: &Connection,
+    source_path: &str,
+    cursor: UsageCursorState,
+) -> Result<(), String> {
     let totals = cursor.cumulative;
     conn.execute(
         r#"

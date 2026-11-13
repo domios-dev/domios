@@ -31,3 +31,16 @@ fn sandbox_spawn_refusal_preserves_typed_rpc_code_and_human_message() {
     assert_eq!(error.message, "opaque confinement refusal");
     assert_eq!(error.data.unwrap()["code"], "execution_sandbox_unsupported");
 }
+
+#[test]
+fn manager_admission_refusals_are_invalid_arguments_with_their_typed_code() {
+    for code in MANAGER_ADMISSION_REFUSALS {
+        let error = spawn_rpc_error(format!("{code}: opaque reason"));
+        assert_eq!(error.code, -32602);
+        assert_eq!(error.message, format!("{code}: opaque reason"));
+        assert_eq!(error.data.unwrap()["code"], code);
+    }
+    let other = spawn_rpc_error("opaque daemon fault: detail".into());
+    assert_eq!(other.code, -32603);
+    assert!(other.data.is_none());
+}

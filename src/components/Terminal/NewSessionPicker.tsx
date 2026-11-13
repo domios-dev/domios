@@ -390,7 +390,6 @@ export function NewSessionPicker({
       && orchestratorProfile.ready && plannerProfile.ready
       && templates.blocker === null;
   const templateStep = choice.mode === "pair" && templates.view.kind !== "form";
-  const wideStep = choice.mode === "pair" && (templates.view.kind === "review" || templates.view.kind === "instructions");
   const chosenTemplate = templates.chosen?.form.template;
   const teamDescription = chosenTemplate
     ? [templateTitle(chosenTemplate), chosenTemplate.workers > 0 ? `${chosenTemplate.workers} ${chosenTemplate.workers === 1 ? "worker" : "workers"}` : null].filter(Boolean).join(" · ")
@@ -415,7 +414,7 @@ export function NewSessionPicker({
         aria-modal="true"
         aria-labelledby="new-session-picker-title"
         tabIndex={-1}
-        className={`new-session-picker-card picker-stagger relative my-auto w-full ${wideStep ? "max-w-2xl" : "max-w-lg"} overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none`}
+        className={`new-session-picker-card picker-stagger relative my-auto w-full max-w-lg overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none`}
       >
         <span
           aria-hidden

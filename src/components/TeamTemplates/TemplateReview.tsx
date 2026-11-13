@@ -15,7 +15,7 @@ import { TemplateTrust } from "./TemplateTrust";
 import { TemplateBrings } from "./TemplateBrings";
 import { TemplateAsks } from "./TemplateAsks";
 import { PinnedFooter } from "./PinnedFooter";
-import { SLOT_ICON } from "./TemplateManagers";
+import { managerIcon } from "./TemplateManagers";
 import { reviewRoles, roleHeading } from "./templateRoles";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 import { authorRows, harnessRequirements, linkRows, updateDiffLines } from "../../lib/teamTemplates/exchangeModel";
@@ -23,8 +23,6 @@ import { authorRows, harnessRequirements, linkRows, updateDiffLines } from "../.
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
 type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
-/** A manager role name: a built-in manager or one of the package's own. */
-type ManagerSlot = string;
 
 const LINK = "inline-flex items-center gap-1 text-[var(--ct-accent)] hover:underline";
 const LINK_ICON: Record<string, ReactNode> = {
@@ -102,7 +100,7 @@ function RoleList({ title, roles, preview, providers }: { title: string; roles: 
         return (
           <div key={`${role.kind}:${role.role}`} className="flex items-center gap-2.5 py-1 text-[12px]" data-role-kind={role.kind}>
             <span aria-hidden="true" className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[7px] bg-[color-mix(in_srgb,var(--ct-accent)_12%,transparent)] text-[var(--ct-accent)]">
-              {role.kind === "manager" ? SLOT_ICON[role.role as ManagerSlot] ?? <Users size={13} /> : <Users size={13} />}
+              {role.kind === "manager" ? managerIcon(role.role) : <Users size={13} />}
             </span>
             <div className="min-w-0 flex-1">
               <div>{heading.name}{heading.slot && <span className="text-[var(--ct-muted-fg)]"> · {heading.slot}</span>}</div>

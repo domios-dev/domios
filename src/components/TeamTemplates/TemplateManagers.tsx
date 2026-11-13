@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ChevronRight, Compass, ListChecks, Map as MapIcon, Workflow } from "lucide-react";
+import { ChevronRight, Compass, ListChecks, Map as MapIcon, UserCog, Workflow } from "lucide-react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { resolveEffort } from "../../lib/newSessionChoice";
 import { AgentIcon } from "../AgentIcon";
@@ -22,12 +22,17 @@ export type ManagerSeats = Partial<Record<ManagerSlot, PickerSeed>>;
 /** Launch-profile controls for the pair rows; other manager seats carry only provider:model. */
 export type PairRoleControls = Partial<Record<"orchestrator" | "planner", { modelSlot?: ReactNode; details?: ReactNode }>>;
 
-export const SLOT_ICON: Record<ManagerSlot, ReactNode> = {
+const SLOT_ICON: Record<ManagerSlot, ReactNode> = {
   orchestrator: <Workflow size={13} aria-hidden="true" />,
   planner: <ListChecks size={13} aria-hidden="true" />,
   cartographer: <MapIcon size={13} aria-hidden="true" />,
   curator: <Compass size={13} aria-hidden="true" />,
 };
+
+/** A built-in manager keeps its glyph; every other manager the package registers shares one manager glyph. */
+export function managerIcon(role: ManagerSlot): ReactNode {
+  return SLOT_ICON[role] ?? <UserCog size={13} aria-hidden="true" />;
+}
 
 const ACTION = "rounded border border-[var(--ct-border)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--ct-accent)] hover:brightness-125";
 const MUTED_LINE = "text-[10px] text-[var(--ct-muted-fg)]";
@@ -141,7 +146,7 @@ function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context:
     const followedProvider = providers.find((provider) => provider.id === followed.providerId);
     const followedText = modelEffortText(followedProvider, followed.modelId, followed.effortId);
     return (
-      <TeamRosterMember role={slot} icon={SLOT_ICON[slot] ?? null}>
+      <TeamRosterMember role={slot} icon={managerIcon(slot)}>
         <div className="orchestration-role-row flex flex-col gap-1.5" data-testid={`orchestration-role-${label.toLowerCase()}`}>
           <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{label}</div>
           <DropdownSelect aria-label={`${label} model`} value={SAME_AS}
@@ -159,7 +164,7 @@ function ManagerSeatRow({ role, context }: { role: TemplateRoleSummary; context:
     );
   }
   return (
-    <TeamRosterMember role={slot} icon={SLOT_ICON[slot] ?? null}>
+    <TeamRosterMember role={slot} icon={managerIcon(slot)}>
       <OrchestrationRoleRow label={label} providers={seatProviders} compact
         providerId={shown.providerId} modelId={shown.modelId} effortId={shown.effortId}
         disabledProviderIds={disabledProviderIds} onInstallProvider={onInstallProvider}
@@ -243,7 +248,7 @@ export function TemplateManagers({ form, providers, disabledProviderIds, pair, o
         const controls = roleControls?.[slot];
         const setSeat = (next: PickerSeed) => onPairChange(withPairSeat(slot, pair, next));
         return (
-          <TeamRosterMember key={slot} role={slot} icon={SLOT_ICON[slot]}>
+          <TeamRosterMember key={slot} role={slot} icon={managerIcon(slot)}>
             <OrchestrationRoleRow label={label} providers={providers} compact
               providerId={seat.providerId} modelId={seat.modelId} modelSlot={controls?.modelSlot} details={controls?.details}
               modelControls={!controls?.modelSlot}

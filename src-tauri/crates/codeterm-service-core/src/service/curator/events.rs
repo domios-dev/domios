@@ -115,11 +115,9 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn reconcile_curator_id(
-        &self,
-        id: &str,
-        now: u64,
-    ) -> Result<(), crate::service::plan::PlanError> {
+    /// Serializes one plan's curator transitions: a reconcile rebuilds the tab index from
+    /// its snapshot, so every writer of that index and the round claim runs under this gate.
+    pub(super) fn with_curator_plan_gate<T>(&self, id: &str, run: impl FnOnce() -> T) -> T {
         let gate = self
             .extensions
             .get_or_init(CuratorReconciliations::default)
@@ -132,6 +130,22 @@ impl ServiceContext {
                 gate.lock()
             }
         };
+        run()
+    }
+
+    pub(crate) fn reconcile_curator_id(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<(), crate::service::plan::PlanError> {
+        self.with_curator_plan_gate(id, || self.reconcile_curator_gated(id, now))
+    }
+
+    fn reconcile_curator_gated(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<(), crate::service::plan::PlanError> {
         let Some(cron) = self.extensions.try_get::<crate::CronState>() else {
             return Ok(());
         };

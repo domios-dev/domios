@@ -359,10 +359,27 @@ fn kpi_usage_rebuild_skips_providerless_aliases_and_matches_fresh_ingest() {
     for _ in 0..2 {
         let outcome = recorder.rebuild_usage().unwrap();
         assert_eq!(outcome.missing_sources, 1);
+        assert_eq!(outcome.providerless_sources, 1);
+        assert_eq!(outcome.missing_file_sources, 0);
         assert_eq!(outcome.sources, 1);
         assert_eq!(outcome.responses, expected.0);
         assert_eq!(provider_usage(&ledger, "usage-fixture"), expected);
         assert_eq!(ledger.list_usage_cursors().unwrap().len(), 2);
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM kpi_usage_cursors", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM kpi_usage_cursors WHERE source_path = ?1",
+                [&unknown_key],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
     }
     assert_eq!(
         db.query_row(
@@ -373,4 +390,48 @@ fn kpi_usage_rebuild_skips_providerless_aliases_and_matches_fresh_ingest() {
         .unwrap(),
         1
     );
+}
+
+#[test]
+fn kpi_usage_rebuild_reports_all_skipped_sources_above_one_thousand() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = Arc::new(KpiLedger::open(dir.path()).unwrap());
+    let recorder = KpiRecorder::with_ledger(ledger.clone());
+    recorder.set_provider_registry(Arc::new(crate::agent::registry::AgentRegistry::new()));
+    let unowned = dir.path().join("unowned.jsonl");
+    let unavailable = dir.path().join("unavailable.jsonl");
+    write(&unowned, "{}\n");
+    write(&unavailable, "{}\n");
+    let unavailable_key = UsageSource::new(&unavailable).key();
+    ledger
+        .remember_usage_provider(&unavailable_key, "unavailable-fixture")
+        .unwrap();
+    let mut db = Connection::open(dir.path().join("kpi_ledger.db")).unwrap();
+    let tx = db.transaction().unwrap();
+    for index in 0..1001 {
+        let missing = UsageSource::new(dir.path().join(format!("missing-{index}.jsonl"))).key();
+        tx.execute(
+            "INSERT INTO kpi_usage_cursors (source_path, cursor_offset) VALUES (?1, 0)",
+            [missing],
+        )
+        .unwrap();
+    }
+    for source in [UsageSource::new(&unowned).key(), unavailable_key] {
+        tx.execute(
+            "INSERT INTO kpi_usage_cursors (source_path, cursor_offset) VALUES (?1, 3)",
+            [source],
+        )
+        .unwrap();
+    }
+    tx.commit().unwrap();
+    let outcome = recorder.rebuild_usage().unwrap();
+    assert_eq!(outcome.missing_sources, 1003);
+    assert_eq!(outcome.missing_file_sources, 1001);
+    assert_eq!(outcome.providerless_sources, 1);
+    assert_eq!(outcome.unavailable_provider_sources, 1);
+    assert_eq!(outcome.sources, 0);
+    let json = serde_json::to_value(&outcome).unwrap();
+    assert_eq!(json["missing_sources"], 1003);
+    assert_eq!(json["providerless_sources"], 1);
+    assert_eq!(ledger.list_usage_cursors().unwrap().len(), 1003);
 }
