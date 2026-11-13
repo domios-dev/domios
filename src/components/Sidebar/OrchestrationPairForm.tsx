@@ -310,7 +310,7 @@ export function OrchestrationPairForm({
       <div
         className="team-roster"
         role="list"
-        aria-label="Team"
+        aria-label="Managers"
         data-testid={pairAffordanceTestId ?? "new-session-pair-affordance"}
       >
         <TeamRosterMember role="orchestrator" icon={<Workflow size={13} aria-hidden="true" />}>

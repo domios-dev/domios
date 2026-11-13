@@ -9,6 +9,7 @@ enum PlanResponse {
 
 struct FakeRpc {
     response: PlanResponse,
+    registry: Value,
     calls: Vec<(String, Option<Value>)>,
 }
 
@@ -16,6 +17,7 @@ impl FakeRpc {
     fn with_plan(plan: Value) -> Self {
         Self {
             response: PlanResponse::Value(plan),
+            registry: json!({"roles": [{"type": "planner", "kind": "manager", "authority": "Planner"}]}),
             calls: Vec::new(),
         }
     }
@@ -23,6 +25,7 @@ impl FakeRpc {
     fn not_found() -> Self {
         Self {
             response: PlanResponse::NotFound,
+            registry: Value::Null,
             calls: Vec::new(),
         }
     }
@@ -36,6 +39,7 @@ impl RpcClient for FakeRpc {
     ) -> Result<Value, SocketCallError> {
         self.calls.push((method.to_string(), params));
         match method {
+            "role.list" => Ok(self.registry.clone()),
             "plan.get" => match &self.response {
                 PlanResponse::Value(value) => Ok(value.clone()),
                 PlanResponse::NotFound => Err(SocketCallError::Rpc(RpcError {
@@ -57,6 +61,48 @@ fn project_arg() -> (tempfile::TempDir, Option<String>) {
     let project = tempfile::tempdir().unwrap();
     let arg = Some(project.path().display().to_string());
     (project, arg)
+}
+
+fn team_plan() -> Value {
+    json!({
+        "id": "pl_team", "title": "Team plan", "status": "active", "mode": "planning",
+        "team_id": "team_custom", "owner": {"tab_id": "orch"},
+        "goal": {"vector": "ship"}, "primary_spec_id": "sp_1", "tasks": []
+    })
+}
+
+#[test]
+fn planner_less_team_approves_without_a_waiver() {
+    let mut client = FakeRpc::with_plan(team_plan());
+    client.registry = json!({"roles": [
+        {"type": "orchestrator", "kind": "manager", "authority": "Orchestrator"},
+        {"type": "security_lead", "kind": "manager", "authority": "none"}
+    ]});
+    assert_quality_ready(&mut client, "pl_team").unwrap();
+    let registry_call = client
+        .calls
+        .iter()
+        .find(|(method, _)| method == "role.list")
+        .unwrap();
+    assert_eq!(registry_call.1, Some(json!({"team_id": "team_custom"})));
+}
+
+#[test]
+fn team_with_registered_planner_still_requires_pairing() {
+    let mut client = FakeRpc::with_plan(team_plan());
+    let error = assert_quality_ready(&mut client, "pl_team").unwrap_err();
+    assert!(error.contains("planner_unpaired"), "{error}");
+}
+
+#[test]
+fn malformed_role_registry_cannot_waive_pairing() {
+    let mut client = FakeRpc::with_plan(team_plan());
+    client.registry = json!({});
+    let error = assert_quality_ready(&mut client, "pl_team").unwrap_err();
+    assert!(
+        error.contains("role.list returned no roles array"),
+        "{error}"
+    );
 }
 
 #[test]

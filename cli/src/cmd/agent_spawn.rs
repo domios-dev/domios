@@ -490,24 +490,13 @@ pub(super) fn handle(
             crate::cmd::print::fail(1, e.to_string());
         }
     };
-    let is_worker = role.as_ref().is_some_and(may_be_worker);
-    for hint in crate::cmd::hints::worker_spawn_hints(
-        is_worker,
-        parent.is_some() || report_to.is_some(),
-        task.is_some(),
-    ) {
-        eprintln!("{hint}");
-    }
+    let has_report_target = parent.is_some() || report_to.is_some();
+    let has_task = task.is_some();
     let worker_bound = crate::cmd::report_guard::worker_binding_resolved(
         plan_task.is_some(),
         plan.is_some(),
         bound_task.is_some(),
     );
-    if let Some(hint) =
-        crate::cmd::hints::unbound_worker_binding_hint(is_worker, worker_bound, verification_worker)
-    {
-        eprintln!("{hint}");
-    }
     let mut body = serde_json::json!({
         "agent": agent,
     });
@@ -626,6 +615,15 @@ pub(super) fn handle(
     let display_profile = body["launch_profile"].as_str().map(str::to_owned);
     match client.call_detailed("agent.spawn", Some(body)) {
         Ok(val) => {
+            for hint in resolved_spawn_hints(
+                &val,
+                has_report_target,
+                has_task,
+                worker_bound,
+                verification_worker,
+            ) {
+                eprintln!("{hint}");
+            }
             if json {
                 crate::cmd::print::print_json(&val);
                 return;
@@ -666,6 +664,23 @@ pub(super) fn handle(
             crate::cmd::model_error::exit_with_socket_error(json, e);
         }
     }
+}
+
+fn resolved_spawn_hints(
+    result: &serde_json::Value,
+    has_report_target: bool,
+    has_task: bool,
+    bound: bool,
+    verification: bool,
+) -> Vec<String> {
+    let is_worker = result.get("role").and_then(serde_json::Value::as_str) == Some("Worker");
+    let mut hints = crate::cmd::hints::worker_spawn_hints(is_worker, has_report_target, has_task);
+    hints.extend(crate::cmd::hints::unbound_worker_binding_hint(
+        is_worker,
+        bound,
+        verification,
+    ));
+    hints
 }
 
 fn spawn_model_label(

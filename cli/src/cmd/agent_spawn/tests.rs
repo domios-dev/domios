@@ -7,6 +7,21 @@ use crate::cmd::hints::unbound_worker_binding_hint;
 use crate::cmd::report_guard::worker_binding_resolved;
 
 #[test]
+fn spawn_hints_follow_the_host_resolved_role() {
+    for role in ["Manager", "Watcher"] {
+        let result = serde_json::json!({"role": role, "role_profile": "security_lead"});
+        assert!(resolved_spawn_hints(&result, false, false, false, false).is_empty());
+    }
+    let worker = serde_json::json!({"role": "Worker", "role_profile": "custom_worker"});
+    assert_eq!(
+        resolved_spawn_hints(&worker, false, false, false, false).len(),
+        3
+    );
+    assert!(resolved_spawn_hints(&worker, true, true, true, false).is_empty());
+    assert!(resolved_spawn_hints(&serde_json::json!({}), false, false, false, false).is_empty());
+}
+
+#[test]
 fn spawned_profile_model_uses_its_declared_name() {
     let model = r#"["gateway","opaque-model"]"#;
     let result = serde_json::json!({"agent":"fixture","model":model});

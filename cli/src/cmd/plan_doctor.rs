@@ -12,7 +12,9 @@ mod inspect;
 mod liveness;
 mod quality;
 
+#[cfg(test)]
 use inspect::inspect_plan;
+use inspect::inspect_plan_with_planner_requirement;
 use inspect::inspect_stray_sidecars;
 
 // Mirrors src-tauri/crates/codeterm-service-core/src/plan/reconcile.rs PENDING_UNSTAFFED_STALE_MS.
@@ -133,7 +135,17 @@ fn doctor_report_authoritative(
             ));
             continue;
         }
-        findings.extend(inspect_plan(&path, &plan, kind));
+        let planner_required = if matches!(kind, "all" | "quality") {
+            team_requires_planner(client, &plan)?
+        } else {
+            true
+        };
+        findings.extend(inspect_plan_with_planner_requirement(
+            &path,
+            &plan,
+            kind,
+            planner_required,
+        ));
         if matches!(kind, "all" | "structure") {
             findings.extend(liveness::liveness_findings(client, &id, &path));
         }
@@ -156,6 +168,22 @@ fn doctor_report_authoritative(
         }
     }
     Ok(report_value(project_root, kind, checked, findings))
+}
+
+fn team_requires_planner(client: &mut dyn RpcClient, plan: &Value) -> Result<bool, String> {
+    let Some(team_id) = plan.get("team_id").and_then(Value::as_str) else {
+        return Ok(true);
+    };
+    let registry = client
+        .call_detailed("role.list", Some(json!({ "team_id": team_id })))
+        .map_err(|error| error.to_string())?;
+    let roles = registry
+        .get("roles")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "role.list returned no roles array".to_string())?;
+    Ok(roles
+        .iter()
+        .any(|role| role.get("authority").and_then(Value::as_str) == Some("Planner")))
 }
 
 fn authoritative_plan_ids(
