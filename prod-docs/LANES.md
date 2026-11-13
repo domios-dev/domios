@@ -10,7 +10,7 @@ The report-time commit guard inspects the actual Git commit, requires it to foll
 
 ### Project folders without git
 
-A project folder with no git repository, or a repository with no commit yet, is a valid canonical project. Plan creation, Team start, dispatch, ACK, report and acceptance need no git, and Domios never runs `git init` or commits for the owner; agents must not either, nor tell the owner git is required. Mutating Workers there always run shared, in place, with disjoint declared edit files. Dispatch records content hashes of the declared files, and an `in_review` report omits `--sha`: the evidence is the declared files whose content changed, with their new hashes (`changed_file_hashes`), and at least one must change. Isolated lanes, `--placement lane` and `--canonical-writer` need git history, so they refuse there with the reason, and automatic placement refuses instead of choosing a lane for overlap or a `build-breaking` tag.
+A project folder with no git repository, or a repository with no commit yet, is a valid canonical project. Plan creation, Team start, dispatch, ACK, report and acceptance need no git, and Domios never runs `git init` or commits for the owner; agents must not either, nor tell the owner git is required. A task added without `--execution-intent` is repository work there too, as in a git project. Mutating Workers there always run shared, in place, with disjoint declared edit files. Dispatch records content hashes of the declared files, and an `in_review` report omits `--sha`: the evidence is the declared files whose content changed, with their new hashes (`changed_file_hashes`), and at least one must change. Isolated lanes, `--placement lane` and `--canonical-writer` need git history, so they refuse there with the reason, and automatic placement refuses instead of choosing a lane for overlap or a `build-breaking` tag.
 
 The integrator pushes shared canonical commits on the integration branch. Lane work reaches canonical through real merges that leave foreign dirty files untouched; Git refuses a merge when it overlaps that dirt.
 
@@ -144,4 +144,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->
