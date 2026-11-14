@@ -204,6 +204,15 @@ fn template_launch_chain_then_pending_route_stores_one_owner_question() {
     assert!(tab.agent_booting);
 
     let fixture = ServiceFixture::new(mux);
+    fixture.service.set_and_lock_tab_agent_type_from(
+        &manager,
+        params.agent.clone().unwrap(),
+        crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+        None,
+    );
+    assert!(crate::service::unattended_launch::at_owned_launch_prompt(
+        fixture.service.mux.read().get_tab(&manager).unwrap()
+    ));
     fixture
         .service
         .emit_boot_stage(&manager, BootStage::LaunchWritten, None);
