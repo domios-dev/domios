@@ -71,6 +71,9 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
     ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
+    ...(model.signInRequired ? [{ label: "Sign in again", icon: ACCOUNT_ENTRY_OPTIONS[0].icon,
+      description: "Your plan is active; this machine needs a fresh sign-in to unlock it.",
+      disabled: pending, onClick: () => void startSignIn(ACCOUNT_ENTRY_OPTIONS[0].hint) }] : []),
     { label: hasPaidSubscription ? billing.pending ? "Opening subscription…" : "Manage subscription" : plansAction("Upgrade"),
       disabled: billing.pending, onClick: () => { if (hasPaidSubscription) void manageSubscription(); else onOpenPlans(); } },
     ...legalMenuItems(["terms", "privacy"]),

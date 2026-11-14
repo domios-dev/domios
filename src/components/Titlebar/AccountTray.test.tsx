@@ -7,7 +7,7 @@ import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/mu
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openPlans, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openPlans: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null, targetMismatch: null as string | null },
+  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null, targetMismatch: null as string | null, unverified: undefined as "sign_in_required" | "unconfirmed" | undefined },
 }));
 const localFetch = vi.hoisted(() => vi.fn());
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
@@ -21,7 +21,8 @@ vi.mock("../Settings/useAccountPlan", async (importOriginal) => {
   return { ...actual, useAccountPlan: (identityKey: string | null) => state.useRealPlan
     ? actual.useAccountPlan(identityKey)
     : ({
-      plan:{authority:state.planAuthority,fullAccess:state.fullAccess,plan:"pro",status:state.planStatus,stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
+      plan:{authority:state.planAuthority,fullAccess:state.fullAccess,plan:"pro",status:state.planStatus,stale:false,periodEnd:null,cancelAtPeriodEnd:false,
+        ...(state.unverified ? {unverified:state.unverified} : {})},error:null,manage,
       pending:state.billingPending,
     }) };
 });
@@ -284,6 +285,37 @@ it("shows the Admin plan line from server-authoritative billing state", async ()
   } finally {
     await act(async () => root.unmount()); host.remove();
     state.signedIn = false; state.planAuthority = "billing"; state.fullAccess = false;
+  }
+});
+
+it("offers a focusable Sign in again action only while this machine must sign in again", async () => {
+  state.signedIn = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const signInAgain = () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+    .find(item => item.textContent?.includes("Sign in again"));
+  const openMenu = async () => act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+  try {
+    for (const unverified of [undefined, "unconfirmed"] as const) {
+      state.unverified = unverified;
+      await act(async () => root.render(<AccountTrayWithActions />));
+      await openMenu();
+      expect(signInAgain()).toBeUndefined();
+      await act(async () => root.render(<></>));
+    }
+    state.unverified = "sign_in_required";
+    await act(async () => root.render(<AccountTrayWithActions />));
+    await openMenu();
+    const menu = document.querySelector('[role="menu"]')!;
+    expect(menu.getAttribute("aria-label")).toBe("Account: Ada, Pro · sign in again");
+    const item = signInAgain()!;
+    expect(item.tagName).toBe("BUTTON");
+    expect((item as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => item.click());
+    expect(signIn).toHaveBeenCalledExactlyOnceWith({mode:"signin"});
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.unverified = undefined;
   }
 });
 
