@@ -20,7 +20,7 @@ Testing and evidence:
 - Start from the oracle. Name the surface, action and observable pass condition, using existing commands or concrete manual steps. Do not require new tests, command syntax or a coverage matrix for every change.
 - Plan the smallest adequate proof and schedule it once at final integration. Add automation only for important uncovered failure modes; the broad gate runs once on the release SHA.
 - Plan a small isolated probe before a costly integration with an uncertain boundary.
-- A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines) uses `executor_role=test-author` and this guidance: You are a test-author. `domios docs TEST-AUTHORING` is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.
+- A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines) uses `executor_role=test-author` and this guidance: You are a test-author. TEST-AUTHORING is your operating charter (linked above) — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.
 - Preserve accepted targets and oracles. Diagnose whether a bounce came from the brief, structure, evidence, or routing; never weaken the oracle to make work pass.
 
 Completion:
@@ -109,8 +109,8 @@ domios task show <task_id>                         # one task, cheap
 domios plan section show <plan> <sec_id>           # one section, cheap
 ```
 
-Editing operations: `domios docs PLAN-EDITING`. Lane lifecycle on the
-Orchestrator side: `domios docs LANES`.
+Editing operations and the Orchestrator lane lifecycle are covered by
+PLAN-EDITING and LANES (linked above).
 
 ## How to plan
 
@@ -213,4 +213,4 @@ tried; uncertainty routed early is planning working.
 
 Task creation reports required-field errors together. Supply name, executor role and role guidance. Supply an explicit one-word personality, for example `--personality Ada`; the sole plan section is the default when no area matches. A missing work tag is inferred with a warning. Correctness remains optional with a quality warning. A bare provider such as `--model codex` is resolved at dispatch.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->

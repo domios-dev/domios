@@ -126,6 +126,14 @@ Team staffing and closing use the authority and confirmation rules above.
 
 | Method | Path | Operation |
 |--------|------|-----------|
+| GET | `/api/team-channels` | List installed Team channels as `{channels}`. |
+| POST | `/api/team-channels` | Apply `{action: list}`, `{action: add, url, name?}`, `{action: refresh, name?}` or `{action: remove, name}`; return `{channels}` or HTTP 400 `{error, code}`. |
+| POST | `/api/team-templates/file` | `{template, path?, role?}` with exactly one target → package file or role instructions as text; paths must stay package-relative. |
+| POST | `/api/team-templates/peer-start` | `{peer, start}` → start on a paired, online Full-access peer Main; return its outcome or pending owner ask and publish `team-template-peer-outcome`. |
+| POST | `/api/team-templates/peer-outcome` | `{peer, request_id}` → read the peer ask outcome after an answer or origin restart. |
+| POST | `/api/team-templates/transfer` | `{peer, template, format: team, tab}` → export an archive, deliver it to the peer tab and import it unverified into that peer's My templates. |
+| POST | `/api/mesh/template-start` | Signed paired-peer request with `{template, workspace_id, orchestrator_agent?, orchestrator_model?, planner_agent?, planner_model?}` → start in the named local workspace or return `{state: awaiting_owner, request_id, notification_id}` when consent is needed. Full access, package and vault checks apply. |
+| POST | `/api/mesh/peer-ask-outcome` | Signed Full-access paired-peer `{request_id}` → finished ask outcome, or HTTP 404 for an unknown ask. |
 | GET | `/api/team-templates` | List builtin and saved templates as `{templates}`. |
 | POST | `/api/team-templates/preview` | `{template}` → the start form, asks, payload with opt-out ids, warnings and consent decision. |
 | POST | `/api/team-templates/recall` | `{query}` → best matches first and the default fallback. |
@@ -137,4 +145,4 @@ Team staffing and closing use the authority and confirmation rules above.
 
 Exchange errors are HTTP 400 (bad request), 404 (unknown template) or 422 (refused package) with `{code, message, diagnostics?}`.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

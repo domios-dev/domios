@@ -6,7 +6,7 @@ use crate::archive::{read_folder, write_zip};
 use crate::*;
 
 fn corpus() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/corpus")
+    crate::test_support::fixture_manifest_dir().join("fixtures/corpus")
 }
 
 #[derive(Deserialize)]

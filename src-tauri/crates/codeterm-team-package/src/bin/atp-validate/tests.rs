@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use codeterm_team_package::{check_path, CheckOptions};
 use serde::Deserialize;
@@ -17,7 +17,7 @@ struct Case {
 }
 
 fn corpus() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/corpus")
+    crate::test_support::fixture_manifest_dir().join("fixtures/corpus")
 }
 
 fn invoke(args: &[&str]) -> (i32, String, String) {

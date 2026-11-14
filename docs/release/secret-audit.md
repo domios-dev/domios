@@ -30,3 +30,16 @@ with `length` inside `outputLimit`. Neither contains a credential or performs
 authentication. The scanner reports these comparisons as `generic-api-key`
 findings. Source, history, scanner rules and all other findings remain subject
 to the same checks.
+
+## Team export redaction canaries
+
+| Fingerprint | Verdict | Action |
+| --- | --- | --- |
+| `72a3b38e2aed8b29ed0a11be3eb725845fc9d59d:src-tauri/crates/codeterm-service-core/src/service/team_exchange/tests.rs:generic-api-key:173` | Verified synthetic AWS-shaped redaction canary; used only as scrubber input. | Exact historical fingerprint ignored; current fixture uses an obvious canary and retains the secret-name placeholder assertion. |
+| `72a3b38e2aed8b29ed0a11be3eb725845fc9d59d:src-tauri/crates/codeterm-util/src/redact/tests.rs:generic-api-key:6` | Verified synthetic AWS-shaped redaction canary; used only as redactor input. | Exact historical fingerprint ignored; current fixture uses an obvious canary and retains exact redacted-output equality. |
+| `50774f400542ce4be9c31abee1d9f1f9aa6ef934:src-tauri/crates/codeterm-service-core/src/service/team_exchange/tests.rs:generic-api-key:153` | Verified synthetic sk-live-prefixed redaction canary; used only as scrubber input. | Exact historical fingerprint ignored; current fixture uses an obvious test value and retains placeholder, removal, count and idempotence assertions. |
+
+These test values never authenticate requests. Their historical commits remain
+in Git and CI scans the PR commit range as well as the current tree. The
+existing commit-pinned fingerprint mechanism covers only these three historical
+occurrences; no current-tree, path-wide or rule-wide exception was added.

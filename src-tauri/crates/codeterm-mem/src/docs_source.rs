@@ -131,6 +131,8 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "BOUNCE",
     "TEST-AUTHORING",
     "ESSENCE-MAP",
+    "TEAM-FORMAT",
+    "TEAMS",
 ];
 
 struct IndexedSection {

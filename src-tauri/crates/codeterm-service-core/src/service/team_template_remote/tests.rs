@@ -224,9 +224,9 @@ fn a_peer_ask_runs_at_most_once() {
 #[test]
 fn clone_urls_never_carry_credentials() {
     assert_eq!(
-        scrub_remote_url("https://x-access-token:SECRET-FRAGMENT@github.com/o/r.git?x=1#f")
+        scrub_remote_url("https://x-access-token:SECRET-FRAGMENT@host.test/o/r.git?x=1#f")
             .as_deref(),
-        Some("https://github.com/o/r.git")
+        Some("https://host.test/o/r.git")
     );
     assert_eq!(
         scrub_remote_url("ssh://git:SECRET-FRAGMENT@host.test:22/o/r.git").as_deref(),

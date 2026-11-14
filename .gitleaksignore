@@ -42,3 +42,10 @@ plugins/provider-codex/plugin.js:generic-api-key:2268
 tests/fixtures/chat/image-stress.jsonl:generic-api-key:6
 tests/fixtures/chat/image-stress.jsonl:generic-api-key:22
 tests/fixtures/chat/image-stress.jsonl:generic-api-key:31
+
+# Verified synthetic redaction canary: AWS-shaped test value in package scrub coverage, never a credential.
+72a3b38e2aed8b29ed0a11be3eb725845fc9d59d:src-tauri/crates/codeterm-service-core/src/service/team_exchange/tests.rs:generic-api-key:173
+# Verified synthetic redaction canary: the same AWS-shaped value in identifier-prefix redaction coverage, never a credential.
+72a3b38e2aed8b29ed0a11be3eb725845fc9d59d:src-tauri/crates/codeterm-util/src/redact/tests.rs:generic-api-key:6
+# Verified synthetic redaction canary: sk-live-prefixed test string in package scrub coverage, never a credential.
+50774f400542ce4be9c31abee1d9f1f9aa6ef934:src-tauri/crates/codeterm-service-core/src/service/team_exchange/tests.rs:generic-api-key:153
