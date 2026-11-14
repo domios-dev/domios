@@ -258,6 +258,7 @@ fn system_copy(_source: &Path, _destination: &Path) -> Result<PathBuf, String> {
 pub(super) fn prepare(
     text: String,
     destination: impl Fn() -> Result<PathBuf, String>,
+    mut generated: impl FnMut(&Path) -> Result<(), String>,
 ) -> Result<String, String> {
     let mut result = String::new();
     let mut cursor = 0;
@@ -300,6 +301,8 @@ pub(super) fn prepare(
         let Some(model) = converted else {
             continue;
         };
+        let model = codeterm_paths::simplified_path(&model);
+        generated(&model)?;
         result.push_str(&text[cursor..item.span.start]);
         result.push_str(&marker("file", source, Some("original")));
         result.push(' ');

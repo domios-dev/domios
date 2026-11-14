@@ -30,3 +30,23 @@ test("model-copy matching requires every original path, caption, label and paire
   ]) assert.equal(modelImageEchoMatches(before, changed), false, changed);
   assert.equal(modelImageEchoMatches(before, before), false, "ordinary echoes use their existing matcher");
 });
+
+const unavailableNote = " [Model preview unavailable: This host cannot create a model preview for this image format; use the original file path or attach a JPEG or PNG. Original kept.]";
+
+test("a host conversion-unavailable suffix preserves the original attachment and caption identity", () => {
+  const file = marker("C:/chat/phone.heic", "file", "IMG_4321.heic");
+  const sent = `Check this ${file} after`;
+  const echo = `Check this ${file}${unavailableNote} after`;
+  assert.equal(modelImageEchoMatches(sent, echo), true);
+  assert.equal(modelImageEchoMatches(sent, `<pasted_content id="own">${echo}</pasted_content id="own">`), true);
+  assert.equal(modelImageEchoMatches(sent.replace('kind="file"', 'kind="image"'), echo), true);
+  assert.equal(modelImageEchoMatches(file, file + unavailableNote), true);
+  assert.equal(modelImageEchoMatches(`${sent} ${before.replaceAll("phone.heic", "large.jpg")}`, `${echo} ${after.replaceAll("phone.heic", "large.jpg")}`), true);
+  for (const changed of [echo.replace("Check this", "Changed caption"), echo.replace("Original kept.", "Not kept."),
+    echo.replace("IMG_4321.heic", "other.heic"), echo.replace("phone.heic", "other.heic"), `${echo} extra`,
+    `${sent}${unavailableNote}`, echo.replace("phone.heic", "document.pdf")]) {
+    assert.equal(modelImageEchoMatches(sent, changed), false, changed);
+  }
+  const document = marker("C:/chat/document.pdf", "file", "document.pdf");
+  assert.equal(modelImageEchoMatches(document, document + unavailableNote), false);
+});
