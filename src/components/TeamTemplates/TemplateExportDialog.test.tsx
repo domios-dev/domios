@@ -106,12 +106,14 @@ describe("Export with Neighborhood sharing", () => {
     await renderDialog(true);
     await chooseMira();
     await act(async () => exportButton().click());
-    expect(dialog().querySelector('[role="status"]')?.textContent).toBe("Sending to Mira…");
+    const sending = [...dialog().querySelectorAll('[role="status"]')].find(status => status.textContent === "Sending to Mira…");
+    expect(sending?.getAttribute("aria-live")).toBe("polite");
     expect(dialog().querySelector('[role="alert"]')).toBeNull();
     expect(dialog().textContent).not.toContain("sent to Mira");
     await act(async () => answer({ status: "pending" }));
     expect(dialog().textContent).not.toContain("Sending to Mira");
-    expect(dialog().textContent).toContain("sent to Mira");
+    const sent = [...dialog().querySelectorAll('[role="status"]')].find(status => status.textContent?.includes("sent to Mira"));
+    expect(sent?.getAttribute("aria-live")).toBe("polite");
   });
 
   it.each([["billing", false], ["admin", true]] as const)("lets a %s plan share whether or not it has staff full access", async (authority, full_access) => {

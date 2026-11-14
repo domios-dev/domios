@@ -168,8 +168,8 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
         </div>
       )}
       {!result && share && unavailable && <p role="status" className="text-[12px] text-[var(--ct-muted-fg)]">{unavailable}</p>}
-      {result?.path && <p className="text-[12px] text-[var(--ct-muted-fg)]">Saved to <span className="font-mono">{result.path}</span>{sent && `, and sent to ${sent}`}.</p>}
-      {sending && <p role="status" className="text-[12px] text-[var(--ct-muted-fg)]">Sending to {sending}…</p>}
+      {result?.path && <p role="status" aria-live="polite" className="text-[12px] text-[var(--ct-muted-fg)]">Saved to <span className="font-mono">{result.path}</span>{sent && `, and sent to ${sent}`}.</p>}
+      {sending && <p role="status" aria-live="polite" className="text-[12px] text-[var(--ct-muted-fg)]">Sending to {sending}…</p>}
       {shareFailure && <p role="alert" className="text-[12px] text-[var(--ct-red)]">The template was exported. {shareFailure.message}</p>}
       {recovery && <Button type="button" variant="ghost" className="self-start text-xs" disabled={signingIn || billing.pending || account.model.kind === "pending"}
         onClick={() => void recover(recovery)}>{recovery === "sign_in" ? "Sign in again" : "Retry"}</Button>}
