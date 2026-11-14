@@ -72,7 +72,7 @@ fn occasion_ids_round_trip_and_are_unique() {
 #[test]
 fn every_builtin_manager_kind_reaches_the_same_resolver() {
     for descriptor in builtins::all() {
-        if descriptor.id() == builtins::WORKER {
+        if !descriptor.manages() {
             continue;
         }
         let preset = manager_preset(descriptor.id());
@@ -89,7 +89,7 @@ fn every_builtin_manager_kind_reaches_the_same_resolver() {
 
 #[test]
 fn the_worker_identity_slot_carries_the_persona_and_the_assignment_slot_carries_the_contract() {
-    let preset = worker_preset(Some("rust-backend-dev"), Some("You are Mira."));
+    let preset = worker_preset(Some(builtins::WORKER), Some("You are Mira."));
 
     let (identity, identity_emission) = guidance(Occasion::WorkerLaunchIdentity, Some(&preset));
     assert_eq!(identity, "You are Mira.");
