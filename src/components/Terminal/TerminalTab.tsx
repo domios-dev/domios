@@ -95,6 +95,7 @@ export const TerminalTab = memo(function TerminalTab({
   const containerRef = useRef<HTMLDivElement>(null);
   const fallbackShellRef = useRef<HTMLDivElement>(null);
   const fallbackCloseRef = useRef<HTMLButtonElement>(null);
+  const fallbackOpenerRef = useRef<HTMLElement | null>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
   const { updateTabStatus } = useMultiplexer();
@@ -420,9 +421,15 @@ export const TerminalTab = memo(function TerminalTab({
   }, []);
 
   const openTerminalFallback = useCallback(() => {
+    fallbackOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setTerminalFallbackOpen(true);
     if (!providerQuestionPending) termRef.current?.focus();
   }, [termRef, providerQuestionPending]);
+
+  const closeTerminalFallback = useCallback(() => {
+    setTerminalFallbackOpen(false);
+    if (fallbackOpenerRef.current?.isConnected) fallbackOpenerRef.current.focus();
+  }, []);
 
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
@@ -679,7 +686,7 @@ export const TerminalTab = memo(function TerminalTab({
               className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]"
               style={{ color: "var(--ct-muted-fg)" }}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setTerminalFallbackOpen(false)}
+              onClick={closeTerminalFallback}
               title="Close"
             >
               <X size={15} />
@@ -727,7 +734,7 @@ export const TerminalTab = memo(function TerminalTab({
                 color: "var(--ct-accent, #58a6ff)",
               }}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setTerminalFallbackOpen(false)}
+              onClick={closeTerminalFallback}
             >
               <X size={14} strokeWidth={2.4} />
               Done
