@@ -13,7 +13,7 @@ use codeterm_team_package::contracts::{
     TemplateStartRefusal, TemplateSummary,
 };
 use codeterm_team_package::{
-    builtin, check_entries, check_path, check_yaml, payload_items, CheckOptions, Package,
+    check_entries, check_path, check_yaml, payload_items, CheckOptions, Package,
     PackageCheckReport, PackageDiagnostic, PackageFormat,
 };
 use serde::Serialize;
@@ -105,10 +105,9 @@ fn to_value<T: Serialize>(value: &T) -> Outcome {
 pub fn builtin_packages() -> &'static [Package] {
     static PACKAGES: OnceLock<Vec<Package>> = OnceLock::new();
     PACKAGES.get_or_init(|| {
-        builtin::names()
+        super::team_catalog::bundled()
             .iter()
-            .filter_map(|name| builtin::check(name, &CheckOptions::default()))
-            .filter_map(|checked| checked.package)
+            .map(|(_, package)| package.clone())
             .collect()
     })
 }
@@ -132,17 +131,12 @@ pub fn resolve_in(
     library: &TemplateLibrary,
     template: &TemplateRef,
 ) -> Option<(Package, TemplateProvenance)> {
-    let builtin = builtin_packages().iter().find(|package| {
-        package.document.name == template.name
-            && template
-                .version
-                .as_ref()
-                .is_none_or(|version| *version == package.document.version)
-    });
-    match builtin {
-        Some(package) => Some((package.clone(), TemplateProvenance::Builtin)),
-        None => library.load(&template.name, template.version.as_deref()),
-    }
+    super::team_catalog::resolve_in(
+        super::team_channels::TeamChannelStore::global(),
+        library,
+        template,
+    )
+    .map(|entry| (entry.package, entry.provenance))
 }
 
 /// The exporting machine's private bindings: workspace folders, home and machine names.

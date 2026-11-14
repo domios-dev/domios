@@ -3,6 +3,7 @@ use super::*;
 mod core_channel_unreachable;
 mod error_paths;
 mod id_validation;
+mod shared_channel;
 mod system_channel;
 
 mod store_index_tests {

@@ -46,6 +46,7 @@ pub fn item(package: &Package, provenance: TemplateProvenance) -> NewMemItem {
         TemplateProvenance::Builtin => "builtin",
         TemplateProvenance::Saved => "saved",
         TemplateProvenance::Imported => "imported",
+        TemplateProvenance::Channel => "channel",
     };
     NewMemItem {
         kind: MemKind::Document,
@@ -120,11 +121,11 @@ pub fn index_in(mem: &MemManager, library: &TemplateLibrary, name: &str) -> Resu
 
 /// Indexes every builtin and saved template and archives entries whose template is gone.
 pub fn reindex_in(mem: &MemManager, library: &TemplateLibrary) -> Result<(), String> {
-    let mut names: BTreeSet<String> = team_exchange::builtin_packages()
-        .iter()
-        .map(|package| package.document.name.clone())
-        .collect();
-    names.extend(library.list().into_iter().map(|summary| summary.name));
+    let names: BTreeSet<String> =
+        super::team_catalog::entries(super::team_channels::TeamChannelStore::global(), library)
+            .into_iter()
+            .map(|entry| entry.package.document.name)
+            .collect();
     for (id, indexed) in indexed_ids(mem, None)? {
         if !names.contains(&indexed) {
             archive(mem, &id)?;
@@ -159,7 +160,8 @@ pub fn recalled_names(hits: &[crate::mem::SearchHit]) -> Vec<String> {
 }
 
 fn summary(library: &TemplateLibrary, name: &str) -> Option<TemplateSummary> {
-    current(library, name).map(|(package, provenance)| library.summarize(&package, provenance))
+    current(library, name)
+        .map(|(package, provenance)| super::team_catalog::summary(library, &package, provenance))
 }
 
 /// Best matches first from mem; the builtin default is always the fallback.
