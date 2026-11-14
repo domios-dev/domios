@@ -14,7 +14,7 @@
 import { apiHost, relayTarget } from "./webApi";
 import { type TransportClient } from "./transportClient";
 import { baseDaemonTransport } from "./daemonBootstrap";
-import { wakeStreamMuxes } from "./streamMux";
+import { verifyStreamMuxes, wakeStreamMuxes } from "./streamMux";
 import { fireResync } from "./resync";
 import { replayCursorForTarget } from "./resyncModel";
 import { createSeqGapTracker } from "./eventSeqGaps";
@@ -81,7 +81,11 @@ export function wakeWebEvents(): void {
 
 function armReceiveDeadline(abort: AbortController): void {
   if (receiveDeadline) clearTimeout(receiveDeadline);
-  receiveDeadline = setTimeout(() => abort.abort(), RECEIVE_TIMEOUT_MS);
+  receiveDeadline = setTimeout(() => {
+    // Shared consumers keep this stream on the same carrier, so a silent one must prove that carrier alive.
+    verifyStreamMuxes();
+    abort.abort();
+  }, RECEIVE_TIMEOUT_MS);
   (receiveDeadline as unknown as { unref?: () => void }).unref?.();
 }
 

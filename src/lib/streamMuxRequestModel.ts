@@ -50,7 +50,7 @@ export async function readWhenMuxCapacityAvailable<T>(read: () => Promise<T>, si
 }
 export type MuxRequestInit = RequestInit & { [MUX_REQUEST_TIMEOUT]?: number | null };
 
-const READ_POST = /^\/api\/(?:tabs\/[^/]+\/(?:preview\/(?:read|check)|chat-raw\/(?:start|history|backfill))|essence-maps)$/;
+const READ_POST = /^\/api\/(?:tabs\/[^/]+\/(?:preview\/(?:read|check)|chat-raw\/(?:start|history|backfill|resume))|essence-maps)$/;
 const BULK_GET = /^\/api\/(?:essence-source|logs|sessions\/transcript|agent-runs\/[^/]+\/log|mem\/workers\/[^/]+\/log)$/;
 
 export function muxRequestOperation(method: string, path: string, body?: BodyInit | null): { method: string; path: string } {
