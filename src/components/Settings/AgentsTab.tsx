@@ -14,6 +14,7 @@ import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
 import { ModelEndpointsCard } from "./model_endpoints/ModelEndpointsCard";
 import { providerPageSections, providerSummary } from "./providerPageSections";
 import { SupporterAgentCard } from "./SupporterAgentCard";
+import { TeamChannelsCard } from "./TeamChannelsCard";
 import { ModelDefaultsCard } from "./ModelDefaultsCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
@@ -75,6 +76,10 @@ export function AgentsOverview({
           apiHeaders={apiHeaders}
           onOpenGuide={onOpenGuide}
         />
+      </SettingsCardAnchor>
+
+      <SettingsCardAnchor id="team-channels" focused={focusCard === "team-channels"}>
+        <TeamChannelsCard />
       </SettingsCardAnchor>
 
       <SettingsCard

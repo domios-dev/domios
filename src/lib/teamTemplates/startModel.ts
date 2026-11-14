@@ -394,29 +394,52 @@ export function startErrorView(error: unknown): StartErrorView {
   return { message: unavailable ? unavailable[1].trim() : text, reasons: [], choices: [] };
 }
 
-export type GalleryFilter = "all" | "builtin" | "mine" | "friends";
+export type GalleryFilter = "all" | "builtin" | "mine" | "friends" | "channels";
 
 export interface TemplateSource {
   filter: GalleryFilter;
   label: string;
-  /** Imported and not yet used through a recorded consent. */
+  /** Imported or from a community channel and not yet used through a recorded consent for this exact package. */
   unverified: boolean;
-  /** The owner's own package: it can be shared and deleted. */
+  /** The owner's own package: it can be shared. */
   owned: boolean;
-  /** The owner's own package or a built-in: it can be exported. */
+  /** The owner's own package, a built-in or a channel's: it can be exported. */
   exportable: boolean;
+  /** A package the owner keeps in My templates; channel and built-in packages leave only with their source. */
+  deletable: boolean;
 }
 
+export type TemplateOrigin = Pick<TemplateSummary, "provenance" | "received_from" | "verified" | "channel">;
+
 /** An owner's own import (file or CLI) is Mine; a package received over Neighborhood is From friends. Both stay unverified until consented. */
-/** The server resolves `received_from` from the friendship, so a client cannot claim a sender. */
-export function templateSource(origin: Pick<TemplateSummary, "provenance" | "received_from" | "verified">): TemplateSource {
-  if (origin.provenance === "builtin") return { filter: "builtin", label: "Built-in", unverified: false, owned: false, exportable: true };
-  if (origin.provenance === "saved") return { filter: "mine", label: "Mine", unverified: false, owned: true, exportable: true };
+/** The server resolves `received_from` from the friendship and `channel` from the catalog, so a client cannot claim either. */
+/** Official domios-teams packages are builtin; a community channel's read as that channel, named by `channelLabel` when known. */
+export function templateSource(origin: TemplateOrigin, channelLabel?: string | null): TemplateSource {
+  if (origin.provenance === "builtin") return { filter: "builtin", label: "Built-in", unverified: false, owned: false, exportable: true, deletable: false };
+  if (origin.provenance === "saved") return { filter: "mine", label: "Mine", unverified: false, owned: true, exportable: true, deletable: true };
   const unverified = !origin.verified;
+  if (origin.provenance === "channel") {
+    const from = `From ${channelLabel?.trim() || origin.channel?.trim() || "a channel"}`;
+    return { filter: "channels", label: unverified ? `${from} · unverified` : from, unverified, owned: false, exportable: true, deletable: false };
+  }
   const sender = origin.received_from?.trim();
   // Until its first Use a file is a source like any other; afterwards the owner's own import is simply Mine.
   const label = unverified ? `From ${sender || "file"} · unverified` : sender ? `From ${sender}` : "Mine";
-  return { filter: sender ? "friends" : "mine", label, unverified, owned: !sender, exportable: !sender };
+  return { filter: sender ? "friends" : "mine", label, unverified, owned: !sender, exportable: !sender, deletable: true };
+}
+
+/** Who stands behind a package the owner is asked to consent to, as the opening of the review's note. */
+export function consentOrigin(origin: TemplateOrigin, channelLabel?: string | null): string {
+  if (origin.provenance === "channel") return `This team comes from the ${channelLabel?.trim() || origin.channel?.trim() || "community"} channel`;
+  const sender = origin.received_from?.trim();
+  return sender ? `${sender} shared this team` : "This team came from a file";
+}
+
+/** A quiet About fact when the official channel carries a newer built-in than this app bundles; null otherwise. */
+export function templateUpdateFact(summary: Pick<TemplateSummary, "provenance" | "version" | "bundled_version">): string | null {
+  const bundled = summary.bundled_version?.trim();
+  if (summary.provenance !== "builtin" || !bundled || bundled === summary.version) return null;
+  return `Updated to ${summary.version} from ${bundled}`;
 }
 
 const key = (summary: TemplateSummary) => `${summary.name}@${summary.version}`;

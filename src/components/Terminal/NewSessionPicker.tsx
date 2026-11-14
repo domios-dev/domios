@@ -35,6 +35,8 @@ import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
 import {useLaunchProfileSelection} from "./useLaunchProfileSelection";
 import {cloudExecution} from "./cloudExecution";
 import { TeamTemplateSection } from "../TeamTemplates/TeamTemplateSection";
+import { openTeamChannelsSettings } from "../../lib/teamTemplates/teamChannels";
+import { openSecretsSettings } from "../../lib/teamTemplates/vaultSecrets";
 import { PinnedFooter } from "../TeamTemplates/PinnedFooter";
 import { hasPendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
@@ -120,7 +122,14 @@ export function NewSessionPicker({
       ...(seats.planner ? { plannerProviderId: seats.planner.providerId, plannerModelId: seats.planner.modelId || undefined, plannerEffortId: seats.planner.effortId } : {}),
     });
   }, []);
-  const templates = useTeamTemplateChoice({ enabled: choice.mode === "pair", recallQuery: selectedWorkspace?.name ?? "", onSeedPair: seedPair });
+  const templates = useTeamTemplateChoice({
+    enabled: choice.mode === "pair", recallQuery: selectedWorkspace?.name ?? "", onSeedPair: seedPair,
+    openSettings: (link) => {
+      onClose();
+      if (link === "secrets") openSecretsSettings();
+      else openTeamChannelsSettings();
+    },
+  });
 
   const hasRestoredRef = useRef(false);
   const remoteRefreshStartedRef = useRef(false);

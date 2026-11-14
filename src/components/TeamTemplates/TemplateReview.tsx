@@ -4,9 +4,10 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { BackPill } from "../shared/BackPill";
 import { Button } from "../shared/Button";
 import {
-  humanizePackageName, managerRoles, templateSource,
+  consentOrigin, humanizePackageName, managerRoles, templateSource,
   type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
+import { useTeamChannelLabel } from "../../lib/teamTemplates/teamChannels";
 import { TemplateIdentity } from "./TemplateIdentity";
 import { TemplateBrings } from "./TemplateBrings";
 import { TemplateAsks } from "./TemplateAsks";
@@ -68,7 +69,8 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
   const [reading, setReading] = useState(false);
   const descriptionId = useId();
   const summary: TemplateSummary = preview.form.template;
-  const source = templateSource(summary);
+  const channelLabel = useTeamChannelLabel(summary.provenance === "channel" ? summary.channel : null);
+  const source = templateSource(summary, channelLabel);
   const update = choice.update && choice.update.name === summary.name && choice.update.to_version === summary.version ? choice.update : null;
   const consent = mode === "consent";
   const back = choice.view.kind === "review" ? choice.view.back : "gallery";
@@ -80,7 +82,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
       <div><BackPill label={back === "form" ? "the Team form" : "templates"} onBack={choice.backFromReview} /></div>
       <TemplateIdentity summary={summary} titleId={titleId} descriptionId={descriptionId} />
       {unverified && <p className="text-[11.5px] text-[var(--ct-muted-fg)]">
-        {summary.received_from?.trim() ? `${summary.received_from.trim()} shared this team` : "This team came from a file"}. Check what it brings and turn off anything you don't want.
+        {consentOrigin(summary, channelLabel)}. Check what it brings and turn off anything you don't want.
       </p>}
       {update && <UpdateDiff diff={update} />}
       <div className="flex flex-col gap-4" data-testid="template-review-body">

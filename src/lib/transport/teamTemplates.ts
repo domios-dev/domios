@@ -20,6 +20,9 @@ export type TemplateFileRequest = import("../../../gen/TemplateFileRequest").Tem
 export type TemplateFileText = import("../../../gen/TemplateFileText").TemplateFileText;
 export type TemplatePeerStartRequest = import("../../../gen/TemplatePeerStartRequest").TemplatePeerStartRequest;
 export type TemplatePeerStartAccepted = import("../../../gen/TemplatePeerStartAccepted").TemplatePeerStartAccepted;
+export type TeamChannelRow = import("../../../gen/TeamChannelRow").TeamChannelRow;
+export type TeamChannelAction = import("../../../gen/TeamChannelAction").TeamChannelAction;
+export interface TeamChannelList { channels: TeamChannelRow[] }
 
 export type TeamTemplatesClient = Pick<TransportClient, "json">;
 
@@ -47,6 +50,10 @@ export function createTeamTemplatesTransport(client: TeamTemplatesClient) {
       client.json<TemplateShareCard>("POST", "/api/team-templates/card", { file_id: fileId, path }, opts),
     distill: ({ team_id: teamId, ...request }: TemplateDistillRequest, opts?: { signal?: AbortSignal }) =>
       client.json<TemplateDistillResult>("POST", `/api/teams/${encodeURIComponent(teamId)}/distill`, request, opts),
+    channels: (opts?: { signal?: AbortSignal }) => client.json<TeamChannelList>("GET", "/api/team-channels", undefined, opts),
+    /** Add, refresh and remove answer the whole list after the change; refresh records each channel's own outcome. */
+    channelAction: (action: TeamChannelAction, opts?: { signal?: AbortSignal }) =>
+      client.json<TeamChannelList>("POST", "/api/team-channels", action, opts),
   };
 }
 

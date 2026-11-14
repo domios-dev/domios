@@ -7,6 +7,7 @@ import type {
 import { initialSecretBindings } from "../../lib/teamTemplates/exchangeModel";
 import { takePendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
+import { publishTeamChannels, useTeamChannelChanges } from "../../lib/teamTemplates/teamChannels";
 import { usePeerPlacement } from "./usePeerPlacement";
 import { webUpload } from "../../lib/webApi";
 import {
@@ -18,6 +19,9 @@ import type { ManagerSeats } from "./TemplateManagers";
 /** A manager role name: a built-in manager or one of the package's own. */
 type ManagerSlot = string;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
+
+/** Settings pages a template step links to: team channels from the gallery, the secret vault from a secret ask. */
+export type TemplateSettingsLink = "team-channels" | "secrets";
 
 export type TemplateView =
   | { kind: "form" }
@@ -43,10 +47,12 @@ function needsReview(preview: TemplatePreview): boolean {
 }
 
 /** Template choice for the Team form; the default is always available and starts today's pair without `template`. */
-export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames, upload = webUpload }: {
+export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, openSettings, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames, upload = webUpload }: {
   enabled: boolean;
   recallQuery: string;
   onSeedPair: (seats: Partial<Record<"orchestrator" | "planner", PickerSeed>>) => void;
+  /** Leaves the host dialog for a Settings page; the host closes itself first, since Settings sits under it. */
+  openSettings: (link: TemplateSettingsLink) => void;
   transport?: () => TeamTemplatesTransport;
   vaultNames?: () => Promise<string[]>;
   upload?: (file: Blob, name: string) => Promise<{ path: string }>;
@@ -70,15 +76,26 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const remotePeer = placement.peer;
   const clearPeer = placement.setPeer;
 
+  // A channel added, refreshed or removed in Settings changes which teams exist, so an open gallery rereads them.
+  const channelChanges = useTeamChannelChanges();
+  const [seenChannelChanges, setSeenChannelChanges] = useState(channelChanges);
+  if (channelChanges !== seenChannelChanges) {
+    setSeenChannelChanges(channelChanges);
+    setCatalog(null);
+  }
+
   useEffect(() => {
     if (!enabled || catalog) return;
     const controller = new AbortController();
     void Promise.allSettled([
       Promise.resolve().then(() => transport().list({ signal: controller.signal })),
       Promise.resolve().then(() => transport().recall(recallQuery, { signal: controller.signal })),
+      // Channel display names label community templates; without them a template still names its channel id.
+      Promise.resolve().then(() => transport().channels({ signal: controller.signal })),
     ])
-      .then(([list, recall]) => {
+      .then(([list, recall, channels]) => {
         if (controller.signal.aborted) return;
+        if (channels.status === "fulfilled") publishTeamChannels(channels.value.channels);
         setCatalog({
           templates: list.status === "fulfilled" ? list.value.templates : [],
           recall: recall.status === "fulfilled" ? recall.value : null,
@@ -233,7 +250,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
 
   return {
     view, catalog, chosen, touched, inputs, optOut, seats, pending, notice, blocked, catalogStatuses, defaultSummary, defaultPreview, secrets, vault, update,
-    placement, remotePeer,
+    placement, remotePeer, openSettings,
     /** True when Start goes through the template start rather than today's default pair. */
     usesTemplate: active !== null,
     blocker: active

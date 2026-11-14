@@ -6,7 +6,7 @@ use codeterm_plugins::{
     channel_kind, refresh_materialized_channel, validate_channel_name, ChannelKind,
 };
 pub use codeterm_team_package::contracts::{
-    SkippedTeam, TeamChannelAction, TeamChannelKind, TeamChannelRow,
+    SkipReason, SkippedTeam, TeamChannelAction, TeamChannelKind, TeamChannelRow,
 };
 use codeterm_team_package::{check_folder, CheckOptions, Package};
 use parking_lot::Mutex;
@@ -362,29 +362,36 @@ fn check_index(
     for entry in &index.teams {
         let result = check_entry(root, entry, official, version).and_then(|package| {
             if !names.insert(entry.name.clone()) {
-                return Err("duplicate team name".into());
+                return Err((SkipReason::DuplicateName, "duplicate team name".into()));
             }
             Ok(package)
         });
         match result {
             Ok(package) => packages.push(package),
-            Err(reason) => skipped.push(SkippedTeam {
+            Err((code, reason)) => skipped.push(SkippedTeam {
                 name: entry.name.clone(),
+                code,
                 reason,
+                required_domios: (code == SkipReason::RequiresNewerDomios)
+                    .then(|| entry.min_domios.clone()),
             }),
         }
     }
     Ok((index, packages, skipped))
 }
 
-fn check_entry(
-    root: &Path,
-    entry: &Entry,
-    official: bool,
-    version: &str,
-) -> Result<Package, String> {
+type Skip = (SkipReason, String);
+
+fn skip(code: SkipReason, reason: impl Into<String>) -> Skip {
+    (code, reason.into())
+}
+
+fn check_entry(root: &Path, entry: &Entry, official: bool, version: &str) -> Result<Package, Skip> {
     if !official && entry.name.starts_with("dev.domios/") {
-        return Err("dev.domios is owned by builtins".into());
+        return Err(skip(
+            SkipReason::ReservedName,
+            "dev.domios is owned by builtins",
+        ));
     }
     let path = Path::new(&entry.path);
     if entry.path.contains('\\')
@@ -393,35 +400,57 @@ fn check_entry(
             .any(|part| !matches!(part, Component::Normal(_)))
         || entry.path.is_empty()
     {
-        return Err("package path must be contained and relative".into());
+        return Err(skip(
+            SkipReason::InvalidPath,
+            "package path must be contained and relative",
+        ));
     }
-    let root = root.canonicalize().map_err(|error| error.to_string())?;
+    let root = root
+        .canonicalize()
+        .map_err(|error| skip(SkipReason::Other, error.to_string()))?;
     let path = root
         .join(path)
         .canonicalize()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| skip(SkipReason::MissingPackage, error.to_string()))?;
     if !path.starts_with(&root) {
-        return Err("package path escapes channel".into());
-    }
-    let required = semver::Version::parse(&entry.min_domios).map_err(|_| "invalid minDomios")?;
-    let current = semver::Version::parse(version).map_err(|_| "invalid host version")?;
-    if required.cmp_precedence(&current).is_gt() {
-        return Err(format!("requires Domios {}", entry.min_domios));
-    }
-    semver::Version::parse(&entry.version).map_err(|_| "invalid declared version")?;
-    let checked = check_folder(&path, &CheckOptions::default());
-    if !checked.report.valid {
-        return Err(format!(
-            "invalid package: {:?}",
-            checked.report.errors().collect::<Vec<_>>()
+        return Err(skip(
+            SkipReason::InvalidPath,
+            "package path escapes channel",
         ));
     }
-    let package = checked.package.ok_or("missing checked package")?;
+    let required = semver::Version::parse(&entry.min_domios)
+        .map_err(|_| skip(SkipReason::InvalidIndexEntry, "invalid minDomios"))?;
+    let current = semver::Version::parse(version)
+        .map_err(|_| skip(SkipReason::Other, "invalid host version"))?;
+    if required.cmp_precedence(&current).is_gt() {
+        return Err(skip(
+            SkipReason::RequiresNewerDomios,
+            format!("requires Domios {}", entry.min_domios),
+        ));
+    }
+    semver::Version::parse(&entry.version)
+        .map_err(|_| skip(SkipReason::InvalidIndexEntry, "invalid declared version"))?;
+    let checked = check_folder(&path, &CheckOptions::default());
+    if !checked.report.valid {
+        return Err(skip(
+            SkipReason::InvalidPackage,
+            format!(
+                "invalid package: {:?}",
+                checked.report.errors().collect::<Vec<_>>()
+            ),
+        ));
+    }
+    let package = checked
+        .package
+        .ok_or_else(|| skip(SkipReason::InvalidPackage, "missing checked package"))?;
     if package.document.name != entry.name || package.document.version != entry.version {
-        return Err("package name/version mismatches index".into());
+        return Err(skip(
+            SkipReason::IndexMismatch,
+            "package name/version mismatches index",
+        ));
     }
     super::team_template_start::host_policy(&package)
-        .map_err(|error| format!("host policy: {error:?}"))?;
+        .map_err(|error| skip(SkipReason::HostPolicy, format!("host policy: {error:?}")))?;
     Ok(package)
 }
 
