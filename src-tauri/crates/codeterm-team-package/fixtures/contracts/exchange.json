@@ -99,11 +99,13 @@
     "peer": "eight",
     "start": {
       "template": { "template": { "name": "ada/research-desk", "version": "1.1.0" }, "inputs": { "question": "EU heat pumps" } },
+      "workspace_id": "ws_eight_research",
       "orchestrator_agent": "claude",
       "orchestrator_model": "opus",
       "planner_agent": "codex",
       "planner_model": null
-    }
+    },
+    "origin_workspace_id": "ws_home"
   },
   "peer_start_accepted": {
     "state": "awaiting_owner",
@@ -111,5 +113,21 @@
     "peer_name": "eight",
     "request_id": "pa_31",
     "notification_id": "n_77"
+  },
+  "peer_start_finished": {
+    "state": "finished",
+    "peer_id": "inst_8c1f",
+    "peer_name": "eight",
+    "request_id": "pa_32",
+    "outcome": {
+      "request_id": "pa_32",
+      "peer_id": "inst_8c1f",
+      "peer_name": "eight",
+      "state": "started",
+      "origin_workspace_id": "ws_home",
+      "workspace_id": "ws_eight_research",
+      "orchestrator_tab_id": "t_orch",
+      "planner_tab_id": "t_plan"
+    }
   }
 }

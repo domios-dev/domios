@@ -106,10 +106,19 @@ fn fail(message: impl std::fmt::Display) -> ! {
     std::process::exit(crate::cmd::print::CLI_ERROR_EXIT_CODE);
 }
 
-/// A peer start carries only the template and this machine's pair choices; the peer picks
-/// its own workspace and the Team is new there.
-fn peer_start_body(peer: String, params: &Value) -> Value {
-    let mut start = json!({ "template": params["template"] });
+/// A peer start carries the template, this machine's pair choices and the peer workspace
+/// `--workspace` names; the Team is new there and the peer's focus never moves.
+fn peer_start_body(peer: String, params: &Value) -> Result<Value, String> {
+    let workspace = params
+        .get("workspace_id")
+        .and_then(Value::as_str)
+        .filter(|workspace| !workspace.trim().is_empty())
+        .ok_or_else(|| {
+            format!(
+                "--workspace names the workspace on {peer}; list them with `domios workspace list --mesh {peer}`"
+            )
+        })?;
+    let mut start = json!({ "template": params["template"], "workspace_id": workspace });
     for field in [
         "orchestrator_agent",
         "orchestrator_model",
@@ -120,11 +129,11 @@ fn peer_start_body(peer: String, params: &Value) -> Value {
             start[field] = value.clone();
         }
     }
-    json!({
+    Ok(json!({
         "peer": peer,
         "start": start,
         "caller_tab_id": crate::nonempty_env("CODETERM_TAB_ID"),
-    })
+    }))
 }
 
 /// Peer hosting runs on this machine's API, which owns the mesh client and the answer watch.
@@ -173,11 +182,9 @@ pub(crate) fn handle_peer(json_output: bool, action: TemplateAction, peer: &str)
     match action {
         TemplateAction::Start(args) => {
             let params = start_params(args).unwrap_or_else(|message| fail(message));
-            post_local(
-                json_output,
-                "/api/team-templates/peer-start",
-                &peer_start_body(peer.to_string(), &params),
-            );
+            let body =
+                peer_start_body(peer.to_string(), &params).unwrap_or_else(|message| fail(message));
+            post_local(json_output, "/api/team-templates/peer-start", &body);
         }
         TemplateAction::Transfer { name, tab } => {
             let body = json!({

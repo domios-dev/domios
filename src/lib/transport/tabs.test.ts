@@ -48,6 +48,13 @@ it("relays a child authority snapshot read to the owning peer", async()=>{
   expect(calls[0]).toMatchObject({method:"POST",path:"/api/mesh/relay-to",body:{target_peer_id:"peer",method:"GET",path:"/api/mux/state",body:null}});
 });
 
+it("starts or reuses a remote tab's PTY on its own peer without a prior PTY lookup", async()=>{
+  const {transport,calls}=fixture([{ok:true,data:{pty_id:"peer-pty"}}]);
+  await transport.mesh_remote_tab_action({ordinaryTabId:"mesh:peer/shell",peerId:"peer",method:"POST",suffix:"/pty/spawn",body:{cols:80,rows:24}});
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({method:"POST",path:"/api/mesh/relay-to",body:{target_peer_id:"peer",method:"POST",path:"/api/pty/spawn",body:{cols:80,rows:24,tab_id:"shell"}}});
+});
+
 it("reads child history with root authority and no send payload",async()=>{
   const {transport,calls}=fixture();
   await transport.agent_runtime_child_history({tabId:"owned",threadId:"child/a",request:{rootThreadId:"root",bindingNonce:"nonce",epoch:4}});

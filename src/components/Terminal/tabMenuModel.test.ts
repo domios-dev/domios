@@ -223,6 +223,22 @@ describe("tab menu model", () => {
   });
 });
 
+it("offers Detach on a remote tab and names the machine its Close acts on", () => {
+  const remote = tab({ id: "mesh:peer/one", remote_peer_id: "peer", remote_peer_name: "PEER-NAME", remote_tab_id: "one" });
+  const entries = buildTabMenu(input("sidebar", { tab: remote }));
+  const detach = entries.find((entry) => entry.id === "detach");
+  expect(detach?.kind === "item" ? detach.action?.type : null).toBe("detach");
+  const close = entries.find((entry) => entry.id === "close");
+  expect(close?.kind === "item" ? close.label : null).toContain("PEER-NAME");
+  const guarded = buildTabMenu(input("sidebar", { tab: { ...remote, protected: true } }));
+  expect(guarded.some((entry) => entry.id === "detach")).toBe(true);
+  expect(guarded.some((entry) => entry.id === "close")).toBe(false);
+  const local = buildTabMenu(input("sidebar"));
+  expect(local.some((entry) => entry.id === "detach")).toBe(false);
+  const localClose = local.find((entry) => entry.id === "close");
+  expect(localClose?.kind === "item" ? localClose.label : null).not.toContain("PEER-NAME");
+});
+
 it("offers a session fork only for a declaring provider and a bound local tab", () => {
   const forkDescriptor={...CURRENT,supports_session_fork:true};
   const forkInput=input("header",{descriptor:forkDescriptor,tab:tab({agent_session_id:"fixture"})});

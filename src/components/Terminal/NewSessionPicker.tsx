@@ -39,6 +39,7 @@ import { PinnedFooter } from "../TeamTemplates/PinnedFooter";
 import { hasPendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
 import { blockerView, startErrorView, templateTitle, type PickerSeed, type StartErrorView } from "../../lib/teamTemplates/startModel";
+import { peerOutcomeError } from "../../lib/teamTemplates/peerStartOutcome";
 
 function pairChoice(prev: NewSessionChoice): NewSessionChoice {
   if (prev.mode === "pair") return prev;
@@ -327,11 +328,17 @@ export function NewSessionPicker({
           orchestrator_model: pair.orchestratorModel ?? null,
           planner_agent: pair.plannerAgent,
           planner_model: pair.plannerModel ?? null,
-        });
-        createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null, workspaceId,
-          title: `Waiting for ${accepted.peer_name}'s owner to tap Start here`,
-          detail: "The team starts on that machine once they answer.",
-          severity: "Info" });
+        }, workspaceId);
+        if (accepted.outcome && accepted.outcome.state !== "started") {
+          setStartError(peerOutcomeError(accepted.outcome));
+          return;
+        }
+        if (!accepted.outcome) {
+          createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null, workspaceId,
+            title: `${accepted.peer_name}'s owner decides on this package there`,
+            detail: "Its managers appear here once the team starts on that machine.",
+            severity: "Info" });
+        }
         onClose();
         return;
       }

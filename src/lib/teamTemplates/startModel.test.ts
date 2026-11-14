@@ -93,15 +93,19 @@ describe("template start model", () => {
   });
 
   it("lists every blocker of a start in one line, by field label", () => {
-    const none = { inputs: [], secrets: [], harnesses: [], tools: [] };
+    const none = { inputs: [], secrets: [], harnesses: [], tools: [], workspaces: [] };
     const noWhere = { ...templatePreviewFixture, where_needed: null };
     expect(startBlocker(noWhere, { question: "", depth: "standard" })).toEqual({ ...none, inputs: ["question"], secrets: ["SEARCH_API_KEY"] });
     const bound = { SEARCH_API_KEY: "research-desk/search" };
     const harness = startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, bound);
     expect(harness).toEqual({ ...none, harnesses: ["codex"], tools: ["mcp:io.github.example/search"] });
     expect(startBlocker(noWhere, { question: "EU heat pumps" }, bound)).toBeNull();
-    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, {}, "eight")).toBeNull();
-    expect(startBlocker(templatePreviewFixture, { question: "" }, {}, "eight")).toEqual({ ...none, inputs: ["question"] });
+    const onEight = { peer: "eight", workspaceChosen: true };
+    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, {}, onEight)).toBeNull();
+    expect(startBlocker(templatePreviewFixture, { question: "" }, {}, onEight)).toEqual({ ...none, inputs: ["question"] });
+    expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, {}, { peer: "eight", workspaceChosen: false }))
+      .toEqual({ ...none, workspaces: ["eight"] });
+    expect(blockerView({ ...none, workspaces: ["eight"] }, (id) => id)).toEqual({ tone: "amber", text: "Choose a workspace on eight." });
     const names = (id: string) => id === "codex" ? "Codex" : id;
     expect(blockerView({ ...none, inputs: ["question"], secrets: ["SEARCH_API_KEY"] }, names))
       .toEqual({ tone: "amber", text: "Fill in Question and choose a secret for SEARCH_API_KEY." });

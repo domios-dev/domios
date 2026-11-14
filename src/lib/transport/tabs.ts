@@ -19,6 +19,14 @@ type Args = Record<string, unknown> & {
 const enc = encodeURIComponent;
 const s = (args: Args, key: string, alias?: string): string => String(args[key] ?? (alias ? args[alias] : undefined) ?? "");
 export interface PtyCursors { offsets: Map<string, number>; truncations: Map<string, number> }
+/** One relayed request on a paired peer; the peer's own refusal travels back as the error. */
+async function relayToPeer(client: TabsTransportClient, peer: string, method: string, path: string, body: unknown): Promise<unknown> {
+    const response = await client.json<{ ok?: boolean; data?: unknown; error?: string | null }>("POST", "/api/mesh/relay-to", {
+        target_peer_id: peer, method, path, body,
+    });
+    if (!response.ok) throw new Error(response.error ?? `${peer} did not answer ${method} ${path}`);
+    return response.data;
+}
 export function createTabsTransport(client: TabsTransportClient, cursors: PtyCursors = { offsets: new Map(), truncations: new Map() }) {
     const webPtyOffsets = cursors.offsets;
     const remotePtyIds = new RemotePtyIdCache();
@@ -176,6 +184,11 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             const peerName = peers.paired?.find((item) => item.instance_id === peer)?.instance_name ?? peer;
             return { peer_id: peer, peer_name: peerName, tabs: response.data ?? [] };
         },
+        mesh_peer_workspaces_list: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/workspaces", null),
+        // A provisioned folder on the peer; its owner's active workspace stays where it is.
+        mesh_peer_workspace_create: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "POST", "/api/workspaces", {
+            name: s(a, "name"), provision: true, activate: false,
+        }),
         mesh_remote_tab_action: async (a: Args) => {
             const peer = s(a, "peerId", "peer_id");
             const ordinary = s(a, "ordinaryTabId", "ordinary_tab_id");
@@ -213,7 +226,12 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             let path = suffix === "/runtime-authority" ? "/api/mux/state" : suffix === "/inspect"
                 ? `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`
                 : `/api/tabs/${enc(remoteTab)}${suffix}`;
-            if (suffix.startsWith("/pty/")) {
+            if (suffix === "/pty/spawn") {
+                path = "/api/pty/spawn";
+                a.body = { ...(a.body as Record<string, unknown>), tab_id: remoteTab };
+                remotePtyIds.invalidate(ordinary);
+            }
+            else if (suffix.startsWith("/pty/")) {
                 const ptyId = await resolvePtyId();
                 if (!ptyId)
                     throw new Error("Remote tab PTY unavailable");

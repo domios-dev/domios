@@ -95,3 +95,27 @@ test("unreachable peers retain state and unrelated identities cannot change it",
   });
   assert.equal(cleared[one.id].agent_state, null);
 });
+
+test("a peer PTY that appears after the attach reaches the attachment, and a gone one clears it", () => {
+  const shell = { ...attachedTab("shell"), pty_id: null };
+  const appeared = applyRemotePeerAgentStates({ [shell.id]: shell }, {
+    peer_id: "peer", peer_name: "Mac", tabs: [{ ...local, id: "shell", pty_id: "peer-pty" }],
+  });
+  assert.equal(appeared[shell.id].pty_id, shell.id);
+  const gone = applyRemotePeerAgentStates(appeared, {
+    peer_id: "peer", peer_name: "Mac", tabs: [{ ...local, id: "shell", pty_id: null }],
+  });
+  assert.equal(gone[shell.id].pty_id, null);
+});
+
+test("an attachment the answering peer no longer lists leaves; an unreachable peer keeps it", async () => {
+  const kept = attachedTab("kept");
+  const closed = attachedTab("closed");
+  const projected = { [kept.id]: kept, [closed.id]: closed };
+  const refreshed = await refreshAttachedRemoteAgentStates(projected, {}, async (peerId) => ({
+    peer_id: peerId, peer_name: "Mac", tabs: [{ ...local, id: "kept", pty_id: "pty" }],
+  }));
+  assert.deepEqual(Object.keys(refreshed), [kept.id]);
+  const offline = await refreshAttachedRemoteAgentStates(projected, {}, async () => { throw new Error("offline"); });
+  assert.deepEqual(Object.keys(offline).sort(), [closed.id, kept.id].sort());
+});

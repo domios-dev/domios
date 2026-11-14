@@ -253,13 +253,18 @@ export function inputFieldLabel(key: string): string {
 }
 
 /** Every reason Start stays disabled: inputs to fill, secrets to choose, then harnesses and tools this machine lacks. */
-export interface StartBlocker { inputs: string[]; secrets: string[]; harnesses: string[]; tools: string[] }
+/** `workspaces` names a chosen machine still waiting for its workspace choice. */
+export interface StartBlocker { inputs: string[]; secrets: string[]; harnesses: string[]; tools: string[]; workspaces: string[] }
+
+/** Where the whole Team starts when it is not this machine: the peer's name and whether a workspace there is chosen. */
+export interface RemoteStart { peer: string; workspaceChosen: boolean }
 
 /** Everything that keeps Start disabled, shown beside it in one line; null when the template can start. */
-export function startBlocker(preview: TemplatePreview, inputs: Record<string, string>, secretBindings: Record<string, string> = {}, remotePeer: string | null = null): StartBlocker | null {
-  const blocker: StartBlocker = { inputs: missingInputs(preview.form.inputs ?? [], inputs), secrets: [], harnesses: [], tools: [] };
-  // A peer binds secrets from its own vault and checks its own harnesses when its owner answers.
-  if (!remotePeer) {
+export function startBlocker(preview: TemplatePreview, inputs: Record<string, string>, secretBindings: Record<string, string> = {}, remote: RemoteStart | null = null): StartBlocker | null {
+  const blocker: StartBlocker = { inputs: missingInputs(preview.form.inputs ?? [], inputs), secrets: [], harnesses: [], tools: [], workspaces: [] };
+  if (remote && !remote.workspaceChosen) blocker.workspaces.push(remote.peer);
+  // A peer binds secrets from its own vault and checks its own harnesses there.
+  if (!remote) {
     for (const ask of preview.asks ?? []) {
       if (ask.kind === "secret" && ask.required && !secretBindings[ask.name]) blocker.secrets.push(ask.name);
     }
@@ -281,6 +286,7 @@ export function blockerView(blocker: StartBlocker, harnessName: (id: string) => 
   const parts = [
     blocker.inputs.length ? `fill in ${sentenceList(blocker.inputs.map(inputFieldLabel))}` : null,
     blocker.secrets.length ? `choose a secret for ${sentenceList(blocker.secrets)}` : null,
+    blocker.workspaces.length ? `choose a workspace on ${sentenceList(blocker.workspaces)}` : null,
     blocker.harnesses.length ? `install ${sentenceList(blocker.harnesses.map(harnessName))}` : null,
     blocker.tools.length ? `connect ${sentenceList(blocker.tools)}` : null,
   ].filter((part): part is string => part !== null);
