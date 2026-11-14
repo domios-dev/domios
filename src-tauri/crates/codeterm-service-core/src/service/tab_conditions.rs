@@ -206,7 +206,10 @@ impl ServiceContext {
             && self.mux.read().get_tab(tab_id).is_some_and(|tab| {
                 (is_user_facing(tab)
                     || (!tab.hidden && tab.role == Some(codeterm_types::pty::AgentRole::Manager)))
-                    && tab.boot_stage == Some(codeterm_types::pty::BootStage::AwaitingOwnerPrompt)
+                    // The readiness observer publishes the owner-wait stage after this routing event.
+                    && (tab.agent_booting
+                        || tab.boot_stage
+                            == Some(codeterm_types::pty::BootStage::AwaitingOwnerPrompt))
             });
         if launch_question {
             if let Some(event_key) = self.claim_launch_provider_question_notice(tab_id, prompt) {

@@ -1,5 +1,6 @@
 use super::*;
 
+mod launch_prompt;
 mod neighbor_authority;
 
 #[test]
