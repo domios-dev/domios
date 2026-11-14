@@ -207,7 +207,8 @@ it("keeps structured single-command diffs behind the retained explicit disclosur
   expect(host?.querySelector('[data-testid="chat-tool-call"]')).toBe(card);
 });
 
-it.each([command, "rg opaque_pattern opaque_file"])("keeps an explicitly running command collapsed with initially full input: %s", async (input) => {
+it("keeps an explicitly running search collapsed with initially full input", async () => {
+  const input = "rg opaque_pattern opaque_file";
   const initial = part({ toolInput: { command: input }, toolSummary: input, toolDetail: input, toolStatus: "running" });
   const first = await renderPart(initial);
   const card = first.querySelector('[data-testid="chat-tool-call"]');
@@ -216,6 +217,29 @@ it.each([command, "rg opaque_pattern opaque_file"])("keeps an explicitly running
   expect(host?.querySelector('[data-testid="chat-tool-call"]')).toBe(card);
   expect(host?.querySelector('button[aria-expanded="false"]')).not.toBeNull();
   expect(host?.querySelector('[data-testid="chat-command-group"]')).toBeNull();
+});
+
+it("keeps a fully described running command group stable through completion and remount", async () => {
+  const initial = part({ toolInput: { command }, toolSummary: command, toolDetail: command, toolStatus: "running" });
+  const first = await renderPart(initial);
+  const row = first.querySelector("[data-chat-window-row]");
+  const group = first.querySelector('[data-testid="chat-command-group"]');
+  const toggle = first.querySelector<HTMLButtonElement>('[data-testid="chat-command-group-toggle"]')!;
+  expect(group).not.toBeNull();
+  expect(first.querySelector('[data-testid="chat-tool-call"]')).toBeNull();
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(first.querySelectorAll('[data-testid="chat-command-tree-line"]')).toHaveLength(2);
+  await act(async () => toggle.click());
+  const completed = { ...initial, toolResult: "opaque_done", toolError: false, toolStatus: "completed" as const };
+  await renderPart(completed);
+  expect(host?.querySelector("[data-chat-window-row]")).toBe(row);
+  expect(host?.querySelector('[data-testid="chat-command-group"]')).toBe(group);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => toggle.click());
+  await remountPart(completed);
+  expect(host?.querySelector('[data-testid="chat-command-group-toggle"]')?.getAttribute("aria-expanded")).toBe("false");
+  expect(host?.querySelectorAll('[data-testid="chat-command-tree-line"]')).toHaveLength(2);
+  expect(host?.textContent).not.toContain("opaque_done");
 });
 
 it.each([
