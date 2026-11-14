@@ -4,10 +4,10 @@
 use std::collections::BTreeMap;
 
 use codeterm_team_package::contracts::{
-    declared_asks, input_fields, role_summaries, ManagerModelPicker, ModelDecision,
-    PlacementProblem, RoleAuthority, TemplateConsent, TemplateList, TemplatePreview, TemplateRef,
-    TemplateRoleSummary, TemplateRuntimeNeed, TemplateStartForm, TemplateStartRefusal,
-    TemplateStartRequest, TemplateWhere,
+    declared_asks, input_fields, role_summaries, ManagerModelPicker, ModelDecision, RoleAuthority,
+    TemplateConsent, TemplateList, TemplatePreview, TemplateRef, TemplateRoleSummary,
+    TemplateRuntimeNeed, TemplateStartForm, TemplateStartRefusal, TemplateStartRequest,
+    TemplateWhere,
 };
 use codeterm_team_package::{payload_items, RoleKind, RoleStart, StartMode, ORCHESTRATOR};
 use serde_json::Value;
@@ -45,8 +45,6 @@ pub struct AdmittedTemplate {
     /// Every declared input with its value or default; only declared keys survive.
     pub inputs: BTreeMap<String, String>,
     pub decision_id: Option<String>,
-    /// Worker role type to the paired peer that hosts it.
-    pub placements: BTreeMap<String, String>,
 }
 
 /// Builtins first, then the newest version of every template in My templates.
@@ -105,7 +103,7 @@ pub fn admit_bound(
     admit_resolved(resolved, request, ledger, unbound)
 }
 
-/// The input, secret, placement and consent gates for a package already resolved.
+/// The input, secret and consent gates for a package already resolved.
 pub fn admit_resolved(
     resolved: ResolvedTemplate,
     request: Option<&TemplateStartRequest>,
@@ -148,8 +146,6 @@ pub fn admit_resolved(
     if !missing.is_empty() {
         return Err(TemplateStartRefusal::MissingInputs { inputs: missing });
     }
-    let placements = request.map_or(&empty, |request| &request.role_placements);
-    worker_placements(&resolved, placements)?;
     let reasons = consent_reasons(&resolved.package, resolved.provenance);
     let decision_id = request.and_then(|request| request.decision_id.clone());
     if !reasons.is_empty() && !ledger.accepted(&resolved.package) {
@@ -162,7 +158,6 @@ pub fn admit_resolved(
         }
     }
     Ok(AdmittedTemplate {
-        placements: placements.clone(),
         resolved,
         inputs,
         decision_id: if reasons.is_empty() {
@@ -195,68 +190,6 @@ pub fn record_consent(admitted: &AdmittedTemplate) {
             identity.version
         );
     }
-}
-
-fn placement_refusal(role: &str, peer: &str, problem: PlacementProblem) -> TemplateStartRefusal {
-    TemplateStartRefusal::InvalidPlacement {
-        role: role.to_string(),
-        peer: peer.to_string(),
-        problem,
-    }
-}
-
-/// Only worker role types the package declares can run elsewhere; managers are the Team's home.
-fn worker_placements(
-    resolved: &ResolvedTemplate,
-    placements: &BTreeMap<String, String>,
-) -> Result<(), TemplateStartRefusal> {
-    let document = &resolved.package.document;
-    for (role, peer) in placements {
-        match document.role(role).map(|declared| declared.kind) {
-            None => return Err(placement_refusal(role, peer, PlacementProblem::UnknownRole)),
-            Some(RoleKind::Manager) => {
-                return Err(placement_refusal(role, peer, PlacementProblem::NotAWorker))
-            }
-            Some(RoleKind::Worker) => {}
-        }
-    }
-    Ok(())
-}
-
-/// Each placement names a paired peer with Full access; the peer's own name is what dispatch uses.
-pub fn resolve_placements(
-    svc: &ServiceContext,
-    admitted: &mut AdmittedTemplate,
-) -> Result<(), TemplateStartRefusal> {
-    if admitted.placements.is_empty() {
-        return Ok(());
-    }
-    let handle = svc.try_ext::<crate::MeshStateHandle>();
-    let mesh = handle.map(|handle| handle.lock());
-    for (role, peer) in admitted.placements.iter_mut() {
-        let paired = mesh.as_ref().and_then(|mesh| {
-            crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, peer.as_str())
-                .ok()
-                .map(|paired| {
-                    (
-                        paired.access_level == crate::mesh::types::AccessLevel::Full,
-                        paired.instance_name.clone(),
-                    )
-                })
-        });
-        match paired {
-            None => return Err(placement_refusal(role, peer, PlacementProblem::UnknownPeer)),
-            Some((false, _)) => {
-                return Err(placement_refusal(
-                    role,
-                    peer,
-                    PlacementProblem::NotFullAccess,
-                ))
-            }
-            Some((true, name)) => *peer = name,
-        }
-    }
-    Ok(())
 }
 
 /// The managers the package starts with the Team, Orchestrator first, then in package order.

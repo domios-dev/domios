@@ -52,7 +52,6 @@ fn a_curator_round_runs_on_its_registered_pick_and_otherwise_mirrors_the_orchest
         instructions: "fixture-prose".into(),
         model,
         reasoning: Some("picked-effort".into()),
-        placement_peer: None,
         consent_decision_id: None,
         files: Vec::new(),
         skills: Vec::new(),

@@ -5,6 +5,5 @@
   "opt_out": ["memory:1", "automation:stale-task-nudge"],
   "decision_id": "tcd_7f3a2c",
   "secret_bindings": { "SEARCH_API_KEY": "research-desk/search" },
-  "manager_models": { "cartographer": { "model": "harness-a:sonnet", "reasoning_effort": "medium" } },
-  "role_placements": { "researcher": "eight" }
+  "manager_models": { "cartographer": { "model": "harness-a:sonnet", "reasoning_effort": "medium" } }
 }

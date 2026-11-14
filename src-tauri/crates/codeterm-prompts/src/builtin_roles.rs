@@ -58,7 +58,6 @@ pub fn default_registrations(team_id: &str) -> Vec<RoleRegistration> {
                 instructions: package.role_instructions(name)?.to_string(),
                 model: role.model.clone(),
                 reasoning: role.reasoning.clone(),
-                placement_peer: None,
                 consent_decision_id: None,
                 files: Vec::new(),
                 skills: role.skills.clone(),

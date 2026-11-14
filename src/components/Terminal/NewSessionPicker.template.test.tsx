@@ -908,7 +908,7 @@ describe("Team template start in the session dialog", () => {
     await click(button("Run on another machine"));
   }
 
-  type PeerStartCall = { peer: string; origin_workspace_id?: string; start: { workspace_id: string; template: { template: unknown; role_placements?: unknown } } };
+  type PeerStartCall = { peer: string; origin_workspace_id?: string; start: { workspace_id: string; template: { template: unknown } } };
 
   it("starts the whole team on the chosen machine in its chosen workspace and never here", async () => {
     fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
@@ -927,7 +927,6 @@ describe("Team template start in the session dialog", () => {
     expect(request.origin_workspace_id).toBe("workspace");
     expect(request.start.workspace_id).toBe("ws_eight_research");
     expect(request.start.template.template).toEqual({ name: "com.example/research-desk", version: "2.1.0" });
-    expect(request.start.template).not.toHaveProperty("role_placements");
     expect(fixture.actions.upsertToast).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledOnce();
   });

@@ -12,7 +12,6 @@ type TemplatePayloadItem = import("../../../gen/TemplatePayloadItem").TemplatePa
 type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 type TemplateStartRefusal = import("../../../gen/TemplateStartRefusal").TemplateStartRefusal;
 type TemplateStartResult = import("../../../gen/TemplateStartResult").TemplateStartResult;
-type PlacementProblem = import("../../../gen/PlacementProblem").PlacementProblem;
 export type TemplateSummary = import("../../../gen/TemplateSummary").TemplateSummary;
 export type PackageFormat = import("../../../gen/PackageFormat").PackageFormat;
 export type ScrubReport = import("../../../gen/ScrubReport").ScrubReport;
@@ -294,19 +293,17 @@ export function blockerView(blocker: StartBlocker, harnessName: (id: string) => 
   return { tone: red ? "red" : "amber", text: `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}` };
 }
 
-export function buildStartRequest({ preview, inputs, optOut, managerModels, secretBindings = {}, rolePlacements = {} }: {
+export function buildStartRequest({ preview, inputs, optOut, managerModels, secretBindings = {} }: {
   preview: TemplatePreview;
   inputs: Record<string, string>;
   optOut: ReadonlySet<string>;
   /** Owner picks by manager role name; only roles with a pick are present. */
   managerModels: Record<string, ManagerModelChoice>;
   secretBindings?: Record<string, string>;
-  rolePlacements?: Record<string, string>;
 }): TemplateStartRequest {
   const { name, version } = preview.form.template;
   const filled = Object.fromEntries(Object.entries(inputs).filter(([, value]) => value.trim()));
   const bound = Object.fromEntries(Object.entries(secretBindings).filter(([, entry]) => entry));
-  const placed = Object.fromEntries(Object.entries(rolePlacements).filter(([, peer]) => peer));
   return {
     template: { name, version },
     inputs: filled,
@@ -314,7 +311,6 @@ export function buildStartRequest({ preview, inputs, optOut, managerModels, secr
     ...(preview.consent ? { decision_id: preview.consent.decision_id } : {}),
     ...(Object.keys(managerModels).length ? { manager_models: managerModels } : {}),
     ...(Object.keys(bound).length ? { secret_bindings: bound } : {}),
-    ...(Object.keys(placed).length ? { role_placements: placed } : {}),
   };
 }
 
@@ -330,23 +326,12 @@ function embeddedJson(text: string): unknown {
   }
 }
 
-function placementText(role: string, peer: string, problem: PlacementProblem): string {
-  const name = kindDisplayName(role);
-  switch (problem) {
-    case "unknown_role": return `This template has no ${name} role to run on ${peer}`;
-    case "not_a_worker": return `The ${name} is a manager and runs on this machine`;
-    case "unknown_peer": return `${peer} isn't a paired machine`;
-    case "not_full_access": return `${peer} needs Full access to run the ${name}`;
-  }
-}
-
 function refusalView(refusal: TemplateStartRefusal): StartErrorView {
   switch (refusal.code) {
     case "missing_inputs": return { message: "Fill in the missing inputs", reasons: refusal.inputs, choices: [] };
     case "consent_required": return { message: "Review this template and use it before starting", reasons: refusal.reasons, choices: [] };
     case "not_found": return { message: `${humanizePackageName(refusal.template.name)} isn't available`, reasons: [], choices: [] };
     case "invalid_package": return { message: "This template isn't a valid package", reasons: refusal.diagnostics.map((diagnostic) => diagnostic.message), choices: [] };
-    case "invalid_placement": return { message: placementText(refusal.role, refusal.peer, refusal.problem), reasons: [], choices: [] };
     case "schedule_unsupported_role":
       return { message: "This template can't start", reasons: [`${roleDisplayLabel(refusal.role, refusal.role)} runs on a schedule, which Domios doesn't run for this role`], choices: [] };
     case "host_owned_role": return { message: `${refusal.role} is a Domios role and can't be part of a template`, reasons: [], choices: [] };

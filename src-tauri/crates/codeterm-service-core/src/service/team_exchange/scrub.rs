@@ -21,19 +21,19 @@ const SECRET_PLACEHOLDER: &str = "[secret";
 pub struct ScrubContext {
     /// Workspace folders and the home folder; any path under them becomes `{workspace}`.
     pub personal_roots: Vec<String>,
-    /// This machine's and its peers' names.
+    /// Machine names to remove, such as this machine's host name.
     pub machines: Vec<String>,
 }
 
 impl ScrubContext {
     /// The exporting machine: its workspaces and home folder, plus its host name when the
     /// texts came from a live Team (a template's own prose never names this machine).
-    pub fn local(workspace_roots: Vec<String>, machines: Vec<String>, live_team: bool) -> Self {
+    pub fn local(workspace_roots: Vec<String>, live_team: bool) -> Self {
         let mut personal_roots = workspace_roots;
         if let Some(home) = dirs::home_dir() {
             personal_roots.push(home.display().to_string());
         }
-        let mut machines = machines;
+        let mut machines = Vec::new();
         if live_team {
             if let Ok(name) = hostname::get() {
                 machines.push(name.to_string_lossy().into_owned());

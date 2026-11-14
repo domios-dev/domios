@@ -337,9 +337,6 @@ pub struct TemplateStartRequest {
     /// Choices for with_team managers by role name, beyond the pair's own Orchestrator and Planner fields.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub manager_models: BTreeMap<String, ManagerModelChoice>,
-    /// Worker role type to the paired peer Main that hosts it; managers always stay home.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub role_placements: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -382,12 +379,6 @@ pub enum TemplateStartRefusal {
     MissingInputs {
         inputs: Vec<String>,
     },
-    /// A `role_placements` entry the start cannot honour; nothing was created.
-    InvalidPlacement {
-        role: String,
-        peer: String,
-        problem: PlacementProblem,
-    },
     /// Domios runs scheduled rounds only for the curator; a schedule on another role is valid
     /// ATP that this host does not start.
     ScheduleUnsupportedRole {
@@ -397,18 +388,6 @@ pub enum TemplateStartRefusal {
     HostOwnedRole {
         role: String,
     },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-pub enum PlacementProblem {
-    /// The package declares no role of that name.
-    UnknownRole,
-    /// Managers are the Team's home and never move.
-    NotAWorker,
-    UnknownPeer,
-    /// Hosting a role needs Full mesh access on that peer.
-    NotFullAccess,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -464,7 +443,6 @@ impl TemplateStartResult {
                 TemplateStartRefusal::NotFound { .. } => "not_found",
                 TemplateStartRefusal::InvalidPackage { .. }
                 | TemplateStartRefusal::MissingInputs { .. }
-                | TemplateStartRefusal::InvalidPlacement { .. }
                 | TemplateStartRefusal::ScheduleUnsupportedRole { .. }
                 | TemplateStartRefusal::HostOwnedRole { .. } => "invalid_argument",
             },

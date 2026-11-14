@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::service::team_template_start::{
-    admit_bound, resolve_placements, vault_unbound, ConsentLedger,
+    admit_bound, vault_unbound, ConsentLedger,
 };
 use codeterm_service_core::service::ServiceContext;
 use codeterm_team_package::contracts::{
@@ -68,8 +68,7 @@ pub(crate) async fn rerun(
     let _serialized = gate.lock_owned().await;
     let request = params.template.as_ref();
     let unbound = vault_unbound(svc, request).await;
-    let mut admitted = admit_bound(request, ConsentLedger::global(), &unbound).map_err(refused)?;
-    resolve_placements(svc, &mut admitted).map_err(refused)?;
+    let admitted = admit_bound(request, ConsentLedger::global(), &unbound).map_err(refused)?;
     remember_consent(&admitted).await;
     let rail = TemplateRail {
         opt_out: request

@@ -440,7 +440,6 @@ fn registration(kind: RoleKind, name: &str, model: Option<ModelPreference>) -> R
         instructions: format!("Do the {name} work.\n"),
         model,
         reasoning: None,
-        placement_peer: Some("ada-laptop".into()),
         consent_decision_id: None,
         files: vec![RoleFileRef {
             path: knowledge_path("team_1", "notes/brief.md"),

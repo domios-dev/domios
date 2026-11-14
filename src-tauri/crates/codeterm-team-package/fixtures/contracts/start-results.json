@@ -38,6 +38,5 @@
   { "status": "refused", "refusal": { "code": "consent_required", "reasons": ["new_grants"] } },
   { "status": "refused", "refusal": { "code": "missing_inputs", "inputs": ["question"] } },
   { "status": "refused", "refusal": { "code": "not_found", "template": { "name": "dev.example/missing" } } },
-  { "status": "refused", "refusal": { "code": "invalid_placement", "role": "orchestrator", "peer": "eight", "problem": "not_a_worker" } },
   { "status": "refused", "refusal": { "code": "schedule_unsupported_role", "role": "security_lead" } }
 ]

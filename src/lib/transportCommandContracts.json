@@ -340,6 +340,12 @@
         "/api/mesh/relay-to"
       ]
     ],
+    "mesh_peer_mux_state": [
+      [
+        "POST",
+        "/api/mesh/relay-to"
+      ]
+    ],
     "mesh_peer_workspace_create": [
       [
         "POST",
