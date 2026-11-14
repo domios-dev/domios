@@ -79,6 +79,11 @@ archive checksum, source-commit receipt and client `domios update check --force`
 | `master` | Admin merges the green release PR here to publish its retained artifacts. |
 | `ci/*` | Reviewed non-publishing candidate refs for diagnostics. |
 
+Before preparing a release, refresh the bundled team floor with
+`node scripts/sync-builtin-teams.mjs <40-hex-domios-teams-commit>`. Review and commit
+the snapshot and its `SOURCE_COMMIT` receipt; edit teams in `domios-dev/domios-teams`,
+then sync them here. Never hand-edit the bundled snapshot.
+
 1. Record the candidate, included lanes, fixed/deferred issues and evidence in the release PR
    description (not a file). Review changed commands/docs and remove obsolete callers.
 2. Before a release-branch push, qualify the exact committed release head in canonical using
@@ -582,4 +587,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

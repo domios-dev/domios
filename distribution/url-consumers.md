@@ -45,7 +45,7 @@ resolving to the newest app release.
 
 | Reference | Classification and treatment |
 | --- | --- |
-| `rollacode/codeterm-plugins` | Separate external plugin repository/channel, including fixtures and plugin-authoring instructions. Retain. |
+| `domios-dev/domios-plugins` | Separate external plugin repository/channel, including fixtures and plugin-authoring instructions. Retain. |
 | `rollacode/codeterm-firebase`, `rollacode/codeterm-web`, personal profile/author URLs | Independent services or authors; source rename supplies no authority to move them. Retain. |
 | `scripts/source-repository-aliases.json` | Historical issue metadata alias interpreted by the current release contract. Retain. |
 | Issue references in comments, `evals/*` findings, archived CI run links and JSONL session fixtures | Historical evidence; retain the original repository/issue/run identity. |
