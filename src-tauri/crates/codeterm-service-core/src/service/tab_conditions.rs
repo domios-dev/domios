@@ -200,8 +200,9 @@ impl ServiceContext {
                     // Launch clears agent_booting before the readiness observer publishes its stage.
                     && (super::unattended_launch::at_owned_launch_prompt(tab)
                         || tab.agent_booting
-                        || tab.boot_stage
-                            == Some(codeterm_types::pty::BootStage::AwaitingOwnerPrompt))
+                        || (tab.boot_stage
+                            == Some(codeterm_types::pty::BootStage::AwaitingOwnerPrompt)
+                            && !self.boot_held_for_owner_prompt(tab_id)))
             });
         if launch_question {
             if let Some(event_key) = self.claim_launch_provider_question_notice(tab_id, prompt) {
