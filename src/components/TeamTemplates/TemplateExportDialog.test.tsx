@@ -100,6 +100,20 @@ describe("Export with Neighborhood sharing", () => {
     expect(exportPackage).not.toHaveBeenCalled();
   });
 
+  it("says in plain words that it is sending until the send answers", async () => {
+    let answer!: (receipt: { status: string }) => void;
+    neighbors.send.mockReturnValue(new Promise((resolve) => { answer = resolve; }));
+    await renderDialog(true);
+    await chooseMira();
+    await act(async () => exportButton().click());
+    expect(dialog().querySelector('[role="status"]')?.textContent).toBe("Sending to Mira…");
+    expect(dialog().querySelector('[role="alert"]')).toBeNull();
+    expect(dialog().textContent).not.toContain("sent to Mira");
+    await act(async () => answer({ status: "pending" }));
+    expect(dialog().textContent).not.toContain("Sending to Mira");
+    expect(dialog().textContent).toContain("sent to Mira");
+  });
+
   it.each([["billing", false], ["admin", true]] as const)("lets a %s plan share whether or not it has staff full access", async (authority, full_access) => {
     account.plan.mockReturnValue(billing({ ...paidPlan, access: { authority, full_access } }));
     await renderDialog(true);

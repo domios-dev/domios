@@ -7,7 +7,7 @@ import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/mu
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openPlans, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openPlans: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null, targetMismatch: null as string | null, unverified: undefined as "sign_in_required" | "unconfirmed" | undefined, subscriptionLoading: false },
+  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null, targetMismatch: null as string | null, unverified: undefined as "sign_in_required" | "unconfirmed" | undefined, subscriptionLoading: false, useRealDesktopBilling: false },
 }));
 const localFetch = vi.hoisted(() => vi.fn());
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
@@ -26,10 +26,13 @@ vi.mock("../Settings/useAccountPlan", async (importOriginal) => {
       pending:state.billingPending,
     }) };
 });
-vi.mock("../billing/useDesktopBilling", () => ({ useDesktopBilling: () => ({
-  subscription: state.subscriptionLoading ? null : state.paidSubscription ? { paid_subscription: { tier: "pro" } } : { paid_subscription: null },
-  loading: state.subscriptionLoading,
-}) }));
+vi.mock("../billing/useDesktopBilling", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../billing/useDesktopBilling")>();
+  return { useDesktopBilling: (identity: string | null, enabled?: boolean) => state.useRealDesktopBilling ? actual.useDesktopBilling(identity, enabled) : ({
+    subscription: state.subscriptionLoading ? null : state.paidSubscription ? { paid_subscription: { tier: "pro" } } : { paid_subscription: null },
+    loading: state.subscriptionLoading,
+  }) };
+});
 vi.mock("../../lib/webApi", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../lib/webApi")>(),
   localFetch,
@@ -42,6 +45,7 @@ import { AccountMeshClientProvider } from "../MeshPanel/accountMeshClient";
 import { FakeAccountMeshClient, snapshot } from "../MeshPanel/accountMachines.testdata";
 import { accountInitials } from "../Settings/accountModel";
 import { plansAction } from "../billing/purchaseSwitch";
+import { desktopCatalogFixture } from "../billing/desktopBilling.testdata";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => {vi.clearAllMocks();});
 
@@ -334,6 +338,33 @@ it("names no subscription action until the subscription is known", async () => {
   } finally {
     await act(async () => root.unmount()); host.remove();
     state.signedIn = false; state.subscriptionLoading = false;
+  }
+});
+
+it("reads the subscription once signed in, so the first opening already names its action", async () => {
+  state.signedIn = true;
+  state.useRealDesktopBilling = true;
+  localFetch.mockImplementation(async (url: string, init: RequestInit) => {
+    if (url !== "/api/account/billing") return new Response("{}", { status: 404 });
+    const { operation } = JSON.parse(String(init.body)) as { operation: string };
+    return new Response(JSON.stringify(operation.includes("catalog") ? desktopCatalogFixture
+      : { billing_interval: "month", current_tier: "pro", paid_subscription: { tier: "pro", status: "active", period_end: 1700000000 }, period_end: 1700000000, pending_change: null }), { status: 200 });
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithActions />));
+    const reads = () => localFetch.mock.calls.filter(([url, init]) => url === "/api/account/billing" && String(init.body).includes("subscription")).length;
+    expect(reads()).toBe(1);
+    await act(async () => host.querySelector("button")!.dispatchEvent(new MouseEvent("pointerdown", {bubbles:true,cancelable:true})));
+    const labels = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).map(item => item.textContent);
+    expect(labels).toContain("Manage subscription");
+    expect(labels).not.toContain("Checking subscription…");
+    expect(document.activeElement?.textContent).toBe("Manage subscription");
+    expect(reads()).toBe(1);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.useRealDesktopBilling = false; localFetch.mockReset();
   }
 });
 
