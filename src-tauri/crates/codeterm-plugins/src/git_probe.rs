@@ -75,10 +75,7 @@ pub(crate) fn capture_observed(
             child
         };
         #[cfg(windows)]
-        let job = match codeterm_util::windows_job::Job::attach(&child) {
-            Ok(job) => Some(job),
-            Err(_) => None,
-        };
+        let job = codeterm_util::windows_job::Job::attach(&child).ok();
         #[cfg(windows)]
         let owned = job.is_some();
         #[cfg(not(windows))]

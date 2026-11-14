@@ -91,9 +91,9 @@ fn partial_restore_refreshes_every_evicted_plan_and_index() {
     partial_restore(false);
 }
 
-fn forward_restore_failure(warm: bool) {
+#[test]
+fn forward_restore_failure_refreshes_every_plan_and_index() {
     let (_directory, store) = fixture();
-    if !warm {}
     let connection = Connection::open(store.database_path_for_test()).unwrap();
     connection
         .execute_batch(
@@ -114,16 +114,6 @@ fn forward_restore_failure(warm: bool) {
     assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Active);
     assert_eq!(store.get("pl_b").unwrap().status, PlanStatus::Active);
     assert_matches_sql(&store);
-}
-
-#[test]
-fn forward_restore_failure_refreshes_every_warm_plan_and_index() {
-    forward_restore_failure(true);
-}
-
-#[test]
-fn forward_restore_failure_refreshes_every_evicted_plan_and_index() {
-    forward_restore_failure(false);
 }
 
 #[test]

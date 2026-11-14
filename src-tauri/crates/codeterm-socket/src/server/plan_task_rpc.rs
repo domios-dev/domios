@@ -326,7 +326,7 @@ pub(super) fn dispatch(
                 .map_err(draft_mutation_rpc_err)?;
             codeterm_service_core::service::ensure_planner_task_fields_are_structural(
                 &author,
-                p.unwrap_or(&Value::Null),
+                &normalized,
             )
             .map_err(|message| JsonRpcError {
                 code: -32003,

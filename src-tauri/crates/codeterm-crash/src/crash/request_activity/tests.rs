@@ -1,11 +1,6 @@
 use super::*;
-use std::task::{Context, Wake, Waker};
+use std::task::{Context, Waker};
 use std::time::Duration;
-
-struct Noop;
-impl Wake for Noop {
-    fn wake(self: Arc<Self>) {}
-}
 
 #[test]
 fn blocked_request_snapshot_identifies_route_worker_and_poll_phase() {
@@ -46,8 +41,7 @@ fn blocked_request_snapshot_identifies_route_worker_and_poll_phase() {
 #[test]
 fn cancelled_request_releases_activity_and_capacity_is_bounded() {
     let registry = Arc::new(Registry::default());
-    let waker = Waker::from(Arc::new(Noop));
-    let mut context = Context::from_waker(&waker);
+    let mut context = Context::from_waker(Waker::noop());
     let mut request = Box::pin(track_with(
         registry.clone(),
         "GET",

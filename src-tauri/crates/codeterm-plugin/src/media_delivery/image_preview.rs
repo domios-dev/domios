@@ -108,7 +108,7 @@ fn jpeg(bytes: &[u8]) -> Option<(u32, u32)> {
         if end > bytes.len() {
             return None;
         }
-        if matches!(marker, 0xc0 | 0xc1 | 0xc2) {
+        if matches!(marker, 0xc0..=0xc2) {
             let components = usize::from(*bytes.get(cursor + 7)?);
             if *bytes.get(cursor + 2)? != 8
                 || !(1..=4).contains(&components)

@@ -701,13 +701,12 @@ pub(crate) fn defer_session_binding(
             transcript_path,
             on_materialized.clone(),
         )
-        .map_err(|reason| {
+        .inspect_err(|reason| {
             log::warn!(
                 "[hook-refusal] tab={} event=session_start reason=defer_failed detail={}",
                 escaped_hook_log_field(tab_id),
-                escaped_hook_log_field(&reason)
+                escaped_hook_log_field(reason)
             );
-            reason
         })?;
     log::info!(
         "[hook-deferred] tab={} event=session_start reason=transcript_not_materialized session={}",

@@ -79,7 +79,7 @@ fn assert_ready_once(fixture: &ServiceFixture, attempt: &LaunchAttempt) {
         events
             .iter()
             .filter(|(name, _)| name == "tab-boot-stage")
-            .last()
+            .next_back()
             .unwrap()
             .1["stage"],
         "agent_ready"

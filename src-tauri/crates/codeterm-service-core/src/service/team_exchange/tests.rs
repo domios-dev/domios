@@ -141,9 +141,7 @@ fn a_svg_icon_stays_inline_and_a_png_refuses_the_one_file_form() {
 
     let mut png = folder_reference();
     png.document.icon = Some("assets/logo.png".into());
-    let error = forms::single_file(&png)
-        .err()
-        .expect("a PNG cannot be inline");
+    let error = forms::single_file(&png).expect_err("a PNG cannot be inline");
     assert!(error.contains("--format team"), "{error}");
     let error = run_pipeline(png, &ScrubContext::default(), PackageFormat::Yaml, None)
         .err()
@@ -255,9 +253,7 @@ fn malformed_or_unsafe_packages_never_reach_my_templates() {
         .instructions =
         Some("Deploy with GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123\n".into());
     std::fs::write(&secret, package.to_yaml()).unwrap();
-    let error = check_import(&secret)
-        .err()
-        .expect("a secret value is refused");
+    let error = check_import(&secret).expect_err("a secret value is refused");
     assert!(error.message.contains("secret"));
     let relative = check_import(Path::new("relative.team.yaml")).err().unwrap();
     assert!(relative.message.contains("absolute"));

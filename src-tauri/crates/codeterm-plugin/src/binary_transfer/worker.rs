@@ -428,7 +428,7 @@ pub async fn execute_async(
         execute(session, request, abort)
     })
     .await
-    .unwrap_or_else(|_| {
+    .unwrap_or({
         Err(TransferFailure {
             error: TransferRefusal::TransportUnconfirmed,
             request_may_have_started: true,

@@ -91,14 +91,12 @@ impl ServiceContext {
                 .snapshot()
                 .tabs
                 .iter()
-                .filter_map(|(id, tab)| {
-                    tab.neighbor_authority
-                        .as_ref()
-                        .is_some_and(|authority| {
-                            authority.uid == uid && authority.friendship_id == friendship
-                        })
-                        .then(|| id.clone())
+                .filter(|(_, tab)| {
+                    tab.neighbor_authority.as_ref().is_some_and(|authority| {
+                        authority.uid == uid && authority.friendship_id == friendship
+                    })
                 })
+                .map(|(id, _)| id.clone())
                 .collect();
             for id in ids {
                 if let Some(tab) = mux.get_tab_mut(&id) {
@@ -175,15 +173,12 @@ impl ServiceContext {
                 .snapshot()
                 .tabs
                 .iter()
-                .filter_map(|(id, child)| {
-                    child
-                        .neighbor_authority
-                        .as_ref()
-                        .is_some_and(|authority| {
-                            authority.root_tab_id.as_deref() == Some(tab.as_str())
-                        })
-                        .then(|| id.clone())
+                .filter(|(_, child)| {
+                    child.neighbor_authority.as_ref().is_some_and(|authority| {
+                        authority.root_tab_id.as_deref() == Some(tab.as_str())
+                    })
                 })
+                .map(|(id, _)| id.clone())
                 .collect();
             for child in children {
                 self.pause_neighbor_tab(&child, friendship).await?;
