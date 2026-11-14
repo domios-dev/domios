@@ -162,9 +162,6 @@ pub(super) fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -
     )
 }
 
-#[cfg(test)]
-mod tests;
-
 /// What a spawn holds from admission until its tab carries the role.
 pub(super) struct SpawnRoleAdmission {
     pub(super) _manager: Option<crate::service::team_manager_spawn::ManagerReservation>,

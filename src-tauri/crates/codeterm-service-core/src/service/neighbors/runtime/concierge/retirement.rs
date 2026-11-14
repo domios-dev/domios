@@ -160,12 +160,12 @@ impl ServiceContext {
         let mut targets: Vec<_> = snapshot
             .tabs
             .iter()
-            .filter_map(|(id, tab)| {
-                (tab.neighbor_authority.as_ref().is_some_and(|authority| {
+            .filter(|(id, tab)| {
+                tab.neighbor_authority.as_ref().is_some_and(|authority| {
                     authority.uid == uid && authority.friendship_id == friendship
-                }) || root.as_ref() == Some(id) && tab.neighbor_authority.is_none())
-                .then(|| id.clone())
+                }) || root.as_ref() == Some(*id) && tab.neighbor_authority.is_none()
             })
+            .map(|(id, _)| id.clone())
             .collect();
         if root.is_none() && targets.is_empty() {
             self.clear_neighbor_friend_restore_grants(uid, friendship);

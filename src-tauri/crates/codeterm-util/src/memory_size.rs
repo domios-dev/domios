@@ -14,7 +14,7 @@ impl Size {
     }
 }
 
-impl<'a> ser::Serializer for &'a mut Size {
+impl ser::Serializer for &mut Size {
     type Ok = ();
     type Error = serde_json::Error;
     type SerializeSeq = Self;

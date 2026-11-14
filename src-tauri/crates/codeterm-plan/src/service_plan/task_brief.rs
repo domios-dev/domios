@@ -156,12 +156,7 @@ fn render_task_assignment(
         out.push_str("\n\n");
     }
 
-    if let Some(intent) = task
-        .intent
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(intent) = task.intent.map(str::trim).filter(|value| !value.is_empty()) {
         out.push_str(&format!("## Intent\n{intent}\n\n"));
     }
 
@@ -175,7 +170,6 @@ fn render_task_assignment(
 
     if let Some(correctness) = task
         .correctness
-        .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
@@ -184,7 +178,6 @@ fn render_task_assignment(
 
     if let Some(test_plan) = task
         .test_plan
-        .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {

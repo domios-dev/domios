@@ -239,7 +239,7 @@ pub(super) fn compute_next_actions_from(s: &NextActionInput) -> Vec<NextAction> 
         })
         .collect::<Vec<_>>();
     for lane in pending_lanes {
-        let message = if let Some(summary) = lane.competition.as_deref() {
+        let message = if let Some(summary) = lane.competition {
             format!(
                 "{} {} ({summary}): plan.task.compete route for plan {} task {}",
                 crate::service_plan::competition::COMPETITIVE_DISPATCH_NUDGE,

@@ -219,10 +219,7 @@ pub fn choose_placement_facts(
     } else {
         files.shared_edit_paths().map_err(|error| format!("{error}. Declare edit files: domios plan task files {} {} --edit-file <path>; or request isolation: domios plan task dispatch {} {} --execution-intent mutating --placement lane", plan_id, task_id, plan_id, task_id))?;
         validate_edit_links_at(&checkout, files)?;
-        match validate_shared_ownership_at(plans, plan_id, task_id, &checkout, files) {
-            Ok(()) => None,
-            Err(error) => Some(error),
-        }
+        validate_shared_ownership_at(plans, plan_id, task_id, &checkout, files).err()
     };
     if let Some(reason) = lane_reason {
         if requested == Some("shared") {

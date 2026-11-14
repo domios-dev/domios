@@ -154,8 +154,8 @@ impl ServiceContext {
         let retired: Vec<_> = snapshot
             .tabs
             .iter()
-            .filter_map(|(id, tab)| {
-                (id.as_str() != current
+            .filter(|(id, tab)| {
+                id.as_str() != current
                     && tab.neighbor_authority.as_ref().is_some_and(|authority| {
                         authority.uid == uid
                             && authority.friendship_id == friendship
@@ -163,9 +163,9 @@ impl ServiceContext {
                                 .root_tab_id
                                 .as_deref()
                                 .is_none_or(|root| root != current || !current_exists)
-                    }))
-                .then(|| id.clone())
+                    })
             })
+            .map(|(id, _)| id.clone())
             .collect();
         for tab in retired {
             self.require_neighbor_history_generation(generation)
