@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn retired_cleanup_cannot_remove_a_newer_or_failed_launch_profile() {
+    let mut model = LeaseModel::default();
+    model.install("old");
+    let generation = model.generation();
+    model.retire();
+    assert!(model.permits_cleanup(generation));
+    model.begin_launch();
+    assert!(model.handle().is_none());
+    assert!(!model.permits_cleanup(generation));
+    model.install("new");
+    assert!(!model.permits_cleanup(generation));
+}
+
+#[test]
 fn two_acquires_share_one_handle_and_last_release_ends_ownership() {
     for reverse in [false, true] {
         let mut model = LeaseModel::default();

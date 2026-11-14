@@ -28,7 +28,7 @@ impl SharedBrowser {
                 .is_none_or(|process| process.exit_status().is_none())
     }
 
-    async fn stop(&self, deadline: Duration) -> Option<CloseOutcome> {
+    async fn stop(&self, deadline: Duration, generation: u64) -> Option<CloseOutcome> {
         let close = async {
             let _ = self.client.send("Browser.close", json!({})).await;
         };
@@ -42,18 +42,28 @@ impl SharedBrowser {
         self.client.close("shared browser stopped");
         let confirmed_exit = self.process.is_none()
             || !cfg!(target_os = "macos")
-            || matches!(
-                outcome,
-                Some(
-                    CloseOutcome::AlreadyExited(_)
-                        | CloseOutcome::Graceful(_)
-                        | CloseOutcome::Killed(Some(_))
-                )
-            );
-        if confirmed_exit
-            && (!self.profile.is_persistent() || super::instance::is_ephemeral(&self.dir).await)
-        {
-            let _ = tokio::fs::remove_dir_all(&self.dir).await;
+            || outcome.is_some_and(CloseOutcome::confirms_exit);
+        if !self.profile.is_persistent() || super::instance::is_ephemeral(&self.dir).await {
+            if confirmed_exit {
+                let _ = tokio::fs::remove_dir_all(&self.dir).await;
+            } else if let Some(process) = &self.process {
+                let mut exit = process.exit_watch();
+                let dir = self.dir.clone();
+                let slot = slot_for(&dir);
+                tokio::spawn(async move {
+                    if exit.wait_for(Option::is_some).await.is_err() {
+                        log::warn!(
+                            "[browser] profile {} retained without exit confirmation",
+                            dir.display()
+                        );
+                        return;
+                    }
+                    let model = slot.lock().await;
+                    if model.permits_cleanup(generation) {
+                        let _ = tokio::fs::remove_dir_all(&dir).await;
+                    }
+                });
+            }
         }
         outcome
     }
@@ -124,10 +134,11 @@ impl ProfileLease {
                 let mut model = slot.lock().await;
                 if model.handle().is_some_and(|browser| !browser.is_alive()) {
                     if let Some(browser) = model.retire() {
-                        browser.stop(CLOSE_DEADLINE).await;
+                        browser.stop(CLOSE_DEADLINE, model.generation()).await;
                     }
                 }
                 if model.handle().is_none() {
+                    model.begin_launch();
                     model.install(Arc::new(launch().await?));
                 }
                 let (id, browser) = model.acquire().ok_or("profile has no browser")?;
@@ -184,19 +195,19 @@ impl ProfileLease {
             let mut model = slot.lock().await;
             let same_browser = model.handle().is_some_and(|current| Arc::ptr_eq(&current, &browser));
             if same_browser && !browser.is_alive() {
-                if let Some(retired) = model.retire() { return retired.stop(deadline).await; }
+                if let Some(retired) = model.retire() { return retired.stop(deadline, model.generation()).await; }
             }
             if same_browser {
                 if let Some(target_id) = target_id {
                     let closed = browser.client.send_to(None, "Target.closeTarget", json!({ "targetId": target_id }), deadline).await;
                     if !matches!(closed, Ok(ref result) if result.get("success").and_then(serde_json::Value::as_bool) == Some(true)) {
                         let retired = model.retire();
-                        if let Some(retired) = retired { return retired.stop(deadline).await; }
+                        if let Some(retired) = retired { return retired.stop(deadline, model.generation()).await; }
                     }
                 }
             }
             match model.release(id) {
-                Some(last) => last.stop(deadline).await,
+                Some(last) => last.stop(deadline, model.generation()).await,
                 None => None,
             }
         }))

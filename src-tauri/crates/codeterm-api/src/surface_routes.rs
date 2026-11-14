@@ -39,6 +39,7 @@ fn surface_refusal(error: SurfaceError) -> Refusal {
         | SurfaceError::TabNotFound(_) => StatusCode::NOT_FOUND,
         SurfaceError::ViewUnavailable(_)
         | SurfaceError::Placement(_)
+        | SurfaceError::TerminationFailed(_)
         | SurfaceError::NotAStreamSurface(_)
         | SurfaceError::RuntimeUnavailable(_) => StatusCode::CONFLICT,
     };

@@ -7,12 +7,27 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 
+pub mod termination;
+
 #[cfg(target_os = "macos")]
 mod macos;
 
 pub const READY_DEADLINE: Duration = Duration::from_secs(15);
 pub const CLOSE_DEADLINE: Duration = Duration::from_secs(5);
 pub const KILL_DEADLINE: Duration = Duration::from_secs(5);
+#[cfg(target_os = "macos")]
+pub const FORCE_TERMINATE_DEADLINE: Duration = Duration::from_secs(5);
+
+fn forced_exit_window() -> Duration {
+    #[cfg(target_os = "macos")]
+    {
+        FORCE_TERMINATE_DEADLINE + KILL_DEADLINE
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        KILL_DEADLINE
+    }
+}
 
 #[derive(Debug)]
 pub struct SpawnError {
@@ -45,6 +60,12 @@ pub enum CloseOutcome {
     AlreadyExited(ProcessExit),
     Graceful(ProcessExit),
     Killed(Option<ProcessExit>),
+}
+
+impl CloseOutcome {
+    pub fn confirms_exit(self) -> bool {
+        !matches!(self, Self::Killed(None))
+    }
 }
 
 pub struct BrowserProcess {
@@ -216,7 +237,10 @@ impl BrowserProcess {
             return CloseOutcome::Graceful(exit);
         }
         self.kill();
-        CloseOutcome::Killed(self.wait_exit_until(Instant::now() + KILL_DEADLINE).await)
+        CloseOutcome::Killed(
+            self.wait_exit_until(Instant::now() + forced_exit_window())
+                .await,
+        )
     }
 }
 

@@ -7,6 +7,51 @@ use std::time::{Duration, Instant};
 
 use tokio::io::unix::AsyncFd;
 
+pub(super) struct ProcessIdentity {
+    pid: u32,
+    birth: (u64, u64),
+}
+
+impl ProcessIdentity {
+    pub(super) fn capture(pid: u32) -> io::Result<Self> {
+        Ok(Self {
+            pid,
+            birth: process_birth(pid)?,
+        })
+    }
+
+    pub(super) fn kill_verified(&self, verified_pid: Option<u32>) -> io::Result<()> {
+        if verified_pid != Some(self.pid) || process_birth(self.pid)? != self.birth {
+            return Err(io::Error::other(
+                "browser process identity changed; SIGKILL refused",
+            ));
+        }
+        if unsafe { libc::kill(self.pid as i32, libc::SIGKILL) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+}
+
+fn process_birth(pid: u32) -> io::Result<(u64, u64)> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+    if unsafe {
+        libc::proc_pidinfo(
+            pid as i32,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    } != size
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let info = unsafe { info.assume_init() };
+    Ok((info.pbi_start_tvsec, info.pbi_start_tvusec))
+}
+
 fn queue() -> io::Result<OwnedFd> {
     let raw = unsafe { libc::kqueue() };
     if raw < 0 {

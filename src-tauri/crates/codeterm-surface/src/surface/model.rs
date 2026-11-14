@@ -21,6 +21,7 @@ pub enum SurfaceError {
     RuntimeUnavailable(String),
     TabNotFound(String),
     Placement(String),
+    TerminationFailed(codeterm_browser::process::termination::TerminationFailure),
 }
 
 impl SurfaceError {
@@ -38,6 +39,7 @@ impl SurfaceError {
             Self::RuntimeUnavailable(_) => "surface_runtime_unavailable",
             Self::TabNotFound(_) => "tab_not_found",
             Self::Placement(_) => "surface_placement_failed",
+            Self::TerminationFailed(failure) => failure.code(),
         }
     }
 
@@ -77,6 +79,7 @@ impl SurfaceError {
             }
             Self::TabNotFound(tab) => format!("Tab {tab} not found"),
             Self::Placement(detail) => detail.clone(),
+            Self::TerminationFailed(failure) => failure.to_string(),
         }
     }
 }
