@@ -13,6 +13,8 @@ import { placeChatRails } from "./chatBodyVisibility";
 import { deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
 import { createDeliveryProjectionMemory, queuedDeliveryIds, stableDeliveryEntries, type DeliveryProjectionMemory } from "./chatDeliveryProjection";
 import { conversationEntries } from "./chatPagingModel";
+import type { OutboundReportEntry } from "./ChatTranscriptRow";
+import { outboundReportRows, type LiveOutboundReport } from "./outboundReportRows";
 
 // A long-running agent tab: three days of turns, each with the same report tool
 // call, read newest page first and paged back the way the Chat view pages it.
@@ -26,24 +28,51 @@ const WINDOW = 24;
 const turnAt = (turn: number) => START + turn * TURN_MS;
 const iso = (ms: number) => new Date(ms).toISOString();
 
-function turnRows(turn: number): NormalizedChatMessage[] {
+const REPORT_COMMAND = "domios agent report --status in_review --from-pad report.md";
+
+/** What the CLI prints for an accepted report: the daemon receipt, then the delivered body. */
+function receipt(turn: number): string {
+  return [
+    "  accepted        true",
+    "  ok              true",
+    `  report_id       rep-${turn}`,
+    "  report_outcome  (none)",
+    "  state           recorded",
+    "  target_tab_id   lens0001",
+    '  task_report     {"persisted":true,"plan_id":"pl_fixture","report_outcome":null,"task_id":"task_fixture"}',
+    `CODETERM_RESOLVED_TEXT=${JSON.stringify(`opaque-report-${turn}`)}`,
+  ].join("\n");
+}
+
+function turnRows(turn: number, finished = true): NormalizedChatMessage[] {
   const at = turnAt(turn);
   return [
     { id: `user-${turn}`, type: "user", content: `opaque-request-${turn}`, timestamp: iso(at) },
     { id: `call-${turn}`, type: "tool_call", content: "", toolName: "Bash", toolKind: "command", toolId: `tool-${turn}`,
-      toolArgs: "domios agent report --status in_review --from-pad report.md", timestamp: iso(at + 10_000) },
-    { id: `result-${turn}`, type: "tool_result", content: "reported", toolId: `tool-${turn}`, timestamp: iso(at + 12_000) },
-    { id: `reply-${turn}`, type: "assistant", content: `opaque-reply-${turn}`, timestamp: iso(at + 20_000) },
+      toolInput: { command: REPORT_COMMAND }, toolArgs: REPORT_COMMAND, timestamp: iso(at + 10_000) },
+    ...(finished ? [
+      { id: `result-${turn}`, type: "tool_result" as const, content: receipt(turn), toolId: `tool-${turn}`, timestamp: iso(at + 12_000) },
+      { id: `reply-${turn}`, type: "assistant" as const, content: `opaque-reply-${turn}`, timestamp: iso(at + 20_000) },
+    ] : []),
   ];
 }
 
 const allRows = (turns: number) => Array.from({ length: turns }, (_, turn) => turnRows(turn)).flat();
 
-/** One accepted report per turn, anchored on that turn's tool call and stamped just after it. */
-const reports = Array.from({ length: TURNS }, (_, turn) => ({
-  at: turnAt(turn) + 11_000,
-  messageId: `call-${turn}`,
-}));
+/** The accepted-report event this client saw live for a turn, anchored on that turn's call. */
+function liveReceipt(turn: number): LiveOutboundReport {
+  return {
+    targetTabId: "lens0001",
+    at: turnAt(turn) + 11_000,
+    position: { source_session_id: authority.sourceSessionId, message_id: `call-${turn}` },
+    descriptor: { reportId: `rep-${turn}`, recipient: "Lens", task: "pl_fixture/task_fixture", status: "in_review", sha: null,
+      message: `opaque-report-${turn}`, taskOutcome: { persisted: true, transitionRejected: false, cause: null, reportOutcome: null } },
+  };
+}
+
+const liveStore = (turns: Iterable<number>) => [...turns].map(liveReceipt);
+const range = (from: number, to: number) => Array.from({ length: to - from }, (_, index) => from + index);
+const FULL_STORE = liveStore(range(0, TURNS));
 
 function snapshot(rows: NormalizedChatMessage[]): TranscriptState {
   const start = Math.max(0, rows.length - PAGE);
@@ -61,6 +90,7 @@ function backfill(state: TranscriptState, rows: NormalizedChatMessage[]): Transc
 interface ViewInput {
   state: TranscriptState;
   visible: number;
+  live?: readonly LiveOutboundReport[];
   sends?: readonly DeliverySend[];
   turnRunning?: boolean;
   memory?: DeliveryProjectionMemory;
@@ -69,37 +99,41 @@ interface ViewInput {
 const memory = () => createDeliveryProjectionMemory("session");
 
 /** The rendered column, top to bottom, through the same models TabSessionChat composes. */
-function renderedColumn({ state, visible, sends = [], turnRunning = false, memory: projectionMemory = memory() }: ViewInput) {
+function renderedColumn({ state, visible, live = FULL_STORE, sends = [], turnRunning = false, memory: projectionMemory = memory() }: ViewInput) {
   const liveSends = deliveryProjectionSends(sends, null, queuedDeliveryIds(sends, turnRunning, projectionMemory));
   const projection = projectTranscript(state, liveSends);
   const entries = stableDeliveryEntries(conversationEntries(projection.rows), liveSends, projection.echoes, projectionMemory);
   const start = Math.max(0, entries.length - visible);
   const window = entries.slice(start);
+  const cards = outboundReportRows({ rows: window, transcript: projection.rows, live, recipient: (tab) => tab ?? "parent" });
   const placed = placeChatRails({
     visible: true,
     hiddenBefore: start > 0 || (transcriptBackfillCursor(state) ?? 0) > 0,
     hiddenAfter: false,
     messages: window,
     messageTimeMs: ({ msg }) => timestampMs(msg.timestamp),
-    reportTimes: reports.map(report => report.at),
+    reportTimes: cards.rail.map(report => report.at),
     reportPositions: {
       sourceMessageIds: projection.rows.map(msg => msg.sourceMessageId ?? msg.id),
       messageId: ({ msg }) => msg.sourceMessageId ?? msg.id,
-      reportMessageIds: reports.map(report => report.messageId),
+      reportMessageIds: cards.rail.map(report => report.position?.message_id ?? null),
     },
     askTimes: [],
   });
   const column: Array<{ key: string; at: number }> = [];
-  const pushReports = (indices: readonly number[] | undefined) => {
-    for (const index of indices ?? []) column.push({ key: `report-${index}`, at: reports[index].at });
+  const pushCard = (card: OutboundReportEntry) =>
+    column.push({ key: card.descriptor.reportId.replace("rep-", "report-"), at: card.at! });
+  const pushRail = (indices: readonly number[] | undefined) => {
+    for (const index of indices ?? []) pushCard(cards.rail[index]);
   };
-  pushReports(placed.reports.afterIndex.get(-1));
+  pushRail(placed.reports.afterIndex.get(-1));
   window.forEach(({ msg }, index) => {
     const send = sends.find(candidate => candidate.id === msg.id);
     column.push({ key: msg.id, at: send?.sentAtMs ?? timestampMs(msg.timestamp)! });
-    pushReports(placed.reports.afterIndex.get(index));
+    for (const card of cards.byRow.get(index) ?? []) pushCard(card);
+    pushRail(placed.reports.afterIndex.get(index));
   });
-  pushReports(placed.reports.trailing);
+  pushRail(placed.reports.trailing);
   return column;
 }
 
@@ -118,17 +152,26 @@ function assertPrependOnly(before: ReadonlyArray<{ key: string }>, after: Readon
   assert.deepEqual(tail, before.map(item => item.key), `${label}: rows already on screen kept their order and neighbours`);
 }
 
-function scrollToTop(rows: NormalizedChatMessage[]) {
+function scrollToTop(rows: NormalizedChatMessage[], live: readonly LiveOutboundReport[] = FULL_STORE) {
   let state = snapshot(rows);
   let visible = WINDOW;
-  const steps = [renderedColumn({ state, visible })];
+  const steps = [renderedColumn({ state, visible, live })];
   while ((transcriptBackfillCursor(state) ?? 0) > 0 || steps[steps.length - 1].length < rows.length) {
     if ((transcriptBackfillCursor(state) ?? 0) > 0) state = backfill(state, rows);
     visible += WINDOW;
-    steps.push(renderedColumn({ state, visible }));
+    steps.push(renderedColumn({ state, visible, live }));
     if (steps.length > 40) throw new Error("paging never reached the start");
   }
   return { state, steps };
+}
+
+/** Every finished report call is followed directly by its own card, exactly once. */
+function assertCardsFollowCalls(column: ReadonlyArray<{ key: string }>, turns: number, label: string) {
+  assert.equal(column.filter(item => item.key.startsWith("report-")).length, turns, `${label}: one card per report`);
+  for (let turn = 0; turn < turns; turn++) {
+    const call = column.findIndex(item => item.key === `call-${turn}`);
+    assert.equal(column[call + 1]?.key, `report-${turn}`, `${label}: report ${turn} follows its own tool call`);
+  }
 }
 
 test("report cards older than the loaded page stay out of view instead of stacking above it", () => {
@@ -141,25 +184,36 @@ test("report cards older than the loaded page stay out of view instead of stacki
 });
 
 test("scrolling to the top pages in strict chronological order without duplicates or regrouping", () => {
-  const rows = allRows(TURNS);
-  const { steps } = scrollToTop(rows);
-  steps.forEach((column, index) => assertChronological(column, `page ${index}`));
-  for (let index = 1; index < steps.length; index++) assertPrependOnly(steps[index - 1], steps[index], `page ${index}`);
-  const final = steps[steps.length - 1];
-  assert.equal(final.filter(item => item.key.startsWith("report-")).length, TURNS, "every report renders exactly once at the top");
-  assert.equal(final.filter(item => item.key.startsWith("call-")).length, TURNS, "identical tool calls stay distinct rows");
-  for (let turn = 0; turn < TURNS; turn++) {
-    const call = final.findIndex(item => item.key === `call-${turn}`);
-    assert.equal(final[call + 1]?.key, `report-${turn}`, `report ${turn} follows its own tool call`);
+  for (const [label, live] of [["live store", FULL_STORE], ["empty store", []]] as const) {
+    const { steps } = scrollToTop(allRows(TURNS), live);
+    steps.forEach((column, index) => assertChronological(column, `${label} page ${index}`));
+    for (let index = 1; index < steps.length; index++) assertPrependOnly(steps[index - 1], steps[index], `${label} page ${index}`);
+    const final = steps[steps.length - 1];
+    assert.equal(final.filter(item => item.key.startsWith("call-")).length, TURNS, `${label}: identical tool calls stay distinct rows`);
+    assertCardsFollowCalls(final, TURNS, label);
   }
 });
 
-test("a reload with newer turns pages back to the same order", () => {
-  const before = scrollToTop(allRows(TURNS - 2)).steps.slice(-1)[0]!;
-  const after = scrollToTop(allRows(TURNS)).steps.slice(-1)[0]!;
+test("a reload in the middle rebuilds every card from the transcript with an empty live store", () => {
+  const before = scrollToTop(allRows(TURNS - 2), liveStore(range(0, TURNS - 2))).steps.slice(-1)[0]!;
+  const after = scrollToTop(allRows(TURNS), liveStore(range(TURNS - 2, TURNS))).steps.slice(-1)[0]!;
   assertChronological(after, "after reload");
+  assertCardsFollowCalls(after, TURNS, "after reload");
   const reloadedPrefix = after.filter(item => before.some(old => old.key === item.key));
   assert.deepEqual(reloadedPrefix.map(item => item.key), before.map(item => item.key), "history reads the same after reload");
+});
+
+test("a live receipt that arrives before its call's result renders once, then belongs to that call", () => {
+  const rows = [...allRows(TURNS - 1), ...turnRows(TURNS - 1, false)];
+  const live = [liveReceipt(TURNS - 1)];
+  const early = renderedColumn({ state: snapshot(rows), visible: WINDOW, live });
+  assertChronological(early, "before the result");
+  assert.equal(early.filter(item => item.key === `report-${TURNS - 1}`).length, 1, "the receipt shows once while its row is pending");
+  const landed = renderedColumn({ state: snapshot(allRows(TURNS)), visible: WINDOW, live });
+  assertChronological(landed, "after the result");
+  const call = landed.findIndex(item => item.key === `call-${TURNS - 1}`);
+  assert.equal(landed[call + 1]?.key, `report-${TURNS - 1}`, "the card follows its own call");
+  assert.equal(landed.filter(item => item.key === `report-${TURNS - 1}`).length, 1, "the live receipt never duplicates the transcript card");
 });
 
 const status = (state: string, sequence = 1) => ({ tab_id: "tab", send_id: `tx-${sequence}`, correlationId: "", state, sequence,
