@@ -38,6 +38,9 @@ export function selectProviders(descriptors, { required = REQUIRED_PROVIDERS, on
 export function runtimeFailure(record) {
   const runtime = record?.agent_runtime_state;
   if (runtime && FAILED_RUNTIME.has(runtime.state)) return `runtime ${runtime.state}: ${runtime.reason ?? "no reason reported"}`;
+  if (runtime?.authentication?.state === "needs_auth" || runtime?.auth === "signedOut" || runtime?.state === "loginPending") {
+    return "runtime authentication required: sign in before running the journey";
+  }
   return null;
 }
 
