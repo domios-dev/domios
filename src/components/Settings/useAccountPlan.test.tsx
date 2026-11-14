@@ -42,6 +42,7 @@ function Harness() {
     <button type="button" disabled={billing.pending} onClick={() => void billing.manage().then((failure) => { outcome.failure = failure; })}>
       Manage subscription
     </button>
+    <button type="button" onClick={() => void billing.refresh()}>Retry plan</button>
   </div>;
 }
 
@@ -146,4 +147,13 @@ it("checks a known browser return once immediately even inside the shared UI cac
   expect(network.request).toHaveBeenLastCalledWith("/api/account/plan/refresh?focus=true", { method: "POST" });
   await act(async () => window.dispatchEvent(new Event("focus")));
   expect(network.request).toHaveBeenCalledTimes(2);
+});
+
+it("explicit retry refreshes the host plan immediately despite the shared cache", async () => {
+  const host = await mount({ ...plan("billing", "pro", "active"), verification: "unconfirmed" });
+  network.request.mockImplementation(async () => response(plan("billing", "sponsor", "active")));
+  await act(async () => Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Retry plan")?.click());
+  expect(network.request).toHaveBeenCalledTimes(2);
+  expect(network.request).toHaveBeenLastCalledWith("/api/account/plan/refresh", { method: "POST" });
+  expect(host.querySelector('[aria-label="Current plan"]')?.textContent).toBe("sponsor");
 });

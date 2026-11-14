@@ -9,8 +9,11 @@ import { accountPlanModel, NoBillingCustomer, SubscriptionServiceUnavailable, ty
 const plans = new Map<string | null, SharedRead<PlanModel>>();
 const pendingBrowserReturns = new Set<string>();
 
-async function fetchPlan(focus: boolean): Promise<PlanModel> {
-  const response = await localFetch(`/api/account/plan${focus ? "/refresh?focus=true" : ""}`, {method:focus ? "POST" : "GET"});
+type PlanRead = "read" | "focus" | "retry";
+
+async function fetchPlan(mode: PlanRead): Promise<PlanModel> {
+  const suffix = mode === "read" ? "" : mode === "focus" ? "/refresh?focus=true" : "/refresh";
+  const response = await localFetch(`/api/account/plan${suffix}`, {method:mode === "read" ? "GET" : "POST"});
   if (!response.ok) throw new Error(await response.text());
   return accountPlanModel(await response.json() as AccountPlan);
 }
@@ -42,6 +45,7 @@ export function useAccountPlan(identityKey: string | null) {
   const [pending, setPending] = useState(false);
   const busy = useRef(false);
   const active = useRef(0);
+  const refreshPlan = useRef<() => Promise<PlanModel | null>>(async () => null);
   // A plan loaded for another identity is never shown, even for the render before the reload starts.
   const plan = loaded.key === identityKey ? loaded.plan : null;
   const planLoad: PlanLoad = plan ? "ready" : loaded.key === identityKey && loaded.failed ? "failed" : "loading";
@@ -62,9 +66,9 @@ export function useAccountPlan(identityKey: string | null) {
       }
     });
     setLoaded({ key: identityKey, plan: null, failed: false });
-    async function refresh(focus = false, force = false): Promise<PlanModel | null> {
+    async function refresh(mode: PlanRead = "read", force = false): Promise<PlanModel | null> {
       try {
-        const current = await resource.read(() => fetchPlan(focus), force);
+        const current = await resource.read(() => fetchPlan(mode), force);
         if (active.current === generation) {
           freeLimitGate.setLimits(current.limits);
           setLoaded({ key: identityKey, plan: current, failed: false });
@@ -78,10 +82,11 @@ export function useAccountPlan(identityKey: string | null) {
         return null;
       }
     }
+    refreshPlan.current = () => refresh("retry", true);
     void refresh();
     const onFocus = () => {
       const returned = identityKey !== null && pendingBrowserReturns.delete(identityKey);
-      void refresh(true, returned);
+      void refresh("focus", returned);
     };
     window.addEventListener("focus",onFocus);
     let unlisten: (() => void) | undefined;
@@ -92,7 +97,7 @@ export function useAccountPlan(identityKey: string | null) {
       if (active.current === generation) unlistenBrowser = fn;
       else fn();
     }).catch(() => undefined);
-    void listen("entitlement-changed", () => { void refresh(false, true); }).then((fn) => {
+    void listen("entitlement-changed", () => { void refresh("read", true); }).then((fn) => {
       if (active.current === generation) unlisten = fn;
       else fn();
     });
@@ -116,6 +121,7 @@ export function useAccountPlan(identityKey: string | null) {
     plan,
     planLoad,
     pending,
+    refresh: () => run(async () => { await refreshPlan.current(); }),
     upgrade: (planKey: string) => run(() => upgradePlan(planKey)),
     manage: () => run(openPortal),
   };

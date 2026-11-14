@@ -4,10 +4,14 @@ import { Button } from "../shared/Button";
 import { LiquidToggle } from "../shared/LiquidToggle";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { neighborClient } from "../Neighbors/neighborClient";
-import { neighborFilesClient } from "../Neighbors/neighborFilesClient";
+import { neighborFilesClient, NeighborFilesFailure } from "../Neighbors/neighborFilesClient";
 import type { NeighborReceipt } from "../Neighbors/neighborRuntimeClient";
 import type { NeighborList } from "../Neighbors/neighborModel";
 import { neighborName } from "../Neighbors/neighborModel";
+import { useAccount } from "../Settings/useAccount";
+import { useAccountPlan } from "../Settings/useAccountPlan";
+import { ACCOUNT_ENTRY_OPTIONS } from "../Settings/accountSignInOptions";
+import { templateShareRefusal, type ShareRefusal } from "./templateShareRefusal";
 import { teamTemplatesTransport } from "../../lib/transport/orchestrationRuntime";
 import type { TeamTemplatesTransport, TemplateExportResult } from "../../lib/transport/teamTemplates";
 import {
@@ -48,6 +52,10 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
   transport?: () => TeamTemplatesTransport;
   neighbors?: NeighborShare;
 }) {
+  const account = useAccount();
+  const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
+  const [shareFailure, setShareFailure] = useState<ShareRefusal | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
   const titleId = useId();
   const descriptionId = useId();
   const shareable = templateSource(summary).owned;
@@ -71,14 +79,30 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
     return () => { live = false; };
   }, [share, friends, neighbors]);
   const recipient = friends?.friends.find((candidate) => candidate.friendship_id === friend);
-  const unavailable = friends?.access === "locked" ? "Your Neighbors channel is locked. Upgrade in Settings > Account to share."
-    : recipient?.their_paused ? "This Neighbor has paused messages from you. Ask them to resume before sharing."
-      : recipient && !recipient.receiving ? "This Neighbor is not receiving messages. Ask them to enable receiving before sharing."
-        : recipient?.their_file_daily_limit_bytes === 0 ? "This Neighbor does not accept files. Ask them to allow files before sharing." : null;
+  const channelNotice: ShareRefusal | null = billing.plan?.unverified === "sign_in_required" ? templateShareRefusal("installation_unverified")
+    : billing.plan?.unverified === "unconfirmed" || billing.planLoad === "failed" ? templateShareRefusal("entitlements_unavailable")
+      : !billing.plan || billing.plan.verifying ? { message: "Checking sharing access…" }
+        : !billing.plan.fullAccess || friends?.access === "locked" ? templateShareRefusal("friends_locked") : null;
+  const unavailable = channelNotice?.message
+    ?? (recipient?.their_paused ? templateShareRefusal("recipient_paused").message
+      : recipient && !recipient.receiving ? templateShareRefusal("recipient_not_receiving").message
+        : recipient?.their_file_daily_limit_bytes === 0 ? "This Neighbor does not accept files. Ask them to allow files before sharing." : null);
+  const recover = async (action: ShareRefusal["action"]) => {
+    if (action === "sign_in") {
+      setSigningIn(true);
+      try {
+        const failure = await account.signIn(ACCOUNT_ENTRY_OPTIONS[0].hint);
+        if (failure) { setError("Sign-in could not be completed. Try again."); return; }
+        await billing.refresh();
+      } finally { setSigningIn(false); }
+    } else if (action === "refresh") await billing.refresh();
+  };
+  const recovery = shareFailure?.action ?? (!result && share ? channelNotice?.action : undefined);
   const submit = async () => {
     if (busy || (share && (!recipient || unavailable))) return;
     setBusy(true);
     setError(null);
+    setShareFailure(null);
     try {
       const exported = await transport().export({ template: { name: summary.name, version: summary.version }, format: shareFormat });
       setResult(exported);
@@ -86,11 +110,12 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
       if (share && to && exported.check.valid && exported.path) {
         try {
           const receipt = await neighbors.send(to.friendship_id, `Shared the team ${templateTitle(summary)} ${summary.version}`, exported.path);
-          if (receipt.status === "not_delivered" || receipt.submission === "unconfirmed") {
+          if (receipt.submission === "unconfirmed") {
             setError("Exported, but delivery could not be confirmed. Check the Neighbors conversation before sharing again.");
-          } else setSent(neighborName(to));
-        } catch {
-          setError("Exported, but it could not be shared. Check your Neighbors channel in Settings > Account before sharing again.");
+          } else if (receipt.status === "not_delivered") setShareFailure(templateShareRefusal(receipt.reason));
+          else setSent(neighborName(to));
+        } catch (failure) {
+          setShareFailure(templateShareRefusal(failure instanceof NeighborFilesFailure ? failure.reason : undefined));
         }
       }
     } catch (failure) {
@@ -132,7 +157,7 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
             <LiquidToggle checked={share} aria-label="Also share to Neighborhood" onCheckedChange={setShare} />
           </label>}
           {share && (friends === null ? error ? null : <p aria-busy="true" className="text-[11px] text-[var(--ct-muted-fg)]">Finding your Neighbors…</p>
-            : friends.access === "locked" ? null
+            : channelNotice ? null
             : friends.friends.length === 0 ? <p className="text-[11px] text-[var(--ct-muted-fg)]">You have no Neighbors to share with yet.</p>
               : <DropdownSelect aria-label="Share with" placeholder="Choose a recipient" value={friend} onChange={setFriend}
                 options={friends.friends.map((candidate) => ({ value: candidate.friendship_id, label: neighborName(candidate) }))} />)}
@@ -140,6 +165,9 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
       )}
       {!result && share && unavailable && <p role="status" className="text-[12px] text-[var(--ct-muted-fg)]">{unavailable}</p>}
       {result?.path && <p className="text-[12px] text-[var(--ct-muted-fg)]">Saved to <span className="font-mono">{result.path}</span>{sent && `, and sent to ${sent}`}.</p>}
+      {shareFailure && <p role="alert" className="text-[12px] text-[var(--ct-red)]">The template was exported. {shareFailure.message}</p>}
+      {recovery && <Button type="button" variant="ghost" className="self-start text-xs" disabled={signingIn || billing.pending || account.model.kind === "pending"}
+        onClick={() => void recover(recovery)}>{recovery === "sign_in" ? "Sign in again" : "Retry"}</Button>}
       {error && <p role="alert" className="text-[12px] text-[var(--ct-red)]">{error}</p>}
       <div className="flex justify-end gap-2">
         {!result && <Button type="button" variant="ghost" className="text-xs" onClick={onClose}>Cancel</Button>}
