@@ -30,29 +30,23 @@ fn registry() -> AgentRegistry {
 }
 
 #[test]
-fn claude_external_import_question_is_answerable_and_stale_screen_is_refused() {
+fn provider_question_is_answerable_and_stale_screen_is_refused() {
+    let screen = "Opaque file decision?\n❯ Decline opaque import\nAccept opaque import\nEnter to confirm · Esc to cancel";
     let registry = bundled_registry(
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../plugins/provider-claude/plugin.json"
-        )),
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../plugins/provider-claude/plugin.js"
-        )),
+        r#"{"id":"opaque-harness","version":"0.0.0","displayName":"Opaque harness"}"#,
+        r#"module.exports.default = {
+            parsePrompt(screen) {
+                if (screen !== "Opaque file decision?\n❯ Decline opaque import\nAccept opaque import\nEnter to confirm · Esc to cancel") return null;
+                return {question: "Opaque file decision?", options: [["Decline opaque import", "1"], ["Accept opaque import", "2"]]};
+            },
+            buildPromptResponse(index) { return index === 1 ? ["ag==", "DQ=="] : ["DQ=="]; }
+        };"#,
     );
-    let screen = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/tests/fixtures/external-imports/captured.txt"
-    ));
     let (prompt, kind) = registry
         .parse_interactive_prompt("response-fixture", screen)
         .unwrap();
     assert_eq!(kind, PromptKind::Provider);
-    assert_eq!(
-        prompt.question,
-        "Claude is asking whether to allow external CLAUDE.md imports"
-    );
+    assert_eq!(prompt.question, "Opaque file decision?");
     assert_eq!(prompt.options.len(), 2);
     let identity = PromptIdentity::new(kind, &prompt);
     assert_eq!(

@@ -10664,6 +10664,41 @@
       "count": 1,
       "justification": "Existing next provider-specific test fixture; exact test-only allowance.",
       "removalSlice": "Remaining provider boundary extraction"
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/external_imports.rs",
+      "token": "Claude",
+      "count": 1,
+      "justification": "Provider-owned external instruction import fingerprint or its native/JS parity proof; authorized exact ownership entry.",
+      "removalSlice": "Retire with the provider-owned native implementation and parity proof."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/external_imports.rs",
+      "token": "CLAUDE",
+      "count": 2,
+      "justification": "Provider-owned external instruction import fingerprint or its native/JS parity proof; authorized exact ownership entry.",
+      "removalSlice": "Retire with the provider-owned native implementation and parity proof."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/external_imports.rs",
+      "token": "Claude",
+      "count": 1,
+      "justification": "Provider-owned external instruction import fingerprint or its native/JS parity proof; authorized exact ownership entry.",
+      "removalSlice": "Retire with the provider-owned native implementation and parity proof."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/external_imports.rs",
+      "token": "CLAUDE",
+      "count": 1,
+      "justification": "Provider-owned external instruction import fingerprint or its native/JS parity proof; authorized exact ownership entry.",
+      "removalSlice": "Retire with the provider-owned native implementation and parity proof."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/external_imports.rs",
+      "token": "provider-claude",
+      "count": 1,
+      "justification": "Provider-owned external instruction import fingerprint or its native/JS parity proof; authorized exact ownership entry.",
+      "removalSlice": "Retire with the provider-owned native implementation and parity proof."
     }
   ]
 }
