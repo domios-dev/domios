@@ -29,6 +29,46 @@ fn registry() -> AgentRegistry {
     )
 }
 
+#[test]
+fn claude_external_import_question_is_answerable_and_stale_screen_is_refused() {
+    let registry = bundled_registry(
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-claude/plugin.json"
+        )),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-claude/plugin.js"
+        )),
+    );
+    let screen = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-claude/tests/fixtures/external-imports/captured.txt"
+    ));
+    let (prompt, kind) = registry
+        .parse_interactive_prompt("response-fixture", screen)
+        .unwrap();
+    assert_eq!(kind, PromptKind::Provider);
+    assert_eq!(
+        prompt.question,
+        "Claude is asking whether to allow external CLAUDE.md imports"
+    );
+    assert_eq!(prompt.options.len(), 2);
+    let identity = PromptIdentity::new(kind, &prompt);
+    assert_eq!(
+        respond(&registry, screen, Some(&identity)),
+        Ok(vec![b"j".to_vec(), b"\r".to_vec()])
+    );
+    assert_eq!(
+        respond(
+            &registry,
+            &format!("{screen}\n❯ Summarize the dialog"),
+            Some(&identity)
+        ),
+        Err(RespondPromptOutcome::StalePrompt)
+    );
+}
+
 fn respond(
     registry: &AgentRegistry,
     screen: &str,

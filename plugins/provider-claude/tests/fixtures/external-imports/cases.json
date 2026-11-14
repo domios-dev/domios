@@ -1,0 +1,9 @@
+[
+  { "file": "captured.txt", "active": true, "focus": 0 },
+  { "file": "allow-focused.txt", "active": true, "focus": 1 },
+  { "file": "quoted-with-composer.txt", "active": false },
+  { "file": "missing-footer.txt", "active": false },
+  { "file": "missing-path.txt", "active": false },
+  { "file": "ambiguous-focus.txt", "active": false },
+  { "file": "missing-title.txt", "active": false }
+]

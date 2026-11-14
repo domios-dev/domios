@@ -10,6 +10,7 @@ mod catalog;
 mod commands;
 mod context;
 mod core;
+mod external_imports;
 mod filled_composer;
 mod folder_trust;
 mod launch_permissions;
