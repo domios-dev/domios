@@ -68,7 +68,7 @@ export function deliveryPresentation(send: DeliverySend, activity: TabActivity["
   return deliveryState(send) === "sending" && send.status?.state === "written" ? "written" : deliveryState(send);
 }
 
-const ACTIVE_TURN_HOLD = "held_active_turn";
+export const ACTIVE_TURN_HOLD = "held_active_turn";
 
 /** A send waits for the running turn when the host holds it for that turn, or while the agent is mid-turn. */
 export function queuedBehindTurn(send: DeliverySend, activity: TabActivity["kind"]): boolean {

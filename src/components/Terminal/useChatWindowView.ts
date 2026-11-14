@@ -45,7 +45,7 @@ import {
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
 import { deliveryProjectionSends, sendForRow, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
-import { queuedDeliveryIds, stableDeliveryEntries, type DeliveryProjectionMemory } from "./chatDeliveryProjection";
+import { createDeliveryProjectionMemory, queuedDeliveryIds, stableDeliveryEntries, type DeliveryProjectionMemory } from "./chatDeliveryProjection";
 import { useChatSendDismissals } from "./useChatSendDismissals";
 import { cancelChatStartPaintTiming, paintChatStartTiming } from "./chatStartTiming";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
@@ -100,10 +100,8 @@ export function useChatWindowView({
     const index = lastSessionResetIndex(committedRows);
     return index >= 0 ? timestampMs(committedRows[index]?.timestamp) : null;
   }, [committedRows]);
-  const deliveryMemory = useRef<DeliveryProjectionMemory>({ key: windowKey, seen: new Set(), queued: new Set(), pending: new Map() });
-  if (deliveryMemory.current.key !== windowKey) {
-    deliveryMemory.current = { key: windowKey, seen: new Set(), queued: new Set(), pending: new Map() };
-  }
+  const deliveryMemory = useRef<DeliveryProjectionMemory>(createDeliveryProjectionMemory(windowKey));
+  if (deliveryMemory.current.key !== windowKey) deliveryMemory.current = createDeliveryProjectionMemory(windowKey);
   const liveSends = useMemo(() => {
     const queued = queuedDeliveryIds(sends, queueSendsBehindTurn, deliveryMemory.current);
     return deliveryProjectionSends(sends, resetCutoffMs, queued);

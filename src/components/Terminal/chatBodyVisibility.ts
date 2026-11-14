@@ -73,6 +73,10 @@ export interface ChatRailPlacements {
 
 export function placeChatRails<M>(args: {
   visible: boolean;
+  /** Transcript rows exist above the drawn window, hidden or not yet loaded. */
+  hiddenBefore: boolean;
+  /** Newer transcript rows exist below the drawn window. */
+  hiddenAfter: boolean;
   messages: M[];
   messageTimeMs: (message: M) => number | null;
   reportTimes: Array<number | null>;
@@ -82,9 +86,10 @@ export function placeChatRails<M>(args: {
   if (!args.visible) {
     return { reports: emptyPlacement(), asks: emptyPlacement() };
   }
+  const bounds = { hiddenBefore: args.hiddenBefore, hiddenAfter: args.hiddenAfter };
   return {
-    reports: placeOutboundReports(args.messages, args.messageTimeMs, args.reportTimes, args.reportPositions),
-    asks: placeOutboundReports(args.messages, args.messageTimeMs, args.askTimes),
+    reports: placeOutboundReports(args.messages, args.messageTimeMs, args.reportTimes, args.reportPositions, bounds),
+    asks: placeOutboundReports(args.messages, args.messageTimeMs, args.askTimes, undefined, bounds),
   };
 }
 
