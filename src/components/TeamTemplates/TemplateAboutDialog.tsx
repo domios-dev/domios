@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import type { TeamDocument } from "../../../gen/TeamDocument";
 import type { ProviderDescriptor } from "../../lib/types";
 import type { TemplatePreview } from "../../lib/transport/teamTemplates";
-import { templateTitle } from "../../lib/teamTemplates/startModel";
+import { managerRoles, templateTitle } from "../../lib/teamTemplates/startModel";
 import { FormDialog } from "../shared/FormDialog";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { TemplateIdentity } from "./TemplateIdentity";
@@ -11,6 +11,7 @@ import { TemplateBrings } from "./TemplateBrings";
 import { TemplateAsks } from "./TemplateAsks";
 import { TemplateInstructions } from "./TemplateInstructions";
 import { WorkerChips } from "./WorkerChips";
+import { TemplateRoleList } from "./TemplateRoleList";
 import { ReadInstructionsButton } from "./ReadInstructionsButton";
 import { TemplateMarkdown, TemplatePackageText, TemplateYaml } from "./TemplatePackageText";
 import { useTemplateDocument } from "./useTemplateDocument";
@@ -33,7 +34,7 @@ function PackageFiles({ preview, document }: { preview: TemplatePreview; documen
   const current = files.find((file) => file.path === path) ?? files[0];
   const markdown = /\.(md|markdown)$/i.test(current.path);
   return <div className="flex min-w-0 flex-col gap-4">
-    <DropdownSelect aria-label="Package file" value={current.path} onChange={setPath} options={files.map((file) => ({ value: file.path, label: file.path }))} />
+    <DropdownSelect aria-label="Package file" value={current.path} onChange={setPath} focusOnPointerOpen options={files.map((file) => ({ value: file.path, label: file.path }))} />
     {current.description && <p className="text-[var(--ct-muted-fg)]">{current.description}</p>}
     {current.content != null
       ? markdown ? <TemplateMarkdown text={current.content} /> : <pre className="whitespace-pre-wrap break-words">{current.content}</pre>
@@ -57,7 +58,7 @@ export function TemplateAboutDialog({ choice, preview, providers, initialSection
       <button type="button" aria-label="Close team details" className="ct-small-pill p-2" onClick={onClose}><X size={18} /></button>
     </header>
     <div className="template-about-layout min-h-0 flex-1">
-      <div className="template-about-mobile"><DropdownSelect aria-label="Team details section" value={section} options={[...SECTIONS]} onChange={(value) => setSection(value as AboutSection)} /></div>
+      <div className="template-about-mobile"><DropdownSelect aria-label="Team details section" value={section} options={[...SECTIONS]} focusOnPointerOpen onChange={(value) => setSection(value as AboutSection)} /></div>
       <nav aria-label="Team details sections" className="template-about-nav flex-col gap-1">
         {SECTIONS.map((item) => <button key={item.value} type="button" aria-current={section === item.value ? "page" : undefined}
           className={`rounded-lg px-3 py-2 text-left text-[13px] ${section === item.value ? "bg-[var(--ct-bg)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg)]"}`}
@@ -67,6 +68,7 @@ export function TemplateAboutDialog({ choice, preview, providers, initialSection
         <div className="mx-auto flex max-w-4xl flex-col gap-5 text-[13px]">
           {section === "overview" && <>
             <TemplateIdentity summary={preview.form.template} />
+            <TemplateRoleList title="Managers" roles={managerRoles(preview.form.roles)} preview={preview} providers={providers} />
             <WorkerChips preview={preview} />
             <ReadInstructionsButton preview={preview} onClick={() => setSection("roles")} />
             {!!preview.form.template.when?.length && <div><h3 className="mb-2 font-medium">When to use</h3><ul className="list-disc pl-5">{preview.form.template.when.map((when) => <li key={when}>{when}</li>)}</ul></div>}
