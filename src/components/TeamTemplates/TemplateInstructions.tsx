@@ -15,7 +15,7 @@ export function TemplateInstructions({ preview, document, providers }: { preview
   const heading = roleHeading(role);
   const declared = document?.roles[role.role];
   return <div className="flex flex-col gap-4" data-testid="template-instructions">
-    <DropdownSelect aria-label="Team role" value={role.role} onChange={setSelected} options={roles.map((candidate) => ({
+    <DropdownSelect aria-label="Team role" value={role.role} onChange={setSelected} focusOnPointerOpen options={roles.map((candidate) => ({
       value: candidate.role, label: `${roleHeading(candidate).name} · ${candidate.kind === "manager" ? "Manager" : "Worker"}`,
     }))} />
     <div className="flex flex-wrap items-center gap-3"><h3 className="text-base font-medium">{heading.name}{heading.slot && ` · ${heading.slot}`}</h3><ModelCapsule preview={preview} role={role} providers={providers} /></div>

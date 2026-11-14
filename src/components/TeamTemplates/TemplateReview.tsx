@@ -1,27 +1,23 @@
 import { useId, useState } from "react";
 import "./teamTemplates.css";
-import { Users } from "lucide-react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { BackPill } from "../shared/BackPill";
 import { Button } from "../shared/Button";
 import {
-  humanizePackageName, lacksAuthority, managerRoles, roleTiming, templateSource,
+  humanizePackageName, managerRoles, templateSource,
   type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import { TemplateIdentity } from "./TemplateIdentity";
 import { TemplateBrings } from "./TemplateBrings";
 import { TemplateAsks } from "./TemplateAsks";
 import { TemplateAboutDialog } from "./TemplateAboutDialog";
+import { TemplateRoleList } from "./TemplateRoleList";
 import { ReadInstructionsButton } from "./ReadInstructionsButton";
-import { ModelCapsule } from "./TemplateRoleModel";
 import { PinnedFooter } from "./PinnedFooter";
-import { managerIcon } from "./TemplateManagers";
-import { roleHeading } from "./templateRoles";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 import { harnessRequirements, updateDiffLines } from "../../lib/teamTemplates/exchangeModel";
 
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
-type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
 
 function UpdateDiff({ diff }: { diff: TemplateUpdateDiff }) {
@@ -33,32 +29,6 @@ function UpdateDiff({ diff }: { diff: TemplateUpdateDiff }) {
         : <div className="text-[var(--ct-muted-fg)]">Same roles, items and asks.</div>}
       <div className="text-[11px] text-[var(--ct-muted-fg)]">Teams already started keep the version they started with.</div>
     </div>
-  );
-}
-
-function RoleList({ title, roles, preview, providers }: { title: string; roles: TemplateRoleSummary[]; preview: TemplatePreview; providers: readonly ProviderDescriptor[] }) {
-  if (roles.length === 0) return null;
-  return (
-    <section aria-label={title} className="flex flex-col gap-0.5">
-      <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{title}</div>
-      {roles.map((role) => {
-        const heading = roleHeading(role);
-        const start = [role.description?.trim(), roleTiming(role.start) ?? "Starts with the team"].filter(Boolean).join(" · ");
-        return (
-          <div key={`${role.kind}:${role.role}`} className="flex flex-wrap items-center gap-2.5 py-1 text-[12px]" data-role-kind={role.kind}>
-            <span aria-hidden="true" className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[7px] bg-[color-mix(in_srgb,var(--ct-accent)_12%,transparent)] text-[var(--ct-accent)]">
-              {role.kind === "manager" ? managerIcon(role.role) : <Users size={13} />}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div>{heading.name}{heading.slot && <span className="text-[var(--ct-muted-fg)]"> · {heading.slot}</span>}</div>
-              <div className="text-[11.5px] text-[var(--ct-muted-fg)]">{start}</div>
-              {lacksAuthority(role) && <div className="text-[11px] text-[var(--ct-muted-fg)]" data-authority="none">No Domios authority</div>}
-            </div>
-            <ModelCapsule preview={preview} role={role} providers={providers} />
-          </div>
-        );
-      })}
-    </section>
   );
 }
 
@@ -115,8 +85,8 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
       {update && <UpdateDiff diff={update} />}
       <div className="flex flex-col gap-4" data-testid="template-review-body">
         <div className="flex flex-col gap-3">
-          <RoleList title="Managers" roles={managers} preview={preview} providers={providers} />
-          <RoleList title="Workers on demand" roles={workers} preview={preview} providers={providers} />
+          <TemplateRoleList title="Managers" roles={managers} preview={preview} providers={providers} />
+          <TemplateRoleList title="Workers on demand" roles={workers} preview={preview} providers={providers} />
           <ReadInstructionsButton preview={preview} onClick={() => setReading(true)} />
         </div>
         <div className="flex flex-col gap-3">

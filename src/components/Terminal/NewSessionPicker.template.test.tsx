@@ -617,6 +617,10 @@ describe("Team template start in the session dialog", () => {
     expect(modal.getAttribute("aria-modal")).toBe("true");
     const close = button("Close team details")!;
     expect(document.activeElement).toBe(close);
+    const managers = modal.querySelector('section[aria-label="Managers"]')!;
+    expect(managers.textContent).toContain("Lead");
+    expect(managers.textContent).toContain("Cartographer");
+    expect(managers.textContent).toContain("Starts with the team");
     await act(async () => close.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
     expect(modal.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).not.toBe(close);
@@ -628,12 +632,15 @@ describe("Team template start in the session dialog", () => {
     expect(modal.textContent).toContain("brief.md");
     expect(modal.textContent).toContain("review");
     expect(modal.querySelector("img, script, iframe")).toBeNull();
+    expect(modal.textContent).toContain("<img src=x onerror=alert(1)>");
+    expect(modal.textContent).toContain("<script>alert(1)</script>");
     await choose("Team role", "Researcher · Worker");
     expect(fixture.templates.file).toHaveBeenCalledWith(expect.objectContaining({ role: "researcher" }), expect.anything());
     expect(modal.querySelector('[aria-label="Researcher instructions"] h1')?.textContent).toBe("Role instructions");
     await click(button("Files and docs"));
     expect(modal.querySelector("h1")?.textContent).toBe("Package guide");
     expect(modal.querySelector("iframe")).toBeNull();
+    expect(modal.textContent).toContain("<iframe src=javascript:alert(1)></iframe>");
     await click(button("Permissions and secrets"));
     expect(modal.querySelector('[data-ask="shell"]')).not.toBeNull();
     await click(button("team.yaml"));
@@ -646,6 +653,94 @@ describe("Team template start in the session dialog", () => {
     await click(trigger);
     await click(button("Close team details"));
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("focuses the role menu on pointer open and Escape dismisses only that menu", async () => {
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    await renderPicker();
+    await chooseResearchDesk();
+    await click(aboutButton());
+    await click(button("Roles"));
+    const modal = dialog();
+    const trigger = modal.querySelector<HTMLElement>('[aria-label^="Team role:"]')!;
+    button("Roles")!.focus();
+    await act(async () => { trigger.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+    const menu = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+    expect(menu.contains(document.activeElement)).toBe(true);
+    await act(async () => { document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })); });
+    expect(document.body.contains(modal)).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => { trigger.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })); });
+    expect(document.body.contains(modal)).toBe(false);
+  });
+
+  it("recaptures focus when a focused modal control is removed or focus moves to the form behind it", async () => {
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    await renderPicker();
+    await chooseResearchDesk();
+    const formControl = aboutButton()!;
+    await click(formControl);
+    const modal = dialog();
+    const close = button("Close team details")!;
+    close.focus();
+    await act(async () => { close.remove(); });
+    expect(modal.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
+    await act(async () => { formControl.focus(); });
+    expect(modal.contains(document.activeElement)).toBe(true);
+    modal.append(close);
+  });
+
+  it("keeps an entire long YAML line in a focusable code reading region", async () => {
+    const source = `name: example/team\nversion: 1.0.0\nroles: {}\ndescription: ${"long line ".repeat(400)}end-of-line`;
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    fixture.templates.file.mockResolvedValue({ path: "team.yaml", text: source });
+    await renderPicker();
+    await chooseResearchDesk();
+    await click(aboutButton());
+    await click(button("team.yaml"));
+    const reader = dialog().querySelector<HTMLElement>('[role="region"][aria-label="team.yaml"]')!;
+    expect(reader.textContent).toBe(source);
+    reader.focus();
+    expect(document.activeElement).toBe(reader);
+    expect(reader.querySelector(".token")).not.toBeNull();
+  });
+
+  it("shows raw HTML tags and their bodies literally in role instructions and package docs", async () => {
+    const html = '<img src="x" onerror="window.__wqaXss6=1"><script>window.__wqaXss6=1</script>';
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    fixture.templates.file.mockImplementation(async (request: { path?: string; role?: string }) => ({
+      path: request.path ?? "roles/lead.md",
+      text: request.role ? `# Read me\n\nInline raw HTML: ${html} end.\n\n${html}`
+        : `name: example/team\nversion: 1.0.0\nroles: {}\nfiles:\n  - path: README.md\n    content: |\n      # Package guide\n\n      Inline raw HTML: ${html} end.\n\n      ${html}\n`,
+    }));
+    await renderPicker();
+    await chooseResearchDesk();
+    await click(aboutButton());
+    for (const section of ["Roles", "Files and docs"]) {
+      await click(button(section));
+      expect(dialog().textContent).toContain(`Inline raw HTML: ${html} end.`);
+      expect(dialog().querySelector("img, script")).toBeNull();
+    }
+    expect((window as unknown as Record<string, unknown>).__wqaXss6).toBeUndefined();
+  });
+
+  it("updates the Team subtitle while a different template is being reviewed", async () => {
+    const nextSummary = { ...startablePreview.form.template, name: "qa/review-next", title: "Review next", workers: 2, provenance: "imported" as const, verified: false };
+    fixture.templates.list.mockResolvedValue({ templates: [...templateListFixture.templates, nextSummary] });
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    await renderPicker();
+    await chooseResearchDesk();
+    expect(dialog().querySelector('[data-testid="picker-mode-orchestration"]')?.textContent).toContain("Research desk");
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, form: { ...startablePreview.form, template: nextSummary } });
+    await click(button("Change template"));
+    await click(buttons().find((candidate) => candidate.getAttribute("aria-pressed") !== null && candidate.textContent?.includes("Review next")));
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
+    const card = dialog().querySelector('[data-testid="picker-mode-orchestration"]')!;
+    expect(card.textContent).toContain("Review next · 2 workers");
+    expect(card.textContent).not.toContain("Research desk");
   });
 
   it.each(["Enter", "Space"])("takes a Built-in with permissions straight to its form on %s without a decision", async (code) => {

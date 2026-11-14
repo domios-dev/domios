@@ -1,6 +1,14 @@
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 
 const FIRST_CONTROL = "input:not([disabled]), button:not([disabled]), textarea:not([disabled])";
+const dialogStack: HTMLElement[] = [];
+
+function ownsFocus(dialog: HTMLElement, active: Element | null): boolean {
+  if (!active) return false;
+  if (dialog.contains(active)) return true;
+  return Array.from(dialog.querySelectorAll<HTMLElement>("[aria-controls]")).some((control) =>
+    control.getAttribute("aria-controls")?.split(/\s+/).some((id) => dialog.ownerDocument.getElementById(id)?.contains(active)));
+}
 
 function isVisible(control: HTMLElement): boolean {
   for (let node: HTMLElement | null = control; node; node = node.parentElement) {
@@ -24,9 +32,24 @@ export function useDialogFocus<T extends HTMLElement>(restoreTo?: () => HTMLElem
   const restore = useRef(restoreTo);
   restore.current = restoreTo;
   useEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
     const previous = document.activeElement;
-    if (!dialog.current?.contains(previous)) initialControl(dialog.current)?.focus();
+    dialogStack.push(node);
+    const recoverFocus = () => {
+      if (dialogStack[dialogStack.length - 1] !== node || ownsFocus(node, document.activeElement)) return;
+      initialControl(node)?.focus({ preventScroll: true });
+    };
+    recoverFocus();
+    document.addEventListener("focusin", recoverFocus);
+    const Observer = node.ownerDocument.defaultView?.MutationObserver;
+    const observer = Observer ? new Observer(recoverFocus) : null;
+    observer?.observe(node, { childList: true, subtree: true });
     return () => {
+      observer?.disconnect();
+      document.removeEventListener("focusin", recoverFocus);
+      const index = dialogStack.indexOf(node);
+      if (index >= 0) dialogStack.splice(index, 1);
       const target = restore.current?.() ?? previous;
       if (target instanceof HTMLElement && target.isConnected) target.focus();
     };
