@@ -24,11 +24,13 @@ export function planBadge(plan: PlanModel | null): PlanBadge | null {
     ...(plan.verifying ? { verifying: true } : {}), ...(unverified ? { unverified } : {}) };
 }
 
+/** While sign-in is required the status is not what limits the plan, so the summary names only the sign-in. */
 function planState(plan: PlanModel): string {
   const unverified = unverifiedPlanNotice(plan.unverified)?.label;
-  if (plan.verifying) return " · verifying";
-  if (unverified) return ` · ${unverified.toLowerCase()}`;
-  return plan.stale ? " · stale" : "";
+  if (plan.verifying) return ` · ${plan.status} · verifying`;
+  if (plan.unverified === "sign_in_required" && unverified) return ` · ${unverified.toLowerCase()}`;
+  if (unverified) return ` · ${plan.status} · ${unverified.toLowerCase()}`;
+  return ` · ${plan.status}${plan.stale ? " · stale" : ""}`;
 }
 
 export function accountTrayModel(account: AccountModel, plan: PlanModel | null) {
@@ -38,7 +40,8 @@ export function accountTrayModel(account: AccountModel, plan: PlanModel | null) 
       initial: accountInitials(identity),
       avatarUrl: accountAvatarUrl(account.identity.photo_url),
       badge: planBadge(plan),
-      plan: plan ? `${plan.authority === "admin" ? "Admin · " : ""}${capitalized(plan.plan)} · ${plan.status}${planState(plan)}` : "Plan unavailable",
+      plan: plan ? `${plan.authority === "admin" ? "Admin · " : ""}${capitalized(plan.plan)}${planState(plan)}` : "Plan unavailable",
+      signInRequired: plan?.unverified === "sign_in_required",
       name: `Account: ${identity}` };
   }
   return { kind: account.kind, name: account.kind === "pending" ? "Signing in or loading account" : "Account",

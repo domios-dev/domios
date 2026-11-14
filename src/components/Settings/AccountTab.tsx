@@ -129,7 +129,7 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
         </div>
         {unverified && <div role="status" className="flex w-full flex-wrap items-center gap-2">
           <p className={MUTED}>{unverified.detail}</p>
-          {billing.plan?.unverified === "sign_in_required" && <Button size="sm" variant="ghost" disabled={model.kind === "pending"}
+          {billing.plan?.unverified === "sign_in_required" && <Button size="sm" variant="outline" disabled={model.kind === "pending"}
             onClick={() => startSignIn(ACCOUNT_ENTRY_OPTIONS[0].hint)}>Sign in again</Button>}
         </div>}
         {billing.plan?.periodEnd && <p className={MUTED}>
