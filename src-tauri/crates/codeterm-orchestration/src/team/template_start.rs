@@ -142,7 +142,11 @@ pub(crate) async fn prepare(
 ) -> Result<TemplateRail, String> {
     let request = params.template.as_ref();
     let unbound = vault_unbound(svc, request).await;
-    let mut admitted = admit_bound(request, ConsentLedger::global(), &unbound).map_err(refused)?;
+    let owned_request = request.cloned();
+    let mut admitted = blocking::run(move || {
+        admit_bound(owned_request.as_ref(), ConsentLedger::global(), &unbound).map_err(refused)
+    })
+    .await?;
     resolve_placements(svc, &mut admitted).map_err(refused)?;
     remember_consent(&admitted).await;
     let mut picks = owner_picks(params);
@@ -215,7 +219,9 @@ async fn start_extra_manager(
     seat: &Seat,
 ) -> Result<(), String> {
     if name == CURATOR {
-        return Err(format!("the {name} runs on its schedule, never with the Team"));
+        return Err(format!(
+            "the {name} runs on its schedule, never with the Team"
+        ));
     }
     crate::team::add_team_member(
         svc,

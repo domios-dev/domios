@@ -10,7 +10,7 @@ import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
 import { usePeerPlacement } from "./usePeerPlacement";
 import { webUpload } from "../../lib/webApi";
 import {
-  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, startRefusalView, templateSource, templateTitle, withKept,
+  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, startRefusalView, templateTitle, withKept,
   type PickerSeed, type StartErrorView, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import type { ManagerSeats } from "./TemplateManagers";
@@ -38,9 +38,8 @@ function basename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-/** Only an unverified package passes through the review before its form; Built-in and Mine go straight to it, still carrying their consent decision. */
 function needsReview(preview: TemplatePreview): boolean {
-  return preview.consent != null && templateSource(preview.form.template).unverified;
+  return preview.consent != null;
 }
 
 /** Template choice for the Team form; the default is always available and starts today's pair without `template`. */

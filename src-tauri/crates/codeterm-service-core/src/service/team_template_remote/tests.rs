@@ -166,8 +166,8 @@ fn a_mesh_start_needs_one_local_owner_decision_even_without_asks() {
     start.decision_id = Some("consent_forged".into());
     assert!(admit_from_peer(&start, true, &ledger, &spent, Vec::new()).is_err());
 
-    let identity = resolve(None).unwrap().identity();
-    start.decision_id = Some(ledger.issue(&identity, &[]));
+    let package = resolve(None).unwrap().package;
+    start.decision_id = Some(ledger.issue(&package, &[]));
     assert!(matches!(
         admit_from_peer(&start, true, &ledger, &spent, vec!["secret:token".into()]),
         Err(PeerStartRefusal::Refused(

@@ -20,7 +20,7 @@ A role's model is an ordered preference list, a reference to another role's reso
 
 ## Consent and provenance
 
-Packages received from others stay unverified with no default grants. Starting an unverified package, or one that needs new grants, requires the owner's recorded decision, enforced by the host rather than by the interface. Package updates never change an active Team's registrations. Lineage records which package a baked template was derived from.
+Packages received from others stay unverified with no default grants. Builtin packages and templates saved by the owner or their agents on this machine need no consent. Imported or shared packages require the owner's consent once per exact name, version and content hash, enforced by the host and remembered across restarts. Package updates never change an active Team's registrations. Lineage records which package a baked template was derived from.
 
 ## Scope
 
