@@ -384,6 +384,7 @@ pub struct OrchestrationPairParams {
     /// Leaves this machine's active workspace and focused tab as they are; a start asked by
     /// another machine never moves its owner's focus.
     #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
     pub keep_focus: bool,
 }
 
