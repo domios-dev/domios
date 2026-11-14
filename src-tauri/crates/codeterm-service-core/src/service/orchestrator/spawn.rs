@@ -448,7 +448,7 @@ impl ServiceContext {
                 tab.taskless_authorized_gates = params.authorized_gates.clone();
             }
             if params.activate.unwrap_or(false) {
-                let _ = mux.set_active_tab(&ws_id, &result);
+                mux.set_tab_focus_requested(&result, true);
             }
             if default_chat_view {
                 if let Some(tab) = mux.get_tab_mut(&result) {

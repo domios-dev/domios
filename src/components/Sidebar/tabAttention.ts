@@ -77,10 +77,36 @@ export function tabStatusMark(title: string, attention: TabAttention | null | un
   if (!attention) return null;
   if (attention.curatorSchedule?.kind === "suspended") return { kind: "attention", label: attention.curatorSchedule.label, level: "action_needed" };
   if (attention.curatorSchedule?.kind === "scheduled" && (!attention.showMark || active)) return { kind: attention.curatorSchedule.kind, label: attention.curatorSchedule.label };
+  // Attention outranks the sleep clock: a request to show a frozen tab must stay visible.
+  if (attention.showMark && !active) {
+    const label = tabAttentionLabel(title, attention);
+    return { kind: "attention", label: attention.sleeping ? `${label} (${attention.sleepingLabel ?? "Asleep"})` : label, level: attention.kind };
+  }
   if (attention.sleeping) return { kind: "sleeping", label: attention.sleepingLabel ?? "Asleep" };
-  if (attention.showMark && !active) return { kind: "attention", label: tabAttentionLabel(title, attention), level: attention.kind };
   if (attention.starting) return { kind: "starting", label: `${title} ${attention.starting === "connecting" ? "waiting to connect" : "starting"}` };
   return null;
+}
+
+export interface GroupAttention { count: number; level: TabAttentionKind }
+const ATTENTION_RANK: Record<TabAttentionKind, number> = { requested: 0, waiting: 1, action_needed: 2, failure: 3 };
+
+function strongerGroup(a: GroupAttention | null, b: GroupAttention | null): GroupAttention | null {
+  if (!a || !b) return a ?? b;
+  return { count: a.count + b.count, level: ATTENTION_RANK[b.level] > ATTENTION_RANK[a.level] ? b.level : a.level };
+}
+
+/** Attention marks hidden inside a collapsed group; an active tab is already in view. */
+export function groupAttention(tabIds: readonly string[], attentionByTab: Readonly<Record<string, TabAttention>>, isActive: (tabId: string) => boolean = () => false): GroupAttention | null {
+  let group: GroupAttention | null = null;
+  for (const tabId of tabIds) {
+    const mark = tabStatusMark("", attentionByTab[tabId], isActive(tabId));
+    if (mark?.kind === "attention" && mark.level) group = strongerGroup(group, { count: 1, level: mark.level });
+  }
+  return group;
+}
+
+export function mergeGroupAttention(groups: readonly (GroupAttention | null | undefined)[]): GroupAttention | null {
+  return groups.reduce<GroupAttention | null>((merged, group) => strongerGroup(merged, group ?? null), null);
 }
 
 export function curatorTabAttention(attention: TabAttention, loop: PlanControlLoop | undefined): TabAttention {

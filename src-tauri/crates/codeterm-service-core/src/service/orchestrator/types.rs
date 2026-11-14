@@ -211,6 +211,7 @@ pub struct SpawnAgentParams {
     pub tick_interval_secs: Option<u64>,
     pub nudge_cooldown_secs: Option<u64>,
     pub max_actions_per_tick: Option<u32>,
+    /// Highlight the new tab in every client; it never moves a client or the last selection.
     pub activate: Option<bool>,
     /// Audience axis for input-request notifications. `Automation` marks a tab
     /// whose prompts have no human owner (bench/probe tabs) — they never bell.
