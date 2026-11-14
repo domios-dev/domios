@@ -4,7 +4,9 @@ use super::cdp_wire::{
 };
 use super::launch::{launch_args, validate_loopback_endpoint, LaunchSpec};
 use super::locator::locate;
-use super::process::{BrowserProcess, CloseOutcome, CLOSE_DEADLINE, KILL_DEADLINE, READY_DEADLINE};
+#[cfg(test)]
+use super::process::CLOSE_DEADLINE;
+use super::process::{BrowserProcess, CloseOutcome, KILL_DEADLINE, READY_DEADLINE};
 use super::profile::{
     foreign_profile_error, ProfileKind, ProfileLayout, ProfileLease, SharedBrowser,
 };
@@ -459,6 +461,7 @@ pub(super) async fn current_url(runtime: &Runtime) -> Option<String> {
 }
 
 /// Graceful close flushes cookies into a named profile; attach mode only disconnects.
+#[cfg(test)]
 pub(super) async fn stop(runtime: Arc<Runtime>) -> Option<CloseOutcome> {
     stop_within(runtime, CLOSE_DEADLINE).await
 }

@@ -4,6 +4,7 @@ pub struct LeaseModel<H> {
     handle: Option<H>,
     leases: HashSet<u64>,
     next_id: u64,
+    generation: u64,
 }
 
 impl<H> Default for LeaseModel<H> {
@@ -12,16 +13,30 @@ impl<H> Default for LeaseModel<H> {
             handle: None,
             leases: HashSet::new(),
             next_id: 0,
+            generation: 0,
         }
     }
 }
 
 impl<H: Clone> LeaseModel<H> {
+    pub fn begin_launch(&mut self) {
+        self.generation += 1;
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn permits_cleanup(&self, generation: u64) -> bool {
+        self.generation == generation
+    }
+
     pub fn handle(&self) -> Option<H> {
         self.handle.clone()
     }
 
     pub fn install(&mut self, handle: H) {
+        self.generation += 1;
         self.handle = Some(handle);
         self.leases.clear();
     }

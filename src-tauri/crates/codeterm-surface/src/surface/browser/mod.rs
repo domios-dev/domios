@@ -492,7 +492,17 @@ impl SurfaceRuntime for BrowserRuntime {
 
     async fn dispose(&self) {
         self.shared.unbind();
-        self.host.shutdown().await;
+        if let Err(error) =
+            codeterm_browser::process::termination::close_result(self.host.shutdown().await)
+        {
+            log::warn!("[browser] surface disposal incomplete: {error}");
+        }
+    }
+
+    async fn close(&self) -> Result<(), super::model::SurfaceError> {
+        self.shared.unbind();
+        codeterm_browser::process::termination::close_result(self.host.close().await)
+            .map_err(super::model::SurfaceError::TerminationFailed)
     }
 
     async fn shutdown(&self, graceful: Duration) -> bool {

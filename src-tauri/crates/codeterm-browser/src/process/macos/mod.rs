@@ -2,6 +2,10 @@ mod events;
 
 use std::os::fd::OwnedFd;
 use std::path::Path;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
 use std::time::Duration;
 
 use block2::RcBlock;
@@ -13,20 +17,45 @@ use serde_json::json;
 use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 
-use super::{BrowserProcess, ProcessExit, SpawnError, KILL_DEADLINE};
+use super::termination::{TerminationAction, TerminationModel};
+use super::{BrowserProcess, ProcessExit, SpawnError, FORCE_TERMINATE_DEADLINE, KILL_DEADLINE};
 use crate::cdp::CdpClient;
 use crate::launch::MacOsAppLaunch;
 
 struct Application {
     app: Retained<NSRunningApplication>,
     exit_queue: Option<OwnedFd>,
+    identity: Option<events::ProcessIdentity>,
+    verified: Arc<AtomicU32>,
+    kill_sent: bool,
     exited: bool,
+}
+
+impl Application {
+    fn verified_pid(&self) -> Option<u32> {
+        let pid = self.verified.load(Ordering::Acquire);
+        (pid > 1).then_some(pid)
+    }
+
+    fn sigkill(&mut self) -> std::io::Result<()> {
+        self.kill_sent = true;
+        self.identity
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("browser has no captured process identity"))?
+            .kill_verified(self.verified_pid())
+    }
 }
 
 impl Drop for Application {
     fn drop(&mut self) {
         if !self.exited {
-            self.app.forceTerminate();
+            if self.verified_pid().is_some() && !self.kill_sent {
+                if let Err(error) = self.sigkill() {
+                    log::warn!("[browser-process] drop termination failed: {error}");
+                }
+            } else if !self.kill_sent {
+                self.app.forceTerminate();
+            }
         }
     }
 }
@@ -99,6 +128,7 @@ async fn spawn_inner(
     })?;
     let (exit_tx, exit) = watch::channel(None);
     let (kill, kill_rx) = watch::channel(false);
+    let verified = application.verified.clone();
     tokio::spawn(supervise(application, pid, events, kill_rx, exit_tx));
     let mut process = BrowserProcess {
         pid,
@@ -118,6 +148,7 @@ async fn spawn_inner(
     let result = tokio::time::timeout_at(until, async {
         let endpoint = ready.await?;
         verify_endpoint(&endpoint, pid).await?;
+        verified.store(pid, Ordering::Release);
         Ok::<_, String>(endpoint)
     })
     .await
@@ -187,6 +218,9 @@ fn begin_launch(
                     let mut application = Application {
                         app,
                         exit_queue: None,
+                        identity: None,
+                        verified: Arc::new(AtomicU32::new(0)),
+                        kill_sent: false,
                         exited: false,
                     };
                     let pid = application.app.processIdentifier();
@@ -197,6 +231,11 @@ fn begin_launch(
                         Some(events::process_exit(pid as u32).map_err(|error| {
                             format!("browser exited before exit observation: {error}")
                         })?);
+                    application.identity = Some(
+                        events::ProcessIdentity::capture(pid as u32).map_err(|error| {
+                            format!("browser process identity unavailable: {error}")
+                        })?,
+                    );
                     Ok(application)
                 });
             if let Some(reply) = reply.lock().take() {
@@ -249,22 +288,39 @@ async fn supervise(
     mut kill: watch::Receiver<bool>,
     exit: watch::Sender<Option<ProcessExit>>,
 ) {
+    let mut model = TerminationModel::new(pid);
     let kill_requested = async move {
         let _ = kill.wait_for(|requested| *requested).await;
     };
     let result = tokio::select! {
         result = events.exited(pid) => result,
         _ = kill_requested => {
-            application.app.forceTerminate();
-            match tokio::time::timeout(KILL_DEADLINE, events.exited(pid)).await {
+            if model.graceful_deadline() == TerminationAction::ForceTerminate {
+                application.app.forceTerminate();
+            }
+            match tokio::time::timeout(FORCE_TERMINATE_DEADLINE, events.exited(pid)).await {
                 Ok(result) => result,
-                Err(_) => Err(std::io::Error::other("browser app termination deadline")),
+                Err(_) => {
+                    if model.force_deadline(application.verified_pid()) == TerminationAction::KillOwnedPid(pid) {
+                        if let Err(error) = application.sigkill() {
+                            log::warn!("[browser-process] verified SIGKILL {pid} failed: {error}");
+                        }
+                    }
+                    match tokio::time::timeout(KILL_DEADLINE, events.exited(pid)).await {
+                        Ok(result) => result,
+                        Err(_) => {
+                            log::warn!("[browser-process] app {pid} exit unconfirmed; retaining exit observation");
+                            events.exited(pid).await
+                        }
+                    }
+                },
             }
         }
     };
     match result {
         Ok(()) => {
-            application.exited = true;
+            model.observed_exit();
+            application.exited = model.may_discard_profile();
             exit.send_replace(Some(ProcessExit { code: None }));
         }
         Err(error) => log::warn!("[browser-process] app {pid} exit observation failed: {error}"),

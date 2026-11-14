@@ -338,6 +338,13 @@ impl ServiceContext {
             }
             CallPlan::Close { tab_id } => {
                 self.note_surface_activity(&tab_id, verb, None);
+                if !is_view {
+                    let (runtime, _) = self
+                        .surface_runtime(&tab_id)
+                        .map_err(|error| error.message())?;
+                    block_on_runtime(async move { runtime.close().await })
+                        .map_err(|error| error.message())?;
+                }
                 self.close_surface(Some(caller_tab.as_str()), &tab_id)
                     .map_err(|error| error.message())?;
                 return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {

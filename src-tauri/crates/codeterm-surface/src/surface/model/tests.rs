@@ -1,5 +1,13 @@
 use super::*;
 
+#[test]
+fn unconfirmed_browser_termination_keeps_its_typed_error_code() {
+    let failure = codeterm_browser::process::termination::TerminationFailure::ExitUnconfirmed;
+    let error = SurfaceError::TerminationFailed(failure);
+    assert_eq!(error.code(), "browser_termination_unconfirmed");
+    assert_eq!(error.message(), failure.to_string());
+}
+
 fn board(agent_bound: bool) -> SurfaceDecl {
     SurfaceDecl {
         id: "board".into(),

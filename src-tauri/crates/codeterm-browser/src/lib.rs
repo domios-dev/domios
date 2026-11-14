@@ -15,7 +15,8 @@ pub mod sweep;
 pub mod viewport;
 
 use parking_lot::Mutex;
-use process::{CloseOutcome, ProcessExit};
+use process::termination::close_result;
+use process::{BrowserProcess, CloseOutcome, ProcessExit, CLOSE_DEADLINE};
 use profile::{ProfileKind, ProfileLayout, ProfileLease};
 use runtime::{BrowserMode, Runtime};
 use screencast::{
@@ -112,6 +113,7 @@ pub struct BrowserHost {
     config: BrowserHostConfig,
     lifecycle: Arc<tokio::sync::Mutex<()>>,
     runtime: Arc<Mutex<Option<Arc<Runtime>>>>,
+    pending_termination: Mutex<Option<Arc<BrowserProcess>>>,
     viewport: Arc<Mutex<ViewportModel>>,
     resizes: Arc<tokio::sync::Mutex<resize::Coordinator>>,
     frames: Arc<FrameHub>,
@@ -124,6 +126,7 @@ impl BrowserHost {
             config,
             lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             runtime: Arc::new(Mutex::new(None)),
+            pending_termination: Mutex::new(None),
             viewport: Arc::new(Mutex::new(ViewportModel::new(ViewportMode::Owned, initial))),
             resizes: Arc::new(tokio::sync::Mutex::new(resize::Coordinator::default())),
             frames: FrameHub::new(ScreencastParams::new(initial)),
@@ -151,9 +154,30 @@ impl BrowserHost {
     }
 
     async fn stop_current(&self) -> Option<CloseOutcome> {
+        self.stop_current_within(CLOSE_DEADLINE).await
+    }
+
+    async fn stop_current_within(&self, graceful: Duration) -> Option<CloseOutcome> {
+        let pending = self.pending_termination.lock().clone();
+        if let Some(process) = pending {
+            return match process.exit_status() {
+                Some(exit) => {
+                    self.pending_termination.lock().take();
+                    Some(CloseOutcome::AlreadyExited(exit))
+                }
+                None => Some(CloseOutcome::Killed(None)),
+            };
+        }
         let previous = self.runtime.lock().take();
         match previous {
-            Some(runtime) => runtime::stop(runtime).await,
+            Some(runtime) => {
+                let process = runtime.process.clone();
+                let outcome = runtime::stop_within(runtime, graceful).await;
+                if outcome == Some(CloseOutcome::Killed(None)) {
+                    *self.pending_termination.lock() = process;
+                }
+                outcome
+            }
             None => None,
         }
     }
@@ -162,11 +186,7 @@ impl BrowserHost {
     pub async fn shutdown_within(&self, graceful: Duration) -> Option<CloseOutcome> {
         let outcome = {
             let _lifecycle = self.lifecycle.lock().await;
-            let previous = self.runtime.lock().take();
-            match previous {
-                Some(runtime) => runtime::stop_within(runtime, graceful).await,
-                None => None,
-            }
+            self.stop_current_within(graceful).await
         };
         self.frames.close();
         outcome
@@ -202,7 +222,7 @@ impl BrowserHost {
             return Ok(OpenedBrowser::from_runtime(runtime, true));
         }
         drop(current);
-        self.stop_current().await;
+        close_result(self.stop_current().await).map_err(|error| error.to_string())?;
         {
             let mut model = self.viewport.lock();
             *model = ViewportModel::new(ViewportMode::Owned, model.current());
@@ -215,7 +235,7 @@ impl BrowserHost {
     /// Drive an existing CDP endpoint (e.g. a WebView2 app) instead of launching; never resizes it.
     pub async fn attach(&self, http_base: &str) -> Result<OpenedBrowser, String> {
         let _lifecycle = self.lifecycle.lock().await;
-        self.stop_current().await;
+        close_result(self.stop_current().await).map_err(|error| error.to_string())?;
         let runtime = runtime::attach(http_base, self.frames.clone()).await?;
         let runtime = self.install(runtime);
         Ok(OpenedBrowser::from_runtime(&runtime, false))
@@ -257,7 +277,7 @@ impl BrowserHost {
             None => None,
         };
         drop(current);
-        self.stop_current().await;
+        close_result(self.stop_current().await).map_err(|error| error.to_string())?;
         let runtime = self.launch(wanted).await?;
         if let Some(url) = carry {
             if let Err(error) = runtime
