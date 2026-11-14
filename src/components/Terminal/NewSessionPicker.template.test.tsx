@@ -648,9 +648,9 @@ describe("Team template start in the session dialog", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it.each(["Enter", "Space"])("takes a Built-in straight to its form on %s, still carrying its consent decision", async (code) => {
+  it.each(["Enter", "Space"])("takes a Built-in with permissions straight to its form on %s without a decision", async (code) => {
     const builtin = { ...startablePreview.form.template, provenance: "builtin" as const, verified: true };
-    fixture.templates.preview.mockResolvedValue({ ...startablePreview, form: { ...startablePreview.form, template: builtin } });
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, form: { ...startablePreview.form, template: builtin }, consent: null });
     await renderPicker();
     await click(button("Change template"));
     const card = buttons().find((candidate) => candidate.getAttribute("aria-pressed") !== null && candidate.textContent?.includes("Research desk"))!;
@@ -662,7 +662,17 @@ describe("Team template start in the session dialog", () => {
     await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
     await click(start());
     const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { decision_id?: string } };
-    expect(input.template.decision_id).toBe(startablePreview.consent?.decision_id);
+    expect(input.template.decision_id).toBeUndefined();
+  });
+
+  it("reviews fresh consent even when an imported package has an older verified label", async () => {
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, form: {
+      ...startablePreview.form, template: { ...startablePreview.form.template, provenance: "imported", verified: true },
+    } });
+    await renderPicker();
+    await chooseResearchDesk();
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
+    expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 
   it("keeps package actions without a second Details view", async () => {

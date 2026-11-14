@@ -25,7 +25,7 @@ Without `--template` the standard pair starts from the default. Send the objecti
 - **Managers without a model** in the template are chosen at start. When the owner did not name one, the start returns `needs_choice` with the candidates; ask with `domios notify send "<question>" --level action_needed --choice "<model>"` (one `--choice` per candidate) and start again with the tapped model. Never pick for the owner.
 - **Workers without a model** use the normal Worker defaults when they are dispatched.
 - **The simple local form** comes first: the template, the manager models and the inputs. Where a role runs and what the template asks for (network, repo writes, shell, browser, secrets, tools, scripts) appear only when the template declares them or this machine lacks something.
-- **Consent** is the owner's: an unverified template (imported, shared by a friend) or one that asks for new grants starts only with the owner's recorded decision from its preview. A received template has zero grants and never starts by itself.
+- **Consent** is required only for imported or friend-shared packages, once per exact package (name, version and content hash). Builtin templates and templates saved by you or your agents on this machine need no consent; their declared permissions stay visible in the form and About > Permissions. A received template has zero grants and never starts by itself.
 - **Payload**: files land in the Team's knowledge directory (`<data dir>/teams/<team-id>/knowledge/`) and are listed with their descriptions in the roles that use them; memory is saved to mem with the Team as its source; skills become skills of the Team's plan; automation becomes the Team's Blueprints, imported stopped under its Orchestrator (start one when the Team needs it). The owner may opt out of any item in the preview.
 - A remote role runs on a paired peer Main that admits the start there; the owner consents on that peer (see *Peer Mains*).
 
@@ -40,7 +40,7 @@ A start that cannot begin changes nothing and answers `template_start` with a ty
 After the Orchestrator is up, anything else that fails reaches the Orchestrator once as a summary with a line per role.
 
 Good to know:
-- Consent decisions live in memory: after a Domios restart, preview the template again and start with the new `decision_id`.
+- Accepted package consent is remembered across Domios restarts. Starting the same imported or shared package again needs no `--decision`; a changed version or content requires fresh consent. Preview decision IDs are temporary: if you have not accepted a package before restarting, preview it again.
 - A reasoning effort the chosen model does not offer runs at the nearest level it does offer instead of being refused.
 - Manager models are checked before anything is created: a harness that is not installed, signed in or within quota answers `needs_choice` and no Tab or Team appears.
 - A curator manager with `start: {schedule: "<min>..<max>"}` sets how often the Curator visits, kept within 45m..2h; owner Auto, Heartbeat and Off modes still decide whether it runs. A Team without a scheduled curator has no Curator rounds. A schedule on any other role is refused at preview and start with `schedule_unsupported_role`.
@@ -105,4 +105,4 @@ The bake writes the `roles` map with `kind` first in each role and keeps each ro
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

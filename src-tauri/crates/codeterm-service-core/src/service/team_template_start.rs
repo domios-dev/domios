@@ -149,9 +149,14 @@ pub fn admit_resolved(
     worker_placements(&resolved, placements)?;
     let reasons = consent_reasons(&resolved.package, resolved.provenance);
     let decision_id = request.and_then(|request| request.decision_id.clone());
-    if !reasons.is_empty() && !ledger.admits(decision_id.as_deref(), &resolved.identity(), &reasons)
-    {
-        return Err(TemplateStartRefusal::ConsentRequired { reasons });
+    if !reasons.is_empty() && !ledger.accepted(&resolved.package) {
+        if !ledger.admits(decision_id.as_deref(), &resolved.package, &reasons) {
+            return Err(TemplateStartRefusal::ConsentRequired { reasons });
+        }
+        if let Err(error) = ledger.accept(&resolved.package) {
+            log::warn!("[template-start] consent could not be saved: {error}");
+            return Err(TemplateStartRefusal::ConsentRequired { reasons });
+        }
     }
     Ok(AdmittedTemplate {
         placements: placements.clone(),
@@ -331,10 +336,11 @@ pub fn preview_on(
 ) -> Result<TemplatePreview, TemplateStartRefusal> {
     let resolved = resolve(Some(template))?;
     let reasons = consent_reasons(&resolved.package, resolved.provenance);
-    let consent = (!reasons.is_empty()).then(|| TemplateConsent {
-        decision_id: ledger.issue(&resolved.identity(), &reasons),
-        reasons,
-    });
+    let consent =
+        (!reasons.is_empty() && !ledger.accepted(&resolved.package)).then(|| TemplateConsent {
+            decision_id: ledger.issue(&resolved.package, &reasons),
+            reasons,
+        });
     let decisions = decide_team_models(
         &resolved.package.document,
         &TeamModelInputs::default(),

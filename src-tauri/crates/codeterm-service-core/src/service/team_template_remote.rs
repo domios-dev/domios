@@ -277,7 +277,7 @@ pub fn admit_from_peer(
         admitted.resolved.provenance,
     );
     let decision_id = request.decision_id.as_deref();
-    if !ledger.admits(decision_id, &admitted.resolved.identity(), &reasons) {
+    if !ledger.admits(decision_id, &admitted.resolved.package, &reasons) {
         return Err(PeerStartRefusal::Refused(
             TemplateStartRefusal::ConsentRequired { reasons },
         ));
@@ -303,7 +303,7 @@ pub fn record_owner_decision(
     let reasons =
         super::team_template_start::consent_reasons(&resolved.package, resolved.provenance);
     let mut decided = request.clone();
-    decided.decision_id = Some(ledger.issue(&resolved.identity(), &reasons));
+    decided.decision_id = Some(ledger.issue(&resolved.package, &reasons));
     Ok(decided)
 }
 
