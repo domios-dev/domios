@@ -381,6 +381,10 @@ pub struct OrchestrationPairParams {
     /// Start from this team template; absent keeps the standard pair.
     #[serde(default)]
     pub template: Option<codeterm_team_package::contracts::TemplateStartRequest>,
+    /// Leaves this machine's active workspace and focused tab as they are; a start asked by
+    /// another machine never moves its owner's focus.
+    #[serde(default)]
+    pub keep_focus: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]

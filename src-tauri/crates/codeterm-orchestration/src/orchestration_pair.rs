@@ -228,7 +228,12 @@ fn apply_reserved_team_title(
 
 fn reserved_member_tab_ids(reserved: &ReservedPairTabs) -> Vec<String> {
     std::iter::once(reserved.orchestrator_tab_id.clone())
-        .chain(reserved.planner.as_ref().map(|planner| planner.tab_id.clone()))
+        .chain(
+            reserved
+                .planner
+                .as_ref()
+                .map(|planner| planner.tab_id.clone()),
+        )
         .collect()
 }
 
@@ -237,7 +242,12 @@ fn created_member_tab_ids(reserved: &ReservedPairTabs) -> Vec<String> {
         .orchestrator_tab_created
         .then(|| reserved.orchestrator_tab_id.clone())
         .into_iter()
-        .chain(reserved.planner.as_ref().map(|planner| planner.tab_id.clone()))
+        .chain(
+            reserved
+                .planner
+                .as_ref()
+                .map(|planner| planner.tab_id.clone()),
+        )
         .collect()
 }
 
@@ -539,6 +549,7 @@ impl OrchestrationPairExt for ServiceContext {
             return crate::team::template_start::rerun(self, &params, &team_id).await;
         }
 
+        let keep_focus = params.keep_focus;
         let workspace_id = {
             let mux = self.mux.read();
             params
@@ -818,18 +829,20 @@ impl OrchestrationPairExt for ServiceContext {
         }
         // Activate server-side: the client continuation may be gone by
         // the time the pair lands (page reload); the daemon owns focus.
-        {
-            let mut mux = self.mux.write();
-            let orch_tab = mux
-                .get_workspace(&workspace_id)
-                .and_then(|ws| ws.tabs.iter().find(|tab_id| *tab_id == &orch_tab_id))
-                .cloned();
-            let _ = mux.set_active_workspace(&workspace_id);
-            if let Some(tab_id) = orch_tab {
-                let _ = mux.set_active_tab(&workspace_id, &tab_id);
+        if !keep_focus {
+            {
+                let mut mux = self.mux.write();
+                let orch_tab = mux
+                    .get_workspace(&workspace_id)
+                    .and_then(|ws| ws.tabs.iter().find(|tab_id| *tab_id == &orch_tab_id))
+                    .cloned();
+                let _ = mux.set_active_workspace(&workspace_id);
+                if let Some(tab_id) = orch_tab {
+                    let _ = mux.set_active_tab(&workspace_id, &tab_id);
+                }
             }
+            let _ = self.focus_tab(&orch_tab_id);
         }
-        let _ = self.focus_tab(&orch_tab_id);
         self.emit_state_changed(MuxEmitCause::Team);
         // final count is the authoritative one for the nudge.
         let budget_notice = self.workspace_tab_budget_notice(&workspace_id);

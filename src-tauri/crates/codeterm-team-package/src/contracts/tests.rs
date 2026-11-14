@@ -43,6 +43,7 @@ struct Exchange {
     share_actions: Vec<TemplateShareAction>,
     peer_start_request: TemplatePeerStartRequest,
     peer_start_accepted: TemplatePeerStartAccepted,
+    peer_start_finished: TemplatePeerStartAccepted,
 }
 
 #[test]

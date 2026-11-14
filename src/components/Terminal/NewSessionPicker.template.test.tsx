@@ -33,7 +33,9 @@ const fixture = vi.hoisted(() => {
       file: vi.fn(),
       peerStart: vi.fn(),
     },
-    peers: vi.fn(async () => [{ id: "inst_8c1f", name: "eight" }]),
+    peers: vi.fn(async () => ({ peers: [{ id: "inst_8c1f", name: "eight" }], reason: null as string | null })),
+    peerWorkspaces: vi.fn(async (_peerId: string) => [{ id: "ws_eight_research", name: "Research" }]),
+    createPeerWorkspace: vi.fn(async (_peerId: string, _name: string) => "ws_eight_new"),
     vault: vi.fn(async () => ["SEARCH_API_KEY"]),
   };
 });
@@ -49,7 +51,12 @@ vi.mock("../../lib/bridge", async (importOriginal) => ({
 }));
 vi.mock("../../lib/transport/orchestrationRuntime", () => ({ teamTemplatesTransport: () => fixture.templates }));
 vi.mock("../../lib/teamTemplates/vaultSecrets", () => ({ listVaultSecretNames: fixture.vault, openSecretsSettings: vi.fn() }));
-vi.mock("../../lib/teamTemplates/hostPeers", () => ({ listHostPeers: fixture.peers }));
+vi.mock("../../lib/teamTemplates/hostPeers", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../lib/teamTemplates/hostPeers")>(),
+  listHostPeers: fixture.peers,
+  listPeerWorkspaces: fixture.peerWorkspaces,
+  createPeerWorkspace: fixture.createPeerWorkspace,
+}));
 
 import { NewSessionPicker } from "./NewSessionPicker";
 import { openTemplateFileReview, openTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
@@ -837,34 +844,78 @@ describe("Team template start in the session dialog", () => {
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 
-  it("runs a chosen worker type on a Full-access peer through the same pair request", async () => {
-    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+  async function openPlacement() {
     await renderPicker();
     await chooseResearchDesk();
     await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
     await click(button("Run on another machine"));
-    expect(dialog().querySelector('[aria-label^="Machine for Lead"]')).toBeNull();
-    await choose("Machine for Researcher", "eight");
-    await click(start());
-    const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { role_placements?: Record<string, string> } };
-    expect(input.template.role_placements).toEqual({ researcher: "eight" });
-  });
+  }
 
-  it("asks a peer to start the whole team and never starts it here", async () => {
+  type PeerStartCall = { peer: string; origin_workspace_id?: string; start: { workspace_id: string; template: { template: unknown; role_placements?: unknown } } };
+
+  it("starts the whole team on the chosen machine in its chosen workspace and never here", async () => {
     fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
-    fixture.templates.peerStart.mockResolvedValue(exchange.peer_start_accepted);
-    await renderPicker();
-    await chooseResearchDesk();
-    await type(dialog().querySelector<HTMLTextAreaElement>('textarea[placeholder="The market question to research"]')!, "EU heat pumps");
-    await click(button("Run on another machine"));
+    fixture.templates.peerStart.mockResolvedValue(exchange.peer_start_finished);
+    fixture.actions.upsertToast.mockClear();
+    await openPlacement();
+    expect(dialog().querySelector('[aria-label^="Machine for Researcher"]')).toBeNull();
     await choose("Machine for this team", "eight");
+    expect(start().disabled).toBe(true);
+    expect(dialog().querySelector('[data-testid="picker-start-blocker"]')?.textContent).toContain("Choose a workspace on eight");
+    await choose("Workspace on eight", "Research");
     await click(start());
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
-    const request = fixture.templates.peerStart.mock.calls[0][0] as { peer: string; start: { template: { template: unknown; role_placements?: unknown } } };
-    expect(request.peer).toBe("eight");
+    const request = fixture.templates.peerStart.mock.calls[0][0] as PeerStartCall;
+    expect(request.peer).toBe("inst_8c1f");
+    expect(request.origin_workspace_id).toBe("workspace");
+    expect(request.start.workspace_id).toBe("ws_eight_research");
     expect(request.start.template.template).toEqual({ name: "com.example/research-desk", version: "2.1.0" });
     expect(request.start.template).not.toHaveProperty("role_placements");
-    expect(fixture.actions.upsertToast).toHaveBeenCalled();
+    expect(fixture.actions.upsertToast).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("creates a new workspace on the machine first, and offers none when the team needs a project", async () => {
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    fixture.templates.peerStart.mockResolvedValue(exchange.peer_start_finished);
+    await openPlacement();
+    await choose("Machine for this team", "eight");
+    await choose("Workspace on eight", "New workspace");
+    await type(dialog().querySelector<HTMLInputElement>('input[aria-label="New workspace name on eight"]')!, "Heat pumps");
+    await click(start());
+    expect(fixture.createPeerWorkspace).toHaveBeenCalledWith("inst_8c1f", "Heat pumps");
+    expect((fixture.templates.peerStart.mock.calls[0][0] as PeerStartCall).start.workspace_id).toBe("ws_eight_new");
+
+    if (root) await act(async () => root!.unmount());
+    root = createRoot(host);
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null, needs_project: true });
+    await openPlacement();
+    await choose("Machine for this team", "eight");
+    const trigger = dialog().querySelector<HTMLElement>('[aria-label^="Workspace on eight"]')!;
+    await act(async () => { trigger.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+    const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')).map((item) => item.textContent?.trim());
+    expect(items).toContain("Research");
+    expect(items).not.toContain("New workspace");
+    expect(dialog().textContent).toContain("pick one of eight's workspaces");
+  });
+
+  it("keeps the form open with the machine's typed refusal when it did not start", async () => {
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    fixture.templates.peerStart.mockResolvedValue({ ...exchange.peer_start_finished, outcome: {
+      ...exchange.peer_start_finished.outcome, state: "failed", orchestrator_tab_id: undefined, planner_tab_id: undefined, error: "FAILURE-FRAGMENT",
+    } });
+    await openPlacement();
+    await choose("Machine for this team", "eight");
+    await choose("Workspace on eight", "Research");
+    await click(start());
+    expect(dialog().querySelector('[data-testid="picker-start-error"]')?.textContent).toContain("FAILURE-FRAGMENT");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("says why no machine is listed instead of an empty choice", async () => {
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    fixture.peers.mockResolvedValueOnce({ peers: [], reason: "REASON-FRAGMENT" });
+    await openPlacement();
+    expect(dialog().querySelector('[data-testid="template-where-reason"]')?.textContent).toBe("REASON-FRAGMENT");
   });
 });

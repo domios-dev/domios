@@ -360,6 +360,8 @@ pub fn preview_on(
         payload: payload_items(&resolved.package),
         warnings: resolved.warnings.clone(),
         consent,
+        needs_project: resolved.package.document.project_need()
+            == codeterm_team_package::ProjectNeed::Required,
     })
 }
 

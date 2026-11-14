@@ -66,12 +66,12 @@ import { remoteControllerSignature, remoteTabsFromOrdinaryProjection, refreshAtt
 import {
   loadAttachedRemoteTabs,
   hydrateAttachedRemoteTabs,
-  projectAttachedRemoteTab,
   reconcileAttachedRemoteTabs,
   saveAttachedRemoteTabs,
   type RemotePeerTabs,
 } from "../../lib/remoteTabPortal";
 import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
+import { useRemoteAttachments } from "./useRemoteAttachments";
 import { resumeRemoteOutputStreams } from "../../lib/outputStream";
 import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remoteTabEvents";
 import { spawnFreshGeneralSession, type SessionLaunchIntent } from "../../lib/generalSession";
@@ -239,9 +239,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       (peerId) => invoke<RemotePeerTabs>("mesh_peer_tabs_list", { peerId }),
     );
     if (!remoteProjectionActiveRef.current) return;
-    for (const id of Object.keys(attachedRemoteTabsRef.current)) {
-      if (projected[id]) attachedRemoteTabsRef.current[id] = projected[id];
-    }
+    const attached = attachedRemoteTabsRef.current;
+    const kept = Object.fromEntries(Object.keys(attached).filter((id) => projected[id]).map((id) => [id, projected[id]]));
+    attachedRemoteTabsRef.current = kept;
+    if (Object.keys(kept).length !== Object.keys(attached).length) saveAttachedRemoteTabs(kept);
     applyRemoteProjection(projected);
     resumeRemoteOutputStreams();
     resumeRemoteTabEvents();
@@ -386,15 +387,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     return () => { for (const stop of stops) stop?.(); };
   }, [remotePeerSubscriptions, requestRemoteRefresh]);
 
-  const attachRemoteTab = useCallback((workspaceId: string, peer: RemotePeerTabs, tab: Tab) => {
-    const projected = projectAttachedRemoteTab(tab, peer, workspaceId);
-    attachedRemoteTabsRef.current = { ...attachedRemoteTabsRef.current, [projected.id]: projected };
-    saveAttachedRemoteTabs(attachedRemoteTabsRef.current);
-    applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
-    dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: workspaceId });
-    dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId: projected.id });
-    dispatch({ type: "SET_FOCUSED_TAB", tabId: projected.id });
-  }, [applyRemoteProjection]);
+  const { attachRemoteTab, detachRemoteTab } = useRemoteAttachments({
+    attachedRef: attachedRemoteTabsRef, stateRef, dispatch, applyRemoteProjection,
+  });
 
   useEffect(() => onRemoteTransportState(({ ordinaryTabId, channel, availability }) => {
     dispatch({ type: "UPDATE_REMOTE_CHANNEL", tabId: ordinaryTabId, channel, availability });
@@ -1122,6 +1117,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderWorkspaces,
       createTab,
       attachRemoteTab,
+      detachRemoteTab,
       closeTab,
       reopenClosed,
       reopenGroup,
@@ -1156,6 +1152,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderWorkspaces,
       createTab,
       attachRemoteTab,
+      detachRemoteTab,
       closeTab,
       reopenClosed,
       reopenGroup,
