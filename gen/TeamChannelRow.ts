@@ -2,4 +2,8 @@
 import type { SkippedTeam } from "./SkippedTeam";
 import type { TeamChannelKind } from "./TeamChannelKind";
 
-export type TeamChannelRow = { name: string, displayName: string, description: string, url: string, path: string, kind: TeamChannelKind, official: boolean, lastRefresh?: string | null, skippedEntries?: Array<SkippedTeam>, };
+export type TeamChannelRow = { name: string, displayName: string, description: string, url: string, path: string, kind: TeamChannelKind, official: boolean, lastRefresh?: string | null, skippedEntries?: Array<SkippedTeam>, 
+/**
+ * Teams the last good refresh found usable on this Domios; unknown until then.
+ */
+usableTeams?: number | null, };
