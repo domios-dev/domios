@@ -1,4 +1,4 @@
-  
+
 
   This project's CLAUDE.md or .claude/rules imports files outside the current working directory. Never allow
   this for third-party repositories.

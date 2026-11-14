@@ -11,5 +11,3 @@
 
   ❯ No, disable external imports
     Yes, allow external imports
-
-  
