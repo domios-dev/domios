@@ -110,7 +110,6 @@ fn request(name: &str) -> TemplateStartRequest {
         decision_id: None,
         secret_bindings: BTreeMap::new(),
         manager_models: BTreeMap::new(),
-        role_placements: BTreeMap::new(),
     }
 }
 

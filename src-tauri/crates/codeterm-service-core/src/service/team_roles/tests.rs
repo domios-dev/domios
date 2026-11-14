@@ -19,7 +19,6 @@ fn worker(team_id: &str, name: &str, instructions: &str) -> RoleRegistration {
         instructions: instructions.into(),
         model: None,
         reasoning: None,
-        placement_peer: None,
         consent_decision_id: None,
         files: Vec::new(),
         skills: Vec::new(),

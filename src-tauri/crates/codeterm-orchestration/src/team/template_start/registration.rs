@@ -7,7 +7,6 @@ use codeterm_service_core::service::team_roles::TeamRoleStore;
 use codeterm_service_core::service::team_template_payload::role_file_refs;
 use codeterm_service_core::service::team_template_start::AdmittedTemplate;
 use codeterm_team_package::contracts::{TemplateItemState, TemplateStartItem};
-use codeterm_team_package::RoleKind;
 use codeterm_types::team::role_registration::{RoleRegistration, RoleRegistrationOutcome};
 
 use super::seats::Seat;
@@ -39,11 +38,6 @@ pub(crate) fn registrations_for(
                 instructions,
                 model: role.model.clone(),
                 reasoning: role.reasoning.clone(),
-                // Managers are the Team's home; only workers run on another machine.
-                placement_peer: match role.kind {
-                    RoleKind::Worker => admitted.placements.get(name).cloned(),
-                    RoleKind::Manager => None,
-                },
                 consent_decision_id: admitted.decision_id.clone(),
                 files,
                 skills: role.skills.clone(),

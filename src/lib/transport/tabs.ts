@@ -185,6 +185,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             return { peer_id: peer, peer_name: peerName, tabs: response.data ?? [] };
         },
         mesh_peer_workspaces_list: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/workspaces", null),
+        // The peer's published multiplexer state: the only read that names both its workspaces and Teams.
+        mesh_peer_mux_state: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "GET", "/api/mux/state", null),
         // A provisioned folder on the peer; its owner's active workspace stays where it is.
         mesh_peer_workspace_create: (a: Args) => relayToPeer(clientFor(a), s(a, "peerId", "peer_id"), "POST", "/api/workspaces", {
             name: s(a, "name"), provision: true, activate: false,

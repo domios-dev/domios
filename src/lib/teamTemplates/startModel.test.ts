@@ -121,7 +121,6 @@ describe("template start model", () => {
       optOut: new Set(["skill:source-check", "memory:0"]),
       managerModels: {},
       secretBindings: { SEARCH_API_KEY: "research-desk/search", OPTIONAL_KEY: "" },
-      rolePlacements: { researcher: "eight", writer: "" },
     });
     expect(request).toEqual({
       template: { name: "com.example/research-desk", version: "2.1.0" },
@@ -129,7 +128,6 @@ describe("template start model", () => {
       opt_out: ["memory:0", "skill:source-check"],
       decision_id: "tcd_7f3a2c",
       secret_bindings: { SEARCH_API_KEY: "research-desk/search" },
-      role_placements: { researcher: "eight" },
     });
     expect(buildStartRequest({ preview: { ...templatePreviewFixture, consent: null }, inputs: {}, optOut: new Set(), managerModels: {} }))
       .not.toHaveProperty("decision_id");
@@ -147,7 +145,6 @@ describe("template start model", () => {
     expect(startErrorView(JSON.stringify(consent)).reasons).toEqual(["new_grants"]);
     expect(startErrorView(JSON.stringify(missingInputs)).reasons).toEqual(["question"]);
     expect(startErrorView(JSON.stringify(notFound)).message).toBe("Missing isn't available");
-    expect(startErrorView(`template_start: ${JSON.stringify(templateStartResultFixtures[6])}`).message).toBe("The Orchestrator is a manager and runs on this machine");
     expect(startErrorView(new Error(`template_unavailable: ${templateUnavailableFixture.message}`)).message).toBe(templateUnavailableFixture.message);
     expect(startErrorView(new Error(JSON.stringify({ error: `template_unavailable: ${templateUnavailableFixture.message}` }))).message)
       .toBe(templateUnavailableFixture.message);

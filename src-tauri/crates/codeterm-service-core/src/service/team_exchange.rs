@@ -140,14 +140,14 @@ pub fn resolve_in(
 }
 
 /// The exporting machine's private bindings: workspace folders, home and machine names.
-fn scrub_context(svc: &ServiceContext, machines: Vec<String>, live_team: bool) -> ScrubContext {
+fn scrub_context(svc: &ServiceContext, live_team: bool) -> ScrubContext {
     let roots = svc
         .list_workspaces()
         .unwrap_or_default()
         .into_iter()
         .filter_map(|workspace| workspace.cwd)
         .collect();
-    ScrubContext::local(roots, machines, live_team)
+    ScrubContext::local(roots, live_team)
 }
 
 /// What one pipeline run produced.
@@ -247,7 +247,7 @@ pub fn export(svc: &ServiceContext, params: Option<&Value>) -> Outcome {
     let target = destination(request.out.as_deref(), &package, request.format)?;
     let exported = run_pipeline(
         package,
-        &scrub_context(svc, Vec::new(), false),
+        &scrub_context(svc, false),
         request.format,
         Some(target),
     )?;
@@ -291,11 +291,6 @@ pub fn distill(svc: &ServiceContext, params: Option<&Value>) -> Outcome {
     let collected = super::team_template_payload::collect(svc, &request.team_id, &descriptions)
         .map_err(ExchangeError::invalid)?;
     let history = collected.history_excluded;
-    let machines: Vec<String> = registrations
-        .iter()
-        .filter_map(|registration| registration.placement_peer.clone())
-        .collect();
-    let placements = machines.len() as u32;
     let baked = distill::bake(&request, &registrations, &base, collected);
     let baked = super::team_template_payload::retain_opted_in(&baked, &request.opt_out);
     let target = if request.dry_run {
@@ -303,13 +298,7 @@ pub fn distill(svc: &ServiceContext, params: Option<&Value>) -> Outcome {
     } else {
         Some(destination(request.out.as_deref(), &baked, request.format)?)
     };
-    let mut exported = run_pipeline(
-        baked,
-        &scrub_context(svc, machines, true),
-        request.format,
-        target,
-    )?;
-    exported.scrub.machines_removed += placements;
+    let mut exported = run_pipeline(baked, &scrub_context(svc, true), request.format, target)?;
     exported.scrub.history_removed += history;
     let saved = if request.save && !request.dry_run {
         Some(save(svc, &exported.package, TemplateProvenance::Saved)?.0)

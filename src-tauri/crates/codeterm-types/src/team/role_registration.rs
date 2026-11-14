@@ -40,10 +40,6 @@ pub struct RoleRegistration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub reasoning: Option<String>,
-    /// The mesh peer that hosts this role's Workers when dispatch places it remotely.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub placement_peer: Option<String>,
     /// The preview consent decision this registration was accepted under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]

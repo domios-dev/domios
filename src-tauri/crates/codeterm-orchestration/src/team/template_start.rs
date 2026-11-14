@@ -8,7 +8,7 @@ use codeterm_service_core::service::messenger::{MessageEnvelope, Messenger};
 use codeterm_service_core::service::model_decision::TargetCatalogue;
 use codeterm_service_core::service::team_roles::{stamp_team_role_labels, TeamRoleStore};
 use codeterm_service_core::service::team_template_start::{
-    admit_bound, record_consent, resolve_placements, vault_unbound, AdmittedTemplate, ConsentLedger,
+    admit_bound, record_consent, vault_unbound, AdmittedTemplate, ConsentLedger,
 };
 use codeterm_service_core::service::{blocking, team_template_payload};
 use codeterm_service_core::service::{ServiceContext, SpawnAgentParams};
@@ -143,11 +143,10 @@ pub(crate) async fn prepare(
     let request = params.template.as_ref();
     let unbound = vault_unbound(svc, request).await;
     let owned_request = request.cloned();
-    let mut admitted = blocking::run(move || {
+    let admitted = blocking::run(move || {
         admit_bound(owned_request.as_ref(), ConsentLedger::global(), &unbound).map_err(refused)
     })
     .await?;
-    resolve_placements(svc, &mut admitted).map_err(refused)?;
     remember_consent(&admitted).await;
     let mut picks = owner_picks(params);
     for (name, pick) in picks.iter_mut() {

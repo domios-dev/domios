@@ -142,7 +142,6 @@ fn a_binding_to_an_absent_vault_entry_refuses_as_a_missing_input() {
         decision_id: None,
         secret_bindings: [("TOKEN".to_string(), "entry-opaque".to_string())].into(),
         manager_models: Default::default(),
-        role_placements: Default::default(),
     };
     let ledger = ConsentLedger::default();
     let present = |entry: &str| -> Result<bool, String> { Ok(entry == "entry-present") };

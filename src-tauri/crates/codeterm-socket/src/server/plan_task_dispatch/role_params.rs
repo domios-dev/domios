@@ -38,7 +38,7 @@ fn preferred_model(registration: &RoleRegistration) -> Option<String> {
 /// Resolves the worker a dispatch launches against exactly the Team's roles: `--role` names a
 /// registered worker; without it, a task executor role the Team registers as a worker, else
 /// `worker` when the Team lists it. A manager or unlisted name is refused with the Team's
-/// workers. A registration placed on another peer refuses local dispatch and names the peer.
+/// workers.
 pub(super) fn resolve(
     svc: &ServiceState,
     params: Option<&Value>,
@@ -61,14 +61,6 @@ pub(super) fn resolve(
     let kind_id = role_type.kind_id;
     let registration =
         team_roles::registration_for(team_id.as_deref(), AgentRole::Worker, &kind_id);
-    if let Some(peer) = registration
-        .as_ref()
-        .and_then(|registration| registration.placement_peer.as_deref())
-    {
-        return Err(format!(
-            "worker `{kind_id}` is placed on peer `{peer}`; dispatch it with --mesh {peer}"
-        ));
-    }
     Ok(RoleParams {
         model: registration.as_ref().and_then(preferred_model),
         profile: (kind_id != builtins::WORKER).then_some(kind_id),

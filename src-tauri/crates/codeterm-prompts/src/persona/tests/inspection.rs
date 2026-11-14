@@ -25,7 +25,6 @@ fn team_worker(name: &str) -> RoleRegistration {
         instructions: "fixture-team-instructions".into(),
         model: None,
         reasoning: None,
-        placement_peer: None,
         consent_decision_id: None,
         files: Vec::new(),
         skills: Vec::new(),
@@ -82,20 +81,36 @@ fn list_shows_exactly_the_team_roles_with_kind_authority_and_provenance() {
     custom.kind = RoleKind::Manager;
     let team = [team_worker("checker"), team_worker(builtins::QA), custom];
     let view = inspect::list(Some("team_fixture"), &team);
-    let names: Vec<&str> = view.roles.iter().map(|role| role.role_type.as_str()).collect();
-    assert_eq!(names, ["checker", builtins::QA, "security_lead", builtins::WATCHER]);
+    let names: Vec<&str> = view
+        .roles
+        .iter()
+        .map(|role| role.role_type.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["checker", builtins::QA, "security_lead", builtins::WATCHER]
+    );
     let find = |name: &str| {
         view.roles
             .iter()
             .find(|role| role.role_type == name)
             .unwrap_or_else(|| panic!("{name} listed"))
     };
-    assert!(matches!(find("checker").provenance, RoleProvenance::Team { .. }));
+    assert!(matches!(
+        find("checker").provenance,
+        RoleProvenance::Team { .. }
+    ));
     let checker = find("checker");
-    assert_eq!((checker.kind, checker.authority), (RoleKind::Worker, "none"));
+    assert_eq!(
+        (checker.kind, checker.authority),
+        (RoleKind::Worker, "none")
+    );
     assert!(!checker.can_spawn && !checker.team_authority && !checker.anchors_team);
     let security = find("security_lead");
-    assert_eq!((security.kind, security.authority), (RoleKind::Manager, "none"));
+    assert_eq!(
+        (security.kind, security.authority),
+        (RoleKind::Manager, "none")
+    );
     assert!(!security.can_spawn && !security.team_authority && !security.anchors_team);
     assert!(find(builtins::WATCHER).host_only);
 }
@@ -108,7 +123,10 @@ fn a_team_without_registrations_lists_the_default_package() {
         .iter()
         .find(|role| role.role_type == builtins::ORCHESTRATOR)
         .expect("orchestrator listed");
-    assert!(matches!(orchestrator.provenance, RoleProvenance::Builtin { .. }));
+    assert!(matches!(
+        orchestrator.provenance,
+        RoleProvenance::Builtin { .. }
+    ));
     assert_eq!(orchestrator.authority, "Orchestrator");
     assert!(orchestrator.anchors_team);
     assert_eq!(view.roles.len(), 9, "eight package roles and the watcher");

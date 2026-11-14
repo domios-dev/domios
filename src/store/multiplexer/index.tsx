@@ -141,29 +141,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
     return () => { active = false; };
   }, []);
-  useEffect(() => {
-    if (!IS_WEB) return;
-    let active = true;
-    let contextGeneration = 0;
-    const reset = () => {
-      contextGeneration++;
-      attachedRemoteTabsRef.current = {};
-      applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
-    };
-    const hydrate = () => {
-      const generation = ++contextGeneration;
-      void hydrateAttachedRemoteTabs().then((attached) => {
-        if (!active || generation !== contextGeneration) return;
-        attachedRemoteTabsRef.current = attached;
-        applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
-      });
-    };
-    window.addEventListener("codeterm-peer-switch-reset", reset);
-    window.addEventListener("codeterm-peer-switch-rebind", hydrate);
-    hydrate();
-    return () => { active = false; window.removeEventListener("codeterm-peer-switch-reset", reset); window.removeEventListener("codeterm-peer-switch-rebind", hydrate); };
-  }, [applyRemoteProjection]);
-
   const applyBackendState = useCallback((s: MultiplexerState, force = false) => {
     backendStateRevisionRef.current++;
     // here silently dropped the closed-history on every reload.
@@ -267,6 +244,30 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshRemoteProjection]);
   remoteRefreshRunRef.current = runRemoteRefresh;
+
+  // Saved attachments come back on every client after a restart, then the peer refresh reconnects or drops them.
+  useEffect(() => {
+    let active = true;
+    let contextGeneration = 0;
+    const reset = () => {
+      contextGeneration++;
+      attachedRemoteTabsRef.current = {};
+      applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
+    };
+    const hydrate = () => {
+      const generation = ++contextGeneration;
+      void hydrateAttachedRemoteTabs().then((attached) => {
+        if (!active || generation !== contextGeneration) return;
+        attachedRemoteTabsRef.current = { ...attached };
+        applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
+        if (Object.keys(attached).length > 0) void requestRemoteRefresh();
+      });
+    };
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener("codeterm-peer-switch-rebind", hydrate);
+    hydrate();
+    return () => { active = false; window.removeEventListener("codeterm-peer-switch-reset", reset); window.removeEventListener("codeterm-peer-switch-rebind", hydrate); };
+  }, [applyRemoteProjection, requestRemoteRefresh]);
 
   const runRefresh = useCallback(async (force = false): Promise<boolean> => {
     try {
