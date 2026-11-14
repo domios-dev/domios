@@ -143,7 +143,7 @@ impl AgentPad {
         }
     }
 
-    fn inbox_directory(&self) -> Result<PathBuf, String> {
+    pub(super) fn inbox_directory(&self) -> Result<PathBuf, String> {
         let inbox = self.path.join("inbox");
         fs::create_dir_all(&inbox).map_err(|e| format!("create AgentPad inbox: {e}"))?;
         let root = self
@@ -294,6 +294,9 @@ impl super::ServiceContext {
         } else {
             text
         };
+        let text = super::image_attachments::prepare(text, || {
+            self.ensure_agent_pad(tab_id)?.inbox_directory()
+        })?;
         self.substitute_paste_limited_body(tab_id, text.clone(), text.len())
     }
 

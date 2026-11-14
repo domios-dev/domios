@@ -21,20 +21,19 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
 import { DraftStorageFixture } from "../../test/draftStorage.testdata";
-import { prepareBrowserUpload } from "./browserImageUpload";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const path = "/home/owner/.domios-dev/uploads/id-photo.png";
 const pixels = "data:image/png;base64,iVBORw0KGgo=";
 
 it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400", "pending HTTP 400"])("web picker sends immediately and omits failed images without a popup: %s", async (failure) => {
+  const uploadedPath = failure === "HEIC" ? path.replace(".png", ".heic") : path;
   vi.stubGlobal("Blob", BrowserBlob);
   vi.stubGlobal("File", BrowserFile);
   vi.stubGlobal("FormData", BrowserFormData);
   if (failure === "HEIC") {
-    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: 2, height: 2, close: vi.fn() })));
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
-    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["image"], { type: "image/jpeg" })));
+    vi.stubGlobal("createImageBitmap", vi.fn(() => { throw new Error("Renderer must not decode the original"); }));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => { throw new Error("Renderer must not rasterize the original"); });
   }
   const sent: string[] = [];
   const previews: string[] = [];
@@ -47,13 +46,13 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
     const file = body.get("file") as File;
     expect(body).toBeInstanceOf(FormData);
     expect(file).toBeInstanceOf(Blob);
-    expect(file.type).toBe(failure === "HEIC" ? "image/jpeg" : "image/png");
-    expect(file.name).toBe(failure === "HEIC" ? "photo.jpg" : "photo.png");
+    expect(file.type).toBe(failure === "HEIC" ? "image/heic" : "image/png");
+    expect(file.name).toBe(failure === "HEIC" ? "photo.heic" : "photo.png");
     expect(file.size).toBe(failure.includes("400") ? 0 : 5);
     if (++requests === 1 && failure === "HTTP 503") return new Response("busy", { status: 503 });
     if (failure.startsWith("pending")) await new Promise<void>(resolve => { completeUpload = resolve; });
     if (failure.includes("400")) return Response.json({ error: { code: "empty_attachment", message: "Attachment is empty" } }, { status: 400 });
-    return Response.json({ path, size: 5 });
+    return Response.json({ path: uploadedPath, size: 5 });
   });
   const daemon = muxMockFetch(fetch);
   // The browser reads an unreadable picked file while sending the envelope, before the daemon sees it.
@@ -168,7 +167,13 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
       expect(sent[1]).not.toContain("Please inspect");
       return;
     }
-    expect(parseAttachmentMarkers(sent[0]).attachments.map((item) => item.path)).toEqual([path]);
+    expect(parseAttachmentMarkers(sent[0]).attachments.map((item) => item.path)).toEqual([uploadedPath]);
+    if (failure === "HEIC") {
+      expect(parseAttachmentMarkers(sent[0]).attachments[0].kind).toBe("file");
+      expect(createImageBitmap).not.toHaveBeenCalled();
+      expect(HTMLCanvasElement.prototype.getContext).not.toHaveBeenCalled();
+      return;
+    }
     expect(sent[0].indexOf(path)).toBeGreaterThan(sent[0].indexOf("inspect"));
     expect(sent[0].indexOf(path)).toBeLessThan(sent[0].indexOf("here"));
     const chip = host.querySelector<HTMLButtonElement>('[aria-label="Sent message"] button[aria-label="Open image id-photo.png"]')!;
@@ -180,23 +185,4 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
     await act(async () => root.unmount()); host.remove(); removeChatSend("picker", "sent");
     __setInvokeForTest(null); __setListenForTest(null); vi.unstubAllGlobals(); vi.restoreAllMocks();
   }
-});
-
-
-it("falls back to an image decoder when bitmap HEIF decoding fails and releases its URL", async () => {
-  vi.stubGlobal("createImageBitmap", vi.fn(async () => { throw new Error("unsupported"); }));
-  vi.stubGlobal("Image", class {
-    naturalWidth = 2; naturalHeight = 2; onload: (() => void) | null = null;
-    set src(_url: string) { this.onload?.(); }
-  });
-  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:opaque");
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
-  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["jpeg"], { type: "image/jpeg" })));
-  try {
-    const result = await prepareBrowserUpload(new Blob(["heif"], { type: "image/heif" }), "screen.heif");
-    expect(result.name).toBe("screen.jpg");
-    expect(result.blob.type).toBe("image/jpeg");
-    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:opaque");
-  } finally { vi.unstubAllGlobals(); vi.restoreAllMocks(); }
 });

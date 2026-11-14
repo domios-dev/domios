@@ -30,8 +30,8 @@ test("HEIC and unreadable photo drags are recognized for cancellation and visibl
     assert.equal(planFileDrop(data).preventNavigation, true);
     assert(planFileDrop(data).error);
   }
-  assert.throws(() => imageUploadName("photo.heic", "image/heic"), /Unsupported image format/);
-  assert.throws(() => imageUploadName("photo.heic", ""), /Unsupported image format/);
+  assert.equal(imageUploadName("photo.heic", "image/heic"), "photo.heic");
+  assert.equal(imageUploadName("photo.heic", ""), "photo.heic");
 });
 
 test("image URL drops refuse visibly without navigating; all composer drops cancel navigation", () => {

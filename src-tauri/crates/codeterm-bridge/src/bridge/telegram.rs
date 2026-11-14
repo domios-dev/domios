@@ -13,7 +13,7 @@ use crate::ports::AttachmentStorePort;
 pub const TELEGRAM_MAX_LEN: usize = 4096;
 
 /// Max total size of bridge-downloads dir before eviction (100 MB).
-const DOWNLOADS_MAX_BYTES: u64 = 100 * 1024 * 1024;
+const DOWNLOADS_MAX_BYTES: u64 = codeterm_util::attachments::CHAT_UPLOAD_CACHE_BYTES;
 
 pub fn token_path(attachments: &dyn AttachmentStorePort) -> std::path::PathBuf {
     attachments.secrets_dir().join("telegram.token")
