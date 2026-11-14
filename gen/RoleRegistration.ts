@@ -19,10 +19,6 @@ name: string,
  */
 label: string, description?: string, start: RoleStart, package: PinnedPackage, instructions: string, model?: ModelPreference, reasoning?: string, 
 /**
- * The mesh peer that hosts this role's Workers when dispatch places it remotely.
- */
-placement_peer?: string, 
-/**
  * The preview consent decision this registration was accepted under.
  */
 consent_decision_id?: string, files?: Array<RoleFileRef>, skills?: Array<string>, registered_at: number, };
