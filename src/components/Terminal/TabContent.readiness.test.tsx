@@ -99,13 +99,16 @@ it("opens the launch question terminal on one desktop click without a boot overl
       ] } });
     const open = [...fixture.host.querySelectorAll("button")].find(button => button.textContent === "Open terminal")!;
     expect(open).toBeDefined();
-    await act(async () => { open.dispatchEvent(new Event("pointerdown", { bubbles: true })); open.click(); });
+    await act(async () => { open.focus(); open.dispatchEvent(new Event("pointerdown", { bubbles: true })); open.click(); });
     expect(fixture.host.querySelector('[data-testid="terminal-fallback-header"]')).not.toBeNull();
     const close = fixture.host.querySelector<HTMLButtonElement>('[aria-label="Close terminal"]')!;
     expect(document.activeElement).toBe(close);
     await act(async () => { close.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); });
     expect(document.activeElement).toBe(close);
     expect(fixture.host.querySelector('[data-testid="terminal-loading-overlay"]')).toBeNull();
+    await act(async () => { close.click(); });
+    expect(document.activeElement).toBe(open);
+    expect(fixture.host.querySelector('[data-testid="terminal-fallback-header"]')).toBeNull();
     expect(fixture.commands).not.toContain("write_pty_string");
   } finally { await fixture.dispose(); }
 });
