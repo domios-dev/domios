@@ -88,7 +88,7 @@ export function OutboundReportRow({ entry, context }: { entry: OutboundReportEnt
       <MessageTimeFrame timestamp={entry.at == null ? undefined : String(entry.at)} side="left">
         <OutboundReportCard
           report={entry.descriptor}
-          onFocusTab={() => context.onFocusTab(entry.targetTabId)}
+          onFocusTab={entry.targetTabId ? () => context.onFocusTab(entry.targetTabId) : undefined}
           fontScale={context.uiFontScale}
           onOpenPlan={context.onOpenPlan}
           resolvePlanRef={context.resolvePlanRef}
