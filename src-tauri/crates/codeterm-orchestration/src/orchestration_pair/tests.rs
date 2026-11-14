@@ -240,14 +240,19 @@ fn team_planner_bound_at_plan_create() {
 
 #[test]
 fn pair_retry_command_preserves_provider_models_and_workspace() {
-    let cmd = pair_retry_command("ws-1", "claude", Some("opus"), Some(("codex", Some("gpt-5"))));
-    assert_eq!(
-        cmd,
-        "domios team pair --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
+    let cmd = pair_retry_command(
+        "ws-1",
+        "harness-a",
+        Some("opus"),
+        Some(("harness-b", Some("gpt-5"))),
     );
     assert_eq!(
-        pair_retry_command("ws-1", "claude", None, None),
-        "domios team pair --orchestrator claude --workspace ws-1"
+        cmd,
+        "domios team pair --orchestrator harness-a:opus --planner harness-b:gpt-5 --workspace ws-1"
+    );
+    assert_eq!(
+        pair_retry_command("ws-1", "harness-a", None, None),
+        "domios team pair --orchestrator harness-a --workspace ws-1"
     );
 }
 
@@ -1062,11 +1067,11 @@ fn leaf_creation_acknowledged_defaults_false_for_every_existing_transport() {
 #[test]
 fn pair_params_carry_reasoning_effort_for_both_roles() {
     let body = serde_json::json!({
-        "orchestrator_agent": "opencode",
+        "orchestrator_agent": "harness-c",
         "orchestrator_reasoning_effort": "high",
         "orchestrator_launch_profile": "alpha",
         "orchestrator_model": "large",
-        "planner_agent": "opencode",
+        "planner_agent": "harness-c",
         "planner_reasoning_effort": "low",
         "planner_launch_profile": "beta",
         "planner_model": "small",

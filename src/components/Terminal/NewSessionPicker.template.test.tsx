@@ -17,7 +17,7 @@ const fixture = vi.hoisted(() => {
       upsertToast: vi.fn(),
     },
     providers: {
-      providers: [{ id: "claude", display_name: "Claude Code", available_models: [], reasoning_efforts: [] }] as never[],
+      providers: [{ id: "harness-a", display_name: "Harness A", available_models: [], reasoning_efforts: [] }] as never[],
       loading: false,
       refetch: vi.fn(),
     },
@@ -66,7 +66,7 @@ let onClose = vi.fn();
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "pair", orchestratorProviderId: "claude", plannerProviderId: "claude" }));
+  localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "pair", orchestratorProviderId: "harness-a", plannerProviderId: "harness-a" }));
   for (const mock of Object.values(fixture.templates)) mock.mockReset();
   fixture.templates.list.mockResolvedValue(templateListFixture);
   fixture.templates.recall.mockResolvedValue(templateRecallFixture);
@@ -247,8 +247,8 @@ describe("Team template start in the session dialog", () => {
     await click(start());
     const error = dialog().querySelector('[data-testid="picker-start-error"]')!;
     expect(error.getAttribute("role")).toBe("alert");
-    expect(error.textContent).toContain("codex is not signed in");
-    expect(error.textContent).toContain("Use claude:sonnet");
+    expect(error.textContent).toContain("harness-b is not signed in");
+    expect(error.textContent).toContain("Use harness-a:sonnet");
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -271,7 +271,7 @@ describe("Team template start in the session dialog", () => {
     expect(buttons().filter((candidate) => candidate.textContent?.trim() === "Run on another machine")).toHaveLength(1);
     const asks = Array.from(dialog().querySelectorAll("[data-ask]")).map((row) => row.getAttribute("data-ask"));
     expect(asks).toEqual([]);
-    expect(dialog().querySelector('[data-testid="template-where-issue"]')?.textContent).toMatch(/codex isn't installed on this machine/i);
+    expect(dialog().querySelector('[data-testid="template-where-issue"]')?.textContent).toMatch(/harness-b isn't installed on this machine/i);
     const issue = dialog().querySelector('[data-testid="template-where-issue"]')!;
     expect(issue.closest("details")).toBeNull();
     expect(aboutButton()).toBeDefined();
@@ -339,11 +339,12 @@ describe("Team template start in the session dialog", () => {
     expect(rows()).toEqual(["orchestrator", "planner", "later", "cartographer", "curator"]);
     expect(roster.textContent).toContain("Joins when the Orchestrator needs it");
     // An on-demand manager with no model shows the Orchestrator's current pick, never a blank row.
-    expect(roster.querySelector('[data-pair-role="cartographer"] button[aria-label^="Cartographer provider"]')?.getAttribute("aria-label")).toBe("Cartographer provider: Claude Code");
+    expect(roster.querySelector('[data-pair-role="cartographer"] button[aria-label^="Cartographer provider"]')?.getAttribute("aria-label")).toBe("Cartographer provider: Harness A");
     expect(dialog().querySelector('[data-testid="template-where"]')).not.toBeNull();
     expect(button("Details")).toBeUndefined();
     expect(aboutButton()).toBeDefined();
     await click(aboutButton());
+    expect(dialog().querySelector('[role="group"][aria-label="Workers on demand"]')?.textContent).toContain("QA");
     expect(button("Roles")).toBeDefined();
     await click(button("Roles"));
     expect(dialog().querySelector('[data-testid="template-instructions"]')).not.toBeNull();
@@ -367,12 +368,12 @@ describe("Team template start in the session dialog", () => {
     expect(provider.disabled).toBe(false);
     expect(dialog().querySelector('[aria-label^="Cartographer model"]')).not.toBeNull();
     // Showing the Orchestrator's pick is not a choice; only the owner's pick moves the start to the template.
-    await choose("Cartographer provider", "Claude Code");
+    await choose("Cartographer provider", "Harness A");
     await click(start());
     const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { template: unknown; manager_models: Record<string, { model: string }> } };
     expect(input.template.template).toEqual({ name: templateRecallFixture.fallback.name, version: templateRecallFixture.fallback.version });
     expect(Object.keys(input.template.manager_models)).toEqual(["cartographer"]);
-    expect(input.template.manager_models.cartographer.model.startsWith("claude:")).toBe(true);
+    expect(input.template.manager_models.cartographer.model.startsWith("harness-a:")).toBe(true);
   });
 
   it("keeps a same-as manager on the Orchestrator's model until the owner chooses one, and can return to it", async () => {
@@ -396,7 +397,7 @@ describe("Team template start in the session dialog", () => {
   });
 
   it("names a later manager's same_as from its role and lets a declared model win over the Orchestrator prefill", async () => {
-    const declared = { choice: { model: "claude:sonnet" }, reason: "first_preference" as const, amber: false };
+    const declared = { choice: { model: "harness-a:sonnet" }, reason: "first_preference" as const, amber: false };
     const undecided = { reason: "needs_choice" as const, amber: false };
     const defaultPreview = {
       ...startablePreview, consent: null, asks: [], payload: [], where_needed: null, form: { ...startablePreview.form, inputs: [], pickers: [],
@@ -447,11 +448,11 @@ describe("Team template start in the session dialog", () => {
     await click(aboutButton());
     expect(dialog().querySelectorAll('[role="group"][aria-label="Workers on demand"] [aria-label="Workers"] li')).toHaveLength(2);
     await click(button("Close team details"));
-    await choose("Security lead provider", "Claude Code");
+    await choose("Security lead provider", "Harness A");
     await click(start());
     const input = fixture.actions.createOrchestrationPair.mock.calls[0][0] as { template: { manager_models: Record<string, { model: string }> } };
     expect(Object.keys(input.template.manager_models)).toEqual(["security_lead"]);
-    expect(input.template.manager_models.security_lead.model.startsWith("claude:")).toBe(true);
+    expect(input.template.manager_models.security_lead.model.startsWith("harness-a:")).toBe(true);
   });
 
   it("groups the review by kind with the custom manager among the managers", async () => {
@@ -695,7 +696,7 @@ describe("Team template start in the session dialog", () => {
   });
 
   it("opens a shared package straight into its review with the update it brings", async () => {
-    localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "claude" }));
+    localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "harness-a" }));
     const update = { ...exchange.import_result.update, name: "com.example/research-desk", from_version: "2.0.3", to_version: "2.1.0" } as TemplateUpdateDiff;
     openTemplatePreview({ id: "workspace", cwd: "/workspace" }, { name: "com.example/research-desk", version: "2.1.0" }, update);
     await renderPicker();
@@ -708,7 +709,7 @@ describe("Team template start in the session dialog", () => {
   });
 
   it("imports a package file the OS opened and stops at its consent review", async () => {
-    localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "claude" }));
+    localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "harness-a" }));
     fixture.templates.import.mockResolvedValue({ ...exchange.import_result, update: null });
     openTemplateFileReview({ id: "workspace", cwd: "/workspace" }, "/downloads/research-desk.team");
     await renderPicker();

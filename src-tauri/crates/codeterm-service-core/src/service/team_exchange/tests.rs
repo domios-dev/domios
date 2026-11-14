@@ -477,7 +477,7 @@ fn bake_keeps_registered_roles_model_omission_runbook_and_lineage() {
         registration(
             RoleKind::Worker,
             "analyst",
-            Some(ModelPreference::List(vec!["claude:opus".into()])),
+            Some(ModelPreference::List(vec!["harness-a:opus".into()])),
         ),
         registration(RoleKind::Worker, "scribe", None),
     ];

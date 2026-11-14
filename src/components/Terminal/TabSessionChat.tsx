@@ -888,6 +888,7 @@ function TabSessionChatBody({
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
           onRetry={retryAttachment}
+          onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
           lock={tabLock}
           inLog={setupInLog}
         />);
