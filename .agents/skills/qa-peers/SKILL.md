@@ -9,7 +9,7 @@ Use only with the owner's candidate-advance and two-QA-account grants. This proc
 
 ## Topology
 
-Both peers use the detached worktree `C:/Developer/codeterm/codeterm-candidate`. Freeze its full SHA throughout the build and QA phase.
+Both peers build and run from the canonical checkout `C:/Developer/codeterm/codeterm`, whose named DEVs share `src-tauri/target/named-dev` (separate from default DEV 7686's target). `build.sh dev` refuses to compile outside canonical. Freeze the canonical SHA throughout the build and QA phase; a canonical commit during the phase means a rebuild at the new SHA.
 
 | Peer | Instance | API | Frontend | CDP | QA account alias |
 | --- | --- | --- | --- | --- | --- |
@@ -41,7 +41,7 @@ At a quiescent boundary, record both peers' SHA/boot, friendship, gateway tab/se
 Stop both peers from the existing checkout with explicit selectors, preserving each raw exit:
 
 ```bash
-cd /c/Developer/codeterm/codeterm-candidate
+cd /c/Developer/codeterm/codeterm
 export DOMIOS_ACCOUNT_TARGET=qa
 export CODETERM_DEV_WATCH=0
 export CODETERM_DEV_INSTANCE=acceptance-r161 CODETERM_DEV_API_PORT=7707
@@ -53,7 +53,7 @@ export CODETERM_DEV_VITE_PORT=14997 CODETERM_DEV_CDP_PORT=9397
 bash ./build.sh kill
 ```
 
-After both are proven down, require a clean checkout, run `git checkout --detach <FULL_CANDIDATE_SHA>` and compare `git rev-parse HEAD` with that full SHA. Never reset dirty work or move the candidate while compiling/testing.
+After both are proven down, compare canonical `git rev-parse HEAD` with the intended full SHA; the Orchestrator owns which SHA canonical holds. Never move canonical or edit sources while compiling/testing.
 
 ### Old-launch shutdown refusal
 
@@ -86,7 +86,7 @@ export CODETERM_DEV_WATCH=0
 bash ./build.sh dev --wait --wait-build
 ```
 
-Retain gateway job/log and raw exit; with `tee`, capture `${PIPESTATUS[0]}`. Require gateway release and exact A native READY before starting B. Both peers share the candidate's one DEV target `src-tauri/target/named-dev`; never compile B separately.
+Retain gateway job/log and raw exit; with `tee`, capture `${PIPESTATUS[0]}`. Require gateway release and exact A native READY before starting B. Both peers share canonical's one named DEV target `src-tauri/target/named-dev`; never compile B separately. Before building, confirm no other named DEV runs from that target.
 
 `dev` and `dev-server` refuse to compile while any DEV started from that target is running. The refusal names each running peer and its exact `kill` command. Windows locks a running executable, so a rebuild under a live peer cannot replace it. Stop both peers first; never work around the refusal with another instance name or target directory.
 
@@ -117,7 +117,7 @@ Select `CODETERM_INSTANCE` and `CODETERM_API_PORT` before sourcing `evals/_lib/l
 
 ### Automated QA sign-in
 
-The hosted QA sign-in page runs App Check (reCAPTCHA Enterprise) before sign-in, which fails in an automated browser ("Browser verification could not be completed"). Never bypass it interactively. The supported path is QA project only: a registered App Check debug token in the secret store (ask the backend owner for its name; never print it). Read it through stdin and inject `self.FIREBASE_APPCHECK_DEBUG_TOKEN` before page scripts run (CDP `Page.addScriptToEvaluateOnNewDocument` or a Browser init script), start sign-in from the peer, type the QA account credentials from the secret store through stdin, then remove the script or close the tab. Token values never go into argv, chat, logs or this file.
+The hosted QA sign-in page runs App Check (reCAPTCHA Enterprise) before sign-in, which fails in an automated browser ("Browser verification could not be completed"). Never bypass it interactively. The supported path is QA project only: a registered App Check debug token in the secret store. The secret-store names of the token and of each QA account live only in this machine's local memory: run `domios mem search "Domios QA test accounts"` (never copy those names into the repository; never print values). An assigned Worker signs in itself under an owner QA grant; it does not wait for the owner. Read it through stdin and inject `self.FIREBASE_APPCHECK_DEBUG_TOKEN` before page scripts run (CDP `Page.addScriptToEvaluateOnNewDocument` or a Browser init script), start sign-in from the peer, type the QA account credentials from the secret store through stdin, then remove the script or close the tab. Token values never go into argv, chat, logs or this file.
 
 For a broken frontend on an unchanged build, preserve diagnostics, use supported named shutdown, then the same named `dev-prebuilt --wait` without recompiling. Requalify frontend and native attachment. A provenance mismatch remains a refusal. Windows single-tab watcher/static-server processes detach from the utility job; their instance pidfiles are JSON with `pid`, `created` (FILETIME) and `executable`. Supported cleanup verifies all three and pins process handles. Stale, mismatched or bare-PID records are skipped, never treated as ownership. Do not weaken cleanup or stop another peer's frontend.
 
@@ -134,6 +134,6 @@ Raw artifacts and ownership manifests go under `target-check/evals/qa/<stamp>/<C
 
 ## End the phase
 
-Restore owned temporary policies/limits; reconcile jobs, tabs, files and pending messages against the manifest. Close only owned Browser profiles via the Browser plugin and close completed timeout utilities immediately. When the owner ends the peers' phase, stop both through explicit named `build.sh kill`, confirm their selected processes/listeners absent, then close persistent DEV/controller utilities. Retain the shared candidate checkout/account state unless removal is explicitly requested. Never delete unrelated tabs or another worker's evidence.
+Restore owned temporary policies/limits; reconcile jobs, tabs, files and pending messages against the manifest. Close only owned Browser profiles via the Browser plugin and close completed timeout utilities immediately. When the owner ends the peers' phase, stop both through explicit named `build.sh kill`, confirm their selected processes/listeners absent, then close persistent DEV/controller utilities. Retain the peers' data directories and account state unless removal is explicitly requested. Never delete unrelated tabs or another worker's evidence.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
