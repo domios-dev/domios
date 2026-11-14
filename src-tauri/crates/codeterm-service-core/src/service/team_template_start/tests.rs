@@ -1,4 +1,4 @@
-use codeterm_team_package::contracts::{ConsentReason, TemplateRef, TemplateRuntimeNeed};
+use codeterm_team_package::contracts::{TemplateRef, TemplateRuntimeNeed};
 
 use super::*;
 
@@ -74,22 +74,22 @@ fn preview_roles_carry_their_model_decision_unless_a_picker_does() {
 }
 
 #[test]
-fn a_preview_issues_the_decision_its_start_must_carry() {
+fn builtin_permissions_remain_visible_without_consent_or_a_decision() {
     let ledger = ConsentLedger::default();
-    let preview = preview_on(
-        &template("design-studio"),
-        &TargetCatalogue::default(),
-        &ledger,
-    )
-    .unwrap();
-    let consent = preview.consent.expect("declared permissions need consent");
-    assert_eq!(consent.reasons, vec![ConsentReason::NewGrants]);
-    let identity = resolve(Some(&template("design-studio")))
-        .unwrap()
-        .identity();
-    assert!(ledger.admits(Some(&consent.decision_id), &identity, &consent.reasons));
-    assert!(!ledger.admits(Some("consent_forged"), &identity, &consent.reasons));
-    assert!(!ledger.admits(None, &identity, &consent.reasons));
+    for name in ["design-studio", "video-studio", "marketing-studio"] {
+        let preview = preview_on(&template(name), &TargetCatalogue::default(), &ledger).unwrap();
+        assert!(!preview.asks.is_empty(), "{name}");
+        assert!(preview.consent.is_none(), "{name}");
+        let resolved = resolve(Some(&template(name))).unwrap();
+        let mut request: TemplateStartRequest = serde_json::from_value(serde_json::json!({
+            "template": { "name": name }
+        }))
+        .unwrap();
+        for field in input_fields(&resolved.package) {
+            request.inputs.insert(field.key, "Fixture input".into());
+        }
+        assert!(admit(Some(&request), &ledger).is_ok(), "{name}");
+    }
 }
 
 #[test]

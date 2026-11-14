@@ -10,7 +10,7 @@ use codeterm_service_core::service::team_template_start::{
     admit, admit_resolved, resolve, AdmittedTemplate, ConsentLedger, ResolvedTemplate,
 };
 use codeterm_team_package::contracts::{
-    ConsentReason, ManagerStartFailure, ModelBlockedReason, PlacementProblem, TemplateItemState,
+    ManagerStartFailure, ModelBlockedReason, PlacementProblem, TemplateItemState,
     TemplateProvenance, TemplateRef, TemplateStartRefusal, TemplateStartRequest,
     TemplateStartResult,
 };
@@ -238,32 +238,14 @@ fn filled(name: &str) -> TemplateStartRequest {
 }
 
 #[test]
-fn a_package_with_grants_starts_only_with_a_decision_issued_for_it() {
+fn builtin_grants_start_without_a_decision_and_register_without_one() {
     let ledger = ConsentLedger::default();
-    let mut start = filled("design-studio");
-    let refusal = admit(Some(&start), &ledger).unwrap_err();
-    assert_eq!(
-        refusal,
-        TemplateStartRefusal::ConsentRequired {
-            reasons: vec![ConsentReason::NewGrants]
-        }
-    );
-
-    let other = resolve(Some(&request("video-studio").template)).unwrap();
-    start.decision_id = Some(ledger.issue(&other.identity(), &[ConsentReason::NewGrants]));
-    assert!(admit(Some(&start), &ledger).is_err());
-
-    let own = resolve(Some(&start.template)).unwrap();
-    let decision = ledger.issue(&own.identity(), &[ConsentReason::NewGrants]);
-    start.decision_id = Some(decision.clone());
-    let admitted = admit(Some(&start), &ledger).expect("an issued decision admits the start");
-    assert_eq!(admitted.decision_id.as_deref(), Some(decision.as_str()));
-    assert!(
-        registrations_for(TEAM, &admitted, 1)
-            .iter()
-            .all(|registration| registration.consent_decision_id.as_deref()
-                == Some(decision.as_str()))
-    );
+    let start = filled("design-studio");
+    let admitted = admit(Some(&start), &ledger).expect("builtin permissions need no consent");
+    assert!(admitted.decision_id.is_none());
+    assert!(registrations_for(TEAM, &admitted, 1)
+        .iter()
+        .all(|registration| registration.consent_decision_id.is_none()));
 }
 
 #[test]
