@@ -565,7 +565,9 @@ fn the_default_package_lists_eight_roles_with_instructions_and_no_models_but_the
         assert_eq!(role.model, expected_model, "{name}");
     }
     assert_eq!(
-        document.manager(CURATOR).and_then(|role| role.start.clone()),
+        document
+            .manager(CURATOR)
+            .and_then(|role| role.start.clone()),
         Some(RoleStart::Schedule {
             schedule: "45m..2h".into()
         })

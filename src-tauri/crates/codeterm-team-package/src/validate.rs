@@ -386,12 +386,12 @@ fn role(check: &mut Check<'_>, document: &TeamDocument, name: &str, role: &TeamR
     match &role.start {
         Some(RoleStart::Schedule { schedule }) if schedule_window(schedule).is_none() => check
             .error(
-            Code::InvalidSchedule,
-            &format!("{path}.start.schedule"),
-            format!(
+                Code::InvalidSchedule,
+                &format!("{path}.start.schedule"),
+                format!(
                 "`{schedule}` is not `<min>..<max>` with positive m or h durations and min <= max"
             ),
-        ),
+            ),
         _ => {}
     }
     let declared = |mode: StartMode| {
@@ -479,9 +479,7 @@ fn same_as_cycles(check: &mut Check<'_>, document: &TeamDocument) {
     let targets: BTreeMap<String, String> = document
         .roles()
         .filter_map(|(name, role)| match &role.model {
-            Some(ModelPreference::SameAs { same_as }) => {
-                Some((name.to_string(), same_as.clone()))
-            }
+            Some(ModelPreference::SameAs { same_as }) => Some((name.to_string(), same_as.clone())),
             _ => None,
         })
         .collect();

@@ -423,7 +423,10 @@ fn mid_run_loss_takes_the_next_preference_then_asks_the_owner() {
     assert_eq!(choice(&next), Some("harness-b:gpt-6-sol"));
     assert!(next.amber);
 
-    let lost = ["harness-a:opus".to_string(), "harness-b:gpt-6-sol".to_string()];
+    let lost = [
+        "harness-a:opus".to_string(),
+        "harness-b:gpt-6-sol".to_string(),
+    ];
     let request = RoleModelRequest {
         lost: &lost,
         ..manager(&preference)
