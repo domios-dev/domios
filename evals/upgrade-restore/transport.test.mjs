@@ -42,7 +42,7 @@ function restoredDaemon(document, {pagesLoaded = Number.POSITIVE_INFINITY} = {})
     if (pathname === '/api/tabs/inspect') {
       const id = searchParams.get('tab_ids');
       body = [{...tabs.get(id), agent_runtime_state: runtime(id)}];
-    } else if (pathname.endsWith('/focus')) body = {ok: true};
+    } else if (pathname.endsWith('/select')) body = {ok: true};
     else if (pathname.endsWith('/chat') && searchParams.get('since') === '0') {
       const messages = synthesizeHistory(shapeOf(tab)).slice(0, loadedRows(tab)).map(product);
       body = {count: messages.length, messages, pending: false};
@@ -55,12 +55,12 @@ function restoredDaemon(document, {pagesLoaded = Number.POSITIVE_INFINITY} = {})
 const firstMissing = (expected, messages) =>
   expected.find(row => !historyMatches(row, messages.find(message => message.id === row.id)))?.id;
 
-test('verify reads every restored worst-case tab and its full history without a per-read shell', async () => {
+test('verify selects every restored worst-case tab and reads its full history without a per-read shell', async () => {
   const document = worstCases(root, '/isolated-fixture-project');
   const daemon = restoredDaemon(document);
   const api = devApi(dev, 60_000, {now: () => 0, fetch: daemon.fetch});
   const results = await Promise.all(requireBackings(document).map(async tab => {
-    await api.focus(tab.tab_id);
+    await api.select(tab.tab_id);
     const record = await api.inspect(tab.tab_id);
     const {messages} = await api.chat(tab.tab_id);
     const expected = synthesizeHistory(document.histories.find(history => history.tab_id === tab.tab_id).shape);
@@ -69,7 +69,7 @@ test('verify reads every restored worst-case tab and its full history without a 
   }));
   assert.deepEqual(results.map(result => result.ready), [true, true, true, true, true, true]);
   assert.equal(daemon.requests.length, 18);
-  assert.ok(daemon.requests.includes('POST /api/tabs/fixture-planner/focus'));
+  assert.ok(daemon.requests.includes('POST /api/tabs/fixture-planner/select'));
   assert.ok(daemon.requests.includes('GET /api/tabs/fixture-long-history/chat'));
 });
 
