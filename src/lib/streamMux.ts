@@ -1,6 +1,6 @@
 import { uid } from "./uid";
 import { browserFetch, createTransportClient, SseCapacityError, streamClientId, TransportError, type TransportClient, type TransportOptions, type Unsubscribe } from "./transportClient";
-import { bulkCreditDue, CREDIT_ATTEMPTS, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused, type MuxFrame } from "./streamMuxModel";
+import { bulkCreditDue, CARRIER_PROOF_MS, CREDIT_ATTEMPTS, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused, transitionCarrierLiveness, type CarrierLiveness, type CarrierLivenessEvent, type MuxFrame } from "./streamMuxModel";
 import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, MUX_REQUEST_TIMEOUT, muxPostCancel, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestOperation, muxRequestPolicy, transitionMuxRequest, type MuxPostState, type MuxRequestInit, type MuxRequestState, type MuxTraffic } from "./streamMuxRequestModel";
 import { restRequestTimeoutMs } from "./restTimeoutPolicy";
 import { RECONNECT_FIRST_MS, reconnectDelay, nextReconnectBackoff, shouldResetReconnectBackoff } from "./webReconnectModel";
@@ -85,7 +85,7 @@ interface Pending {
   reject: (error: unknown) => void;
 }
 
-export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void; idle: () => Promise<void>; busy: () => boolean }
+export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void; verify: () => void; idle: () => Promise<void>; busy: () => boolean }
 
 export function createStreamMux(transport: () => TransportClient, fetcher: FetchPort): StreamMux {
   const pending = new Map<string, Pending>();
@@ -100,6 +100,8 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
   let backoff = RECONNECT_FIRST_MS;
   let buffered = 0;
   let closed = false;
+  let liveness: CarrierLiveness = "trusted";
+  let proof: ReturnType<typeof setTimeout> | undefined;
 
   function kick(): void {
     const requests = [...pending.values()].filter(entry => !entry.stream && entry.state.phase !== "registered").length;
@@ -297,7 +299,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
 
   function refused(owner: string, status: number): void {
     if (current !== owner) return;
-    current = null; live = null; closeStream = null;
+    current = null; live = null; closeStream = null; carrier("closed", owner);
     const error = new TransportError(status, "/api/stream-mux", "Daemon refused this client's credentials");
     const waiters = [...waiting.values()]; waiting.clear();
     for (const waiter of waiters) waiter.reject(error);
@@ -306,13 +308,39 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
 
   function lost(owner: string, error?: unknown): void {
     if (current !== owner) return;
-    current = null; live = null; closeStream = null;
+    current = null; live = null; closeStream = null; carrier("closed", owner);
     for (const entry of [...pending.values()]) if (entry.state.phase !== "registered") failure(entry, error);
     if (!closed) {
       const delay = reconnectDelay(backoff, Math.random());
       backoff = nextReconnectBackoff(backoff);
       retry = setTimeout(() => { retry = undefined; if (waiting.size) open(); }, delay);
     }
+  }
+
+  function carrier(event: CarrierLivenessEvent, owner: string): void {
+    const step = transitionCarrierLiveness(liveness, event);
+    liveness = step.state;
+    if (step.state === "trusted" && proof !== undefined) { clearTimeout(proof); proof = undefined; }
+    if (step.action === "probe") prove(owner);
+    else if (step.action === "replace") replace(owner);
+  }
+
+  // The probe's response can only arrive through the carrier, so its delivery is the proof.
+  function prove(owner: string): void {
+    proof = setTimeout(() => { proof = undefined; if (current === owner) carrier("deadline", owner); }, CARRIER_PROOF_MS);
+    mux.fetch(transport().origin() + "/api/health").then(response => {
+      void response.arrayBuffer().catch(() => {});
+      if (response.ok && current === owner) carrier("proven", owner);
+    }, () => {});
+  }
+
+  // Proven dead rather than refused: reconnect without backoff so recovery starts at once.
+  function replace(owner: string): void {
+    const close = closeStream;
+    lost(owner, new Error("Mux carrier stopped delivering"));
+    close?.();
+    clearTimeout(retry); retry = undefined; backoff = RECONNECT_FIRST_MS;
+    if (waiting.size) open();
   }
 
   function open(): void {
@@ -417,7 +445,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     }
   }
 
-  return {
+  const mux: StreamMux = {
     fetch(input, init = {}) {
       const client = transport(), url = new URL(input instanceof Request ? input.url : String(input), client.origin());
       if (url.origin !== client.origin()) return Promise.reject(new Error("Mux requires its own daemon origin"));
@@ -468,6 +496,12 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       clearTimeout(retry); retry = undefined;
       if (waiting.size) open();
     },
+    // After a page resume or a silent event stream, the open carrier must deliver again before it is trusted.
+    verify() {
+      if (closed) return;
+      if (!live || current !== live) mux.wake();
+      else carrier("suspect", live);
+    },
     close() {
       closed = true; clearTimeout(retry);
       readCapacity.close(new DOMException("Mux origin closed", "AbortError"));
@@ -477,6 +511,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       close?.(); closeStream = null;
     },
   };
+  return mux;
 }
 
 interface Holder { client: TransportClient; fetcher: FetchPort; mux: StreamMux; token: TransportOptions["token"] }
@@ -498,6 +533,10 @@ export function withStreamMux(options: TransportOptions): TransportClient {
 
 export function wakeStreamMuxes(): void {
   for (const holder of muxesByOrigin.values()) holder.mux.wake();
+}
+
+export function verifyStreamMuxes(): void {
+  for (const holder of muxesByOrigin.values()) holder.mux.verify();
 }
 
 /** Resolves once no carrier request is in flight and every finished response body is complete. */

@@ -1,6 +1,7 @@
 import { IS_WEB } from "./webApi";
 import { resetWebEvents, wakeWebEvents, webReconnectEnabled } from "./webEvents";
 import { fireResync } from "./resync";
+import { verifyStreamMuxes } from "./streamMux";
 
 const DEBOUNCE_MS = 250;
 const MUX_REFRESH = "codeterm-refresh-mux-state";
@@ -26,6 +27,7 @@ export function setWakeResyncForTests(fn: (() => void) | null): void {
 }
 
 function scheduleWakeResync(): void {
+  verifyStreamMuxes();
   if (webReconnectEnabled()) {
     wakeWebEvents();
     return;

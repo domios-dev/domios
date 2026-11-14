@@ -38,7 +38,9 @@ async function main(): Promise<void> {
   const requested = () => new Promise<void>((resolve) => { requestArrived = resolve; });
   browser.addEventListener("codeterm-event-stream-disconnected", () => pendingWait?.());
   let refusal = false;
-  globalThis.fetch = muxMockFetch(async (_input, options) => {
+  globalThis.fetch = muxMockFetch(async (input, options) => {
+    // A wake first proves the open carrier with a health read; it is not an event stream.
+    if (new URL(String(input)).pathname === "/api/health") return Response.json({ status: "ok" });
     assert.notEqual(options?.method, "HEAD");
     assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer fixture-token");
     if (refusal) { requestArrived?.(); return new Response(null, { status: 503 }); }
@@ -138,6 +140,7 @@ async function main(): Promise<void> {
     documentTarget.dispatchEvent(new Event("visibilitychange"));
     await wakeVisibleConnection;
     assert.equal(streams.length, 5, "becoming visible wakes the scheduled retry");
+    await (await import("./streamMux")).__streamMuxesIdleForTest();
     events.__resetWebEventsForTest();
     assert.equal(deadlines.size, 0);
     browser.dispatchEvent(new Event("online"));
