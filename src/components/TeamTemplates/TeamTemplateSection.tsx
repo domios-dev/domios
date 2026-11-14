@@ -13,7 +13,7 @@ import { useTemplateViewFocus } from "./useTemplateViewFocus";
 import { LaterManagerRows, type PairRoleControls } from "./TemplateManagers";
 
 /** The Team panel of the session dialog: today's pair form under the default, or a chosen template's simple form. */
-export function TeamTemplateSection({ choice, defaultForm, onMoreTeams, ...form }: {
+export function TeamTemplateSection({ choice, defaultForm, ...form }: {
   choice: TeamTemplateChoice;
   /** Today's pair form; `laterManagers` are the default's further roster rows to place after the Planner. */
   defaultForm: (laterManagers: ReactNode) => ReactNode;
@@ -23,14 +23,13 @@ export function TeamTemplateSection({ choice, defaultForm, onMoreTeams, ...form 
   onPairChange: (next: OrchestrationPairValues) => void;
   onInstallProvider: (providerId: string) => void;
   roleControls?: PairRoleControls;
-  onMoreTeams: () => void;
 }) {
   const [exporting, setExporting] = useState<{ summary: TemplateSummary; share: boolean } | null>(null);
   const view = choice.view;
   const fallback = choice.defaultPreview;
   const bodyRef = useTemplateViewFocus(view.kind, choice.chosen?.form.template.name);
   const body = view.kind === "gallery"
-    ? <TemplateGallery choice={choice} onExport={(summary, share = false) => setExporting({ summary, share })} onMoreTeams={onMoreTeams} />
+    ? <TemplateGallery choice={choice} onExport={(summary, share = false) => setExporting({ summary, share })} />
     : view.kind === "review"
       ? <TemplateReview choice={choice} preview={view.preview} mode={view.mode} providers={form.providers} onInstallProvider={form.onInstallProvider}
         onExport={() => setExporting({ summary: view.preview.form.template, share: false })} />

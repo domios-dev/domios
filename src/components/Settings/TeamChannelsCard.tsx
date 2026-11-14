@@ -42,7 +42,7 @@ function ChannelRow({ view, busy, onRefresh, onRemove }: {
           {!view.official && <div className={`${MUTED} mt-0.5 truncate`} title={view.url}>{view.url}</div>}
           <div className={`${MUTED} mt-0.5 truncate`} title={view.refresh.kind === "bundled" ? view.refresh.reason : undefined}>{updateLine(view)}</div>
           {view.refresh.kind === "failed" && (
-            <div className="mt-0.5 truncate text-[11px] text-[var(--ct-err)]" title={view.refresh.reason}>Last refresh failed: {view.refresh.reason}</div>
+            <div className="mt-0.5 truncate text-[11px] text-[var(--ct-err)]" title={view.refresh.reason}>Last refresh failed</div>
           )}
         </div>
         {skipped > 0 && (
@@ -62,9 +62,9 @@ function ChannelRow({ view, busy, onRefresh, onRemove }: {
       </div>
       {skipped > 0 && showSkipped && (
         <ul id={skippedId} aria-label={`Teams ${view.label} skipped`} className="m-0 flex list-none flex-col gap-1 p-0">
-          {view.skipped.map((entry) => (
-            <li key={entry.name} className={`${MUTED} break-words`}>
-              <span className="font-mono text-[var(--ct-fg)]">{entry.name}</span> — {entry.reason}
+          {view.skipped.map((entry, index) => (
+            <li key={`${entry.name}:${index}`} className={`${MUTED} break-words`} title={entry.detail}>
+              <span className="font-mono text-[var(--ct-fg)]">{entry.name}</span> — {entry.text}
             </li>
           ))}
         </ul>

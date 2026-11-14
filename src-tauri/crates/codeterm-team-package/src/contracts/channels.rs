@@ -18,11 +18,34 @@ pub enum TeamChannelAction {
     Remove { name: String },
 }
 
+/// Why a channel left a listed team out; clients word it from this code, never from `reason`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipReason {
+    MissingPackage,
+    InvalidPackage,
+    RequiresNewerDomios,
+    ReservedName,
+    IndexMismatch,
+    InvalidPath,
+    InvalidIndexEntry,
+    DuplicateName,
+    HostPolicy,
+    /// Registries written before codes existed read as this until their next refresh.
+    #[default]
+    Other,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SkippedTeam {
     pub name: String,
+    #[serde(default)]
+    pub code: SkipReason,
+    /// The host's raw detail, possibly OS-localized; shown only on demand.
     pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_domios: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

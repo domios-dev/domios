@@ -39,24 +39,50 @@ fn index_skips_invalid_mismatched_incompatible_reserved_and_escaping_entries() {
     index["teams"][1]["version"] = "2.0.0".into();
     index["teams"][2]["minDomios"] = "99999.0.0".into();
     index["teams"][5]["path"] = "../outside".into();
+    index["teams"].as_array_mut().unwrap().push(serde_json::json!({
+        "name": "example/missing", "version": "1.0.0", "path": "team-missing", "minDomios": "0.0.0",
+    }));
     std::fs::write(&path, serde_json::to_vec(&index).unwrap()).unwrap();
     std::fs::write(root.path().join("team-4/team.yaml"), b"broken: [").unwrap();
     let (_, packages, skipped) = check_index(root.path(), false, "1.20.0").unwrap();
     assert_eq!(packages.len(), 1);
     assert_eq!(packages[0].document.name, "example/valid");
-    assert_eq!(skipped.len(), 5);
-    for reason in [
-        "mismatches",
-        "requires Domios",
-        "owned by builtins",
-        "invalid package",
-        "contained",
-    ] {
-        assert!(
-            skipped.iter().any(|entry| entry.reason.contains(reason)),
-            "{reason}"
-        );
-    }
+    let skipped_as = |name: &str| {
+        skipped
+            .iter()
+            .find(|entry| entry.name == name)
+            .unwrap_or_else(|| panic!("{name} not skipped"))
+    };
+    assert_eq!(skipped.len(), 6);
+    assert_eq!(
+        skipped_as("example/mismatch").code,
+        SkipReason::IndexMismatch
+    );
+    assert_eq!(
+        skipped_as("example/future").code,
+        SkipReason::RequiresNewerDomios
+    );
+    assert_eq!(
+        skipped_as("example/future").required_domios.as_deref(),
+        Some("99999.0.0")
+    );
+    assert_eq!(
+        skipped_as("dev.domios/claim").code,
+        SkipReason::ReservedName
+    );
+    assert_eq!(
+        skipped_as("example/invalid").code,
+        SkipReason::InvalidPackage
+    );
+    assert_eq!(skipped_as("example/escape").code, SkipReason::InvalidPath);
+    assert_eq!(
+        skipped_as("example/missing").code,
+        SkipReason::MissingPackage
+    );
+    assert!(skipped
+        .iter()
+        .filter(|entry| entry.code != SkipReason::RequiresNewerDomios)
+        .all(|entry| entry.required_domios.is_none()));
     index["schemaVersion"] = 2.into();
     std::fs::write(path, serde_json::to_vec(&index).unwrap()).unwrap();
     assert!(check_index(root.path(), false, "1.20.0").is_err());

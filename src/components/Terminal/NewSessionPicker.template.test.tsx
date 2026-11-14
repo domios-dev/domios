@@ -60,6 +60,7 @@ vi.mock("../../lib/teamTemplates/hostPeers", async (importOriginal) => ({
 
 import { NewSessionPicker } from "./NewSessionPicker";
 import { openTemplateFileReview, openTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
+import { openSecretsSettings } from "../../lib/teamTemplates/vaultSecrets";
 import exchange from "../../../src-tauri/crates/codeterm-team-package/fixtures/contracts/exchange.json";
 
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
@@ -321,6 +322,16 @@ describe("Team template start in the session dialog", () => {
     expect(secret).not.toBeNull();
     expect(secret?.closest("details")).toBeNull();
     expect(dialog().querySelector<HTMLDetailsElement>("details")?.open).toBe(false);
+  });
+
+  it("leaves the session dialog before opening the vault from Add a secret", async () => {
+    vi.mocked(openSecretsSettings).mockClear();
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, consent: null });
+    await renderPicker();
+    await chooseResearchDesk();
+    await choose("Secret for SEARCH_API_KEY", "Add a secret…");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(openSecretsSettings).toHaveBeenCalledTimes(1);
   });
 
   it("reads default roles in the About modal and returns to the form", async () => {

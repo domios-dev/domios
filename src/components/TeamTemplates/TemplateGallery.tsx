@@ -170,12 +170,7 @@ function OpenPackage({ choice }: { choice: TeamTemplateChoice }) {
   </>;
 }
 
-/** `onMoreTeams` leaves the session dialog for the Settings card where team channels are managed. */
-export function TemplateGallery({ choice, onExport, onMoreTeams }: {
-  choice: TeamTemplateChoice;
-  onExport: (summary: TemplateSummary, share?: boolean) => void;
-  onMoreTeams: () => void;
-}) {
+export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoice; onExport: (summary: TemplateSummary, share?: boolean) => void }) {
   const [chosenFilter, setFilter] = useState<GalleryFilter>("all");
   const [query, setQuery] = useState("");
   const current = choice.chosen?.form.template ?? choice.defaultSummary;
@@ -197,7 +192,7 @@ export function TemplateGallery({ choice, onExport, onMoreTeams }: {
         <BackPill label="the Team form" onBack={choice.backToForm} />
         <input type="search" aria-label="Search templates" placeholder="Search templates" value={query} onChange={(event) => setQuery(event.target.value)}
           className="min-w-0 flex-1 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-1.5 text-[12px] outline-none" />
-        <button type="button" onClick={onMoreTeams} data-testid="template-more-teams"
+        <button type="button" onClick={() => choice.openSettings("team-channels")} data-testid="template-more-teams"
           className="shrink-0 rounded px-1 text-[12px] text-[var(--ct-accent)] outline-none hover:underline focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
           More teams…
         </button>

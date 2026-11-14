@@ -2,12 +2,12 @@ import type { ReactNode } from "react";
 import { Globe, GitBranch, KeyRound, SquareTerminal, Wrench, MonitorSmartphone } from "lucide-react";
 import { roleDisplayLabel } from "../../lib/roleKind";
 import { DropdownSelect } from "../shared/DropdownMenu";
-import { openSecretsSettings } from "../../lib/teamTemplates/vaultSecrets";
 import { visibleAsks, type ShownAsk } from "../../lib/teamTemplates/startModel";
 
 const ADD_SECRET = "\u0000add";
 
-export interface SecretBinding { bindings: Record<string, string>; vault: readonly string[] | null; onBind: (name: string, entry: string) => void }
+/** `onAddSecret` leaves for the vault in Settings; the host dialog closes first so Settings is not hidden under it. */
+export interface SecretBinding { bindings: Record<string, string>; vault: readonly string[] | null; onBind: (name: string, entry: string) => void; onAddSecret: () => void }
 
 /** A secret ask binds to a local vault entry by name; the value never enters the form. */
 function SecretSelect({ ask, binding }: { ask: { name: string; required: boolean }; binding: SecretBinding }) {
@@ -20,7 +20,7 @@ function SecretSelect({ ask, binding }: { ask: { name: string; required: boolean
   return <div className="w-[170px] shrink-0">
     <DropdownSelect aria-label={`Secret for ${ask.name}`} options={options} value={binding.bindings[ask.name] ?? ""}
       placeholder="Choose a secret"
-      disabled={binding.vault === null} onChange={(value) => value === ADD_SECRET ? openSecretsSettings() : binding.onBind(ask.name, value)} />
+      disabled={binding.vault === null} onChange={(value) => value === ADD_SECRET ? binding.onAddSecret() : binding.onBind(ask.name, value)} />
   </div>;
 }
 

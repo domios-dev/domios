@@ -54,6 +54,34 @@ export type ChannelRefresh =
   | { kind: "bundled"; reason: string }
   | { kind: "failed"; reason: string };
 
+type SkippedTeam = import("../../../gen/SkippedTeam").SkippedTeam;
+type SkipReason = import("../../../gen/SkipReason").SkipReason;
+
+const SKIP_TEXT: Record<SkipReason, string> = {
+  missing_package: "Package folder is missing",
+  invalid_package: "Not a valid team package",
+  requires_newer_domios: "Needs a newer Domios",
+  reserved_name: "Uses a name reserved for built-in teams",
+  index_mismatch: "Name or version differs from the channel's list",
+  invalid_path: "Package sits outside the channel",
+  invalid_index_entry: "Listed with an invalid version",
+  duplicate_name: "Listed twice in the channel",
+  host_policy: "Asks for something this Domios does not allow",
+  other: "Could not be loaded",
+};
+
+export interface SkippedView {
+  name: string;
+  /** Plain words from the host's typed code; the host's own detail stays in `detail`, shown only on demand. */
+  text: string;
+  detail: string;
+}
+
+export function skippedView(entry: SkippedTeam): SkippedView {
+  const needs = entry.code === "requires_newer_domios" ? entry.requiredDomios?.trim() : null;
+  return { name: entry.name, text: needs ? `Needs Domios ${needs}` : SKIP_TEXT[entry.code] ?? SKIP_TEXT.other, detail: entry.reason };
+}
+
 export interface TeamChannelView {
   name: string;
   label: string;
@@ -63,7 +91,7 @@ export interface TeamChannelView {
   removable: boolean;
   autoUpdates: boolean;
   refresh: ChannelRefresh;
-  skipped: readonly { name: string; reason: string }[];
+  skipped: readonly SkippedView[];
 }
 
 export function teamChannelView(row: TeamChannelRow): TeamChannelView {
@@ -81,6 +109,6 @@ export function teamChannelView(row: TeamChannelRow): TeamChannelView {
     removable: !official,
     autoUpdates: official,
     refresh,
-    skipped: row.skippedEntries ?? [],
+    skipped: (row.skippedEntries ?? []).map(skippedView),
   };
 }

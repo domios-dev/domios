@@ -13,7 +13,10 @@ const official: TeamChannelRow = {
 };
 const community: TeamChannelRow = {
   name: "acme", displayName: "Acme", description: "", url: "https://example.invalid/acme.git", path: "/data/acme", kind: "git", official: false,
-  lastRefresh: "ok", skippedEntries: [{ name: "acme/broken", reason: "opaque-reason" }],
+  lastRefresh: "ok", skippedEntries: [
+    { name: "acme/broken", code: "missing_package", reason: "opaque-os-detail" },
+    { name: "acme/future", code: "requires_newer_domios", reason: "opaque-version-detail", requiredDomios: "9.9.9" },
+  ],
 };
 
 let root: Root | null = null;
@@ -123,13 +126,16 @@ describe("Team channels card", () => {
     expect(host.querySelector('form[aria-label="Add channel"] [role="alert"]')).not.toBeNull();
   });
 
-  it("reveals why a channel skipped entries on demand", async () => {
+  it("reveals skipped entries on demand in words from their code, keeping the host's raw detail out of the text", async () => {
     await render();
     const toggle = Array.from(row("acme").querySelectorAll<HTMLButtonElement>("button[aria-expanded]"))[0];
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(row("acme").textContent).not.toContain("opaque-reason");
     await click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(row("acme").textContent).toContain("opaque-reason");
+    const list = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    const items = Array.from(list.querySelectorAll("li"));
+    expect(items.map((item) => item.getAttribute("title"))).toEqual(["opaque-os-detail", "opaque-version-detail"]);
+    expect(list.textContent).not.toContain("opaque-");
+    expect(items[1].textContent).toContain("9.9.9");
   });
 });

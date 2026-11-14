@@ -20,6 +20,9 @@ import type { ManagerSeats } from "./TemplateManagers";
 type ManagerSlot = string;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
 
+/** Settings pages a template step links to: team channels from the gallery, the secret vault from a secret ask. */
+export type TemplateSettingsLink = "team-channels" | "secrets";
+
 export type TemplateView =
   | { kind: "form" }
   | { kind: "gallery" }
@@ -44,10 +47,12 @@ function needsReview(preview: TemplatePreview): boolean {
 }
 
 /** Template choice for the Team form; the default is always available and starts today's pair without `template`. */
-export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames, upload = webUpload }: {
+export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, openSettings, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames, upload = webUpload }: {
   enabled: boolean;
   recallQuery: string;
   onSeedPair: (seats: Partial<Record<"orchestrator" | "planner", PickerSeed>>) => void;
+  /** Leaves the host dialog for a Settings page; the host closes itself first, since Settings sits under it. */
+  openSettings: (link: TemplateSettingsLink) => void;
   transport?: () => TeamTemplatesTransport;
   vaultNames?: () => Promise<string[]>;
   upload?: (file: Blob, name: string) => Promise<{ path: string }>;
@@ -245,7 +250,7 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
 
   return {
     view, catalog, chosen, touched, inputs, optOut, seats, pending, notice, blocked, catalogStatuses, defaultSummary, defaultPreview, secrets, vault, update,
-    placement, remotePeer,
+    placement, remotePeer, openSettings,
     /** True when Start goes through the template start rather than today's default pair. */
     usesTemplate: active !== null,
     blocker: active
