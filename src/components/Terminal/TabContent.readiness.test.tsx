@@ -83,6 +83,38 @@ const readyLaunch = { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "op
 const enabledComposer = (host: HTMLElement) => [...host.querySelectorAll<HTMLTextAreaElement>('[data-testid="chat-composer"]')]
   .find(editor => !editor.disabled && !editor.closest('[inert], [aria-hidden="true"]'));
 
+async function revealRestore(host: HTMLElement) {
+  const presence = host.querySelector('[role="progressbar"]')!.closest('[data-phase]')!;
+  const event = new Event("animationstart", { bubbles: true });
+  Object.defineProperty(event, "animationName", { value: "ct-presence-enter" });
+  await act(async () => { presence.dispatchEvent(event); });
+}
+
+it("hands the visible restore surface to chat startup without a second loading surface", async () => {
+  const fixture = await mount(true);
+  try {
+    expect(fixture.host.querySelectorAll('[role="progressbar"]')).toHaveLength(1);
+    await revealRestore(fixture.host);
+    await fixture.patch({ frozen: false, pty_id: "own-pty", boot_stage: "agent_launching", agent_booting: true });
+    expect(fixture.host.querySelectorAll('[role="progressbar"]')).toHaveLength(1);
+    expect(fixture.host.querySelectorAll('[role="alert"]')).toHaveLength(0);
+  } finally { await fixture.dispose(); }
+});
+
+it.each([true, false])("removes the visible restore loader immediately on host launch failure with frozen=%s", async frozen => {
+  const fixture = await mount(true);
+  try {
+    await revealRestore(fixture.host);
+    await fixture.patch({ frozen, pty_id: "own-pty", boot_stage: "spawn_failed", agent_booting: false,
+      boot_failure_reason: "SessionBindingNotObserved: launch readiness deadline elapsed" });
+    expect(fixture.host.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
+    expect(fixture.host.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(fixture.host.textContent).not.toMatch(/taking longer|still pending|Starting terminal/i);
+    expect(fixture.host.querySelector('button[aria-label="Open terminal"]')).not.toBeNull();
+    expect(fixture.host.querySelector('button[aria-label="Restart the agent"]')).not.toBeNull();
+  } finally { await fixture.dispose(); }
+});
+
 it.each([
   [false, null], [true, null], [false, "own-session"], [true, "own-session"],
 ] as const)("reveals the real first-turn composer for General=%s session=%s without fabricating a snapshot", async (general, session) => {
