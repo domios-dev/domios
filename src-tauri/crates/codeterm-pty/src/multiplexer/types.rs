@@ -542,6 +542,9 @@ pub struct Tab {
     /// Mirrors the service checklist store: this tab's current checklist holds live items.
     #[serde(default, skip_deserializing)]
     pub has_checklist: bool,
+    /// Someone other than a client asked to show this tab: clients highlight it until one opens it.
+    #[serde(default, skip_deserializing)]
+    pub focus_requested: bool,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub slept_at_ms: Option<u64>,

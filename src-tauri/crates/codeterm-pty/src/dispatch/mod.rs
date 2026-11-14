@@ -145,7 +145,7 @@ pub enum Command {
         force: bool,
     },
 
-    /// Focus a tab (move keyboard focus).
+    /// Ask to show a tab: it is highlighted for the owner; no client moves.
     TabFocus {
         tab_id: String,
     },

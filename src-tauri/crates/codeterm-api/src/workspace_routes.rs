@@ -89,7 +89,7 @@ pub async fn focus_workspace(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let svc = state.svc.clone();
-    tokio::task::spawn_blocking(move || svc.focus_workspace(&id))
+    tokio::task::spawn_blocking(move || svc.request_workspace_focus(&id))
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .map_err(|error| (StatusCode::NOT_FOUND, error))?;

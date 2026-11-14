@@ -142,18 +142,11 @@ pub async fn tab_focus(
             .svc
             .mux
             .read()
-            .snapshot()
-            .workspaces
-            .into_iter()
-            .find(|ws| ws.id == workspace_id)
+            .get_workspace(&workspace_id)
             .is_some_and(|ws| ws.tabs.contains(&tab_id));
         if !exists {
             return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
         }
-        state
-            .svc
-            .set_active_tab(&workspace_id, &tab_id)
-            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
         state
             .svc
             .request_tab_focus(&tab_id)

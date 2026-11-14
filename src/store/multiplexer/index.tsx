@@ -46,7 +46,7 @@ import type {
   MeshPeersResponse,
 } from "../../lib/types";
 import { reducer } from "./reducer";
-import { acceptsPageFocus, focusRequestTarget, initialPageSelection, TAB_FOCUS_REQUESTED_EVENT, type FocusRequest, type FocusTarget } from "./pageSelection";
+import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
 import { loadClientPageSelection } from "../../lib/clientPageSelection";
 import { buildInitialState, HYDRATED_GENERATION } from "./initialState";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
@@ -618,22 +618,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     listen<{ tab_id: string }>("tab-focused", (event) => {
       const tabId = event.payload.tab_id;
       if (stateRef.current.tabs[tabId] && acceptsPageFocus(stateRef.current, tabId, true)) dispatch({ type: "SET_FOCUSED_TAB", tabId });
-    }).then((unlisten) => unlisteners.push(unlisten));
-
-    // An explicit request to show a tab (CLI, agent) is not a client's selection: every client shows it.
-    listen<FocusRequest>(TAB_FOCUS_REQUESTED_EVENT, (event) => {
-      const show = (target: FocusTarget) => {
-        dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: target.workspaceId });
-        if (target.tabId) dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: target.workspaceId, tabId: target.tabId });
-        const focused = target.tabId ?? stateRef.current.activeTabIds[target.workspaceId];
-        if (focused) dispatch({ type: "SET_FOCUSED_TAB", tabId: focused });
-      };
-      const known = focusRequestTarget(stateRef.current.workspaces, event.payload);
-      if (known) return show(known);
-      const requested = event.payload?.workspace_id
-        ? { workspaceId: event.payload.workspace_id, tabId: event.payload.tab_id ?? null } : null;
-      // Reducer actions apply in order, so the selection lands on the refreshed snapshot.
-      if (requested) void refreshFromBackend().then(() => show(requested));
     }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<unknown>(SURFACE_ACTIVITY_EVENT, (event) => recordSurfaceActivity(event.payload))

@@ -73,21 +73,41 @@ async fn a_tab_selection_route_refuses_an_unknown_tab() {
 }
 
 #[tokio::test]
-async fn the_explicit_focus_route_asks_every_client_to_show_the_tab() {
+async fn the_focus_routes_highlight_their_tab_and_move_no_client() {
     let (fixture, workspace, tab) = fixture();
     let router = crate::routes::create_router(crate::transport_tabs::fixture::app_state(&fixture));
+    let selection = || {
+        let mux = fixture.service.mux.read();
+        (
+            mux.get_active_workspace().map(|w| w.id.clone()),
+            mux.get_focused_tab_id().map(str::to_string),
+        )
+    };
+    let highlighted = || {
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .focus_requested
+    };
+    let before = selection();
 
-    assert_eq!(
-        post(&router, &format!("/api/tabs/{tab}/focus")).await,
-        StatusCode::OK
-    );
+    for path in [
+        format!("/api/tabs/{tab}/focus"),
+        format!("/api/workspaces/{workspace}/focus"),
+        format!("/api/workspaces/{workspace}/tabs/{tab}/focus"),
+    ] {
+        assert_eq!(post(&router, &path).await, StatusCode::OK, "{path}");
+        assert!(highlighted(), "{path} highlights the tab");
+        fixture
+            .service
+            .mux
+            .write()
+            .set_tab_focus_requested(&tab, false);
+    }
 
-    let recorded = fixture.ui.0.lock().clone();
-    let request = recorded
-        .iter()
-        .find(|(event, _)| event == "tab-focus-requested")
-        .map(|(_, payload)| payload.clone())
-        .expect("explicit focus emits its request");
-    assert_eq!(request["tab_id"], tab.as_str());
-    assert_eq!(request["workspace_id"], workspace.as_str());
+    assert_eq!(selection(), before);
+    assert!(recorded_focus_events(&fixture).is_empty());
 }
