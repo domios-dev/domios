@@ -111,7 +111,10 @@ impl ConsentLedger {
 }
 
 pub fn consent_reasons(package: &Package, provenance: TemplateProvenance) -> Vec<ConsentReason> {
-    if provenance != TemplateProvenance::Imported {
+    if !matches!(
+        provenance,
+        TemplateProvenance::Imported | TemplateProvenance::Channel
+    ) {
         return Vec::new();
     }
     let mut reasons = vec![ConsentReason::UnverifiedPackage];

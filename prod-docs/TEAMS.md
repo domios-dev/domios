@@ -10,7 +10,23 @@ Ask recall before you start a Team for a goal:
 domios team recall "<what the owner wants done>"
 ```
 
-It returns the best matches first and always the builtin default as the fallback; when nothing fits, use the default. `domios team template list` lists builtin and saved templates (My templates); `domios team template preview <name>` shows what one starts, asks for and brings. `domios team delete-template <name>[@version]` removes a saved one.
+It returns the best matches first and always the builtin default as the fallback; when nothing fits, use the default. `domios team template list` lists builtins, subscribed channel teams and saved templates (My templates); `domios team template preview <name>` shows what one starts, asks for and brings. `domios team delete-template <name>[@version]` removes a saved one.
+
+## Team channels
+
+The official `domios-teams` channel is always present and cannot be removed. It refreshes once at daemon startup and on explicit refresh. Its checked, compatible packages are trusted like bundled builtins and need no consent. An official package replaces a bundled builtin only when its version is strictly newer; the summary names its channel and bundled version. The bundled copy remains the offline floor if the channel is unavailable or unsuitable. Updates affect new starts; a running Team keeps its registered template version and instructions.
+
+```
+domios team channel list
+domios team channel add <url> --name <channel-name>
+domios team channel refresh <channel-name>
+domios team channel refresh
+domios team channel remove <channel-name>
+```
+
+Adding a community channel fetches it once. Community channels then stay frozen until the owner explicitly refreshes them; refresh without a name explicitly refreshes all channels. Their teams appear in the same list, preview and recall catalog with their channel name and unverified provenance. Starting requires consent once per exact package (name, version and content hash); changing the version or contents asks again. Community packages cannot claim `dev.domios/*`. Channel refreshes never modify My templates, and a saved template takes precedence over a same-name community package.
+
+Channel status reports its last refresh outcome and every skipped entry. Entries with invalid ATP packages, mismatched name/version or a newer required Domios version are skipped. A failed fetch or invalid channel index preserves the previous cache. Channels accept local directories, git repositories and published `.tar.gz` archives with `.sha256` sidecars. `CODETERM_TEAM_CHANNEL_URL` overrides the official source for an installation.
 
 ## Start a Team
 
@@ -25,7 +41,7 @@ Without `--template` the standard pair starts from the default. Send the objecti
 - **Managers without a model** in the template are chosen at start. When the owner did not name one, the start returns `needs_choice` with the candidates; ask with `domios notify send "<question>" --level action_needed --choice "<model>"` (one `--choice` per candidate) and start again with the tapped model. Never pick for the owner.
 - **Workers without a model** use the normal Worker defaults when they are dispatched.
 - **The simple local form** comes first: the template, the manager models and the inputs. Where a role runs and what the template asks for (network, repo writes, shell, browser, secrets, tools, scripts) appear only when the template declares them or this machine lacks something.
-- **Consent** is required only for imported or friend-shared packages, once per exact package (name, version and content hash). Builtin templates and templates saved by you or your agents on this machine need no consent; their declared permissions stay visible in the form and About > Permissions. A received template has zero grants and never starts by itself.
+- **Consent** is required for community channel, imported or friend-shared packages, once per exact package (name, version and content hash). Builtin templates and templates saved by you or your agents on this machine need no consent; their declared permissions stay visible in the form and About > Permissions. A received template has zero grants and never starts by itself.
 - **Payload**: files land in the Team's knowledge directory (`<data dir>/teams/<team-id>/knowledge/`) and are listed with their descriptions in the roles that use them; memory is saved to mem with the Team as its source; skills become skills of the Team's plan; automation becomes the Team's Blueprints, imported stopped under its Orchestrator (start one when the Team needs it). The owner may opt out of any item in the preview.
 - A remote role runs on a paired peer Main that admits the start there; the owner consents on that peer (see *Peer Mains*).
 
@@ -105,4 +121,4 @@ The bake writes the `roles` map with `kind` first in each role and keeps each ro
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

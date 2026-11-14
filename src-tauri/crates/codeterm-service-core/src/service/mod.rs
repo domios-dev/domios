@@ -259,6 +259,8 @@ pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 pub mod task_lane_guard;
+pub mod team_catalog;
+pub mod team_channels;
 pub mod team_core;
 pub mod team_exchange;
 pub mod team_manager_spawn;

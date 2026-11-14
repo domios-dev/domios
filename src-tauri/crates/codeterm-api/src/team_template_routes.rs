@@ -5,12 +5,17 @@ use axum::{
 
 use super::routes::AppState;
 
+mod channel;
 mod exchange;
 mod peer;
 mod template_start;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/team-channels",
+            get(channel::list).post(channel::command),
+        )
         .route("/api/team-templates", get(template_start::list))
         .route("/api/team-templates/preview", post(template_start::preview))
         .route("/api/team-templates/peer-start", post(peer::peer_start))

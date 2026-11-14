@@ -1,3 +1,6 @@
+mod channels;
+pub use channels::*;
+
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -25,6 +28,7 @@ pub enum TemplateProvenance {
     Saved,
     /// Received from someone else: unverified, zero default grants.
     Imported,
+    Channel,
 }
 
 /// The package icon as a data URL, rendered as an image and never as inline SVG DOM.
@@ -44,6 +48,10 @@ pub struct TemplateSummary {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub when: Vec<String>,
     pub provenance: TemplateProvenance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundled_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<TemplateIcon>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -840,6 +848,8 @@ impl TemplateSummary {
             title: document.title.clone(),
             description: document.description.clone(),
             when: document.when.clone(),
+            channel: None,
+            bundled_version: None,
             provenance,
             icon: package
                 .icon()
@@ -949,6 +959,8 @@ pub fn export_typescript(config: &ts_rs::Config) -> Result<(), ts_rs::ExportErro
     crate::TeamDocument::export_all(config)?;
     crate::PackageCheckReport::export_all(config)?;
     PackageFormat::export_all(config)?;
+    TeamChannelRow::export_all(config)?;
+    TeamChannelAction::export_all(config)?;
     TemplateList::export_all(config)?;
     TemplatePreview::export_all(config)?;
     TemplateStartRequest::export_all(config)?;

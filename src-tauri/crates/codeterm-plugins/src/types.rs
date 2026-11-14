@@ -27,7 +27,7 @@ impl std::fmt::Display for PluginId {
     }
 }
 
-fn validate_identifier(value: &str, domain: &str) -> Result<(), String> {
+pub(crate) fn validate_identifier(value: &str, domain: &str) -> Result<(), String> {
     let bytes = value.as_bytes();
     let valid_chars = bytes.first().is_some_and(u8::is_ascii_lowercase)
         || bytes.first().is_some_and(u8::is_ascii_digit);

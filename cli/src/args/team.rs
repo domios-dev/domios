@@ -1,10 +1,16 @@
 use clap::Subcommand;
 
+pub mod channel;
 pub mod exchange;
 pub mod template_start;
 
 #[derive(Subcommand)]
 pub enum TeamAction {
+    /// Subscribe to team package channels
+    Channel {
+        #[command(subcommand)]
+        action: channel::TeamChannelAction,
+    },
     /// List registered Teams
     List,
     /// Show one Team

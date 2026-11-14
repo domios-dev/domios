@@ -1,9 +1,7 @@
-use std::sync::OnceLock;
-
 use codeterm_team_package::contracts::{TemplateProvenance, TemplateRef, TemplateStartRefusal};
 use codeterm_team_package::{
-    builtin, check_entries, CheckOptions, Checked, Package, PackageDiagnostic, PackageFormat,
-    RoleKind, RoleStart, CURATOR,
+    check_entries, CheckOptions, Checked, Package, PackageDiagnostic, PackageFormat, RoleKind,
+    RoleStart, CURATOR,
 };
 use codeterm_types::agent::role_kind::builtins::{is_taskless_worker_kind, GENERAL_AGENT, WATCHER};
 use codeterm_types::team::role_registration::PinnedPackage;
@@ -87,55 +85,18 @@ pub fn refuse_host_owned_roles(package: &Package) -> Result<(), TemplateStartRef
     }
 }
 
-/// A builtin package and the folder it ships in.
-struct Builtin {
-    folder: String,
-    template: ResolvedTemplate,
-}
-
-impl Builtin {
-    fn answers(&self, template: &TemplateRef) -> bool {
-        let document = &self.template.package.document;
-        (template.name == document.name || template.name == self.folder)
-            && template
-                .version
-                .as_deref()
-                .is_none_or(|version| version == document.version)
-    }
-}
-
-/// Every builtin package that passes the host check, checked once per process.
-fn builtins() -> &'static [Builtin] {
-    static BUILTINS: OnceLock<Vec<Builtin>> = OnceLock::new();
-    BUILTINS.get_or_init(|| {
-        builtin::names()
-            .into_iter()
-            .filter_map(|folder| {
-                let checked = builtin::check(&folder, &CheckOptions::default())?;
-                let template =
-                    ResolvedTemplate::from_checked(checked, TemplateProvenance::Builtin).ok()?;
-                Some(Builtin { folder, template })
-            })
-            .collect()
+pub fn builtin_templates() -> impl Iterator<Item = ResolvedTemplate> {
+    crate::service::team_catalog::entries(
+        crate::service::team_channels::TeamChannelStore::global(),
+        crate::service::team_exchange::library::TemplateLibrary::global(),
+    )
+    .into_iter()
+    .filter(|entry| entry.provenance == TemplateProvenance::Builtin)
+    .map(|entry| ResolvedTemplate {
+        package: entry.package,
+        provenance: entry.provenance,
+        warnings: Vec::new(),
     })
-}
-
-pub fn builtin_templates() -> impl Iterator<Item = &'static ResolvedTemplate> {
-    builtins().iter().map(|builtin| &builtin.template)
-}
-
-/// A builtin folder name (`default`, `video-studio`) names its package.
-fn package_name(template: &TemplateRef) -> TemplateRef {
-    builtins()
-        .iter()
-        .find(|builtin| builtin.answers(template))
-        .map_or_else(
-            || template.clone(),
-            |builtin| TemplateRef {
-                name: builtin.template.package.document.name.clone(),
-                version: template.version.clone(),
-            },
-        )
 }
 
 /// The one package lookup start, preview and re-run use: an absent template is the builtin
@@ -147,9 +108,11 @@ pub fn resolve(template: Option<&TemplateRef>) -> Result<ResolvedTemplate, Templ
         version: None,
     };
     let requested = template.unwrap_or(&default_ref);
-    let (package, provenance) = crate::service::team_exchange::resolve(&package_name(requested))
-        .ok_or_else(|| TemplateStartRefusal::NotFound {
-            template: requested.clone(),
+    let (package, provenance) =
+        crate::service::team_exchange::resolve(requested).ok_or_else(|| {
+            TemplateStartRefusal::NotFound {
+                template: requested.clone(),
+            }
         })?;
     ResolvedTemplate::from_checked(
         check_entries(

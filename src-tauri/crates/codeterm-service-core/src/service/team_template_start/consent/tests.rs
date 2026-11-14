@@ -137,3 +137,37 @@ fn failure_to_persist_acceptance_does_not_admit_an_import() {
         Err(TemplateStartRefusal::ConsentRequired { .. })
     ));
 }
+
+#[test]
+fn community_consent_uses_the_same_durable_exact_package_record() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ConsentLedger::persistent(directory.path().into());
+    let package = package(false);
+    let provenance = TemplateProvenance::Channel;
+    let reasons = consent_reasons(&package, provenance);
+    assert_eq!(reasons, vec![ConsentReason::UnverifiedPackage]);
+    let mut request = request(&package);
+    let mut template = resolved(package.clone());
+    template.provenance = provenance;
+    assert!(matches!(
+        admit_resolved(template.clone(), Some(&request), &ledger, &[]),
+        Err(TemplateStartRefusal::ConsentRequired { .. })
+    ));
+    request.decision_id = Some(ledger.issue(&package, &reasons));
+    admit_resolved(template.clone(), Some(&request), &ledger, &[]).unwrap();
+    let reopened = ConsentLedger::persistent(directory.path().into());
+    request.decision_id = None;
+    admit_resolved(template.clone(), Some(&request), &reopened, &[]).unwrap();
+    for change_version in [true, false] {
+        let mut changed = template.clone();
+        if change_version {
+            changed.package.document.version = "99.0.0".into();
+        } else {
+            changed.package.document.description.push_str(" changed");
+        }
+        assert!(matches!(
+            admit_resolved(changed, Some(&request), &reopened, &[]),
+            Err(TemplateStartRefusal::ConsentRequired { .. })
+        ));
+    }
+}

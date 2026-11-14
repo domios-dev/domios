@@ -154,6 +154,7 @@ pub(super) fn dispatch(
                 "team.adopt_plan",
                 "team.adopt_agent",
                 "team.add_member",
+                "team.channel",
                 "team.template.list",
                 "team.template.preview",
                 "team.template.start",

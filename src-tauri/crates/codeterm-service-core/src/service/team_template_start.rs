@@ -7,7 +7,7 @@ use codeterm_team_package::contracts::{
     declared_asks, input_fields, role_summaries, ManagerModelPicker, ModelDecision,
     PlacementProblem, RoleAuthority, TemplateConsent, TemplateList, TemplatePreview, TemplateRef,
     TemplateRoleSummary, TemplateRuntimeNeed, TemplateStartForm, TemplateStartRefusal,
-    TemplateStartRequest, TemplateSummary, TemplateWhere,
+    TemplateStartRequest, TemplateWhere,
 };
 use codeterm_team_package::{payload_items, RoleKind, RoleStart, StartMode, ORCHESTRATOR};
 use serde_json::Value;
@@ -56,10 +56,13 @@ pub fn list(_svc: &ServiceContext) -> TemplateList {
 
 pub fn list_in(library: &super::team_exchange::library::TemplateLibrary) -> TemplateList {
     TemplateList {
-        templates: builtin_templates()
-            .map(|template| TemplateSummary::from_package(&template.package, template.provenance))
-            .chain(library.list())
-            .collect(),
+        templates: super::team_catalog::entries(
+            super::team_channels::TeamChannelStore::global(),
+            library,
+        )
+        .into_iter()
+        .map(|entry| entry.summary(library))
+        .collect(),
     }
 }
 
@@ -174,8 +177,11 @@ pub fn admit_resolved(
 /// Blocking: writes the My templates record.
 pub fn record_consent(admitted: &AdmittedTemplate) {
     if admitted.decision_id.is_none()
-        || admitted.resolved.provenance
-            == codeterm_team_package::contracts::TemplateProvenance::Builtin
+        || matches!(
+            admitted.resolved.provenance,
+            codeterm_team_package::contracts::TemplateProvenance::Builtin
+                | codeterm_team_package::contracts::TemplateProvenance::Channel
+        )
     {
         return;
     }
@@ -348,8 +354,11 @@ pub fn preview_on(
     );
     Ok(TemplatePreview {
         form: TemplateStartForm {
-            template: super::team_exchange::library::TemplateLibrary::global()
-                .summarize(&resolved.package, resolved.provenance),
+            template: super::team_catalog::summary(
+                super::team_exchange::library::TemplateLibrary::global(),
+                &resolved.package,
+                resolved.provenance,
+            ),
             pickers: manager_pickers(&resolved, &decisions),
             roles: decided_roles(&resolved, &decisions),
             inputs: input_fields(&resolved.package),

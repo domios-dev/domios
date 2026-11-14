@@ -36,7 +36,7 @@ pub(super) fn add_channel(
         fs::remove_dir_all(&cache_path)
             .map_err(|e| format!("clear {}: {e}", cache_path.display()))?;
     }
-    update_source::discovery_source().materialize_channel(&temp_name, url, &cache_path)?;
+    materialize_channel(&temp_name, url, &cache_path)?;
     let manifest = match read_channel_manifest(&cache_path) {
         Ok(manifest) => manifest,
         Err(error) => {
@@ -356,7 +356,41 @@ pub(super) fn refresh_channel(name: Option<&str>) -> Result<(), String> {
 }
 
 pub(super) fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
-    let path = PathBuf::from(&ch.path);
+    refresh_materialized_channel(&ch.name, &ch.url, Path::new(&ch.path), |path| {
+        read_channel_manifest(path).map(|_| ())
+    })?;
+    if ch.name == SYSTEM_CHANNEL_NAME {
+        mutate_channel_registry(|_| Ok(()))?;
+    }
+    Ok(())
+}
+
+pub fn validate_channel_name(name: &str) -> Result<(), String> {
+    types::validate_identifier(name, "channel name")
+}
+
+pub fn channel_kind(url: &str) -> ChannelKind {
+    if looks_like_local_path(&parse_channel_source(url).base) {
+        ChannelKind::Local
+    } else if archive_channel::is_archive_url(url) {
+        ChannelKind::Archive
+    } else {
+        ChannelKind::Git
+    }
+}
+
+pub fn materialize_channel(name: &str, url: &str, dest: &Path) -> Result<(), String> {
+    validate_channel_name(name)?;
+    update_source::discovery_source().materialize_channel(name, url, dest)
+}
+
+pub fn refresh_materialized_channel(
+    name: &str,
+    url: &str,
+    path: &Path,
+    validate: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    validate_channel_name(name)?;
     let tmp = path.with_file_name(format!(
         ".{}-refresh-{}",
         path.file_name()
@@ -367,8 +401,7 @@ pub(super) fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
     }
-    let result = materialize_registered_channel(ch, &tmp)
-        .and_then(|_| read_channel_manifest(&tmp).map(|_| ()));
+    let result = materialize_channel(name, url, &tmp).and_then(|_| validate(&tmp));
     if let Err(err) = result {
         if tmp.exists() {
             let _ = fs::remove_dir_all(&tmp);
@@ -399,17 +432,7 @@ pub(super) fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
         fs::rename(&tmp, &path).map_err(|e| format!("replace channel cache: {e}"))
     };
     result?;
-    if ch.name == SYSTEM_CHANNEL_NAME {
-        mutate_channel_registry(|_| Ok(()))?;
-    }
     Ok(())
-}
-
-pub(super) fn materialize_registered_channel(
-    ch: &ChannelRecord,
-    dest: &Path,
-) -> Result<(), String> {
-    update_source::discovery_source().materialize_channel(&ch.name, &ch.url, dest)
 }
 
 pub(super) struct ChannelCandidate {

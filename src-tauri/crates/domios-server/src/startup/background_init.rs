@@ -75,6 +75,8 @@ pub(crate) fn initialize(service: &ServiceState) {
         "background: team template recall spawn",
         "background: team template recall index",
         move || {
+            codeterm_service_core::service::team_channels::TeamChannelStore::global()
+                .refresh_official_once();
             if let Err(error) =
                 codeterm_service_core::service::team_template_recall::reindex(&templates_service)
             {
