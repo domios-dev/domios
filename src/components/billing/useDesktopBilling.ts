@@ -71,7 +71,9 @@ export function useDesktopBilling(identity: string | null, enabled = true) {
     const controller = new AbortController();
     if (!identity) reads.clear();
     if (!identity || !enabled) {
-      setLoaded({ identity, catalog: null, subscription: null, error: null, settled: true });
+      // A paused reader keeps the last answer for this identity; before any answer it is not settled.
+      setLoaded(previous => identity && previous.identity === identity ? previous
+        : { identity, catalog: null, subscription: null, error: null, settled: !identity });
       return () => controller.abort();
     }
     const resource = billingReads(identity);

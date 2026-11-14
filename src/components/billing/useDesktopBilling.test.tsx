@@ -87,6 +87,21 @@ it("defers closed consumers, shares reads on open and never fetches on focus", a
   expect(transport.localFetch).toHaveBeenCalledTimes(4);
 });
 
+it("is not settled before its first answer and keeps that answer while closed", async () => {
+  setup(async () => ok({}));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<Harness identity="paused-owner" enabled={false} />));
+  expect(state.loading).toBe(true);
+  expect(state.subscription).toBeNull();
+  await act(async () => root.render(<Harness identity="paused-owner" />));
+  expect(state.loading).toBe(false);
+  expect(state.subscription?.paid_subscription?.tier).toBe("max");
+  await act(async () => root.render(<Harness identity="paused-owner" enabled={false} />));
+  expect(state.loading).toBe(false);
+  expect(state.subscription?.paid_subscription?.tier).toBe("max");
+});
+
 it("updates two mounted consumers from one entitlement event and replaces a stale pending answer", async () => {
   const seen: ReturnType<typeof useDesktopBilling>[] = [];
   function Consumer({ index }: { index: number }) {

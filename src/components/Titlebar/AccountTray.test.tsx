@@ -7,7 +7,7 @@ import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/mu
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openPlans, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openPlans: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null, targetMismatch: null as string | null, unverified: undefined as "sign_in_required" | "unconfirmed" | undefined },
+  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null, targetMismatch: null as string | null, unverified: undefined as "sign_in_required" | "unconfirmed" | undefined, subscriptionLoading: false },
 }));
 const localFetch = vi.hoisted(() => vi.fn());
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
@@ -27,7 +27,8 @@ vi.mock("../Settings/useAccountPlan", async (importOriginal) => {
     }) };
 });
 vi.mock("../billing/useDesktopBilling", () => ({ useDesktopBilling: () => ({
-  subscription: state.paidSubscription ? { paid_subscription: { tier: "pro" } } : { paid_subscription: null },
+  subscription: state.subscriptionLoading ? null : state.paidSubscription ? { paid_subscription: { tier: "pro" } } : { paid_subscription: null },
+  loading: state.subscriptionLoading,
 }) }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../lib/webApi")>(),
@@ -313,6 +314,42 @@ it("offers a focusable Sign in again action only while this machine must sign in
     expect((item as HTMLButtonElement).disabled).toBe(false);
     await act(async () => item.click());
     expect(signIn).toHaveBeenCalledExactlyOnceWith({mode:"signin"});
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.unverified = undefined;
+  }
+});
+
+it("names no subscription action until the subscription is known", async () => {
+  state.signedIn = true;
+  state.subscriptionLoading = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithActions />));
+    await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+    const labels = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).map(item => [item.textContent, item.disabled] as const);
+    expect(labels.some(([label]) => label?.includes("Manage subscription") || label?.includes(plansAction("Upgrade")))).toBe(false);
+    expect(labels).toContainEqual(["Checking subscription…", true]);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.subscriptionLoading = false;
+  }
+});
+
+it("moves focus into the menu on a pointer open and walks it with ArrowDown", async () => {
+  state.signedIn = true;
+  state.unverified = "sign_in_required";
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithActions />));
+    await act(async () => host.querySelector("button")!.dispatchEvent(new MouseEvent("pointerdown", {bubbles:true,cancelable:true})));
+    const enabled = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).filter(item => !item.disabled);
+    expect(document.activeElement).toBe(enabled()[0]);
+    expect(document.activeElement?.textContent).toContain("Sign in again");
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", {key:"ArrowDown",bubbles:true})));
+    expect(document.activeElement).toBe(enabled()[1]);
   } finally {
     await act(async () => root.unmount()); host.remove();
     state.signedIn = false; state.unverified = undefined;
