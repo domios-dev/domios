@@ -565,6 +565,12 @@ SHA; readers confirm that run through Actions. A failed/cancelled run qualifies 
 exact-attempt jobs prove published-source verification, Debian verification and boundary minting
 succeeded in one job before any failure/cancellation. Missing/unverifiable boundaries are refused,
 never inferred from asset presence or release ownership.
+Included-history admission requires a published source release and its source boundary asset.
+The legacy mirror's publication and assets are diagnostic only; after the public-source move,
+the source repository also serves the verified public manifests. Actions evidence is still read
+from the authoritative source repository; a boundary cannot redirect verification to a foreign repository.
+Missing source assets, absent legacy mirror releases/assets and unreadable validator runs are
+reported separately. The source-SHA, workflow, run/attempt and served-byte checks remain required.
 Set repository variable `RELEASE_CLOSE_PUBLIC_ISSUES=false` when the owner closes public issues
 manually; this skips only automatic closure, preserving publication verification and boundary evidence.
 Included-history resolution first atomically fetches the exact source history and remote product tags without force. Fetch failures, conflicting tags and absence of a verified published boundary refuse resolution. It retains the fully qualified tag ref in evidence and prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
@@ -587,4 +593,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->
