@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { invoke } from "../../lib/bridge";
 import { restartOutputStream, subscribeTabOutput, type TabOutputSink } from "../../lib/outputStream";
+import { outputBindingPtyId } from "../../lib/terminalFrameGate";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
@@ -77,6 +78,7 @@ export function usePtyConnection({
   );
   const tabCwdRef = useRef(tabCwd);
   const spawnBlocked = useMuxSelector(s => !ptyId && tabWakeRequiresRetry(s.tabs[tabId]));
+  const remotePtyId = useMuxSelector(s => s.tabs[tabId]?.remote_pty_id ?? null);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const viewportRestoreRequestRef = useRef(0);
   const [readinessFailed, setReadinessFailed] = useState(false);
@@ -182,7 +184,7 @@ export function usePtyConnection({
           failReadiness();
         },
       };
-      unsubscribe = subscribeTabOutput(tabId, sink, term, id);
+      unsubscribe = subscribeTabOutput(tabId, sink, term, outputBindingPtyId(tabId, id, remotePtyId));
     };
     void connect().catch((error: unknown) => {
       if (disposed) return;
@@ -202,7 +204,7 @@ export function usePtyConnection({
       connectedPtyRef.current = null;
       callbacks.current.onConnectionStateChange?.(false);
     };
-  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt, spawnBlocked]);
+  }, [ptyId, remotePtyId, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt, spawnBlocked]);
 
   return { writePty, readinessFailed, retryConnection };
 }

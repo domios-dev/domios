@@ -102,10 +102,26 @@ test("a peer PTY that appears after the attach reaches the attachment, and a gon
     peer_id: "peer", peer_name: "Mac", tabs: [{ ...local, id: "shell", pty_id: "peer-pty" }],
   });
   assert.equal(appeared[shell.id].pty_id, shell.id);
+  assert.equal(appeared[shell.id].remote_pty_id, "peer-pty");
   const gone = applyRemotePeerAgentStates(appeared, {
     peer_id: "peer", peer_name: "Mac", tabs: [{ ...local, id: "shell", pty_id: null }],
   });
   assert.equal(gone[shell.id].pty_id, null);
+  assert.equal(gone[shell.id].remote_pty_id, null);
+});
+
+test("a manager attached while launching follows its peer's session, keeping this machine's placement and channels", () => {
+  const launching: Tab = { ...attachedTab("lead"), agent_session_id: null, boot_stage: "agent_launching",
+    remote_channels: { control: "available", output: "unavailable", chat: "available" } };
+  const ready = applyRemotePeerAgentStates({ [launching.id]: launching }, { peer_id: "peer", peer_name: "Mac", tabs: [
+    { ...local, id: "lead", title: "Lead", agent_session_id: "SESSION-FRAGMENT", boot_stage: "agent_ready", workspace_id: "peer-workspace" },
+  ] });
+  const tab = ready[launching.id];
+  assert.equal(tab.agent_session_id, "SESSION-FRAGMENT");
+  assert.equal(tab.boot_stage, "agent_ready");
+  assert.equal(tab.workspace_id, "windows");
+  assert.equal(tab.remote_channels?.output, "unavailable");
+  assert.equal(tab.id, launching.id);
 });
 
 test("an attachment the answering peer no longer lists leaves; an unreachable peer keeps it", async () => {
