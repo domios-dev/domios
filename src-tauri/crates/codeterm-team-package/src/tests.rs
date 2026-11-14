@@ -460,8 +460,8 @@ fn grammars_follow_the_published_rules() {
     assert!(!is_package_name("dev.domios/Default"));
     assert!(is_semver("2.1.0") && is_semver("1.0.0-rc.1+build.5"));
     assert!(!is_semver("1.0") && !is_semver("01.0.0") && !is_semver("two"));
-    assert!(is_model_id("codex:gpt-6.1-sol") && is_model_id("open-router:meta/llama-4_x"));
-    assert!(!is_model_id("opus") && !is_model_id("Claude:opus") && !is_model_id("claude:"));
+    assert!(is_model_id("harness-b:gpt-6.1-sol") && is_model_id("open-router:meta/llama-4_x"));
+    assert!(!is_model_id("opus") && !is_model_id("Harness-a:opus") && !is_model_id("harness-a:"));
     assert!(
         is_role_name("release_manager") && !is_role_name("release-manager") && !is_role_name("2qa")
     );

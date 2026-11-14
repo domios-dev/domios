@@ -137,7 +137,7 @@ pub fn schedule_window(text: &str) -> Option<(u64, u64)> {
     (window.0 <= window.1).then_some(window)
 }
 
-/// `<harness>:<model>`, for example `claude:opus`; the model token is provider-defined.
+/// `<harness>:<model>`, for example `harness-a:opus`; the model token is provider-defined.
 pub fn is_model_id(model: &str) -> bool {
     let Some((harness, id)) = model.split_once(':') else {
         return false;

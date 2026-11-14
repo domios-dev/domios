@@ -1,28 +1,28 @@
 [
   {
-    "choice": { "model": "claude:opus" },
+    "choice": { "model": "harness-a:opus" },
     "reason": "first_preference",
-    "alternatives": [{ "model": "codex:gpt-6.1-sol" }],
+    "alternatives": [{ "model": "harness-b:gpt-6.1-sol" }],
     "amber": false
   },
-  { "choice": { "model": "claude:opus" }, "reason": "same_as", "amber": false },
+  { "choice": { "model": "harness-a:opus" }, "reason": "same_as", "amber": false },
   { "reason": "normal_default", "amber": false },
-  { "choice": { "model": "claude:sonnet" }, "reason": "owner_choice", "amber": false },
+  { "choice": { "model": "harness-a:sonnet" }, "reason": "owner_choice", "amber": false },
   {
     "reason": "blocked",
-    "blocked": { "kind": "unknown_model", "model": "claude:opus-4", "suggestions": ["claude:opus", "claude:opus-4.5"] },
+    "blocked": { "kind": "unknown_model", "model": "harness-a:opus-4", "suggestions": ["harness-a:opus", "harness-a:opus-4.5"] },
     "amber": false
   },
-  { "reason": "blocked", "blocked": { "kind": "absent_harness", "harness": "codex" }, "amber": false },
-  { "reason": "blocked", "blocked": { "kind": "not_signed_in", "harness": "gemini" }, "amber": false },
+  { "reason": "blocked", "blocked": { "kind": "absent_harness", "harness": "harness-b" }, "amber": false },
+  { "reason": "blocked", "blocked": { "kind": "not_signed_in", "harness": "harness-c" }, "amber": false },
   {
     "reason": "blocked",
-    "blocked": { "kind": "quota", "harness": "claude" },
-    "alternatives": [{ "model": "codex:gpt-6.1-sol" }],
+    "blocked": { "kind": "quota", "harness": "harness-a" },
+    "alternatives": [{ "model": "harness-b:gpt-6.1-sol" }],
     "amber": false
   },
   { "reason": "blocked", "blocked": { "kind": "same_as_unavailable", "role": "orchestrator" }, "amber": false },
-  { "reason": "blocked", "blocked": { "kind": "no_reasoning_effort", "model": "claude:haiku" }, "amber": false },
+  { "reason": "blocked", "blocked": { "kind": "no_reasoning_effort", "model": "harness-a:haiku" }, "amber": false },
   { "reason": "blocked", "blocked": { "kind": "missing_tool", "tool": "mcp:github" }, "amber": false },
   { "reason": "needs_choice", "blocked": { "kind": "preferences_exhausted" }, "amber": false }
 ]
