@@ -3,7 +3,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import exportFixture from "../../../src-tauri/crates/codeterm-team-package/fixtures/contracts/export.json";
 import type { TeamTemplatesTransport } from "../../lib/transport/teamTemplates";
+import { accountPlanModel, type AccountPlan } from "../Settings/accountPlanModel";
+import { NeighborFilesFailure } from "../Neighbors/neighborFilesClient";
 import { TemplateExportDialog, type NeighborShare } from "./TemplateExportDialog";
+
+const account = vi.hoisted(() => ({ plan: vi.fn(), signIn: vi.fn(), refresh: vi.fn() }));
+vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: { kind: "signed_in", identity: { uid: "buyer" } }, signIn: account.signIn }) }));
+vi.mock("../Settings/useAccountPlan", () => ({ useAccountPlan: () => account.plan() }));
+
+const paidPlan: AccountPlan = {
+  entitlements: { plan: "pro", status: "active", current_period_end: 0, cancel_at_period_end: false },
+  access: { authority: "billing", full_access: true }, stale: false,
+};
+const billing = (value: AccountPlan) => ({ plan: accountPlanModel(value), planLoad: "ready", pending: false, refresh: account.refresh });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -18,6 +30,9 @@ let root: Root | null = null;
 let host: HTMLDivElement;
 
 beforeEach(() => {
+  account.plan.mockReset().mockReturnValue(billing(paidPlan));
+  account.signIn.mockReset().mockResolvedValue(null);
+  account.refresh.mockReset().mockResolvedValue(null);
   exportPackage.mockReset().mockResolvedValue(exported);
   neighbors.friends.mockReset().mockResolvedValue(list());
   neighbors.send.mockReset().mockResolvedValue({ status: "pending" });
@@ -66,6 +81,60 @@ describe("Export with Neighborhood sharing", () => {
     expect(dialog().textContent).toContain("sent to Mira");
   });
 
+  it.each([
+    ["sign_in_required", "This machine needs to sign in again before it can share", "Sign in again"],
+    ["unconfirmed", "We couldn't confirm your plan right now", "Retry"],
+  ] as const)("blocks %s despite the friends list reporting paid access", async (verification, message, action) => {
+    account.plan.mockReturnValue(billing({ ...paidPlan, access: null, verification }));
+    await renderDialog(true);
+    expect(dialog().querySelector('[role="status"]')?.textContent).toContain(message);
+    expect(exportButton().disabled).toBe(true);
+    await act(async () => dialog().dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    expect(exportPackage).not.toHaveBeenCalled();
+    expect(neighbors.send).not.toHaveBeenCalled();
+    const recovery = Array.from(dialog().querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === action)!;
+    await act(async () => recovery.click());
+    if (verification === "sign_in_required") expect(account.signIn).toHaveBeenCalledWith({ mode: "signin" });
+    else expect(account.signIn).not.toHaveBeenCalled();
+    expect(account.refresh).toHaveBeenCalledOnce();
+    expect(exportPackage).not.toHaveBeenCalled();
+  });
+
+  it("blocks host free access even when the friends list reports paid", async () => {
+    account.plan.mockReturnValue(billing({ ...paidPlan, access: { authority: "free", full_access: false } }));
+    await renderDialog(true);
+    expect(dialog().querySelector('[role="status"]')?.textContent).toContain("Upgrade in Settings > Account");
+    expect(exportButton().disabled).toBe(true);
+    await act(async () => dialog().dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    expect(exportPackage).not.toHaveBeenCalled();
+  });
+
+  it("keeps Share disabled until the host verification check finishes", async () => {
+    account.plan.mockReturnValue({ plan: null, planLoad: "loading", pending: false, refresh: account.refresh });
+    await renderDialog(true);
+    expect(exportButton().disabled).toBe(true);
+    expect(dialog().querySelector('[role="status"]')?.textContent).toContain("Checking sharing access");
+    await act(async () => dialog().dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    expect(exportPackage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["installation_unverified", "This machine needs to sign in again", "Sign in again"],
+    ["entitlements_unavailable", "We couldn't confirm your plan", "Retry"],
+    ["friends_locked", "Upgrade in Settings > Account", null],
+    ["recipient_not_receiving", "Ask them to enable receiving", null],
+    ["future_refusal", "try again later", null],
+  ] as const)("explains a typed %s refusal without exposing its code", async (reason, message, action) => {
+    neighbors.send.mockRejectedValue(new NeighborFilesFailure(reason, `${reason}: internal detail`, null));
+    await renderDialog(true);
+    await chooseMira();
+    await act(async () => exportButton().click());
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain(message);
+    expect(dialog().textContent).not.toContain(reason);
+    expect(dialog().textContent).not.toContain("internal detail");
+    if (action) expect(Array.from(dialog().querySelectorAll("button")).some(button => button.textContent === action)).toBe(true);
+  });
+
   it("blocks a locked channel before exporting and explains the next step", async () => {
     neighbors.friends.mockResolvedValue(list("locked"));
     await renderDialog(true);
@@ -109,7 +178,7 @@ describe("Export with Neighborhood sharing", () => {
     await renderDialog(true);
     await chooseMira();
     await act(async () => exportButton().click());
-    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("Settings > Account");
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("try again later");
     expect(dialog().textContent).not.toContain("friends_locked");
     expect(dialog().textContent).not.toContain("sent to Mira");
   });
@@ -119,7 +188,7 @@ describe("Export with Neighborhood sharing", () => {
     await renderDialog(true);
     await chooseMira();
     await act(async () => exportButton().click());
-    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("could not be confirmed");
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain("Ask them to check their plan");
     expect(dialog().textContent).not.toContain("sent to Mira");
     expect(dialog().textContent).not.toContain("recipient_locked");
   });
