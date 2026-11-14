@@ -17928,7 +17928,7 @@
         },
         {
           "name": "focus",
-          "about": "Focus a tab by ID",
+          "about": "Highlight a tab for the owner; no window switches to it, the owner opens it",
           "aliases": [],
           "args": [
             {
@@ -17948,7 +17948,7 @@
               "value_name": "ID",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID to focus",
+              "help": "Tab ID to highlight",
               "aliases": []
             }
           ],
@@ -20435,7 +20435,7 @@
         },
         {
           "name": "focus",
-          "about": "Focus a workspace by ID",
+          "about": "Highlight a workspace's last selected tab for the owner; no window switches to it",
           "aliases": [],
           "args": [
             {

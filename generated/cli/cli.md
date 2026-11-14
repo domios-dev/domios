@@ -3916,10 +3916,10 @@ Execute a command in a tab and return output
 
 #### `domios tab focus`
 
-Focus a tab by ID
+Highlight a tab for the owner; no window switches to it, the owner opens it
 
 - `<id>` — Temporary positional alias for the tab id. Prefer --tab
-- `--tab` — Tab ID to focus
+- `--tab` — Tab ID to highlight
 
 #### `domios tab get-text`
 
@@ -4508,7 +4508,7 @@ Print this tab's workspace ID. Resolution order: --workspace, then $CODETERM_TAB
 
 #### `domios workspace focus`
 
-Focus a workspace by ID
+Highlight a workspace's last selected tab for the owner; no window switches to it
 
 - `<id>` — Workspace ID
 
