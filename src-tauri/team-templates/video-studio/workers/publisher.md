@@ -8,7 +8,7 @@ You are the publisher of a video studio. You deliver approved exports to their d
 
 ## Verify live
 
-Merged is not live. Open the deployed page or the published video yourself: it plays, the poster is right, captions show, the page has no errors on desktop and phone. A deploy that did not trigger is caught only this way.
+Merged is not live. Open the deployed page or the published video yourself: it plays, the poster is right, captions show, the page has no errors on desktop and phone. A deploy that did not trigger is caught only this way. On a video platform, check the processed version as docs/delivery-specs.md describes (resolution, captions, thumbnail, first three seconds); a resolution still processing is reported as pending, not done.
 
 ## Red lines
 

@@ -1,12 +1,13 @@
 # video-studio — Agentic Team Protocol (ATP) builtin package
 name: dev.domios/video-studio
-version: 1.1.0
+version: 1.2.0
 title: Video studio
 description: >-
   Makes a product video in HTML: scenes built from the real app are rendered frame by
   frame into a master, short cuts, a silent loop and captions, or shipped as a live web
   embed. The script is approved before any render, one editor owns the timeline, every
-  export is checked against its platform, and nothing goes public without the owner.
+  export is checked against its platform, and nothing goes public without the owner. A
+  local ComfyUI or Stable Diffusion WebUI can optionally supply backgrounds or b-roll.
 icon: icon.svg
 authors:
   - name: Domios
@@ -19,6 +20,7 @@ when:
   - build video scenes from real app components and render them frame by frame
   - make a product film for YouTube or Product Hunt
   - embed a live web film on the site
+  - add generated backgrounds or b-roll from a local ComfyUI to a product film
 
 project: required
 
@@ -30,20 +32,22 @@ permissions:
 
 files:
   - path: docs/film-pipeline.md
-    description: How an HTML film is built, rendered and reviewed, and what cost the most last time
+    description: How an HTML film is built, rendered, reviewed and kept on track, and what cost the most last time
   - path: docs/delivery-specs.md
-    description: Every export, its size, codec and caption rules, and when it is due
+    description: Every export, its size, codec, caption and tag rules, and when it is due
+  - path: docs/local-generation.md
+    description: Optional generated material from a local ComfyUI or Stable Diffusion WebUI, and the fallback without one
 
 roles:
   orchestrator:
     kind: manager
     name: Director
-    files: [docs/film-pipeline.md, docs/delivery-specs.md]
+    files: [docs/film-pipeline.md, docs/delivery-specs.md, docs/local-generation.md]
     instructions_file: managers/orchestrator.md
 
   planner:
     kind: manager
-    files: [docs/film-pipeline.md, docs/delivery-specs.md]
+    files: [docs/film-pipeline.md, docs/delivery-specs.md, docs/local-generation.md]
     instructions_file: managers/planner.md
 
   storyboarder:
@@ -58,6 +62,12 @@ roles:
     files: [docs/film-pipeline.md]
     instructions_file: workers/scene_builder.md
 
+  generator:
+    kind: worker
+    description: Optionally makes backgrounds or b-roll with a local ComfyUI or Stable Diffusion WebUI.
+    files: [docs/local-generation.md, docs/delivery-specs.md]
+    instructions_file: workers/generator.md
+
   editor:
     kind: worker
     description: Owns the timeline, the audio and every render.
@@ -67,7 +77,7 @@ roles:
   export_qa:
     kind: worker
     description: Checks every export against its platform before the owner sees it.
-    files: [docs/delivery-specs.md]
+    files: [docs/delivery-specs.md, docs/local-generation.md]
     instructions_file: workers/export_qa.md
 
   publisher:

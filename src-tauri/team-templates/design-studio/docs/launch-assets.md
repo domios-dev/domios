@@ -20,6 +20,7 @@ What a launch owner needs from the design studio, with the sizes that were actua
 - **Logo kit:** SVG and PNG, light and dark, icon-only and wordmark, 512 and 1024 px PNG app icons, a favicon set.
 - **Site and README:** a hero screenshot, a "Featured on" badge row, light and dark variants of anything placed on the site.
 - **Listing pack:** one folder with the screenshots, the logo and the approved copy, prepared once, because every directory asks for the same things.
+- **Generated imagery (optional):** backgrounds, textures or illustrations from a local ComfyUI or Stable Diffusion WebUI, only when the owner asks and a tool answers. Never for screenshots, logos or badges, and labelled `generated` in the asset list (docs/local-generation.md).
 
 ## Rules
 
