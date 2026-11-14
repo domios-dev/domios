@@ -2,9 +2,17 @@ import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 
 const FIRST_CONTROL = "input:not([disabled]), button:not([disabled]), textarea:not([disabled])";
 
+function isVisible(control: HTMLElement): boolean {
+  for (let node: HTMLElement | null = control; node; node = node.parentElement) {
+    const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+    if (node.hidden || node.inert || style?.display === "none" || style?.visibility === "hidden") return false;
+  }
+  return true;
+}
+
 /** A radio group is one tab stop on its checked radio (roving tabindex), so opening focus lands there too. */
 function initialControl(dialog: HTMLElement | null): HTMLElement | null {
-  const first = dialog?.querySelector<HTMLElement>(FIRST_CONTROL) ?? null;
+  const first = Array.from(dialog?.querySelectorAll<HTMLElement>(FIRST_CONTROL) ?? []).find(isVisible) ?? null;
   if (!(first instanceof HTMLInputElement) || first.type !== "radio" || !first.name) return first;
   const group = Array.from(dialog!.querySelectorAll<HTMLInputElement>('input[type="radio"]')).filter((radio) => radio.name === first.name);
   return group.find((radio) => radio.checked && !radio.disabled) ?? first;
@@ -31,7 +39,7 @@ const FOCUSABLE =
 
 export function trapDialogTab(event: KeyboardEvent<HTMLElement>, dialog: HTMLElement | null): void {
   if (event.key !== "Tab") return;
-  const focusable = Array.from(dialog?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+  const focusable = Array.from(dialog?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(isVisible);
   if (focusable.length === 0) {
     event.preventDefault();
     return;

@@ -22,9 +22,7 @@ type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpda
 export type TemplateView =
   | { kind: "form" }
   | { kind: "gallery" }
-  | { kind: "review"; preview: TemplatePreview; mode: "consent" | "detail"; back: "form" | "gallery" }
-  /** A role's instructions, a step inside the same dialog that returns to the review it came from. */
-  | { kind: "instructions"; review: Extract<TemplateView, { kind: "review" }>; role: string };
+  | { kind: "review"; preview: TemplatePreview; mode: "consent" | "detail"; back: "form" | "gallery" };
 
 /** A template the host refused to start: its package identity, the title its card shows, and the typed refusal. */
 export interface BlockedTemplate { name: string; version: string | null; title: string; refusal: StartErrorView }
@@ -280,15 +278,6 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
       delete next[slot];
       return next;
     }),
-    readInstructions: (role: string) => {
-      if (view.kind === "review") setView({ kind: "instructions", review: view, role });
-      else if (view.kind === "instructions") setView({ ...view, role });
-      else if (view.kind === "form") {
-        const preview = chosen ?? defaultPreview;
-        if (preview) setView({ kind: "instructions", review: { kind: "review", preview, mode: "detail", back: "form" }, role });
-      }
-    },
-    backFromInstructions: () => { if (view.kind === "instructions") setView(view.review.back === "form" ? { kind: "form" } : view.review); },
     startRequest,
   };
 }

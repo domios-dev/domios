@@ -34,3 +34,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.template-about-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.template-about-nav { display: flex; }
+.template-about-mobile { display: none; }
+
+@media (max-width: 640px) {
+  .template-about-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .template-about-nav { display: none; }
+  .template-about-mobile { display: block; }
+}
