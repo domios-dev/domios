@@ -144,7 +144,12 @@ pub(crate) fn clone_commands(
             clone.push("--sparse".into());
         }
     }
-    clone.extend([source.base.clone(), tmp.to_string_lossy().into_owned()]);
+    clone.extend([
+        source.base.clone(),
+        codeterm_paths::simplified_path(tmp)
+            .to_string_lossy()
+            .into_owned(),
+    ]);
     let mut commands = vec![clone];
     if let Some(git_ref) = &source.git_ref {
         commands.push(vec![

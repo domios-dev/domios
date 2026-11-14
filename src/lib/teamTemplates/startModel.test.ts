@@ -150,6 +150,16 @@ describe("template start model", () => {
       .toBe(templateUnavailableFixture.message);
   });
 
+  it("keeps built-ins ahead of channel teams and the rest, whatever recall ranks first", () => {
+    const fallback = templateRecallFixture.fallback;
+    const studio = { ...fallback, name: "dev.domios/video-studio" };
+    const channelTeam = { ...fallback, name: "com.example/ext", provenance: "channel" as const, channel: "ext", verified: false };
+    const saved = { ...fallback, name: "me/desk", provenance: "saved" as const };
+    const recall = { ...templateRecallFixture, matches: [saved, channelTeam, studio] };
+    expect(galleryEntries([fallback, studio, saved, channelTeam], recall, fallback, "all", "").map((entry) => entry.name))
+      .toEqual(["dev.domios/video-studio", fallback.name, "com.example/ext", "me/desk"]);
+  });
+
   it("lists the best recalled match first and keeps the default available", () => {
     const fallback = templateRecallFixture.fallback;
     const names = (entries: { name: string }[]) => entries.map((entry) => entry.name);
@@ -189,9 +199,9 @@ describe("template start model", () => {
   });
 
   it("files an owner's import under Mine and a Neighborhood receipt under From friends, unverified until consented", () => {
-    expect(templateSource({ provenance: "imported", verified: false })).toEqual({ filter: "mine", label: "From file · unverified", unverified: true, owned: true, exportable: true, deletable: true });
-    expect(templateSource({ provenance: "imported", verified: true })).toEqual({ filter: "mine", label: "Mine", unverified: false, owned: true, exportable: true, deletable: true });
-    expect(templateSource({ provenance: "imported", received_from: "Mira", verified: false })).toEqual({ filter: "friends", label: "From Mira · unverified", unverified: true, owned: false, exportable: false, deletable: true });
+    expect(templateSource({ provenance: "imported", verified: false })).toEqual({ filter: "mine", label: "From file · unverified", from: "From file", unverified: true, owned: true, exportable: true, deletable: true });
+    expect(templateSource({ provenance: "imported", verified: true })).toEqual({ filter: "mine", label: "Mine", from: "Mine", unverified: false, owned: true, exportable: true, deletable: true });
+    expect(templateSource({ provenance: "imported", received_from: "Mira", verified: false })).toEqual({ filter: "friends", label: "From Mira · unverified", from: "From Mira", unverified: true, owned: false, exportable: false, deletable: true });
     expect(templateSource({ provenance: "imported", received_from: "Mira", verified: true })).toMatchObject({ filter: "friends", label: "From Mira", unverified: false });
     expect(templateSource({ provenance: "saved", verified: false })).toMatchObject({ filter: "mine", owned: true, exportable: true, unverified: false });
     expect(templateSource({ provenance: "builtin", verified: false })).toMatchObject({ filter: "builtin", owned: false, exportable: true });
@@ -212,6 +222,7 @@ describe("template start model", () => {
     expect(templateUpdateFact({ ...updated, bundled_version: "1.2.0" })).toBeNull();
     expect(templateUpdateFact(updated)).toContain("1.2.0");
     expect(templateUpdateFact(updated)).toContain("1.0.0");
+    expect(templateUpdateFact(updated)).toContain("domios-teams");
 
     const community = { provenance: "channel" as const, channel: "acme-id", verified: false };
     const unverified = templateSource(community, "Acme");

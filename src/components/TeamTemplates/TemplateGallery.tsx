@@ -1,5 +1,7 @@
 import { useId, useRef, useState, type RefObject } from "react";
+import { Loader2 } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
+import { BusySpinner } from "../shared/BusyState";
 import { Segmented } from "../shared/Segmented";
 import { Button } from "../shared/Button";
 import { DropdownMenu } from "../shared/DropdownMenu";
@@ -105,9 +107,13 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-1 self-start py-2.5 pr-2">
-          {!ready && <span className={`text-[11px] ${blocked ? "text-[var(--ct-red)]" : "text-[var(--ct-muted-fg)]"}`}
+          {/* The transient check is a fixed-size spinner, so row text keeps its width; the sr-only reason names it. */}
+          {!ready && !status && <span aria-hidden="true" title={reason} className="inline-flex h-[18px] items-center text-[var(--ct-muted-fg)]">
+            <BusySpinner icon={Loader2} size={12} />
+          </span>}
+          {status && !ready && <span className={`text-[11px] ${blocked ? "text-[var(--ct-red)]" : "text-[var(--ct-muted-fg)]"}`}
             title={reason} data-testid={blocked ? "template-card-blocked" : undefined}>
-            {blocked ? "Can't start" : status ? "Unavailable" : "Checking…"}
+            {blocked ? "Can't start" : "Unavailable"}
           </span>}
           {reason && <span id={reasonId} className="sr-only">{reason}</span>}
           {summary.provenance !== "builtin" && menuItems.length > 0 && (

@@ -113,3 +113,15 @@ fn explicit_dev_paths_are_named_without_inherited_overrides() {
         assert!(explicit_development_data_dir(name).is_err());
     }
 }
+
+#[test]
+fn simplified_path_drops_the_verbatim_prefix_only() {
+    assert_eq!(
+        simplified_path(Path::new(r"\\?\C:\Users\dev\.domios-dev")),
+        Path::new(r"C:\Users\dev\.domios-dev")
+    );
+    assert_eq!(
+        simplified_path(Path::new("/home/user/.domios")),
+        Path::new("/home/user/.domios")
+    );
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { skippedView, teamChannelView } from "./teamChannels";
+import { channelRefusalText, channelStatusLine, skippedView, teamChannelView } from "./teamChannels";
 
 type SkipReason = import("../../../gen/SkipReason").SkipReason;
 type TeamChannelRow = import("../../../gen/TeamChannelRow").TeamChannelRow;
@@ -33,5 +33,30 @@ describe("team channel view", () => {
     const community = teamChannelView(row({ lastRefresh: "offline" }));
     expect(community).toMatchObject({ removable: true, autoUpdates: false, refresh: { kind: "failed", reason: "offline" } });
     expect(teamChannelView(row({})).refresh).toEqual({ kind: "never" });
+  });
+
+  it("claims up to date only while the channel gives this Domios something to use", () => {
+    const official = (overrides: Partial<TeamChannelRow>) =>
+      channelStatusLine(teamChannelView(row({ name: "domios-teams", official: true, lastRefresh: "ok", ...overrides })));
+    expect(official({ usableTeams: 4 })).toContain("up to date");
+    expect(official({})).toContain("up to date");
+    const needs = (version: string) => ({ name: "x", code: "requires_newer_domios" as const, reason: "opaque", requiredDomios: version });
+    const skipped = official({ usableTeams: 0, skippedEntries: [needs("1.20.0"), needs("1.20.0")] });
+    expect(skipped).not.toContain("up to date");
+    expect(skipped).toContain("1.20.0");
+    expect(skipped).toContain("bundled");
+    expect(official({ usableTeams: 0, skippedEntries: [needs("1.20.0"), needs("2.0.0")] })).not.toContain("1.20.0");
+    expect(official({ usableTeams: 0, skippedEntries: [{ name: "x", code: "invalid_package", reason: "opaque" }] })).not.toContain("opaque");
+    const community = channelStatusLine(teamChannelView(row({ lastRefresh: "ok", usableTeams: 0 })));
+    expect(community).not.toContain("bundled");
+  });
+
+  it("shows a typed refusal's plain words and never a raw transport dump", () => {
+    const typed = Object.assign(new Error("truncated"), { body: JSON.stringify({ code: "unreachable", error: "Plain words" }) });
+    expect(channelRefusalText(typed)).toBe("Plain words");
+    expect(channelRefusalText(new Error(`/api/x → HTTP 400: ${JSON.stringify({ code: "not_a_channel", error: "Embedded" })}`))).toBe("Embedded");
+    for (const raw of [new Error("/api/x → HTTP 400: {\"error\":\"opaque-cut"), new Error("opaque network"), { body: JSON.stringify({ code: "failed", error: "opaque io" }) }]) {
+      expect(channelRefusalText(raw, "Fallback")).toBe("Fallback");
+    }
   });
 });

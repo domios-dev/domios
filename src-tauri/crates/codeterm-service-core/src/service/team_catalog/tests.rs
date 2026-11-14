@@ -12,6 +12,7 @@ fn row(name: &str) -> TeamChannelRow {
         official: name == OFFICIAL,
         last_refresh: None,
         skipped_entries: Vec::new(),
+        usable_teams: None,
     }
 }
 

@@ -73,7 +73,12 @@ fn fetch_direct(url: &str, limit: usize) -> Result<Vec<u8>, DirectFailure> {
 
 pub trait UpdateDiscoverySource: Send + Sync {
     fn fetch(&self, url: &str, limit: usize) -> Result<Vec<u8>, String>;
-    fn materialize_channel(&self, name: &str, url: &str, dest: &Path) -> Result<(), String>;
+    fn materialize_channel(
+        &self,
+        name: &str,
+        url: &str,
+        dest: &Path,
+    ) -> Result<(), super::ChannelFailure>;
 }
 
 pub struct OfficialUpdateSource;
@@ -92,17 +97,32 @@ impl UpdateDiscoverySource for OfficialUpdateSource {
         })
     }
 
-    fn materialize_channel(&self, _name: &str, url: &str, dest: &Path) -> Result<(), String> {
+    fn materialize_channel(
+        &self,
+        _name: &str,
+        url: &str,
+        dest: &Path,
+    ) -> Result<(), super::ChannelFailure> {
         let source = super::parse_channel_source(url);
         if super::looks_like_local_path(&source.base) {
-            return super::copy_dir_filtered(&source.source_dir(), dest);
+            let dir = source.source_dir();
+            if !dir.is_dir() {
+                return Err(super::ChannelFailure::new(
+                    super::ChannelFailureKind::FolderNotFound,
+                    format!("channel folder not found: {}", dir.display()),
+                    url,
+                ));
+            }
+            return super::copy_dir_filtered(&dir, dest).map_err(|cause| {
+                super::ChannelFailure::new(super::ChannelFailureKind::Other, cause, url)
+            });
         }
         let result = if super::archive_channel::is_archive_url(url) {
             super::archive_channel::materialize(|url, limit| self.fetch(url, limit), url, dest)
         } else {
             super::clone_git_channel(&source, dest)
         };
-        result.map_err(|cause| super::channel_failure::channel_unavailable(&cause, url))
+        result.map_err(|cause| super::ChannelFailure::fetch(cause, url))
     }
 }
 
@@ -147,9 +167,17 @@ impl UpdateDiscoverySource for FixtureUpdateSource {
         Ok(bytes)
     }
 
-    fn materialize_channel(&self, name: &str, _url: &str, dest: &Path) -> Result<(), String> {
-        super::validate_relative_path(name)?;
-        super::copy_dir_filtered(&self.root.join("channels").join(name), dest)
+    fn materialize_channel(
+        &self,
+        name: &str,
+        url: &str,
+        dest: &Path,
+    ) -> Result<(), super::ChannelFailure> {
+        super::validate_relative_path(name)
+            .and_then(|()| super::copy_dir_filtered(&self.root.join("channels").join(name), dest))
+            .map_err(|cause| {
+                super::ChannelFailure::new(super::ChannelFailureKind::Other, cause, url)
+            })
     }
 }
 

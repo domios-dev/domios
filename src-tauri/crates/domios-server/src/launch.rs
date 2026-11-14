@@ -509,8 +509,9 @@ pub fn install_selectors(options: &LaunchOptions) -> io::Result<()> {
             config_dir,
             bind,
         } => {
-            let data_dir = data_dir.canonicalize()?;
-            let config_dir = config_dir.canonicalize()?;
+            // Exported paths reach git and other tools, which reject Windows verbatim `\\?\` paths.
+            let data_dir = codeterm_paths::simplified_path(&data_dir.canonicalize()?);
+            let config_dir = codeterm_paths::simplified_path(&config_dir.canonicalize()?);
             if let Some(instance) = instance {
                 std::env::set_var("CODETERM_INSTANCE", instance);
             }

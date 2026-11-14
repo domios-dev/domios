@@ -164,3 +164,40 @@ fn official_refresh_is_single_flight_once_per_start_and_offline_retains_cache() 
         Some("ok")
     );
 }
+
+#[test]
+fn add_refusals_are_typed_plain_and_never_name_internal_paths() {
+    let root = tempfile::tempdir().unwrap();
+    let official = root.path().join("official-source");
+    channel(&official, &[package("dev.domios/extra", "1.0.0")]);
+    let store = TeamChannelStore::with_url(
+        root.path().join("data"),
+        official.display().to_string(),
+        "1.20.0",
+    );
+    let missing = root
+        .path()
+        .join("no-such-channel")
+        .to_string_lossy()
+        .replace('\\', "/");
+    let refusal = store.add(&missing, None).unwrap_err();
+    assert_eq!(refusal.code, "folder_not_found");
+    assert!(!refusal.message.contains("staging"), "{}", refusal.message);
+    let empty = root.path().join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    assert_eq!(
+        store.add(empty.to_str().unwrap(), None).unwrap_err().code,
+        "not_a_channel"
+    );
+    let rows = store.refresh(Some(OFFICIAL)).unwrap();
+    assert_eq!(rows[0].display_name, OFFICIAL_DISPLAY_NAME);
+    assert_eq!(rows[0].usable_teams, Some(1));
+    std::fs::remove_dir_all(&official).unwrap();
+    let failed = store.refresh(Some(OFFICIAL)).unwrap();
+    let reason = failed[0].last_refresh.as_deref().unwrap();
+    assert!(
+        !reason.contains("Plugin channel") && !reason.contains("retry"),
+        "{reason}"
+    );
+    assert_eq!(failed[0].usable_teams, Some(1));
+}

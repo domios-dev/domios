@@ -111,11 +111,11 @@ pub(super) fn dispatch(
         "team.channel" => {
             let action = serde_json::from_value(params.clone().unwrap_or(Value::Null))
                 .map_err(|error| invalid_params(format!("invalid channel action: {error}")))?;
-            codeterm_service_core::service::team_channels::command(svc, action).map_err(|message| {
+            codeterm_service_core::service::team_channels::command(svc, action).map_err(|refusal| {
                 JsonRpcError {
                     code: -32603,
-                    message,
-                    data: None,
+                    data: Some(serde_json::json!({ "code": refusal.code })),
+                    message: refusal.message,
                 }
             })
         }

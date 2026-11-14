@@ -3,7 +3,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 
 use codeterm_plugins::{
-    channel_kind, refresh_materialized_channel, validate_channel_name, ChannelKind,
+    channel_kind, fetch_channel, refresh_fetched_channel, validate_channel_name, ChannelKind,
 };
 pub use codeterm_team_package::contracts::{
     SkipReason, SkippedTeam, TeamChannelAction, TeamChannelKind, TeamChannelRow,
@@ -11,6 +11,9 @@ pub use codeterm_team_package::contracts::{
 use codeterm_team_package::{check_folder, CheckOptions, Package};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+
+mod refusal;
+pub use refusal::TeamChannelRefusal;
 
 fn kind(url: &str) -> TeamChannelKind {
     match channel_kind(url) {
@@ -21,24 +24,27 @@ fn kind(url: &str) -> TeamChannelKind {
 }
 
 pub const OFFICIAL: &str = "domios-teams";
+/// The official channel's one name everywhere; its published index does not rename it.
+pub const OFFICIAL_DISPLAY_NAME: &str = "Domios teams";
 pub const OFFICIAL_URL: &str = "https://github.com/domios-dev/domios-teams/releases/download/domios-teams-latest/domios-teams.tar.gz";
 
 pub fn command(
     svc: &super::ServiceContext,
     action: TeamChannelAction,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, TeamChannelRefusal> {
     let store = TeamChannelStore::global();
     let changed = !matches!(action, TeamChannelAction::List);
+    let list = || store.list().map_err(TeamChannelRefusal::failed);
     let rows = match action {
-        TeamChannelAction::List => store.list()?,
+        TeamChannelAction::List => list()?,
         TeamChannelAction::Add { url, name } => {
             store.add(&url, name.as_deref())?;
-            store.list()?
+            list()?
         }
         TeamChannelAction::Refresh { name } => store.refresh(name.as_deref())?,
         TeamChannelAction::Remove { name } => {
             store.remove(&name)?;
-            store.list()?
+            list()?
         }
     };
     if changed {
@@ -131,7 +137,7 @@ impl TeamChannelStore {
         let url = self.official_url.clone();
         TeamChannelRow {
             name: OFFICIAL.into(),
-            display_name: "Domios teams".into(),
+            display_name: OFFICIAL_DISPLAY_NAME.into(),
             description: String::new(),
             kind: kind(&url),
             url,
@@ -144,6 +150,7 @@ impl TeamChannelStore {
             official: true,
             last_refresh: None,
             skipped_entries: Vec::new(),
+            usable_teams: None,
         }
     }
 
@@ -151,10 +158,10 @@ impl TeamChannelStore {
         let mut registry = self.read()?;
         let mut official = self.official();
         if let Some(previous) = registry.channels.remove(OFFICIAL) {
-            official.display_name = previous.display_name;
             official.description = previous.description;
             official.last_refresh = previous.last_refresh;
             official.skipped_entries = previous.skipped_entries;
+            official.usable_teams = previous.usable_teams;
         }
         let mut rows = vec![official];
         rows.extend(registry.channels.into_values().map(|mut row| {
@@ -164,35 +171,34 @@ impl TeamChannelStore {
         Ok(rows)
     }
 
-    pub fn add(&self, url: &str, name: Option<&str>) -> Result<TeamChannelRow, String> {
+    pub fn add(&self, url: &str, name: Option<&str>) -> Result<TeamChannelRow, TeamChannelRefusal> {
         let _ = self.packages();
         let _guard = self.writes.lock();
-        let mut registry = self.read()?;
+        let invalid_name = |error: String| TeamChannelRefusal::new("invalid_name", error);
+        let mut registry = self.read().map_err(TeamChannelRefusal::failed)?;
         if let Some(name) = name {
-            validate_channel_name(name)?;
+            validate_channel_name(name).map_err(invalid_name)?;
         }
-        let temporary = self
-            .root
-            .join("team-channels")
-            .join(format!("staging-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(temporary.parent().ok_or("missing channel parent")?)
-            .map_err(|error| error.to_string())?;
+        let channels = self.root.join("team-channels");
+        let temporary = channels.join(format!("staging-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&channels)
+            .map_err(|error| TeamChannelRefusal::failed(error.to_string()))?;
         let result = (|| {
-            codeterm_plugins::materialize_channel("team-channel", url, &temporary)?;
-            let (index, _, skipped) = check_index(&temporary, false, &self.version)?;
+            fetch_channel("team-channel", url, &temporary)
+                .map_err(|failure| TeamChannelRefusal::fetch(&failure, &kind(url)))?;
+            let (index, packages, skipped) = check_index(&temporary, false, &self.version)
+                .map_err(|error| TeamChannelRefusal::new("not_a_channel", error))?;
             let name = name.unwrap_or(&index.name);
-            validate_channel_name(name)?;
-            if name == OFFICIAL {
-                return Err("the official team channel is already registered".into());
+            validate_channel_name(name).map_err(invalid_name)?;
+            let path = channels.join(name);
+            if name == OFFICIAL || registry.channels.contains_key(name) || path.exists() {
+                return Err(TeamChannelRefusal::new(
+                    "already_registered",
+                    format!("A channel named '{name}' is already added"),
+                ));
             }
-            if registry.channels.contains_key(name) {
-                return Err(format!("channel '{name}' already registered"));
-            }
-            let path = self.root.join("team-channels").join(name);
-            if path.exists() {
-                return Err(format!("channel cache {} already exists", path.display()));
-            }
-            std::fs::rename(&temporary, &path).map_err(|error| error.to_string())?;
+            std::fs::rename(&temporary, &path)
+                .map_err(|error| TeamChannelRefusal::failed(error.to_string()))?;
             let row = TeamChannelRow {
                 name: name.into(),
                 display_name: index.display_name,
@@ -203,9 +209,10 @@ impl TeamChannelStore {
                 official: false,
                 last_refresh: Some("ok".into()),
                 skipped_entries: skipped,
+                usable_teams: Some(packages.len() as u32),
             };
             registry.channels.insert(name.into(), row.clone());
-            self.write(&registry)?;
+            self.write(&registry).map_err(TeamChannelRefusal::failed)?;
             *self.packages.lock() = None;
             Ok(row)
         })();
@@ -213,19 +220,20 @@ impl TeamChannelStore {
         result
     }
 
-    pub fn refresh(&self, name: Option<&str>) -> Result<Vec<TeamChannelRow>, String> {
+    pub fn refresh(&self, name: Option<&str>) -> Result<Vec<TeamChannelRow>, TeamChannelRefusal> {
         let _ = self.packages();
         let _guard = self.writes.lock();
         std::fs::create_dir_all(self.root.join("team-channels"))
-            .map_err(|error| error.to_string())?;
-        let mut registry = self.read()?;
+            .map_err(|error| TeamChannelRefusal::failed(error.to_string()))?;
+        let mut registry = self.read().map_err(TeamChannelRefusal::failed)?;
         let rows: Vec<_> = self
-            .list()?
+            .list()
+            .map_err(TeamChannelRefusal::failed)?
             .into_iter()
             .filter(|row| name.is_none_or(|name| name == row.name))
             .collect();
         if rows.is_empty() {
-            return Err("team channel not registered".into());
+            return Err(not_registered());
         }
         for mut row in rows {
             let previous = if row.official {
@@ -237,7 +245,7 @@ impl TeamChannelStore {
                 Vec::new()
             };
             let mut checked = None;
-            let result = refresh_materialized_channel(
+            let result = refresh_fetched_channel(
                 &row.name,
                 &row.url,
                 Path::new(&row.path),
@@ -267,20 +275,21 @@ impl TeamChannelStore {
             );
             row.last_refresh = Some(match result {
                 Ok(()) => {
-                    if let Some((index, _, skipped)) = checked {
+                    if let Some((index, packages, skipped)) = checked {
                         row.display_name = index.display_name;
                         row.description = index.description;
                         row.skipped_entries = skipped;
+                        row.usable_teams = Some(packages.len() as u32);
                     }
                     "ok".into()
                 }
-                Err(error) => error,
+                Err(failure) => TeamChannelRefusal::fetch(&failure, &row.kind).message,
             });
             registry.channels.insert(row.name.clone(), row);
         }
-        self.write(&registry)?;
+        self.write(&registry).map_err(TeamChannelRefusal::failed)?;
         *self.packages.lock() = None;
-        self.list()
+        self.list().map_err(TeamChannelRefusal::failed)
     }
 
     pub fn refresh_official_once(&self) {
@@ -294,23 +303,25 @@ impl TeamChannelStore {
         let _ = self.refresh(Some(OFFICIAL));
     }
 
-    pub fn remove(&self, name: &str) -> Result<(), String> {
-        validate_channel_name(name)?;
+    pub fn remove(&self, name: &str) -> Result<(), TeamChannelRefusal> {
+        validate_channel_name(name)
+            .map_err(|error| TeamChannelRefusal::new("invalid_name", error))?;
         if name == OFFICIAL {
-            return Err("the official team channel cannot be removed".into());
+            return Err(TeamChannelRefusal::new(
+                "official",
+                "The official team channel can't be removed",
+            ));
         }
         let _ = self.packages();
         let _guard = self.writes.lock();
-        let mut registry = self.read()?;
-        registry
-            .channels
-            .remove(name)
-            .ok_or("team channel not registered")?;
-        self.write(&registry)?;
+        let mut registry = self.read().map_err(TeamChannelRefusal::failed)?;
+        registry.channels.remove(name).ok_or_else(not_registered)?;
+        self.write(&registry).map_err(TeamChannelRefusal::failed)?;
         *self.packages.lock() = None;
         let path = self.root.join("team-channels").join(name);
         if path.exists() {
-            std::fs::remove_dir_all(path).map_err(|error| error.to_string())?;
+            std::fs::remove_dir_all(path)
+                .map_err(|error| TeamChannelRefusal::failed(error.to_string()))?;
         }
         Ok(())
     }
@@ -333,24 +344,38 @@ impl TeamChannelStore {
     }
 }
 
+fn not_registered() -> TeamChannelRefusal {
+    TeamChannelRefusal::new("not_registered", "No team channel by that name")
+}
+
+/// Index refusals are plain words for the owner; OS-localized io detail stays in the log.
 fn check_index(
     root: &Path,
     official: bool,
     version: &str,
 ) -> Result<(Index, Vec<Package>, Vec<SkippedTeam>), String> {
     use std::io::Read;
+    let unreadable = |error: std::io::Error| {
+        log::warn!("team channel index unreadable: {error}");
+        "The channel.json can't be read".to_string()
+    };
+    let file = match std::fs::File::open(root.join("channel.json")) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err("No channel.json here, so this isn't a team channel".into());
+        }
+        file => file.map_err(unreadable)?,
+    };
     let mut bytes = Vec::new();
-    std::fs::File::open(root.join("channel.json"))
-        .map_err(|error| error.to_string())?
-        .take(1024 * 1024 + 1)
+    file.take(1024 * 1024 + 1)
         .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
+        .map_err(unreadable)?;
     if bytes.len() > 1024 * 1024 {
-        return Err("team channel index exceeds 1 MiB".into());
+        return Err("The channel.json is larger than 1 MiB".into());
     }
-    let index: Index = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+    let index: Index = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("The channel.json isn't valid: {error}"))?;
     if index.schema_version != 1 {
-        return Err("unsupported team channel schemaVersion".into());
+        return Err("The channel.json uses a format this Domios doesn't read".into());
     }
     validate_channel_name(&index.name)?;
     if index.teams.len() > 512 {

@@ -26,7 +26,7 @@ domios team channel remove <channel-name>
 
 Adding a community channel fetches it once. Community channels then stay frozen until the owner explicitly refreshes them; refresh without a name explicitly refreshes all channels. Their teams appear in the same list, preview and recall catalog with their channel name and unverified provenance. Starting requires consent once per exact package (name, version and content hash); changing the version or contents asks again. Community packages cannot claim `dev.domios/*`. Channel refreshes never modify My templates, and a saved template takes precedence over a same-name community package.
 
-Channel status reports its last refresh outcome and every skipped entry. Entries with invalid ATP packages, mismatched name/version or a newer required Domios version are skipped. A failed fetch or invalid channel index preserves the previous cache. Channels accept local directories, git repositories and published `.tar.gz` archives with `.sha256` sidecars. `CODETERM_TEAM_CHANNEL_URL` overrides the official source for an installation.
+Channel status reports its last refresh outcome, how many of its teams this Domios can use, and every skipped entry. A refused add or refresh carries a stable `code` (`folder_not_found`, `not_a_repository`, `not_found`, `access_denied`, `unreachable`, `integrity_failed`, `not_a_channel`, `already_registered`, `fetch_failed`) with a plain message. A local path is recognised by its spelling, so a missing folder is reported as missing, never cloned. Entries with invalid ATP packages, mismatched name/version or a newer required Domios version are skipped. A failed fetch or invalid channel index preserves the previous cache. Channels accept local directories, git repositories and published `.tar.gz` archives with `.sha256` sidecars. `CODETERM_TEAM_CHANNEL_URL` overrides the official source for an installation.
 
 ## Start a Team
 
@@ -121,4 +121,4 @@ The bake writes the `roles` map with `kind` first in each role and keeps each ro
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
