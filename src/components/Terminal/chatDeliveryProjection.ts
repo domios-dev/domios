@@ -6,25 +6,36 @@ export interface DeliveryProjectionMemory {
   key: string;
   seen: Set<string>;
   queued: Set<string>;
+  /** Turn ends observed while each queued send waited. */
+  turnEnds: Map<string, number>;
+  turnRunning: boolean;
   /** Sends whose wait behind a turn ended; they keep their send-time slot. */
   released: Set<string>;
   pending: Map<string, EnrichedChatEntry>;
 }
 
 export function createDeliveryProjectionMemory(key: string): DeliveryProjectionMemory {
-  return { key, seen: new Set(), queued: new Set(), released: new Set(), pending: new Map() };
+  return { key, seen: new Set(), queued: new Set(), turnEnds: new Map(), turnRunning: false, released: new Set(), pending: new Map() };
 }
 
-function tailWaitEnded(send: DeliverySend, state: DeliveryState, turnRunning: boolean): boolean {
-  return Boolean(send.dismissed) || state === "failed" || (state === "uncertain" && !turnRunning);
+// The turn it queued behind ends first; queued input is submitted then, so only a
+// following turn that also ends without its evidence proves it was not picked up.
+const TURN_ENDS_BEFORE_UNCONFIRMED_RELEASE = 2;
+
+function tailWaitEnded(send: DeliverySend, state: DeliveryState, turnEnds: number): boolean {
+  return Boolean(send.dismissed) || state === "failed"
+    || (state === "uncertain" && turnEnds >= TURN_ENDS_BEFORE_UNCONFIRMED_RELEASE);
 }
 
 /** Sends drawn after the running turn's output. Only input still in flight joins, so a
  *  reload never pins settled sends to the tail; one that fails, or stays unconfirmed after
- *  its turn, moves once to its send time and never returns to the tail. */
+ *  the turn that should have taken it, moves once to its send time and stays there. */
 export function queuedDeliveryIds(sends: readonly DeliverySend[], turnRunning: boolean, memory: DeliveryProjectionMemory): ReadonlySet<string> {
   const current = new Set(sends.map(send => send.id));
+  const turnEnded = memory.turnRunning && !turnRunning;
+  memory.turnRunning = turnRunning;
   for (const id of memory.queued) if (!current.has(id)) memory.queued.delete(id);
+  for (const id of memory.turnEnds.keys()) if (!memory.queued.has(id)) memory.turnEnds.delete(id);
   for (const id of memory.released) if (!current.has(id)) memory.released.delete(id);
   for (const send of sends) {
     if (memory.released.has(send.id)) continue;
@@ -32,10 +43,13 @@ export function queuedDeliveryIds(sends: readonly DeliverySend[], turnRunning: b
     const inFlight = state === "sending" || state === "queued";
     if (send.status?.pending_reason === ACTIVE_TURN_HOLD
       || (!memory.seen.has(send.id) && inFlight && (turnRunning || send.wasHeld))) memory.queued.add(send.id);
-    if (memory.queued.has(send.id) && tailWaitEnded(send, state, turnRunning)) {
+    if (!memory.queued.has(send.id)) continue;
+    const turnEnds = (memory.turnEnds.get(send.id) ?? 0) + (turnEnded ? 1 : 0);
+    if (tailWaitEnded(send, state, turnEnds)) {
       memory.queued.delete(send.id);
+      memory.turnEnds.delete(send.id);
       memory.released.add(send.id);
-    }
+    } else memory.turnEnds.set(send.id, turnEnds);
   }
   memory.seen = current;
   return memory.queued;

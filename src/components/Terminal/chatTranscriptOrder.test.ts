@@ -195,9 +195,12 @@ test("a send queued behind the running turn waits at the tail, then settles at i
     renderedColumn({ state, visible: PAGE, sends, turnRunning, memory: projection });
   assert.equal(view([send("queued", sentAt)], true).at(-1)?.key, "queued", "a fresh send waits after the running output");
   assert.equal(view([send("queued", sentAt, "written")], true).at(-1)?.key, "queued", "written input keeps waiting with its turn");
+  assert.equal(view([send("queued", sentAt, "submit_unconfirmed")], false).at(-1)?.key, "queued",
+    "at the end of its turn, queued input is about to be taken, so its echo may still land at the tail");
+  assert.equal(view([send("queued", sentAt, "submit_unconfirmed")], true).at(-1)?.key, "queued");
   const unconfirmed = view([send("queued", sentAt, "submit_unconfirmed")], false);
   assert.deepEqual(neighbours(unconfirmed, "queued"), [`report-${TURNS - 1}`, `reply-${TURNS - 1}`],
-    "once the turn is over, an unconfirmed send sits where it was sent");
+    "once the following turn also ends without it, an unconfirmed send sits where it was sent");
   assertChronological(unconfirmed, "settled");
   assert.deepEqual(view([send("queued", sentAt, "submit_unconfirmed")], true), unconfirmed,
     "a released send keeps its bubble and slot when the next turn starts");
