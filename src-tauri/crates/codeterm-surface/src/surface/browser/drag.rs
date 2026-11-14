@@ -46,6 +46,7 @@ impl BrowserRuntime {
         page: &PageChannel,
         points: [f64; 4],
         epoch: Value,
+        targets: Option<[i64; 2]>,
     ) -> Result<String, String> {
         let token = uuid::Uuid::new_v4().to_string();
         let mut intercepted = page.subscribe_session(&["Input.dragIntercepted"]);
@@ -72,7 +73,13 @@ impl BrowserRuntime {
                 {
                     return Err("stale: page changed while preparing drag".into());
                 }
-                self.dispatch_drag(page, points, &token, &mut intercepted)
+                if let Some([from, to]) = targets {
+                    self.require_pointer_target(page, from, points[0], points[1])
+                        .await?;
+                    self.require_pointer_target(page, to, points[2], points[3])
+                        .await?;
+                }
+                self.dispatch_drag(page, points, &token, &mut intercepted, targets)
                     .await
             })
             .await;
@@ -114,8 +121,12 @@ impl BrowserRuntime {
         [x, y, end_x, end_y]: [f64; 4],
         token: &str,
         intercepted: &mut EventStream,
+        targets: Option<[i64; 2]>,
     ) -> Result<Value, String> {
         self.drag_mouse(page, "mouseMoved", x, y, 0).await?;
+        if let Some([from, _]) = targets {
+            self.require_pointer_target(page, from, x, y).await?;
+        }
         self.drag_mouse(page, "mousePressed", x, y, 1).await?;
         self.drag_mouse(page, "mouseMoved", (x + end_x) / 2.0, (y + end_y) / 2.0, 1)
             .await?;
@@ -125,6 +136,14 @@ impl BrowserRuntime {
             return Err("drag observation lost".into());
         }
         let pending = intercepted.try_recv().ok();
+        if let Some([_, to]) = targets {
+            if let Err(error) = self.require_pointer_target(page, to, end_x, end_y).await {
+                let _ = self.send(page, "Input.cancelDragging", json!({})).await;
+                self.drag_mouse(page, "mouseReleased", -1.0, -1.0, 0)
+                    .await?;
+                return Err(format!("action_unconfirmed: {error}; drag interrupted; inspect before continuing; never replay"));
+            }
+        }
         if state["started"] == true || pending.is_some() {
             let event = match pending {
                 Some(event) => event,

@@ -7,6 +7,7 @@ mod domios_instance;
 mod drag;
 mod grab;
 mod heuristics;
+mod hit_test;
 mod inbox;
 mod input;
 mod interactions;
