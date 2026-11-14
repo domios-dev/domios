@@ -27,13 +27,13 @@
         "role": "orchestrator",
         "label": "Lead",
         "authority": "builtin",
-        "decision": { "reason": "needs_choice", "alternatives": [{ "model": "claude:opus" }], "amber": false }
+        "decision": { "reason": "needs_choice", "alternatives": [{ "model": "harness-a:opus" }], "amber": false }
       }
     ]
   },
   {
     "status": "manager_failed",
-    "failure": { "role": "planner", "reason": "codex is not signed in", "choices": ["Sign in to codex", "Use claude:sonnet"] }
+    "failure": { "role": "planner", "reason": "harness-b is not signed in", "choices": ["Sign in to harness-b", "Use harness-a:sonnet"] }
   },
   { "status": "refused", "refusal": { "code": "consent_required", "reasons": ["new_grants"] } },
   { "status": "refused", "refusal": { "code": "missing_inputs", "inputs": ["question"] } },
