@@ -72,13 +72,6 @@ fn read_local_text_with(
     std::fs::read_to_string(path)
 }
 
-pub(crate) fn read_local_bytes(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u8>> {
-    use std::io::Read;
-    let mut bytes = Vec::new();
-    open_local_file(path)?.read_to_end(&mut bytes)?;
-    Ok(bytes)
-}
-
 pub(crate) fn open_local_file(path: impl AsRef<std::path::Path>) -> std::io::Result<std::fs::File> {
     if host_scoped() {
         require(Operation::LocalInput)
