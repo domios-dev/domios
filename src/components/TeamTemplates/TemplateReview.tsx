@@ -1,29 +1,28 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import "./teamTemplates.css";
-import { Eye, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import type { ProviderDescriptor } from "../../lib/types";
-import { AgentIcon } from "../AgentIcon";
 import { BackPill } from "../shared/BackPill";
 import { Button } from "../shared/Button";
-import { kindDisplayName } from "../../lib/roleKind";
 import {
-  effortLabel, humanizePackageName, lacksAuthority, managerDecision, managerRoles, roleSameAs, roleTiming, splitModel, templateSource,
+  humanizePackageName, lacksAuthority, managerRoles, roleTiming, templateSource,
   type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import { TemplateIdentity } from "./TemplateIdentity";
 import { TemplateBrings } from "./TemplateBrings";
 import { TemplateAsks } from "./TemplateAsks";
+import { TemplateAboutDialog } from "./TemplateAboutDialog";
+import { ReadInstructionsButton } from "./ReadInstructionsButton";
+import { ModelCapsule } from "./TemplateRoleModel";
 import { PinnedFooter } from "./PinnedFooter";
 import { managerIcon } from "./TemplateManagers";
-import { reviewRoles, roleHeading } from "./templateRoles";
+import { roleHeading } from "./templateRoles";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
 import { harnessRequirements, updateDiffLines } from "../../lib/teamTemplates/exchangeModel";
 
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
 type TemplateRoleSummary = import("../../../gen/TemplateRoleSummary").TemplateRoleSummary;
 type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpdateDiff;
-
-const LINK = "inline-flex items-center gap-1 text-[var(--ct-accent)] hover:underline";
 
 function UpdateDiff({ diff }: { diff: TemplateUpdateDiff }) {
   const lines = updateDiffLines(diff);
@@ -34,24 +33,6 @@ function UpdateDiff({ diff }: { diff: TemplateUpdateDiff }) {
         : <div className="text-[var(--ct-muted-fg)]">Same roles, items and asks.</div>}
       <div className="text-[11px] text-[var(--ct-muted-fg)]">Teams already started keep the version they started with.</div>
     </div>
-  );
-}
-
-const CAPSULE = "ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px]";
-const UNSET = `${CAPSULE} border border-dashed border-[color-mix(in_srgb,var(--ct-fg)_18%,transparent)] text-[var(--ct-muted-fg)]`;
-
-function ModelCapsule({ preview, role, providers }: { preview: TemplatePreview; role: TemplateRoleSummary; providers: readonly ProviderDescriptor[] }) {
-  const decision = role.kind === "manager" ? managerDecision(preview.form.pickers, role) : role.model;
-  const target = roleSameAs(role);
-  if (target) return <span className={UNSET}>Same as {kindDisplayName(target)}</span>;
-  if (!decision?.choice) return <span className={UNSET}>You pick</span>;
-  const { providerId, modelId } = splitModel(decision.choice.model);
-  const model = providers.find((provider) => provider.id === providerId)?.available_models.find((entry) => entry.id === modelId)?.display_name ?? modelId;
-  const effort = decision.effort?.applied;
-  return (
-    <span className={`${CAPSULE} bg-[color-mix(in_srgb,var(--ct-fg)_6%,transparent)] font-mono`}>
-      <AgentIcon providerId={providerId} className="text-[11px]" />{effort ? `${model} · ${effortLabel(effort)}` : model}
-    </span>
   );
 }
 
@@ -114,6 +95,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
   onInstallProvider: (providerId: string) => void;
 }) {
   const titleId = useId();
+  const [reading, setReading] = useState(false);
   const descriptionId = useId();
   const summary: TemplateSummary = preview.form.template;
   const source = templateSource(summary);
@@ -122,7 +104,6 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
   const back = choice.view.kind === "review" ? choice.view.back : "gallery";
   const managers = managerRoles(preview.form.roles);
   const workers = preview.form.roles.filter((role) => role.kind === "worker");
-  const readable = reviewRoles(preview.form.roles);
   const unverified = consent && preview.consent?.reasons.includes("unverified_package");
   return (
     <section aria-labelledby={titleId} aria-describedby={descriptionId} className="flex flex-col gap-3" data-testid={`template-review-${mode}`}>
@@ -136,9 +117,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
         <div className="flex flex-col gap-3">
           <RoleList title="Managers" roles={managers} preview={preview} providers={providers} />
           <RoleList title="Workers on demand" roles={workers} preview={preview} providers={providers} />
-          {readable.length > 0 && <button type="button" className={`self-start text-[11.5px] ${LINK}`} onClick={() => choice.readInstructions(readable[0].role)}>
-            <Eye size={12} aria-hidden="true" />Read the instructions for {readable.length === 1 ? "1 role" : `${readable.length} roles`}
-          </button>}
+          <ReadInstructionsButton preview={preview} onClick={() => setReading(true)} />
         </div>
         <div className="flex flex-col gap-3">
           <TemplateBrings payload={preview.payload ?? []} optOut={consent ? choice.optOut : new Set()} onToggle={consent ? choice.setKept : undefined}
@@ -162,6 +141,7 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
           <Button type="button" variant="primary" className="w-full" onClick={choice.acceptReviewed}>Use template</Button>
         </div>
       </PinnedFooter>
+      {reading && <TemplateAboutDialog choice={choice} preview={preview} providers={providers} initialSection="roles" onClose={() => setReading(false)} />}
     </section>
   );
 }
