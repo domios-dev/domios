@@ -679,6 +679,7 @@ button {
 }
 
 .ct-liquid-interactive:focus-visible,
+.ct-focus-ring:focus-visible,
 .ct-segmented-option:focus-visible,
 .sidebar-tab-activation:focus-visible,
 .sidebar-team-card-activation:focus-visible {
