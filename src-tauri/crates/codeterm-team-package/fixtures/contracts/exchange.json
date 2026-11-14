@@ -100,9 +100,9 @@
     "start": {
       "template": { "template": { "name": "ada/research-desk", "version": "1.1.0" }, "inputs": { "question": "EU heat pumps" } },
       "workspace_id": "ws_eight_research",
-      "orchestrator_agent": "claude",
+      "orchestrator_agent": "harness-a",
       "orchestrator_model": "opus",
-      "planner_agent": "codex",
+      "planner_agent": "harness-b",
       "planner_model": null
     },
     "origin_workspace_id": "ws_home"

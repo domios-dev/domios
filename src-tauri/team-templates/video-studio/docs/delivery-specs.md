@@ -1,6 +1,6 @@
 # Delivery specs
 
-What a launch owner needs from the video studio. The `formats`, `voice`, `plays_on` and `deadline` start answers override these defaults.
+What a launch owner needs from the video studio. These are suggested defaults: the Director agrees where the film plays, the formats, voice and captions, and the deadline with the owner in the first conversation, and the Team's goal carries the answers.
 
 ## Exports
 

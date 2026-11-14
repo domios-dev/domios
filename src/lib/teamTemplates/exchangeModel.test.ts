@@ -16,7 +16,7 @@ describe("template exchange model", () => {
       { name: "Example Labs", url: "javascript:alert(1)" },
     ], links: { homepage: "https://example.com/desk", repository: "file:///etc/passwd", docs: "http://docs.example.com/" } };
     expect(authorLine({ ...summary, provenance: "imported" })).toBe("by Jane Doe");
-    const [, desk] = templateListFixture.templates;
+    const desk = templateListFixture.templates.find((template) => template.name === "com.example/research-desk")!;
     expect(cardByline({ ...desk, ...summary, provenance: "imported" })).toBe("by Jane Doe · Researcher, Checker, Writer, 3 more");
     expect(cardByline({ ...desk, ...summary, provenance: "saved" })).toBe("by you · Researcher, Checker, Writer, 3 more");
     expect(cardByline({ provenance: "builtin", workers: 1, worker_names: ["build_owner"], skills: 1, skill_names: ["source-check"] })).toBe("Build owner, source-check");

@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createTranscriptState, reduceTranscript, projectTranscript, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
-import { queuedDeliveryIds, stableDeliveryEntries, type DeliveryProjectionMemory } from "./chatDeliveryProjection";
+import { createDeliveryProjectionMemory, queuedDeliveryIds, stableDeliveryEntries } from "./chatDeliveryProjection";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
-const memory = (): DeliveryProjectionMemory => ({ key: "session", seen: new Set(), queued: new Set(), pending: new Map() });
+const memory = () => createDeliveryProjectionMemory("session");
 const send: DeliverySend = { id: "local", correlationId: "token", content: "opaque", sentAtMs: 1_800_000_000_000 };
 const entry = (msg: NormalizedChatMessage): EnrichedChatEntry => ({ msg, item: { kind: "message", message: msg }, origin: undefined });
 
@@ -17,7 +17,7 @@ test("a queued send stays after the running output through turn end, while steer
     for (const [index, status] of ([undefined, "written", "submit_unconfirmed", "delivered"] as const).entries()) {
       const current: DeliverySend = status ? { ...send, status: { tab_id: "tab", send_id: "tx", correlationId: "token", state: status,
         sequence: index, ledger_id: "ledger", retained_from: 1, error: null } } : send;
-      const queued = queuedDeliveryIds([current], index === 0 && queue, state);
+      const queued = queuedDeliveryIds([current], queue, state);
       assert.deepEqual(projectTranscript(transcript, deliveryProjectionSends([current], null, queued)).rows.map(row => row.id),
         queue ? ["output", "local"] : ["local", "output"]);
     }

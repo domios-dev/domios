@@ -40,7 +40,19 @@ impl SharedBrowser {
             }
         };
         self.client.close("shared browser stopped");
-        if !self.profile.is_persistent() || super::instance::is_ephemeral(&self.dir).await {
+        let confirmed_exit = self.process.is_none()
+            || !cfg!(target_os = "macos")
+            || matches!(
+                outcome,
+                Some(
+                    CloseOutcome::AlreadyExited(_)
+                        | CloseOutcome::Graceful(_)
+                        | CloseOutcome::Killed(Some(_))
+                )
+            );
+        if confirmed_exit
+            && (!self.profile.is_persistent() || super::instance::is_ephemeral(&self.dir).await)
+        {
             let _ = tokio::fs::remove_dir_all(&self.dir).await;
         }
         outcome

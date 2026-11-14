@@ -109,18 +109,23 @@ async fn launch_shared(
     let process = match BrowserProcess::spawn(&located.binary, &args, READY_DEADLINE).await {
         Ok(process) => Arc::new(process),
         Err(error) => {
-            discard_profile(&profile, &profile_dir).await;
-            return Err(foreign_profile_error(&profile_dir, &error));
+            if !error.process_may_be_running {
+                discard_profile(&profile, &profile_dir).await;
+            }
+            return Err(foreign_profile_error(&profile_dir, &error.detail));
         }
     };
     let client = match CdpClient::connect(process.endpoint()).await {
         Ok(client) => client,
         Err(error) => {
             process.kill();
-            process
+            let confirmed_exit = process
                 .wait_exit_until(Instant::now() + KILL_DEADLINE)
-                .await;
-            discard_profile(&profile, &profile_dir).await;
+                .await
+                .is_some();
+            if confirmed_exit || !cfg!(target_os = "macos") {
+                discard_profile(&profile, &profile_dir).await;
+            }
             return Err(error);
         }
     };

@@ -41,23 +41,23 @@ fn harness(models: Vec<ModelInfo>, efforts: &[&str]) -> HarnessCatalogue {
     }
 }
 
-const CLAUDE_SCALE: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+const HARNESS_A_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
 fn target() -> TargetCatalogue {
     let mut harnesses = BTreeMap::new();
     harnesses.insert(
-        "claude".to_string(),
+        "harness-a".to_string(),
         harness(
             vec![
-                model("opus", Some(CLAUDE_SCALE)),
+                model("opus", Some(HARNESS_A_EFFORTS)),
                 model("sonnet", Some(&["low", "medium", "high"])),
                 model("haiku", Some(&[])),
             ],
-            CLAUDE_SCALE,
+            HARNESS_A_EFFORTS,
         ),
     );
     harnesses.insert(
-        "codex".to_string(),
+        "harness-b".to_string(),
         harness(
             vec![
                 model("gpt-6-sol", None),
@@ -116,12 +116,12 @@ fn missing_manager_model_needs_owner_choice() {
     assert_eq!(
         models(&decision.alternatives),
         [
-            "claude:opus",
-            "claude:sonnet",
-            "claude:haiku",
-            "codex:gpt-6-sol",
-            "codex:gpt-6.5-sol",
-            "codex:gpt-6-astra",
+            "harness-a:opus",
+            "harness-a:sonnet",
+            "harness-a:haiku",
+            "harness-b:gpt-6-sol",
+            "harness-b:gpt-6.5-sol",
+            "harness-b:gpt-6-astra",
         ]
     );
     assert!(decision
@@ -141,47 +141,51 @@ fn model_less_worker_takes_normal_dispatch_defaults() {
 
 #[test]
 fn first_preference_is_chosen_with_in_list_alternatives() {
-    let preference = list(&["claude:opus", "codex:gpt-6-sol"]);
+    let preference = list(&["harness-a:opus", "harness-b:gpt-6-sol"]);
     let decision = decide_model(&manager(&preference), None, &target());
     assert_eq!(decision.reason, ModelDecisionReason::FirstPreference);
-    assert_eq!(choice(&decision), Some("claude:opus"));
-    assert_eq!(models(&decision.alternatives), ["codex:gpt-6-sol"]);
+    assert_eq!(choice(&decision), Some("harness-a:opus"));
+    assert_eq!(models(&decision.alternatives), ["harness-b:gpt-6-sol"]);
     assert!(!decision.amber);
     assert_eq!(decision.choice.as_ref().unwrap().price, None);
 }
 
 #[test]
 fn within_list_fallback_is_amber() {
-    let preference = list(&["claude:opus", "codex:gpt-6-sol"]);
-    let target = with_readiness("claude", HarnessReadiness::Quota);
+    let preference = list(&["harness-a:opus", "harness-b:gpt-6-sol"]);
+    let target = with_readiness("harness-a", HarnessReadiness::Quota);
     let decision = decide_model(&manager(&preference), None, &target);
     assert_eq!(decision.reason, ModelDecisionReason::WithinListFallback);
-    assert_eq!(choice(&decision), Some("codex:gpt-6-sol"));
+    assert_eq!(choice(&decision), Some("harness-b:gpt-6-sol"));
     assert!(decision.amber);
 }
 
 #[test]
 fn quota_blocks_and_offers_outside_list_choices_for_a_human_pick() {
-    let preference = list(&["claude:opus"]);
-    let target = with_readiness("claude", HarnessReadiness::Quota);
+    let preference = list(&["harness-a:opus"]);
+    let target = with_readiness("harness-a", HarnessReadiness::Quota);
     let decision = decide_model(&manager(&preference), None, &target);
     assert_eq!(decision.reason, ModelDecisionReason::Blocked);
     assert_eq!(
         decision.blocked,
         Some(ModelBlockedReason::Quota {
-            harness: "claude".into()
+            harness: "harness-a".into()
         })
     );
     assert_eq!(choice(&decision), None);
     assert_eq!(
         models(&decision.alternatives),
-        ["codex:gpt-6-sol", "codex:gpt-6.5-sol", "codex:gpt-6-astra"]
+        [
+            "harness-b:gpt-6-sol",
+            "harness-b:gpt-6.5-sol",
+            "harness-b:gpt-6-astra",
+        ]
     );
 }
 
 #[test]
 fn outside_list_candidate_is_never_chosen_automatically() {
-    let preference = list(&["claude:opus", "claude:sonnet"]);
+    let preference = list(&["harness-a:opus", "harness-a:sonnet"]);
     for readiness in [
         HarnessReadiness::Absent,
         HarnessReadiness::NotSignedIn,
@@ -190,19 +194,19 @@ fn outside_list_candidate_is_never_chosen_automatically() {
         let decision = decide_model(
             &manager(&preference),
             None,
-            &with_readiness("claude", readiness),
+            &with_readiness("harness-a", readiness),
         );
         assert_eq!(choice(&decision), None, "{readiness:?}");
         assert!(!decision.alternatives.is_empty());
     }
-    let owner = ["codex:gpt-6-astra".to_string()];
+    let owner = ["harness-b:gpt-6-astra".to_string()];
     let picked = RoleModelRequest {
         owner_choices: &owner,
         ..manager(&preference)
     };
     let decision = decide_model(&picked, None, &target());
     assert_eq!(decision.reason, ModelDecisionReason::OwnerChoice);
-    assert_eq!(choice(&decision), Some("codex:gpt-6-astra"));
+    assert_eq!(choice(&decision), Some("harness-b:gpt-6-astra"));
 }
 
 #[test]
@@ -212,7 +216,7 @@ fn same_as_takes_the_referenced_roles_resolved_model() {
         "version": "1.0.0",
         "description": "Decision fixture.",
         "roles": {
-            "orchestrator": {"kind": "manager", "model": ["gemini:pro", "codex:gpt-6-sol"], "reasoning": "high"},
+            "orchestrator": {"kind": "manager", "model": ["harness-c:pro", "harness-b:gpt-6-sol"], "reasoning": "high"},
             "planner": {"kind": "manager", "model": {"same_as": "orchestrator"}},
             "reviewer": {"kind": "worker"}
         }
@@ -223,11 +227,11 @@ fn same_as_takes_the_referenced_roles_resolved_model() {
     assert_eq!(document, before);
     let orchestrator = &decided["orchestrator"];
     assert_eq!(orchestrator.reason, ModelDecisionReason::WithinListFallback);
-    assert_eq!(choice(orchestrator), Some("codex:gpt-6-sol"));
+    assert_eq!(choice(orchestrator), Some("harness-b:gpt-6-sol"));
     assert_eq!(orchestrator.effort.as_ref().unwrap().applied, "high");
     let planner = &decided["planner"];
     assert_eq!(planner.reason, ModelDecisionReason::SameAs);
-    assert_eq!(choice(planner), Some("codex:gpt-6-sol"));
+    assert_eq!(choice(planner), Some("harness-b:gpt-6-sol"));
     assert_eq!(
         decided["reviewer"].reason,
         ModelDecisionReason::NormalDefault
@@ -238,7 +242,7 @@ fn same_as_takes_the_referenced_roles_resolved_model() {
 fn same_as_is_blocked_when_the_referenced_model_is_absent_on_the_target() {
     let referenced = ModelDecision {
         choice: Some(ModelOption {
-            model: "gemini:pro".into(),
+            model: "harness-c:pro".into(),
             price: None,
         }),
         reason: ModelDecisionReason::FirstPreference,
@@ -262,21 +266,21 @@ fn same_as_is_blocked_when_the_referenced_model_is_absent_on_the_target() {
 
 #[test]
 fn renamed_id_returns_ranked_close_id_suggestions() {
-    let preference = list(&["codex:gpt-6.1-sol"]);
+    let preference = list(&["harness-b:gpt-6.1-sol"]);
     let decision = decide_model(&manager(&preference), None, &target());
     assert_eq!(decision.reason, ModelDecisionReason::Blocked);
     assert_eq!(
         decision.blocked,
         Some(ModelBlockedReason::UnknownModel {
-            model: "codex:gpt-6.1-sol".into(),
+            model: "harness-b:gpt-6.1-sol".into(),
             suggestions: vec![
-                "codex:gpt-6.5-sol".into(),
-                "codex:gpt-6-sol".into(),
-                "codex:gpt-6-astra".into(),
+                "harness-b:gpt-6.5-sol".into(),
+                "harness-b:gpt-6-sol".into(),
+                "harness-b:gpt-6-astra".into(),
             ],
         })
     );
-    assert_eq!(decision.alternatives[0].model, "codex:gpt-6-sol");
+    assert_eq!(decision.alternatives[0].model, "harness-b:gpt-6-sol");
 }
 
 #[test]
@@ -299,7 +303,7 @@ fn close_id_ties_keep_catalogue_order() {
 
 #[test]
 fn unsupported_effort_clamps_to_the_nearest_level_with_a_tooltip_reason() {
-    let preference = list(&["claude:sonnet"]);
+    let preference = list(&["harness-a:sonnet"]);
     let decide_with = |effort: &str| {
         let request = RoleModelRequest {
             effort: Some(effort),
@@ -320,15 +324,15 @@ fn unsupported_effort_clamps_to_the_nearest_level_with_a_tooltip_reason() {
 
 #[test]
 fn model_without_reasoning_effort_fails_the_effort_hard_need() {
-    let preference = list(&["claude:haiku", "claude:sonnet"]);
+    let preference = list(&["harness-a:haiku", "harness-a:sonnet"]);
     let request = RoleModelRequest {
         effort: Some("high"),
         ..manager(&preference)
     };
     let decision = decide_model(&request, None, &target());
-    assert_eq!(choice(&decision), Some("claude:sonnet"));
+    assert_eq!(choice(&decision), Some("harness-a:sonnet"));
     assert!(decision.amber);
-    let only = list(&["claude:haiku"]);
+    let only = list(&["harness-a:haiku"]);
     let request = RoleModelRequest {
         effort: Some("high"),
         ..manager(&only)
@@ -336,24 +340,24 @@ fn model_without_reasoning_effort_fails_the_effort_hard_need() {
     assert_eq!(
         decide_model(&request, None, &target()).blocked,
         Some(ModelBlockedReason::NoReasoningEffort {
-            model: "claude:haiku".into()
+            model: "harness-a:haiku".into()
         })
     );
 }
 
 #[test]
 fn absent_harness_is_blocked_with_recovery_choices() {
-    let preference = list(&["gemini:pro"]);
+    let preference = list(&["harness-c:pro"]);
     let decision = decide_model(&manager(&preference), None, &target());
     assert_eq!(
         decision.blocked,
         Some(ModelBlockedReason::AbsentHarness {
-            harness: "gemini".into()
+            harness: "harness-c".into()
         })
     );
     assert!(!decision.alternatives.is_empty());
-    let required = ["gemini".to_string()];
-    let opus = list(&["claude:opus"]);
+    let required = ["harness-c".to_string()];
+    let opus = list(&["harness-a:opus"]);
     let request = RoleModelRequest {
         requires_harnesses: &required,
         ..manager(&opus)
@@ -361,7 +365,7 @@ fn absent_harness_is_blocked_with_recovery_choices() {
     assert_eq!(
         decide_model(&request, None, &target()).blocked,
         Some(ModelBlockedReason::AbsentHarness {
-            harness: "gemini".into()
+            harness: "harness-c".into()
         })
     );
 }
@@ -386,7 +390,7 @@ fn unsigned_in_acp_harness_is_blocked() {
 
 #[test]
 fn missing_tool_blocks_only_when_the_target_reports_its_inventory() {
-    let preference = list(&["claude:opus"]);
+    let preference = list(&["harness-a:opus"]);
     let tools = ["mcp:github".to_string()];
     let request = RoleModelRequest {
         tools: &tools,
@@ -394,7 +398,7 @@ fn missing_tool_blocks_only_when_the_target_reports_its_inventory() {
     };
     assert_eq!(
         choice(&decide_model(&request, None, &target())),
-        Some("claude:opus")
+        Some("harness-a:opus")
     );
     let mut reported = target();
     reported.tools = Some(BTreeSet::new());
@@ -408,18 +412,21 @@ fn missing_tool_blocks_only_when_the_target_reports_its_inventory() {
 
 #[test]
 fn mid_run_loss_takes_the_next_preference_then_asks_the_owner() {
-    let preference = list(&["claude:opus", "codex:gpt-6-sol"]);
-    let lost = ["claude:opus".to_string()];
+    let preference = list(&["harness-a:opus", "harness-b:gpt-6-sol"]);
+    let lost = ["harness-a:opus".to_string()];
     let request = RoleModelRequest {
         lost: &lost,
         ..manager(&preference)
     };
     let next = decide_model(&request, None, &target());
     assert_eq!(next.reason, ModelDecisionReason::WithinListFallback);
-    assert_eq!(choice(&next), Some("codex:gpt-6-sol"));
+    assert_eq!(choice(&next), Some("harness-b:gpt-6-sol"));
     assert!(next.amber);
 
-    let lost = ["claude:opus".to_string(), "codex:gpt-6-sol".to_string()];
+    let lost = [
+        "harness-a:opus".to_string(),
+        "harness-b:gpt-6-sol".to_string(),
+    ];
     let request = RoleModelRequest {
         lost: &lost,
         ..manager(&preference)
@@ -440,12 +447,12 @@ fn mid_run_loss_takes_the_next_preference_then_asks_the_owner() {
 fn target_peer_catalogue_decides_from_its_provider_listing() {
     let peer = TargetCatalogue::from_provider_listing(&[
         json!({
-            "id": "claude",
+            "id": "harness-a",
             "cli_status": {"installed": false},
             "available_models": [{"id": "opus", "display_name": "Opus"}]
         }),
         json!({
-            "id": "codex",
+            "id": "harness-b",
             "cli_status": {"installed": true},
             "model_catalogue": {"authority": "authoritative"},
             "available_models": [
@@ -468,24 +475,24 @@ fn target_peer_catalogue_decides_from_its_provider_listing() {
             "default_model": "gpt-6-astra"
         }),
     ]);
-    let preference = list(&["claude:opus", "codex:gpt-6-sol"]);
+    let preference = list(&["harness-a:opus", "harness-b:gpt-6-sol"]);
     let request = RoleModelRequest {
         effort: Some("xhigh"),
         ..manager(&preference)
     };
     let decision = decide_model(&request, None, &peer);
     assert_eq!(decision.reason, ModelDecisionReason::WithinListFallback);
-    assert_eq!(choice(&decision), Some("codex:gpt-6-sol"));
+    assert_eq!(choice(&decision), Some("harness-b:gpt-6-sol"));
     assert_eq!(decision.effort.unwrap().applied, "high");
 
-    let renamed = list(&["codex:gpt-6.1-sol"]);
+    let renamed = list(&["harness-b:gpt-6.1-sol"]);
     let decision = decide_model(&manager(&renamed), None, &peer);
     assert!(matches!(
         decision.blocked,
         Some(ModelBlockedReason::UnknownModel { ref suggestions, .. })
-            if suggestions[0] == "codex:gpt-6-sol"
+            if suggestions[0] == "harness-b:gpt-6-sol"
     ));
-    assert_eq!(decision.alternatives[0].model, "codex:gpt-6-astra");
+    assert_eq!(decision.alternatives[0].model, "harness-b:gpt-6-astra");
 }
 
 #[test]

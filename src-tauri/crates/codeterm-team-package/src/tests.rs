@@ -460,8 +460,8 @@ fn grammars_follow_the_published_rules() {
     assert!(!is_package_name("dev.domios/Default"));
     assert!(is_semver("2.1.0") && is_semver("1.0.0-rc.1+build.5"));
     assert!(!is_semver("1.0") && !is_semver("01.0.0") && !is_semver("two"));
-    assert!(is_model_id("codex:gpt-6.1-sol") && is_model_id("open-router:meta/llama-4_x"));
-    assert!(!is_model_id("opus") && !is_model_id("Claude:opus") && !is_model_id("claude:"));
+    assert!(is_model_id("harness-b:gpt-6.1-sol") && is_model_id("open-router:meta/llama-4_x"));
+    assert!(!is_model_id("opus") && !is_model_id("Harness-a:opus") && !is_model_id("harness-a:"));
     assert!(
         is_role_name("release_manager") && !is_role_name("release-manager") && !is_role_name("2qa")
     );
@@ -510,10 +510,19 @@ fn builtin_packages_are_valid_folder_packages() {
 fn authored_builtin_packages_are_indexed_and_valid() {
     let options = CheckOptions::default();
     let names = builtin::names();
-    assert_eq!(names, ["default", "design-studio", "video-studio"]);
+    assert_eq!(
+        names,
+        [
+            "default",
+            "design-studio",
+            "marketing-studio",
+            "video-studio"
+        ]
+    );
     for (folder, package) in [
         ("video-studio", "dev.domios/video-studio"),
         ("design-studio", "dev.domios/design-studio"),
+        ("marketing-studio", "dev.domios/marketing-studio"),
     ] {
         assert!(
             names.iter().any(|name| name == folder),
@@ -527,6 +536,15 @@ fn authored_builtin_packages_are_indexed_and_valid() {
         );
         let loaded = checked.package.expect("a valid package loads");
         assert_eq!(loaded.document.name, package);
+        // The owner states the goal in the first message; the start form asks for nothing.
+        assert!(
+            loaded.document.inputs.is_empty(),
+            "{folder} has start inputs"
+        );
+        assert!(
+            loaded.document.secrets.is_empty(),
+            "{folder} has start secrets"
+        );
         let (_, icon) = loaded
             .icon()
             .unwrap_or_else(|| panic!("{folder} has no usable icon"));
@@ -565,7 +583,9 @@ fn the_default_package_lists_eight_roles_with_instructions_and_no_models_but_the
         assert_eq!(role.model, expected_model, "{name}");
     }
     assert_eq!(
-        document.manager(CURATOR).and_then(|role| role.start.clone()),
+        document
+            .manager(CURATOR)
+            .and_then(|role| role.start.clone()),
         Some(RoleStart::Schedule {
             schedule: "45m..2h".into()
         })

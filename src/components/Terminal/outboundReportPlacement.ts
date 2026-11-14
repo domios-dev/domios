@@ -7,15 +7,32 @@ export interface OutboundReportPlacement {
   trailing: number[];
 }
 
+/** Whether transcript rows exist outside the drawn window, loaded or not. */
+export interface DrawnWindowBounds {
+  hiddenBefore: boolean;
+  hiddenAfter: boolean;
+}
+
+const WHOLE_TRANSCRIPT: DrawnWindowBounds = { hiddenBefore: false, hiddenAfter: false };
+
+/** A report outside the drawn window belongs to a page not shown yet; it renders
+ *  when that page is revealed, never stacked at the window's edge. */
 export function placeOutboundReports<M>(
   messages: M[],
   messageTimeMs: (message: M) => number | null,
   reportTimes: Array<number | null>,
   positions?: { sourceMessageIds: string[]; messageId: (message: M) => string; reportMessageIds: Array<string | null> },
+  bounds: DrawnWindowBounds = WHOLE_TRANSCRIPT,
 ): OutboundReportPlacement {
   const stamped = messages.map((message, index) => ({ index, at: messageTimeMs(message) }));
   const afterIndex = new Map<number, number[]>();
   const trailing: number[] = [];
+  const place = (slot: number, report: number) => {
+    if (slot < 0 && bounds.hiddenBefore) return;
+    const bucket = afterIndex.get(slot);
+    if (bucket) bucket.push(report);
+    else afterIndex.set(slot, [report]);
+  };
 
   const sourceOrder = new Map(positions?.sourceMessageIds.map((id, index) => [id, index]));
   reportTimes.forEach((at, report) => {
@@ -23,14 +40,18 @@ export function placeOutboundReports<M>(
     const position = anchor == null ? undefined : sourceOrder.get(anchor);
     if (position != null && positions) {
       let slot = -1;
+      let hasLater = false;
       for (let index = 0; index < messages.length; index++) {
         const candidate = sourceOrder.get(positions.messageId(messages[index]));
         if (candidate != null && candidate <= position) slot = index;
-        else if (candidate != null) break;
+        else if (candidate != null) {
+          hasLater = true;
+          break;
+        }
       }
-      const bucket = afterIndex.get(slot);
-      if (bucket) bucket.push(report);
-      else afterIndex.set(slot, [report]);
+      if (!hasLater && bounds.hiddenAfter && slot >= 0
+        && sourceOrder.get(positions.messageId(messages[slot])) !== position) return;
+      place(slot, report);
       return;
     }
     if (at == null) {
@@ -47,13 +68,8 @@ export function placeOutboundReports<M>(
         break;
       }
     }
-    if (!hasLater) {
-      trailing.push(report);
-      return;
-    }
-    const bucket = afterIndex.get(slot);
-    if (bucket) bucket.push(report);
-    else afterIndex.set(slot, [report]);
+    if (hasLater) place(slot, report);
+    else if (!bounds.hiddenAfter) trailing.push(report);
   });
 
   return { afterIndex, trailing };

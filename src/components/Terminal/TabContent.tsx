@@ -109,8 +109,10 @@ export function TabContent({
   </TabWrapper>;
   const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
   const loadRefused = runtimeSessionLoadRefused(tab.agent_runtime_state);
+  const chatOwnsStartup = (tab.backing?.kind === "chat_backend" || uiMode === "chat")
+    && (!tab.frozen || restore.phase === "failed");
   const dockedFailure = tab.backing?.kind === "chat_backend" || uiMode === "chat" ? dockedTabFailure(tab, wake) : null;
-  const restoreOwnsBody = !loadRefused && !dockedFailure && !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
+  const restoreOwnsBody = !chatOwnsStartup && !loadRefused && !dockedFailure && !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
   const showRestore = restoreOwnsBody && !bodyPainted;
   const restoreInline = restoreOwnsBody && bodyPainted;
   const restorePanel = <RestoreStatePanel view={initialBody.current.waiting && restore.phase === "ready" ? transcriptLoadingStageView(tab) : restore} />;
@@ -147,7 +149,7 @@ export function TabContent({
     tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
-  const body = tab.frozen && !sleepingTranscript && !bodyPainted && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task && isRemoteTaskTab(tab, descriptor.remote_task) ? (
+  const body = tab.frozen && !chatOwnsStartup && !sleepingTranscript && !bodyPainted && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task && isRemoteTaskTab(tab, descriptor.remote_task) ? (
     tab.remote_peer_id ? <div role="status">Remote task controls are unavailable through this mesh tab.</div> :
     <RemoteTaskTab key={chatBacking.session_id} tabId={tab.id} pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} capability={descriptor.remote_task} />
   ) : isChatBackend ? (
@@ -202,7 +204,7 @@ export function TabContent({
             </DeferredPresence>
           </div>
           <div ref={bodyRef} className="min-h-0 flex-1" inert={showRestore || undefined} aria-hidden={showRestore || undefined}>{body}</div>
-          <DeferredPresence present={showRestore && isVisible} className="absolute inset-0 z-20">{restorePanel}</DeferredPresence>
+          {!chatOwnsStartup && <DeferredPresence present={showRestore && isVisible} className="absolute inset-0 z-20">{restorePanel}</DeferredPresence>}
         </div>
       </div>
     </TabWrapper>

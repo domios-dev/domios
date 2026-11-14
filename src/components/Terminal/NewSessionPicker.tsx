@@ -397,7 +397,8 @@ export function NewSessionPicker({
       && orchestratorProfile.ready && plannerProfile.ready
       && templates.blocker === null;
   const templateStep = choice.mode === "pair" && templates.view.kind !== "form";
-  const chosenTemplate = templates.chosen?.form.template;
+  const teamForm = choice.mode === "pair" && !templateStep;
+  const chosenTemplate = templates.view.kind === "review" ? templates.view.preview.form.template : templates.chosen?.form.template;
   const teamDescription = chosenTemplate
     ? [templateTitle(chosenTemplate), chosenTemplate.workers > 0 ? `${chosenTemplate.workers} ${chosenTemplate.workers === 1 ? "worker" : "workers"}` : null].filter(Boolean).join(" · ")
     : undefined;
@@ -421,6 +422,7 @@ export function NewSessionPicker({
         aria-modal="true"
         aria-labelledby="new-session-picker-title"
         tabIndex={-1}
+        style={teamForm ? { display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}
         className={`new-session-picker-card picker-stagger relative my-auto w-full max-w-lg overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none`}
       >
         <span
@@ -428,7 +430,7 @@ export function NewSessionPicker({
           className="picker-ambient-wash"
           data-mode={choice.mode}
         />
-        <div className="relative mb-4 pr-8">
+        <div className="relative mb-4 shrink-0 pr-8">
           <h2 id="new-session-picker-title" className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</h2>
         </div>
         <button
@@ -443,12 +445,13 @@ export function NewSessionPicker({
         </button>
 
         {selectedWorkspace?.cwd_missing ? <FolderPaneState workspace={selectedWorkspace} /> : <>
-        <div className="relative mb-4" role="group" aria-label="Session mode">
+        <div className="relative mb-4 shrink-0" role="group" aria-label="Session mode">
           <ModeCards mode={choice.mode} allowedModes={allowedModes} onSelect={handleModeSelect} teamDescription={teamDescription} />
         </div>
 
-        <div ref={modeFrameRef} className="picker-mode-frame relative" data-step={templateStep ? "template" : undefined}>
-          <div ref={modeContentRef}>
+        <div ref={modeFrameRef} className="picker-mode-frame relative" data-step={templateStep ? "template" : undefined}
+          style={teamForm ? { minHeight: 0, flexShrink: 1, overflowY: "auto", overflowX: "hidden" } : undefined}>
+          <div ref={modeContentRef} className={teamForm ? "pb-4" : undefined}>
             <div key={choice.mode} className="picker-mode-panel">
               {choice.mode === "single" && location === "local" && presets.some((preset) => preset.provider === choice.providerId) && <label>
                 Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
@@ -566,6 +569,7 @@ export function NewSessionPicker({
 
         {!templateStep && (choice.mode === "pair" ? (
           <PinnedFooter data-testid="picker-footer"
+            style={{ position: "relative", bottom: "auto", flexShrink: 0 }}
             className="flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] sm:flex-row sm:items-center sm:gap-3">
             {startError ? (
               <div role="alert" data-testid="picker-start-error" className="min-w-0 flex-1 text-[12px] text-[var(--ct-red)]">

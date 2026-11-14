@@ -13,27 +13,27 @@ const [firstPreference, sameAs, normalDefault, , unknownModel, absentHarness, no
 
 describe("template start model", () => {
   it("prefills decided managers and leaves undecided ones to the owner", () => {
-    expect(pickerSeed(firstPreference)).toEqual({ providerId: "claude", modelId: "opus", effortId: undefined });
-    expect(pickerSeed(sameAs)).toEqual({ providerId: "claude", modelId: "opus", effortId: undefined });
+    expect(pickerSeed(firstPreference)).toEqual({ providerId: "harness-a", modelId: "opus", effortId: undefined });
+    expect(pickerSeed(sameAs)).toEqual({ providerId: "harness-a", modelId: "opus", effortId: undefined });
     expect(pickerSeed(normalDefault)).toBeNull();
     const lead = templatePreviewFixture.form.pickers[0].decision;
-    expect(pickerSeed(lead)).toEqual({ providerId: "codex", modelId: "gpt-6.1-sol", effortId: "high" });
+    expect(pickerSeed(lead)).toEqual({ providerId: "harness-b", modelId: "gpt-6.1-sol", effortId: "high" });
   });
 
   it("keeps the amber within-list fallback and the quiet effort note", () => {
     const lead = templatePreviewFixture.form.pickers[0].decision;
     expect(decisionNotice(lead)?.tone).toBe("amber");
-    expect(effortNote(lead)).toBe("codex:gpt-6.1-sol supports up to high");
+    expect(effortNote(lead)).toBe("harness-b:gpt-6.1-sol supports up to high");
     expect(decisionNotice(firstPreference)).toBeNull();
     expect(effortNote(firstPreference)).toBeNull();
   });
 
   it("explains each blocker with its recovery choices", () => {
-    expect(decisionNotice(absentHarness)?.actions).toEqual([{ kind: "install", harness: "codex" }]);
-    expect(decisionNotice(notSignedIn)?.actions).toEqual([{ kind: "sign_in", harness: "gemini" }]);
-    expect(decisionNotice(quota)?.actions).toEqual([{ kind: "substitute", model: "codex:gpt-6.1-sol" }, { kind: "wait" }]);
+    expect(decisionNotice(absentHarness)?.actions).toEqual([{ kind: "install", harness: "harness-b" }]);
+    expect(decisionNotice(notSignedIn)?.actions).toEqual([{ kind: "sign_in", harness: "harness-c" }]);
+    expect(decisionNotice(quota)?.actions).toEqual([{ kind: "substitute", model: "harness-b:gpt-6.1-sol" }, { kind: "wait" }]);
     expect(decisionNotice(unknownModel)?.actions).toEqual([
-      { kind: "substitute", model: "claude:opus" }, { kind: "substitute", model: "claude:opus-4.5" },
+      { kind: "substitute", model: "harness-a:opus" }, { kind: "substitute", model: "harness-a:opus-4.5" },
     ]);
     expect(decisionNotice(sameAsUnavailable)?.tone).toBe("blocked");
     expect(decisionNotice(exhausted)?.tone).toBe("blocked");
@@ -98,7 +98,7 @@ describe("template start model", () => {
     expect(startBlocker(noWhere, { question: "", depth: "standard" })).toEqual({ ...none, inputs: ["question"], secrets: ["SEARCH_API_KEY"] });
     const bound = { SEARCH_API_KEY: "research-desk/search" };
     const harness = startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, bound);
-    expect(harness).toEqual({ ...none, harnesses: ["codex"], tools: ["mcp:io.github.example/search"] });
+    expect(harness).toEqual({ ...none, harnesses: ["harness-b"], tools: ["mcp:io.github.example/search"] });
     expect(startBlocker(noWhere, { question: "EU heat pumps" }, bound)).toBeNull();
     const onEight = { peer: "eight", workspaceChosen: true };
     expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, {}, onEight)).toBeNull();
@@ -106,12 +106,12 @@ describe("template start model", () => {
     expect(startBlocker(templatePreviewFixture, { question: "EU heat pumps" }, {}, { peer: "eight", workspaceChosen: false }))
       .toEqual({ ...none, workspaces: ["eight"] });
     expect(blockerView({ ...none, workspaces: ["eight"] }, (id) => id)).toEqual({ tone: "amber", text: "Choose a workspace on eight." });
-    const names = (id: string) => id === "codex" ? "Codex" : id;
+    const names = (id: string) => id === "harness-b" ? "Harness B" : id;
     expect(blockerView({ ...none, inputs: ["question"], secrets: ["SEARCH_API_KEY"] }, names))
       .toEqual({ tone: "amber", text: "Fill in Question and choose a secret for SEARCH_API_KEY." });
-    expect(blockerView(harness!, names)).toEqual({ tone: "red", text: "Install Codex and connect mcp:io.github.example/search to start." });
-    expect(blockerView({ ...none, harnesses: ["codex"] }, names)).toEqual({ tone: "red", text: "Install Codex to start." });
-    expect(blockerView({ ...none, inputs: ["question"], harnesses: ["codex"] }, names).text).toBe("Fill in Question and install Codex to start.");
+    expect(blockerView(harness!, names)).toEqual({ tone: "red", text: "Install Harness B and connect mcp:io.github.example/search to start." });
+    expect(blockerView({ ...none, harnesses: ["harness-b"] }, names)).toEqual({ tone: "red", text: "Install Harness B to start." });
+    expect(blockerView({ ...none, inputs: ["question"], harnesses: ["harness-b"] }, names).text).toBe("Fill in Question and install Harness B to start.");
   });
 
   it("carries the owner decision id, opt-outs and filled inputs on the start request", () => {
@@ -138,7 +138,7 @@ describe("template start model", () => {
   it("shows a manager start failure with its reasons and choices, and other refusals plainly", () => {
     const [, needsChoice, managerFailed, consent, missingInputs, notFound] = templateStartResultFixtures;
     expect(startErrorView(new Error(`/api/orchestration/new → HTTP 400: ${JSON.stringify(managerFailed)}`))).toEqual({
-      message: "The Planner couldn't start", reasons: ["codex is not signed in"], choices: ["Sign in to codex", "Use claude:sonnet"],
+      message: "The Planner couldn't start", reasons: ["harness-b is not signed in"], choices: ["Sign in to harness-b", "Use harness-a:sonnet"],
     });
     expect(startErrorView(new Error(`template_start: ${JSON.stringify(managerFailed)}`)).message).toBe("The Planner couldn't start");
     expect(startErrorView(new Error(`HTTP 422: ${JSON.stringify({ code: "invalid_package", message: "notes.zip has no team.yaml", diagnostics: [{ message: "team.yaml is missing" }] })}`)))
@@ -157,18 +157,20 @@ describe("template start model", () => {
     const fallback = templateRecallFixture.fallback;
     const names = (entries: { name: string }[]) => entries.map((entry) => entry.name);
     expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "all", "")))
-      .toEqual(["dev.domios/video-studio", "dev.domios/default", "com.example/research-desk"]);
-    expect(names(galleryEntries(templateListFixture.templates, null, fallback, "all", ""))).toEqual(["dev.domios/default", "com.example/research-desk"]);
+      .toEqual(["dev.domios/video-studio", "dev.domios/default", "dev.domios/design-studio", "dev.domios/marketing-studio", "com.example/research-desk"]);
+    expect(names(galleryEntries(templateListFixture.templates, null, fallback, "all", "")))
+      .toEqual(["dev.domios/default", "dev.domios/video-studio", "dev.domios/design-studio", "dev.domios/marketing-studio", "com.example/research-desk"]);
     expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "mine", ""))).toEqual(["com.example/research-desk"]);
-    expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "all", "market"))).toEqual(["com.example/research-desk"]);
+    expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "all", "market")))
+      .toEqual(["dev.domios/marketing-studio", "com.example/research-desk"]);
   });
 
   it("keeps a harness blocker on the row only while that row runs on the blocked harness", () => {
     const cursor = { ...absentHarness, blocked: { kind: "absent_harness" as const, harness: "cursor" } };
-    expect(rowDecisionNotice(cursor, "codex")).toBeNull();
+    expect(rowDecisionNotice(cursor, "harness-b")).toBeNull();
     expect(rowDecisionNotice(cursor, "cursor")?.text).toBe("cursor isn't installed");
     expect(rowDecisionNotice(cursor, "")?.text).toBe("cursor isn't installed");
-    expect(rowDecisionNotice(unknownModel, "codex")).toEqual(decisionNotice(unknownModel));
+    expect(rowDecisionNotice(unknownModel, "harness-b")).toEqual(decisionNotice(unknownModel));
   });
 
   it("lists exactly the package's managers, built-in slots first, and never implies a Planner", () => {

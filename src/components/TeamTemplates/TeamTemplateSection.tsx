@@ -5,7 +5,6 @@ import type { TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { TemplateHeader } from "./TemplateHeader";
 import { TemplateGallery } from "./TemplateGallery";
 import { TemplateReview } from "./TemplateReview";
-import { TemplateInstructions } from "./TemplateInstructions";
 import { TemplateStartFields } from "./TemplateStartFields";
 import { TemplateStartAbout } from "./TemplateStartAbout";
 import { TemplateExportDialog } from "./TemplateExportDialog";
@@ -34,16 +33,14 @@ export function TeamTemplateSection({ choice, defaultForm, ...form }: {
     : view.kind === "review"
       ? <TemplateReview choice={choice} preview={view.preview} mode={view.mode} providers={form.providers} onInstallProvider={form.onInstallProvider}
         onExport={() => setExporting({ summary: view.preview.form.template, share: false })} />
-      : view.kind === "instructions"
-        ? <TemplateInstructions preview={view.review.preview} role={view.role} onRole={choice.readInstructions} onBack={choice.backFromInstructions} />
-        : choice.chosen
-          ? <TemplateStartFields choice={choice} preview={choice.chosen} {...form} />
-          : <div className="flex flex-col gap-3">
-            <TemplateHeader summary={choice.defaultSummary} onChange={choice.openGallery} />
-            <div>{defaultForm(fallback ? <LaterManagerRows form={fallback.form} providers={form.providers} disabledProviderIds={form.disabledProviderIds}
-              pair={form.pair} seats={choice.seats} onSeatChange={choice.setSeat} onSeatClear={choice.clearSeat} onInstallProvider={form.onInstallProvider} /> : null)}</div>
-            {fallback && <TemplateStartAbout choice={choice} preview={fallback} providers={form.providers} onInstallProvider={form.onInstallProvider} />}
-          </div>;
+      : choice.chosen
+        ? <TemplateStartFields choice={choice} preview={choice.chosen} {...form} />
+        : <div className="flex flex-col gap-3">
+          <TemplateHeader summary={choice.defaultSummary} onChange={choice.openGallery} />
+          <div>{defaultForm(fallback ? <LaterManagerRows form={fallback.form} providers={form.providers} disabledProviderIds={form.disabledProviderIds}
+            pair={form.pair} seats={choice.seats} onSeatChange={choice.setSeat} onSeatClear={choice.clearSeat} onInstallProvider={form.onInstallProvider} /> : null)}</div>
+          {fallback && <TemplateStartAbout choice={choice} preview={fallback} providers={form.providers} onInstallProvider={form.onInstallProvider} />}
+        </div>;
   const blocked = choice.blocked;
   return <>
     {blocked && view.kind !== "gallery" && <div role="alert" aria-label={`Can't start ${blocked.title}`} data-testid="template-blocked-start"

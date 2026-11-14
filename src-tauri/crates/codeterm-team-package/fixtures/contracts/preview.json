@@ -21,11 +21,11 @@
         "label": "Lead",
         "authority": "builtin",
         "decision": {
-          "choice": { "model": "codex:gpt-6.1-sol" },
+          "choice": { "model": "harness-b:gpt-6.1-sol" },
           "reason": "within_list_fallback",
-          "alternatives": [{ "model": "claude:sonnet" }],
+          "alternatives": [{ "model": "harness-a:sonnet" }],
           "amber": true,
-          "effort": { "requested": "xhigh", "applied": "high", "reason": "codex:gpt-6.1-sol supports up to high" }
+          "effort": { "requested": "xhigh", "applied": "high", "reason": "harness-b:gpt-6.1-sol supports up to high" }
         }
       },
       {
@@ -34,7 +34,7 @@
         "authority": "builtin",
         "decision": {
           "reason": "needs_choice",
-          "alternatives": [{ "model": "claude:opus" }, { "model": "codex:gpt-6.1-sol" }],
+          "alternatives": [{ "model": "harness-a:opus" }, { "model": "harness-b:gpt-6.1-sol" }],
           "amber": false
         }
       }
@@ -51,9 +51,9 @@
         "description": "Researches one angle of the question.",
         "start": "on_demand",
         "model": {
-          "choice": { "model": "claude:sonnet" },
+          "choice": { "model": "harness-a:sonnet" },
           "reason": "first_preference",
-          "alternatives": [{ "model": "codex:gpt-6.1-sol" }],
+          "alternatives": [{ "model": "harness-b:gpt-6.1-sol" }],
           "amber": false,
           "effort": { "requested": "medium", "applied": "medium" }
         }
@@ -79,10 +79,10 @@
       }
     ]
   },
-  "requires_harnesses": ["claude", "codex"],
+  "requires_harnesses": ["harness-a", "harness-b"],
   "where_needed": {
     "needs": [
-      { "kind": "missing_harness", "harness": "codex" },
+      { "kind": "missing_harness", "harness": "harness-b" },
       { "kind": "missing_tool", "tool": "mcp:io.github.example/search" }
     ]
   },

@@ -7,9 +7,33 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 pub const READY_DEADLINE: Duration = Duration::from_secs(15);
 pub const CLOSE_DEADLINE: Duration = Duration::from_secs(5);
 pub const KILL_DEADLINE: Duration = Duration::from_secs(5);
+
+#[derive(Debug)]
+pub struct SpawnError {
+    pub detail: String,
+    pub process_may_be_running: bool,
+}
+
+impl SpawnError {
+    fn before_launch(detail: String) -> Self {
+        Self {
+            detail,
+            process_may_be_running: false,
+        }
+    }
+}
+
+impl std::fmt::Display for SpawnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProcessExit {
@@ -23,7 +47,6 @@ pub enum CloseOutcome {
     Killed(Option<ProcessExit>),
 }
 
-/// An owned Chromium child. Dropping it kills the whole process tree.
 pub struct BrowserProcess {
     pid: u32,
     endpoint: String,
@@ -44,9 +67,29 @@ impl std::fmt::Debug for BrowserProcess {
 }
 
 impl BrowserProcess {
-    /// Returns once Chromium printed its DevTools endpoint; `deadline` only bounds failure.
-    pub async fn spawn(binary: &Path, args: &[String], deadline: Duration) -> Result<Self, String> {
-        Self::spawn_with_stdin(binary, args, deadline, Stdio::null()).await
+    pub async fn spawn(
+        binary: &Path,
+        args: &[String],
+        deadline: Duration,
+    ) -> Result<Self, SpawnError> {
+        #[cfg(target_os = "macos")]
+        {
+            let resolved = binary.to_path_buf();
+            let resolved = tokio::task::spawn_blocking(move || {
+                std::fs::canonicalize(&resolved).unwrap_or(resolved)
+            })
+            .await
+            .map_err(|error| SpawnError::before_launch(error.to_string()))?;
+            if let Some(spec) =
+                crate::launch::macos_app_launch(crate::locator::HostOs::MacOs, &resolved, args)
+                    .map_err(SpawnError::before_launch)?
+            {
+                return macos::spawn(&resolved, args, spec, deadline).await;
+            }
+        }
+        Self::spawn_with_stdin(binary, args, deadline, Stdio::null())
+            .await
+            .map_err(SpawnError::before_launch)
     }
 
     async fn spawn_with_stdin(
@@ -274,109 +317,4 @@ async fn kill_tree(pid: u32) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const FAKE_ENDPOINT: &str = "ws://127.0.0.1:9/devtools/browser/fake";
-
-    #[cfg(windows)]
-    fn fake_browser(stderr_line: &str, hold: bool) -> (&'static str, Vec<String>) {
-        let hold = if hold {
-            "; [Console]::In.ReadLine() | Out-Null"
-        } else {
-            ""
-        };
-        (
-            "powershell",
-            vec![
-                "-NoProfile".into(),
-                "-NonInteractive".into(),
-                "-Command".into(),
-                format!("[Console]::Error.WriteLine('{stderr_line}'){hold}"),
-            ],
-        )
-    }
-
-    #[cfg(unix)]
-    fn fake_browser(stderr_line: &str, hold: bool) -> (&'static str, Vec<String>) {
-        let hold = if hold { "; read line" } else { "" };
-        (
-            "sh",
-            vec!["-c".into(), format!("echo '{stderr_line}' >&2{hold}")],
-        )
-    }
-
-    #[tokio::test]
-    async fn browser_process_ready_from_stderr_then_killed_on_request() {
-        let (binary, args) = fake_browser(&format!("DevTools listening on {FAKE_ENDPOINT}"), true);
-        let process = BrowserProcess::spawn_with_stdin(
-            Path::new(binary),
-            &args,
-            READY_DEADLINE,
-            Stdio::piped(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(process.endpoint(), FAKE_ENDPOINT);
-        assert_eq!(process.exit_status(), None);
-        let outcome = process.close_with(async {}, Duration::ZERO).await;
-        assert!(
-            matches!(outcome, CloseOutcome::Killed(Some(_))),
-            "{outcome:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn browser_process_exit_before_devtools_is_an_error() {
-        let (binary, args) = fake_browser("Opening in existing browser session.", false);
-        let error = BrowserProcess::spawn(Path::new(binary), &args, READY_DEADLINE)
-            .await
-            .unwrap_err();
-        assert!(error.contains("before DevTools was ready"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn browser_process_foreign_profile_handoff_on_stdout_keeps_diagnostic() {
-        let (binary, args) = fake_browser("Opening in existing browser session.", false);
-        let args: Vec<String> = args
-            .into_iter()
-            .map(|arg| {
-                arg.replace("[Console]::Error", "[Console]")
-                    .replace(" >&2", "")
-            })
-            .collect();
-        let error = BrowserProcess::spawn(Path::new(binary), &args, READY_DEADLINE)
-            .await
-            .unwrap_err();
-        let dir = Path::new("/profiles/foreign");
-        let error = super::super::profile::foreign_profile_error(dir, &error);
-        assert!(error.contains(&dir.display().to_string()), "{error}");
-        assert!(error.contains("Domios does not own"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn browser_process_rejects_non_loopback_endpoint() {
-        let (binary, args) = fake_browser(
-            "DevTools listening on ws://10.0.0.5:9222/devtools/browser/x",
-            true,
-        );
-        let error = BrowserProcess::spawn_with_stdin(
-            Path::new(binary),
-            &args,
-            READY_DEADLINE,
-            Stdio::piped(),
-        )
-        .await
-        .unwrap_err();
-        assert!(error.contains("loopback"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn browser_process_missing_binary_fails_fast() {
-        let error =
-            BrowserProcess::spawn(Path::new("/definitely/not/a/browser"), &[], READY_DEADLINE)
-                .await
-                .unwrap_err();
-        assert!(error.starts_with("browser spawn failed"), "{error}");
-    }
-}
+mod tests;

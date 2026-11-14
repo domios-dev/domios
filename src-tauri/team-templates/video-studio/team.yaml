@@ -1,6 +1,6 @@
 # video-studio — Agentic Team Protocol (ATP) builtin package
 name: dev.domios/video-studio
-version: 1.0.0
+version: 1.1.0
 title: Video studio
 description: >-
   Makes a product video in HTML: scenes built from the real app are rendered frame by
@@ -21,26 +21,6 @@ when:
   - embed a live web film on the site
 
 project: required
-
-inputs:
-  goal: What the video is for and the one message it must land, or where its script lives
-  plays_on:
-    description: Where it plays; a live embed on a site changes the whole build
-    required: false
-    choices: [video file, live web embed, both]
-    default: video file
-  formats:
-    description: Length and aspect ratios
-    required: false
-    default: a 16:9 1920x1080 master of 45-90 s at 30 fps plus a 9:16 1080x1920 cut of 15-30 s
-  voice:
-    description: Voiceover or captions only, and the language
-    required: false
-    default: captions only, in English
-  deadline:
-    description: The date the final cut is due, kept in this one place
-    required: false
-    default: none
 
 permissions:
   network: true
