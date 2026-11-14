@@ -109,6 +109,8 @@ interface DropdownMenuProps {
   /** Pixel cap on the open menu; content beyond it scrolls internally. */
   maxHeight?: number;
   onOpenChange?: (open: boolean) => void;
+  /** A pointer open focuses the first item, as a keyboard open does; by default it leaves focus where it was. */
+  focusOnPointerOpen?: boolean;
 }
 
 /**
@@ -129,6 +131,7 @@ export function DropdownMenu({
   disabled,
   maxHeight,
   onOpenChange,
+  focusOnPointerOpen = false,
 }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
@@ -332,7 +335,7 @@ export function DropdownMenu({
     <>
       <div
         ref={triggerRef}
-        onPointerDown={disabled ? undefined : toggle}
+        onPointerDown={disabled ? undefined : (event) => toggle(event, focusOnPointerOpen)}
         onPointerUp={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(event) => {
