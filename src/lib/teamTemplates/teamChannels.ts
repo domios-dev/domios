@@ -50,6 +50,8 @@ export function useTeamChannelLabel(name: string | null | undefined): string | n
 export type ChannelRefresh =
   | { kind: "never" }
   | { kind: "ok" }
+  /** Refreshed, but none of its teams runs on this Domios; `reason` says why in plain words. */
+  | { kind: "unused"; reason: string }
   /** The official channel falls back to the bundled teams, so its failure is a calm fact, not an alarm. */
   | { kind: "bundled"; reason: string }
   | { kind: "failed"; reason: string };
@@ -94,11 +96,21 @@ export interface TeamChannelView {
   skipped: readonly SkippedView[];
 }
 
+/** Why a refreshed channel offers nothing on this Domios, from its typed skip codes. */
+function unusedReason(skipped: readonly SkippedTeam[]): string {
+  if (skipped.length === 0) return "it lists no teams";
+  if (skipped.every((entry) => entry.code === "requires_newer_domios")) {
+    const needs = new Set(skipped.map((entry) => entry.requiredDomios?.trim()).filter(Boolean));
+    return needs.size === 1 ? `its teams need Domios ${[...needs][0]}` : "its teams need a newer Domios";
+  }
+  return "none of its teams can be used here";
+}
+
 export function teamChannelView(row: TeamChannelRow): TeamChannelView {
   const official = row.official || row.name === OFFICIAL_TEAM_CHANNEL;
   const outcome = row.lastRefresh?.trim();
   const refresh: ChannelRefresh = !outcome ? { kind: "never" }
-    : outcome === "ok" ? { kind: "ok" }
+    : outcome === "ok" ? (row.usableTeams === 0 ? { kind: "unused", reason: unusedReason(row.skippedEntries ?? []) } : { kind: "ok" })
     : official ? { kind: "bundled", reason: outcome }
     : { kind: "failed", reason: outcome };
   return {
@@ -111,4 +123,39 @@ export function teamChannelView(row: TeamChannelRow): TeamChannelView {
     refresh,
     skipped: (row.skippedEntries ?? []).map(skippedView),
   };
+}
+
+/** The row's one status line: how it updates, then what it gives this Domios now. */
+export function channelStatusLine(view: TeamChannelView): string {
+  const updates = view.autoUpdates ? "Updates on its own" : "Updates only when you refresh";
+  switch (view.refresh.kind) {
+    case "unused":
+      return view.official
+        ? `${updates} · ${view.refresh.reason}, so the teams bundled with Domios are in use`
+        : `${updates} · ${view.refresh.reason}`;
+    // Offline the official channel keeps the teams bundled with Domios, which is a calm fact rather than an error.
+    case "bundled": return `${updates} · using the teams bundled with Domios`;
+    case "ok": return view.autoUpdates ? `${updates} · up to date` : updates;
+    default: return updates;
+  }
+}
+
+const REFUSAL_FALLBACK = "Couldn't finish that. Try again.";
+
+/**
+ * Plain words for a refused channel action. The host sends `{ code, error }` with a plain message; anything
+ * without a typed code (a transport failure, a raw host error) gets the fallback, never the raw dump.
+ */
+export function channelRefusalText(error: unknown, fallback = REFUSAL_FALLBACK): string {
+  const body = typeof (error as { body?: unknown } | null)?.body === "string" ? (error as { body: string }).body
+    : error instanceof Error ? error.message : String(error);
+  const start = body.indexOf("{");
+  if (start < 0) return fallback;
+  try {
+    const value = JSON.parse(body.slice(start)) as { code?: unknown; error?: unknown };
+    return typeof value.code === "string" && value.code !== "failed" && typeof value.error === "string" && value.error.trim()
+      ? value.error.trim() : fallback;
+  } catch {
+    return fallback;
+  }
 }

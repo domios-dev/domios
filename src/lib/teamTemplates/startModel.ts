@@ -384,6 +384,8 @@ export type GalleryFilter = "all" | "builtin" | "mine" | "friends" | "channels";
 export interface TemplateSource {
   filter: GalleryFilter;
   label: string;
+  /** The label's origin part alone, without the "· unverified" mark. */
+  from: string;
   /** Imported or from a community channel and not yet used through a recorded consent for this exact package. */
   unverified: boolean;
   /** The owner's own package: it can be shared. */
@@ -400,17 +402,18 @@ export type TemplateOrigin = Pick<TemplateSummary, "provenance" | "received_from
 /** The server resolves `received_from` from the friendship and `channel` from the catalog, so a client cannot claim either. */
 /** Official domios-teams packages are builtin; a community channel's read as that channel, named by `channelLabel` when known. */
 export function templateSource(origin: TemplateOrigin, channelLabel?: string | null): TemplateSource {
-  if (origin.provenance === "builtin") return { filter: "builtin", label: "Built-in", unverified: false, owned: false, exportable: true, deletable: false };
-  if (origin.provenance === "saved") return { filter: "mine", label: "Mine", unverified: false, owned: true, exportable: true, deletable: true };
+  if (origin.provenance === "builtin") return { filter: "builtin", label: "Built-in", from: "Built-in", unverified: false, owned: false, exportable: true, deletable: false };
+  if (origin.provenance === "saved") return { filter: "mine", label: "Mine", from: "Mine", unverified: false, owned: true, exportable: true, deletable: true };
   const unverified = !origin.verified;
+  const mark = (from: string) => unverified ? `${from} · unverified` : from;
   if (origin.provenance === "channel") {
     const from = `From ${channelLabel?.trim() || origin.channel?.trim() || "a channel"}`;
-    return { filter: "channels", label: unverified ? `${from} · unverified` : from, unverified, owned: false, exportable: true, deletable: false };
+    return { filter: "channels", label: mark(from), from, unverified, owned: false, exportable: true, deletable: false };
   }
   const sender = origin.received_from?.trim();
   // Until its first Use a file is a source like any other; afterwards the owner's own import is simply Mine.
-  const label = unverified ? `From ${sender || "file"} · unverified` : sender ? `From ${sender}` : "Mine";
-  return { filter: sender ? "friends" : "mine", label, unverified, owned: !sender, exportable: !sender, deletable: true };
+  const from = unverified ? `From ${sender || "file"}` : sender ? `From ${sender}` : "Mine";
+  return { filter: sender ? "friends" : "mine", label: mark(from), from, unverified, owned: !sender, exportable: !sender, deletable: true };
 }
 
 /** Who stands behind a package the owner is asked to consent to, as the opening of the review's note. */
@@ -421,20 +424,27 @@ export function consentOrigin(origin: TemplateOrigin, channelLabel?: string | nu
 }
 
 /** A quiet About fact when the official channel carries a newer built-in than this app bundles; null otherwise. */
-export function templateUpdateFact(summary: Pick<TemplateSummary, "provenance" | "version" | "bundled_version">): string | null {
+export function templateUpdateFact(summary: Pick<TemplateSummary, "provenance" | "version" | "bundled_version" | "channel">): string | null {
   const bundled = summary.bundled_version?.trim();
   if (summary.provenance !== "builtin" || !bundled || bundled === summary.version) return null;
-  return `Updated to ${summary.version} from ${bundled}`;
+  const channel = summary.channel?.trim();
+  return `Updated to ${summary.version} from ${bundled}${channel ? ` · ${channel}` : ""}`;
 }
 
 const key = (summary: TemplateSummary) => `${summary.name}@${summary.version}`;
 
-/** The best recalled matches lead, then the always-available default, then the rest, filtered by source and search text. */
+const SOURCE_RANK: Partial<Record<TemplateSummary["provenance"], number>> = { builtin: 0, channel: 1 };
+
+/**
+ * Built-ins first, then channel teams, then the rest, so an update or a new channel never reshuffles the groups.
+ * Within each group the best recalled matches lead, then the always-available default, then catalog order.
+ */
 export function galleryEntries(templates: readonly TemplateSummary[], recall: TemplateRecall | null, fallback: TemplateSummary, filter: GalleryFilter, query: string): TemplateSummary[] {
   const seen = new Set<string>([fallback.name]);
   const matches = (recall?.matches ?? []).filter((summary) => !seen.has(summary.name) && seen.add(summary.name));
   const rest = templates.filter((summary) => !seen.has(summary.name) && !seen.has(key(summary)) && seen.add(key(summary)));
-  const ordered = [...matches, fallback, ...rest];
+  const rank = (summary: TemplateSummary) => SOURCE_RANK[summary.provenance] ?? 2;
+  const ordered = [...matches, fallback, ...rest].sort((a, b) => rank(a) - rank(b));
   const needle = query.trim().toLowerCase();
   return ordered.filter((summary) => (filter === "all" || templateSource(summary).filter === filter)
     && (!needle || [summary.name, summary.title ?? "", summary.description, ...(summary.when ?? [])].some((text) => text.toLowerCase().includes(needle))));

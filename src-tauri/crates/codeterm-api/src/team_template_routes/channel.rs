@@ -16,7 +16,12 @@ async fn run(state: AppState, action: TeamChannelAction) -> Response {
             )
         })?
         .map(Json)
-        .map_err(|error| (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))))
+        .map_err(|refusal| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": refusal.message, "code": refusal.code })),
+            )
+        })
 }
 
 pub(super) async fn list(State(state): State<AppState>) -> Response {

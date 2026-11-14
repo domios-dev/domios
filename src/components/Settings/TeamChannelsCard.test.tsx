@@ -24,16 +24,18 @@ let host: HTMLDivElement;
 let actions: TeamChannelAction[];
 let failAdd: string | null;
 let transport: () => TeamTemplatesTransport;
+let channels: ReturnType<typeof vi.fn<() => Promise<{ channels: TeamChannelRow[] }>>>;
 
 beforeEach(() => {
   actions = [];
   failAdd = null;
   publishTeamChannels([]);
+  channels = vi.fn(async () => ({ channels: [official, community] }));
   const api = {
-    channels: vi.fn(async () => ({ channels: [official, community] })),
+    channels,
     channelAction: vi.fn(async (action: TeamChannelAction) => {
       actions.push(action);
-      if (action.action === "add" && failAdd) throw new Error(JSON.stringify({ error: failAdd }));
+      if (action.action === "add" && failAdd) throw Object.assign(new Error("/api/team-channels → HTTP 400: {\"error\":\"trunc"), { body: failAdd });
       return { channels: action.action === "remove" ? [official] : [official, community] };
     }),
   };
@@ -112,18 +114,41 @@ describe("Team channels card", () => {
     expect(actions).toEqual([{ action: "add", url: "https://example.invalid/new.git", name: null }]);
     expect(host.querySelector('form[aria-label="Add channel"]')).toBeNull();
 
-    failAdd = "opaque-refusal";
+    failAdd = JSON.stringify({ code: "folder_not_found", error: "opaque-plain-refusal" });
     await submitAdd("https://example.invalid/bad.git", "bad");
     expect(actions[actions.length - 1]).toEqual({ action: "add", url: "https://example.invalid/bad.git", name: "bad" });
-    const form = host.querySelector<HTMLFormElement>('form[aria-label="Add channel"]')!;
-    expect(form.querySelector('[role="alert"]')?.textContent).toContain("opaque-refusal");
+    const alert = () => host.querySelector('form[aria-label="Add channel"] [role="alert"]')?.textContent ?? "";
+    expect(alert()).toBe("opaque-plain-refusal");
+
+    failAdd = "opaque-raw-host-dump";
+    await act(async () => { host.querySelector<HTMLFormElement>('form[aria-label="Add channel"]')!.requestSubmit(); });
+    expect(alert()).not.toContain("opaque");
+    expect(alert()).not.toContain("HTTP");
+    expect(alert().length).toBeGreaterThan(0);
   });
 
-  it("refuses an add that is not a channel address without calling the daemon", async () => {
+  it("refuses an add that is not a channel address, or has no address, in its own words without calling the daemon", async () => {
     await render();
     await submitAdd("not a url");
     expect(actions).toEqual([]);
-    expect(host.querySelector('form[aria-label="Add channel"] [role="alert"]')).not.toBeNull();
+    const form = host.querySelector<HTMLFormElement>('form[aria-label="Add channel"]')!;
+    expect(form.querySelector('[role="alert"]')).not.toBeNull();
+    expect(form.noValidate).toBe(true);
+    await type(form.querySelector<HTMLInputElement>('input[name="url"]')!, "");
+    await act(async () => { form.requestSubmit(); });
+    expect(actions).toEqual([]);
+    expect(form.querySelector('[role="alert"]')?.textContent).toBeTruthy();
+  });
+
+  it("says plainly when the official channel brings nothing for this Domios", async () => {
+    const skipping: TeamChannelRow = { ...official, usableTeams: 0, skippedEntries: [
+      { name: "dev.domios/default", code: "requires_newer_domios", reason: "opaque", requiredDomios: "1.20.0" },
+    ] };
+    channels.mockResolvedValueOnce({ channels: [skipping] });
+    await render();
+    expect(row("domios-teams").textContent).toContain("1.20.0");
+    expect(row("domios-teams").textContent).toContain("bundled");
+    expect(row("domios-teams").textContent).not.toContain("up to date");
   });
 
   it("reveals skipped entries on demand in words from their code, keeping the host's raw detail out of the text", async () => {
@@ -136,6 +161,7 @@ describe("Team channels card", () => {
     const items = Array.from(list.querySelectorAll("li"));
     expect(items.map((item) => item.getAttribute("title"))).toEqual(["opaque-os-detail", "opaque-version-detail"]);
     expect(list.textContent).not.toContain("opaque-");
+    expect(items.every((item) => item.getAttribute("aria-label") && !item.getAttribute("aria-label")!.includes("opaque-"))).toBe(true);
     expect(items[1].textContent).toContain("9.9.9");
   });
 });

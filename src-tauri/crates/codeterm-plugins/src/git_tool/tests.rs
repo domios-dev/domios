@@ -75,3 +75,17 @@ fn modern_git_keeps_sparse_clone_and_subdirectory_checkout() {
     assert_eq!(commands.len(), 1);
     assert!(!commands[0].contains(&"--sparse".into()));
 }
+
+#[test]
+fn clone_target_never_carries_a_windows_verbatim_prefix() {
+    let source = crate::util::parse_channel_source("git://127.0.0.1/channel");
+    let commands = clone_commands(
+        &source,
+        Path::new(r"\\?\C:\data\team-channels\staging.git-clone-1"),
+        false,
+    );
+    assert_eq!(
+        commands[0].last().map(String::as_str),
+        Some(r"C:\data\team-channels\staging.git-clone-1")
+    );
+}

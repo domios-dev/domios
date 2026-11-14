@@ -57,7 +57,7 @@ export function ChannelAddForm({
 }) {
   if (!open) {
     return (
-      <button type="button" data-testid={`${testIdPrefix}-add-open`} onClick={() => onOpenChange(true)} style={addButtonStyle}>
+      <button type="button" data-testid={`${testIdPrefix}-add-open`} onClick={() => onOpenChange(true)} style={addButtonStyle} className={FOCUS_RING}>
         <Plus size={14} strokeWidth={1.8} aria-hidden="true" />
         Add channel
       </button>
@@ -68,6 +68,8 @@ export function ChannelAddForm({
       style={{ display: "flex", flexDirection: "column", gap: 8 }}
       data-testid={`${testIdPrefix}-add-form`}
       aria-label="Add channel"
+      // The owner's add handler validates in the app's own words; the browser's localized bubbles stay off.
+      noValidate
       onSubmit={async (event) => {
         event.preventDefault();
         const form = event.currentTarget;
@@ -81,24 +83,27 @@ export function ChannelAddForm({
       }}
     >
       <input data-testid={`${testIdPrefix}-name-input`} name="name" aria-label={nameRequired ? "Channel name" : "Channel name (optional)"}
-        required={nameRequired} autoFocus={focusOnOpen} placeholder={nameRequired ? "channel name" : "name (optional)"} style={inputStyle} />
-      <input data-testid={`${testIdPrefix}-url-input`} name="url" aria-label="Channel URL" required placeholder="channel URL" style={inputStyle} />
+        required={nameRequired} autoFocus={focusOnOpen} placeholder={nameRequired ? "channel name" : "name (optional)"} style={inputStyle} className={FOCUS_RING} />
+      <input data-testid={`${testIdPrefix}-url-input`} name="url" aria-label="Channel URL" required placeholder="channel URL" style={inputStyle} className={FOCUS_RING} />
       {error && (
         <div role="alert" data-testid={`${testIdPrefix}-add-error`} style={{ fontSize: 11.5, lineHeight: 1.4, color: "var(--ct-err)", overflowWrap: "anywhere" }}>
           {error}
         </div>
       )}
       <div style={{ display: "flex", gap: 8 }}>
-        <button type="submit" data-testid={`${testIdPrefix}-add-submit`} disabled={busy} style={{ ...smallButtonStyle, flex: 1 }}>
+        <button type="submit" data-testid={`${testIdPrefix}-add-submit`} disabled={busy} style={{ ...smallButtonStyle, flex: 1 }} className={FOCUS_RING}>
           Add
         </button>
-        <button type="button" data-testid={`${testIdPrefix}-add-cancel`} onClick={() => onOpenChange(false)} style={{ ...smallButtonStyle, flex: 1 }}>
+        <button type="button" data-testid={`${testIdPrefix}-add-cancel`} onClick={() => onOpenChange(false)} style={{ ...smallButtonStyle, flex: 1 }} className={FOCUS_RING}>
           Cancel
         </button>
       </div>
     </form>
   );
 }
+
+/** The same thin accent ring as the channel rows' icon buttons, in place of the browser's default outline. */
+const FOCUS_RING = "outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]";
 
 const addButtonStyle: CSSProperties = {
   width: "100%",

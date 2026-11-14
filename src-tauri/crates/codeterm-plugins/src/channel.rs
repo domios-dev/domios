@@ -380,7 +380,13 @@ pub fn channel_kind(url: &str) -> ChannelKind {
 }
 
 pub fn materialize_channel(name: &str, url: &str, dest: &Path) -> Result<(), String> {
-    validate_channel_name(name)?;
+    fetch_channel(name, url, dest).map_err(|failure| failure.to_string())
+}
+
+/// Fetches a channel into `dest` with a typed failure, so each kind of channel words it itself.
+pub fn fetch_channel(name: &str, url: &str, dest: &Path) -> Result<(), ChannelFailure> {
+    validate_channel_name(name)
+        .map_err(|cause| ChannelFailure::new(ChannelFailureKind::Unusable, cause, url))?;
     update_source::discovery_source().materialize_channel(name, url, dest)
 }
 
@@ -390,7 +396,18 @@ pub fn refresh_materialized_channel(
     path: &Path,
     validate: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
-    validate_channel_name(name)?;
+    refresh_fetched_channel(name, url, path, validate).map_err(|failure| failure.to_string())
+}
+
+/// Replaces the cache at `path` only after a fresh fetch passes `validate`; typed like `fetch_channel`.
+pub fn refresh_fetched_channel(
+    name: &str,
+    url: &str,
+    path: &Path,
+    validate: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), ChannelFailure> {
+    let local = |cause: String| ChannelFailure::new(ChannelFailureKind::Unusable, cause, url);
+    validate_channel_name(name).map_err(local)?;
     let tmp = path.with_file_name(format!(
         ".{}-refresh-{}",
         path.file_name()
@@ -399,9 +416,9 @@ pub fn refresh_materialized_channel(
         uuid::Uuid::new_v4()
     ));
     if tmp.exists() {
-        fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
+        fs::remove_dir_all(&tmp).map_err(|e| local(format!("clear {}: {e}", tmp.display())))?;
     }
-    let result = materialize_channel(name, url, &tmp).and_then(|_| validate(&tmp));
+    let result = fetch_channel(name, url, &tmp).and_then(|_| validate(&tmp).map_err(local));
     if let Err(err) = result {
         if tmp.exists() {
             let _ = fs::remove_dir_all(&tmp);
@@ -410,7 +427,7 @@ pub fn refresh_materialized_channel(
     }
     // Two renames, not remove_dir_all then rename: the recursive delete left a window
     // with no `path`, and a concurrent diff reading ch.path dropped the channel.
-    let result = if path.exists() {
+    if path.exists() {
         let backup = path.with_file_name(format!(
             ".{}-old-{}",
             path.file_name()
@@ -418,21 +435,18 @@ pub fn refresh_materialized_channel(
                 .unwrap_or("channel"),
             uuid::Uuid::new_v4()
         ));
-        fs::rename(&path, &backup).map_err(|e| format!("stash old channel cache: {e}"))?;
-        if let Err(err) = fs::rename(&tmp, &path).map_err(|e| format!("replace channel cache: {e}"))
-        {
+        fs::rename(path, &backup).map_err(|e| local(format!("stash old channel cache: {e}")))?;
+        if let Err(e) = fs::rename(&tmp, path) {
             // Restore the previous cache so the channel stays usable, then surface the error.
-            let _ = fs::rename(&backup, &path);
+            let _ = fs::rename(&backup, path);
             let _ = fs::remove_dir_all(&tmp);
-            return Err(err);
+            return Err(local(format!("replace channel cache: {e}")));
         }
         let _ = fs::remove_dir_all(&backup);
         Ok(())
     } else {
-        fs::rename(&tmp, &path).map_err(|e| format!("replace channel cache: {e}"))
-    };
-    result?;
-    Ok(())
+        fs::rename(&tmp, path).map_err(|e| local(format!("replace channel cache: {e}")))
+    }
 }
 
 pub(super) struct ChannelCandidate {

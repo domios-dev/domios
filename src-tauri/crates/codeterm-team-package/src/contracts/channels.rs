@@ -62,4 +62,7 @@ pub struct TeamChannelRow {
     pub last_refresh: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skipped_entries: Vec<SkippedTeam>,
+    /// Teams the last good refresh found usable on this Domios; unknown until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usable_teams: Option<u32>,
 }

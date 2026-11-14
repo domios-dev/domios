@@ -103,8 +103,8 @@ export function TemplateReview({ choice, preview, mode, providers, onExport, onI
         className="flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] text-[11.5px] text-[var(--ct-muted-fg)]">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <HarnessNote preview={preview} providers={providers} onInstallProvider={onInstallProvider} />
-          {/* Use only picks the template; the start is what the owner confirms, and only then is it verified. */}
-          {consent && <span data-testid="template-consent-note">You'll confirm when you start.</span>}
+          {/* Use is the consent: Start then runs at once, and the start records it for this exact package. */}
+          {consent && <span data-testid="template-consent-note">Using it accepts what's turned on here.</span>}
         </div>
         <div className="flex flex-col-reverse gap-2">
           {consent

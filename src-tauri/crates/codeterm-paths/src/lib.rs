@@ -4,7 +4,7 @@
 //! release builds use `~/.domios/`.
 //! This keeps dev and prod fully isolated (config, sessions, crons, themes, sockets).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub mod container_install;
 pub mod instance_identity;
@@ -128,7 +128,7 @@ pub fn explicit_development_data_dir(instance: &str) -> Result<PathBuf, String> 
 fn data_dir_path_for_name(name: &str) -> PathBuf {
     if let Some(path) = std::env::var_os("CODETERM_DATA_DIR").map(PathBuf::from) {
         if path.is_absolute() {
-            return path;
+            return simplified_path(&path);
         }
     }
     default_data_dir(name).unwrap_or_else(|| PathBuf::from(".").join(name))
@@ -166,11 +166,11 @@ pub fn config_path() -> Result<PathBuf, String> {
         if !config_dir.is_absolute() {
             return Err("CODETERM_CONFIG_DIR must be absolute".to_string());
         }
-        return Ok(config_dir.join("config.toml"));
+        return Ok(simplified_path(&config_dir).join("config.toml"));
     }
     if let Some(data_dir) = std::env::var_os("CODETERM_DATA_DIR").map(PathBuf::from) {
         if data_dir.is_absolute() {
-            return Ok(data_dir.join("config.toml"));
+            return Ok(simplified_path(&data_dir).join("config.toml"));
         }
     }
     let dir = default_data_dir(&dir_name())
@@ -241,6 +241,15 @@ pub fn canonical_cwd(raw: &str) -> String {
 /// the prefix's extra leading slashes would corrupt any dir-name encoding.
 /// Slash-separated `//?/` spellings normalize to Windows backslashes on every host.
 /// No-op on Unix paths.
+/// The plain spelling of a Windows verbatim (`\\?\`) path, for paths exported or handed to
+/// external tools such as git, which reject the verbatim form. Other paths pass through unchanged.
+pub fn simplified_path(path: &Path) -> PathBuf {
+    match path.to_str() {
+        Some(text) => PathBuf::from(strip_verbatim_prefix(text)),
+        None => path.to_path_buf(),
+    }
+}
+
 pub fn strip_verbatim_prefix(p: &str) -> String {
     let rest = p.strip_prefix(r"\\?\").or_else(|| p.strip_prefix("//?/"));
     let Some(rest) = rest else {

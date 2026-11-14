@@ -26,9 +26,11 @@ mod agent_surface;
 mod archive_channel;
 mod channel;
 pub use channel::{
-    channel_kind, materialize_channel, refresh_materialized_channel, validate_channel_name,
+    channel_kind, fetch_channel, materialize_channel, refresh_fetched_channel,
+    refresh_materialized_channel, validate_channel_name,
 };
 mod channel_failure;
+pub use channel_failure::{ChannelFailure, ChannelFailureKind};
 mod config;
 mod git_probe;
 mod git_tool;
