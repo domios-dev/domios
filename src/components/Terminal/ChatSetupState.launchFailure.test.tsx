@@ -39,7 +39,7 @@ it("replaces startup in one render with host cause and working terminal and rest
   const root = createRoot(host);
   const openTerminal = vi.fn();
   const invoke = vi.fn(async <T,>(_command: string, _args?: Record<string, unknown>): Promise<T> => undefined as T);
-  __setInvokeForTest(invoke);
+  __setInvokeForTest(invoke as unknown as Parameters<typeof __setInvokeForTest>[0]);
   const render = async (tab: Tab) => {
     await act(async () => { root.render(<ChatSetupState tab={tab} view={chatSetupView(tab)} providerName="Fixture" onOpenTerminal={openTerminal} />); });
   };
