@@ -1,5 +1,6 @@
 import { usageParseTodayClock } from "./usage";
 import { parseClaudeWizardPrompt } from "./prompts";
+import { claudeExternalImportsPrompt } from "./externalImports";
 
 export interface TabStateSnapshot {
   tabId: string;
@@ -41,6 +42,15 @@ export function classifyClaudeTabState(snapshot: TabStateSnapshot): TabStateClas
   // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
   const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
   if (!screen.trim()) return null;
+  const imports = claudeExternalImportsPrompt(screen);
+  if (imports) {
+    return {
+      state: "clarifying_question",
+      confidence: 1,
+      data: { questions: [imports.question] },
+      action: { surface: { kind: "clarifying_question", payload: { questions: [imports.question] } } },
+    };
+  }
 
   // Busy veto: a streaming tab is never parked, so a mid-turn menu isn't read as a prompt.
   if (looksBusy(screen)) return { state: "working", confidence: 0 };

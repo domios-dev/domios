@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.30",
+  "version": "1.14.31",
   "minCodeterm": "1.19.2",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,

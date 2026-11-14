@@ -10665,5 +10665,15 @@
       "justification": "Existing next provider-specific test fixture; exact test-only allowance.",
       "removalSlice": "Remaining provider boundary extraction"
     }
+  ],
+  "providerOwned": [
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/external_imports.rs",
+      "reason": "Native provider-owned external instruction import fingerprint and prompt projection."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/external_imports.rs",
+      "reason": "Provider-owned native/JavaScript parity proof on captured external instruction import fixtures."
+    }
   ]
 }
