@@ -324,16 +324,23 @@ fn template_launch_chain_then_pending_route_stores_one_owner_question() {
             .unwrap();
         assert!(answered.resolved);
     }
-    fixture.service.clear_pending_prompt(&manager);
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&manager).unwrap();
-        tab.pending_prompt = Some(prompt.clone());
-        tab.pending_prompt_kind = Some(PromptKind::Provider);
-    }
-    fixture
-        .service
-        .route_pending_prompt(&manager, &prompt, PromptKind::Provider);
+    fixture.service.apply_prompt_decision_with_kind(
+        &crate::agent::prompt::PromptDecision::PromptCleared {
+            tab_id: manager.clone(),
+        },
+        None,
+        PromptKind::Provider,
+        true,
+    );
+    fixture.service.apply_prompt_decision_with_kind(
+        &crate::agent::prompt::PromptDecision::NewPrompt {
+            tab_id: manager.clone(),
+            prompt: prompt.clone(),
+        },
+        None,
+        PromptKind::Provider,
+        true,
+    );
     assert_eq!(
         fixture
             .service
@@ -354,7 +361,4 @@ fn template_launch_chain_then_pending_route_stores_one_owner_question() {
         .iter()
         .filter(|notice| notice.tab_id.as_deref() == Some(manager.as_str()))
         .all(|notice| notice.resolved));
-    fixture
-        .service
-        .resolve_prompt_notifications(&manager, &identity);
 }
