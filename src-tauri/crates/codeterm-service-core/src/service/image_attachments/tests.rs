@@ -72,7 +72,7 @@ fn large_image_keeps_original_and_delivers_a_bounded_jpeg() {
     image.save(&source).unwrap();
     let original = std::fs::read(&source).unwrap();
     let text = format!("before {} after", marker("image", &source, Some("image1")));
-    let prepared = prepare(text, || Ok(dir.path().to_path_buf())).unwrap();
+    let prepared = prepare(text, || Ok(dir.path().canonicalize().unwrap()), |_| Ok(())).unwrap();
     let segments = codeterm_wire::envelope::parse_envelope(&prepared);
     let paths: Vec<_> = segments
         .into_iter()
@@ -88,6 +88,8 @@ fn large_image_keeps_original_and_delivers_a_bounded_jpeg() {
     );
     assert_eq!(paths[1].0, "image");
     let model = Path::new(&paths[1].1);
+    assert!(codeterm_local_preview::html_preview::checked_path(&paths[1].1).is_ok());
+    assert!(!paths[1].1.starts_with(r"\\?\"));
     assert_eq!(
         ImageReader::open(model).unwrap().into_dimensions().unwrap(),
         (2000, 18)
@@ -109,9 +111,11 @@ fn path_only_types_do_not_open_or_decode_files() {
             None,
         );
         assert_eq!(
-            prepare(input.clone(), || panic!(
-                "must not allocate preview storage"
-            ))
+            prepare(
+                input.clone(),
+                || panic!("must not allocate preview storage"),
+                |_| panic!("must not register a model")
+            )
             .unwrap(),
             input
         );
@@ -123,11 +127,21 @@ fn path_only_types_do_not_open_or_decode_files() {
         );
     }
     let svg = marker("image", Path::new("/missing/vector.svg"), Some("image1"));
-    let output = prepare(svg, || panic!("must not decode SVG")).unwrap();
+    let output = prepare(
+        svg,
+        || panic!("must not decode SVG"),
+        |_| panic!("must not register SVG"),
+    )
+    .unwrap();
     assert!(output.contains("kind=\"file\""));
     let quoted = "`<domios type=\"attachment\" kind=\"image\" path=\"/missing/phone.jpg\" />`";
     assert_eq!(
-        prepare(quoted.into(), || panic!("quoted examples are not files")).unwrap(),
+        prepare(
+            quoted.into(),
+            || panic!("quoted examples are not files"),
+            |_| panic!("must not register quoted files")
+        )
+        .unwrap(),
         quoted
     );
 }
@@ -156,7 +170,12 @@ fn unavailable_camera_decoder_delivers_original_with_an_explanation() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("phone.HEIC");
     std::fs::write(&path, b"opaque-camera-original").unwrap();
-    let output = prepare(marker("file", &path, None), || Ok(dir.path().to_path_buf())).unwrap();
+    let output = prepare(
+        marker("file", &path, None),
+        || Ok(dir.path().to_path_buf()),
+        |_| panic!("an unavailable conversion creates no model authority"),
+    )
+    .unwrap();
     assert!(output.contains("kind=\"file\""));
     assert!(output.contains("Model preview unavailable"));
     assert_eq!(std::fs::read(path).unwrap(), b"opaque-camera-original");

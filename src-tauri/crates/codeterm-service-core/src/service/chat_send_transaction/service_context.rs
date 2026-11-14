@@ -230,10 +230,11 @@ impl crate::service::ServiceContext {
         if original.len() > MAX_PREPARED_BYTES {
             return Err("user original exceeds 4 MiB storage bound".into());
         }
-        let (prepared, returned) = self.prepare_chat_send_text(
+        let (prepared, returned) = self.prepare_chat_send_text_for_send(
             &reservation.authority.tab_id,
             original.clone(),
             run_stages,
+            &reservation.send_id,
         )?;
         let body = returned
             .as_ref()

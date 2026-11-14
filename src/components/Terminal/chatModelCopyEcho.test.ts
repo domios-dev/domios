@@ -80,3 +80,31 @@ test("model-copy reconciliation is single-use and rejects foreign, prior and mis
   const prior = { ...pending, echoBoundary: { ...pending.echoBoundary!, lastRowId: "provider-uuid" } };
   assert.equal(projectTranscript(window(key, [echo()]), [prior]).pending.length, 1);
 });
+
+test("an unavailable HEIC conversion reconciles once within the own-session send window and survives reload", () => {
+  const key = "unavailable:attachment-session";
+  const file = marker("C:/chat/phone.heic", "file", "IMG_4321.heic");
+  const content = `Check ${file}`;
+  const delivered = `${content} [Model preview unavailable: This host cannot create a model preview for this image format; use the original file path or attach a JPEG or PNG. Original kept.]`;
+  const send: DeliverySend = { ...pending, content, draft: { ...pending.draft!, text: content, capsules: {
+    "IMG_4321.heic": { kind: "file", label: "IMG_4321.heic", path: "C:/chat/phone.heic", displayName: "IMG_4321.heic" },
+  } } };
+  const row = echo("heic-provider-id", delivered);
+  const result = projectTranscript(window(key, [row]), [send]);
+  assert.equal(result.pending.length, 0);
+  const restored: DeliverySend = JSON.parse(JSON.stringify({ ...send, echo: result.echoes.get(send.id) }));
+  for (const current of [send, restored]) {
+    const projection = projectTranscript(window(key, [row]), [current]);
+    const users = stableDeliveryEntries(conversationEntries(projection.rows), [current], projection.echoes, createDeliveryProjectionMemory(key)).filter(entry => entry.msg.type === "user");
+    assert.equal(users.length, 1);
+    assert.equal(users[0].msg.id, send.id);
+    const visible = presentedAttachmentSegments(userMessageAttachments(users[0].msg.content).inline ?? [], users[0].msg.attachmentNames);
+    assert.equal(visible.filter(segment => "attachment" in segment).length, 1);
+    assert.equal(users[0].msg.attachmentNames?.["C:/chat/phone.heic"], "IMG_4321.heic");
+  }
+  assert.equal(projectTranscript(window(key, [row]), [send, { ...send, id: "second", correlationId: "second" }]).pending.length, 1);
+  for (const rejected of [echo("foreign", delivered, "foreign-session"), echo("different", delivered.replace("Check", "Different"))]) {
+    assert.equal(projectTranscript(window(key, [rejected]), [send]).pending.length, 1);
+  }
+  assert.equal(projectTranscript(window(key, [row]), [{ ...send, echoBoundary: { ...send.echoBoundary!, lastRowId: row.id } }]).pending.length, 1);
+});
