@@ -81,9 +81,9 @@ export function useAttachments({
     if (sink) sink(items);
     else addAttachments(items.map((item) => item.path));
   }, [addAttachments]);
-  const deliverPaths = useCallback(async (paths: string[]) => {
+  const deliverPaths = useCallback(async (paths: string[], originalPaths?: string[]) => {
     const clean = paths.map((p) => p.trim()).filter((p, i, all) => p.length > 0 && all.indexOf(p) === i);
-    if (clean.length) deliver(await classifyAttachmentPaths(clean));
+    if (clean.length) deliver(await classifyAttachmentPaths(clean, originalPaths ? clean.map(path => originalPaths[paths.indexOf(path)]) : undefined));
   }, [deliver]);
 
   const uploads = useAttachmentUploads(deliverPaths);
@@ -111,7 +111,7 @@ export function useAttachments({
       if (paths && paths.length > 0) {
         e.preventDefault();
         try {
-          await deliverPaths(await materializeDroppedPaths(paths));
+          await deliverPaths(await materializeDroppedPaths(paths), paths);
         } catch (error) {
           onError(error instanceof Error ? error.message : String(error));
         }
@@ -149,11 +149,11 @@ export function useAttachments({
     return () => window.removeEventListener("paste", onWindowPaste);
   }, [chatRootRef, handlePasteEvent]);
 
-  useTauriFileDrop({
+  const nativeDrop = useTauriFileDrop({
     containerRef: chatRootRef as React.RefObject<HTMLElement | null>,
     enabled,
     onError,
-    onPaths: (paths) => void deliverPaths(paths),
+    onPaths: (paths, originalPaths) => void deliverPaths(paths, originalPaths),
   });
 
   const { dragOver: webDragOver, handlers: webDropHandlers } = useWebFileDrop(
@@ -170,7 +170,7 @@ export function useAttachments({
     clearAttachments,
     handlePasteEvent,
     inlineSinkRef,
-    webDragOver,
+    webDragOver: webDragOver || nativeDrop.isDragOver,
     webDropHandlers,
   };
 }

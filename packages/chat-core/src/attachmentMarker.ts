@@ -16,6 +16,7 @@ export interface AttachmentMarker {
   path: string;
   /** Set on a capsule typed inline in the composer; the bubble renders it where it was typed. */
   label?: string;
+  previewPath?: string;
   /** Set on a reply quote: the id of the quoted message, which the bubble's quote block jumps to. */
   reply?: string;
   /** One line of the quoted text, shown in the reply block. */

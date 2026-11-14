@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { MessageBubble } from "./MessageBubble";
-import { formatAttachmentMarker } from "@codeterm/chat-core";
+import { formatAttachmentMarker, attachmentMarkerSegments, type MessageSegment } from "@codeterm/chat-core";
 import { configureLocalArtifactLoader, configureLocalArtifactOpener } from "./localArtifactLoader";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -215,4 +215,60 @@ it.each([1280, 390])("shows the image preview on hover at viewport width %s", as
   } finally {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: previous });
   }
+});
+
+it.each(["heic", "jpg", "png"])("shows one original %s with its real name and internal model preview", async extension => {
+  const original = `C:/chat/${"a".repeat(32)}.${extension}`;
+  const model = "C:/pad/inbox/opaque-model.jpg";
+  const name = `IMG_4321.${extension}`;
+  const content = `Look\n${formatAttachmentMarker(original, "file", "original")}\n\n\n${formatAttachmentMarker(model, "image", `${"a".repeat(28)}.heic`)}`;
+  loader.mockImplementation(async path => {
+    if (path !== model) throw new Error("Only the internal JPEG may be previewed");
+    return { data: PNG, media_type: "image/jpeg" };
+  });
+  for (const structured of [false, true]) {
+    const segments: MessageSegment[] = attachmentMarkerSegments(content).map(segment => "text" in segment ? { type: "text", text: segment.text }
+      : { type: "attachment", kind: segment.attachment.kind, path: segment.attachment.path, label: segment.attachment.label ?? null, body: null, status: null });
+    const host = await render({ id: `photo-${extension}-${structured}`, type: "user", content, attachmentNames: { [original]: name }, ...(structured ? { segments } : {}) });
+    const chips = host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-inline-attachment"]');
+    expect(chips).toHaveLength(1);
+    expect(chips[0].getAttribute("data-attachment-path")).toBe(original);
+    expect(chips[0].getAttribute("aria-label")).toBe(`Open image ${name}`);
+    expect(host.textContent).toContain(name);
+    expect(host.textContent).not.toContain("original");
+    expect(host.textContent).not.toContain("a".repeat(16));
+    await act(async () => chips[0].focus());
+    await flush();
+    expect(document.querySelector<HTMLImageElement>(`[role="region"][aria-label="Preview ${name}"] img`)?.src).toBe(PNG);
+    expect(loader.mock.calls.every(([path]) => path === model)).toBe(true);
+    await act(async () => chips[0].blur());
+  }
+});
+
+it("keeps multiple real attachments compact and hides only the model-copy item", async () => {
+  const original = "C:/chat/id-Holiday.heic";
+  const model = "C:/pad/inbox/opaque-model.jpg";
+  const content = [formatAttachmentMarker(original, "file", "original"), formatAttachmentMarker(model, "image", "image1"),
+    formatAttachmentMarker("C:/chat/clip.mov", "video", "clip.mov"), formatAttachmentMarker("C:/chat/document.pdf", "file", "document.pdf")].join("\n\n\n");
+  const host = await render({ id: "mixed", type: "user", content, attachmentNames: { [original]: "Holiday.heic" } });
+  expect(host.querySelectorAll('[data-testid="chat-inline-attachment"]')).toHaveLength(3);
+  const inline = host.querySelector('[data-testid="chat-inline-attachment-text"]')!;
+  expect([...inline.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).some(node => /\n\s*\n/.test(node.textContent ?? ""))).toBe(false);
+  expect(inline.textContent).toContain("Holiday.heic");
+  expect(inline.textContent).toContain("clip.mov");
+  expect(inline.textContent).toContain("document.pdf");
+});
+
+it("groups a photo's preview copy even beside a voice attachment", async () => {
+  const original = "C:/chat/photo.heic", model = "C:/pad/inbox/photo-model.jpg";
+  const segments: MessageSegment[] = [
+    { type: "attachment", kind: "voice", path: "C:/chat/note.wav", label: null, body: "A voice note", status: null },
+    { type: "attachment", kind: "file", path: original, label: "original", body: null, status: null },
+    { type: "text", text: "\n\n" },
+    { type: "attachment", kind: "image", path: model, label: "image1", body: null, status: null },
+  ];
+  const host = await render({ id: "voice-photo", type: "user", content: "", segments, attachmentNames: { [original]: "IMG_4321.heic" } });
+  expect(host.querySelectorAll('[data-testid="chat-inline-attachment"]')).toHaveLength(1);
+  expect(host.textContent).toContain("IMG_4321.heic");
+  expect(host.textContent).toContain("A voice note");
 });

@@ -356,7 +356,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
       const userAttachments = userMessageAttachments(content, attachments);
       const visibleUserContent = userAttachments.text;
       const text = userAttachments.inline ? (
-          <InlineAttachmentText segments={userAttachments.inline} />
+          <InlineAttachmentText segments={userAttachments.inline} attachmentNames={message.attachmentNames} />
         ) : (
           visibleUserContent ? renderUserContent(visibleUserContent, true, renderText) : null
         );
@@ -379,8 +379,8 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           />
         )}
         {userProgress ?? (message.segments
-        ? <EnvelopeContent segments={message.segments} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} onJumpToMessage={onJumpToMessage} />
-          : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} />)}
+        ? <EnvelopeContent segments={message.segments} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} onJumpToMessage={onJumpToMessage} attachmentNames={message.attachmentNames} />
+          : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} attachmentNames={message.attachmentNames} />)}
       </>
     );
 
