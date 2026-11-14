@@ -34,6 +34,7 @@ struct Connection {
     restore_started: Notify,
     restore_release: Notify,
     fail_mouse: AtomicBool,
+    occluded: AtomicBool,
     input_commands: Mutex<Vec<(String, Value)>>,
 }
 
@@ -141,6 +142,13 @@ impl CdpConnection for Connection {
             }
             "Target.attachToTarget" => json!({"sessionId":"session"}),
             "Page.getFrameTree" => json!({"frameTree":{"frame":{"id":"main","loaderId":"before"}}}),
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("function domiosHitTest")) =>
+            {
+                json!({"result":{"value":if self.occluded.load(Ordering::SeqCst) { "target_occluded: covered by button#cover" } else { "clear" }}})
+            }
             "DOM.getContentQuads" => json!({"quads":[[0,0,20,0,20,20,0,20]]}),
             "DOM.resolveNode" => json!({"object":{"objectId":"button"}}),
             "DOM.getDocument" => json!({"root":{}}),
@@ -203,6 +211,7 @@ async fn fixture(
         restore_started: Notify::new(),
         restore_release: Notify::new(),
         fail_mouse: AtomicBool::new(false),
+        occluded: AtomicBool::new(false),
         input_commands: Mutex::new(Vec::new()),
     });
     let page = CdpClient::from_connection(connection.clone())
@@ -500,4 +509,43 @@ async fn browser_completion_rejects_prior_connection_with_reused_session_id() {
     connection.release_navigation();
     assert!(action.await.unwrap_err().contains("authority changed"));
     assert!(runtime.shared.begin_action(&page).is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn browser_occluded_pointer_targets_never_dispatch_input() {
+    let (runtime, page, connection, _root) = fixture(Effect::Control).await;
+    connection.occluded.store(true, Ordering::SeqCst);
+    assert_eq!(
+        runtime.click_node(&page, 7).await.unwrap_err(),
+        "target_occluded: covered by button#cover"
+    );
+    for verb in ["hover", "right-click", "double-click", "triple-click"] {
+        runtime.snapshot_verb(&page, &[]).await.unwrap();
+        assert_eq!(
+            runtime
+                .interaction_verb(&page, verb, &["button".into(), "Go".into()])
+                .await
+                .unwrap_err(),
+            "target_occluded: covered by button#cover"
+        );
+    }
+    runtime.snapshot_verb(&page, &[]).await.unwrap();
+    let reference = runtime
+        .shared
+        .snapshot()
+        .unwrap()
+        .refs
+        .into_keys()
+        .next()
+        .unwrap();
+    let reference = format!("@{reference}");
+    assert_eq!(
+        runtime
+            .interaction_verb(&page, "drag", &[reference.clone(), reference])
+            .await
+            .unwrap_err(),
+        "target_occluded: covered by button#cover"
+    );
+    assert!(connection.input_commands.lock().is_empty());
+    assert_eq!(connection.actions.load(Ordering::SeqCst), 0);
 }

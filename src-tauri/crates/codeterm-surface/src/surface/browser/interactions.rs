@@ -95,7 +95,10 @@ impl BrowserRuntime {
         if current.backend_node_id != target.backend_node_id {
             return Err("stale: target changed".into());
         }
-        super::input::quad_center(&quads).ok_or("hidden: target has no box".into())
+        let (x, y) = super::input::quad_center(&quads).ok_or("hidden: target has no box")?;
+        self.require_pointer_target(page, target.backend_node_id, x, y)
+            .await?;
+        Ok((x, y))
     }
 
     pub(super) async fn interaction_verb(
@@ -177,7 +180,17 @@ impl BrowserRuntime {
                     Interaction::DragPoints([x, y, end_x, end_y]) => (*x, *y, *end_x, *end_y),
                     _ => unreachable!(),
                 };
-                let result = self.drag_action(page, [x, y, end_x, end_y], epoch).await;
+                let targets = if let Interaction::DragRefs(from, to) = &request {
+                    Some([
+                        self.resolve(from)?.backend_node_id,
+                        self.resolve(to)?.backend_node_id,
+                    ])
+                } else {
+                    None
+                };
+                let result = self
+                    .drag_action(page, [x, y, end_x, end_y], epoch, targets)
+                    .await;
                 scope.finish().await?;
                 return result;
             }
@@ -195,6 +208,17 @@ impl BrowserRuntime {
                     != Value::Bool(true)
                 {
                     return Err("stale: page changed while preparing interaction".into());
+                }
+                if let Interaction::Target(locator) = &request {
+                    let target = self.resolve(locator)?;
+                    let point = &commands[0].1;
+                    self.require_pointer_target(
+                        page,
+                        target.backend_node_id,
+                        point["x"].as_f64().ok_or("missing pointer x")?,
+                        point["y"].as_f64().ok_or("missing pointer y")?,
+                    )
+                    .await?;
                 }
                 page.send_batch(commands).await.map_err(super::cdp_error)?;
                 Ok(Value::Null)

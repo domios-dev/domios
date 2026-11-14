@@ -60,6 +60,14 @@ impl CdpConnection for Connection {
             "Page.getLayoutMetrics" => {
                 json!({"cssLayoutViewport":{"pageX":0,"pageY":222,"clientWidth":380,"clientHeight":844}})
             }
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("function domiosHitTest")) =>
+            {
+                json!({"result":{"value":"clear"}})
+            }
+            "DOM.resolveNode" => json!({"object":{"objectId":"button"}}),
             "DOM.getContentQuads" => json!({"quads":[[10,20,30,20,30,40,10,40]]}),
             _ => json!({"result":{"value":true}}),
         })

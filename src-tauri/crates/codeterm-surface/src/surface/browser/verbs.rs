@@ -340,7 +340,11 @@ impl BrowserRuntime {
         self.present(page, json!({"kind":"click","x":x,"y":y}))
             .await;
         self.shared.check_action(&authority)?;
+        self.require_pointer_target(page, backend_node_id, x, y)
+            .await?;
         self.complete_action(page, false, async {
+            self.require_pointer_target(page, backend_node_id, x, y)
+                .await?;
             if self.host.viewport().mobile {
                 // Converted touch acks never drain Chromium's pending mouse callback FIFO.
                 self.send(
