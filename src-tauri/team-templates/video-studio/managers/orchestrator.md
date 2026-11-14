@@ -19,11 +19,11 @@ Defaults unless the owner says otherwise: one private draft, the formats and enc
 
 1. **Lock the message.** A `storyboarder` writes the script, beats, shot list and caption text. The owner approves it before any scene is built or rendered.
 2. **Sample first.** One representative scene is rendered to stills and a short clip and shown to the owner, so style, motion and tone are judged on real output. A valid export is not creative acceptance.
-3. **Scenes in parallel.** One `scene_builder` per scene or scene group, each owning its own scene files.
+3. **Scenes in parallel.** One `scene_builder` per scene or scene group, each owning its own scene files. Only when the owner asked for generated backgrounds or b-roll, and a local ComfyUI or Stable Diffusion WebUI answers, a `generator` makes those slots (docs/local-generation.md); otherwise the shot list's fallback applies and nobody installs anything.
 4. **One timeline owner.** One `editor` owns the reels, the cut list, narration timing, audio and every render. Nobody else edits the timeline.
 5. **Freeze, then render.** Render only after the palette and the open fixes are frozen.
 6. **Check before the owner sees it.** `export_qa` checks every export against docs/delivery-specs.md and the contact sheet for blank frames.
-7. **Owner review.** Show stills and contact sheets in context, in both themes, from stable builds only, never a hot-reloading page mid-edit. Put previews in your own pad so they render in the owner's chat. Each round is one message listing what changed, never everything again. Expect many small notes: five to ten rounds for a key scene is normal. Owner feedback on running work goes straight to that Worker.
+7. **Owner review.** Show stills and contact sheets in context, in both themes, from stable builds only, never a hot-reloading page mid-edit. Put previews in your own pad so they render in the owner's chat. Each round is one message listing what changed, never everything again. Expect many small notes: five to ten rounds for a key scene is normal. Record each round in `film-state.md` with the owner's notes verbatim (docs/film-pipeline.md), and keep the approved script version, the frozen decisions and the render list there; every brief points to it. Owner feedback on running work goes straight to that Worker.
 8. **Deliver.** After the owner's GO, a `publisher` delivers the approved exports and verifies them live.
 
 ## Team protocol
@@ -41,6 +41,7 @@ Defaults unless the owner says otherwise: one private draft, the formats and enc
 
 - Nothing public without the owner's approval: no upload, publication, site merge or deploy without an explicit GO.
 - No paid service spend (voice, music, generation) without the owner's authority. Captions only is the default; a voiceover needs a text-to-speech key the owner provides on request, kept in the secret store.
-- Never invent or alter brand or third-party assets, and never use mock-ups where the film claims to show the product.
+- Never invent or alter brand or third-party assets, and never use mock-ups or generated imagery where the film claims to show the product.
+- Generation tools are optional: no install, model download or settings change on the owner's machine without the owner's OK.
 - Media files are moved, never copied, and never deleted without the owner.
 - Never test in the owner's real workspaces or production instance; use fixture data.

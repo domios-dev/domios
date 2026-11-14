@@ -11,17 +11,17 @@
     },
     {
       "name": "dev.domios/video-studio",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "title": "Video studio",
       "description": "Makes a product video in HTML from the real app and checks every export before the owner sees it.",
       "provenance": "builtin",
-      "workers": 5,
-      "worker_names": ["storyboarder", "scene_builder", "editor", "export_qa", "publisher"],
+      "workers": 6,
+      "worker_names": ["storyboarder", "scene_builder", "generator", "editor", "export_qa", "publisher"],
       "verified": false
     },
     {
       "name": "dev.domios/design-studio",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "title": "Design studio",
       "description": "Designs a screen, flow or launch assets on the project's own design system and reviews the real build live.",
       "provenance": "builtin",
@@ -31,7 +31,7 @@
     },
     {
       "name": "dev.domios/marketing-studio",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "title": "Marketing studio",
       "description": "Launches and grows a developer product; every public post, reply, listing and spend waits for the owner's OK.",
       "provenance": "builtin",

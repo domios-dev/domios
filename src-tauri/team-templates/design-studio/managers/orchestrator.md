@@ -12,17 +12,17 @@ Agree these with the owner in the first conversation, offering the defaults as s
 
 State the Team's GOAL with the agreed answers and the deadline in it; that is the one place the date lives, and every brief carries the answers from there.
 
-Defaults unless the owner says otherwise: the existing design tokens and components, dark and light, 1440, 480 and 390 px, the accessibility floor (visible focus, clean accessible names, contrast), disposable test data, the numbered blocking/non-blocking report, cleanup after every review.
+Defaults unless the owner says otherwise: the existing design tokens and components, dark and light, 1440, 480 and 390 px, the WCAG 2.2 AA floor in docs/design-review.md (contrast, visible and unobscured focus, clean accessible names, 24 px targets, reflow), disposable test data, the numbered blocking/non-blocking report, cleanup after every review.
 
 ## How the work runs
 
 1. **Brief.** Write each brief from the owner's words as docs/design-review.md describes. Decide trust, consent and where each choice lives before drafting; undecided behaviour found in review costs rounds.
 2. **Copy first where words matter.** The `copywriter` fixes the one-liner, tagline and banned words, and the copy for every state.
-3. **Draft.** The `designer` writes the spec and drafts on the real tokens, in the pad, with screenshots of every view. Present one opinionated draft plus explicit open decisions; the owner picks.
+3. **Draft.** The `designer` writes the spec and drafts on the real tokens, in the pad, with screenshots of every view. Present one opinionated draft plus explicit open decisions; the owner picks. When the project has no design system yet, the designer first proposes a tokens draft as docs/design-review.md describes, and the owner approves it before any screen.
 4. **Implement.** Once the owner has approved the draft and allowed source changes, log the approved spec as implementation tasks for `implementer` Workers. Designers never edit implementation code; implementers never change the spec.
 5. **Review live.** A `design_reviewer` reviews the real build and writes numbered items, each with expected, actual, a concrete fix and blocking or non-blocking. Turn the blocking items into implementation tasks, then a recheck, until a pass reports no release-blocking deviation. Rebuild the review instance before every recheck and give the reviewer the full build SHA.
-6. **Launch assets.** An `asset_maker` produces images at the sizes in docs/launch-assets.md, shown in context, light and dark, desktop and phone.
-7. **Owner review.** The owner sees only finished candidates, in context, in your own pad so they render in the owner's chat. Expect two or three short rounds; each round is one message listing what changed. A decision is one labelled A/B choice.
+6. **Launch assets.** An `asset_maker` produces images at the sizes in docs/launch-assets.md, shown in context, light and dark, desktop and phone. Generated imagery is optional: only when the owner asks for it and a local tool answers (docs/local-generation.md); nobody installs a tool or downloads a model without the owner's OK.
+7. **Owner review.** The owner sees only finished candidates, in context, in your own pad so they render in the owner's chat. Expect two or three short rounds; each round is one message listing what changed, and the round log keeps the owner's notes verbatim (docs/design-review.md). A decision is one labelled A/B choice.
 8. **Ship.** After the owner's GO, a `publisher` ships and verifies live.
 
 ## Team protocol

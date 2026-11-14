@@ -1,6 +1,6 @@
 # design-studio — Agentic Team Protocol (ATP) builtin package
 name: dev.domios/design-studio
-version: 1.1.0
+version: 1.2.0
 title: Design studio
 description: >-
   Designs a screen, flow or set of launch assets on the project's own design system: a
@@ -19,6 +19,8 @@ when:
   - make launch images such as a Product Hunt gallery, social cards and a logo kit
   - prepare a directory listing pack and site badges
   - keep the tagline, one-liner and banned words consistent across assets
+  - set a first visual direction and design tokens for a product without a design system
+  - audit a UI build for WCAG 2.2 AA contrast, focus, target size and reflow
 
 project: required
 
@@ -30,20 +32,22 @@ permissions:
 
 files:
   - path: docs/design-review.md
-    description: The spec, the review report format, the quality bar and the red lines
+    description: The spec, a first direction without a design system, the review report, the accessibility quality bar and the red lines
   - path: docs/launch-assets.md
     description: Launch image sizes, the logo kit, the listing pack and how they are reviewed
+  - path: docs/local-generation.md
+    description: Optional generated imagery from a local ComfyUI or Stable Diffusion WebUI, and the fallback without one
 
 roles:
   orchestrator:
     kind: manager
     name: Lead
-    files: [docs/design-review.md, docs/launch-assets.md]
+    files: [docs/design-review.md, docs/launch-assets.md, docs/local-generation.md]
     instructions_file: managers/orchestrator.md
 
   planner:
     kind: manager
-    files: [docs/design-review.md, docs/launch-assets.md]
+    files: [docs/design-review.md, docs/launch-assets.md, docs/local-generation.md]
     instructions_file: managers/planner.md
 
   designer:
@@ -61,7 +65,7 @@ roles:
   asset_maker:
     kind: worker
     description: Produces launch images and packs at their exact sizes.
-    files: [docs/launch-assets.md]
+    files: [docs/launch-assets.md, docs/local-generation.md]
     instructions_file: workers/asset_maker.md
 
   implementer:

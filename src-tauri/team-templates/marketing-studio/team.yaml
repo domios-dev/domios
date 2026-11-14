@@ -1,6 +1,6 @@
 # marketing-studio — Agentic Team Protocol (ATP) builtin package
 name: dev.domios/marketing-studio
-version: 1.0.0
+version: 1.1.0
 title: Marketing studio
 description: >-
   Launches and grows a developer product: positioning and one-liner approved first, a dated
@@ -21,6 +21,8 @@ when:
   - submit the product to directories and track listings, badges and deadlines
   - triage launch inbox replies, paid promotion offers and upvote sellers
   - report launch metrics, stars, sign-ups and referrers by channel
+  - check the landing page's titles, link previews and search tags before a launch
+  - summarize what people say about the launch with a source for every claim
 
 project: required
 
@@ -32,9 +34,9 @@ permissions:
 
 files:
   - path: docs/launch-playbook.md
-    description: The pipeline, the owner gates, internal reviews, sources of truth, failure modes and metrics
+    description: The pipeline, the owner gates, internal reviews, sources of truth, failure modes, metrics and added guards
   - path: docs/channel-specs.md
-    description: Per-channel rules and sizes for Product Hunt, the README, Show HN, Reddit, X, LinkedIn, directories and Discord
+    description: Per-channel rules and sizes for Product Hunt, the README, Show HN, Reddit, X, LinkedIn, directories and Discord, and the site and search checks
 
 roles:
   orchestrator:

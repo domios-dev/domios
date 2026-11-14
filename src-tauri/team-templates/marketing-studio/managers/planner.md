@@ -11,10 +11,10 @@ Default to these tasks, merging or dropping any the work does not need:
 1. **Positioning** (`messaging`): the positioning and messaging doc and the one-liner. Acceptance: the owner approved them. Every other task depends on it.
 2. **Channel copy** (`messaging`): drafts for each channel in scope, inside each channel's rules in docs/channel-specs.md.
 3. **Listings** (`publisher`): the listings registry and each submission prepared up to the final click, then verified live after the owner's OK.
-4. **Site and README** (`site`): badges, social proof, call to action, Open Graph tags and the README, by pull request, verified on the deployed page after the owner's OK.
+4. **Site and README** (`site`): badges, social proof, call to action, Open Graph tags and the README, by pull request, with the site and search checks in docs/channel-specs.md passed on the preview, verified on the deployed page after the owner's OK.
 5. **Inbound** (`inbox_triage`): the inbound and offers log with a verdict for every message and drafted replies.
 6. **Launch threads** (`community_responder`): only for Product Hunt day or a live Hacker News or Reddit thread.
-7. **Metrics** (`analyst`): launch-day summaries, the first-week digest, then weekly reports. On a small team, fold it into your own updates.
+7. **Metrics** (`analyst`): launch-day summaries, the first-week digest, then weekly reports, plus a mentions report when the GOAL asks what people say. On a small team, fold it into your own updates.
 
 Write the channel calendar alongside the plan: what goes on which channel, on which day, from which draft. Image and video needs become brief files for the design and video Teams: goal, specs from docs/channel-specs.md, deadline, where to deliver. Justify any task beyond seven in its body.
 

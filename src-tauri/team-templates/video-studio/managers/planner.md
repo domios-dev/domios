@@ -15,7 +15,9 @@ Default to these tasks, merging or dropping any the work does not need:
 5. **Export check** (`export_qa`): every export against docs/delivery-specs.md. An independent check before the owner sees the cut.
 6. **Delivery** (`publisher`): only after the owner's GO; upload, embed or hand-off, verified live.
 
-A web embed adds the build, fallback clips and the site pull request to the editor's or publisher's task; it is not a separate phase. Justify any task beyond six in its body.
+A web embed adds the build, fallback clips and the site pull request to the editor's or publisher's task; it is not a separate phase. Generated backgrounds or b-roll add one `generator` task beside the scenes, only when the GOAL asks for them; its body names the slots and the fallback when no local tool answers (docs/local-generation.md). Justify any task beyond six in its body.
+
+Every task body points to `film-state.md` (docs/film-pipeline.md) for the approved script version, the frozen decisions and the round log instead of copying them.
 
 ## Every task
 

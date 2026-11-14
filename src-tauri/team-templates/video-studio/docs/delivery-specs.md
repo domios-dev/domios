@@ -22,10 +22,17 @@ What a launch owner needs from the video studio. These are suggested defaults: t
 - Burn captions into the share exports: autoplay is muted.
 - Ship an `.srt` beside every captioned export.
 - The first three seconds say what the product is, readable without sound.
+- The master also carries the captions as a soft subtitle track (`mov_text` in MP4), so players and platforms can switch them, and container tags for title, creator, year and copyright. Share exports keep burned-in captions.
 
 ## Manifest
 
-Every delivery carries a source manifest: the scenes in order, the copy each one shows, and which app build each scene was captured from.
+Every delivery carries a source manifest: the scenes in order, the copy each one shows, and which app build each scene was captured from. Generated material (docs/local-generation.md) has its own `generated` row: the slot, the provenance file and the model's licence.
+
+## After upload
+
+A platform reprocesses what it receives. Watch the published video on the platform itself: the resolution after processing, the captions, the thumbnail and the first three seconds. High resolutions can appear later than the upload; report that rather than calling it done.
+
+Embedding subtitles and media tags follows the practice of Tyrrrz/YoutubeDownloader (MIT); the wording is ours.
 
 ## Timing
 
