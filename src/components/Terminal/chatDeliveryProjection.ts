@@ -1,20 +1,41 @@
 import { normalizeChatText, timestampMs, type SendEcho } from "@codeterm/chat-core";
-import { deliveryState, sendForRow, type DeliverySend } from "./chatDeliveryModel";
+import { ACTIVE_TURN_HOLD, deliveryState, sendForRow, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
 export interface DeliveryProjectionMemory {
   key: string;
   seen: Set<string>;
   queued: Set<string>;
+  /** Sends whose wait behind a turn ended; they keep their send-time slot. */
+  released: Set<string>;
   pending: Map<string, EnrichedChatEntry>;
 }
 
-export function queuedDeliveryIds(sends: readonly DeliverySend[], queueNew: boolean, memory: DeliveryProjectionMemory): ReadonlySet<string> {
+export function createDeliveryProjectionMemory(key: string): DeliveryProjectionMemory {
+  return { key, seen: new Set(), queued: new Set(), released: new Set(), pending: new Map() };
+}
+
+function tailWaitEnded(send: DeliverySend, state: DeliveryState, turnRunning: boolean): boolean {
+  return Boolean(send.dismissed) || state === "failed" || (state === "uncertain" && !turnRunning);
+}
+
+/** Sends drawn after the running turn's output. Only input still in flight joins, so a
+ *  reload never pins settled sends to the tail; one that fails, or stays unconfirmed after
+ *  its turn, moves once to its send time and never returns to the tail. */
+export function queuedDeliveryIds(sends: readonly DeliverySend[], turnRunning: boolean, memory: DeliveryProjectionMemory): ReadonlySet<string> {
   const current = new Set(sends.map(send => send.id));
   for (const id of memory.queued) if (!current.has(id)) memory.queued.delete(id);
+  for (const id of memory.released) if (!current.has(id)) memory.released.delete(id);
   for (const send of sends) {
-    if ((!memory.seen.has(send.id) && queueNew && deliveryState(send) !== "delivered")
-      || send.status?.pending_reason === "held_active_turn") memory.queued.add(send.id);
+    if (memory.released.has(send.id)) continue;
+    const state = deliveryState(send);
+    const inFlight = state === "sending" || state === "queued";
+    if (send.status?.pending_reason === ACTIVE_TURN_HOLD
+      || (!memory.seen.has(send.id) && inFlight && (turnRunning || send.wasHeld))) memory.queued.add(send.id);
+    if (memory.queued.has(send.id) && tailWaitEnded(send, state, turnRunning)) {
+      memory.queued.delete(send.id);
+      memory.released.add(send.id);
+    }
   }
   memory.seen = current;
   return memory.queued;

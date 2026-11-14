@@ -652,6 +652,8 @@ function TabSessionChatBody({
   const { reports: reportPlacement, asks: askPlacement } = useMemo(
     () => placeChatRails({
       visible: railsVisible,
+      hiddenBefore: hiddenMessageCount > 0 || canBackfillOlder,
+      hiddenAfter: newerMessageCount > 0,
       messages: renderedEnrichedMessages,
       messageTimeMs: ({ msg }) => messageTimeMs(msg.timestamp),
       reportTimes: outboundReports.map((report) => report.at),
@@ -662,7 +664,8 @@ function TabSessionChatBody({
       },
       askTimes: asks.map((ask) => normalizeEpochMs(ask.timestamp)),
     }),
-    [agentSessionId, allMessages, asks, outboundReports, railsVisible, renderedEnrichedMessages],
+    [agentSessionId, allMessages, asks, canBackfillOlder, hiddenMessageCount, newerMessageCount, outboundReports, railsVisible,
+      renderedEnrichedMessages],
   );
   const deferredPlanRefMessages = useDeferredValue(enrichedMessages);
   // Record the visible tail after paint so diagnostics do not overstate progress

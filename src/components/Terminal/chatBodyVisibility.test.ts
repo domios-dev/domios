@@ -23,6 +23,8 @@ const TWO_ASKS = [1_500, 2_500];
 function railsFor(view: ChatBodyView, messages: Array<{ at: number | null }>) {
   const placed = placeChatRails({
     visible: chatRailsVisible(view),
+    hiddenBefore: false,
+    hiddenAfter: false,
     messages,
     messageTimeMs: timeOf,
     reportTimes: THREE_REPORTS,
@@ -226,6 +228,8 @@ describe("chat rail gating", () => {
     });
     const placed = placeChatRails({
       visible: chatRailsVisible(view),
+      hiddenBefore: false,
+      hiddenAfter: false,
       messages: [at(1_500), at(2_500), at(3_500)],
       messageTimeMs: timeOf,
       reportTimes: THREE_REPORTS,
