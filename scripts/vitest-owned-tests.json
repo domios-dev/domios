@@ -255,6 +255,7 @@
   "src/lib/transport/capabilities.test.ts",
   "src/lib/transport/teamTemplates.test.ts",
   "src/lib/teamTemplates/startModel.test.ts",
+  "src/components/Settings/TeamChannelsCard.test.tsx",
   "src/lib/roleKind.test.ts",
   "src/store/multiplexer/orchestrationPair.test.ts",
   "src/components/Terminal/NewSessionPicker.template.test.tsx",

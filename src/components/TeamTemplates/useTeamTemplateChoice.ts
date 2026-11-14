@@ -7,6 +7,7 @@ import type {
 import { initialSecretBindings } from "../../lib/teamTemplates/exchangeModel";
 import { takePendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
+import { publishTeamChannels, useTeamChannelChanges } from "../../lib/teamTemplates/teamChannels";
 import { usePeerPlacement } from "./usePeerPlacement";
 import { webUpload } from "../../lib/webApi";
 import {
@@ -70,15 +71,26 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const remotePeer = placement.peer;
   const clearPeer = placement.setPeer;
 
+  // A channel added, refreshed or removed in Settings changes which teams exist, so an open gallery rereads them.
+  const channelChanges = useTeamChannelChanges();
+  const [seenChannelChanges, setSeenChannelChanges] = useState(channelChanges);
+  if (channelChanges !== seenChannelChanges) {
+    setSeenChannelChanges(channelChanges);
+    setCatalog(null);
+  }
+
   useEffect(() => {
     if (!enabled || catalog) return;
     const controller = new AbortController();
     void Promise.allSettled([
       Promise.resolve().then(() => transport().list({ signal: controller.signal })),
       Promise.resolve().then(() => transport().recall(recallQuery, { signal: controller.signal })),
+      // Channel display names label community templates; without them a template still names its channel id.
+      Promise.resolve().then(() => transport().channels({ signal: controller.signal })),
     ])
-      .then(([list, recall]) => {
+      .then(([list, recall, channels]) => {
         if (controller.signal.aborted) return;
+        if (channels.status === "fulfilled") publishTeamChannels(channels.value.channels);
         setCatalog({
           templates: list.status === "fulfilled" ? list.value.templates : [],
           recall: recall.status === "fulfilled" ? recall.value : null,

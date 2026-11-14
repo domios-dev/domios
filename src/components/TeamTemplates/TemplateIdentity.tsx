@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { BookOpen, Bug, GitBranch, Home } from "lucide-react";
-import { humanizePackageName, templateTitle, type TemplateSummary } from "../../lib/teamTemplates/startModel";
+import { humanizePackageName, templateTitle, templateUpdateFact, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { authorRows, linkRows } from "../../lib/teamTemplates/exchangeModel";
 import { TemplateIcon } from "./TemplateIcon";
 import { TemplateTrust } from "./TemplateTrust";
@@ -14,7 +14,7 @@ export function TemplateIdentity({ summary, titleId, descriptionId, metadataOnly
   const authors = authorRows(summary);
   const links = linkRows(summary);
   const lineage = summary.derived_from ? `based on ${humanizePackageName(summary.derived_from.name)} ${summary.derived_from.version}` : null;
-  const facts = [summary.license, lineage].filter(Boolean).join(" · ");
+  const facts = [summary.license, lineage, templateUpdateFact(summary)].filter(Boolean).join(" · ");
   return (
     <div className="flex gap-3.5" data-testid="template-identity">
       {!metadataOnly && <TemplateIcon icon={summary.icon} size={44} />}

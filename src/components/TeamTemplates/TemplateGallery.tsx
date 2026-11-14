@@ -9,6 +9,7 @@ import { useTauriFileDrop } from "../../hooks/terminal/useTauriFileDrop";
 import { galleryEntries, templateSource, templateTitle, type GalleryFilter, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import { folderEntryPath, storedZip } from "../../lib/teamTemplates/storedZip";
 import { TemplateIcon } from "./TemplateIcon";
+import { TemplateTrust } from "./TemplateTrust";
 import { PinnedFooter } from "./PinnedFooter";
 import { useSelectedTemplateCard } from "./useSelectedTemplateCard";
 import { templateCatalogKey, type TemplateCatalogStatus } from "./useTemplateCatalogRefusals";
@@ -17,13 +18,23 @@ import type { BlockedTemplate, TeamTemplateChoice } from "./useTeamTemplateChoic
 const FILTERS: { value: GalleryFilter; label: string }[] = [
   { value: "all", label: "All" }, { value: "builtin", label: "Built-in" }, { value: "mine", label: "Mine" }, { value: "friends", label: "From friends" },
 ];
+/** Shown only once a community channel brings a team, so the usual gallery keeps its four sources. */
+const CHANNELS_FILTER = { value: "channels" as const, label: "Channels" };
 
 const EMPTY: Record<GalleryFilter, string> = {
   all: "No templates match.",
   builtin: "No built-in template matches.",
   mine: "Templates you save or import appear here.",
   friends: "Teams shared with you in Neighborhood appear here.",
+  channels: "Teams from channels you add appear here.",
 };
+
+/** The Settings card where team channels are added, refreshed and removed. */
+export const TEAM_CHANNELS_PANEL = "settings:team-channels";
+
+function openTeamChannels() {
+  window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: TEAM_CHANNELS_PANEL } }));
+}
 
 /** A row menu item is about 30 px tall; the menu flips above its kebab when the footer would sit under it. */
 const MENU_ROW = 30;
@@ -54,13 +65,13 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
   const reason = failure ? [failure.message, ...failure.reasons].join(" ") : !ready ? "Checking…" : undefined;
   const cardRef = useSelectedTemplateCard(selected && !confirming, reason);
   const source = templateSource(summary);
+  // Built-in and Mine read plainly; a team from someone else or a channel says where it came from on its card.
+  const showSource = source.unverified || source.filter === "friends" || source.filter === "channels";
   const [placement, setPlacement] = useState<"bottom-end" | "top-end">("bottom-end");
   const menuItems = [
-    ...(source.owned ? [
-      { label: "Export…", onClick: () => onExport(summary) },
-      { label: "Share to Neighborhood…", onClick: () => onExport(summary, true) },
-    ] : []),
-    { label: "Delete", onClick: onDelete },
+    ...(source.exportable ? [{ label: "Export…", onClick: () => onExport(summary) }] : []),
+    ...(source.owned ? [{ label: "Share to Neighborhood…", onClick: () => onExport(summary, true) }] : []),
+    ...(source.deletable ? [{ label: "Delete", onClick: onDelete }] : []),
   ];
   const placeMenu = (trigger: HTMLElement) => {
     const below = (footerRef.current?.getBoundingClientRect().top ?? window.innerHeight) - trigger.getBoundingClientRect().bottom;
@@ -91,8 +102,11 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
           className="flex min-w-0 flex-1 items-center gap-3 rounded-[inherit] py-2.5 pl-3 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
           <TemplateIcon icon={summary.icon} />
           <span className="min-w-0 flex-1">
-            <span className="flex items-baseline gap-2">
+            <span className="flex min-w-0 items-baseline gap-2">
               <span className="truncate text-[13px] font-medium">{title}</span>
+              {showSource && <span className="flex min-w-0 max-w-[55%] shrink-0 text-[11px] text-[var(--ct-muted-fg)]" data-testid="template-card-source">
+                <TemplateTrust summary={summary} inline />
+              </span>}
             </span>
             <span className="block truncate text-[12px] text-[var(--ct-muted-fg)]" title={summary.description}>{summary.description}</span>
           </span>
@@ -103,7 +117,7 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
             {blocked ? "Can't start" : status ? "Unavailable" : "Checking…"}
           </span>}
           {reason && <span id={reasonId} className="sr-only">{reason}</span>}
-          {summary.provenance !== "builtin" && (
+          {summary.provenance !== "builtin" && menuItems.length > 0 && (
             <span className="inline-flex" onPointerDownCapture={(event) => placeMenu(event.currentTarget)}
               onKeyDownCapture={(event) => placeMenu(event.currentTarget)}>
               <DropdownMenu menuLabel={`${title} actions`} placement={placement} items={menuItems}
@@ -164,7 +178,7 @@ function OpenPackage({ choice }: { choice: TeamTemplateChoice }) {
 }
 
 export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoice; onExport: (summary: TemplateSummary, share?: boolean) => void }) {
-  const [filter, setFilter] = useState<GalleryFilter>("all");
+  const [chosenFilter, setFilter] = useState<GalleryFilter>("all");
   const [query, setQuery] = useState("");
   const current = choice.chosen?.form.template ?? choice.defaultSummary;
   const [selected, setSelected] = useState<TemplateSummary>(current);
@@ -172,6 +186,9 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
   const zoneRef = useRef<HTMLDivElement>(null);
   const { isDragOver } = useTauriFileDrop({ containerRef: zoneRef, onPaths: (paths) => paths[0] && choice.importPath(paths[0]), onError: choice.setNotice });
   const catalog = choice.catalog;
+  const filters = catalog?.templates.some((summary) => summary.provenance === "channel") ? [...FILTERS, CHANNELS_FILTER] : FILTERS;
+  // Removing the last community channel takes its filter away; the gallery falls back to All.
+  const filter = filters.some((option) => option.value === chosenFilter) ? chosenFilter : "all";
   const entries = galleryEntries(catalog?.templates ?? [], catalog?.recall ?? null, choice.defaultSummary, filter, query);
   const status = (summary: TemplateSummary): TemplateCatalogStatus | undefined => isBlocked(summary, choice.blocked)
     ? { kind: "refused", reason: choice.blocked!.refusal }
@@ -182,8 +199,12 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
         <BackPill label="the Team form" onBack={choice.backToForm} />
         <input type="search" aria-label="Search templates" placeholder="Search templates" value={query} onChange={(event) => setQuery(event.target.value)}
           className="min-w-0 flex-1 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-1.5 text-[12px] outline-none" />
+        <button type="button" onClick={openTeamChannels} data-testid="template-more-teams"
+          className="shrink-0 rounded px-1 text-[12px] text-[var(--ct-accent)] outline-none hover:underline focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
+          More teams…
+        </button>
       </div>
-      <Segmented aria-label="Template source" value={filter} options={FILTERS} onChange={setFilter} />
+      <Segmented aria-label="Template source" value={filter} options={filters} onChange={setFilter} />
       {/* A fixed height, so the dialog keeps its size while the filter changes. */}
       <ul className={`flex h-[340px] flex-col gap-1.5 overflow-y-auto ${isDragOver ? "opacity-40" : ""}`} aria-label="Templates" aria-busy={!catalog}>
         {entries.map((summary) => (

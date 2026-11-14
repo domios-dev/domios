@@ -5,7 +5,7 @@ import {
 import {
   blockerView, bringsSummary, buildStartRequest, decisionNotice, effortLabel, effortNote, exportFormats, galleryEntries, groupKeptState, humanizePackageName,
   lacksAuthority, payloadItemText, pickerSeed, skillScriptPath, roleTiming, scrubRows, startBlocker, startErrorView, startRefusalView, managerRoles, rowDecisionNotice,
-  templateSource, templateTitle,
+  consentOrigin, templateSource, templateTitle, templateUpdateFact,
   visiblePayload, withKept,
 } from "./startModel";
 
@@ -192,9 +192,9 @@ describe("template start model", () => {
   });
 
   it("files an owner's import under Mine and a Neighborhood receipt under From friends, unverified until consented", () => {
-    expect(templateSource({ provenance: "imported", verified: false })).toEqual({ filter: "mine", label: "From file · unverified", unverified: true, owned: true, exportable: true });
-    expect(templateSource({ provenance: "imported", verified: true })).toEqual({ filter: "mine", label: "Mine", unverified: false, owned: true, exportable: true });
-    expect(templateSource({ provenance: "imported", received_from: "Mira", verified: false })).toEqual({ filter: "friends", label: "From Mira · unverified", unverified: true, owned: false, exportable: false });
+    expect(templateSource({ provenance: "imported", verified: false })).toEqual({ filter: "mine", label: "From file · unverified", unverified: true, owned: true, exportable: true, deletable: true });
+    expect(templateSource({ provenance: "imported", verified: true })).toEqual({ filter: "mine", label: "Mine", unverified: false, owned: true, exportable: true, deletable: true });
+    expect(templateSource({ provenance: "imported", received_from: "Mira", verified: false })).toEqual({ filter: "friends", label: "From Mira · unverified", unverified: true, owned: false, exportable: false, deletable: true });
     expect(templateSource({ provenance: "imported", received_from: "Mira", verified: true })).toMatchObject({ filter: "friends", label: "From Mira", unverified: false });
     expect(templateSource({ provenance: "saved", verified: false })).toMatchObject({ filter: "mine", owned: true, exportable: true, unverified: false });
     expect(templateSource({ provenance: "builtin", verified: false })).toMatchObject({ filter: "builtin", owned: false, exportable: true });
@@ -204,6 +204,32 @@ describe("template start model", () => {
     const fallback = templateRecallFixture.fallback;
     expect(names(galleryEntries([imported, received], null, fallback, "mine", ""))).toEqual(["me/cli-import"]);
     expect(names(galleryEntries([imported, received], null, fallback, "friends", ""))).toEqual(["mira/desk"]);
+  });
+
+  it("reads official channel teams as Built-in and community channel teams as their channel, unverified until consent", () => {
+    const bundled = { provenance: "builtin" as const, version: "1.0.0", verified: true };
+    const updated = { ...bundled, version: "1.2.0", channel: "domios-teams", bundled_version: "1.0.0" };
+    expect(templateSource(updated)).toEqual(templateSource(bundled));
+    expect(templateSource(updated)).toMatchObject({ filter: "builtin", unverified: false, deletable: false });
+    expect(templateUpdateFact(bundled)).toBeNull();
+    expect(templateUpdateFact({ ...updated, bundled_version: "1.2.0" })).toBeNull();
+    expect(templateUpdateFact(updated)).toContain("1.2.0");
+    expect(templateUpdateFact(updated)).toContain("1.0.0");
+
+    const community = { provenance: "channel" as const, channel: "acme-id", verified: false };
+    const unverified = templateSource(community, "Acme");
+    expect(unverified).toMatchObject({ filter: "channels", unverified: true, owned: false, exportable: true, deletable: false });
+    expect(unverified.label).toContain("Acme");
+    expect(templateSource(community).label).toContain("acme-id");
+    const consented = templateSource({ ...community, verified: true }, "Acme");
+    expect(consented).toMatchObject({ filter: "channels", unverified: false, owned: false, deletable: false });
+    expect(consented.label).toContain("Acme");
+    expect(consentOrigin(community, "Acme")).toContain("Acme");
+
+    const summary = { name: "acme/desk", version: "1.0.0", description: "", workers: 0, ...community };
+    const fallback = templateRecallFixture.fallback;
+    expect(galleryEntries([summary], null, fallback, "channels", "").map((entry) => entry.name)).toEqual(["acme/desk"]);
+    expect(galleryEntries([summary], null, fallback, "mine", "")).toEqual([]);
   });
 
   it("offers the one-file export only when the package has no binary icon", () => {

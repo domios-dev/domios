@@ -26,6 +26,20 @@ describe("team templates transport", () => {
     ]);
   });
 
+  it("lists and changes team channels through the tagged channel action", async () => {
+    const { calls, transport } = fixture({ channels: [] });
+    await transport.channels();
+    await transport.channelAction({ action: "add", url: "https://example.invalid/acme.git", name: null });
+    await transport.channelAction({ action: "refresh", name: "acme" });
+    await transport.channelAction({ action: "remove", name: "acme" });
+    expect(calls).toEqual([
+      { method: "GET", path: "/api/team-channels", body: undefined },
+      { method: "POST", path: "/api/team-channels", body: { action: "add", url: "https://example.invalid/acme.git", name: null } },
+      { method: "POST", path: "/api/team-channels", body: { action: "refresh", name: "acme" } },
+      { method: "POST", path: "/api/team-channels", body: { action: "remove", name: "acme" } },
+    ]);
+  });
+
   it("carries a template only when one is chosen, so the default pair is unchanged", () => {
     const pair = { orchestrator_agent: "claude", planner_agent: "claude" };
     expect(withTemplate(pair)).toEqual(pair);

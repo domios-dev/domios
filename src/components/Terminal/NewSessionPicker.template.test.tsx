@@ -777,6 +777,51 @@ describe("Team template start in the session dialog", () => {
     expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
   });
 
+  const asListed = (template: typeof startablePreview.form.template) => ({
+    templates: templateListFixture.templates.map((listed) => listed.name === template.name ? template : listed),
+  });
+
+  it("routes a community channel team through consent and offers it for export but not deletion", async () => {
+    const community = { ...startablePreview.form.template, provenance: "channel" as const, channel: "acme", verified: false };
+    fixture.templates.list.mockResolvedValue(asListed(community));
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, form: { ...startablePreview.form, template: community } });
+    await renderPicker();
+    await click(button("Change template"));
+    expect(dialog().querySelector('[data-testid="template-card-source"] [data-unverified]')).not.toBeNull();
+    const kebab = button("More actions for Research desk");
+    await act(async () => { kebab!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true })); });
+    const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) => item.textContent?.trim());
+    expect(items).toEqual(["Export…"]);
+    await act(async () => { document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); });
+    await click(buttons().find((candidate) => candidate.getAttribute("aria-pressed") !== null && candidate.textContent?.includes("Research desk")));
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).not.toBeNull();
+    expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
+  });
+
+  it("takes an official channel update straight to its form without a decision", async () => {
+    const official = { ...startablePreview.form.template, provenance: "builtin" as const, channel: "domios-teams", bundled_version: "0.9.0", verified: true };
+    fixture.templates.list.mockResolvedValue(asListed(official));
+    fixture.templates.preview.mockResolvedValue({ ...startablePreview, form: { ...startablePreview.form, template: official }, consent: null });
+    await renderPicker();
+    await chooseResearchDesk();
+    expect(dialog().querySelector('[data-testid="template-review-consent"]')).toBeNull();
+    expect(dialog().querySelector('[data-testid="template-start-form"]')).not.toBeNull();
+  });
+
+  it("opens the Settings team channels card from the gallery", async () => {
+    const panels: string[] = [];
+    const onOpen = (event: Event) => panels.push((event as CustomEvent<{ panel: string }>).detail.panel);
+    window.addEventListener("codeterm:open-panel", onOpen);
+    try {
+      await renderPicker();
+      await click(button("Change template"));
+      await click(dialog().querySelector<HTMLButtonElement>('[data-testid="template-more-teams"]')!);
+      expect(panels).toEqual(["settings:team-channels"]);
+    } finally {
+      window.removeEventListener("codeterm:open-panel", onOpen);
+    }
+  });
+
   it("keeps package actions without a second Details view", async () => {
     await renderPicker();
     await click(button("Change template"));
