@@ -14,8 +14,8 @@ pub use builtins::lookup as builtin_kind;
 pub use query::can_close_review;
 pub use query::{anchors_team, can_spawn, has_team_authority, manages, plan_approval, plan_edit};
 pub use query::{kind_capability, kind_descriptor, kind_id, kind_label, taskless_worker};
-pub use query::{registered_capability, registered_descriptor};
 pub use query::{read_only_by_default, release, requires_parent};
+pub use query::{registered_capability, registered_descriptor};
 pub use role_type::{RoleName, RoleType, RoleTypeError};
 
 /// Structural authority of a role kind. Fields are private and `LEAF` is the

@@ -304,7 +304,8 @@ pub async fn spawn_agent(
         |(s, m)| SpawnRejection {
             status: s,
             body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
-        })?;
+        },
+    )?;
     let mut params = spawn_request::into_params(body, role_probe, ownership);
     state
         .svc

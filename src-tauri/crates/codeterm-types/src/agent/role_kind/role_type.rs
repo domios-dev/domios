@@ -24,11 +24,19 @@ pub enum RoleTypeError {
     HostOwned(String),
     Malformed(String),
     /// The Team lists no role of this name; `roles` are the names it does list.
-    NotRegistered { name: String, roles: Vec<String> },
+    NotRegistered {
+        name: String,
+        roles: Vec<String>,
+    },
     /// Dispatch launches workers; this name is one of the Team's managers.
-    NotAWorker { name: String, workers: Vec<String> },
+    NotAWorker {
+        name: String,
+        workers: Vec<String>,
+    },
     /// Dispatch without `--role` uses `worker`, which this Team does not list.
-    NoDefaultWorker { workers: Vec<String> },
+    NoDefaultWorker {
+        workers: Vec<String>,
+    },
 }
 
 fn names(list: &[String]) -> String {

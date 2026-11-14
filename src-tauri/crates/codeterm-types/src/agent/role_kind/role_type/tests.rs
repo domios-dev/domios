@@ -23,11 +23,17 @@ fn only_the_watcher_has_a_kind_without_a_team_registration() {
 
 #[test]
 fn reserved_manager_names_are_never_workers() {
-    for value in builtins::BUILTIN_MANAGERS.into_iter().chain([builtins::WATCHER]) {
+    for value in builtins::BUILTIN_MANAGERS
+        .into_iter()
+        .chain([builtins::WATCHER])
+    {
         assert!(RoleName::parse(value).unwrap().is_manager_name(), "{value}");
     }
     for value in ["worker", "qa", "security_lead"] {
-        assert!(!RoleName::parse(value).unwrap().is_manager_name(), "{value}");
+        assert!(
+            !RoleName::parse(value).unwrap().is_manager_name(),
+            "{value}"
+        );
     }
 }
 

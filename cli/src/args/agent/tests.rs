@@ -404,10 +404,7 @@ fn spawn_worker_plan_task_parses() {
                     ..
                 },
         } => {
-            assert_eq!(
-                role.as_ref().map(|role| role.as_str()),
-                Some("worker")
-            );
+            assert_eq!(role.as_ref().map(|role| role.as_str()), Some("worker"));
             assert_eq!(plan.as_deref(), Some("pl_test"));
             assert_eq!(plan_task.as_deref(), Some("my-task"));
         }
@@ -436,10 +433,7 @@ fn agent_spawn_unplanned_parses_reason() {
             reason,
             ..
         } => {
-            assert_eq!(
-                role.as_ref().map(|role| role.as_str()),
-                Some("worker")
-            );
+            assert_eq!(role.as_ref().map(|role| role.as_str()), Some("worker"));
             assert!(unplanned);
             assert_eq!(tags, vec!["work:qa"]);
             assert_eq!(reason.as_deref(), Some("urgent probe"));
@@ -476,10 +470,7 @@ fn spawn_read_only_worker_parses_without_a_plan_task() {
             authorized_gates,
             ..
         } => {
-            assert_eq!(
-                role.as_ref().map(|role| role.as_str()),
-                Some("worker")
-            );
+            assert_eq!(role.as_ref().map(|role| role.as_str()), Some("worker"));
             assert_eq!(plan.as_deref(), Some("pl_test"));
             assert!(plan_task.is_none());
             assert_eq!(execution_intent.as_deref(), Some("read_only"));
@@ -549,10 +540,7 @@ fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
             execution_intent,
             ..
         } => {
-            assert_eq!(
-                role.as_ref().map(|role| role.as_str()),
-                Some("reviewer")
-            );
+            assert_eq!(role.as_ref().map(|role| role.as_str()), Some("reviewer"));
             assert_eq!(task.as_deref(), Some("Review the exact diff named here"));
             assert!(plan_task.is_none());
             assert!(bound_task.is_none());
@@ -617,10 +605,7 @@ fn spawn_provider_args_preserve_hyphen_values_after_codeterm_bindings() {
             model,
             ..
         } => {
-            assert_eq!(
-                role.as_ref().map(|role| role.as_str()),
-                Some("worker")
-            );
+            assert_eq!(role.as_ref().map(|role| role.as_str()), Some("worker"));
             assert_eq!(plan.as_deref(), Some("pl_x"));
             assert_eq!(task.as_deref(), Some("do x"));
             assert_eq!(
@@ -652,10 +637,7 @@ fn spawn_without_provider_args_is_unaffected() {
     let action = parse_spawn(&["claude", "--role", "worker"]).expect("role should still parse");
     match action {
         AgentAction::Spawn { role, args, .. } => {
-            assert_eq!(
-                role.as_ref().map(|role| role.as_str()),
-                Some("worker")
-            );
+            assert_eq!(role.as_ref().map(|role| role.as_str()), Some("worker"));
             assert!(args.is_none());
         }
         _ => panic!("expected agent spawn"),
