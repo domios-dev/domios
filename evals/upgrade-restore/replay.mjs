@@ -3,7 +3,8 @@ import {readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
-import {requireBackings, verdict, failureReason, requireRestart, historyMatches, synthesizeHistory} from './model.mjs';
+import {requireBackings, verdict, failureReason, requireRestart, historyMatches, synthesizeHistory, capturedUnavailable} from './model.mjs';
+import {unavailableVerdict} from './unavailable.mjs';
 import {cliResult} from './cli-result.mjs';
 import {CONNECT_SCRIPT, devApi, isolatedConnection} from './transport.mjs';
 import {Events} from '../core-journeys/lib/env.mjs';
@@ -57,11 +58,13 @@ if (mode === 'stage') {
 if (mode !== 'verify') throw new Error('Unknown replay mode');
 requireRestart(JSON.parse(readFileSync(join(root, 'stage-result.json'), 'utf8')),
   currentHealth.boot_id, fixtureDigest);
-const results = await Promise.all(expected.map(async tab => {
+const active = expected.filter(tab => !capturedUnavailable(document, tab));
+const passive = expected.filter(tab => capturedUnavailable(document, tab));
+const results = await Promise.all(active.map(async tab => {
   const events = new Events(dev, AbortSignal.timeout(Math.max(1, Math.ceil(deadline - performance.now()))));
   try {
     await events.open();
-    await daemon.focus(tab.tab_id);
+    await daemon.select(tab.tab_id);
     await observe({events, filter: touchesTab(tab.tab_id), label: `tab=${tab.tab_id}: restored runtime readiness`,
       read: () => daemon.inspect(tab.tab_id),
       judge: actual => {
@@ -98,14 +101,29 @@ const results = await Promise.all(expected.map(async tab => {
   }
 }));
 const trace = readFileSync(join(root, 'provider-trace.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
-for (const tab of expected.filter(tab => tab.agent_type)) {
+for (const tab of active.filter(tab => tab.agent_type)) {
   const session = tab.claude_session_id ?? tab.agent_session_id;
   if (!trace.some(row => row.thread_id === session && row.method === 'thread/turns/list')) {
     results.push({tab_id: tab.tab_id, ready: false, reason: 'history backing was not consumed by restored runtime'});
   }
 }
+const preservedUnavailable = await Promise.all(passive.map(async tab => {
+  try {
+    const actual = await daemon.inspect(tab.tab_id);
+    const result = unavailableVerdict(document, tab, actual, trace);
+    const live = document.live_tab_metadata.find(row => row.tab_id === tab.tab_id);
+    if (live && (live.hidden !== actual?.hidden || live.show_in_tabbar !== actual?.show_in_tabbar)) {
+      return {...result, preserved: false, reason: 'hidden/tabbar visibility changed after restore'};
+    }
+    return result;
+  } catch (error) {
+    return {tab_id: tab.tab_id, bucket: 'preserved-unavailable', preserved: false, reason: failureReason(error)};
+  }
+}));
 const record = {build: expectedBuild, boot_id: currentHealth.boot_id, fixture_sha256: fixtureDigest,
-  deadline_seconds: deadlineSeconds, tabs: results, passed: results.every(row => row.ready)};
+  deadline_seconds: deadlineSeconds, tabs: results, preserved_unavailable: preservedUnavailable,
+  passed: results.every(row => row.ready) && preservedUnavailable.every(row => row.preserved)};
 writeFileSync(join(root, 'replay-result.json'), JSON.stringify(record, null, 2));
 for (const row of results) console.log(`${row.ready ? 'PASS' : 'FAIL'} tab=${row.tab_id}: ${row.reason}`);
+for (const row of preservedUnavailable) console.log(`${row.preserved ? 'PRESERVED' : 'FAIL'} tab=${row.tab_id} [preserved-unavailable]: ${row.reason}`);
 if (!record.passed) process.exitCode = 1;

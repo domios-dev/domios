@@ -5,16 +5,7 @@ use serde_json::Value;
 
 const FORMAT: &str = "upgrade-restore-v2";
 
-fn response(request: crate::local_api::LocalApiRequest) -> Value {
-    let response = request
-        .send()
-        .unwrap_or_else(|error| print::fail(1, &error.to_string()));
-    let status = response.status();
-    let body = response
-        .bytes()
-        .unwrap_or_else(|error| print::fail(1, &error.to_string()));
-    decode_response(status, &body).unwrap_or_else(|error| print::fail(1, &error))
-}
+mod stream_export;
 
 fn decode_response(status: reqwest::StatusCode, body: &[u8]) -> Result<Value, String> {
     if !status.is_success() {
@@ -35,7 +26,7 @@ fn decode_response(status: reqwest::StatusCode, body: &[u8]) -> Result<Value, St
 
 pub(super) fn export(
     json: bool,
-    http: &LocalApiClient,
+    _http: &LocalApiClient,
     base: &str,
     token: Option<&str>,
     name: &str,
@@ -66,24 +57,8 @@ pub(super) fn export(
     if !sanitize {
         print::fail(1, "Snapshot export requires --sanitize");
     }
-    let mut request = http.get(format!(
-        "{base}/api/session/backups/{}/export",
-        urlencoding::encode(name)
-    ));
-    if let Some(token) = token {
-        request = request.header("Authorization", format!("Bearer {token}"));
-    }
-    let value = response(request);
-    if value["sanitized"] != true || value["format"] != FORMAT {
-        print::fail(
-            1,
-            "Snapshot export returned an unsupported or unsanitized document",
-        );
-    }
-    let bytes = serde_json::to_vec_pretty(&value)
-        .unwrap_or_else(|error| print::fail(1, &error.to_string()));
-    std::fs::write(out, bytes)
-        .unwrap_or_else(|error| print::fail(1, &format!("Write snapshot: {error}")));
+    stream_export::download(base, token, name, &resolved)
+        .unwrap_or_else(|error| print::fail(1, &error));
     if json {
         print::print_json(&serde_json::json!({"out":out,"sanitized":true}));
     } else {
@@ -93,28 +68,13 @@ pub(super) fn export(
 
 pub(super) fn import(
     _json: bool,
-    http: &LocalApiClient,
+    _http: &LocalApiClient,
     base: &str,
     token: Option<&str>,
     file: &Path,
 ) {
-    let bytes = crate::local_admission::read_local_bytes(file)
-        .unwrap_or_else(|error| print::fail(1, &format!("Read fixture: {error}")));
-    let value: Value = serde_json::from_slice(&bytes)
-        .unwrap_or_else(|error| print::fail(1, &format!("Invalid fixture: {error}")));
-    if value["sanitized"] != true || value["format"] != FORMAT {
-        print::fail(
-            1,
-            &format!("Import requires an {FORMAT} sanitized document"),
-        );
-    }
-    let mut request = http
-        .post(format!("{base}/api/session/backups/import"))
-        .json(&value);
-    if let Some(token) = token {
-        request = request.header("Authorization", format!("Bearer {token}"));
-    }
-    let result = response(request);
+    let result =
+        stream_export::upload(base, token, file).unwrap_or_else(|error| print::fail(1, &error));
     print::print_json(&result);
 }
 

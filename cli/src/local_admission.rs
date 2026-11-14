@@ -73,11 +73,18 @@ fn read_local_text_with(
 }
 
 pub(crate) fn read_local_bytes(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    open_local_file(path)?.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+pub(crate) fn open_local_file(path: impl AsRef<std::path::Path>) -> std::io::Result<std::fs::File> {
     if host_scoped() {
         require(Operation::LocalInput)
             .map_err(|reason| std::io::Error::new(std::io::ErrorKind::PermissionDenied, reason))?;
     }
-    std::fs::read(path)
+    std::fs::File::open(path)
 }
 
 pub(crate) fn operation_for_cli(cli: &crate::Cli, scoped: bool) -> Option<Operation> {

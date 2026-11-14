@@ -466,8 +466,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/session/backups/import",
-            post(super::session_exchange::import)
-                .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)),
+            post(super::session_exchange::import).layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .route(
             "/api/sessions/search",
