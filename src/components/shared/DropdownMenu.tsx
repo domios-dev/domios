@@ -563,6 +563,7 @@ export function DropdownSelect({
   menuMaxHeight,
   className,
   "data-testid": testId,
+  focusOnPointerOpen,
 }: {
   options: DropdownSelectOption[];
   value: string;
@@ -579,6 +580,7 @@ export function DropdownSelect({
   menuMaxHeight?: number;
   className?: string;
   "data-testid"?: string;
+  focusOnPointerOpen?: boolean;
 }) {
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? placeholder ?? "";
@@ -638,6 +640,7 @@ export function DropdownSelect({
       className="w-full min-w-0"
       maxHeight={menuMaxHeight}
       disabled={disabled}
+      focusOnPointerOpen={focusOnPointerOpen}
     />
   );
 }

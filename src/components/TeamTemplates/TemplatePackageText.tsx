@@ -9,14 +9,15 @@ import { startErrorView } from "../../lib/teamTemplates/startModel";
 
 export function TemplateMarkdown({ text }: { text: string }) {
   return <div className="text-[13px] leading-relaxed [overflow-wrap:anywhere] [&_p]:my-3 [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_pre]:overflow-auto [&_a]:text-[var(--ct-accent)]">
-    <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{ img: ({ alt }) => <span>{alt}</span> }}>{text}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ alt }) => <span>{alt}</span> }}>{text}</ReactMarkdown>
   </div>;
 }
 
 export function TemplateYaml({ text }: { text: string }) {
-  return <div aria-label="team.yaml" className="min-w-0 text-[12px]">
+  return <div role="region" aria-label="team.yaml" tabIndex={0} className="min-w-0 text-[12px]" style={{ maxWidth: "100%", overflowX: "auto" }}>
     <SyntaxHighlighter language="yaml" explicitHighlight style={themeAwarePrismStyle} className={SYNTAX_HIGHLIGHT_ROOT_CLASS}
-      customStyle={{ margin: 0, background: "var(--ct-bg)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }} wrapLongLines>{text}</SyntaxHighlighter>
+      customStyle={{ margin: 0, background: "var(--ct-bg)", whiteSpace: "pre", overflow: "visible", width: "max-content", minWidth: "100%" }}
+      codeTagProps={{ style: { whiteSpace: "pre" } }}>{text}</SyntaxHighlighter>
   </div>;
 }
 
