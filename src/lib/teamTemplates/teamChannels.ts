@@ -3,6 +3,11 @@ import type { TeamChannelRow } from "../transport/teamTemplates";
 
 export const OFFICIAL_TEAM_CHANNEL = "domios-teams";
 
+/** Settings is a main view under the session dialog, so the dialog closes before this opens the Team channels card. */
+export function openTeamChannelsSettings(): void {
+  window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:team-channels" } }));
+}
+
 interface TeamChannelState {
   rows: readonly TeamChannelRow[] | null;
   /** Bumped by every add, refresh and remove, so open galleries reread their catalog. */

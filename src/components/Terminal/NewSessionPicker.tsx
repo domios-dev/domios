@@ -35,6 +35,7 @@ import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
 import {useLaunchProfileSelection} from "./useLaunchProfileSelection";
 import {cloudExecution} from "./cloudExecution";
 import { TeamTemplateSection } from "../TeamTemplates/TeamTemplateSection";
+import { openTeamChannelsSettings } from "../../lib/teamTemplates/teamChannels";
 import { PinnedFooter } from "../TeamTemplates/PinnedFooter";
 import { hasPendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
@@ -499,6 +500,7 @@ export function NewSessionPicker({
               ) : (
                 <TeamTemplateSection
                   choice={templates}
+                  onMoreTeams={() => { onClose(); openTeamChannelsSettings(); }}
                   providers={visibleProviders}
                   roleControls={{orchestrator: orchestratorProfile, planner: plannerProfile}}
                   disabledProviderIds={disabledProviderIds}

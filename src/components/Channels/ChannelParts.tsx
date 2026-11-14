@@ -40,6 +40,7 @@ export function ChannelAddForm({
   busy,
   open,
   error = null,
+  focusOnOpen = false,
   onOpenChange,
   onAdd,
 }: {
@@ -47,6 +48,8 @@ export function ChannelAddForm({
   nameRequired: boolean;
   busy: boolean;
   open: boolean;
+  /** Move focus into the form when it opens, so a keyboard user lands on its first field. */
+  focusOnOpen?: boolean;
   /** Why the last add failed, shown inside the form. */
   error?: string | null;
   onOpenChange: (open: boolean) => void;
@@ -78,7 +81,7 @@ export function ChannelAddForm({
       }}
     >
       <input data-testid={`${testIdPrefix}-name-input`} name="name" aria-label={nameRequired ? "Channel name" : "Channel name (optional)"}
-        required={nameRequired} autoFocus placeholder={nameRequired ? "channel name" : "name (optional)"} style={inputStyle} />
+        required={nameRequired} autoFocus={focusOnOpen} placeholder={nameRequired ? "channel name" : "name (optional)"} style={inputStyle} />
       <input data-testid={`${testIdPrefix}-url-input`} name="url" aria-label="Channel URL" required placeholder="channel URL" style={inputStyle} />
       {error && (
         <div role="alert" data-testid={`${testIdPrefix}-add-error`} style={{ fontSize: 11.5, lineHeight: 1.4, color: "var(--ct-err)", overflowWrap: "anywhere" }}>

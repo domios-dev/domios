@@ -154,7 +154,7 @@ export function TeamChannelsCard({ transport = teamTemplatesTransport }: { trans
           </ul>
         )}
         {actionError && <p role="alert" className="m-0 text-[12px] text-[var(--ct-err)]">{actionError}</p>}
-        <ChannelAddForm testIdPrefix="team-channel" nameRequired={false} busy={busy !== null} open={addOpen} error={addError}
+        <ChannelAddForm testIdPrefix="team-channel" nameRequired={false} focusOnOpen busy={busy !== null} open={addOpen} error={addError}
           onOpenChange={(open) => { setAddOpen(open); setAddError(null); }} onAdd={add} />
       </div>
     </SettingsCard>

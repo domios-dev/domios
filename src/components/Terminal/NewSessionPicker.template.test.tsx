@@ -808,7 +808,7 @@ describe("Team template start in the session dialog", () => {
     expect(dialog().querySelector('[data-testid="template-start-form"]')).not.toBeNull();
   });
 
-  it("opens the Settings team channels card from the gallery", async () => {
+  it("leaves the session dialog for the Settings team channels card from the gallery", async () => {
     const panels: string[] = [];
     const onOpen = (event: Event) => panels.push((event as CustomEvent<{ panel: string }>).detail.panel);
     window.addEventListener("codeterm:open-panel", onOpen);
@@ -817,6 +817,7 @@ describe("Team template start in the session dialog", () => {
       await click(button("Change template"));
       await click(dialog().querySelector<HTMLButtonElement>('[data-testid="template-more-teams"]')!);
       expect(panels).toEqual(["settings:team-channels"]);
+      expect(onClose).toHaveBeenCalledTimes(1);
     } finally {
       window.removeEventListener("codeterm:open-panel", onOpen);
     }

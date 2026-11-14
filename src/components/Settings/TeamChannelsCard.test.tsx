@@ -99,7 +99,7 @@ describe("Team channels card", () => {
     await click(labelled(row("acme"), "Remove Acme"));
     const again = host.querySelector<HTMLElement>('[role="group"][aria-label="Remove Acme"]')!;
     await click(Array.from(again.querySelectorAll("button")).find((candidate) => candidate.textContent === "Remove"));
-    expect(actions.at(-1)).toEqual({ action: "remove", name: "acme" });
+    expect(actions[actions.length - 1]).toEqual({ action: "remove", name: "acme" });
     expect(rows().map((candidate) => candidate.dataset.channelName)).toEqual(["domios-teams"]);
   });
 
@@ -111,7 +111,7 @@ describe("Team channels card", () => {
 
     failAdd = "opaque-refusal";
     await submitAdd("https://example.invalid/bad.git", "bad");
-    expect(actions.at(-1)).toEqual({ action: "add", url: "https://example.invalid/bad.git", name: "bad" });
+    expect(actions[actions.length - 1]).toEqual({ action: "add", url: "https://example.invalid/bad.git", name: "bad" });
     const form = host.querySelector<HTMLFormElement>('form[aria-label="Add channel"]')!;
     expect(form.querySelector('[role="alert"]')?.textContent).toContain("opaque-refusal");
   });

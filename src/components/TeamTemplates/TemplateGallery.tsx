@@ -29,13 +29,6 @@ const EMPTY: Record<GalleryFilter, string> = {
   channels: "Teams from channels you add appear here.",
 };
 
-/** The Settings card where team channels are added, refreshed and removed. */
-export const TEAM_CHANNELS_PANEL = "settings:team-channels";
-
-function openTeamChannels() {
-  window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: TEAM_CHANNELS_PANEL } }));
-}
-
 /** A row menu item is about 30 px tall; the menu flips above its kebab when the footer would sit under it. */
 const MENU_ROW = 30;
 const MENU_CHROME = 12;
@@ -177,7 +170,12 @@ function OpenPackage({ choice }: { choice: TeamTemplateChoice }) {
   </>;
 }
 
-export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoice; onExport: (summary: TemplateSummary, share?: boolean) => void }) {
+/** `onMoreTeams` leaves the session dialog for the Settings card where team channels are managed. */
+export function TemplateGallery({ choice, onExport, onMoreTeams }: {
+  choice: TeamTemplateChoice;
+  onExport: (summary: TemplateSummary, share?: boolean) => void;
+  onMoreTeams: () => void;
+}) {
   const [chosenFilter, setFilter] = useState<GalleryFilter>("all");
   const [query, setQuery] = useState("");
   const current = choice.chosen?.form.template ?? choice.defaultSummary;
@@ -199,7 +197,7 @@ export function TemplateGallery({ choice, onExport }: { choice: TeamTemplateChoi
         <BackPill label="the Team form" onBack={choice.backToForm} />
         <input type="search" aria-label="Search templates" placeholder="Search templates" value={query} onChange={(event) => setQuery(event.target.value)}
           className="min-w-0 flex-1 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-1.5 text-[12px] outline-none" />
-        <button type="button" onClick={openTeamChannels} data-testid="template-more-teams"
+        <button type="button" onClick={onMoreTeams} data-testid="template-more-teams"
           className="shrink-0 rounded px-1 text-[12px] text-[var(--ct-accent)] outline-none hover:underline focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]">
           More teams…
         </button>
