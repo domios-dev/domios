@@ -153,10 +153,12 @@ describe("template start model", () => {
     const fallback = templateRecallFixture.fallback;
     const names = (entries: { name: string }[]) => entries.map((entry) => entry.name);
     expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "all", "")))
-      .toEqual(["dev.domios/video-studio", "dev.domios/default", "com.example/research-desk"]);
-    expect(names(galleryEntries(templateListFixture.templates, null, fallback, "all", ""))).toEqual(["dev.domios/default", "com.example/research-desk"]);
+      .toEqual(["dev.domios/video-studio", "dev.domios/default", "dev.domios/design-studio", "dev.domios/marketing-studio", "com.example/research-desk"]);
+    expect(names(galleryEntries(templateListFixture.templates, null, fallback, "all", "")))
+      .toEqual(["dev.domios/default", "dev.domios/video-studio", "dev.domios/design-studio", "dev.domios/marketing-studio", "com.example/research-desk"]);
     expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "mine", ""))).toEqual(["com.example/research-desk"]);
-    expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "all", "market"))).toEqual(["com.example/research-desk"]);
+    expect(names(galleryEntries(templateListFixture.templates, templateRecallFixture, fallback, "all", "market")))
+      .toEqual(["dev.domios/marketing-studio", "com.example/research-desk"]);
   });
 
   it("keeps a harness blocker on the row only while that row runs on the blocked harness", () => {
