@@ -211,11 +211,13 @@ fn scan(
         }
         let inside_html = raw_html.is_some();
         let html_data = raw_html.as_ref().is_none_or(HtmlBoundary::in_data);
+        let mut context_boundary = false;
         if let Some(context) = CONTEXT.captures(line) {
             let name = &context[1];
             if CONTEXTS.contains(&name)
                 || (name == "domios" && (body_start > 0 || at != 0) && !context[0].ends_with("/>"))
             {
+                context_boundary = true;
                 if line.trim_start().starts_with("</") {
                     if contexts.last().is_some_and(|open| open == name) {
                         contexts.pop();
@@ -257,7 +259,8 @@ fn scan(
         }
         let literal_indent = list_marker.as_ref().map_or(indent.min(3), |m| m.end());
         let rest = &line[literal_indent..];
-        if contexts.is_empty()
+        if !context_boundary
+            && contexts.is_empty()
             && !list
             && !inside_html
             && inline_ticks == 0
@@ -281,6 +284,7 @@ fn scan(
             }
         }
         if !opaque
+            && !context_boundary
             && html_data
             && contexts.is_empty()
             && inline_ticks == 0
