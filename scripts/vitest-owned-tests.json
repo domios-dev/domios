@@ -143,6 +143,7 @@
   "src/components/Terminal/chatSendStatus.test.ts",
   "src/components/Terminal/transcriptStore.correlation.test.ts",
   "src/components/Terminal/transcriptStore.pasteEcho.test.ts",
+  "src/components/Terminal/chatModelCopyEcho.test.ts",
   "src/components/Terminal/transcriptStore.held.test.tsx",
   "src/components/Terminal/ChatDeliveryState.notice.test.tsx",
   "src/components/Terminal/useChatSession.optimisticIdentity.test.ts",
