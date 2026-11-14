@@ -109,11 +109,12 @@ pub(super) fn dispatch(
 
         "workspace.focus" => {
             let id = get_string_param(params, "workspace_id")?;
-            svc.focus_workspace(&id).map_err(|message| JsonRpcError {
-                code: -32602,
-                message,
-                data: None,
-            })?;
+            svc.request_workspace_focus(&id)
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
             Ok(serde_json::json!({"ok": true}))
         }
 

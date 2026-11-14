@@ -4,14 +4,18 @@
 //! selection any client made". They seed a client that has no selection of its
 //! own and survive desk restore. Recording a client's selection emits neither a
 //! focus event nor a mux snapshot, so no other client reads, wakes or follows
-//! it. An explicit focus request (CLI, socket, agent) is the one exception and
-//! carries its own event that every client honours.
+//! it. Only the owner moves a client's view, and only in the client they act in.
+//!
+//! A focus request from outside the clients (`tab focus`, `workspace focus`, the
+//! socket or REST focus routes, a new Team's Orchestrator) moves no client and
+//! leaves the last selection alone. Whatever its credential, an agent may have
+//! issued it: QA agents drive an instance with the owner credential and can
+//! type into the owner's shells. It highlights its tab in every client until a
+//! client selects that tab.
 
 use super::ServiceContext;
 use crate::service::session_persist::{self, SessionPersistUrgency};
-
-/// Explicit request to show a tab, as opposed to a client's own selection.
-pub(crate) const TAB_FOCUS_REQUESTED_EVENT: &str = "tab-focus-requested";
+use crate::service::MuxEmitCause;
 
 impl ServiceContext {
     /// Record one client's selection without telling any other client.
@@ -29,7 +33,7 @@ impl ServiceContext {
             ),
             None => None,
         };
-        let (switched, cwd, workspace_id) = {
+        let (switched, cwd, workspace_id, highlight_cleared) = {
             let mut mux = self.mux.write();
             let workspace_id = match (workspace_id, tab_id.as_deref()) {
                 (Some(id), _) => Some(id.to_string()),
@@ -50,11 +54,14 @@ impl ServiceContext {
             if let Some(tab) = tab_id.as_deref() {
                 mux.set_focused_tab(tab)?;
             }
+            let highlight_cleared = tab_id
+                .as_deref()
+                .is_some_and(|tab| mux.set_tab_focus_requested(tab, false));
             let cwd = workspace_id
                 .as_deref()
                 .and_then(|id| mux.get_workspace(id))
                 .and_then(|workspace| workspace.cwd.clone());
-            (switched, cwd, workspace_id)
+            (switched, cwd, workspace_id, highlight_cleared)
         };
         self.ext::<std::sync::Arc<crate::user_last_activity::UserLastActivity>>()
             .mark();
@@ -69,41 +76,44 @@ impl ServiceContext {
             self.schedule_focused_tab_model_refresh();
             self.wake_opened_tab(tab);
         }
+        if highlight_cleared {
+            self.emit_state_changed(MuxEmitCause::TabMetadata);
+        }
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
-    /// An explicit request to show a tab: every client selects it.
+    /// A request to show a tab highlights it; no client moves.
     pub fn request_tab_focus(&self, tab_id: &str) -> Result<(), String> {
-        self.focus_tab(tab_id)?;
-        let (tab_id, workspace_id) = {
-            let mux = self.mux.read();
+        let changed = {
+            let mut mux = self.mux.write();
             let tab_id = mux
                 .resolve_tab_id(tab_id)
-                .unwrap_or_else(|| tab_id.to_string());
-            let workspace_id = mux.find_workspace_for_tab(&tab_id);
-            (tab_id, workspace_id)
+                .ok_or_else(|| format!("Tab not found: {tab_id}"))?;
+            mux.set_tab_focus_requested(&tab_id, true)
         };
-        self.emit_focus_request(workspace_id.as_deref(), Some(&tab_id));
+        if changed {
+            self.emit_state_changed(MuxEmitCause::TabMetadata);
+        }
         Ok(())
     }
 
-    /// An explicit request to show a workspace: every client opens it at its last selected tab.
-    pub(super) fn request_workspace_focus(&self, workspace_id: &str) {
-        let tab_id = self
-            .mux
-            .read()
-            .get_workspace(workspace_id)
-            .and_then(|workspace| workspace.active_tab_id.clone());
-        self.emit_focus_request(Some(workspace_id), tab_id.as_deref());
-    }
-
-    fn emit_focus_request(&self, workspace_id: Option<&str>, tab_id: Option<&str>) {
-        self.ui.emit(
-            TAB_FOCUS_REQUESTED_EVENT,
-            serde_json::json!({"tab_id": tab_id, "workspace_id": workspace_id}),
-        );
+    /// A request to show a workspace highlights its last selected tab; no client moves.
+    pub fn request_workspace_focus(&self, workspace_id: &str) -> Result<(), String> {
+        let changed = {
+            let mut mux = self.mux.write();
+            let tab_id = mux
+                .get_workspace(workspace_id)
+                .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?
+                .active_tab_id
+                .clone();
+            tab_id.is_some_and(|tab_id| mux.set_tab_focus_requested(&tab_id, true))
+        };
+        if changed {
+            self.emit_state_changed(MuxEmitCause::TabMetadata);
+        }
+        Ok(())
     }
 }
 

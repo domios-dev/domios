@@ -450,6 +450,7 @@ impl MultiplexerState {
             worker_id: None,
             frozen: false,
             has_checklist: false,
+            focus_requested: false,
             slept_at_ms: None,
             sleep_reason: None,
             last_active_at_ms: None,

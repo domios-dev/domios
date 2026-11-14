@@ -318,7 +318,6 @@ fn start_accepted(svc: &ServiceState, origin: &str, ask: TemplatePeerStartAsk) -
         planner_model: ask.planner_model,
         workspace_id: Some(ask.workspace_id),
         template: Some(decided),
-        keep_focus: true,
         ..Default::default()
     };
     match codeterm_service_core::async_runtime::block_on(svc.create_orchestration_pair(pair)) {

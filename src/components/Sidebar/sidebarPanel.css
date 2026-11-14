@@ -341,6 +341,10 @@
   background: var(--ct-red);
 }
 
+.tab-attention-mark[data-kind="requested"] {
+  background: var(--ct-accent);
+}
+
 .ct-compact-rail__tab > .tab-attention-mark {
   right: 7px;
   bottom: 7px;

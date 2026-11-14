@@ -63,6 +63,21 @@ describe("tab attention model", () => {
       expect(mark?.kind === "attention" ? mark.level : null).toBe(level);
     }
   });
+  it("highlights a tab someone asked to show until a client opens it, below every input need", () => {
+    const requested = { ...tab, focus_requested: true };
+    const away = tabAttention(requested, null, []);
+    expect(away.kind).toBe("requested");
+    expect(away.showMark).toBe(true);
+    expect(away.cleared).toBe(false);
+    const mark = tabStatusMark(tab.title, away);
+    expect(mark?.kind === "attention" ? mark.level : null).toBe("requested");
+    const shown = tabAttention(requested, null, [], true);
+    expect(shown.showMark).toBe(false);
+    expect(tabStatusMark(tab.title, shown, true)).toBe(null);
+    expect(tabAttention(requested, "Waiting", []).kind).toBe("waiting");
+    expect(tabAttention(requested, null, [notice("n", "action_needed")]).kind).toBe("action_needed");
+    expect(tabAttention({ ...tab, focus_requested: false }, null, []).kind).toBe(null);
+  });
   it("uses the icon clock for frozen tabs and clears it on wake", () => {
     const sleeping = tabAttention({ ...tab, frozen: true }, null, []);
     expect(tabStatusMark(tab.title, sleeping)).toEqual({ kind: "sleeping", label: "Asleep" });

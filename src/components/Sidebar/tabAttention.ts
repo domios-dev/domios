@@ -6,7 +6,8 @@ import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
 import { asleepLabel } from "../../lib/tabSleep";
 import type { PlanControlLoop } from "../Canvas/planControlLoop";
 
-export type TabAttentionKind = "waiting" | "action_needed" | "failure";
+/** `requested`: an agent or automation asked to show the tab; only the owner moves a client to it. */
+export type TabAttentionKind = "requested" | "waiting" | "action_needed" | "failure";
 
 export interface TabAttention {
   wantsAttention: boolean;
@@ -34,7 +35,9 @@ export function tabAttention(tab: Tab, status: TabStatus | null | undefined, not
     Number(b.level === "failure") - Number(a.level === "failure") || b.timestamp - a.timestamp)[0] ?? null;
   const activity = tabActivity(tab, status);
   const waiting = activity.kind === "waiting-on-user";
-  const kind = notification ? notification.level === "failure" ? "failure" : "action_needed" : waiting ? "waiting" : null;
+  const requested = tab.focus_requested === true;
+  const kind = notification ? notification.level === "failure" ? "failure" : "action_needed"
+    : waiting ? "waiting" : requested ? "requested" : null;
   return {
     sleeping: tab.frozen === true,
     sleepingLabel: tab.frozen ? asleepLabel(tab, Date.now()) : undefined,
@@ -44,7 +47,7 @@ export function tabAttention(tab: Tab, status: TabStatus | null | undefined, not
     body: notification?.body ?? null,
     notification,
     notificationIds: candidates.map((item) => item.id),
-    cleared: candidates.length === 0 && (!waiting || active),
+    cleared: candidates.length === 0 && ((!waiting && !requested) || active),
     showMark: kind !== null && !active,
     starting: activity.kind === "starting"
       ? tab.boot_stage === "launch_binding_unconfirmed" ? "connecting" : "starting"
@@ -57,6 +60,7 @@ export function tabAttentionByTab(tabs: Readonly<Record<string, Tab>>, statuses:
 }
 
 export function tabAttentionLabel(title: string, attention: TabAttention): string {
+  if (attention.kind === "requested") return `${title} asks you to open it`;
   return `${title} needs your input: ${attention.reason}`;
 }
 
