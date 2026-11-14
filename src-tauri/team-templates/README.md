@@ -1,20 +1,58 @@
-# Builtin team templates
+# Domios Teams
 
-Each builtin template is one Agentic Team Protocol (ATP) package in folder form:
+The official team channel for [Domios](https://github.com/domios-dev/domios).
+The packages use the [Agentic Team Protocol](https://github.com/domios-dev/agentic-team-protocol)
+and are licensed under Apache-2.0 (see LICENSE).
 
+Domios bundles a pinned snapshot as its offline floor. This official channel may
+supply newer compatible teams for new starts; running teams keep their starting
+version. The channel archive is published at:
+
+`https://github.com/domios-dev/domios-teams/releases/download/domios-teams-latest/domios-teams.tar.gz`
+
+## Publish your own channel
+
+Create a repository with a package folder for each ATP team and this root index:
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "example-teams",
+  "displayName": "Example teams",
+  "description": "Teams shared by Example",
+  "teams": [
+    {
+      "name": "com.example/research",
+      "path": "research",
+      "version": "1.0.0",
+      "minDomios": "1.20.0"
+    }
+  ]
+}
 ```
-team-templates/
-  <package>/
-    team.yaml          the package document (exactly one, at the folder root)
-    managers/*.md      instructions_file targets for kind manager roles
-    workers/*.md       instructions_file targets for kind worker roles
-    ...                any other file team.yaml references (icon, files, skills, automation)
+
+Each folder contains `team.yaml` and all referenced files. The name and version
+must match the package. Use your own namespace; `dev.domios` belongs to Domios.
+Validate each package with the ATP reference validator before publishing. Keep
+package and index versions together and increase the version when content changes.
+
+Publish the repository's default branch, or a gzip tar archive containing
+`channel.json` and its package folders at the archive root. For an archive URL,
+publish a sibling `<archive>.sha256` containing the SHA-256 and archive filename.
+Subscribe with:
+
+```sh
+domios team channel add https://github.com/example/teams.git
+# Or: domios team channel add https://example.org/teams.tar.gz
 ```
 
-Every role sits in the one `roles` map with `kind: manager|worker` and its full instructions; a Team has exactly the roles its package lists, so a package without a `planner` or `curator` has no Planner or Curator.
+Community teams show their source and require consent for each exact package.
+Community channels refresh only on an explicit owner action; they never auto-update.
+Only this official channel is trusted and refreshed automatically.
 
-`codeterm-team-package` embeds this whole tree and indexes every folder that holds a root `team.yaml`, so adding a builtin template means adding its folder: there is no registry to edit. A folder may hold only files its `team.yaml` references; every builtin must pass `domios team check <folder>`.
+## Maintainers
 
-The format is documented by `domios docs TEAM-FORMAT`.
-
-This tree is licensed under Apache-2.0 (see `LICENSE` here), like the `codeterm-team-package` crate that embeds it; the rest of Domios is AGPL-3.0-only.
+See CONTRIBUTING.md for validation and publication. The archive, its checksum and
+`domios-teams.source-commit` are rolling assets on `domios-teams-latest`. Publishing
+never moves that tag and refuses unrelated history or an older commit replacing a
+newer one.

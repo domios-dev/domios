@@ -64,7 +64,7 @@ pub(super) const DEFAULT_PLUGIN_CHANNEL_NAME: &str = "codeterm-plugins";
 pub(super) const DEFAULT_SYSTEM_CHANNEL_URL: &str =
     "https://github.com/domios-dev/domios/releases/download/codeterm-core-latest/codeterm-core.tar.gz";
 pub(super) const DEFAULT_PLUGIN_CHANNEL_URL: &str =
-    "https://github.com/rollacode/codeterm-plugins.git";
+    "https://github.com/domios-dev/domios-plugins.git";
 include!(concat!(env!("OUT_DIR"), "/bundled_plugins.rs"));
 
 const EMBEDDED_SYSTEM_CHANNEL_MANIFEST: &str = include_str!(concat!(
