@@ -33,4 +33,4 @@ template: TemplateStartRequest | null,
  * Leaves this machine's active workspace and focused tab as they are; a start asked by
  * another machine never moves its owner's focus.
  */
-keep_focus: boolean, };
+keep_focus?: boolean, };
