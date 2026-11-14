@@ -5,7 +5,7 @@ import { teamTemplatesTransport } from "../../lib/transport/orchestrationRuntime
 import type { TeamChannelAction, TeamTemplatesTransport } from "../../lib/transport/teamTemplates";
 import { channelRefusalText, channelStatusLine, publishTeamChannels, teamChannelView, useTeamChannels, type TeamChannelView } from "../../lib/teamTemplates/teamChannels";
 import { ChannelAddForm, ChannelName } from "../Channels/ChannelParts";
-import { channelFormError, type ChannelFormInput } from "../Channels/channelForm";
+import { channelFormIssue, type ChannelFormField, type ChannelFormInput } from "../Channels/channelForm";
 import { Button } from "../shared/Button";
 import { BusySpinner, BusyState } from "../shared/BusyState";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -86,7 +86,7 @@ export function TeamChannelsCard({ transport = teamTemplatesTransport }: { trans
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<{ field: ChannelFormField; message: string } | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
 
   useEffect(() => {
@@ -112,11 +112,12 @@ export function TeamChannelsCard({ transport = teamTemplatesTransport }: { trans
   }, [transport]);
 
   const add = useCallback(async (input: ChannelFormInput): Promise<boolean> => {
-    const invalid = channelFormError(input, { nameRequired: false });
+    const invalid = channelFormIssue(input, { nameRequired: false });
     setAddError(invalid);
     if (invalid) return false;
     const failure = await run("add", { action: "add", url: input.url.trim(), name: input.name.trim() || null }, "Couldn't add this channel. Try again.");
-    setAddError(failure);
+    // The host refuses the address it could not use; name refusals are caught above.
+    setAddError(failure ? { field: "url", message: failure } : null);
     if (failure) return false;
     setAddOpen(false);
     return true;
@@ -146,7 +147,7 @@ export function TeamChannelsCard({ transport = teamTemplatesTransport }: { trans
           </ul>
         )}
         {actionError && <p role="alert" className="m-0 text-[12px] text-[var(--ct-err)]">{actionError}</p>}
-        <ChannelAddForm testIdPrefix="team-channel" nameRequired={false} focusOnOpen busy={busy !== null} open={addOpen} error={addError}
+        <ChannelAddForm testIdPrefix="team-channel" nameRequired={false} focusOnOpen busy={busy !== null} open={addOpen} error={addError?.message ?? null} errorField={addError?.field}
           onOpenChange={(open) => { setAddOpen(open); setAddError(null); }} onAdd={add} />
       </div>
     </SettingsCard>

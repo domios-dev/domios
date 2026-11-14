@@ -119,6 +119,10 @@ describe("Team channels card", () => {
     expect(actions[actions.length - 1]).toEqual({ action: "add", url: "https://example.invalid/bad.git", name: "bad" });
     const alert = () => host.querySelector('form[aria-label="Add channel"] [role="alert"]')?.textContent ?? "";
     expect(alert()).toBe("opaque-plain-refusal");
+    const url = host.querySelector<HTMLInputElement>('form[aria-label="Add channel"] input[name="url"]')!;
+    expect(url.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById(url.getAttribute("aria-describedby")!)?.textContent).toBe("opaque-plain-refusal");
+    expect(host.querySelector('input[name="name"]')!.hasAttribute("aria-invalid")).toBe(false);
 
     failAdd = "opaque-raw-host-dump";
     await act(async () => { host.querySelector<HTMLFormElement>('form[aria-label="Add channel"]')!.requestSubmit(); });
@@ -138,6 +142,16 @@ describe("Team channels card", () => {
     await act(async () => { form.requestSubmit(); });
     expect(actions).toEqual([]);
     expect(form.querySelector('[role="alert"]')?.textContent).toBeTruthy();
+  });
+
+  it("returns focus to Add channel when the form is cancelled", async () => {
+    await render();
+    await click(host.querySelector<HTMLButtonElement>('[data-testid="team-channel-add-open"]'));
+    const cancel = host.querySelector<HTMLButtonElement>('[data-testid="team-channel-add-cancel"]')!;
+    cancel.focus();
+    await click(cancel);
+    expect(host.querySelector('form[aria-label="Add channel"]')).toBeNull();
+    expect(document.activeElement).toBe(host.querySelector('[data-testid="team-channel-add-open"]'));
   });
 
   it("says plainly when the official channel brings nothing for this Domios", async () => {

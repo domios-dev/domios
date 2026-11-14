@@ -98,7 +98,8 @@ function TemplateCard({ summary, selected, status, confirming, choice, footerRef
           <TemplateIcon icon={summary.icon} />
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-baseline gap-2">
-              <span className="truncate text-[13px] font-medium">{title}</span>
+              {/* Narrow cards give the title two lines rather than cutting it after a word or two. */}
+              <span className="truncate text-[13px] font-medium max-sm:line-clamp-2 max-sm:whitespace-normal max-sm:break-words">{title}</span>
               {showSource && <span className="flex min-w-0 max-w-[55%] shrink-0 text-[11px] text-[var(--ct-muted-fg)]" data-testid="template-card-source">
                 <TemplateTrust summary={summary} inline />
               </span>}

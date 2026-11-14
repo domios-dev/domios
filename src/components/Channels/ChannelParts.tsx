@@ -1,6 +1,6 @@
-import type { CSSProperties } from "react";
+import { useEffect, useId, useRef, type CSSProperties } from "react";
 import { Plus } from "lucide-react";
-import type { ChannelFormInput } from "./channelForm";
+import type { ChannelFormField, ChannelFormInput } from "./channelForm";
 
 /** Plugin and team channels share one look: a name with its Official/Custom badge, and one inline add form. */
 export function ChannelBadge({ official, testId }: { official: boolean; testId?: string }) {
@@ -40,6 +40,7 @@ export function ChannelAddForm({
   busy,
   open,
   error = null,
+  errorField = "url",
   focusOnOpen = false,
   onOpenChange,
   onAdd,
@@ -52,12 +53,25 @@ export function ChannelAddForm({
   focusOnOpen?: boolean;
   /** Why the last add failed, shown inside the form. */
   error?: string | null;
+  /** The field the error is about; it is marked invalid and described by the error. */
+  errorField?: ChannelFormField;
   onOpenChange: (open: boolean) => void;
   onAdd: (input: ChannelFormInput) => Promise<boolean>;
 }) {
+  const errorId = useId();
+  const openButton = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(open);
+  // Closing the form unmounts the focused control; focus returns to "Add channel" instead of dropping to the page.
+  useEffect(() => {
+    const closed = wasOpen.current && !open;
+    wasOpen.current = open;
+    const active = openButton.current?.ownerDocument.activeElement;
+    if (closed && (!active || active === openButton.current?.ownerDocument.body)) openButton.current?.focus();
+  }, [open]);
+  const invalid = (field: ChannelFormField) => error && errorField === field ? { "aria-invalid": true, "aria-describedby": errorId } : {};
   if (!open) {
     return (
-      <button type="button" data-testid={`${testIdPrefix}-add-open`} onClick={() => onOpenChange(true)} style={addButtonStyle} className={FOCUS_RING}>
+      <button ref={openButton} type="button" data-testid={`${testIdPrefix}-add-open`} onClick={() => onOpenChange(true)} style={addButtonStyle} className={FOCUS_RING}>
         <Plus size={14} strokeWidth={1.8} aria-hidden="true" />
         Add channel
       </button>
@@ -83,10 +97,12 @@ export function ChannelAddForm({
       }}
     >
       <input data-testid={`${testIdPrefix}-name-input`} name="name" aria-label={nameRequired ? "Channel name" : "Channel name (optional)"}
-        required={nameRequired} autoFocus={focusOnOpen} placeholder={nameRequired ? "channel name" : "name (optional)"} style={inputStyle} className={FOCUS_RING} />
-      <input data-testid={`${testIdPrefix}-url-input`} name="url" aria-label="Channel URL" required placeholder="channel URL" style={inputStyle} className={FOCUS_RING} />
+        required={nameRequired} autoFocus={focusOnOpen} placeholder={nameRequired ? "channel name" : "name (optional)"} style={inputStyle} className={FOCUS_RING}
+        {...invalid("name")} />
+      <input data-testid={`${testIdPrefix}-url-input`} name="url" aria-label="Channel URL" required placeholder="channel URL" style={inputStyle} className={FOCUS_RING}
+        {...invalid("url")} />
       {error && (
-        <div role="alert" data-testid={`${testIdPrefix}-add-error`} style={{ fontSize: 11.5, lineHeight: 1.4, color: "var(--ct-err)", overflowWrap: "anywhere" }}>
+        <div id={errorId} role="alert" data-testid={`${testIdPrefix}-add-error`} style={{ fontSize: 11.5, lineHeight: 1.4, color: "var(--ct-err)", overflowWrap: "anywhere" }}>
           {error}
         </div>
       )}
@@ -102,8 +118,8 @@ export function ChannelAddForm({
   );
 }
 
-/** The same thin accent ring as the channel rows' icon buttons, in place of the browser's default outline. */
-const FOCUS_RING = "outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]";
+/** The app's standard focus ring (globals.css), the same as the channel rows' buttons. */
+const FOCUS_RING = "ct-focus-ring";
 
 const addButtonStyle: CSSProperties = {
   width: "100%",
