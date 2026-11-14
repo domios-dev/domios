@@ -513,8 +513,8 @@ async fn media_part(file_path: &str, filename: String) -> Result<reqwest::multip
         .await
         .map_err(|error| error.to_string())?;
     let metadata = file.metadata().await.map_err(|error| error.to_string())?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > BRIDGE_MEDIA_UPLOAD_LIMIT {
-        return Err("Media must be a nonempty file of at most 150 MiB".into());
+    if !metadata.is_file() || metadata.len() > BRIDGE_MEDIA_UPLOAD_LIMIT {
+        return Err("Media must be a regular file of at most 150 MiB".into());
     }
     Ok(reqwest::multipart::Part::stream_with_length(file, metadata.len()).file_name(filename))
 }
