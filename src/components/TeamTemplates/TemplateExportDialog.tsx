@@ -67,6 +67,7 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
   const [friends, setFriends] = useState<NeighborList | null>(null);
   const [friend, setFriend] = useState("");
   const [sent, setSent] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
   const options = exportFormats(summary).filter((option) => !share || option.format !== "folder");
   const shareFormat = share && format === "folder" ? DEFAULT_EXPORT_FORMAT : format;
   useEffect(() => {
@@ -108,6 +109,7 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
       setResult(exported);
       const to = recipient;
       if (share && to && exported.check.valid && exported.path) {
+        setSending(neighborName(to));
         try {
           const receipt = await neighbors.send(to.friendship_id, `Shared the team ${templateTitle(summary)} ${summary.version}`, exported.path);
           if (receipt.submission === "unconfirmed") {
@@ -116,6 +118,8 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
           else setSent(neighborName(to));
         } catch (failure) {
           setShareFailure(templateShareRefusal(failure instanceof NeighborFilesFailure ? failure.reason : undefined));
+        } finally {
+          setSending(null);
         }
       }
     } catch (failure) {
@@ -165,13 +169,14 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
       )}
       {!result && share && unavailable && <p role="status" className="text-[12px] text-[var(--ct-muted-fg)]">{unavailable}</p>}
       {result?.path && <p className="text-[12px] text-[var(--ct-muted-fg)]">Saved to <span className="font-mono">{result.path}</span>{sent && `, and sent to ${sent}`}.</p>}
+      {sending && <p role="status" className="text-[12px] text-[var(--ct-muted-fg)]">Sending to {sending}…</p>}
       {shareFailure && <p role="alert" className="text-[12px] text-[var(--ct-red)]">The template was exported. {shareFailure.message}</p>}
       {recovery && <Button type="button" variant="ghost" className="self-start text-xs" disabled={signingIn || billing.pending || account.model.kind === "pending"}
         onClick={() => void recover(recovery)}>{recovery === "sign_in" ? "Sign in again" : "Retry"}</Button>}
       {error && <p role="alert" className="text-[12px] text-[var(--ct-red)]">{error}</p>}
       <div className="flex justify-end gap-2">
         {!result && <Button type="button" variant="ghost" className="text-xs" onClick={onClose}>Cancel</Button>}
-        <Button type="submit" variant="primary" className="text-xs" loading={busy} disabled={!result && share && (!recipient || Boolean(unavailable))}>{result ? "Done" : share ? "Share" : "Export"}</Button>
+        <Button type="submit" variant="primary" className="text-xs" loading={busy} disabled={!result && share && (!recipient || Boolean(unavailable))}>{sending ? "Sending…" : result ? "Done" : share ? "Share" : "Export"}</Button>
       </div>
     </FormDialog>
   );
