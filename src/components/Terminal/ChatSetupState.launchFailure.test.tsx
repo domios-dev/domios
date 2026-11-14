@@ -6,11 +6,56 @@ import { restoreStageView, transcriptLoadingStageView } from "../../lib/restoreS
 import type { Tab } from "../../lib/types";
 import { ChatSetupState } from "./ChatSetupState";
 import { chatLaunchFailureDescription, chatSetupView } from "./chatSetupModel";
+import { AgentStateIndicator } from "./AgentStateIndicator";
+import { tabActivity } from "../../lib/tabActivity";
 
 const reason = "SessionBindingNotObserved: launch readiness deadline elapsed";
 const starting: Tab = { id: "launch-fixture", title: "Fixture", cwd: "/fixture", pty_id: "own-pty", tab_type: "Terminal",
   agent_type: "fixture", backing: { kind: "pty" }, boot_stage: "agent_launching", agent_booting: true };
 const failed: Tab = { ...starting, boot_stage: "spawn_failed", boot_failure_reason: reason };
+
+it("shows the launch provider question, answers exact values, and opens the terminal without cancel keys", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const prompt = { question: "Opaque external file decision", options: [
+    { label: "Decline external file", value: "decline_opaque" },
+    { label: "Allow external file", value: "allow_opaque" },
+  ] };
+  const waiting: Tab = { ...starting, boot_stage: "awaiting_owner_prompt", pending_prompt_kind: "provider", pending_prompt: prompt };
+  const openTerminal = vi.fn();
+  const cancel = vi.fn();
+  const invoke = vi.fn(async () => undefined);
+  __setInvokeForTest(invoke as unknown as Parameters<typeof __setInvokeForTest>[0]);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<>
+      <ChatSetupState tab={waiting} view={chatSetupView(waiting)} providerName="Fixture" onOpenTerminal={openTerminal} />
+      <AgentStateIndicator tab={waiting} activity={tabActivity(waiting)} onCancel={cancel} />
+    </>));
+    expect(host.textContent).toContain(prompt.question);
+    expect(host.querySelector('[role="progressbar"]')).toBeNull();
+    expect(host.textContent).not.toMatch(/Connecting|Agent may be waiting/);
+    expect(host.querySelector('[aria-label="Cancel the terminal question"]')).toBeNull();
+    const button = (label: string) => [...host.querySelectorAll("button")].find(item => item.textContent === label)!;
+    await act(async () => button("Open terminal").click());
+    expect(openTerminal).toHaveBeenCalledOnce();
+    for (const option of prompt.options) {
+      const next = { ...waiting, pending_prompt: { ...prompt, question: prompt.question + option.value } };
+      await act(async () => root.render(<ChatSetupState tab={next} view={chatSetupView(next)} providerName="Fixture" onOpenTerminal={openTerminal} />));
+      await act(async () => button(option.label).click());
+      expect(invoke).toHaveBeenLastCalledWith("mux_respond_prompt", { tabId: waiting.id, value: option.value,
+        identity: { kind: "provider", options: prompt.options } });
+      expect(button(option.label).disabled).toBe(true);
+    }
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(cancel).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+  }
+});
 
 it("terminal launch failure ends deadline pending, including stale wake and runtime state", () => {
   expect(chatSetupView(starting).kind).toBe("starting");

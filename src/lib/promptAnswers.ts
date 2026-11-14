@@ -29,11 +29,11 @@ export function isFreeTextPromptOption(option: PromptOption): boolean {
 export function promptResponseArgs(tabId: string, value: string, prompt: PendingPrompt | null, kind: NotificationPromptIdentity["kind"] = "structured") {
   return {
     tabId, value,
-    ...(prompt?.request_id != null ? {
+    ...(prompt && (kind === "provider" || prompt.request_id != null) ? {
       identity: {
         kind,
         options: prompt.options.map((option) => ({ ...option })),
-        request_id: prompt.request_id,
+        ...(prompt.request_id != null ? { request_id: prompt.request_id } : {}),
       },
     } : {}),
   };

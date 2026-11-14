@@ -45,6 +45,11 @@ describe("promptMessagePart", () => {
 });
 
 describe("promptResponseArgs", () => {
+  it("binds provider choices to the displayed options without a request id", () => {
+    expect(promptResponseArgs("owned", "native", { question: "opaque", options }, "provider")).toEqual({
+      tabId: "owned", value: "native", identity: { kind: "provider", options },
+    });
+  });
   const options = [{ label: "Display label", value: "native-value" }];
   it("returns the captured opaque request id and native value without rewriting either", () => {
     const request_id = '[17,"binding",{"opaque":"007"}]';
