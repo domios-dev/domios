@@ -1,5 +1,5 @@
 import type { Tab } from "../../lib/types";
-import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
+import { projectAttachedRemoteTab, type RemotePeerTabs } from "../../lib/remoteTabPortal";
 
 export function shouldRefreshRemoteTabs(
   hasPairedPeers: boolean | null,
@@ -27,7 +27,10 @@ export function remoteTabsFromOrdinaryProjection(tabs: Tab[]): Record<string, Ta
   );
 }
 
-/** The peer's own record decides each attachment's agent state and whether its PTY exists yet. */
+/**
+ * The peer's own current record decides each attachment: its session, launch stage, agent state and PTY. Only this
+ * machine's placement and channel availability are kept, so a tab attached while launching follows its peer.
+ */
 export function applyRemotePeerAgentStates(
   projected: Record<string, Tab>,
   peer: RemotePeerTabs,
@@ -37,7 +40,8 @@ export function applyRemotePeerAgentStates(
     const id = `mesh:${peer.peer_id}/${source.id}`;
     const tab = tabs[id];
     if (tab?.remote_peer_id !== peer.peer_id || tab.remote_tab_id !== source.id) continue;
-    tabs[id] = { ...tab, agent_state: source.agent_state, pty_id: source.pty_id ? id : null };
+    const current = projectAttachedRemoteTab(source, { peer_id: peer.peer_id, peer_name: tab.remote_peer_name ?? peer.peer_name }, tab.workspace_id ?? "");
+    tabs[id] = { ...current, workspace_id: tab.workspace_id, remote_channels: tab.remote_channels ?? current.remote_channels };
   }
   return tabs;
 }

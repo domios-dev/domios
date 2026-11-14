@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { terminalFrameVisible, terminalLayoutRequired, acceptsTerminalOutput, terminalContentTopInset } from "./terminalFrameGate";
+import { terminalFrameVisible, terminalLayoutRequired, acceptsTerminalOutput, outputBindingPtyId, terminalContentTopInset } from "./terminalFrameGate";
 
 describe("terminal content below the tab top bar", () => {
   it("reserves the top bar's overhang so PTY row 0 starts below it in plain terminal mode", () => {
@@ -39,5 +39,14 @@ describe("terminal frame identity", () => {
     expect(acceptsTerminalOutput("a", "pty-a", "a", undefined)).toBe(false);
     expect(acceptsTerminalOutput("a", undefined, "a", "pty-a")).toBe(true);
     expect(acceptsTerminalOutput("a", "pty-a", "a", "pty-a")).toBe(true);
+  });
+
+  it("binds a remote terminal to the peer's own PTY, never to the composite id it routes by", () => {
+    expect(outputBindingPtyId("local", "pty-a", "ignored")).toBe("pty-a");
+    expect(outputBindingPtyId("mesh:peer/tab", "mesh:peer/tab", "peer-pty")).toBe("peer-pty");
+    expect(outputBindingPtyId("mesh:peer/tab", "mesh:peer/tab", null)).toBeUndefined();
+    const bound = outputBindingPtyId("mesh:peer/tab", "mesh:peer/tab", "peer-pty");
+    expect(acceptsTerminalOutput("tab", bound, "tab", "peer-pty")).toBe(true);
+    expect(acceptsTerminalOutput("tab", bound, "tab", "older-peer-pty")).toBe(false);
   });
 });
