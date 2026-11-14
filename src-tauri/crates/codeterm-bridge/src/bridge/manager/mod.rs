@@ -8,7 +8,6 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 
 use super::text_hooks;
@@ -23,7 +22,7 @@ use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
 /// Auto-edit window — if a new send arrives within this time, edit the previous message.
 const AUTO_EDIT_WINDOW_SECS: u64 = 60;
-const BRIDGE_MEDIA_READ_LIMIT: u64 = 50 * 1024 * 1024;
+const BRIDGE_MEDIA_UPLOAD_LIMIT: u64 = 150 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct OutboundMessage {
@@ -509,6 +508,17 @@ async fn edit_message(
     }
 }
 
+async fn media_part(file_path: &str, filename: String) -> Result<reqwest::multipart::Part, String> {
+    let file = tokio::fs::File::open(file_path)
+        .await
+        .map_err(|error| error.to_string())?;
+    let metadata = file.metadata().await.map_err(|error| error.to_string())?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > BRIDGE_MEDIA_UPLOAD_LIMIT {
+        return Err("Media must be a nonempty file of at most 150 MiB".into());
+    }
+    Ok(reqwest::multipart::Part::stream_with_length(file, metadata.len()).file_name(filename))
+}
+
 async fn send_media(
     client: &reqwest::Client,
     base: &str,
@@ -546,23 +556,6 @@ async fn send_media(
     let sanitized_caption = raw_caption.map(super::markdown::markdown_to_sanitized_html);
     let caption = sanitized_caption.as_deref();
 
-    let file = tokio::fs::File::open(file_path)
-        .await
-        .map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
-    if file
-        .metadata()
-        .await
-        .map_err(|error| error.to_string())?
-        .len()
-        > BRIDGE_MEDIA_READ_LIMIT
-    {
-        return Err("media file exceeds 50 MiB upload limit".into());
-    }
-    let mut file_bytes = Vec::new();
-    file.take(BRIDGE_MEDIA_READ_LIMIT)
-        .read_to_end(&mut file_bytes)
-        .await
-        .map_err(|error| format!("Failed to read file {}: {}", file_path, error))?;
     let file_name = filename.map(|s| s.to_string()).unwrap_or_else(|| {
         std::path::Path::new(file_path)
             .file_name()
@@ -580,7 +573,7 @@ async fn send_media(
         _ => "document",
     };
 
-    let part = reqwest::multipart::Part::bytes(file_bytes).file_name(file_name.clone());
+    let part = media_part(file_path, file_name.clone()).await?;
     let mut form = reqwest::multipart::Form::new()
         .text("chat_id", chat_id.to_string())
         .part(file_field, part);
@@ -612,25 +605,7 @@ async fn send_media(
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
         if caption.is_some() && desc.contains("parse") {
-            let file2 = tokio::fs::File::open(file_path)
-                .await
-                .map_err(|e| format!("Re-read failed: {}", e))?;
-            if file2
-                .metadata()
-                .await
-                .map_err(|error| error.to_string())?
-                .len()
-                > BRIDGE_MEDIA_READ_LIMIT
-            {
-                return Err("media file exceeds 50 MiB upload limit".into());
-            }
-            let mut file_bytes2 = Vec::new();
-            file2
-                .take(BRIDGE_MEDIA_READ_LIMIT)
-                .read_to_end(&mut file_bytes2)
-                .await
-                .map_err(|error| format!("Re-read failed: {}", error))?;
-            let part2 = reqwest::multipart::Part::bytes(file_bytes2).file_name(file_name);
+            let part2 = media_part(file_path, file_name).await?;
             let mut form2 = reqwest::multipart::Form::new()
                 .text("chat_id", chat_id.to_string())
                 .part(file_field, part2);

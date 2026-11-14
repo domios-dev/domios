@@ -110,14 +110,14 @@ test("extensionless iOS JPEG retains mixed text and reaches the image attachment
   assert.deepEqual((plan.action.call.params as { input: unknown[] }).input, [{ type: "text", text: markers.text }, { type: "localImage", path: "/uploads/photo.jpg" }]);
 });
 
-test("unsupported HEIC retains the draft and a failed chip without storing or permitting send", async () => {
+test("HEIC uploads its original bytes without a renderer decoder", async () => {
   let stores = 0;
   const h = fixture(async () => { stores++; return "/uploads/photo.heic"; });
   await h.controller.add(new Blob(["pixels"], { type: "image/heic" }), "photo.heic");
-  assert.equal(stores, 0);
-  assert.equal(h.uploads()[0].state, "failed");
-  assert.equal(h.uploads()[0].failure!.retryable, false);
-  assert.equal(draftHasPendingUploads(h.draft(), h.registry()), true);
+  assert.equal(stores, 1);
+  assert.equal(h.uploads().length, 0);
+  assert.equal(draftHasPendingUploads(h.draft(), h.registry()), false);
+  assert.equal(Object.values(h.registry()).find(capsule => capsule.path === "/uploads/photo.heic")?.kind, "file");
   assert.equal(capsuleSpans(h.draft()).length, 1);
   assert(h.draft().includes("left"));
 });
