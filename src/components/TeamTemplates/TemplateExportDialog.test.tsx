@@ -13,7 +13,7 @@ vi.mock("../Settings/useAccountPlan", () => ({ useAccountPlan: () => account.pla
 
 const paidPlan: AccountPlan = {
   entitlements: { plan: "pro", status: "active", current_period_end: 0, cancel_at_period_end: false },
-  access: { authority: "billing", full_access: true }, stale: false,
+  access: { authority: "billing", full_access: false }, stale: false,
 };
 const billing = (value: AccountPlan) => ({ plan: accountPlanModel(value), planLoad: "ready", pending: false, refresh: account.refresh });
 
@@ -98,6 +98,16 @@ describe("Export with Neighborhood sharing", () => {
     else expect(account.signIn).not.toHaveBeenCalled();
     expect(account.refresh).toHaveBeenCalledOnce();
     expect(exportPackage).not.toHaveBeenCalled();
+  });
+
+  it.each([["billing", false], ["admin", true]] as const)("lets a %s plan share whether or not it has staff full access", async (authority, full_access) => {
+    account.plan.mockReturnValue(billing({ ...paidPlan, access: { authority, full_access } }));
+    await renderDialog(true);
+    expect(dialog().querySelector('[role="status"]')?.textContent ?? "").not.toContain("Settings > Account");
+    await chooseMira();
+    expect(exportButton().disabled).toBe(false);
+    await act(async () => exportButton().click());
+    expect(neighbors.send).toHaveBeenCalledWith("mira", "Shared the team Research desk 1.0.0", "/data/team-exports/research-desk.team");
   });
 
   it("blocks host free access even when the friends list reports paid", async () => {

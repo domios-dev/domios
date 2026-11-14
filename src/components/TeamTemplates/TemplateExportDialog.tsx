@@ -82,7 +82,7 @@ export function TemplateExportDialog({ summary, onClose, share: shareInitially =
   const channelNotice: ShareRefusal | null = billing.plan?.unverified === "sign_in_required" ? templateShareRefusal("installation_unverified")
     : billing.plan?.unverified === "unconfirmed" || billing.planLoad === "failed" ? templateShareRefusal("entitlements_unavailable")
       : !billing.plan || billing.plan.verifying ? { message: "Checking sharing access…" }
-        : !billing.plan.fullAccess || friends?.access === "locked" ? templateShareRefusal("friends_locked") : null;
+        : billing.plan.authority === "free" || friends?.access === "locked" ? templateShareRefusal("friends_locked") : null;
   const unavailable = channelNotice?.message
     ?? (recipient?.their_paused ? templateShareRefusal("recipient_paused").message
       : recipient && !recipient.receiving ? templateShareRefusal("recipient_not_receiving").message
