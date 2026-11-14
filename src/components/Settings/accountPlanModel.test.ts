@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { accountPlanModel, planFailure } from "./accountPlanModel";
+import { accountPlanModel, planFailure, unverifiedPlanNotice } from "./accountPlanModel";
 const free = accountPlanModel({entitlements:{plan:"free",status:"active",current_period_end:0,cancel_at_period_end:false},stale:false,access:{authority:"free",full_access:false}});
 assert.equal(free.plan,"free");
 assert.equal(free.periodEnd,null);
@@ -29,3 +29,15 @@ assert.equal(future.limits?.max["agent.tabs"], 64);
 const verifying = accountPlanModel({entitlements:{plan:"pro",status:"active",current_period_end:0,cancel_at_period_end:false},stale:false,checking:true,access:{authority:"free",full_access:false}});
 assert.equal(verifying.plan, "pro");
 assert.equal(verifying.verifying, true);
+assert.equal(verifying.unverified, undefined);
+
+const paidAnswer = {entitlements:{plan:"pro",status:"active",current_period_end:0,cancel_at_period_end:false},stale:false,checking:false,access:{authority:"free" as const,full_access:false}};
+for (const verification of ["sign_in_required", "unconfirmed"] as const) {
+  const unverified = accountPlanModel({...paidAnswer, verification});
+  assert.equal(unverified.verifying, false);
+  assert.equal(unverified.unverified, verification);
+  assert.notEqual(unverifiedPlanNotice(unverified.unverified), null);
+}
+assert.equal(accountPlanModel({...paidAnswer, verification: "future_reason"}).unverified, undefined);
+assert.equal(accountPlanModel({...paidAnswer, verification: null}).unverified, undefined);
+assert.equal(unverifiedPlanNotice(undefined), null);

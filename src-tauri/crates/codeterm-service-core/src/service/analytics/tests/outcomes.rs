@@ -76,7 +76,11 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
         .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
         .await;
     assert_eq!(unsigned.entitlements.plan, Plan::Pro);
-    assert!(unsigned.checking);
+    assert!(!unsigned.checking);
+    assert_eq!(
+        unsigned.verification,
+        Some(codeterm_billing::Verification::Unconfirmed)
+    );
     assert!(!billing.limit_gate().summary().enforcing);
     assert_eq!(
         unsigned.access.unwrap().authority,
@@ -102,7 +106,11 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
         .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
         .await;
     assert_eq!(result.entitlements.plan, Plan::Pro);
-    assert!(result.checking);
+    assert!(!result.checking);
+    assert_eq!(
+        result.verification,
+        Some(codeterm_billing::Verification::Unconfirmed)
+    );
     assert_eq!(
         result.access.unwrap().authority,
         codeterm_billing::Authority::Free

@@ -387,9 +387,17 @@ async fn account_plan_routes_local_journey() {
         if !expected_plan.is_empty() {
             assert_eq!(value["entitlements"]["plan"], expected_plan);
             assert_eq!(value["stale"], stale);
-            let checking = expected_plan == "pro";
-            assert_eq!(value["checking"], checking);
-            assert_eq!(value["limits"]["enforcing"], !checking);
+            let unconfirmed = expected_plan == "pro";
+            assert_eq!(value["checking"], false);
+            assert_eq!(
+                value["verification"],
+                if unconfirmed {
+                    serde_json::json!("unconfirmed")
+                } else {
+                    serde_json::Value::Null
+                }
+            );
+            assert_eq!(value["limits"]["enforcing"], !unconfirmed);
             assert_eq!(value["limits"]["agent.tabs"], 35);
         }
     }

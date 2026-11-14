@@ -66,7 +66,9 @@ async fn subscription_observer_uses_displayed_plan_and_deduplicates_unsigned_cha
         .refresh(Some(&user), RefreshEvent::CheckoutReturned, Instant::now())
         .await;
     assert_eq!(expired.entitlements.plan, Plan::Pro);
-    assert!(expired.checking);
+    assert!(!expired.checking);
+    assert_eq!(expired.verification, Some(Verification::Unconfirmed));
+    assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
     assert_eq!(
         *events.lock(),
         vec![

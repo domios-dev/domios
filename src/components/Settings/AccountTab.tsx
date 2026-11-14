@@ -17,6 +17,7 @@ import { CommunityKeysNotice } from "../shared/CommunityLinks";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
 import { useAccountPlan } from "./useAccountPlan";
+import { unverifiedPlanNotice } from "./accountPlanModel";
 import { useAccount } from "./useAccount";
 import { useAccountEnrollmentFailure } from "./useAccountEnrollmentFailure";
 import { failureMessage } from "../MeshPanel/accountMachines";
@@ -71,6 +72,7 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
     if (failure) notify(billingFailureToast(failure, "managing your subscription", billing.plan?.status, () => manageSubscription()));
   };
   const staff = billing.plan?.fullAccess === true;
+  const unverified = unverifiedPlanNotice(billing.plan?.unverified);
   const startSignIn = (hint: LoginHint) => {
     retryHint.current = hint;
     void signIn(hint);
@@ -120,10 +122,16 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
           {staff ? <SettingsPill tone="accent">team access</SettingsPill>
             : billing.plan && <SettingsPill tone={billing.plan.status === "active" ? "green" : "muted"}>{billing.plan.status}</SettingsPill>}
           {billing.plan?.verifying && <SettingsPill tone="muted">Verifying</SettingsPill>}
+          {unverified && <SettingsPill tone="muted">{unverified.label}</SettingsPill>}
           {signedIn && (purchases || paidSubscription || refusedAsSubscribed) && <Button size="sm" variant="ghost" className="ml-auto text-xs" disabled={billing.pending} aria-busy={billing.pending}
             onClick={() => void manageSubscription()}>{paidSubscription || refusedAsSubscribed
               ? billing.pending ? "Opening subscription…" : "Manage subscription" : "Upgrade"}</Button>}
         </div>
+        {unverified && <div role="status" className="flex w-full flex-wrap items-center gap-2">
+          <p className={MUTED}>{unverified.detail}</p>
+          {billing.plan?.unverified === "sign_in_required" && <Button size="sm" variant="ghost" disabled={model.kind === "pending"}
+            onClick={() => startSignIn(ACCOUNT_ENTRY_OPTIONS[0].hint)}>Sign in again</Button>}
+        </div>}
         {billing.plan?.periodEnd && <p className={MUTED}>
           {subscriptionPlan === null ? "Access ends" : billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
         </p>}
@@ -133,7 +141,7 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
             <CommunityKeysNotice />
           </SettingsCardAnchor>
         </div>}
-        {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale || billing.plan?.verifying ? null : billing.plan?.plan ?? null} />}
+        {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale || billing.plan?.verifying || billing.plan?.unverified ? null : billing.plan?.plan ?? null} />}
         {!purchases && !signedIn && <p className={MUTED}>Sign in to redeem a key.</p>}
         {desktopBilling.subscription && <p role="status">{scheduledPlanCopy(desktopBilling.subscription, seconds => new Date(seconds * 1000).toLocaleDateString())}</p>}
         {purchases && signedIn && !desktopBilling.subscription && <p role="status" className={MUTED}>Verifying your subscription status. Refresh plan offers to check again.</p>}
