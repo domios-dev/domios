@@ -20,7 +20,6 @@ const authority = { sourceSessionId: "session", sessionBindingNonce: "launch" };
 const START = Date.UTC(2026, 10, 11, 8);
 const TURNS = 60;
 const TURN_MS = 70 * 60_000;
-const ROWS_PER_TURN = 4;
 const PAGE = 40;
 const WINDOW = 24;
 
@@ -156,8 +155,8 @@ test("scrolling to the top pages in strict chronological order without duplicate
 });
 
 test("a reload with newer turns pages back to the same order", () => {
-  const before = scrollToTop(allRows(TURNS - 2)).steps.at(-1)!;
-  const after = scrollToTop(allRows(TURNS)).steps.at(-1)!;
+  const before = scrollToTop(allRows(TURNS - 2)).steps.slice(-1)[0]!;
+  const after = scrollToTop(allRows(TURNS)).steps.slice(-1)[0]!;
   assertChronological(after, "after reload");
   const reloadedPrefix = after.filter(item => before.some(old => old.key === item.key));
   assert.deepEqual(reloadedPrefix.map(item => item.key), before.map(item => item.key), "history reads the same after reload");
@@ -193,11 +192,11 @@ test("a send queued behind the running turn waits at the tail, then settles at i
   const projection = memory();
   const view = (sends: DeliverySend[], turnRunning: boolean) =>
     renderedColumn({ state, visible: PAGE, sends, turnRunning, memory: projection });
-  assert.equal(view([send("queued", sentAt)], true).at(-1)?.key, "queued", "a fresh send waits after the running output");
-  assert.equal(view([send("queued", sentAt, "written")], true).at(-1)?.key, "queued", "written input keeps waiting with its turn");
-  assert.equal(view([send("queued", sentAt, "submit_unconfirmed")], false).at(-1)?.key, "queued",
+  assert.equal(view([send("queued", sentAt)], true).slice(-1)[0]?.key, "queued", "a fresh send waits after the running output");
+  assert.equal(view([send("queued", sentAt, "written")], true).slice(-1)[0]?.key, "queued", "written input keeps waiting with its turn");
+  assert.equal(view([send("queued", sentAt, "submit_unconfirmed")], false).slice(-1)[0]?.key, "queued",
     "at the end of its turn, queued input is about to be taken, so its echo may still land at the tail");
-  assert.equal(view([send("queued", sentAt, "submit_unconfirmed")], true).at(-1)?.key, "queued");
+  assert.equal(view([send("queued", sentAt, "submit_unconfirmed")], true).slice(-1)[0]?.key, "queued");
   const unconfirmed = view([send("queued", sentAt, "submit_unconfirmed")], false);
   assert.deepEqual(neighbours(unconfirmed, "queued"), [`report-${TURNS - 1}`, `reply-${TURNS - 1}`],
     "once the following turn also ends without it, an unconfirmed send sits where it was sent");
@@ -213,7 +212,7 @@ test("a send that fails while queued moves to its send time once", () => {
   const sentAt = turnAt(TURNS - 1) + 15_000;
   const projection = memory();
   const view = (sends: DeliverySend[]) => renderedColumn({ state, visible: PAGE, sends, turnRunning: true, memory: projection });
-  assert.equal(view([send("queued", sentAt, "held")]).at(-1)?.key, "queued");
+  assert.equal(view([send("queued", sentAt, "held")]).slice(-1)[0]?.key, "queued");
   const failed = view([send("queued", sentAt, "failed")]);
   assert.deepEqual(neighbours(failed, "queued"), [`report-${TURNS - 1}`, `reply-${TURNS - 1}`]);
   assert.deepEqual(view([send("queued", sentAt, "failed")]), failed, "the failed bubble stays where it was sent");

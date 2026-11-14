@@ -37,7 +37,7 @@ export function useDialogFocus<T extends HTMLElement>(restoreTo?: () => HTMLElem
     const previous = document.activeElement;
     dialogStack.push(node);
     const recoverFocus = () => {
-      if (dialogStack.at(-1) !== node || ownsFocus(node, document.activeElement)) return;
+      if (dialogStack[dialogStack.length - 1] !== node || ownsFocus(node, document.activeElement)) return;
       initialControl(node)?.focus({ preventScroll: true });
     };
     recoverFocus();
