@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { attachmentMarkerSegments, formatAttachmentMarker as marker, projectTranscript, userMessageAttachments, type ChatSend,
+import { attachmentMarkerSegments, formatAttachmentMarker as marker, presentedAttachmentSegments, projectTranscript, userMessageAttachments, type ChatSend,
   type MessageSegment, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { clearTranscriptWindows, commitTranscriptBatch, readTranscriptWindow } from "./transcriptStore";
 import { conversationEntries } from "./chatPagingModel";
@@ -15,6 +15,8 @@ const other = [marker("C:/chat/clip.mov", "video", "video1"), marker("C:/chat/do
 const original = `Describe: ${[marker(image, "image", "image1"), ...other].join(" ")}`;
 const delivered = `Describe: ${[marker(image, "file", "original"), marker("C:/pad/inbox/opaque-model.jpg", "image", "image1"), ...other].join(" ")}`;
 const pending: DeliverySend = { id: "composer-send", correlationId: "own-token", content: original, sentAtMs: at,
+  draft: { text: original, attachments: [], recordedVoiceAttachments: [], reply: null,
+    capsules: { image1: { label: "image1", kind: "image", path: image, displayName: "IMG_4321.jpg" } } },
   echoBoundary: { ...authority, lastRowId: "prior" } };
 const confirmed: DeliverySend = { ...pending, status: { send_id: "ledger-send", tab_id: "tab", state: "delivered", error: null,
   ledger_id: "ledger", sequence: 2, retained_from: 1, correlationId: "own-token" }, matchedRow: {
@@ -53,11 +55,15 @@ test("a model-copy echo replaces one composer bubble with one set of chips and s
   const chips = userMessageAttachments(rows[0].msg.content).inline?.flatMap(segment => "attachment" in segment ? [segment.attachment.path] : []) ?? [];
   assert.equal(chips.length, 5);
   assert.equal(new Set(chips).size, 5);
+  const visible = presentedAttachmentSegments(userMessageAttachments(rows[0].msg.content).inline ?? [], rows[0].msg.attachmentNames);
+  assert.equal(visible.filter(segment => "attachment" in segment).length, 4);
+  assert.equal(rows[0].msg.attachmentNames?.[image], "IMG_4321.jpg");
   const restored: ChatSend = JSON.parse(JSON.stringify({ ...confirmed, echo: result.echoes.get(pending.id) }));
   const reloaded = projectTranscript(window(key, [echo()]), deliveryProjectionSends([restored]));
   const reloadedRows = stableDeliveryEntries(conversationEntries(reloaded.rows), [restored], reloaded.echoes, createDeliveryProjectionMemory(key));
   assert.equal(reloadedRows.filter(entry => entry.msg.type === "user").length, 1);
   assert.equal(reloadedRows.find(entry => entry.msg.type === "user")?.msg.id, pending.id);
+  assert.equal(reloadedRows.find(entry => entry.msg.type === "user")?.msg.attachmentNames?.[image], "IMG_4321.jpg");
 });
 
 test("model-copy reconciliation is single-use and rejects foreign, prior and mismatched attachment rows", () => {

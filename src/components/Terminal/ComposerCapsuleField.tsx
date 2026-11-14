@@ -29,14 +29,17 @@ function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan;
   return (
     <AttachmentCapsule
       inert
-      attachment={{ kind: capsule?.kind ?? "file", path: capsule?.path ?? "", label: span.label }}
+      attachment={{ kind: capsule?.kind ?? "file", path: capsule?.path ?? "", label: capsule?.displayName ?? span.label }}
       spanProps={{ "data-capsule-start": span.start, "data-unknown": capsule ? undefined : "", "data-hovered": hovered || undefined }}
       decoration={upload ? <><span className="ct-capsule__plate" />{upload.state === "uploading"
         ? <span className="ct-capsule__icon"><BusyState inline hideLabel dotSize="small" label="Uploading" /></span>
         : <TriangleAlert aria-hidden className="ct-capsule__icon" style={{ color: "var(--ct-error, #f85149)" }} />}</> : undefined}
       labelContent={<>
         {CAPSULE_LEAD}
-        {labelChars(name)}
+        {capsule?.displayName && /^[a-f\d]{16,}/i.test(name) ? <span className="relative">
+          <span aria-hidden className="invisible">{labelChars(name)}</span>
+          <span className="absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap">{capsule.displayName}</span>
+        </span> : labelChars(name)}
         {detail && <span className="ct-capsule__detail">{labelChars(detail)}</span>}
         {CAPSULE_TRAIL}
       </>}
