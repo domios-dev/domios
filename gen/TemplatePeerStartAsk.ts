@@ -4,4 +4,8 @@ import type { TemplateStartRequest } from "./TemplateStartRequest";
 /**
  * What an origin asks a peer Main to start; the pair fields are the peer's own choices.
  */
-export type TemplatePeerStartAsk = { template: TemplateStartRequest, orchestrator_agent: string, orchestrator_model: string | null, planner_agent: string, planner_model: string | null, };
+export type TemplatePeerStartAsk = { template: TemplateStartRequest, 
+/**
+ * The peer's own workspace for the Team; the peer never falls back to, or focuses, another.
+ */
+workspace_id: string, orchestrator_agent: string, orchestrator_model: string | null, planner_agent: string, planner_model: string | null, };

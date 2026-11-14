@@ -64,6 +64,66 @@ fn set_system_channel_source(root: &Path, plugins: &[(&str, &str)]) {
     );
 }
 
+#[test]
+fn default_channel_url_change_preserves_installed_plugin_updates() {
+    with_data_root(|root| {
+        let previous_default = std::env::var("CODETERM_PLUGIN_CHANNEL_URL").ok();
+        let old_source = root.join("old-home");
+        let new_source = root.join("new-home");
+        write_channel(
+            &old_source,
+            DEFAULT_PLUGIN_CHANNEL_NAME,
+            &[("demo", "demo")],
+        );
+        write_channel(
+            &new_source,
+            DEFAULT_PLUGIN_CHANNEL_NAME,
+            &[("demo", "demo")],
+        );
+        let new_manifest = new_source.join("demo/plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&new_manifest).unwrap()).unwrap();
+        manifest["version"] = "1.1.0".into();
+        std::fs::write(&new_manifest, manifest.to_string()).unwrap();
+        let channel_manifest = new_source.join("channel.json");
+        let mut index: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&channel_manifest).unwrap()).unwrap();
+        index["plugins"][0]["version"] = "1.1.0".into();
+        std::fs::write(channel_manifest, index.to_string()).unwrap();
+        std::env::set_var("CODETERM_PLUGIN_CHANNEL_URL", &old_source);
+        ensure_default_plugin_channel().unwrap();
+        install_command(
+            Some("demo".into()),
+            None,
+            None,
+            Some(DEFAULT_PLUGIN_CHANNEL_NAME.into()),
+        )
+        .unwrap();
+        let installed = read_install_record("demo").unwrap();
+        std::env::set_var("CODETERM_PLUGIN_CHANNEL_URL", &new_source);
+        let registration = ensure_default_plugin_channel();
+        restore_env("CODETERM_PLUGIN_CHANNEL_URL", previous_default);
+        registration.unwrap();
+        let registry = read_channel_registry().unwrap();
+        let channel = registry.channels.get(DEFAULT_PLUGIN_CHANNEL_NAME).unwrap();
+        assert_eq!(channel.url, new_source.display().to_string());
+        assert_eq!(
+            read_install_record("demo").unwrap().version,
+            installed.version
+        );
+        std::fs::remove_dir_all(&old_source).unwrap();
+        update_one("demo").unwrap();
+        let updated = read_install_record("demo").unwrap();
+        assert_eq!(updated.version.as_deref(), Some("1.1.0"));
+        assert!(matches!(
+            updated.source,
+            InstallSource::Channel { channel, .. } if channel == DEFAULT_PLUGIN_CHANNEL_NAME
+        ));
+        assert_eq!(SYSTEM_CHANNEL_NAME, "codeterm-core");
+        assert_eq!(DEFAULT_PLUGIN_CHANNEL_NAME, "codeterm-plugins");
+    });
+}
+
 fn diff_ids(diff: &serde_json::Value) -> Vec<String> {
     diff["diff"]
         .as_array()

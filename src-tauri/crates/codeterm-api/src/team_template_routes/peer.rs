@@ -7,8 +7,9 @@ use codeterm_service_core::service::messenger::{MessageEnvelope, Messenger};
 use codeterm_service_core::service::team_template_remote::hosting_gate;
 use codeterm_service_core::service::ServiceState;
 use codeterm_team_package::contracts::{
-    TemplatePeerStartAccepted, TemplatePeerStartRequest, TemplatePeerStartState,
-    TemplateStartResult, TemplateTransferRequest,
+    TemplatePeerOutcomeState, TemplatePeerStartAccepted, TemplatePeerStartOutcome,
+    TemplatePeerStartRequest, TemplatePeerStartState, TemplateStartResult, TemplateTransferRequest,
+    TEMPLATE_PEER_OUTCOME_EVENT,
 };
 use codeterm_team_package::PackageFormat;
 use serde::Deserialize;
@@ -99,8 +100,68 @@ fn peer_refusal(error: String) -> (StatusCode, Json<Value>) {
     }
 }
 
-/// Asks a paired peer Main to start a template. The peer's owner answers there; the origin
-/// watches the peer's event stream for that answer and delivers the outcome to the caller.
+/// Who asked for a peer start and where its outcome goes on this machine.
+struct OutcomeRoute {
+    request_id: String,
+    peer_id: String,
+    peer_name: String,
+    origin_workspace_id: Option<String>,
+    caller_tab_id: Option<String>,
+}
+
+/// Reads the peer's answer into the typed outcome; only a started Team names its managers.
+pub(super) fn outcome_from(
+    answer: &Value,
+    request_id: &str,
+    peer_id: &str,
+    peer_name: &str,
+    origin_workspace_id: Option<String>,
+) -> TemplatePeerStartOutcome {
+    let state = match answer.get("state").and_then(Value::as_str) {
+        Some("started") => TemplatePeerOutcomeState::Started,
+        Some("refused") => TemplatePeerOutcomeState::Refused,
+        Some("failed") => TemplatePeerOutcomeState::Failed,
+        Some("declined") => TemplatePeerOutcomeState::Declined,
+        Some("expired") => TemplatePeerOutcomeState::Expired,
+        Some("unanswered") => TemplatePeerOutcomeState::Unanswered,
+        Some("stream_lost") => TemplatePeerOutcomeState::StreamLost,
+        _ => TemplatePeerOutcomeState::Unknown,
+    };
+    let result = answer.get("result");
+    let started = state == TemplatePeerOutcomeState::Started;
+    let tab = |key: &str| {
+        result
+            .filter(|_| started)
+            .and_then(|result| result.get(key))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    TemplatePeerStartOutcome {
+        request_id: request_id.to_string(),
+        peer_id: peer_id.to_string(),
+        peer_name: peer_name.to_string(),
+        state,
+        origin_workspace_id,
+        workspace_id: answer
+            .get("workspace_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        orchestrator_tab_id: tab("orchestrator_tab_id"),
+        planner_tab_id: tab("planner_tab_id"),
+        refusal: result
+            .filter(|_| state == TemplatePeerOutcomeState::Refused)
+            .and_then(|result| serde_json::from_value(result.clone()).ok()),
+        error: answer
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    }
+}
+
+/// Starts a template on a paired peer Main in the peer workspace the ask names. A peer that
+/// starts at once answers with the outcome; otherwise its owner decides there and the origin
+/// watches the peer's event stream for that answer. Every outcome is published here as
+/// `team-template-peer-outcome`, so the origin can show the peer's managers.
 pub(super) async fn peer_start(
     State(state): State<AppState>,
     Json(body): Json<TemplatePeerStartRequest>,
@@ -124,32 +185,56 @@ pub(super) async fn peer_start(
         .auth_post_json("/api/mesh/template-start", &body.start)
         .await
         .map_err(peer_refusal)?;
-    let (Some(request_id), Some(notification_id)) = (
-        asked.get("request_id").and_then(Value::as_str),
-        asked.get("notification_id").and_then(Value::as_str),
-    ) else {
-        return Err(failure(
-            StatusCode::BAD_GATEWAY,
-            "peer did not name its owner question",
-        ));
-    };
-    let (request_id, notification_id) = (request_id.to_string(), notification_id.to_string());
     let Peer { id, name, client } = peer;
+    let notification_id = asked
+        .get("notification_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let request_id = asked
+        .get("request_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("ps_{}", uuid::Uuid::new_v4().simple()));
+    let route = OutcomeRoute {
+        request_id: request_id.clone(),
+        peer_id: id.clone(),
+        peer_name: name.clone(),
+        origin_workspace_id: body.origin_workspace_id,
+        caller_tab_id: body.caller_tab_id,
+    };
+    let Some(notification_id) = notification_id else {
+        drop(stream);
+        let outcome = outcome_from(
+            &asked,
+            &route.request_id,
+            &route.peer_id,
+            &route.peer_name,
+            route.origin_workspace_id.clone(),
+        );
+        publish_outcome(state.svc.clone(), outcome.clone(), route.caller_tab_id);
+        return Ok(Json(json!(TemplatePeerStartAccepted {
+            state: TemplatePeerStartState::Finished,
+            peer_id: id,
+            peer_name: name,
+            request_id,
+            notification_id: None,
+            outcome: Some(outcome),
+        })));
+    };
     tokio::spawn(watch_answer(
         state.svc.clone(),
         client,
         stream,
-        name.clone(),
-        request_id.clone(),
+        route,
         notification_id.clone(),
-        body.caller_tab_id,
     ));
     Ok(Json(json!(TemplatePeerStartAccepted {
         state: TemplatePeerStartState::AwaitingOwner,
         peer_id: id,
         peer_name: name,
         request_id,
-        notification_id,
+        notification_id: Some(notification_id),
+        outcome: None,
     })))
 }
 
@@ -187,12 +272,11 @@ async fn watch_answer(
     svc: ServiceState,
     client: PeerClient,
     stream: reqwest::Response,
-    peer_name: String,
-    request_id: String,
+    route: OutcomeRoute,
     notification_id: String,
-    caller_tab_id: Option<String>,
 ) {
-    let outcome =
+    let request_id = route.request_id.clone();
+    let answer =
         match tokio::time::timeout(ANSWER_WATCH_BOUND, answer_arrived(stream, &notification_id))
             .await
         {
@@ -206,19 +290,39 @@ async fn watch_answer(
             Ok(false) => json!({ "state": "stream_lost" }),
             Err(_) => json!({ "state": "unanswered" }),
         };
-    let state = outcome
-        .get("state")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown")
-        .to_string();
+    let outcome = outcome_from(
+        &answer,
+        &route.request_id,
+        &route.peer_id,
+        &route.peer_name,
+        route.origin_workspace_id,
+    );
+    publish_outcome(svc, outcome, route.caller_tab_id);
+}
+
+/// Tells this machine what became of a peer start: the system notice, the typed event the
+/// frontend attaches the peer's managers from, and the caller tab when one asked.
+fn publish_outcome(
+    svc: ServiceState,
+    outcome: TemplatePeerStartOutcome,
+    caller_tab_id: Option<String>,
+) {
+    let state = serde_json::to_value(outcome.state)
+        .ok()
+        .and_then(|state| state.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "unknown".into());
+    let peer_name = outcome.peer_name.clone();
+    let request_id = outcome.request_id.clone();
+    let detail = json!(outcome);
     let body = format!(
-        "Template start on {peer_name} (request {request_id}): {state}.\n{outcome}\nRead it again with `domios team template outcome {request_id} --mesh {peer_name}`."
+        "Template start on {peer_name} (request {request_id}): {state}.\n{detail}\nRead it again with `domios team template outcome {request_id} --mesh {peer_name}`."
     );
     tokio::task::spawn_blocking(move || {
+        svc.notify_event(TEMPLATE_PEER_OUTCOME_EVENT, detail);
         svc.log_system_notice(
             format!("Template start on {peer_name}: {state}"),
             Some(body.clone()),
-            Some(if state == "started" {
+            Some(if outcome.state == TemplatePeerOutcomeState::Started {
                 "info"
             } else {
                 "warning"
@@ -333,7 +437,43 @@ pub(super) async fn transfer(
 
 #[cfg(test)]
 mod tests {
-    use super::answered_frame;
+    use super::{answered_frame, outcome_from};
+    use codeterm_team_package::contracts::TemplatePeerOutcomeState;
+    use serde_json::json;
+
+    #[test]
+    fn only_a_started_answer_names_the_peer_managers() {
+        let started = json!({
+            "state": "started",
+            "workspace_id": "ws-peer",
+            "result": { "orchestrator_tab_id": "t-orch", "planner_tab_id": "t-plan" },
+        });
+        let outcome = outcome_from(&started, "r-1", "p-1", "peer", Some("ws-home".into()));
+        assert_eq!(outcome.state, TemplatePeerOutcomeState::Started);
+        assert_eq!(outcome.orchestrator_tab_id.as_deref(), Some("t-orch"));
+        assert_eq!(outcome.planner_tab_id.as_deref(), Some("t-plan"));
+        assert_eq!(outcome.workspace_id.as_deref(), Some("ws-peer"));
+        assert_eq!(outcome.origin_workspace_id.as_deref(), Some("ws-home"));
+
+        let failed = json!({
+            "state": "failed",
+            "error": "ERROR-FRAGMENT",
+            "result": { "orchestrator_tab_id": "t-orch" },
+        });
+        let outcome = outcome_from(&failed, "r-2", "p-1", "peer", None);
+        assert_eq!(outcome.state, TemplatePeerOutcomeState::Failed);
+        assert_eq!(outcome.orchestrator_tab_id, None);
+        assert_eq!(outcome.error.as_deref(), Some("ERROR-FRAGMENT"));
+
+        let unknown = outcome_from(
+            &json!({ "state": "awaiting_owner" }),
+            "r-3",
+            "p-1",
+            "peer",
+            None,
+        );
+        assert_eq!(unknown.state, TemplatePeerOutcomeState::Unknown);
+    }
 
     #[test]
     fn only_the_answer_to_this_question_ends_the_watch() {

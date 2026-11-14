@@ -7,7 +7,7 @@ use codeterm_team_package::contracts::{
     declared_asks, input_fields, role_summaries, ManagerModelPicker, ModelDecision,
     PlacementProblem, RoleAuthority, TemplateConsent, TemplateList, TemplatePreview, TemplateRef,
     TemplateRoleSummary, TemplateRuntimeNeed, TemplateStartForm, TemplateStartRefusal,
-    TemplateStartRequest, TemplateSummary, TemplateWhere,
+    TemplateStartRequest, TemplateWhere,
 };
 use codeterm_team_package::{payload_items, RoleKind, RoleStart, StartMode, ORCHESTRATOR};
 use serde_json::Value;
@@ -56,10 +56,13 @@ pub fn list(_svc: &ServiceContext) -> TemplateList {
 
 pub fn list_in(library: &super::team_exchange::library::TemplateLibrary) -> TemplateList {
     TemplateList {
-        templates: builtin_templates()
-            .map(|template| TemplateSummary::from_package(&template.package, template.provenance))
-            .chain(library.list())
-            .collect(),
+        templates: super::team_catalog::entries(
+            super::team_channels::TeamChannelStore::global(),
+            library,
+        )
+        .into_iter()
+        .map(|entry| entry.summary(library))
+        .collect(),
     }
 }
 
@@ -99,6 +102,16 @@ pub fn admit_bound(
     unbound: &[String],
 ) -> Result<AdmittedTemplate, TemplateStartRefusal> {
     let resolved = resolve(request.map(|request| &request.template))?;
+    admit_resolved(resolved, request, ledger, unbound)
+}
+
+/// The input, secret, placement and consent gates for a package already resolved.
+pub fn admit_resolved(
+    resolved: ResolvedTemplate,
+    request: Option<&TemplateStartRequest>,
+    ledger: &ConsentLedger,
+    unbound: &[String],
+) -> Result<AdmittedTemplate, TemplateStartRefusal> {
     let empty = BTreeMap::new();
     let given = request.map_or(&empty, |request| &request.inputs);
     let bindings = request.map_or(&empty, |request| &request.secret_bindings);
@@ -139,9 +152,14 @@ pub fn admit_bound(
     worker_placements(&resolved, placements)?;
     let reasons = consent_reasons(&resolved.package, resolved.provenance);
     let decision_id = request.and_then(|request| request.decision_id.clone());
-    if !reasons.is_empty() && !ledger.admits(decision_id.as_deref(), &resolved.identity(), &reasons)
-    {
-        return Err(TemplateStartRefusal::ConsentRequired { reasons });
+    if !reasons.is_empty() && !ledger.accepted(&resolved.package) {
+        if !ledger.admits(decision_id.as_deref(), &resolved.package, &reasons) {
+            return Err(TemplateStartRefusal::ConsentRequired { reasons });
+        }
+        if let Err(error) = ledger.accept(&resolved.package) {
+            log::warn!("[template-start] consent could not be saved: {error}");
+            return Err(TemplateStartRefusal::ConsentRequired { reasons });
+        }
     }
     Ok(AdmittedTemplate {
         placements: placements.clone(),
@@ -159,8 +177,11 @@ pub fn admit_bound(
 /// Blocking: writes the My templates record.
 pub fn record_consent(admitted: &AdmittedTemplate) {
     if admitted.decision_id.is_none()
-        || admitted.resolved.provenance
-            == codeterm_team_package::contracts::TemplateProvenance::Builtin
+        || matches!(
+            admitted.resolved.provenance,
+            codeterm_team_package::contracts::TemplateProvenance::Builtin
+                | codeterm_team_package::contracts::TemplateProvenance::Channel
+        )
     {
         return;
     }
@@ -321,10 +342,11 @@ pub fn preview_on(
 ) -> Result<TemplatePreview, TemplateStartRefusal> {
     let resolved = resolve(Some(template))?;
     let reasons = consent_reasons(&resolved.package, resolved.provenance);
-    let consent = (!reasons.is_empty()).then(|| TemplateConsent {
-        decision_id: ledger.issue(&resolved.identity(), &reasons),
-        reasons,
-    });
+    let consent =
+        (!reasons.is_empty() && !ledger.accepted(&resolved.package)).then(|| TemplateConsent {
+            decision_id: ledger.issue(&resolved.package, &reasons),
+            reasons,
+        });
     let decisions = decide_team_models(
         &resolved.package.document,
         &TeamModelInputs::default(),
@@ -332,8 +354,11 @@ pub fn preview_on(
     );
     Ok(TemplatePreview {
         form: TemplateStartForm {
-            template: super::team_exchange::library::TemplateLibrary::global()
-                .summarize(&resolved.package, resolved.provenance),
+            template: super::team_catalog::summary(
+                super::team_exchange::library::TemplateLibrary::global(),
+                &resolved.package,
+                resolved.provenance,
+            ),
             pickers: manager_pickers(&resolved, &decisions),
             roles: decided_roles(&resolved, &decisions),
             inputs: input_fields(&resolved.package),
@@ -344,6 +369,8 @@ pub fn preview_on(
         payload: payload_items(&resolved.package),
         warnings: resolved.warnings.clone(),
         consent,
+        needs_project: resolved.package.document.project_need()
+            == codeterm_team_package::ProjectNeed::Required,
     })
 }
 

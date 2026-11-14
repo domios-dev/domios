@@ -6,6 +6,7 @@ import { envelopeText, type MessageSegment } from "./envelope";
 import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 import { userVisibleText } from "./userAttachments";
+import { modelImageEchoMatches } from "./attachmentEcho";
 
 /** Grace window (ms) subtracted from an optimistic bubble's send time when
  *  matching its real echo. Absorbs sub-second timestamp flooring in some
@@ -193,7 +194,8 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
         if (appended === false) continue;
         const candidate = parsedUsers[i];
         if (candidate.type !== "user" && candidate.type !== "local_command") continue;
-        const markerMatch = markerEchoMatchesParsed(echo, candidate);
+        const markerMatch = markerEchoMatchesParsed(echo, candidate)
+          || (appended === true && modelImageEchoMatches(echo.content, sourceRows[i].content));
         if (
           !markerMatch
           && normalizeChatText(matchableContent(sourceRows[i].content)).toLowerCase() !== wanted

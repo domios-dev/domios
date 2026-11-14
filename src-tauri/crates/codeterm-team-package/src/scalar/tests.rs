@@ -23,7 +23,7 @@ fn plain_scalars_resolve_by_the_yaml_core_schema() {
 #[test]
 fn plain_style_is_used_only_when_it_reads_back_as_the_same_string() {
     for text in [
-        "claude:opus",
+        "harness-a:opus",
         "https://example.com/a",
         "Apache-2.0",
         "2.1.0",

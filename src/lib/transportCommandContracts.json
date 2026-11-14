@@ -334,6 +334,18 @@
         "/api/tabs"
       ]
     ],
+    "mesh_peer_workspaces_list": [
+      [
+        "POST",
+        "/api/mesh/relay-to"
+      ]
+    ],
+    "mesh_peer_workspace_create": [
+      [
+        "POST",
+        "/api/mesh/relay-to"
+      ]
+    ],
     "mesh_peer_tabs_list": [
       [
         "POST",

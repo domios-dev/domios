@@ -24,18 +24,10 @@ pub use hosting_awake::{acquire_hosting_lease, restore_hosting_leases, HostingKe
 
 /// Advertised by `identify` on a Domios that hosts template role types and peer starts.
 pub const TEMPLATE_HOSTING_FEATURE: &str = "template_hosting";
-/// The first Domios release that ships template hosting.
-pub const TEMPLATE_HOSTING_MIN_VERSION: &str = "1.20.0";
 
-fn release_triple(version: &str) -> Option<(u64, u64, u64)> {
-    let version = semver::Version::parse(version.trim().trim_start_matches('v')).ok()?;
-    Some((version.major, version.minor, version.patch))
-}
-
-/// A peer hosts a role type only when its own `identify` advertises the feature at a
-/// supported version; the refusal names the version the owner must install.
+/// A peer hosts a Team or a role type only when its own `identify` advertises the capability;
+/// its version number never decides.
 pub fn hosting_gate(identify: &Value, peer_name: &str) -> Result<(), String> {
-    let version = identify.get("version").and_then(Value::as_str);
     let advertised = identify
         .get("features")
         .and_then(Value::as_array)
@@ -44,22 +36,27 @@ pub fn hosting_gate(identify: &Value, peer_name: &str) -> Result<(), String> {
                 .iter()
                 .any(|feature| feature.as_str() == Some(TEMPLATE_HOSTING_FEATURE))
         });
-    let older = matches!(
-        (
-            version.and_then(release_triple),
-            release_triple(TEMPLATE_HOSTING_MIN_VERSION),
-        ),
-        (Some(current), Some(required)) if current < required
-    );
-    if advertised && !older {
+    if advertised {
         return Ok(());
     }
     Err(format!(
-        "peer_version_unsupported: peer '{peer_name}' runs Domios {} without template hosting; \
-         hosting a role type needs Domios {TEMPLATE_HOSTING_MIN_VERSION} or newer. Update the \
-         peer or choose another placement",
-        version.unwrap_or("unknown")
+        "peer_version_unsupported: peer '{peer_name}' runs Domios {} without template hosting. \
+         Update the peer or choose another machine",
+        identify
+            .get("version")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
     ))
+}
+
+/// A same-account Full-access origin starts directly; this machine's owner decides only while
+/// the package still carries a consent reason here, such as an unverified import.
+pub fn owner_must_decide(request: &TemplateStartRequest) -> Result<bool, TemplateStartRefusal> {
+    let resolved = super::team_template_start::resolve(Some(&request.template))?;
+    Ok(
+        !super::team_template_start::consent_reasons(&resolved.package, resolved.provenance)
+            .is_empty(),
+    )
 }
 
 /// A worker role type resolved on the origin; its guidance travels in the brief because
@@ -234,6 +231,8 @@ pub enum PeerStartRefusal {
     DecisionSpent,
     /// This machine could not put the question to its owner.
     OwnerUnreachable(String),
+    /// The named workspace does not exist here; a mesh start never falls back to another one.
+    UnknownWorkspace(String),
     Refused(TemplateStartRefusal),
 }
 
@@ -249,6 +248,9 @@ impl PeerStartRefusal {
             }
             Self::OwnerUnreachable(error) => {
                 format!("the owner of this machine could not be asked: {error}")
+            }
+            Self::UnknownWorkspace(id) => {
+                format!("workspace {id} does not exist on this machine; choose one of its workspaces")
             }
             Self::Refused(refusal) => serde_json::to_string(refusal).unwrap_or_default(),
         }
@@ -277,7 +279,7 @@ pub fn admit_from_peer(
         admitted.resolved.provenance,
     );
     let decision_id = request.decision_id.as_deref();
-    if !ledger.admits(decision_id, &admitted.resolved.identity(), &reasons) {
+    if !ledger.admits(decision_id, &admitted.resolved.package, &reasons) {
         return Err(PeerStartRefusal::Refused(
             TemplateStartRefusal::ConsentRequired { reasons },
         ));
@@ -303,7 +305,7 @@ pub fn record_owner_decision(
     let reasons =
         super::team_template_start::consent_reasons(&resolved.package, resolved.provenance);
     let mut decided = request.clone();
-    decided.decision_id = Some(ledger.issue(&resolved.identity(), &reasons));
+    decided.decision_id = Some(ledger.issue(&resolved.package, &reasons));
     Ok(decided)
 }
 

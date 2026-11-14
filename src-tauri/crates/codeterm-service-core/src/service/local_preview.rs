@@ -109,6 +109,11 @@ pub fn read(
     kind: &str,
 ) -> Result<LocalPreviewFile, String> {
     let result = tab_policy(svc, tab_id, configured).and_then(|policy| {
+        if kind == "image" {
+            return super::image_attachments::preview(std::path::Path::new(path), || {
+                html_preview::read_artifact_file(path, &policy, 150 * 1024 * 1024)
+            });
+        }
         read_local_preview_file_guarded(path, kind, |path, canonical| {
             policy.authorize(path, canonical)
         })

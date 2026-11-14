@@ -12,7 +12,7 @@ LOG="$HOME/.domios-dev/logs/domios.log"
 # repo's plugins/). Allow an override; default to a checkout next to this one.
 SRC="${CODETERM_PLUGINS_REPO:-$ROOT/../codeterm-plugins}/transcriber"
 if [ ! -f "$SRC/plugin.json" ]; then
-  echo "skip: transcriber plugin source not found at $SRC (clone rollacode/codeterm-plugins next to this repo, or set CODETERM_PLUGINS_REPO)" >&2
+  echo "skip: transcriber plugin source not found at $SRC (clone domios-dev/domios-plugins next to this repo, or set CODETERM_PLUGINS_REPO)" >&2
   exit 0
 fi
 pass=0 fail=0

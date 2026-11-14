@@ -5,6 +5,32 @@ use crate::{Cli, Commands};
 use super::TeamAction;
 
 #[test]
+fn team_channel_verbs_parse() {
+    for tail in [
+        vec!["list"],
+        vec![
+            "add",
+            "https://example.org/teams.git",
+            "--name",
+            "community",
+        ],
+        vec!["refresh"],
+        vec!["refresh", "community"],
+        vec!["remove", "community"],
+    ] {
+        let mut args = vec!["domios", "team", "channel"];
+        args.extend(tail);
+        let parsed = Cli::try_parse_from(args).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Team {
+                action: TeamAction::Channel { .. }
+            }
+        ));
+    }
+}
+
+#[test]
 fn team_verbs_parse() {
     let parsed =
         Cli::try_parse_from(["codeterm", "team", "adopt-plan", "team_alpha", "pl_one"]).unwrap();

@@ -131,7 +131,9 @@ fn historical_reference_previews_beyond_tail_and_warm_reads_never_parse() {
     let root = codeterm_local_preview::html_preview::preview_test_root(artifacts.path());
     let historical = root.join("apple2.png");
     let unreferenced = root.join("og2.png");
-    std::fs::write(&historical, b"image").unwrap();
+    image::RgbImage::from_pixel(1, 1, image::Rgb([0, 0, 255]))
+        .save(&historical)
+        .unwrap();
     std::fs::write(&unreferenced, b"other").unwrap();
     let transcript = fixture.temp.path().join("own.jsonl");
     append(
@@ -151,18 +153,16 @@ fn historical_reference_previews_beyond_tail_and_warm_reads_never_parse() {
     let entry = index(&fixture.service, &tab);
     assert!(reads.lock().len() > 1);
     let parsed = reads.lock().len();
-    assert_eq!(
-        super::super::read(
-            &fixture.service,
-            &tab,
-            &[],
-            historical.to_str().unwrap(),
-            "image"
-        )
-        .unwrap()
-        .data,
-        "data:image/png;base64,aW1hZ2U="
-    );
+    assert!(super::super::read(
+        &fixture.service,
+        &tab,
+        &[],
+        historical.to_str().unwrap(),
+        "image"
+    )
+    .unwrap()
+    .data
+    .starts_with("data:image/jpeg;base64,"));
     assert_eq!(
         super::super::read(
             &fixture.service,

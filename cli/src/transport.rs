@@ -228,6 +228,7 @@ fn team_transport(action: &TeamAction) -> Transport {
         | TeamAction::AdoptAgent { .. }
         | TeamAction::AttachCartographer { .. }
         | TeamAction::Template { .. }
+        | TeamAction::Channel { .. }
         | TeamAction::Distill(_)
         | TeamAction::Export(_)
         | TeamAction::Import(_)

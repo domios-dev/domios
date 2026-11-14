@@ -5,7 +5,7 @@ import type { PackageLinks } from "./PackageLinks";
 import type { TemplateIcon } from "./TemplateIcon";
 import type { TemplateProvenance } from "./TemplateProvenance";
 
-export type TemplateSummary = { name: string, version: string, title?: string | null, description: string, when?: Array<string>, provenance: TemplateProvenance, icon?: TemplateIcon | null, derived_from?: PackageLineage | null, authors?: Array<PackageAuthor>, links?: PackageLinks | null, license?: string | null, 
+export type TemplateSummary = { name: string, version: string, title?: string | null, description: string, when?: Array<string>, provenance: TemplateProvenance, channel?: string | null, bundled_version?: string | null, icon?: TemplateIcon | null, derived_from?: PackageLineage | null, authors?: Array<PackageAuthor>, links?: PackageLinks | null, license?: string | null, 
 /**
  * How many worker roles the package declares.
  */

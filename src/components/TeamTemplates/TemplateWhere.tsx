@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
-import { roleDisplayLabel } from "../../lib/roleKind";
+import { NO_HOST_PEER } from "../../lib/teamTemplates/hostPeers";
 import { Button } from "../shared/Button";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import type { TeamTemplateChoice } from "./useTeamTemplateChoice";
+import { NEW_PEER_WORKSPACE, type PeerPlacement } from "./usePeerPlacement";
 
 type TemplatePreview = import("../../lib/transport/teamTemplates").TemplatePreview;
 
@@ -19,17 +20,25 @@ function IssueLine({ text, children }: { text: string; children?: ReactNode }) {
   );
 }
 
-/** One placement row: a no-wrap label in the 140 px column, its select aligned in the next. */
-function PlacementRow({ label, select, muted = false }: { label: string; select: ReactNode; muted?: boolean }) {
+/** One placement row: a no-wrap label in the 140 px column, its control aligned in the next. */
+function PlacementRow({ label, select }: { label: string; select: ReactNode }) {
   return <>
-    <span className={`truncate whitespace-nowrap ${muted ? "text-[var(--ct-muted-fg)]" : ""}`} title={label}>{label}</span>
+    <span className="truncate whitespace-nowrap" title={label}>{label}</span>
     <div className="min-w-0">{select}</div>
   </>;
 }
 
+/** The peer workspace choices: its own workspaces, and a new one unless the package needs an existing project. */
+function workspaceOptions(placement: PeerPlacement, needsProject: boolean) {
+  return [
+    ...(placement.workspaces ?? []).map((workspace) => ({ value: workspace.id, label: workspace.name })),
+    ...(needsProject ? [] : [{ value: NEW_PEER_WORKSPACE, label: "New workspace" }]),
+  ];
+}
+
 /**
- * Where the Team runs: this machine unless the owner moves some workers, or the whole Team, to a peer. One quiet link
- * opens the block; the whole-team choice lives inside it.
+ * Where the whole Team runs: this machine, or a paired machine and one of its own workspaces. One quiet link opens the
+ * block; a peer's managers appear here as remote tabs once they start.
  */
 export function TemplateWhere({ choice, preview, open, onOpen, showLink = true }: {
   choice: TeamTemplateChoice;
@@ -38,32 +47,38 @@ export function TemplateWhere({ choice, preview, open, onOpen, showLink = true }
   onOpen: () => void;
   showLink?: boolean;
 }) {
-  const workers = preview.form.roles.filter((role) => role.kind === "worker");
-  const peers = choice.peers;
-  const options = [{ value: HOME, label: "This machine" }, ...(peers ?? []).map((peer) => ({ value: peer.name, label: peer.name }))];
+  const { placement, remotePeer } = choice;
+  const peers = placement.peers;
+  const options = [{ value: HOME, label: "This machine" }, ...(peers ?? []).map((peer) => ({ value: peer.id, label: peer.name }))];
+  const muted = "text-[11px] text-[var(--ct-muted-fg)]";
   return (
     <section aria-label="Where" className="flex flex-col gap-1.5 text-[12px]" data-testid="template-where">
       {!open && showLink && <Button type="button" variant="outline" className="self-start text-xs" onClick={onOpen}>Run on another machine</Button>}
       {open && (
         <div role="group" aria-label="Placement" className="flex flex-col gap-1.5">
           <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Where it runs</div>
-          {peers !== null && peers.length === 0 && !choice.remotePeer
-            ? <p className="text-[11px] text-[var(--ct-muted-fg)]">No paired machine with Full access is online.</p>
+          {peers !== null && peers.length === 0 && !remotePeer
+            ? <p role="status" className={muted} data-testid="template-where-reason">{placement.peersReason ?? NO_HOST_PEER}</p>
             : (
               <div className="grid grid-cols-[140px_minmax(0,176px)] items-center gap-x-3 gap-y-1.5" data-testid="template-where-grid">
-                {!choice.remotePeer && workers.map((role) => {
-                  const label = roleDisplayLabel(role.role, role.label);
-                  return <PlacementRow key={role.role} label={label} select={
-                    <DropdownSelect aria-label={`Machine for ${label}`} options={options}
-                      value={choice.placements[role.role] ?? HOME} disabled={peers === null} onChange={(peer) => choice.setPlacement(role.role, peer)} />} />;
-                })}
-                <PlacementRow label={workers.length > 0 ? "Whole team" : "This team"} muted={workers.length > 0 && !choice.remotePeer} select={
+                <PlacementRow label="Start on" select={
                   <DropdownSelect aria-label="Machine for this team" options={options}
-                    value={choice.remotePeer ?? HOME} disabled={peers === null} onChange={(peer) => choice.setRemotePeer(peer || null)} />} />
+                    value={remotePeer?.id ?? HOME} disabled={peers === null} onChange={(peer) => choice.setRemotePeer(peer || null)} />} />
+                {remotePeer && <PlacementRow label={`Workspace on ${remotePeer.name}`} select={
+                  <DropdownSelect aria-label={`Workspace on ${remotePeer.name}`} options={workspaceOptions(placement, preview.needs_project === true)}
+                    value={placement.workspace} placeholder={placement.workspaces === null ? "Loading…" : "Choose a workspace"}
+                    disabled={placement.workspaces === null} onChange={placement.setWorkspace} />} />}
+                {remotePeer && placement.workspace === NEW_PEER_WORKSPACE && <PlacementRow label="Name" select={
+                  <input aria-label={`New workspace name on ${remotePeer.name}`} value={placement.newName} onChange={(event) => placement.setNewName(event.target.value)}
+                    className="w-full rounded border border-[var(--ct-border)] bg-transparent px-2 py-1 text-[12px]" placeholder="Workspace name" />} />}
               </div>
             )}
-          {choice.remotePeer && <p className="text-[11px] text-[var(--ct-muted-fg)]">
-            Its managers run on {choice.remotePeer}. Nothing starts until {choice.remotePeer}'s owner taps Start here.
+          {remotePeer && placement.workspacesReason && <p role="status" className={muted}>{placement.workspacesReason}</p>}
+          {remotePeer && preview.needs_project === true && <p className={muted}>
+            This team works in an existing project, so pick one of {remotePeer.name}'s workspaces.
+          </p>}
+          {remotePeer && <p className={muted}>
+            Its Orchestrator and Planner run on {remotePeer.name} and appear here as remote tabs once they start.
           </p>}
         </div>
       )}

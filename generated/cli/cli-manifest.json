@@ -19115,6 +19115,85 @@
           "subcommands": []
         },
         {
+          "name": "channel",
+          "about": "Subscribe to team package channels",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Subscribe to a team channel and fetch its packages once",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "url",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "URL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List team channels and their last refresh outcomes",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "refresh",
+              "about": "Explicitly refresh one channel, or all subscribed channels",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "remove",
+              "about": "Remove a community team channel",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "check",
           "about": "Validate an ATP team package: a `name.team.yaml` file, a `name.team` archive or a package folder",
           "aliases": [],

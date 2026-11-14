@@ -8,7 +8,8 @@ use codeterm_service_core::service::ServiceState;
 
 use super::JsonRpcError;
 
-pub(super) const METHODS: [&str; 3] = [
+pub(super) const METHODS: [&str; 4] = [
+    "team.channel",
     "team.template.list",
     "team.template.preview",
     "team.template.start",
@@ -107,6 +108,17 @@ pub(super) fn dispatch(
         })
     };
     match method {
+        "team.channel" => {
+            let action = serde_json::from_value(params.clone().unwrap_or(Value::Null))
+                .map_err(|error| invalid_params(format!("invalid channel action: {error}")))?;
+            codeterm_service_core::service::team_channels::command(svc, action).map_err(|message| {
+                JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                }
+            })
+        }
         "team.template.list" => encode(serde_json::to_value(team_template_start::list(svc))),
         "team.template.preview" => {
             let preview = team_template_start::preview(svc, params.as_ref()).map_err(call_error)?;

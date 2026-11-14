@@ -3,6 +3,7 @@ use super::*;
 mod core_channel_unreachable;
 mod error_paths;
 mod id_validation;
+mod shared_channel;
 mod system_channel;
 
 mod store_index_tests {
@@ -165,7 +166,7 @@ mod store_index_tests {
         assert!(!DEFAULT_SYSTEM_CHANNEL_URL.contains("rollacode/codeterm.git"));
         assert_eq!(
             DEFAULT_PLUGIN_CHANNEL_URL,
-            "https://github.com/rollacode/codeterm-plugins.git"
+            "https://github.com/domios-dev/domios-plugins.git"
         );
     }
 

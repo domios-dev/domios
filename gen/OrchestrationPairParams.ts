@@ -28,4 +28,9 @@ leaf_creation_acknowledged: boolean,
 /**
  * Start from this team template; absent keeps the standard pair.
  */
-template: TemplateStartRequest | null, };
+template: TemplateStartRequest | null, 
+/**
+ * Leaves this machine's active workspace and focused tab as they are; a start asked by
+ * another machine never moves its owner's focus.
+ */
+keep_focus?: boolean, };

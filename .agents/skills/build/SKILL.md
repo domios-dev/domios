@@ -795,7 +795,7 @@ targets.
 
 Orphan build-directory GC runs in manual GC and in the hourly automatic retention.
 It maps every existing Git worktree of this repository and the sibling
-`codeterm-plugins` repository, plus the gateway's stable `X:` checkout, through
+`codeterm-plugins` checkout of `domios-dev/domios-plugins`, plus the gateway's stable `X:` checkout, through
 `cargo metadata --format-version 1 --offline --no-deps`. Cargo 1.95 exposes
 `build_directory`; no hash approximation is used. Set `CODETERM_PLUGINS_CHECKOUT`
 when the plugin repository is elsewhere. Missing repositories or failed metadata
@@ -1509,7 +1509,7 @@ entitlement refresh when integrating either external service.
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
 For intentional gateway queueing, pass `--queue` (alias behavior of `--wait-build`). Lane checks honor the same mode by blocking on the shared intermediate file lock; the default refuses a busy lock. CLI and app workspace crates require separate lane-check invocations. The default stays fail-fast. Queueing uses the existing gateway event and normal completion report. Tab-origin build reports retain tab provenance; they never claim system provenance.
 
-<!-- revision: 64 -->
+<!-- revision: 65 -->
 
 ### Lane and batch scopes
 

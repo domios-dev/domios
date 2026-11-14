@@ -9,20 +9,16 @@ use super::*;
 use crate::service::team_template_start::resolve;
 
 #[test]
-fn hosting_gate_requires_the_feature_at_a_supported_version() {
-    let current =
-        json!({"version": TEMPLATE_HOSTING_MIN_VERSION, "features": [TEMPLATE_HOSTING_FEATURE]});
-    assert!(hosting_gate(&current, "mac").is_ok());
-    let prerelease = json!({"version": format!("{TEMPLATE_HOSTING_MIN_VERSION}-dev"), "features": [TEMPLATE_HOSTING_FEATURE]});
-    assert!(hosting_gate(&prerelease, "mac").is_ok());
+fn hosting_gate_follows_the_advertised_capability_not_the_version() {
+    let advertised = json!({"version": "1.19.2", "features": [TEMPLATE_HOSTING_FEATURE]});
+    assert!(hosting_gate(&advertised, "mac").is_ok());
+    let unversioned = json!({"features": [TEMPLATE_HOSTING_FEATURE]});
+    assert!(hosting_gate(&unversioned, "mac").is_ok());
 
-    let flagless = json!({"version": "1.19.2", "features": ["remote_task_dispatch"]});
+    let flagless = json!({"version": "9.0.0", "features": ["remote_task_dispatch"]});
     let refusal = hosting_gate(&flagless, "mac").unwrap_err();
     assert!(refusal.starts_with("peer_version_unsupported"));
-    assert!(refusal.contains("1.19.2") && refusal.contains(TEMPLATE_HOSTING_MIN_VERSION));
-
-    let old = json!({"version": "1.18.0", "features": [TEMPLATE_HOSTING_FEATURE]});
-    assert!(hosting_gate(&old, "mac").is_err());
+    assert!(refusal.contains("9.0.0"));
     assert!(hosting_gate(&json!({}), "mac")
         .unwrap_err()
         .contains("unknown"));
@@ -170,8 +166,8 @@ fn a_mesh_start_needs_one_local_owner_decision_even_without_asks() {
     start.decision_id = Some("consent_forged".into());
     assert!(admit_from_peer(&start, true, &ledger, &spent, Vec::new()).is_err());
 
-    let identity = resolve(None).unwrap().identity();
-    start.decision_id = Some(ledger.issue(&identity, &[]));
+    let package = resolve(None).unwrap().package;
+    start.decision_id = Some(ledger.issue(&package, &[]));
     assert!(matches!(
         admit_from_peer(&start, true, &ledger, &spent, vec!["secret:token".into()]),
         Err(PeerStartRefusal::Refused(

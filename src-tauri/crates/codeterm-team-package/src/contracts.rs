@@ -1,3 +1,6 @@
+mod channels;
+pub use channels::*;
+
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -25,6 +28,7 @@ pub enum TemplateProvenance {
     Saved,
     /// Received from someone else: unverified, zero default grants.
     Imported,
+    Channel,
 }
 
 /// The package icon as a data URL, rendered as an image and never as inline SVG DOM.
@@ -44,6 +48,10 @@ pub struct TemplateSummary {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub when: Vec<String>,
     pub provenance: TemplateProvenance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundled_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<TemplateIcon>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -297,6 +305,9 @@ pub struct TemplatePreview {
     pub warnings: Vec<PackageDiagnostic>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub consent: Option<TemplateConsent>,
+    /// The package works in an existing project checkout, so a fresh empty workspace cannot host it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub needs_project: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -646,6 +657,8 @@ pub struct TemplateFileText {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TemplatePeerStartAsk {
     pub template: TemplateStartRequest,
+    /// The peer's own workspace for the Team; the peer never falls back to, or focuses, another.
+    pub workspace_id: String,
     #[serde(default)]
     pub orchestrator_agent: String,
     #[serde(default)]
@@ -656,12 +669,15 @@ pub struct TemplatePeerStartAsk {
     pub planner_model: Option<String>,
 }
 
-/// Start a template on a paired peer Main; the peer's owner answers there.
+/// Start a template on a paired peer Main.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TemplatePeerStartRequest {
     pub peer: String,
     pub start: TemplatePeerStartAsk,
-    /// The tab that receives the outcome once the peer's owner answers.
+    /// The origin workspace that shows the peer's managers as remote tabs once they start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_workspace_id: Option<String>,
+    /// The tab that receives the outcome once it is known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caller_tab_id: Option<String>,
 }
@@ -669,17 +685,62 @@ pub struct TemplatePeerStartRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TemplatePeerStartState {
+    /// The package still carries a consent reason on the peer; its owner decides there.
     AwaitingOwner,
+    /// The peer answered at once; `outcome` says what became of the start.
+    Finished,
 }
 
-/// The peer asked its owner; nothing has started until they tap Start here.
+/// The origin's answer to a peer start: finished at once, or waiting for the peer's owner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct TemplatePeerStartAccepted {
     pub state: TemplatePeerStartState,
     pub peer_id: String,
     pub peer_name: String,
     pub request_id: String,
-    pub notification_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<TemplatePeerStartOutcome>,
+}
+
+/// The origin event that carries every peer start outcome.
+pub const TEMPLATE_PEER_OUTCOME_EVENT: &str = "team-template-peer-outcome";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplatePeerOutcomeState {
+    Started,
+    Refused,
+    Failed,
+    Declined,
+    Expired,
+    Unanswered,
+    StreamLost,
+    Unknown,
+}
+
+/// What became of a peer start; a started Team names its managers on the peer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TemplatePeerStartOutcome {
+    pub request_id: String,
+    pub peer_id: String,
+    pub peer_name: String,
+    pub state: TemplatePeerOutcomeState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orchestrator_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planner_tab_id: Option<String>,
+    /// A typed refusal from the peer's start rail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<TemplateStartResult>,
+    /// A plain reason for any other failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Send a checked package to a paired peer Main's My templates over the mesh.
@@ -840,6 +901,8 @@ impl TemplateSummary {
             title: document.title.clone(),
             description: document.description.clone(),
             when: document.when.clone(),
+            channel: None,
+            bundled_version: None,
             provenance,
             icon: package
                 .icon()
@@ -949,6 +1012,8 @@ pub fn export_typescript(config: &ts_rs::Config) -> Result<(), ts_rs::ExportErro
     crate::TeamDocument::export_all(config)?;
     crate::PackageCheckReport::export_all(config)?;
     PackageFormat::export_all(config)?;
+    TeamChannelRow::export_all(config)?;
+    TeamChannelAction::export_all(config)?;
     TemplateList::export_all(config)?;
     TemplatePreview::export_all(config)?;
     TemplateStartRequest::export_all(config)?;
@@ -966,6 +1031,7 @@ pub fn export_typescript(config: &ts_rs::Config) -> Result<(), ts_rs::ExportErro
     TemplateFileText::export_all(config)?;
     TemplatePeerStartRequest::export_all(config)?;
     TemplatePeerStartAccepted::export_all(config)?;
+    TemplatePeerStartOutcome::export_all(config)?;
     TemplateShareCard::export_all(config)?;
     TemplateShareAction::export_all(config)?;
     PayloadApplyResult::export_all(config)?;

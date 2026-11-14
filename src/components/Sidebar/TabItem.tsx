@@ -2,7 +2,8 @@ import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import { Globe, Network, TriangleAlert } from "lucide-react";
 import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
 import { SurfaceIcon } from "../Surface/surfaceIcon";
@@ -332,6 +333,7 @@ function TabItemInner({
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(tab);
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tab.id, !tab.remote_peer_id);
+  const muxActions = useContext(MultiplexerActionsContext);
   const menuEntries = useMemo(() => buildTabMenu({
     tab,
     surface: "sidebar",
@@ -353,6 +355,7 @@ function TabItemInner({
       switchProvider: openProviderSwitch,
       rename: () => { setEditName(canonicalTitle); setEditing(true); },
       close: onClose,
+      detach: () => muxActions?.detachRemoteTab?.(tab.id),
     }).catch((error) => console.warn("Tab action failed:", error));
   };
 

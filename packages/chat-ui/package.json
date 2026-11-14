@@ -16,6 +16,8 @@
     "./DeferredLoader": "./src/DeferredLoader.tsx",
     "./CanvasToolbar": "./src/CanvasToolbar.tsx",
     "./CodeBlock": "./src/CodeBlock.tsx",
+    "./syntaxHighlighter": "./src/syntaxHighlighter.tsx",
+    "./syntaxTheme": "./src/syntaxTheme.ts",
     "./MarkdownBody": "./src/MarkdownBody.tsx",
     "./MarkdownLink": "./src/MarkdownLink.tsx",
     "./GuideDirective": "./src/GuideDirective.tsx"

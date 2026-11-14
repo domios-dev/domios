@@ -4176,6 +4176,33 @@ Attach the one optional Cartographer Manager to a Team
 - `--provider` — Agent provider ID
 - `<team_id>` — Team ID
 
+#### `domios team channel`
+
+Subscribe to team package channels
+
+#### `domios team channel add`
+
+Subscribe to a team channel and fetch its packages once
+
+- `--name`
+- `<url>`
+
+#### `domios team channel list`
+
+List team channels and their last refresh outcomes
+
+#### `domios team channel refresh`
+
+Explicitly refresh one channel, or all subscribed channels
+
+- `<name>`
+
+#### `domios team channel remove`
+
+Remove a community team channel
+
+- `<name>`
+
 #### `domios team check`
 
 Validate an ATP team package: a `name.team.yaml` file, a `name.team` archive or a package folder

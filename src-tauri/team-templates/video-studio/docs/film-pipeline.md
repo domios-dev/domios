@@ -24,6 +24,8 @@ A scene is a web page. It is built from the product's real UI components fed wit
 - WebGL scenes need a GPU-enabled headless browser; load heavy 3D only as a lazy chunk.
 - Defaults: 1920x1080 at 30 fps, device pixel ratio 1, four capture pages, H.264 MP4 plus `.srt`.
 - Freeze the palette and the fixes, then render. Long GPU captures made while editing continued were thrown away.
+- Run long captures and encodes in a utility shell with a timeout, not inside an agent's own turn, and close the shell when its result arrives.
+- Generated backgrounds or b-roll are optional and come only from a local tool (docs/local-generation.md). They never replace a product scene.
 
 ## Review tools
 
@@ -36,6 +38,16 @@ A scene is a web page. It is built from the product's real UI components fed wit
 - Film code is versioned next to the app, because scenes import real components: engine and player, `scenes/`, `reels/` with the registry and duration contract, `fixtures/`, `assets/`, `embed/`.
 - Capture and probe scripts live with the code or in one tooling folder, not scattered in temp folders.
 - Media stays out of git in one media folder: `renders/` for finals, `sources/` for voice, caption timing and bundles, `archive/` for old iterations, `audio/`, `stills/`. Move files, never copy them; never delete without the owner. A README there says who owns what.
+
+## Keeping a long film on track
+
+A film runs for days and many owner rounds; agents are replaced, resumed and compacted along the way. One short state file keeps it on track.
+
+- **`film-state.md`** in the media folder, owned by the Director: the approved script version, the approved sample, the frozen palette and decisions, the current render list, and the round log. Every Worker reads it first and works from it, not from memory.
+- **Round log:** each owner round is numbered and keeps the owner's notes verbatim, with the answer to each note (done, changed, declined with the reason). Summaries lose the small notes that cost the most rounds.
+- **Large output stays in files:** probe output, contact sheets, frame dumps and logs are written to files and referenced by path. Briefs and reports carry the path and a one-line result, never the dump.
+
+Sources: the index-first and verbatim-memory ideas come from thedotmack/claude-mem (Apache-2.0) and MemPalace/mempalace (MIT); keeping large output out of context, from alexgreensh/token-optimizer; long commands as bounded background sessions, from wonderwhy-er/DesktopCommanderMCP (MIT). The wording and rules here are ours.
 
 ## What cost the most
 

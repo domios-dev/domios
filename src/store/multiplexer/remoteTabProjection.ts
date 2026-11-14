@@ -27,6 +27,7 @@ export function remoteTabsFromOrdinaryProjection(tabs: Tab[]): Record<string, Ta
   );
 }
 
+/** The peer's own record decides each attachment's agent state and whether its PTY exists yet. */
 export function applyRemotePeerAgentStates(
   projected: Record<string, Tab>,
   peer: RemotePeerTabs,
@@ -36,7 +37,21 @@ export function applyRemotePeerAgentStates(
     const id = `mesh:${peer.peer_id}/${source.id}`;
     const tab = tabs[id];
     if (tab?.remote_peer_id !== peer.peer_id || tab.remote_tab_id !== source.id) continue;
-    tabs[id] = { ...tab, agent_state: source.agent_state };
+    tabs[id] = { ...tab, agent_state: source.agent_state, pty_id: source.pty_id ? id : null };
+  }
+  return tabs;
+}
+
+/** An attachment whose tab the answering peer no longer lists is gone there, so it leaves here too. */
+export function withoutVanishedAttachments(
+  projected: Record<string, Tab>,
+  attachments: readonly Tab[],
+  peer: RemotePeerTabs,
+): Record<string, Tab> {
+  const listed = new Set(peer.tabs.map((source) => source.id));
+  const tabs = { ...projected };
+  for (const tab of attachments) {
+    if (tab.remote_peer_id === peer.peer_id && !listed.has(tab.remote_tab_id ?? "")) delete tabs[tab.id];
   }
   return tabs;
 }
@@ -46,13 +61,13 @@ export async function refreshAttachedRemoteAgentStates(
   ordinary: Record<string, Tab>,
   readPeer: (peerId: string) => Promise<RemotePeerTabs>,
 ): Promise<Record<string, Tab>> {
-  const peerIds = [...new Set(Object.values(projected)
-    .filter((tab) => !ordinary[tab.id] && tab.remote_peer_id)
-    .map((tab) => tab.remote_peer_id!))];
+  const attachments = Object.values(projected).filter((tab) => !ordinary[tab.id] && tab.remote_peer_id);
+  const peerIds = [...new Set(attachments.map((tab) => tab.remote_peer_id!))];
   const peers = await Promise.allSettled(peerIds.map(readPeer));
   let tabs = projected;
   for (const peer of peers) {
-    if (peer.status === "fulfilled") tabs = applyRemotePeerAgentStates(tabs, peer.value);
+    if (peer.status !== "fulfilled") continue;
+    tabs = withoutVanishedAttachments(applyRemotePeerAgentStates(tabs, peer.value), attachments, peer.value);
   }
   return tabs;
 }

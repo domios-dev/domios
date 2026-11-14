@@ -25,6 +25,9 @@ use update_status::*;
 mod agent_surface;
 mod archive_channel;
 mod channel;
+pub use channel::{
+    channel_kind, materialize_channel, refresh_materialized_channel, validate_channel_name,
+};
 mod channel_failure;
 mod config;
 mod git_probe;

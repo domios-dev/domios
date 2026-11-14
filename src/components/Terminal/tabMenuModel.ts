@@ -43,7 +43,14 @@ export const TAB_MENU_LABELS = {
   plugins: "Plugins",
   closeSession: "Close session",
   closeTab: "Close Tab",
+  detach: "Detach from this machine",
 } as const;
+
+/** Close on a remote tab names the machine it closes on; a local close keeps its plain label. */
+function closeLabel(tab: Tab): string {
+  const base = tab.agent_type != null ? TAB_MENU_LABELS.closeSession : TAB_MENU_LABELS.closeTab;
+  return tab.remote_peer_id ? `${base} on ${tab.remote_peer_name ?? "the other machine"}` : base;
+}
 
 function modelHint(providerName: string): string {
   return `Switches in session — ${providerName} keeps this session and its history.`;
@@ -64,6 +71,7 @@ export type TabMenuAction =
   | { type: "runPlugin"; entry: PluginTabMenuEntry }
   | { type: "openTelegram" }
   | { type: "closeTelegram" }
+  | { type: "detach" }
   | { type: "close" };
 
 export type TabMenuGlyph =
@@ -78,6 +86,7 @@ export type TabMenuGlyph =
   | "plugins"
   | "telegram"
   | "telegramClose"
+  | "detach"
   | "close";
 
 export type TabMenuIcon = TabMenuGlyph | { svg: string | null; color: string | null } | null;
@@ -378,12 +387,15 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   }
   const plugins = pluginsSubmenu(input);
   if (plugins) entries.push(plugins);
+  if (tab.remote_peer_id) {
+    entries.push({ kind: "item", id: "detach", testId: "tab-menu-detach", label: TAB_MENU_LABELS.detach, icon: "detach", action: { type: "detach" } });
+  }
   if (input.canClose && !tab.protected) {
     entries.push({
       kind: "item",
       id: "close",
       testId: "tab-menu-close",
-      label: tab.agent_type != null ? TAB_MENU_LABELS.closeSession : TAB_MENU_LABELS.closeTab,
+      label: closeLabel(tab),
       icon: "close",
       danger: true,
       action: { type: "close" },
@@ -392,7 +404,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   const lock = input.lock ?? lockedView("agent.tabs", tab);
   if (!lock.locked) return entries;
   return entries.map((entry): TabMenuEntry => {
-    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close") return entry;
+    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close" || entry.id === "detach") return entry;
     if (entry.kind === "submenu") {
       return { ...entry, disabled: true, title: lock.label, entries: entry.entries.map(child =>
         child.kind === "separator" ? child : { ...child, disabled: true, title: lock.label }) };

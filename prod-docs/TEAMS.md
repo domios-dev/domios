@@ -10,7 +10,23 @@ Ask recall before you start a Team for a goal:
 domios team recall "<what the owner wants done>"
 ```
 
-It returns the best matches first and always the builtin default as the fallback; when nothing fits, use the default. `domios team template list` lists builtin and saved templates (My templates); `domios team template preview <name>` shows what one starts, asks for and brings. `domios team delete-template <name>[@version]` removes a saved one.
+It returns the best matches first and always the builtin default as the fallback; when nothing fits, use the default. `domios team template list` lists builtins, subscribed channel teams and saved templates (My templates); `domios team template preview <name>` shows what one starts, asks for and brings. `domios team delete-template <name>[@version]` removes a saved one.
+
+## Team channels
+
+The official `domios-teams` channel is always present and cannot be removed. It refreshes once at daemon startup and on explicit refresh. Its checked, compatible packages are trusted like bundled builtins and need no consent. An official package replaces a bundled builtin only when its version is strictly newer; the summary names its channel and bundled version. The bundled copy remains the offline floor if the channel is unavailable or unsuitable. Updates affect new starts; a running Team keeps its registered template version and instructions.
+
+```
+domios team channel list
+domios team channel add <url> --name <channel-name>
+domios team channel refresh <channel-name>
+domios team channel refresh
+domios team channel remove <channel-name>
+```
+
+Adding a community channel fetches it once. Community channels then stay frozen until the owner explicitly refreshes them; refresh without a name explicitly refreshes all channels. Their teams appear in the same list, preview and recall catalog with their channel name and unverified provenance. Starting requires consent once per exact package (name, version and content hash); changing the version or contents asks again. Community packages cannot claim `dev.domios/*`. Channel refreshes never modify My templates, and a saved template takes precedence over a same-name community package.
+
+Channel status reports its last refresh outcome and every skipped entry. Entries with invalid ATP packages, mismatched name/version or a newer required Domios version are skipped. A failed fetch or invalid channel index preserves the previous cache. Channels accept local directories, git repositories and published `.tar.gz` archives with `.sha256` sidecars. `CODETERM_TEAM_CHANNEL_URL` overrides the official source for an installation.
 
 ## Start a Team
 
@@ -25,7 +41,7 @@ Without `--template` the standard pair starts from the default. Send the objecti
 - **Managers without a model** in the template are chosen at start. When the owner did not name one, the start returns `needs_choice` with the candidates; ask with `domios notify send "<question>" --level action_needed --choice "<model>"` (one `--choice` per candidate) and start again with the tapped model. Never pick for the owner.
 - **Workers without a model** use the normal Worker defaults when they are dispatched.
 - **The simple local form** comes first: the template, the manager models and the inputs. Where a role runs and what the template asks for (network, repo writes, shell, browser, secrets, tools, scripts) appear only when the template declares them or this machine lacks something.
-- **Consent** is the owner's: an unverified template (imported, shared by a friend) or one that asks for new grants starts only with the owner's recorded decision from its preview. A received template has zero grants and never starts by itself.
+- **Consent** is required for community channel, imported or friend-shared packages, once per exact package (name, version and content hash). Builtin templates and templates saved by you or your agents on this machine need no consent; their declared permissions stay visible in the form and About > Permissions. A received template has zero grants and never starts by itself.
 - **Payload**: files land in the Team's knowledge directory (`<data dir>/teams/<team-id>/knowledge/`) and are listed with their descriptions in the roles that use them; memory is saved to mem with the Team as its source; skills become skills of the Team's plan; automation becomes the Team's Blueprints, imported stopped under its Orchestrator (start one when the Team needs it). The owner may opt out of any item in the preview.
 - A remote role runs on a paired peer Main that admits the start there; the owner consents on that peer (see *Peer Mains*).
 
@@ -40,7 +56,7 @@ A start that cannot begin changes nothing and answers `template_start` with a ty
 After the Orchestrator is up, anything else that fails reaches the Orchestrator once as a summary with a line per role.
 
 Good to know:
-- Consent decisions live in memory: after a Domios restart, preview the template again and start with the new `decision_id`.
+- Accepted package consent is remembered across Domios restarts. Starting the same imported or shared package again needs no `--decision`; a changed version or content requires fresh consent. Preview decision IDs are temporary: if you have not accepted a package before restarting, preview it again.
 - A reasoning effort the chosen model does not offer runs at the nearest level it does offer instead of being refused.
 - Manager models are checked before anything is created: a harness that is not installed, signed in or within quota answers `needs_choice` and no Tab or Team appears.
 - A curator manager with `start: {schedule: "<min>..<max>"}` sets how often the Curator visits, kept within 45m..2h; owner Auto, Heartbeat and Off modes still decide whether it runs. A Team without a scheduled curator has no Curator rounds. A schedule on any other role is refused at preview and start with `schedule_unsupported_role`.
@@ -58,18 +74,18 @@ Good to know:
 
 ## Peer Mains
 
-A paired peer with Full access can host a Team or a role type. Its version comes from its own `identify`; a peer without template hosting (Domios 1.20.0 or newer) is refused up front with the version to install.
+A paired peer with Full access can host a Team or a role type when its own `identify` advertises `template_hosting`; a peer without it is refused up front.
 
 **Deploy a template on a peer** (for example "bake this Team and deploy it on Air"):
 
 ```
 domios team distill <team-id> --name <owner/slug> --version 1.0.0 --description "<what it does>" --runbook-file <pad-file> --save
 domios team template transfer <owner/slug> --mesh <peer> --tab <peer-tab-id>
-domios team template start <owner/slug> --mesh <peer> [--orchestrator <provider[:model]>] [--planner <provider[:model]>] [--input key=value] [--secret NAME=entry]
+domios team template start <owner/slug> --mesh <peer> --workspace <peer-workspace-id> [--orchestrator <provider[:model]>] [--planner <provider[:model]>] [--input key=value] [--secret NAME=entry]
 ```
 
 - `transfer` exports a `.team` through the one exporter, carries it over the mesh attachment rail to `<peer-tab-id>` (a tab on that peer, chosen by the owner) and imports it there into My templates as unverified.
-- `start --mesh` asks the peer; nothing starts until the owner taps **Start here** on that peer's action_needed notification. It returns `awaiting_owner` with a `request_id` at once; the outcome (`started`, `declined`, `refused` with a typed result, or `failed`) arrives in this tab once the owner answers. `domios team template outcome <request_id> --mesh <peer>` reads it again.
+- `start --mesh` starts the Team in the peer workspace `--workspace` names (`domios workspace list --mesh <peer>` lists them); the peer never falls back to, or switches, its active workspace. It starts at once and returns `finished` with the outcome. Only while the package still carries a consent reason on the peer (an unverified import, new grants) does the peer's owner decide on its **Start here** notification; then it returns `awaiting_owner` with a `request_id`, and the outcome (`started`, `declined`, `refused` with a typed result, or `failed`) arrives in this tab once the owner answers. `domios team template outcome <request_id> --mesh <peer>` reads it again.
 - The peer becomes the managers' home: the Team is new there, secrets bind from the peer's own vault by entry name (`--secret NAME=entry` names the peer's entry), and no Team state, plan or secret value travels. Each owner answer starts at most one Team.
 - A refusal before the question (`missing_inputs`, `invalid_package`, `not_found`) comes back typed, as for a local start.
 
@@ -105,4 +121,4 @@ The bake writes the `roles` map with `kind` first in each role and keeps each ro
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 8 -->
+<!-- revision: 10 -->

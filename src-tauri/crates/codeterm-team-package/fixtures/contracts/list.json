@@ -10,6 +10,36 @@
       "verified": false
     },
     {
+      "name": "dev.domios/video-studio",
+      "version": "1.2.0",
+      "title": "Video studio",
+      "description": "Makes a product video in HTML from the real app and checks every export before the owner sees it.",
+      "provenance": "builtin",
+      "workers": 6,
+      "worker_names": ["storyboarder", "scene_builder", "generator", "editor", "export_qa", "publisher"],
+      "verified": false
+    },
+    {
+      "name": "dev.domios/design-studio",
+      "version": "1.2.0",
+      "title": "Design studio",
+      "description": "Designs a screen, flow or launch assets on the project's own design system and reviews the real build live.",
+      "provenance": "builtin",
+      "workers": 6,
+      "worker_names": ["designer", "copywriter", "asset_maker", "implementer", "design_reviewer", "publisher"],
+      "verified": false
+    },
+    {
+      "name": "dev.domios/marketing-studio",
+      "version": "1.1.0",
+      "title": "Marketing studio",
+      "description": "Launches and grows a developer product; every public post, reply, listing and spend waits for the owner's OK.",
+      "provenance": "builtin",
+      "workers": 6,
+      "worker_names": ["messaging", "publisher", "inbox_triage", "site", "community_responder", "analyst"],
+      "verified": false
+    },
+    {
       "name": "com.example/research-desk",
       "version": "2.1.0",
       "description": "Researches a market question in parallel, cross-checks sources and writes a cited report.",

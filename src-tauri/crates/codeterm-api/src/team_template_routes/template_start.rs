@@ -17,7 +17,15 @@ fn encode(value: Result<Value, serde_json::Error>) -> StartRouteResult {
 }
 
 pub(super) async fn list(State(state): State<AppState>) -> StartRouteResult {
-    encode(serde_json::to_value(team_template_start::list(&state.svc)))
+    let list = tokio::task::spawn_blocking(move || team_template_start::list(&state.svc))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": error.to_string() })),
+            )
+        })?;
+    encode(serde_json::to_value(list))
 }
 
 /// A refused preview answers 422 with the typed result the start form already reads.

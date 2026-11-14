@@ -3,12 +3,17 @@ use serde_json::{json, Value};
 use crate::args::team::TeamAction;
 use crate::client::{RpcClient, SocketCallError};
 
+pub mod channel;
 pub mod check;
 pub mod exchange;
 pub mod template_start;
 
 pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction) {
     let action = match action {
+        TeamAction::Channel { action } => {
+            channel::handle(client, json_output, action);
+            return;
+        }
         TeamAction::Pair {
             orchestrator,
             planner,
@@ -114,7 +119,8 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
                     )),
                 )
             }),
-        TeamAction::Pair { .. }
+        TeamAction::Channel { .. }
+        | TeamAction::Pair { .. }
         | TeamAction::Template { .. }
         | TeamAction::Distill(_)
         | TeamAction::Export(_)

@@ -14,7 +14,7 @@ import { useTabRecovery } from "./useTabRecovery";
 import { describeRuntimeConnectionError } from "../../lib/describeError";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
-import { tabActivity } from "../../lib/tabActivity";
+import { tabFailure, tabLaunched } from "../../lib/tabFailure";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { chatLaunchFailureDescription } from "./chatSetupModel";
 
@@ -56,7 +56,9 @@ export function ChatSetupState({
   inLog = false,
 }: ChatSetupStateProps) {
   const { restart: recovery, fresh, actions: launchActions, error: launchActionError } = useTabRecovery(tab?.id,
-    view.kind === "launch_failed" && !isReadOnlyTab(tab) ? tabActivity(tab).failure?.recovery : null);
+    view.kind === "launch_failed" && !isReadOnlyTab(tab) ? tabFailure({
+      bootStage: tab?.boot_stage, runtime: tab?.agent_runtime_state, launched: tabLaunched(tab), chatBacked: tab?.backing?.kind === "chat_backend",
+    }).recovery : null);
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.preventDefault();

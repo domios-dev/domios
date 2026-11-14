@@ -7,10 +7,10 @@ import type {
 import { initialSecretBindings } from "../../lib/teamTemplates/exchangeModel";
 import { takePendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
 import { listVaultSecretNames } from "../../lib/teamTemplates/vaultSecrets";
-import { listHostPeers, type HostPeer } from "../../lib/teamTemplates/hostPeers";
+import { usePeerPlacement } from "./usePeerPlacement";
 import { webUpload } from "../../lib/webApi";
 import {
-  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, startRefusalView, templateSource, templateTitle, withKept,
+  buildStartRequest, initialInputs, pickerSeed, startBlocker, startErrorView, startRefusalView, templateTitle, withKept,
   type PickerSeed, type StartErrorView, type TemplateSummary,
 } from "../../lib/teamTemplates/startModel";
 import type { ManagerSeats } from "./TemplateManagers";
@@ -22,9 +22,7 @@ type TemplateUpdateDiff = import("../../../gen/TemplateUpdateDiff").TemplateUpda
 export type TemplateView =
   | { kind: "form" }
   | { kind: "gallery" }
-  | { kind: "review"; preview: TemplatePreview; mode: "consent" | "detail"; back: "form" | "gallery" }
-  /** A role's instructions, a step inside the same dialog that returns to the review it came from. */
-  | { kind: "instructions"; review: Extract<TemplateView, { kind: "review" }>; role: string };
+  | { kind: "review"; preview: TemplatePreview; mode: "consent" | "detail"; back: "form" | "gallery" };
 
 /** A template the host refused to start: its package identity, the title its card shows, and the typed refusal. */
 export interface BlockedTemplate { name: string; version: string | null; title: string; refusal: StartErrorView }
@@ -40,19 +38,17 @@ function basename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-/** Only an unverified package passes through the review before its form; Built-in and Mine go straight to it, still carrying their consent decision. */
 function needsReview(preview: TemplatePreview): boolean {
-  return preview.consent != null && templateSource(preview.form.template).unverified;
+  return preview.consent != null;
 }
 
 /** Template choice for the Team form; the default is always available and starts today's pair without `template`. */
-export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames, hostPeers = listHostPeers, upload = webUpload }: {
+export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transport = teamTemplatesTransport, vaultNames = listVaultSecretNames, upload = webUpload }: {
   enabled: boolean;
   recallQuery: string;
   onSeedPair: (seats: Partial<Record<"orchestrator" | "planner", PickerSeed>>) => void;
   transport?: () => TeamTemplatesTransport;
   vaultNames?: () => Promise<string[]>;
-  hostPeers?: () => Promise<HostPeer[]>;
   upload?: (file: Blob, name: string) => Promise<{ path: string }>;
 }) {
   const [view, setView] = useState<TemplateView>({ kind: "form" });
@@ -69,10 +65,10 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [vault, setVault] = useState<string[] | null>(null);
   const [update, setUpdate] = useState<TemplateUpdateDiff | null>(null);
-  const [placements, setPlacements] = useState<Record<string, string>>({});
-  const [remotePeer, setRemotePeer] = useState<string | null>(null);
-  const [peers, setPeers] = useState<HostPeer[] | null>(null);
   const [peersWanted, setPeersWanted] = useState(false);
+  const placement = usePeerPlacement({ wanted: peersWanted });
+  const remotePeer = placement.peer;
+  const clearPeer = placement.setPeer;
 
   useEffect(() => {
     if (!enabled || catalog) return;
@@ -123,10 +119,9 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     setInputs(initialInputs(preview.form.inputs ?? []));
     setOptOut(kept);
     setSeats(managerSeeds);
-    setPlacements({});
-    setRemotePeer(null);
+    clearPeer(null);
     setView({ kind: "form" });
-  }, [onSeedPair, vault]);
+  }, [onSeedPair, vault, clearPeer]);
 
   const openPreview = useCallback(async (template: { name: string; version?: string | null; title?: string | null }, diff: TemplateUpdateDiff | null = null,
     title = templateTitle(template)) => {
@@ -154,13 +149,12 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
       setTouched(false);
       setChosen(null);
       setSeats({});
-      setPlacements({});
-      setRemotePeer(null);
+      clearPeer(null);
       setView({ kind: "form" });
       return;
     }
     void openPreview(summary);
-  }, [defaultSummary.name, openPreview]);
+  }, [defaultSummary.name, openPreview, clearPeer]);
 
   const importPath = useCallback(async (path: string, shownName = basename(path)) => {
     setPending(true);
@@ -215,13 +209,6 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     else void openPreview(request.template, request.update);
   }, [enabled, openPreview, importPath]);
 
-  useEffect(() => {
-    if (!peersWanted || peers) return;
-    let live = true;
-    void hostPeers().then((list) => { if (live) setPeers(list); }, () => { if (live) setPeers([]); });
-    return () => { live = false; };
-  }, [peersWanted, peers, hostPeers]);
-
   const needsVault = Boolean(chosen?.asks?.some((ask) => ask.kind === "secret"));
   useEffect(() => {
     if (!needsVault || vault) return;
@@ -234,22 +221,24 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     return () => { live = false; };
   }, [needsVault, vault, vaultNames, chosen]);
 
-  // The default starts as today's pair; a picked later-manager model or a placement needs the template start.
-  const customized = remotePeer !== null || Object.values(placements).some(Boolean) || Object.keys(seats).length > 0;
+  // The default starts as today's pair; a picked later-manager model or another machine needs the template start.
+  const customized = remotePeer !== null || Object.keys(seats).length > 0;
   const active = chosen ?? (customized ? defaultPreview : null);
   const startRequest = useCallback((): TemplateStartRequest | undefined => {
     if (!active) return undefined;
     const managerModels = Object.fromEntries(Object.entries(seats).flatMap(([role, seat]) => seat ? [[role,
       { model: `${seat.providerId}:${seat.modelId}`, reasoning_effort: seat.effortId ?? null }] as const] : []));
-    return buildStartRequest({ preview: active, inputs, optOut, managerModels, secretBindings: secrets, rolePlacements: remotePeer ? {} : placements });
-  }, [active, inputs, optOut, seats, secrets, placements, remotePeer]);
+    return buildStartRequest({ preview: active, inputs, optOut, managerModels, secretBindings: secrets });
+  }, [active, inputs, optOut, seats, secrets]);
 
   return {
     view, catalog, chosen, touched, inputs, optOut, seats, pending, notice, blocked, catalogStatuses, defaultSummary, defaultPreview, secrets, vault, update,
-    placements, remotePeer, peers,
+    placement, remotePeer,
     /** True when Start goes through the template start rather than today's default pair. */
     usesTemplate: active !== null,
-    blocker: active ? startBlocker(active, inputs, secrets, remotePeer) : null,
+    blocker: active
+      ? startBlocker(active, inputs, secrets, remotePeer ? { peer: remotePeer.name, workspaceChosen: placement.workspaceChosen } : null)
+      : null,
     openGallery: () => { setNotice(null); setView({ kind: "gallery" }); },
     backToForm: () => setView({ kind: "form" }),
     choose,
@@ -266,11 +255,13 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
     remove: (summary: TemplateSummary) => { void remove(summary); },
     setSecret: (name: string, entry: string) => { setTouched(true); setSecrets((current) => ({ ...current, [name]: entry })); },
     wantPeers: () => setPeersWanted(true),
-    /** Asks the chosen peer to start this Team; its owner answers there. */
-    startOnPeer: (start: TemplatePeerStartRequest["start"]): Promise<TemplatePeerStartAccepted> =>
-      transport().peerStart({ peer: remotePeer ?? "", start }),
-    setPlacement: (role: string, peer: string) => { setTouched(true); setPlacements((current) => ({ ...current, [role]: peer })); },
-    setRemotePeer: (peer: string | null) => { setTouched(true); setRemotePeer(peer); },
+    /** Starts this Team on the chosen machine, in the workspace chosen there (created first when new). */
+    startOnPeer: async (start: Omit<TemplatePeerStartRequest["start"], "workspace_id">, originWorkspaceId: string): Promise<TemplatePeerStartAccepted> => {
+      if (!remotePeer) throw new Error("Choose the machine to start on");
+      const workspaceId = await placement.resolveWorkspace();
+      return transport().peerStart({ peer: remotePeer.id, start: { ...start, workspace_id: workspaceId }, origin_workspace_id: originWorkspaceId });
+    },
+    setRemotePeer: (peerId: string | null) => { setTouched(true); placement.setPeer(peerId); },
     setNotice,
     setInput: (key: string, value: string) => { setTouched(true); setInputs((current) => ({ ...current, [key]: value })); },
     setKept: (ids: readonly string[], kept: boolean) => { setTouched(true); setOptOut((current) => withKept(current, ids, kept)); },
@@ -280,15 +271,6 @@ export function useTeamTemplateChoice({ enabled, recallQuery, onSeedPair, transp
       delete next[slot];
       return next;
     }),
-    readInstructions: (role: string) => {
-      if (view.kind === "review") setView({ kind: "instructions", review: view, role });
-      else if (view.kind === "instructions") setView({ ...view, role });
-      else if (view.kind === "form") {
-        const preview = chosen ?? defaultPreview;
-        if (preview) setView({ kind: "instructions", review: { kind: "review", preview, mode: "detail", back: "form" }, role });
-      }
-    },
-    backFromInstructions: () => { if (view.kind === "instructions") setView(view.review.back === "form" ? { kind: "form" } : view.review); },
     startRequest,
   };
 }

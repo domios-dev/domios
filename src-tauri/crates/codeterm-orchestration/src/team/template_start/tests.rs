@@ -7,10 +7,10 @@ use codeterm_service_core::service::model_decision::{
 };
 use codeterm_service_core::service::team_roles::TeamRoleStore;
 use codeterm_service_core::service::team_template_start::{
-    admit, resolve, AdmittedTemplate, ConsentLedger, ResolvedTemplate,
+    admit, admit_resolved, resolve, AdmittedTemplate, ConsentLedger, ResolvedTemplate,
 };
 use codeterm_team_package::contracts::{
-    ConsentReason, ManagerStartFailure, ModelBlockedReason, PlacementProblem, TemplateItemState,
+    ManagerStartFailure, ModelBlockedReason, PlacementProblem, TemplateItemState,
     TemplateProvenance, TemplateRef, TemplateStartRefusal, TemplateStartRequest,
     TemplateStartResult,
 };
@@ -182,20 +182,45 @@ fn concurrent_re_runs_create_each_registration_exactly_once() {
     assert_eq!(store.registrations(TEAM).len(), outcomes[0].len());
 }
 
+const ASKING: &str = "name: dev.example/asking
+version: 1.0.0
+description: Probe package.
+inputs:
+  goal: opaque-goal
+  tone:
+    description: opaque-tone
+    required: false
+    default: opaque-default
+secrets:
+  - name: TOKEN
+    purpose: opaque-purpose
+roles:
+  orchestrator:
+    kind: manager
+    instructions: opaque-orchestrator
+";
+
 #[test]
 fn missing_inputs_and_secrets_refuse_before_consent_or_creation() {
-    let ledger = ConsentLedger::default();
-    for (name, required) in [("video-studio", "goal"), ("design-studio", "surface")] {
-        let refusal = admit(Some(&request(name)), &ledger).unwrap_err();
-        let TemplateStartRefusal::MissingInputs { inputs } = refusal else {
-            panic!("{name}: expected missing inputs, got {refusal:?}");
-        };
-        assert_eq!(
-            inputs,
-            [required],
-            "{name}: inputs with a default are not asked"
-        );
-    }
+    let resolved = ResolvedTemplate::from_checked(
+        check_yaml(ASKING, &CheckOptions::default()),
+        TemplateProvenance::Saved,
+    )
+    .expect("probe package admits");
+    let refusal = admit_resolved(
+        resolved,
+        Some(&request("dev.example/asking")),
+        &ConsentLedger::default(),
+        &[],
+    )
+    .unwrap_err();
+    assert_eq!(
+        refusal,
+        TemplateStartRefusal::MissingInputs {
+            inputs: vec!["goal".into(), "secret:TOKEN".into()]
+        },
+        "inputs with a default are not asked, and the gate runs before consent"
+    );
 }
 
 fn filled(name: &str) -> TemplateStartRequest {
@@ -213,32 +238,14 @@ fn filled(name: &str) -> TemplateStartRequest {
 }
 
 #[test]
-fn a_package_with_grants_starts_only_with_a_decision_issued_for_it() {
+fn builtin_grants_start_without_a_decision_and_register_without_one() {
     let ledger = ConsentLedger::default();
-    let mut start = filled("design-studio");
-    let refusal = admit(Some(&start), &ledger).unwrap_err();
-    assert_eq!(
-        refusal,
-        TemplateStartRefusal::ConsentRequired {
-            reasons: vec![ConsentReason::NewGrants]
-        }
-    );
-
-    let other = resolve(Some(&request("video-studio").template)).unwrap();
-    start.decision_id = Some(ledger.issue(&other.identity(), &[ConsentReason::NewGrants]));
-    assert!(admit(Some(&start), &ledger).is_err());
-
-    let own = resolve(Some(&start.template)).unwrap();
-    let decision = ledger.issue(&own.identity(), &[ConsentReason::NewGrants]);
-    start.decision_id = Some(decision.clone());
-    let admitted = admit(Some(&start), &ledger).expect("an issued decision admits the start");
-    assert_eq!(admitted.decision_id.as_deref(), Some(decision.as_str()));
-    assert!(
-        registrations_for(TEAM, &admitted, 1)
-            .iter()
-            .all(|registration| registration.consent_decision_id.as_deref()
-                == Some(decision.as_str()))
-    );
+    let start = filled("design-studio");
+    let admitted = admit(Some(&start), &ledger).expect("builtin permissions need no consent");
+    assert!(admitted.decision_id.is_none());
+    assert!(registrations_for(TEAM, &admitted, 1)
+        .iter()
+        .all(|registration| registration.consent_decision_id.is_none()));
 }
 
 #[test]
@@ -359,10 +366,7 @@ fn owner_picks_go_through_the_decision_service() {
     else {
         panic!("both picks are eligible");
     };
-    assert_eq!(
-        seats["orchestrator"].model.as_deref(),
-        Some("m1")
-    );
+    assert_eq!(seats["orchestrator"].model.as_deref(), Some("m1"));
     // A bare provider keeps its launch default instead of promoting one to an explicit model.
     assert_eq!(seats["planner"].model, None);
 
@@ -412,14 +416,8 @@ fn a_custom_endpoint_model_is_accepted_as_spawn_validation_accepts_it() {
     else {
         panic!("a configured endpoint model seats its manager");
     };
-    assert_eq!(
-        seats["orchestrator"].model.as_deref(),
-        Some("gateway/m9")
-    );
-    assert_eq!(
-        seats["planner"].model.as_deref(),
-        Some("probe:gateway/m9")
-    );
+    assert_eq!(seats["orchestrator"].model.as_deref(), Some("gateway/m9"));
+    assert_eq!(seats["planner"].model.as_deref(), Some("probe:gateway/m9"));
     assert_eq!(seats["planner"].effort.as_deref(), Some("high"));
 
     picks.insert(
@@ -775,7 +773,10 @@ fn a_custom_with_team_manager_starts_with_the_team_and_an_on_demand_one_is_regis
         panic!("the custom with_team manager needs its own pick");
     };
     assert_eq!(pickers.len(), 1);
-    assert_eq!((pickers[0].role.as_str(), pickers[0].label.as_str()), ("security_lead", "Warden"));
+    assert_eq!(
+        (pickers[0].role.as_str(), pickers[0].label.as_str()),
+        ("security_lead", "Warden")
+    );
     picks.insert(
         "security_lead".to_string(),
         OwnerPick::new("probe", Some("m1"), None).unwrap(),

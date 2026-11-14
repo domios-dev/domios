@@ -137,7 +137,7 @@ Provider contracts live in `essences/core.md`; load `provider-authoring` before 
 - Core branches on capabilities, never provider IDs or display strings. Detection uses structural fingerprints from the tab's own claimed session; unknown stays unknown, never a guess from global/latest history.
 - New or changed provider contracts require native/JS parity on shared fixtures. Audit every new plugin host API against its filesystem, SQLite and environment authority and QuickJS limitations.
 - Official plugins version independently: manifest, package and channel metadata must agree; `minCodeterm` states the required host capability. Use `scripts/release-plugin.mjs` and the plugin release skill/procedure rather than changing generated bundles by hand. Startup must not downgrade a newer installed channel release.
-- System plugins live in this repository's `plugins/` channel (`codeterm-core`). Other official capability plugins live in `~/Developer/codeterm-plugins` (`rollacode/codeterm-plugins`). Local installation does not authorize replacing reserved system IDs; use their official channel.
+- System plugins live in this repository's `plugins/` channel (`codeterm-core`). Other official capability plugins live in `~/Developer/codeterm-plugins` (`domios-dev/domios-plugins`). Local installation does not authorize replacing reserved system IDs; use their official channel.
 
 ## Code navigation
 

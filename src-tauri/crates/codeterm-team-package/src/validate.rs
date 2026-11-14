@@ -137,7 +137,7 @@ pub fn schedule_window(text: &str) -> Option<(u64, u64)> {
     (window.0 <= window.1).then_some(window)
 }
 
-/// `<harness>:<model>`, for example `claude:opus`; the model token is provider-defined.
+/// `<harness>:<model>`, for example `harness-a:opus`; the model token is provider-defined.
 pub fn is_model_id(model: &str) -> bool {
     let Some((harness, id)) = model.split_once(':') else {
         return false;
@@ -386,12 +386,12 @@ fn role(check: &mut Check<'_>, document: &TeamDocument, name: &str, role: &TeamR
     match &role.start {
         Some(RoleStart::Schedule { schedule }) if schedule_window(schedule).is_none() => check
             .error(
-            Code::InvalidSchedule,
-            &format!("{path}.start.schedule"),
-            format!(
+                Code::InvalidSchedule,
+                &format!("{path}.start.schedule"),
+                format!(
                 "`{schedule}` is not `<min>..<max>` with positive m or h durations and min <= max"
             ),
-        ),
+            ),
         _ => {}
     }
     let declared = |mode: StartMode| {
@@ -479,9 +479,7 @@ fn same_as_cycles(check: &mut Check<'_>, document: &TeamDocument) {
     let targets: BTreeMap<String, String> = document
         .roles()
         .filter_map(|(name, role)| match &role.model {
-            Some(ModelPreference::SameAs { same_as }) => {
-                Some((name.to_string(), same_as.clone()))
-            }
+            Some(ModelPreference::SameAs { same_as }) => Some((name.to_string(), same_as.clone())),
             _ => None,
         })
         .collect();

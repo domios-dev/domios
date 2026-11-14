@@ -55,6 +55,49 @@ fn registrations_persist_across_a_restart_and_stay_pinned() {
 }
 
 #[test]
+fn channel_refresh_changes_new_starts_without_rewriting_live_team_registrations() {
+    use crate::service::team_channels::TeamChannelStore;
+    use crate::service::team_exchange::library::TemplateLibrary;
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let mut package = crate::service::team_catalog::bundled()[0].1.clone();
+    package.document.name = "com.example/fixture".into();
+    package.document.version = "1.0.0".into();
+    let publish = |package: &codeterm_team_package::Package| {
+        package.write_folder(&source.join("team")).unwrap();
+        std::fs::write(source.join("channel.json"), serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 1, "name": "fixture", "displayName": "Fixture", "description": "Fixture",
+            "teams": [{ "name": package.document.name, "version": package.document.version, "path": "team", "minDomios": "0.0.0" }],
+        })).unwrap()).unwrap();
+    };
+    publish(&package);
+    let channels = TeamChannelStore::new(root.path().join("data"), "1.20.0");
+    channels.add(source.to_str().unwrap(), None).unwrap();
+    let roles = TeamRoleStore::new(root.path().join("teams"));
+    let original = worker("live_team", "checker", "original instructions");
+    roles.register(original.clone()).unwrap();
+    package.document.version = "2.0.0".into();
+    publish(&package);
+    channels.refresh(Some("fixture")).unwrap();
+    let library = TemplateLibrary::new(root.path().join("library"));
+    let selected = crate::service::team_catalog::resolve_in(
+        &channels,
+        &library,
+        &codeterm_team_package::contracts::TemplateRef {
+            name: package.document.name,
+            version: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(selected.package.document.version, "2.0.0");
+    assert_eq!(roles.registrations("live_team"), vec![original.clone()]);
+    assert_eq!(
+        TeamRoleStore::new(root.path().join("teams")).registrations("live_team"),
+        vec![original]
+    );
+}
+
+#[test]
 fn a_team_without_registrations_resolves_the_default_package() {
     let root = tempfile::tempdir().unwrap();
     let store = TeamRoleStore::new(root.path());
@@ -96,10 +139,16 @@ fn registration_refuses_host_owned_names_reserved_workers_and_path_escapes() {
         );
     }
     for host_owned in [builtins::WATCHER, builtins::GENERAL_AGENT] {
-        assert!(store.register(manager("team_a", host_owned)).is_err(), "{host_owned}");
+        assert!(
+            store.register(manager("team_a", host_owned)).is_err(),
+            "{host_owned}"
+        );
     }
     for worker_kind in [builtins::QA, builtins::REVIEWER, builtins::RELEASE_MANAGER] {
-        assert!(store.register(manager("team_a", worker_kind)).is_err(), "{worker_kind}");
+        assert!(
+            store.register(manager("team_a", worker_kind)).is_err(),
+            "{worker_kind}"
+        );
     }
     assert!(store.register(worker("../escape", "checker", "x")).is_err());
     assert!(store.register(worker("team_a", "checker", "  ")).is_err());
@@ -110,7 +159,9 @@ fn registration_refuses_host_owned_names_reserved_workers_and_path_escapes() {
 fn a_custom_manager_registers_and_resolves_as_a_manager() {
     let root = tempfile::tempdir().unwrap();
     let store = TeamRoleStore::new(root.path());
-    store.register(manager("team_a", builtins::ORCHESTRATOR)).unwrap();
+    store
+        .register(manager("team_a", builtins::ORCHESTRATOR))
+        .unwrap();
     assert_eq!(
         store.register(manager("team_a", "security_lead")).unwrap(),
         RoleRegistrationOutcome::Created
@@ -132,7 +183,9 @@ fn a_custom_manager_registers_and_resolves_as_a_manager() {
 fn a_team_has_exactly_its_roles_and_refuses_unlisted_names() {
     let root = tempfile::tempdir().unwrap();
     let store = TeamRoleStore::new(root.path());
-    store.register(manager("team_a", builtins::ORCHESTRATOR)).unwrap();
+    store
+        .register(manager("team_a", builtins::ORCHESTRATOR))
+        .unwrap();
     store
         .register(worker("team_a", "checker", "fixture-prose"))
         .unwrap();
@@ -177,7 +230,9 @@ fn a_team_has_exactly_its_roles_and_refuses_unlisted_names() {
 fn dispatch_without_a_role_uses_worker_only_when_the_team_lists_it() {
     let root = tempfile::tempdir().unwrap();
     let store = TeamRoleStore::new(root.path());
-    store.register(manager("team_a", builtins::ORCHESTRATOR)).unwrap();
+    store
+        .register(manager("team_a", builtins::ORCHESTRATOR))
+        .unwrap();
     store
         .register(worker("team_a", "checker", "fixture-prose"))
         .unwrap();
@@ -244,7 +299,10 @@ fn a_curator_schedule_becomes_a_window_inside_the_host_bounds() {
 #[test]
 fn a_team_without_a_scheduled_curator_manager_has_no_curator_rounds() {
     assert_eq!(window_of(&[]), None);
-    assert_eq!(window_of(&[manager("team_a", builtins::ORCHESTRATOR)]), None);
+    assert_eq!(
+        window_of(&[manager("team_a", builtins::ORCHESTRATOR)]),
+        None
+    );
     let on_demand = RoleRegistration {
         start: RoleStart::Mode(StartMode::OnDemand),
         ..curator("45m..2h")
@@ -266,7 +324,10 @@ fn a_team_without_a_scheduled_curator_manager_has_no_curator_rounds() {
     assert_eq!(window_of(&[scheduled_worker, scheduled_custom]), None);
     // A Team with no registrations keeps the default package's curator rounds.
     let default = crate::service::builtin_roles::default_registrations("team_a");
-    assert_eq!(window_of(&default), Some(codeterm_types::plan::CuratorWindow::HOST));
+    assert_eq!(
+        window_of(&default),
+        Some(codeterm_types::plan::CuratorWindow::HOST)
+    );
 }
 
 #[test]

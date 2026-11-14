@@ -6,9 +6,9 @@ use axum::{extract::State as AxumState, http::StatusCode, Json};
 use codeterm_orchestration::OrchestrationPairExt;
 use codeterm_service_core::ports::daemon_question::DaemonQuestionHandler;
 use codeterm_service_core::service::team_template_remote::{
-    admit_from_peer, clone_destination, precheck_peer_start, record_owner_decision,
-    scrub_remote_url, unbound_secrets, PeerAsk, PeerAsks, PeerStartRefusal, SpentDecisions,
-    CLONE_ACCEPT, PEER_ASK_DECLINE, PEER_ASK_PREFIX, START_ACCEPT,
+    admit_from_peer, clone_destination, owner_must_decide, precheck_peer_start,
+    record_owner_decision, scrub_remote_url, unbound_secrets, PeerAsk, PeerAsks, PeerStartRefusal,
+    SpentDecisions, CLONE_ACCEPT, PEER_ASK_DECLINE, PEER_ASK_PREFIX, START_ACCEPT,
 };
 use codeterm_service_core::service::team_template_start::ConsentLedger;
 use codeterm_service_core::service::ServiceState;
@@ -28,6 +28,7 @@ fn refusal_response(refusal: PeerStartRefusal) -> (StatusCode, String) {
             (StatusCode::CONFLICT, message)
         }
         PeerStartRefusal::OwnerUnreachable(_) => (StatusCode::SERVICE_UNAVAILABLE, message),
+        PeerStartRefusal::UnknownWorkspace(_) => (StatusCode::NOT_FOUND, message),
         PeerStartRefusal::Refused(refusal) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             TemplateStartResult::Refused { refusal }.error_message(),
@@ -80,8 +81,17 @@ fn unbound_from(request: &TemplateStartRequest, present: &[(String, bool)]) -> V
     })
 }
 
-/// A paired origin asks this Main to start a checked package it holds. Nothing starts here
-/// until this machine's owner accepts the question; the answer returns over the event stream.
+enum Opened {
+    Asked {
+        request: String,
+        notification_id: String,
+    },
+    Direct(TemplatePeerStartAsk),
+}
+
+/// A paired Full-access origin asks this Main to start a checked package it holds, in a named
+/// workspace here. It starts at once unless the package still carries a consent reason on this
+/// machine; then the owner decides and the answer returns over the event stream.
 pub async fn mesh_template_start(
     AxumState(state): AxumState<AppState>,
     headers: axum::http::HeaderMap,
@@ -92,15 +102,22 @@ pub async fn mesh_template_start(
     let present = vault_presence(&state, &ask.template).await;
     let unbound = unbound_from(&ask.template, &present);
     let svc = state.svc.clone();
+    let asker = origin.clone();
     let opened = tokio::task::spawn_blocking(move || {
         precheck_peer_start(&ask.template, full_access, unbound)?;
+        if svc.mux.read().get_workspace(&ask.workspace_id).is_none() {
+            return Err(PeerStartRefusal::UnknownWorkspace(ask.workspace_id.clone()));
+        }
+        if !owner_must_decide(&ask.template).map_err(PeerStartRefusal::Refused)? {
+            return Ok(Opened::Direct(ask));
+        }
         let template = &ask.template.template;
         let name = match &template.version {
             Some(version) => format!("{}@{version}", template.name),
             None => template.name.clone(),
         };
         let request = PeerAsks::global().open(PeerAsk::Start {
-            origin_peer: origin,
+            origin_peer: asker,
             ask,
         });
         let question = svc.publish_daemon_question(
@@ -114,7 +131,10 @@ pub async fn mesh_template_start(
             vec![START_ACCEPT.into(), PEER_ASK_DECLINE.into()],
         );
         match question {
-            Ok(notification_id) => Ok((request, notification_id)),
+            Ok(notification_id) => Ok(Opened::Asked {
+                request,
+                notification_id,
+            }),
             Err(error) => {
                 PeerAsks::global().take(&request);
                 Err(PeerStartRefusal::OwnerUnreachable(error))
@@ -123,12 +143,30 @@ pub async fn mesh_template_start(
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    let (request, notification_id) = opened.map_err(refusal_response)?;
-    Ok(Json(json!({
-        "state": "awaiting_owner",
-        "request_id": request,
-        "notification_id": notification_id,
-    })))
+    match opened.map_err(refusal_response)? {
+        Opened::Asked {
+            request,
+            notification_id,
+        } => Ok(Json(json!({
+            "state": "awaiting_owner",
+            "request_id": request,
+            "notification_id": notification_id,
+        }))),
+        Opened::Direct(ask) => {
+            let svc = state.svc.clone();
+            // The pair and the vault are async; a fresh thread keeps block_on off any runtime worker.
+            let outcome = tokio::task::spawn_blocking(move || {
+                std::thread::spawn(move || start_accepted(&svc, &origin, ask))
+                    .join()
+                    .unwrap_or_else(
+                        |_| json!({ "state": "failed", "error": "peer start panicked" }),
+                    )
+            })
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            Ok(Json(outcome))
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -272,16 +310,19 @@ fn start_accepted(svc: &ServiceState, origin: &str, ask: TemplatePeerStartAsk) -
     ) {
         return refusal_outcome(refusal);
     }
+    let workspace_id = ask.workspace_id.clone();
     let pair = codeterm_orchestration::OrchestrationPairParams {
         orchestrator_agent: ask.orchestrator_agent,
         orchestrator_model: ask.orchestrator_model,
         planner_agent: ask.planner_agent,
         planner_model: ask.planner_model,
+        workspace_id: Some(ask.workspace_id),
         template: Some(decided),
+        keep_focus: true,
         ..Default::default()
     };
     match codeterm_service_core::async_runtime::block_on(svc.create_orchestration_pair(pair)) {
-        Ok(result) => json!({ "state": "started", "result": result }),
+        Ok(result) => json!({ "state": "started", "workspace_id": workspace_id, "result": result }),
         Err(message) => match TemplateStartResult::from_error_message(&message) {
             Some(result) => json!({ "state": "refused", "result": result }),
             None => json!({ "state": "failed", "error": message }),
