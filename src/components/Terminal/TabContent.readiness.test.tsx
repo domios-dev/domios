@@ -90,6 +90,22 @@ async function revealRestore(host: HTMLElement) {
   await act(async () => { presence.dispatchEvent(event); });
 }
 
+it("opens the launch question terminal on one desktop click without a boot overlay", async () => {
+  const fixture = await mount(true);
+  try {
+    await fixture.patch({ frozen: false, pty_id: "own-pty", boot_stage: "awaiting_owner_prompt",
+      pending_prompt_kind: "provider", pending_prompt: { question: "Opaque owner decision", options: [
+        { label: "Opaque decline", value: "decline" }, { label: "Opaque allow", value: "allow" },
+      ] } });
+    const open = [...fixture.host.querySelectorAll("button")].find(button => button.textContent === "Open terminal")!;
+    expect(open).toBeDefined();
+    await act(async () => { open.dispatchEvent(new Event("pointerdown", { bubbles: true })); open.click(); });
+    expect(fixture.host.querySelector('[data-testid="terminal-fallback-header"]')).not.toBeNull();
+    expect(fixture.host.querySelector('[data-testid="terminal-loading-overlay"]')).toBeNull();
+    expect(fixture.commands).not.toContain("write_pty_string");
+  } finally { await fixture.dispose(); }
+});
+
 it("hands the visible restore surface to chat startup without a second loading surface", async () => {
   const fixture = await mount(true);
   try {

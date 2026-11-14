@@ -200,6 +200,54 @@ impl ServiceContext {
         self.set_cron_owner_prompt_waiting(tab_id, true);
         self.handle_prompt_chain_blocker(tab_id, prompt);
 
+        let launch_question = kind == codeterm_types::pty::PromptKind::Provider
+            && prompt.multi_select != Some(true)
+            && !prompt.options.is_empty()
+            && self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+                (is_user_facing(tab)
+                    || (!tab.hidden && tab.role == Some(codeterm_types::pty::AgentRole::Manager)))
+                    && tab.boot_stage == Some(codeterm_types::pty::BootStage::AwaitingOwnerPrompt)
+            });
+        if launch_question {
+            if let Some(event_key) = self.claim_launch_provider_question_notice(tab_id, prompt) {
+                use codeterm_notification_core::contract::NotificationAction;
+                let identity = codeterm_types::pty::PromptIdentity::new(kind, prompt);
+                let actions = prompt
+                    .options
+                    .iter()
+                    .map(|option| NotificationAction::RespondPromptOption {
+                        label: option.label.clone(),
+                        value: option.value.clone(),
+                        identity: identity.clone(),
+                    })
+                    .collect();
+                self.create_notification_actions_reported(
+                    prompt.question.clone(),
+                    None,
+                    Some("warning"),
+                    crate::notification::store::Ask::about(
+                        TabCondition::PendingPrompt,
+                        Some(actions),
+                    ),
+                    Some(true),
+                    super::notification::NotificationOrigin::local_tab(tab_id.into()),
+                    super::notification::PushIntent {
+                        level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+                        event_key: Some(event_key),
+                    },
+                    None,
+                );
+                let current = self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .is_some_and(|tab| tab.prompt_identity().as_ref() == Some(&identity));
+                if !current {
+                    self.resolve_prompt_notifications(tab_id, &identity);
+                }
+            }
+        }
+
         let (owner, parent) = {
             let mux = self.mux.read();
             (
@@ -208,7 +256,8 @@ impl ServiceContext {
             )
         };
 
-        if owner == Some(ConditionOwner::User)
+        if !launch_question
+            && owner == Some(ConditionOwner::User)
             && self
                 .claim_pending_prompt_notice_event_key(tab_id, prompt)
                 .is_some()

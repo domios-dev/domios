@@ -181,7 +181,7 @@ export function AgentStateIndicator({
           Open terminal
         </button>
       )}
-      {isQuestion && onCancel && (
+      {isQuestion && tab?.pending_prompt_kind !== "provider" && onCancel && (
         <button
           type="button"
           data-testid="agent-cancel-question"

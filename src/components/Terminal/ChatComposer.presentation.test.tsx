@@ -91,7 +91,7 @@ test("auto-confirm clears the terminal question controls and composer waiting hi
   await withComposer([], async (host, _removed, update) => {
     const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]')!;
     const waiting = editor.placeholder;
-    assert(host.querySelector('button[aria-label="Cancel the terminal question"]'));
+    assert.equal(host.querySelector('button[aria-label="Cancel the terminal question"]'), null);
     assert([...host.querySelectorAll("button")].some(button => button.textContent?.includes("Open terminal")));
     await act(async () => update({ ...pending, permission_auto_confirmations: [{ session_id: "session",
       prompt_fingerprint: "fingerprint", tool_name: "opaque-tool", question: "opaque-question", options: ["opaque-choice"],

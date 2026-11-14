@@ -109,9 +109,9 @@ impl PromptChainBook {
 
     fn clear_parent_routes(&mut self, key: &ChainKey) {
         if let Some(progress) = self.entries.get_mut(key) {
-            progress
-                .notices
-                .retain(|kind| !kind.starts_with("parent-route:"));
+            progress.notices.retain(|kind| {
+                !kind.starts_with("parent-route:") && !kind.starts_with("launch-provider-question:")
+            });
         }
     }
 }
@@ -249,6 +249,22 @@ impl super::ServiceContext {
             .lock()
             .claim_notice(&key, &dedupe_kind)
             .then(|| notice_event_key(&key, &dedupe_kind))
+    }
+
+    pub(crate) fn claim_launch_provider_question_notice(
+        &self,
+        tab_id: &str,
+        prompt: &PendingPrompt,
+    ) -> Option<String> {
+        let key = self.prompt_notice_key(tab_id)?;
+        let kind = format!(
+            "launch-provider-question:{}",
+            fingerprint(PromptKind::Provider, prompt)
+        );
+        CHAINS
+            .lock()
+            .claim_notice(&key, &kind)
+            .then(|| notice_event_key(&key, &kind))
     }
 
     pub(crate) fn claim_pending_prompt_parent_route(

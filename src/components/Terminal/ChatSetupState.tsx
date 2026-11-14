@@ -17,6 +17,7 @@ import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
 import { tabFailure, tabLaunched } from "../../lib/tabFailure";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { chatLaunchFailureDescription } from "./chatSetupModel";
+import { LaunchProviderQuestion } from "./LaunchProviderQuestion";
 
 export { chatSetupView } from "./chatSetupModel";
 
@@ -67,6 +68,10 @@ export function ChatSetupState({
 
   if (view.kind === "locked") {
     return lock ? <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} /> : null;
+  }
+  if (tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt_kind === "provider" && tab.pending_prompt) {
+    return visible ? <LaunchProviderQuestion key={JSON.stringify(tab.pending_prompt)} tabId={tab.id}
+      prompt={tab.pending_prompt} readOnly={isReadOnlyTab(tab)} onOpenTerminal={onOpenTerminal} /> : null;
   }
   const startUnbound = tab?.agent_runtime_state?.state === "degraded"
     && tab.agent_runtime_state.failureCode === "runtime_start_unbound";

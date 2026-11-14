@@ -772,7 +772,7 @@ export const TerminalTab = memo(function TerminalTab({
       </div>
 
       {/* Loading overlay */}
-      {terminalVisible && <TabBootOverlay
+      {terminalVisible && !(tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt) && <TabBootOverlay
         tabId={tabId}
         view={bootOverlay}
         workspace={tabWorkspace}
