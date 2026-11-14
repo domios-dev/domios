@@ -56,7 +56,9 @@ fn shared_windows_task_tracks_supervisor_exit_and_retries_three_times() {
     assert_eq!(
         String::from_utf16(
             &bytes[2..]
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
                 .collect::<Vec<_>>()
         )

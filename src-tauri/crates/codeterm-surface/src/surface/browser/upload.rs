@@ -303,7 +303,7 @@ impl BrowserRuntime {
                 .pointer("/node/attributes")
                 .and_then(Value::as_array)
                 .is_some_and(|attrs| {
-                    attrs.chunks_exact(2).any(|pair| {
+                    attrs.as_chunks::<2>().0.iter().any(|pair| {
                         pair[0] == "type"
                             && pair[1]
                                 .as_str()

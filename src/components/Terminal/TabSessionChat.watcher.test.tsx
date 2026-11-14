@@ -642,25 +642,39 @@ test("launch failure uses the shared failure surface without an automatic retry"
   await act(async () => root.unmount());
 });
 
-test("T7 awaiting-store keeps the composer identity, draft, and focus", async () => {
+test("T7 awaiting-store keeps the ready composer identity, draft, and focus", async () => {
   mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
   try {
     const tabId = "pending-composer-tab";
     const state = muxStateFor({
-      [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
+      [tabId]: tabBase(tabId, {
+        backing: { kind: "pty" }, agent_type: "lazy-fixture", agent_session_id: "bound-session",
+        pty_id: "own-pty", session_binding_nonce: "own-nonce", boot_stage: "provider_ready",
+      }),
     });
-    const { host, root, commands } = await renderTabSessionChat(
+    const { host, root, commands, updateTab } = await renderTabSessionChat(
       tabId,
       state,
       () => ({ text: "", offset: 0, pending: true }),
     );
     const composer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
     assert(composer, "empty chat keeps its composer available");
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    setter?.call(composer, "typing without reset");
-    composer.dispatchEvent(new Event("input", { bubbles: true }));
-    composer.setSelectionRange(7, 7);
+    assert(composer.closest("[inert]"), "startup keeps the pre-ready composer inert");
     composer.focus();
+    assert(document.activeElement !== composer, "pre-ready composer cannot take focus");
+    await act(async () => updateTab({
+      provisional_launch: { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
+        awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
+    }));
+    assert(!composer.closest("[inert]"), "own launch readiness releases the composer before the snapshot");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(composer, "typing without reset");
+      composer.dispatchEvent(new Event("input", { bubbles: true }));
+      composer.setSelectionRange(7, 7);
+      composer.focus();
+    });
+    assert(document.activeElement === composer, "ready composer took focus before the pending update");
 
     await act(async () => mock.timers.tick(1_100));
 
