@@ -338,6 +338,17 @@ impl ServiceContext {
         Some(target)
     }
 
+    pub fn retire_closed_tab_notifications(&self, tab_id: &str) {
+        let resolved = {
+            let mut store = self.notif.lock();
+            let resolved = store.resolve_tab_conditions(tab_id);
+            store.close_push_scope(&crate::notification::push::tab_scope(tab_id));
+            store.forget_answer_tab(tab_id);
+            resolved
+        };
+        self.announce_resolved(&resolved);
+    }
+
     /// A fresh agent process reached readiness: the previous process's exit is
     /// over, and so is any prompt it was blocked on unless one is showing now.
     pub(crate) fn retire_superseded_process_conditions(&self, tab_id: &str) {

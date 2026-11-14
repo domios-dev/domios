@@ -160,6 +160,23 @@ async fn close_team_via_service_persists_the_reduced_desk() {
     let bystander = mux.create_tab(&workspace_id).unwrap();
 
     let fixture = ServiceFixture::new(mux);
+    let prompt_notice = |tab_id: &str| {
+        use codeterm_service_core::notification::{dedupe::TabCondition, store};
+        fixture.service.notif.lock().add_ext(
+            "Opaque owner question".into(),
+            None,
+            store::NotificationSeverity::Warning,
+            store::NotificationProvenance {
+                tab_id: Some(tab_id.into()),
+                ..Default::default()
+            },
+            store::Ask::about(TabCondition::PendingPrompt, None),
+            Some(true),
+            None,
+        )
+    };
+    let closed_notice = prompt_notice(&orchestrator);
+    let bystander_notice = prompt_notice(&bystander);
     let storage = codeterm_service_core::storage::Storage::open(
         fixture.temp.path().join("workspace-close-storage"),
         codeterm_service_core::storage::StorageConfig::default(),
@@ -200,6 +217,24 @@ async fn close_team_via_service_persists_the_reduced_desk() {
         .await
         .unwrap();
 
+    {
+        let store = fixture.service.notif.lock();
+        let records = store.list(false);
+        assert!(
+            records
+                .iter()
+                .find(|notice| notice.id == closed_notice)
+                .unwrap()
+                .resolved
+        );
+        assert!(
+            !records
+                .iter()
+                .find(|notice| notice.id == bystander_notice)
+                .unwrap()
+                .resolved
+        );
+    }
     codeterm_service_core::service::session_persist::flush_session_persistence(&fixture.service)
         .unwrap();
     let after = adapter.snapshot().expect("desk re-persisted");
