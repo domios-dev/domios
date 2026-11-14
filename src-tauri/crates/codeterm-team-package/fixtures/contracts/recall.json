@@ -2,7 +2,7 @@
   "matches": [
     {
       "name": "dev.domios/video-studio",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "title": "Video studio",
       "description": "Makes a product video in HTML from the real app and checks every export before the owner sees it.",
       "when": ["make a launch video"],

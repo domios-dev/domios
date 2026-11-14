@@ -510,10 +510,19 @@ fn builtin_packages_are_valid_folder_packages() {
 fn authored_builtin_packages_are_indexed_and_valid() {
     let options = CheckOptions::default();
     let names = builtin::names();
-    assert_eq!(names, ["default", "design-studio", "video-studio"]);
+    assert_eq!(
+        names,
+        [
+            "default",
+            "design-studio",
+            "marketing-studio",
+            "video-studio"
+        ]
+    );
     for (folder, package) in [
         ("video-studio", "dev.domios/video-studio"),
         ("design-studio", "dev.domios/design-studio"),
+        ("marketing-studio", "dev.domios/marketing-studio"),
     ] {
         assert!(
             names.iter().any(|name| name == folder),
@@ -527,6 +536,15 @@ fn authored_builtin_packages_are_indexed_and_valid() {
         );
         let loaded = checked.package.expect("a valid package loads");
         assert_eq!(loaded.document.name, package);
+        // The owner states the goal in the first message; the start form asks for nothing.
+        assert!(
+            loaded.document.inputs.is_empty(),
+            "{folder} has start inputs"
+        );
+        assert!(
+            loaded.document.secrets.is_empty(),
+            "{folder} has start secrets"
+        );
         let (_, icon) = loaded
             .icon()
             .unwrap_or_else(|| panic!("{folder} has no usable icon"));

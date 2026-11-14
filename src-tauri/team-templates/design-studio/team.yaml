@@ -1,6 +1,6 @@
 # design-studio — Agentic Team Protocol (ATP) builtin package
 name: dev.domios/design-studio
-version: 1.0.0
+version: 1.1.0
 title: Design studio
 description: >-
   Designs a screen, flow or set of launch assets on the project's own design system: a
@@ -21,22 +21,6 @@ when:
   - keep the tagline, one-liner and banned words consistent across assets
 
 project: required
-
-inputs:
-  surface: Which screen, flow, page or asset set to design, and the change you want
-  tone:
-    description: The tone and anything banned, such as badges, banners or motion
-    required: false
-    default: quiet and calm; reuse the existing components; no decoration nobody asked for
-  may_touch:
-    description: What the team may change
-    required: false
-    choices: [drafts only, drafts and then this project's source]
-    default: drafts only
-  deadline:
-    description: The date the work is due, kept in this one place
-    required: false
-    default: none
 
 permissions:
   network: true

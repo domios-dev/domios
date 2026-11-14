@@ -8,10 +8,11 @@ The Lead writes it from the owner's words. A good brief holds:
 
 - the surface and every flow to cover;
 - the real data model behind it (fields, states, what can be empty or fail);
-- the owner's tone rules and anything banned;
+- the owner's tone rules and anything banned (the suggested default: quiet and calm, the existing components, no decoration nobody asked for);
 - what already exists to reuse (components, tokens, shared rows and buttons);
 - the decisions still open, and who decides each one;
-- where the output goes (drafts in the pad, not product source).
+- where the output goes: drafts in the pad first; product source only after the owner approves the draft and allows source changes;
+- the deadline, if the owner named one.
 
 Undecided behaviour discovered during review cost extra rounds every time. Decide trust, consent and where each choice lives in the brief.
 

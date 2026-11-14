@@ -99,6 +99,16 @@ pub fn admit_bound(
     unbound: &[String],
 ) -> Result<AdmittedTemplate, TemplateStartRefusal> {
     let resolved = resolve(request.map(|request| &request.template))?;
+    admit_resolved(resolved, request, ledger, unbound)
+}
+
+/// The input, secret, placement and consent gates for a package already resolved.
+pub fn admit_resolved(
+    resolved: ResolvedTemplate,
+    request: Option<&TemplateStartRequest>,
+    ledger: &ConsentLedger,
+    unbound: &[String],
+) -> Result<AdmittedTemplate, TemplateStartRefusal> {
     let empty = BTreeMap::new();
     let given = request.map_or(&empty, |request| &request.inputs);
     let bindings = request.map_or(&empty, |request| &request.secret_bindings);
