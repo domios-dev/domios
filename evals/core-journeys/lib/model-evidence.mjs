@@ -34,6 +34,7 @@ export function modelEvidenceErrors(state, { verify = true, builds = {}, selecti
       "control fixture provider differs from this run");
     require(tab.id === fixture.orchestrator && tab.journey === "J3" && tab.role === "fixture_orchestrator"
       && (tab.provider == null || tab.provider === provider), "control fixture tab identity differs");
+    controlId = tab.id;
     require(!policy.roster.includes(provider) && !Object.hasOwn(policy.selections, provider), "control fixture entered the paid roster");
     const runner = fixture.runner;
     require(runner?.tab_id === tab.id && runner.session_id === fixture.orchestrator_session
@@ -47,7 +48,6 @@ export function modelEvidenceErrors(state, { verify = true, builds = {}, selecti
       require(before?.owned === true && before.agent_type === provider && before.backing === "pty"
         && before.session === runner.session_id, "control fixture restart session or provider changed");
     }
-    controlId = tab.id;
   });
   const catalogue = (entry, provider, selected) => {
     require(entry?.provider === provider && entry.selected === selected, `${provider} catalogue selection absent or changed`);
