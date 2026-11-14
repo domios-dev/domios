@@ -249,9 +249,12 @@ async fn supervise(
     mut kill: watch::Receiver<bool>,
     exit: watch::Sender<Option<ProcessExit>>,
 ) {
+    let kill_requested = async move {
+        let _ = kill.wait_for(|requested| *requested).await;
+    };
     let result = tokio::select! {
         result = events.exited(pid) => result,
-        _ = kill.wait_for(|requested| *requested) => {
+        _ = kill_requested => {
             application.app.forceTerminate();
             match tokio::time::timeout(KILL_DEADLINE, events.exited(pid)).await {
                 Ok(result) => result,
