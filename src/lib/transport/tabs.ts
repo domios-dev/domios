@@ -374,7 +374,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 workspace_id?: string;
             }>("POST", "/api/agents/spawn", {
                 agent: p.agentId, workspace_id: p.workspaceId, cwd: p.cwd, model: p.model,
-                reasoning_effort: p.reasoningEffort, preset: p.preset, launch_profile: p.launchProfile, activate: true,
+                reasoning_effort: p.reasoningEffort, preset: p.preset, launch_profile: p.launchProfile,
             });
             const snapshot = await clientFor(a).json<AtomicSpawn["snapshot"]>("GET", "/api/mux/state");
             return { tab_id: result.tab_id, workspace_id: result.workspace_id ?? p.workspaceId, snapshot };

@@ -16,6 +16,7 @@ import { ProviderGlyph } from "../ProviderGlyph";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
+import { mergeGroupAttention, type GroupAttention } from "./tabAttention";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
@@ -411,7 +412,11 @@ export interface TeamUnitProps {
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
   closing?: boolean;
+  /** Member attention per section, surfaced on a header while its list is collapsed. */
+  attention?: Partial<Record<TeamMemberSection, GroupAttention | null>>;
 }
+
+export type TeamMemberSection = "managers" | "workers" | "agents" | "utilities";
 
 export interface TeamEffortTarget {
   teamId: string;
@@ -448,6 +453,7 @@ export function TeamUnit({
   onAddMember,
   onCloseTeam,
   closing = false,
+  attention = {},
 }: TeamUnitProps) {
   const lock = lockedView("teams", team);
   const onOpenEffort = (target: TeamEffortTarget) => {
@@ -466,6 +472,8 @@ export function TeamUnit({
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const teamTabCount = managerCount + workerCount + agentCount + terminalCount;
+  const teamAttention = expanded ? null
+    : mergeGroupAttention([attention.managers, attention.workers, attention.agents, attention.utilities]);
   const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
   const buckets = useMemo(
     () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
@@ -705,7 +713,7 @@ export function TeamUnit({
               data-testid="managers-section"
               className="sidebar-team-section"
             >
-              <SidebarSectionHeader kind="managers" count={managerCount} working={workingManagerCount} expanded={managersExpanded} onClick={() => { const next = !managersExpanded; setManagersExpanded(next); persistTeamDisclosureState(team.id, { managersExpanded: next }); }} />
+              <SidebarSectionHeader kind="managers" count={managerCount} working={workingManagerCount} expanded={managersExpanded} attention={attention.managers} onClick={() => { const next = !managersExpanded; setManagersExpanded(next); persistTeamDisclosureState(team.id, { managersExpanded: next }); }} />
               {managersExpanded && <div className="sidebar-team-member-list">{managers}</div>}
             </div>
           )}
@@ -716,7 +724,7 @@ export function TeamUnit({
               data-testid="workers-section"
               className="sidebar-team-section"
             >
-              <SidebarSectionHeader kind="workers" count={workerCount} working={workingWorkerCount} expanded={workersExpanded} data-testid="workers-collapse-toggle" onClick={toggleWorkersExpanded} />
+              <SidebarSectionHeader kind="workers" count={workerCount} working={workingWorkerCount} expanded={workersExpanded} attention={attention.workers} data-testid="workers-collapse-toggle" onClick={toggleWorkersExpanded} />
               {workersExpanded ? (
                 <div className="sidebar-team-member-list">{workers}</div>
               ) : closing ? (
@@ -728,7 +736,7 @@ export function TeamUnit({
           )}
           {agentCount > 0 && (
             <div role="group" aria-label={`${displayTitle} agents`} className="sidebar-team-section">
-              <SidebarSectionHeader kind="agents" count={agentCount} working={workingAgentCount} expanded={agentsExpanded} onClick={() => { const next = !agentsExpanded; setAgentsExpanded(next); persistTeamDisclosureState(team.id, { agentsExpanded: next }); }} />
+              <SidebarSectionHeader kind="agents" count={agentCount} working={workingAgentCount} expanded={agentsExpanded} attention={attention.agents} onClick={() => { const next = !agentsExpanded; setAgentsExpanded(next); persistTeamDisclosureState(team.id, { agentsExpanded: next }); }} />
               {agentsExpanded && <div className="sidebar-team-member-list">{agents}</div>}
             </div>
           )}
@@ -739,7 +747,7 @@ export function TeamUnit({
               data-testid="terminals-section"
               className="sidebar-team-section"
             >
-              <SidebarSectionHeader kind="utilities" count={terminalCount} working={workingTerminalCount} expanded={terminalsExpanded} data-testid="terminals-collapse-toggle" onClick={toggleTerminalsExpanded} />
+              <SidebarSectionHeader kind="utilities" count={terminalCount} working={workingTerminalCount} expanded={terminalsExpanded} attention={attention.utilities} data-testid="terminals-collapse-toggle" onClick={toggleTerminalsExpanded} />
               {terminalsExpanded && (
                 <div className="sidebar-team-member-list">{terminals}</div>
               )}
@@ -766,10 +774,11 @@ export function TeamUnit({
         className="sidebar-team-disclosure-bar"
         aria-label={expanded
           ? "Hide Team tabs"
-          : `Show Team tabs, ${teamTabCount} ${teamTabCount === 1 ? "tab" : "tabs"}`}
+          : `Show Team tabs, ${teamTabCount} ${teamTabCount === 1 ? "tab" : "tabs"}${teamAttention ? `, ${teamAttention.count} needs attention` : ""}`}
         aria-expanded={expanded}
         onClick={toggleExpanded}
       >
+        {teamAttention && <span className="tab-attention-mark" data-kind={teamAttention.level} aria-hidden />}
         <svg className="sidebar-team-disclosure-glyph" viewBox="0 0 26 8" aria-hidden="true">
           <path d="M1 4 L13 4 L25 4" />
         </svg>

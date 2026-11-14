@@ -201,6 +201,7 @@ pub struct AgentSpawnSpec {
     pub resume_session_id: Option<String>,
     #[serde(default, skip_deserializing)]
     pub(crate) fork_session: bool,
+    /// Highlight the new tab in every client; it never moves a client or the last selection.
     #[serde(default)]
     pub activate: Option<bool>,
     #[serde(skip)]
@@ -473,7 +474,7 @@ impl ServiceContext {
                 }
             }
             if agent.activate.unwrap_or(false) {
-                let _ = mux.set_active_tab(&ws_id, &result);
+                mux.set_tab_focus_requested(&result, true);
             }
             result
         };

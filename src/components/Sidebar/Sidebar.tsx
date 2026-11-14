@@ -20,7 +20,6 @@ import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
 import { MemoryGraphIcon, MeshIcon, NeighborsIcon, SidebarNavButton } from "./SidebarNavButton";
-import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { SidebarStructuralSection } from "./SidebarStructuralSection";
 import { SidebarNeighborsSection } from "../Neighbors/SidebarNeighborsSection";
 import { useNeighborsSwitch } from "../Neighbors/neighborsSwitch";
@@ -134,8 +133,6 @@ export const Sidebar = memo(function Sidebar({
     setActiveTab,
     renameTab,
     spawnAgentTab,
-    createOrchestrationPair,
-    selectTabByTab,
     upsertToast,
   } = useMultiplexer();
   const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
@@ -154,7 +151,6 @@ export const Sidebar = memo(function Sidebar({
     initialPath?: string | null;
     onSelect: (path: string) => void;
   } | null>(null);
-  const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
   const [pendingWorkspaceClose, setPendingWorkspaceClose] = useState<{
     id: string;
     name: string;
@@ -222,22 +218,6 @@ export const Sidebar = memo(function Sidebar({
     }
     void spawnAgentTab(workspaceId, agentId, folder).catch(reportFailure);
   }, [spawnAgentTab, state.workspaces, upsertToast]);
-
-  const handleOrchestrationConfirm = useCallback((result: OrchestrationCreateResult) => {
-    if (!orchestrationModal) return;
-    const workspaceId = orchestrationModal.workspaceId;
-    setOrchestrationModal(null);
-    createOrchestrationPair({ ...result, workspaceId }).then((created) => {
-      void selectTabByTab(workspaceId, created.orchestrator_tab_id);
-    }).catch((e) => {
-      if (isFreeLimitRefusal(e)) return;
-      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
-        workspaceId: workspaceId,
-        title: "Orchestration pair failed",
-        detail: e instanceof Error ? e.message : String(e),
-        severity: "Error" });
-    });
-  }, [upsertToast, createOrchestrationPair, orchestrationModal, selectTabByTab]);
 
 
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
@@ -863,14 +843,6 @@ export const Sidebar = memo(function Sidebar({
             setFolderPicker(null);
             folderPicker.onSelect(path);
           }}
-        />
-      )}
-
-      {orchestrationModal && (
-        <OrchestrationCreate
-          providers={visibleProviders}
-          onCancel={() => setOrchestrationModal(null)}
-          onConfirm={handleOrchestrationConfirm}
         />
       )}
 
