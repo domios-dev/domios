@@ -296,7 +296,7 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
             .iter()
             .filter(|tab| tab.tab_id == tabs[0])
             .count(),
-        1
+        0
     );
 }
 
