@@ -298,6 +298,7 @@ impl WatchBackend for NotifyBackend {
                         match command {
                             Command::Stop => break,
                             Command::Set(updated, reply) => {
+                                coverage.invalidate();
                                 let result = coverage.reconcile(
                                     debouncer.watcher(),
                                     &mut active,
@@ -333,6 +334,22 @@ impl WatchBackend for NotifyBackend {
                                 let _ = dispatch.send(WatchSignal::Batch(paths));
                             }
                             Command::Signal(signal) => {
+                                if coverage.invalidate_on_signal(&signal) {
+                                    match coverage.reconcile(
+                                        debouncer.watcher(),
+                                        &mut active,
+                                        &specs,
+                                        &[],
+                                    ) {
+                                        Ok(true) => {
+                                            let _ = dispatch.send(WatchSignal::CoverageChanged);
+                                        }
+                                        Ok(false) => {}
+                                        Err(error) => {
+                                            let _ = dispatch.send(WatchSignal::Failed(error));
+                                        }
+                                    }
+                                }
                                 let _ = dispatch.send(signal);
                             }
                         }

@@ -19,6 +19,21 @@ pub(crate) struct Coverage {
 }
 
 impl Coverage {
+    pub fn invalidate(&mut self) {
+        self.worktrees.clear();
+    }
+
+    pub fn invalidate_on_signal(&mut self, signal: &crate::WatchSignal) -> bool {
+        let lost = matches!(
+            signal,
+            crate::WatchSignal::Rescan | crate::WatchSignal::Failed(_)
+        );
+        if lost {
+            self.invalidate();
+        }
+        lost
+    }
+
     pub fn reconcile(
         &mut self,
         watcher: &mut (impl Watcher + ?Sized),

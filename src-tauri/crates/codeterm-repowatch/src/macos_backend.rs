@@ -187,9 +187,35 @@ pub(crate) fn build(
                 match command {
                     Command::Stop => break,
                     Command::Signal(signal) => {
+                        if coverage.invalidate_on_signal(&signal) {
+                            metadata_coverage.invalidate();
+                            let result =
+                                reconcile(&mut port, &mut streams, &specs, &mut coverage, &[])
+                                    .and_then(|changed| {
+                                        metadata_coverage
+                                            .reconcile(
+                                                metadata_watcher.watcher(),
+                                                &mut active_metadata,
+                                                &metadata(&specs),
+                                                &[],
+                                            )
+                                            .map(|metadata| changed || metadata)
+                                    });
+                            match result {
+                                Ok(true) => {
+                                    let _ = dispatch.send(WatchSignal::CoverageChanged);
+                                }
+                                Ok(false) => {}
+                                Err(error) => {
+                                    let _ = dispatch.send(WatchSignal::Failed(error));
+                                }
+                            }
+                        }
                         let _ = dispatch.send(signal);
                     }
                     Command::Set(updated, reply) => {
+                        coverage.invalidate();
+                        metadata_coverage.invalidate();
                         let result =
                             reconcile(&mut port, &mut streams, &updated, &mut coverage, &[])
                                 .and_then(|changed| {
@@ -215,6 +241,8 @@ pub(crate) fn build(
                     }
                     Command::Event(event, changes) => {
                         if event.rescan {
+                            coverage.invalidate();
+                            metadata_coverage.invalidate();
                             let _ = dispatch.send(WatchSignal::Rescan);
                         }
                         {

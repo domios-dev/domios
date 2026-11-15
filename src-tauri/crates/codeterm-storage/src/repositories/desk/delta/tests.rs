@@ -25,6 +25,45 @@ fn complete_delta_validates_each_leaf_once_including_cost_accounting() {
 }
 
 #[test]
+fn preservation_retains_submitted_entities_and_values_when_tabs_move() {
+    let current = desk();
+    let mut incoming = current.clone();
+    incoming.workspaces[0].record.id = WorkspaceId::new("moved").unwrap();
+    incoming.workspaces[0].tabs[0].title = "Submitted title".into();
+    incoming.teams[0].workspace_id = "moved".into();
+    let target = ValidatedInventory::new(incoming.clone())
+        .unwrap()
+        .target(&current, false)
+        .unwrap();
+    for workspace in &incoming.workspaces {
+        assert_eq!(
+            target
+                .workspaces
+                .iter()
+                .find(|candidate| candidate.record.id == workspace.record.id),
+            Some(workspace)
+        );
+    }
+    for team in &incoming.teams {
+        assert!(target.teams.contains(team));
+    }
+    for identity in &incoming.agent_session_identities {
+        assert!(target.agent_session_identities.contains(identity));
+    }
+    assert!(inventory_counts(&target)
+        .iter()
+        .zip(inventory_counts(&incoming))
+        .all(|(after, before)| *after >= before));
+    assert!(target
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.record.id.as_str() == "ws-a")
+        .unwrap()
+        .tabs
+        .is_empty());
+}
+
+#[test]
 fn invalid_incoming_leaf_is_rejected_before_writer_admission() {
     let mut incoming = desk();
     incoming.workspaces[0].tabs[0].layout = DeskLayoutNode::Leaf {

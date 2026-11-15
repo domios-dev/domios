@@ -21,10 +21,28 @@ thread_local! { pub(crate) static BUILDS: std::cell::Cell<usize> = const { std::
 pub(crate) struct Inputs {
     pub tracked: Vec<PathBuf>,
     pub sources: Vec<PathBuf>,
+    source_fingerprints: Vec<Option<SourceFingerprint>>,
     pub index: PathBuf,
     pub config: PathBuf,
     pub gitdir: PathBuf,
     pub common: PathBuf,
+}
+
+#[derive(PartialEq, Eq)]
+struct SourceFingerprint {
+    modified: Option<std::time::SystemTime>,
+    len: u64,
+}
+
+fn fingerprint(path: &Path) -> Result<Option<SourceFingerprint>, String> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => Ok(Some(SourceFingerprint {
+            modified: metadata.modified().ok(),
+            len: metadata.len(),
+        })),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 impl Inputs {
@@ -45,9 +63,14 @@ impl Inputs {
         };
         let mut sources: Vec<_> = global.into_iter().collect();
         sources.push(repo.commondir().join("info/exclude"));
+        let source_fingerprints = sources
+            .iter()
+            .map(|path| fingerprint(path))
+            .collect::<Result<_, _>>()?;
         Ok(Self {
             tracked,
             sources,
+            source_fingerprints,
             index: repo.path().join("index"),
             config: repo.commondir().join("config"),
             gitdir: repo.path().to_path_buf(),
