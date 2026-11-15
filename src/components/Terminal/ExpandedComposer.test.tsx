@@ -9,7 +9,7 @@ define("window", view);
 define("document", view.document);
 define("navigator", view.navigator);
 define("ResizeObserver", view.ResizeObserver);
-for (const name of ["HTMLElement", "Element", "Node", "Event", "KeyboardEvent", "MouseEvent", "HTMLTextAreaElement"]) {
+for (const name of ["HTMLElement", "Element", "Node", "Event", "KeyboardEvent", "MouseEvent", "HTMLInputElement", "HTMLTextAreaElement"]) {
   define(name, (view as unknown as Record<string, unknown>)[name]);
 }
 async function main() {

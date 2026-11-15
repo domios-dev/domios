@@ -123,7 +123,6 @@ export function SelectionAsk({ subject, owner, onJump, children, className }: {
           <div ref={popRef} role="dialog" aria-label={`Ask ${owner.name}`} className="ct-menu ct-sel-ask__pop" style={{ width: POPOVER_WIDTH }}>
             <blockquote className="ct-sel-ask__quote">{anchor.quote}</blockquote>
             <div className="ct-sel-ask__field">
-              {/* biome-ignore lint/a11y/noAutofocus: the popover opens on an explicit click to type a question */}
               <textarea autoFocus rows={2} value={question} placeholder={`Ask ${owner.name} about this…`} aria-label={`Question for ${owner.name}`} onChange={(e) => setQuestion(e.target.value)} onKeyDown={onKey} />
               <button type="button" className="ct-sel-ask__send" aria-label={`Send to ${owner.name}`} disabled={!question.trim() || sending} onClick={() => void send()}>
                 {sending ? <BusyState inline hideLabel label="Sending" phase="work" dotSize="micro" /> : <ArrowUp size={14} aria-hidden="true" />}

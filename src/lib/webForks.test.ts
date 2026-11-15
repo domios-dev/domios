@@ -77,7 +77,6 @@ const INVENTORY: ForkSite[] = [
   { file: "src/lib/frontendCacheRecords.ts", anchor: "const isWeb = typeof window !== \"undefined\" && !(\"__TAURI_INTERNALS__\" in window);", ordinal: 1, cls: "capability-gate", note: "Frontend cache records use browser IndexedDB only outside the native shell" },
   { file: "src/store/multiplexer/index.tsx", anchor: "const writeGateRef = useRef<WriteGate>(createWriteGate(IS_WEB));", ordinal: 1, cls: "capability-gate", note: "Web mux writes wait for cache discovery or server reconciliation" },
   { file: "src/store/multiplexer/index.tsx", anchor: "if (!IS_WEB) return;", ordinal: 1, cls: "capability-gate", note: "Browser cache hydration is web-only" },
-  { file: "src/store/multiplexer/index.tsx", anchor: "if (!IS_WEB) return;", ordinal: 2, cls: "capability-gate", note: "Attached remote-tab hydration is a web-only fallback" },
   { file: "src/store/multiplexer/index.tsx", anchor: "return IS_WEB && loadCachedStateSync() !== null;", ordinal: 1, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
   { file: "src/store/multiplexer/initialState.ts", anchor: "if (!IS_WEB) return empty;", ordinal: 1, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
   { file: "src/store/multiplexer/index.tsx", anchor: "if (!IS_WEB || !cacheReady) return;", ordinal: 1, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
