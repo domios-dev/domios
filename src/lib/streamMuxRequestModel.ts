@@ -2,6 +2,7 @@ export type MuxTraffic = "interactive" | "bulk";
 export interface MuxRequestPolicy { traffic: MuxTraffic; cancellable: boolean }
 export const MUX_REQUEST_TIMEOUT = Symbol("mux-request-timeout");
 export const MUX_READ_CAPACITY = Symbol("mux-read-capacity");
+export const MUX_CAPACITY_WAIT = Symbol("mux-capacity-wait");
 type CapacityWait = (signal?: AbortSignal) => Promise<void>;
 
 export function createMuxReadCapacity() {
@@ -35,12 +36,13 @@ export function createMuxReadCapacity() {
       closeReason = reason;
       for (const waiter of [...waiters]) waiter.reject(reason);
     },
+    waiting() { return waiters.size; },
   };
 }
 
-export async function readWhenMuxCapacityAvailable<T>(read: () => Promise<T>, signal: AbortSignal, onWait?: () => void): Promise<T> {
+export async function readWhenMuxCapacityAvailable<T>(read: () => Promise<T>, signal?: AbortSignal, onWait?: () => void): Promise<T> {
   for (;;) {
-    signal.throwIfAborted();
+    signal?.throwIfAborted();
     try { return await read(); }
     catch (error) {
       if (!error || typeof error !== "object" || !(MUX_READ_CAPACITY in error) || typeof error[MUX_READ_CAPACITY] !== "function") throw error;
@@ -49,7 +51,11 @@ export async function readWhenMuxCapacityAvailable<T>(read: () => Promise<T>, si
     }
   }
 }
-export type MuxRequestInit = RequestInit & { [MUX_REQUEST_TIMEOUT]?: number | null };
+export function requestWhenMuxCapacityAvailable<T>(policy: MuxRequestPolicy, request: () => Promise<T>, signal?: AbortSignal, onWait?: () => void): Promise<T> {
+  return policy.cancellable ? readWhenMuxCapacityAvailable(request, signal, onWait) : request();
+}
+
+export type MuxRequestInit = RequestInit & { [MUX_REQUEST_TIMEOUT]?: number | null; [MUX_CAPACITY_WAIT]?: () => void };
 
 const READ_POST = /^\/api\/(?:tabs\/[^/]+\/(?:preview\/(?:read|check)|chat-raw\/(?:start|history|backfill|resume))|essence-maps)$/;
 const BULK_GET = /^\/api\/(?:essence-source|logs|sessions\/transcript|agent-runs\/[^/]+\/log|mem\/workers\/[^/]+\/log)$/;
