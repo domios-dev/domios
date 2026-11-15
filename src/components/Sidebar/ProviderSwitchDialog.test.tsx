@@ -23,7 +23,7 @@ vi.mock("../../lib/useAgentDescriptor", () => ({ useAgentDescriptors: () => [
 
 const tab = { id: "owned", agent_type: "source", title: "Baton" } as Tab;
 const result: ProviderSwitchResult = { tab_id: "owned", provider: "target", session_id: "new-thread", previous_provider: "source", previous_session_id: "old-thread", previous_history_path: "archive", binding_restored: true, handoff_delivered: true };
-afterEach(() => { __setTabProviderApiForTest(null); __setInvokeForTest(null); state.status = "Idle"; });
+afterEach(() => { __setTabProviderApiForTest(null); __setInvokeForTest(null); state.status = "Idle"; vi.useRealTimers(); });
 
 function button(label: string) {
   const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === label);
@@ -191,8 +191,49 @@ it("offers an explicit retry after an authentication probe timeout", async () =>
     await act(async () => button("Switch harness").click());
     expect(document.querySelector('[aria-label="The harness authentication check timed out"]')).not.toBeNull();
     expect(send).toHaveBeenCalledTimes(1);
-    await act(async () => button("Retry").click());
+    await act(async () => button("Switch harness").click());
     expect(send).toHaveBeenCalledTimes(2);
     expect(button("Previous harness: source")).not.toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("keeps technical details collapsed and copies them without the Error prefix", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  __setTabProviderApiForTest({ switchProvider: async () => { throw new Error("Runtime transcript binding is not current"); } });
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal("navigator", { clipboard: { writeText } });
+  try {
+    await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
+    await act(async () => button("Switch harness").click());
+    const disclosure = button("Details");
+    const detail = document.getElementById(disclosure.getAttribute("aria-controls")!);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(detail?.hidden).toBe(true);
+    expect(document.querySelector('[role="status"] p')?.textContent).not.toContain("Runtime transcript");
+    await act(async () => disclosure.click());
+    expect(detail?.hidden).toBe(false);
+    await act(async () => button("Copy").click());
+    expect(writeText).toHaveBeenCalledExactlyOnceWith("Runtime transcript binding is not current");
+  } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
+});
+
+it("disables a known cooldown until its deadline without retrying the switch", async () => {
+  vi.useFakeTimers();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const send = vi.fn().mockRejectedValueOnce(new Error("provider_switch_rate_limited: 19")).mockResolvedValueOnce(result);
+  __setTabProviderApiForTest({ switchProvider: send });
+  try {
+    await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
+    await act(async () => button("Switch harness").click());
+    expect(button("Switch in 19 s").disabled).toBe(true);
+    await act(async () => { vi.advanceTimersByTime(18999); button("Switch in 19 s").click(); });
+    expect(send).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(button("Switch harness").disabled).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+    await act(async () => button("Switch harness").click());
+    expect(send).toHaveBeenCalledTimes(2);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

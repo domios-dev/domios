@@ -102,3 +102,21 @@ test("provider switch failures name auth deadlines and bound transport details",
   assert.equal(failed.title, "The harness could not be switched");
   assert.ok(failed.raw.length <= 2048);
 });
+
+test("provider switch refusals distinguish cooldown, lifecycle contention and changed binding", () => {
+  const context = { operation: "switching the harness" };
+  for (const raw of ["provider_switch_rate_limited: 19", "Error: provider_switch_in_progress: RateLimited { retry_after_secs: 19 }"]) {
+    const view = describeError(raw, context);
+    assert.equal(view.retryAfterSeconds, 19);
+    assert.equal(view.title, "The tab just restarted");
+    assert.match(view.cause, /19 s/);
+    assert.ok(!view.raw.startsWith("Error:"));
+  }
+  assert.equal(describeError("provider_switch_in_progress: occupied", context).retryAfterSeconds, undefined);
+  for (const raw of ["Runtime transcript binding is not current", "provider_switch_binding_refused: opaque"]) {
+    const view = describeError(raw, context);
+    assert.equal(view.title, "The conversation changed before the switch");
+    assert.ok(!view.title.includes(raw));
+    assert.equal(view.raw, raw);
+  }
+});

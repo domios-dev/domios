@@ -12,9 +12,13 @@ fn owns(tab: &Tab, provider: &str, context: &RuntimeContext) -> bool {
         && tab.launch_session_authenticated()
         && tab.session_binding_nonce.as_deref() == Some(context.binding_nonce.as_str())
         && tab.agent_session_id == context.thread_id
-        && tab.cwd.as_deref().unwrap_or_default() == context.cwd.as_str()
         && matches!(&tab.backing, TabBacking::ChatBackend { plugin_id, session_id }
             if plugin_id == provider && Some(session_id) == context.thread_id.as_ref())
+}
+
+fn same_cwd(left: &str, right: &str) -> bool {
+    codeterm_paths::simplified_path(std::path::Path::new(left))
+        == codeterm_paths::simplified_path(std::path::Path::new(right))
 }
 
 pub(super) fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<Option<Vec<ChatMsg>>, String> {
@@ -74,9 +78,9 @@ fn persisted(
         binding_nonce: tab.session_binding_nonce.clone().unwrap_or_default(),
         ..Default::default()
     };
-    if expected
-        .is_some_and(|(id, cwd, session)| id != provider || cwd != context.cwd || session != thread)
-    {
+    if expected.is_some_and(|(id, cwd, session)| {
+        id != provider || !same_cwd(cwd, &context.cwd) || session != thread
+    }) {
         return Ok(None);
     }
     let Some(capability) = svc
@@ -97,12 +101,13 @@ fn persisted(
     if !owns(&tab, provider, &context) {
         return Err("Stored runtime transcript binding is not current".into());
     }
-    if !svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .is_some_and(|tab| owns(tab, provider, &context))
-    {
+    if !svc.mux.read().get_tab(tab_id).is_some_and(|current| {
+        owns(current, provider, &context)
+            && same_cwd(
+                current.cwd.as_deref().unwrap_or_default(),
+                tab.cwd.as_deref().unwrap_or_default(),
+            )
+    }) {
         return Err("Stored runtime transcript binding changed during snapshot".into());
     }
     log::debug!(
@@ -133,14 +138,16 @@ fn cached(
         return Err(super::runtime_stored::StoredHistoryFailure::Unavailable
             .error("Runtime start failed before a conversation was bound; start a new session"));
     }
+    let tab = svc.mux.read().get_tab(tab_id).cloned();
     if expected.is_some_and(|(provider, cwd, thread)| {
         session.provider != provider
-            || context.cwd != cwd
+            || !tab
+                .as_ref()
+                .is_some_and(|tab| same_cwd(tab.cwd.as_deref().unwrap_or_default(), cwd))
             || context.thread_id.as_deref() != Some(thread)
     }) {
         return Ok(None);
     }
-    let tab = svc.mux.read().get_tab(tab_id).cloned();
     let loading = matches!(
         session.state.lock().phase,
         crate::service::agent_runtime::model::RuntimePhase::Loading
@@ -170,11 +177,15 @@ fn cached(
         return Ok(None);
     }
     let current_context = session.context.lock().clone();
-    let current = svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .is_some_and(|tab| owns(tab, &session.provider, &context));
+    let current = svc.mux.read().get_tab(tab_id).is_some_and(|current| {
+        owns(current, &session.provider, &context)
+            && tab.as_ref().is_some_and(|tab| {
+                same_cwd(
+                    current.cwd.as_deref().unwrap_or_default(),
+                    tab.cwd.as_deref().unwrap_or_default(),
+                )
+            })
+    });
     if !current
         || current_context.epoch != context.epoch
         || current_context.thread_id != context.thread_id
@@ -207,7 +218,7 @@ pub(super) fn for_session(
         .filter(|tab| {
             tab.agent_type.as_deref() == Some(provider_id)
                 && tab.agent_session_id.as_deref() == Some(session_id)
-                && tab.cwd.as_deref().unwrap_or_default() == cwd
+                && same_cwd(tab.cwd.as_deref().unwrap_or_default(), cwd)
                 && matches!(&tab.backing, TabBacking::ChatBackend { plugin_id, session_id: bound }
                 if plugin_id == provider_id && bound == session_id)
         })
