@@ -1,9 +1,11 @@
+#[cfg(test)]
 use crate::WatchSpec;
 use codeterm_util::watch_plan::PathCase;
 use notify::{RecursiveMode, Watcher};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+#[cfg(test)]
 pub(crate) fn expand(specs: &[WatchSpec]) -> Result<BTreeMap<PathBuf, bool>, String> {
     let mut desired = BTreeMap::new();
     for spec in specs {
@@ -18,14 +20,20 @@ pub(crate) fn expand(specs: &[WatchSpec]) -> Result<BTreeMap<PathBuf, bool>, Str
             desired.insert(spec.path.clone(), spec.recursive);
         }
     }
+    check_limit(&desired)?;
+    Ok(desired)
+}
+
+pub(crate) fn check_limit(desired: &BTreeMap<PathBuf, bool>) -> Result<(), String> {
     if desired.len() > codeterm_util::watch_plan::MAX_WATCHES {
         let error = format!("repository watch subscription limit exceeded: {} directories, maximum {}; watching refused", desired.len(), codeterm_util::watch_plan::MAX_WATCHES);
         log::warn!("{error}");
         return Err(error);
     }
-    Ok(desired)
+    Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn topology_changed(
     specs: &[WatchSpec],
     active: &BTreeMap<PathBuf, bool>,
@@ -34,6 +42,7 @@ pub(crate) fn topology_changed(
     topology_changed_with_case(specs, active, paths, PathCase::native())
 }
 
+#[cfg(test)]
 pub(crate) fn topology_changed_with_case(
     specs: &[WatchSpec],
     active: &BTreeMap<PathBuf, bool>,
@@ -50,6 +59,7 @@ pub(crate) fn topology_changed_with_case(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn reconcile(
     watcher: &mut (impl Watcher + ?Sized),
     active: &mut BTreeMap<PathBuf, bool>,
@@ -65,6 +75,14 @@ pub(crate) fn reconcile(
             return Err(error);
         }
     };
+    reconcile_desired(watcher, active, desired)
+}
+
+pub(crate) fn reconcile_desired(
+    watcher: &mut (impl Watcher + ?Sized),
+    active: &mut BTreeMap<PathBuf, bool>,
+    desired: BTreeMap<PathBuf, bool>,
+) -> Result<bool, String> {
     let transitioned = desired != *active;
     for (path, recursive) in &desired {
         if !active.contains_key(path) {
