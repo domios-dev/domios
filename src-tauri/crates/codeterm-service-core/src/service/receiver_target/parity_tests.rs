@@ -7,8 +7,8 @@ use super::{host_json, ReceiverTargetError, ReceiverTargetView};
 use crate::service::ServiceContext;
 
 const PROBE_PLUGIN: &str = r#"module.exports.default = {
-    read() { return host.receiverTarget.get(); },
-    reset() { return host.receiverTarget.clear(); },
+    read() { return host.io({ op: "receiverTarget" }, value => value); },
+    reset() { return host.io({ op: "receiverTargetClear" }, value => value); },
 }"#;
 
 fn js_reply(service: &ServiceContext, plugin_id: &str, method: &str) -> Value {

@@ -300,6 +300,7 @@ mod tests {
                 "version": "0.1.0",
                 "displayName": "{id} Test",
                 "hostApi": 2,
+                "hostIoJobs": true,
                 "spawn": {{
                     "readinessStrategy": {{ "kind": "fixed_delay", "durationMs": 0 }},
                     "taskDelivery": "pty_input",
