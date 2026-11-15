@@ -38,6 +38,7 @@ export function bindOutputStreamTransport(client: TransportClient): void {
 export interface TabOutputSink {
   onOutput(text: string): void | Promise<void>;
   onStarting?(): void;
+  onSubscribed?(): void;
   onReady?(): void;
   onReplayComplete?(): void | Promise<void>;
   onBytes?(bytes: Uint8Array): void | Promise<void>;
@@ -259,7 +260,7 @@ function openAggregateStream(): () => void {
     onReady() {
       if (abort.signal.aborted || streamAbort !== abort) return;
       aggregateStarting = false;
-      for (const set of sinks.values()) for (const sink of set) sink.onReady?.();
+      for (const set of sinks.values()) for (const sink of set) sink.onSubscribed?.();
     },
     onActivity() { for (const set of sinks.values()) for (const sink of set) sink.onReady?.(); },
     onEnd(end) {
@@ -440,7 +441,7 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
       if (record.recovery.isCurrent(generation)) for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onStarting?.();
     }, onReady() {
       deadline.arm();
-      if (record.recovery.isCurrent(generation)) for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onReady?.();
+      if (record.recovery.isCurrent(generation)) for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onSubscribed?.();
     }, onActivity() {
       deadline.arm();
       if (record.recovery.isCurrent(generation)) for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onReady?.();

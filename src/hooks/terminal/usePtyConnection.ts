@@ -165,9 +165,12 @@ export function usePtyConnection({
           failureDeadline = undefined;
           setReadinessFailed(false);
         },
-        onReady() {
+        onSubscribed() {
           if (disposed) return;
           if (!framed && failureDeadline === undefined) failureDeadline = setTimeout(() => failReadiness("first_frame_deadline"), TERMINAL_READINESS_FAILURE_MS);
+        },
+        onReady() {
+          if (disposed) return;
           callbacks.current.onConnectionStateChange?.(true);
         },
         onReplayComplete() {
