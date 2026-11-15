@@ -18,6 +18,7 @@ import { tabFailure, tabLaunched } from "../../lib/tabFailure";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { chatLaunchFailureDescription } from "./chatSetupModel";
 import { LaunchProviderQuestion } from "./LaunchProviderQuestion";
+import { openNeighborPage } from "../Neighbors/neighborFocus";
 
 export { chatSetupView } from "./chatSetupModel";
 
@@ -72,6 +73,20 @@ export function ChatSetupState({
   if (tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt_kind === "provider" && tab.pending_prompt) {
     return visible ? <LaunchProviderQuestion key={JSON.stringify(tab.pending_prompt)} tabId={tab.id}
       prompt={tab.pending_prompt} readOnly={isReadOnlyTab(tab)} onOpenTerminal={onOpenTerminal} /> : null;
+  }
+  const accessReason = [
+    tab?.boot_stage === "spawn_failed" ? tab.boot_failure_reason : null,
+    view.kind === "attach_failed" || view.kind === "launch_failed" ? view.reason : null,
+  ].find(reason => reason?.startsWith("neighbor_restore_grant_required:"));
+  const runtimeAccessRequired = tab?.agent_runtime_state?.state === "degraded"
+    && tab.agent_runtime_state.accessFailure === "neighbor_restore_grant_required";
+  if (tab?.neighbor_authority && (accessReason || runtimeAccessRequired)) {
+    const friendship = tab.neighbor_authority.friendship_id;
+    return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl" data-testid="chat-neighbor-access-required">
+      <TabLaunchFailure tabId={tab.id} workspace={workspace} reason={accessReason ?? null} inline
+        description={{ title: "Concierge needs access confirmation", cause: "Review this Neighbor's saved access permissions to continue.", raw: "", actions: [] }}
+        actions={[{ label: "Review access", ariaLabel: "Review concierge access", onClick: () => openNeighborPage(friendship, "permissions") }]} />
+    </div>;
   }
   const startUnbound = tab?.agent_runtime_state?.state === "degraded"
     && tab.agent_runtime_state.failureCode === "runtime_start_unbound";
