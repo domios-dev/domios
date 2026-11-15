@@ -821,19 +821,26 @@ fn hydrate_tab_task_binding_env(
     let Some(tab_id) = nonempty_env("CODETERM_TAB_ID") else {
         return Ok(());
     };
-    let response = client.call(
-        "plan.binding.resolve",
-        Some(serde_json::json!({"tab_id": tab_id, "caller_tab_id": tab_id})),
-    ).map_err(|error| format!("Current tab binding could not be resolved: {error}"))?;
+    let response = client
+        .call(
+            "plan.binding.resolve",
+            Some(serde_json::json!({"tab_id": tab_id, "caller_tab_id": tab_id})),
+        )
+        .map_err(|error| format!("Current tab binding could not be resolved: {error}"))?;
     if response.get("tab_id").and_then(serde_json::Value::as_str) != Some(tab_id.as_str()) {
         return Err("Current tab binding returned a different tab".into());
     }
-    let binding = response.get("binding").ok_or("Current tab binding is missing")?;
+    let binding = response
+        .get("binding")
+        .ok_or("Current tab binding is missing")?;
     if !binding.is_null() && !binding.is_object() {
         return Err("Current tab binding is invalid".into());
     }
     if binding.is_object()
-        && (binding.get("plan_id").and_then(serde_json::Value::as_str).is_none_or(|value| value.trim().is_empty())
+        && (binding
+            .get("plan_id")
+            .and_then(serde_json::Value::as_str)
+            .is_none_or(|value| value.trim().is_empty())
             || binding.get("task_id").is_none())
     {
         return Err("Current tab binding is incomplete".into());
@@ -845,12 +852,19 @@ fn hydrate_tab_task_binding_env(
         ("CODETERM_LANE_BASE", "base"),
     ];
     for (_, field) in fields {
-        if binding.get(field).is_some_and(|value| !value.is_null() && !value.is_string()) {
+        if binding
+            .get(field)
+            .is_some_and(|value| !value.is_null() && !value.is_string())
+        {
             return Err(format!("Current tab binding has an invalid {field}"));
         }
     }
     for (key, field) in fields {
-        match binding.get(field).and_then(serde_json::Value::as_str).filter(|value| !value.trim().is_empty()) {
+        match binding
+            .get(field)
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+        {
             Some(value) => std::env::set_var(key, value),
             None => std::env::remove_var(key),
         }

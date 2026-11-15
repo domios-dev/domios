@@ -42,7 +42,10 @@ impl client::RpcClient for CurrentBinding {
         params: Option<Value>,
     ) -> Result<Value, client::SocketCallError> {
         assert_eq!(method, "plan.binding.resolve");
-        assert_eq!(params, Some(json!({"tab_id":"tab_bound","caller_tab_id":"tab_bound"})));
+        assert_eq!(
+            params,
+            Some(json!({"tab_id":"tab_bound","caller_tab_id":"tab_bound"}))
+        );
         Ok(json!({"tab_id":"tab_bound","binding":self.0}))
     }
 }
@@ -57,17 +60,26 @@ fn current_binding_replaces_stale_plan_task_attempt_and_base_before_reparse() {
         "attempt_id":"current_attempt","base":"current_base"
     }));
     hydrate_tab_task_binding_env(&args, &mut client).unwrap();
-    let Commands::Agent { action: AgentAction::Report(report) } = Cli::try_parse_from(&args).unwrap().command else {
+    let Commands::Agent {
+        action: AgentAction::Report(report),
+    } = Cli::try_parse_from(&args).unwrap().command
+    else {
         panic!("expected report");
     };
     assert_eq!(report.plan.as_deref(), Some("current_plan"));
     assert_eq!(report.task.as_deref(), Some("current_task"));
     assert_eq!(report.base.as_deref(), Some("current_base"));
-    assert_eq!(nonempty_env("CODETERM_ATTEMPT_ID").as_deref(), Some("current_attempt"));
+    assert_eq!(
+        nonempty_env("CODETERM_ATTEMPT_ID").as_deref(),
+        Some("current_attempt")
+    );
 
     client.0 = json!({"plan_id":"reparented_team_plan","task_id":null});
     hydrate_tab_task_binding_env(&args, &mut client).unwrap();
-    let Commands::Agent { action: AgentAction::Report(report) } = Cli::try_parse_from(&args).unwrap().command else {
+    let Commands::Agent {
+        action: AgentAction::Report(report),
+    } = Cli::try_parse_from(&args).unwrap().command
+    else {
         panic!("expected report");
     };
     assert_eq!(report.plan.as_deref(), Some("reparented_team_plan"));
@@ -87,9 +99,23 @@ fn explicit_report_context_wins_over_current_defaults_including_empty_task() {
     let _guard = test_env_lock().lock().unwrap();
     let _env = Environment::stale();
     for task in ["explicit_task", ""] {
-        let args = ["domios", "agent", "report", "--plan", "explicit_plan", "--task", task, "--base", "explicit_base"].map(String::from);
+        let args = [
+            "domios",
+            "agent",
+            "report",
+            "--plan",
+            "explicit_plan",
+            "--task",
+            task,
+            "--base",
+            "explicit_base",
+        ]
+        .map(String::from);
         hydrate_tab_task_binding_env(&args, &mut BindingClient).unwrap();
-        let Commands::Agent { action: AgentAction::Report(report) } = Cli::try_parse_from(&args).unwrap().command else {
+        let Commands::Agent {
+            action: AgentAction::Report(report),
+        } = Cli::try_parse_from(&args).unwrap().command
+        else {
             panic!("expected report");
         };
         assert_eq!(report.plan.as_deref(), Some("explicit_plan"));
@@ -142,13 +168,24 @@ fn outside_tab_and_mesh_keep_explicit_or_inherited_context_without_local_resolut
 fn only_connected_binding_consumers_refresh_routing() {
     for args in [
         vec!["agent", "spawn"],
-        vec!["plan", "task", "extend-files", "--edit-file", "cli/src/main.rs"],
+        vec![
+            "plan",
+            "task",
+            "extend-files",
+            "--edit-file",
+            "cli/src/main.rs",
+        ],
         vec!["plan", "loop", "record", "loop", "--note", "progress"],
     ] {
         let parsed = Cli::try_parse_from(std::iter::once("domios").chain(args)).unwrap();
         assert!(command_consumes_binding(&parsed.command));
     }
-    for args in [vec!["docs"], vec!["cli-manifest"], vec!["agent", "startup-ack"], vec!["plan", "skill", "list"]] {
+    for args in [
+        vec!["docs"],
+        vec!["cli-manifest"],
+        vec!["agent", "startup-ack"],
+        vec!["plan", "skill", "list"],
+    ] {
         let parsed = Cli::try_parse_from(std::iter::once("domios").chain(args)).unwrap();
         assert!(!command_consumes_binding(&parsed.command));
     }

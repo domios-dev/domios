@@ -114,14 +114,22 @@ impl client::RpcClient for BindingClient {
         _: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, client::SocketCallError> {
         assert_eq!(method, "plan.binding.resolve");
-        Ok(serde_json::json!({"tab_id":"tab_bound","binding":{"plan_id":"plan_bound","task_id":"task_bound"}}))
+        Ok(
+            serde_json::json!({"tab_id":"tab_bound","binding":{"plan_id":"plan_bound","task_id":"task_bound"}}),
+        )
     }
 }
 
 #[test]
 fn binding_consumers_reparse_hydrated_defaults() {
     let _guard = test_env_lock().lock().unwrap();
-    let keys = ["CODETERM_TAB_ID", "CODETERM_PLAN_ID", "CODETERM_TASK_ID", "CODETERM_ATTEMPT_ID", "CODETERM_LANE_BASE"];
+    let keys = [
+        "CODETERM_TAB_ID",
+        "CODETERM_PLAN_ID",
+        "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
+        "CODETERM_LANE_BASE",
+    ];
     let previous = keys.map(|key| std::env::var(key).ok());
     std::env::set_var(keys[0], "tab_bound");
     for args in [

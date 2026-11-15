@@ -245,11 +245,7 @@ fn task_binding_returns_exact_bound_task_and_unknown_stays_null() {
     assert_eq!(bound["binding"]["base"], json!(launch.base));
 
     store.set_task_assignment(&task_id, None, None, 5).unwrap();
-    let detached = super::task_binding(
-        &store,
-        &Some(json!({"tab_id":"tab-bound"})),
-        None,
-    ).unwrap();
+    let detached = super::task_binding(&store, &Some(json!({"tab_id":"tab-bound"})), None).unwrap();
     assert!(detached["binding"].is_null());
 
     let unknown = super::task_binding(
