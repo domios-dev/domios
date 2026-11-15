@@ -62,7 +62,7 @@ function fakeDaemon() {
   };
 }
 
-function cursorOf(channel: Channel): { boot: string; tabs: Record<string, number> } {
+function cursorOf(channel: Channel): { boot: string; tabs: Record<string, { offset: number; pty_id: string | null }> } {
   const since = new URL(channel.path, ORIGIN).searchParams.get("since")!;
   return JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")));
 }
@@ -184,7 +184,10 @@ describe("terminal frame readiness over the shared output channel", () => {
 
     await vi.waitFor(() => expect(daemon.outputChannels()).toHaveLength(2));
     const resumed = daemon.outputChannels()[1];
-    expect(cursorOf(resumed)).toEqual({ boot: "boot", tabs: { serve: 2 } });
+    expect(cursorOf(resumed)).toEqual({ boot: "boot", tabs: {
+      serve: { offset: 2, pty_id: "pty-serve" }, hugo: { offset: 0, pty_id: "pty-hugo" },
+    } });
+    expect(probe.frameReady.has("hugo")).toBe(false);
     daemon.send(resumed.channel, replayComplete("hugo"));
     await vi.waitFor(() => expect(probe.frameReady.get("hugo")).toBe("pty-hugo"));
     expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
@@ -210,22 +213,34 @@ describe("terminal frame readiness over the shared output channel", () => {
     expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
   });
 
-  it("an output channel that keeps failing without progress parks, surfaces the failure, and Retry reopens it", async () => {
+  it("capacity retries without a first frame still reach the failure bound and Retry recovers", async () => {
     const { daemon, probe } = await boot();
+    const { TERMINAL_READINESS_FAILURE_MS } = await import("./usePtyConnection");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await probe.render([{ tabId: "hugo" }]);
-    await vi.waitFor(() => expect(daemon.outputChannels()).toHaveLength(1));
-    daemon.end(daemon.outputChannels()[0].channel, { reason: "capacity", bytes: 1 });
-    await vi.waitFor(() => expect(daemon.outputChannels()).toHaveLength(2));
-    daemon.end(daemon.outputChannels()[1].channel, { reason: "capacity", bytes: 1 });
-    await vi.waitFor(() => expect(probe.hook.get("hugo")!.readinessFailed).toBe(true));
-    expect(daemon.outputChannels()).toHaveLength(2);
+    await daemon.openedAt(1);
+    expect(cursorOf(daemon.outputChannels()[0]).tabs.hugo).toEqual({ offset: 0, pty_id: "pty-hugo" });
+    expect(probe.frameReady.has("hugo")).toBe(false);
+    for (const [index, delay] of [125, 250].entries()) {
+      await act(async () => daemon.end(daemon.outputChannels()[index].channel, { reason: "capacity", bytes: 1 }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+      await daemon.openedAt(index + 2);
+      expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
+      expect(probe.frameReady.has("hugo")).toBe(false);
+    }
+    expect(daemon.outputChannels()).toHaveLength(3);
+    await act(async () => { await vi.advanceTimersByTimeAsync(TERMINAL_READINESS_FAILURE_MS - 375 - 1); });
+    expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(probe.hook.get("hugo")!.readinessFailed).toBe(true);
+    expect(probe.frameReady.has("hugo")).toBe(false);
 
     await act(async () => probe.hook.get("hugo")!.retryConnection());
 
-    await vi.waitFor(() => expect(daemon.outputChannels()).toHaveLength(3));
+    await daemon.openedAt(4);
     expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
-    daemon.send(daemon.outputChannels()[2].channel, replayComplete("hugo"));
-    await vi.waitFor(() => expect(probe.frameReady.get("hugo")).toBe("pty-hugo"));
+    await act(async () => daemon.send(daemon.outputChannels()[3].channel, replayComplete("hugo")));
+    expect(probe.frameReady.get("hugo")).toBe("pty-hugo");
   });
 
   it("a live but silent output channel surfaces the failure at the bound and clears it when the frame arrives", async () => {
