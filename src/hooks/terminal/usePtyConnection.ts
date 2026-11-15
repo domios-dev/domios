@@ -16,6 +16,8 @@ import {
   type TerminalViewport,
 } from "./terminalViewport";
 import { setTerminalReadingHistory } from "./terminalHistoryReaders";
+import { DEV_BUILD } from "../../lib/devBuild";
+import { streamMuxDiagnostics, verifyStreamMuxes } from "../../lib/streamMux";
 
 export function shouldFetchInitialTerminalHistory(
   _ptyId: string | null | undefined,
@@ -129,8 +131,13 @@ export function usePtyConnection({
     callbacks.current.onConnectionStateChange?.(false);
     callbacks.current.onHistoryReplayStateChange?.(false);
     setReadinessFailed(false);
-    const failReadiness = () => { if (!disposed && !framed) setReadinessFailed(true); };
-    const failureDeadline = setTimeout(failReadiness, TERMINAL_READINESS_FAILURE_MS);
+    const failReadiness = (reason: string) => {
+      if (disposed || framed) return;
+      if (DEV_BUILD) console.debug("[terminal-output] first frame failed", { tabId, ptyId, reason, mux: streamMuxDiagnostics() });
+      verifyStreamMuxes();
+      setReadinessFailed(true);
+    };
+    let failureDeadline: ReturnType<typeof setTimeout> | undefined = setTimeout(() => failReadiness("first_frame_deadline"), TERMINAL_READINESS_FAILURE_MS);
     const frameReady = (id: string) => {
       if (termRef.current !== term) return;
       if (!framed) { framed = true; clearTimeout(failureDeadline); setReadinessFailed(false); }
@@ -152,7 +159,17 @@ export function usePtyConnection({
       if (disposed) return;
       connectedPtyRef.current = id;
       const sink: TabOutputSink = {
-        onReady() { if (!disposed) callbacks.current.onConnectionStateChange?.(true); },
+        onStarting() {
+          if (disposed || framed) return;
+          clearTimeout(failureDeadline);
+          failureDeadline = undefined;
+          setReadinessFailed(false);
+        },
+        onReady() {
+          if (disposed) return;
+          if (!framed && failureDeadline === undefined) failureDeadline = setTimeout(() => failReadiness("first_frame_deadline"), TERMINAL_READINESS_FAILURE_MS);
+          callbacks.current.onConnectionStateChange?.(true);
+        },
         onReplayComplete() {
           if (disposed) return;
           callbacks.current.onConnectionStateChange?.(true);
@@ -178,10 +195,10 @@ export function usePtyConnection({
           connectedPtyRef.current = null;
           callbacks.current.onConnectionStateChange?.(false);
         },
-        onStreamError: () => {
+        onStreamError: (error) => {
           if (disposed) return;
           callbacks.current.onConnectionStateChange?.(false);
-          failReadiness();
+          failReadiness(error.name);
         },
       };
       unsubscribe = subscribeTabOutput(tabId, sink, term, outputBindingPtyId(tabId, id, remotePtyId));
@@ -195,7 +212,7 @@ export function usePtyConnection({
       }
       console.warn("Failed to setup PTY:", error);
       callbacks.current.onConnectionStateChange?.(false);
-      failReadiness();
+      failReadiness("setup_failed");
     });
     return () => {
       disposed = true;

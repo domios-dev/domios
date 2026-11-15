@@ -2,7 +2,7 @@ import { uid } from "./uid";
 import { withRestRequestSignal } from "./restTimeoutPolicy";
 import { createStartupLoading, startingSubsystem } from "./startupLoading";
 import { createStartupMutations, startupMutationKey } from "./startupMutations";
-import { MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
+import { MUX_REQUEST_TIMEOUT, readWhenMuxCapacityAvailable, type MuxRequestInit } from "./streamMuxRequestModel";
 
 export const streamClientId = uid();
 export const browserFetch: NonNullable<TransportOptions["fetch"]> = (input, init) => {
@@ -283,7 +283,8 @@ export function createTransportClient(options: TransportOptions): TransportClien
           const streamPath = options.relayPeerId && !init.local
             ? `/api/mesh/relay-stream?${new URLSearchParams({ peer: options.relayPeerId, path })}` : path;
           const streamRequest = { headers: { Accept: "text/event-stream", "X-CodeTerm-Client-Id": streamClientId }, signal: controller.signal };
-          let response = await localFetch(streamPath, streamRequest);
+          const fetchStream = () => readWhenMuxCapacityAvailable(() => localFetch(streamPath, streamRequest), controller.signal, init.onStarting);
+          let response = await fetchStream();
           if (response.status === 503 && path !== "/api/startup/events") {
             const value: unknown = await response.clone().json().catch(() => null);
             const area = startingSubsystem(response, value);
@@ -291,7 +292,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
               init.onStarting?.();
               await response.body?.cancel();
               await (area === "mesh" ? localStartup : startup).wait(area, controller.signal);
-              response = await localFetch(streamPath, streamRequest);
+              response = await fetchStream();
             }
           }
           if (!response.ok) throw new TransportError(response.status, path, await response.text());

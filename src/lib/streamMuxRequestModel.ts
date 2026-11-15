@@ -38,12 +38,13 @@ export function createMuxReadCapacity() {
   };
 }
 
-export async function readWhenMuxCapacityAvailable<T>(read: () => Promise<T>, signal: AbortSignal): Promise<T> {
+export async function readWhenMuxCapacityAvailable<T>(read: () => Promise<T>, signal: AbortSignal, onWait?: () => void): Promise<T> {
   for (;;) {
     signal.throwIfAborted();
     try { return await read(); }
     catch (error) {
       if (!error || typeof error !== "object" || !(MUX_READ_CAPACITY in error) || typeof error[MUX_READ_CAPACITY] !== "function") throw error;
+      onWait?.();
       await (error[MUX_READ_CAPACITY] as CapacityWait)(signal);
     }
   }
