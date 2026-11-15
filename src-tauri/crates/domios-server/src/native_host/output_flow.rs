@@ -76,7 +76,7 @@ where
                 if cfg!(windows) {
                     return;
                 }
-                let Some(tab) = mux.tabs.get(&tab_id) else {
+                let Some(tab) = mux.get_tab(&tab_id) else {
                     return;
                 };
                 if tab.pty_id.as_deref() != Some(pty_id.as_str())
