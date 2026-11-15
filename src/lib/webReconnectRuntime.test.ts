@@ -1,4 +1,4 @@
-import { muxMockFetch } from "./muxMockFetch.testdata";
+import { muxMockFetch, settleDaemon } from "./muxMockFetch.testdata";
 import { LOCAL_EVENT_RETRY_MS, LOCAL_EVENT_RETRY_CAP_MS } from "./webEventRecovery";
 import assert from "node:assert/strict";
 
@@ -138,9 +138,10 @@ async function main(): Promise<void> {
     documentTarget.dispatchEvent(new Event("visibilitychange"));
     await wakeVisibleConnection;
     assert.equal(streams.length, 5, "becoming visible wakes the scheduled retry");
-    await (await import("./streamMux")).__streamMuxesIdleForTest();
+    await settleDaemon();
     events.__resetWebEventsForTest();
-    assert.equal(deadlines.size, 0);
+    await settleDaemon();
+    assert.equal(deadlines.size, 0, "teardown clears subscription and transport cancellation deadlines");
     browser.dispatchEvent(new Event("online"));
     assert.equal(streams.length, 5);
     console.log("Reconnect runtime event barriers passed");
