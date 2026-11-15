@@ -137,6 +137,10 @@ async fn restored_bound_pty_concierge_wakes_and_becomes_ready_without_ui_activat
     let friend = "a".repeat(64);
     let mut settings = crate::service::neighbors::storage::Settings::default();
     settings.bindings.insert(friend.clone(), tab.clone());
+    settings.permissions.insert(
+        friend.clone(),
+        codeterm_neighbors::permissions::Permission::default(),
+    );
     metadata.save_settings(settings).await.unwrap();
     service.tag_neighbor_root("owner", &friend, &tab).unwrap();
     let restored_settings = metadata.settings().await.unwrap();

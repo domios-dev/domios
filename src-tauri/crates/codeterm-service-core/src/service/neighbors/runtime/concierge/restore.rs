@@ -47,6 +47,10 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         let Some(tab_id) = settings.bindings.get(friendship) else {
             if let Some(saved) = settings.dormant_concierges.get(friendship) {
+                if !settings.permissions.contains_key(friendship) {
+                    self.clear_neighbor_friend_restore_grants(uid, friendship);
+                    return Err(Error::RestoreGrantRequired.to_string());
+                }
                 let options = saved.options.clone();
                 self.replace_neighbor_concierge_with(
                     metadata,
@@ -78,11 +82,10 @@ impl ServiceContext {
         self.validate_neighbor_gateway(tab_id)?;
         self.tag_neighbor_root(uid, friendship, tab_id)
             .map_err(|error| error.to_string())?;
-        let permission = settings
-            .permissions
-            .get(friendship)
-            .cloned()
-            .unwrap_or_default();
+        let Some(permission) = settings.permissions.get(friendship).cloned() else {
+            self.clear_neighbor_friend_restore_grants(uid, friendship);
+            return Err(Error::RestoreGrantRequired.to_string());
+        };
         self.remember_neighbor_restore_grant(tab_id, permission.machine_access);
         let cwd = crate::service::neighbors::confinement::prepare_folder(
             metadata,

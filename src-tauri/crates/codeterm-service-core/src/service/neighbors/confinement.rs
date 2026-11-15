@@ -137,11 +137,7 @@ impl ServiceContext {
             .iter()
             .filter_map(|(friendship, tab)| {
                 self.tag_neighbor_root(uid, friendship, tab).ok()?;
-                let access = settings
-                    .permissions
-                    .get(friendship)
-                    .map(|permission| permission.machine_access)
-                    .unwrap_or_default();
+                let access = settings.permissions.get(friendship)?.machine_access;
                 self.neighbor_restore_grant(tab, access)
                     .map(|grant| (tab.clone(), grant))
             })

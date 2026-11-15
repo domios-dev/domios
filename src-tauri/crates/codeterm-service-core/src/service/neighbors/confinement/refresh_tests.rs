@@ -101,6 +101,9 @@ fn account_refresh_cannot_retag_foreign_roots_or_bypass_receiver_and_nonce_check
     svc.set_neighbor_friend_receiver_for_test(&friend, Some(true), 1);
     let mut settings = Settings::default();
     settings.bindings.insert(friend.clone(), root.clone());
+    settings
+        .permissions
+        .insert(friend.clone(), Permission::default());
     svc.remember_neighbor_concierge_accounts("owner", &settings);
     svc.refresh_neighbor_restore_grants("foreign-owner", &settings, || {});
     assert!(svc.require_neighbor_restore_grant(&root, false).is_ok());
