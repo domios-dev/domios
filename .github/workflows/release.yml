@@ -22,24 +22,19 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release branch release/X.Y.Z (or vX.Y.Z) to build; with dry_run, any branch'
+        description: 'Label only; a dispatch always builds the head of the dispatching release/X.Y.Z branch'
         required: true
         type: string
       mirror:
-        description: 'Publish to the public mirror'
-        required: false
-        default: true
-        type: boolean
-      dry_run:
-        description: 'Build and sign every platform from the ref without drafts, uploads, tags, or a manifest'
+        description: 'Ignored by dry runs; publication mirrors from the master merge push'
         required: false
         default: false
         type: boolean
-      promote_run_id:
-        description: 'Publish retained bytes from the green tests.yml release push run for the exact release head'
+      dry_run:
+        description: 'Required true: build and sign every platform without drafts, uploads, tags, or a manifest'
         required: false
-        default: ''
-        type: string
+        default: true
+        type: boolean
 
 permissions:
   actions: read
@@ -74,7 +69,13 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
         with:
           script: |-
-            if (context.eventName === 'workflow_dispatch') return;
+            if (context.eventName === 'workflow_dispatch') {
+              // A dispatch only rebuilds the dispatching release head; publication is the master merge push alone.
+              if (process.env.DRY_RUN !== 'true') throw new Error('Publication runs only from the master merge push of the release PR; dispatch with dry_run=true');
+              if (!/^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref)) throw new Error('Dispatch the dry run from release/X.Y.Z');
+              core.setOutput('source_sha', context.sha);
+              return;
+            }
             if (process.env.DRY_RUN === 'true') {
               if (context.eventName !== 'push' || !/^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref) || process.env.SOURCE_SHA !== context.sha)
                 throw new Error('Foreign release push head');
@@ -106,7 +107,7 @@ jobs:
   prepare:
     name: prepare release
     needs: qualified-source
-    if: ${{ always() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && (github.event_name == 'workflow_dispatch' || (needs.qualified-source.result == 'success' && needs.qualified-source.outputs.source_sha != '')) }}
+    if: ${{ always() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.qualified-source.result == 'success' && needs.qualified-source.outputs.source_sha != '' }}
     environment: release
     # GitHub's runner: ubunta's single runner is often busy with the Rust suite, and every build waits on this job.
     runs-on: ${{ fromJSON(github.ref == 'refs/heads/master' && '"ubuntu-24.04"' || vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
@@ -145,7 +146,7 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ needs.qualified-source.outputs.source_sha || inputs.source_sha || inputs.tag || github.sha }}
+          ref: ${{ needs.qualified-source.outputs.source_sha }}
           fetch-depth: 1
           # History without blobs: unshallowing a workspace a shallow job left behind took minutes.
           filter: blob:none
@@ -169,7 +170,7 @@ jobs:
       - name: Require green push qualification for the exact release SHA
         if: ${{ !inputs.dry_run || github.event_name == 'workflow_dispatch' }}
         env:
-          PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id || inputs.promote_run_id }}
+          PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
           script: |-
@@ -184,7 +185,7 @@ jobs:
           REQUESTED_REF: ${{ inputs.tag || needs.qualified-source.outputs.branch || github.ref_name }}
           MIRROR_INPUT: ${{ inputs.mirror }}
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
-          PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id || inputs.promote_run_id }}
+          PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
           SOURCE_REPO: ${{ github.repository }}

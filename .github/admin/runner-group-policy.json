@@ -18,6 +18,13 @@
     "domios-dev/domios/.github/workflows/frontend-release.yml@refs/heads/release/1.20.0",
     "domios-dev/domios/.github/workflows/qualification.yml@refs/heads/release/1.20.0",
     "domios-dev/domios/.github/workflows/ci-artifact-smoke.yml@refs/heads/release/1.20.0",
-    "domios-dev/domios/.github/workflows/release-credentials.yml@refs/heads/release/1.20.0"
+    "domios-dev/domios/.github/workflows/release-credentials.yml@refs/heads/release/1.20.0",
+    "domios-dev/domios/.github/workflows/release-publish.yml@refs/heads/release/1.20.0",
+    "domios-dev/domios/.github/workflows/plugin-release.yml@refs/heads/release/1.20.0",
+    "domios-dev/domios/.github/workflows/publish-plugin-sdk.yml@refs/heads/release/1.20.0",
+    "domios-dev/domios/.github/workflows/ci-step.yml@refs/heads/release/1.20.0",
+    "domios-dev/domios/.github/workflows/precheck.yml@refs/heads/release/1.20.0",
+    "domios-dev/domios/.github/workflows/bake-linux-images.yml@refs/heads/release/1.20.0",
+    "domios-dev/domios/.github/workflows/docker-smoke.yml@refs/heads/release/1.20.0"
   ]
 }

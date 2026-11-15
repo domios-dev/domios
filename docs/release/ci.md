@@ -1,17 +1,19 @@
 # CI and release admission
 
-**CI result** is the aggregate to require: tests-side.yml owns all PR light checks
+**PR result** is the aggregate to require: tests-side.yml owns all PR light checks
 into develop and master, including Dependabot and forks. Master release PRs additionally
-require **Release qualification**. tests.yml owns owner release pushes and diagnostics. Repository rules remain an owner operation; changing a
+require **Release qualification**, which only release-pr.yml emits and only for a master base.
+tests.yml owns owner release pushes (**CI result**) and diagnostics (**CI diagnostic result**);
+neither name is a merge gate. Repository rules remain an owner operation; changing a
 workflow does not update live required-check settings.
 
 | Event | Checks |
 | --- | --- |
 | Owner push to exact release/X.Y.Z | Full fast/Rust/warnings graph, qualification and reusable dry-run packaging in the same run, with per-branch concurrency |
 | Owner release/X.Y.Z PR into master | Hosted light graph plus read-only same-SHA Release qualification reader |
-| Any PR into develop | Hosted repository guards, fmt-check, TS static checks/unit/Vitest, plugin bundle checks/tests, one workspace cargo check --all-targets, then CI result |
+| Any PR into develop | Hosted repository guards, fmt-check, TS static checks/unit/Vitest, plugin bundle checks/tests, one workspace cargo check --all-targets, then PR result |
 | Other PR into master | Existing repository refusal: master accepts only the owner's release/X.Y.Z |
-| Owner CI dispatch | Existing tests.yml dispatch behavior and scope |
+| Owner CI dispatch | tests.yml diagnostic scope from release/X.Y.Z, for a full 40-hex source_ref reachable from master, develop or that branch |
 
 Every PR job uses literal ubuntu-24.04, independent of runner
 variables. It requests a read-only token, no repository/environment secrets,
@@ -24,7 +26,7 @@ changed-file scope. The aggregate rejects failed, cancelled or skipped checks.
 
 After merge, verify the first Dependabot PR into develop by its commit SHA:
 expect Repository guards, fmt-check, ts static checks, ts unit, ts vitest,
-plugin bundles + tests, Rust workspace check and CI result, all on GitHub-hosted
+plugin bundles + tests, Rust workspace check and PR result, all on GitHub-hosted
 Ubuntu. Inspect the jobs API's runner names and conclusions; local actionlint
 and trigger review do not prove a live hosted run.
 
@@ -159,10 +161,10 @@ This design changes neither the runtime CLI pin nor its trust policy.
 
 For a runner-only diagnostic, dispatch the existing CI workflow with
 scope=preflight and an exact source_ref. For example, from the source checkout:
-gh workflow run tests.yml --ref release/1.15.3 -f source_ref=<sha> -f scope=preflight.
+gh workflow run tests.yml --ref release/1.15.3 -f source_ref=<full-40-hex-sha> -f scope=preflight.
 This probes hosted Linux/Windows/macOS plus Ubuntu light/build services, Mac and Windows
 self-hosted classes. It installs tools only on hosted runners, compiles nothing,
-runs no suites and writes no qualification receipt. The CI result still reports
+runs no suites and writes no qualification receipt. The CI diagnostic result still reports
 a failed or cancelled probe. The workflow revision must be pushed before dispatch.
 
 Python setup resolves python3 on Linux/macOS or python on Windows and exports
@@ -202,15 +204,19 @@ The six public client configuration secrets remain repository-level inputs to
 the environment-less hosted ARM64 compile; signing credentials stay private.
 
 
-For a fast diagnostic before moving the release head, push the workflow revision
-to a scratch branch such as ci/try-preflight, then dispatch:
+For a fast diagnostic of a commit that is already on master, develop or the release
+branch, dispatch from the release branch with the full 40-hex SHA:
 
-gh workflow run tests.yml --ref ci/try-preflight -f source_ref=<exact-sha> -f scope=fast
+gh workflow run tests.yml --ref release/X.Y.Z -f source_ref=<full-40-hex-sha> -f scope=fast
+
+Admission refuses any other dispatching ref, an abbreviated or symbolic source_ref, and a
+commit not reachable from one of those owner-only branches: diagnostics run with farm
+secrets, so a contributor's PR head is never eligible. The runner-group allowlist admits
+the release ref only, so a scratch branch could not acquire the farm either.
 
 This runs guards, TS static/unit/Vitest, frontend/path identity, generated types,
 plugin bundles/tests and CLI manifest/parser contracts. It preserves the existing
 runner and secret boundaries. Clippy, Rust full/platform/embeddings, warning
-aggregation and qualification receipt are skipped. CI result explicitly labels
-the diagnostic scope and rejects an unexpected qualification job; this run
-cannot admit release packaging. Dispatch is supported on any branch in the
-source repository for the trusted owner.
+aggregation and qualification receipt are skipped. CI diagnostic result explicitly
+labels the diagnostic scope and rejects an unexpected qualification job; this run
+cannot admit release packaging or a master merge.

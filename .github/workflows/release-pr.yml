@@ -1,0 +1,38 @@
+name: Release PR
+# The only producer of the Release qualification context that master requires.
+# A retarget arrives as edited; no other workflow or base may emit this job name.
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+permissions:
+  contents: read
+concurrency:
+  group: release-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  release-qualification:
+    name: Release qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          package-manager-cache: false
+          node-version: 22.22.0
+      - name: Verify the exact release push and its retained qualification
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const {pathToFileURL} = require('node:url');
+            const {requireReleasePrQualification} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+            await requireReleasePrQualification(github, context);

@@ -232,41 +232,21 @@ jobs:
       - name: Clean compile fixtures
         if: always()
         run: node scripts/ci-rust-prepare.mjs cleanup
-  release-qualification:
-    name: Release qualification
-    if: github.base_ref == 'master'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-    steps:
-      - *checkout
-      - *node
-      - name: Verify the exact release push and its retained qualification
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        with:
-          script: |-
-            const {pathToFileURL} = require('node:url');
-            const {requireReleasePrQualification} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
-            await requireReleasePrQualification(github, context);
+  # Release qualification lives in release-pr.yml: a develop PR must never emit that context.
   result:
-    name: CI result
+    name: PR result
     if: ${{ always() }}
-    needs: [guards, fmt, ts-static, ts-unit, ts-vitest, plugins, rust-check, release-qualification]
+    needs: [guards, fmt, ts-static, ts-unit, ts-vitest, plugins, rust-check]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Require every side PR check
         env:
           RESULTS: ${{ toJSON(needs) }}
-          BASE_REF: ${{ github.base_ref }}
         run: |
           node --input-type=module - <<'JS'
           const jobs = JSON.parse(process.env.RESULTS);
-          const failed = Object.entries(jobs).filter(([id, job]) =>
-            job.result !== (id === 'release-qualification' && process.env.BASE_REF !== 'master' ? 'skipped' : 'success'));
+          const failed = Object.entries(jobs).filter(([, job]) => job.result !== 'success');
           for (const [name, job] of failed) console.error(name + ': ' + job.result);
           if (failed.length) process.exit(1);
           JS
