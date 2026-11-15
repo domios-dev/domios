@@ -84,7 +84,7 @@ export function ChatSetupState({
     const friendship = tab.neighbor_authority.friendship_id;
     return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl" data-testid="chat-neighbor-access-required">
       <TabLaunchFailure tabId={tab.id} workspace={workspace} reason={accessReason ?? null} inline
-        description={{ title: "Concierge needs access confirmation", cause: "Review this Neighbor's saved access permissions to continue.", raw: "", actions: [] }}
+        description={{ title: "This concierge can't continue until you review its access.", cause: "", raw: "Domios can't confirm what this concierge is allowed to do. Check its saved permissions before it starts again.", actions: [] }}
         actions={[{ label: "Review access", ariaLabel: "Review concierge access", onClick: () => openNeighborPage(friendship, "permissions") }]} />
     </div>;
   }

@@ -93,6 +93,7 @@ impl ServiceContext {
             .lock()
             .retain(|_, grant| grant.uid != uid || grant.friendship != friendship);
     }
+    #[cfg(test)]
     pub(super) fn clear_neighbor_restore_grants(&self, uid: &str) {
         self.neighbor_cell()
             .restore_grants

@@ -133,11 +133,13 @@ it("opens the affected Neighbor's permissions once instead of retrying a refused
     await act(async () => root.render(<ChatSetupState tab={tab} providerName="Fixture" onRetry={retry}
       view={{ kind: "attach_failed", reason: "/api/tabs/concierge/chat-raw/start -> HTTP 409" }} />));
     expect(host.querySelector('[role="progressbar"]')).toBeNull();
-    expect(host.textContent).not.toMatch(/HTTP 409|chat-raw|platform/);
-    const actions = host.querySelectorAll("button");
-    expect(actions).toHaveLength(1);
-    expect(actions[0].getAttribute("aria-label")).toBe("Review concierge access");
-    await act(async () => actions[0].click());
+    expect(host.textContent).not.toMatch(/HTTP 409|chat-raw|platform|neighbor_restore_grant_required/);
+    const details = host.querySelector("details")!;
+    expect(details).not.toBeNull();
+    expect(details.open).toBe(false);
+    expect([...host.querySelectorAll("button")].filter(button => !button.closest("details"))).toHaveLength(1);
+    const review = host.querySelector<HTMLButtonElement>('[aria-label="Review concierge access"]')!;
+    await act(async () => review.click());
     expect(takeNeighborFocus()).toEqual({ id: tab.neighbor_authority!.friendship_id, section: "permissions" });
     expect(opened).toHaveBeenCalledOnce();
     expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbors" });
