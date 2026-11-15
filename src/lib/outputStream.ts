@@ -308,7 +308,7 @@ function openAggregateStream(): () => void {
       if (DEV_BUILD) console.debug("[output-stream] waiting for recovery signal", { reason: end.reason });
       if (end.reason === "abort") return;
       const error = end.error instanceof Error ? end.error
-        : new Error(end.reason === "capacity" ? `SSE capacity exceeded (${end.bytes} bytes)` : end.reason === "eof" ? "Output stream ended" : String(end.error));
+        : new Error(end.reason === "eof" ? "Output stream ended" : String(end.error));
       for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
     },
   });
