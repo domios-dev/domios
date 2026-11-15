@@ -67,6 +67,43 @@ fn switch_restart_refusals_keep_typed_details_without_debug_formatting() {
         ),
         "runtime_provider_handoff_unsupported: this harness cannot transfer its session"
     );
+    let snap = TabRestartSnapshot {
+        tab_id: "own-tab".into(),
+        pty_id: "own-pty".into(),
+        provider: "source".into(),
+        target_provider: None,
+        session_id: Some("own-session".into()),
+        cwd: None,
+        auto_approve: false,
+        role: None,
+        role_profile: None,
+        handoff_history: None,
+    };
+    assert_eq!(
+        switch_attempt_error(
+            "provider_switch_launch_failed",
+            super::super::RestartAttemptError::Request(AgentRestartError::RateLimited {
+                retry_after_secs: 7
+            })
+        ),
+        "provider_switch_rate_limited: 7"
+    );
+    for code in [
+        "provider_switch_launch_failed",
+        "provider_switch_binding_failed",
+    ] {
+        assert_eq!(
+            switch_attempt_error(
+                code,
+                super::super::RestartAttemptError::Failed {
+                    outcome: RestartOutcome::accepted(&snap, false, false),
+                    reason: "target did not become ready".into(),
+                    timed_out: true,
+                }
+            ),
+            format!("{code}: target did not become ready")
+        );
+    }
 }
 
 #[test]
