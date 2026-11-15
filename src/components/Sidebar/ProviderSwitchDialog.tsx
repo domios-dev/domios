@@ -38,7 +38,7 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
   const failure = error ?? installError;
   return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={() => { if (phase !== "switching") onClose(); }} onSubmit={(event) => { event.preventDefault(); if (ready) void submit(); }} className="max-w-lg">
     <h2 id={titleId} className="font-semibold">Switch harness</h2>
-    <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">Continue on another harness using recent messages and task context. The full history stays here.</p>
+    <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">{tab.title || "This tab"} continues on another harness using recent messages and task context. The full history stays here.</p>
     {phase !== "complete" && <OrchestrationRoleRow
       label="Agent"
       providers={ordered}
