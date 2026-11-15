@@ -47,7 +47,7 @@ export function createFixtureBundle(ctx) {
   const template = readFileSync(join(here, "fixture-provider.cjs"), "utf8");
   writeFileSync(join(bundle, "plugin.js"), template.replace("__FIXTURE_SETTINGS__", JSON.stringify({ command, sessions: sessions.replaceAll("\\", "/") })));
   writeFileSync(join(bundle, "plugin.json"), JSON.stringify({
-    id, version: "0.0.0", hostApi: 2, displayName: "Core journeys control fixture", entry: "plugin.js",
+    id, version: "0.0.0", hostApi: 2, hostIoJobs: true, displayName: "Core journeys control fixture", entry: "plugin.js",
     // Launch preflight resolves binaryName on PATH; the fixture runs under Node.
     cliBinary: process.execPath, binaryName: "node", capabilities: { agentProvider: true },
     models: [{ id: "control", displayName: "Deterministic control" }], defaultModel: "control",
