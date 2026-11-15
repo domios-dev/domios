@@ -557,6 +557,48 @@ fn hidden_tab_is_not_recorded() {
     );
 }
 
+#[test]
+fn closed_concierge_and_children_cannot_reopen_as_ordinary_agents() {
+    use crate::multiplexer::types::NeighborAuthority;
+
+    let (mut state, _) = MultiplexerState::new();
+    let workspace = ws_id(&state);
+    let root = state.create_tab(&workspace).unwrap();
+    let child = state.create_tab(&workspace).unwrap();
+    for (id, parent) in [(&root, None), (&child, Some(root.clone()))] {
+        let tab = state.get_tab_mut(id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.agent_session_id = Some(format!("confined-session-{id}"));
+        tab.neighbor_authority = Some(NeighborAuthority {
+            uid: "owner".into(),
+            friendship_id: "a".repeat(64),
+            root_tab_id: parent,
+        });
+    }
+    state.close_tab(&child).unwrap();
+    state.close_tab(&root).unwrap();
+    assert!(state.list_recently_closed(&workspace).is_empty());
+    assert!(state.snapshot().recently_closed.is_empty());
+    assert!(state.reopen_closed_tab(&workspace, None).is_err());
+    assert!(state.get_tab(&root).is_none());
+    assert!(state.get_tab(&child).is_none());
+
+    let ordinary = state.create_tab(&workspace).unwrap();
+    let tab = state.get_tab_mut(&ordinary).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.agent_session_id = Some("ordinary-session".into());
+    state.close_tab(&ordinary).unwrap();
+    let reopened = state.reopen_closed_tab(&workspace, None).unwrap();
+    assert_eq!(
+        state
+            .get_tab(&reopened)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some("ordinary-session")
+    );
+}
+
 fn make_hidden_worker(state: &mut MultiplexerState, wsid: &str) -> String {
     let tab_id = state.create_tab(wsid).unwrap();
     let p = state.get_tab_mut(&tab_id).unwrap();

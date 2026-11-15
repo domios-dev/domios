@@ -239,15 +239,29 @@ pub(super) async fn run(session: Session, previous: Option<tokio::task::JoinHand
     if session.current().is_err() {
         return;
     }
+    receive_while_watching(super::pending::watch_lifecycle(&session), async {
+        if session.tab.is_none() && !session.service.neighbor_friend_paused(&session.friendship) {
+            super::pending::run(&session).await;
+        } else {
+            let _ = supervise(
+                session.transport.as_ref(),
+                &session.friendship,
+                &session,
+                &session,
+            )
+            .await;
+        }
+    })
+    .await;
+}
+
+async fn receive_while_watching(
+    watch: impl std::future::Future<Output = ()>,
+    receive: impl std::future::Future<Output = ()>,
+) {
+    tokio::pin!(receive);
     tokio::select! {
-        biased;
-        _ = super::pending::watch_lifecycle(&session) => {},
-        _ = async {
-            if session.tab.is_none() && !session.service.neighbor_friend_paused(&session.friendship) {
-                super::pending::run(&session).await;
-            } else {
-                let _ = supervise(session.transport.as_ref(), &session.friendship, &session, &session).await;
-            }
-        } => {},
+        _ = &mut receive => {},
+        _ = watch => receive.await,
     }
 }
