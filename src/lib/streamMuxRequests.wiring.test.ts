@@ -13,7 +13,7 @@ import { chatBodyView } from "../components/Terminal/chatBodyVisibility";
 import { ChatSetupState } from "../components/Terminal/ChatSetupState";
 import { clearTranscriptWindows } from "../components/Terminal/transcriptStore";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { __resetStreamMuxesForTest, OutcomeUnknown, RetryableMuxError, streamMuxDiagnostics, withStreamMux } from "./streamMux";
+import { __resetStreamMuxesForTest, MuxDeadlineError, OutcomeUnknown, RetryableMuxError, streamMuxDiagnostics, withStreamMux } from "./streamMux";
 import { MUX_CAPACITY_WAIT, MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
 import type { TransportOptions } from "./transportClient";
 
@@ -418,6 +418,66 @@ it("expires an undispatched queued action as safe to retry without later sending
   f.head(first); f.text(first, '{}'); f.end(first);
   await expect(f.client.localJson("POST", "/api/witness", {})).resolves.toEqual({});
   expect(f.posted.some(post => post.path.endsWith("/stop"))).toBe(false);
+});
+
+it("bounds a signal-less capacity wait without dispatching after its deadline", async () => {
+  vi.useFakeTimers(); const f = fixture();
+  for (let index = 0; index < 48; index++) void f.client.request!(`/api/held-${index}`, { [MUX_REQUEST_TIMEOUT]: null } as MuxRequestInit).catch(() => {});
+  const first = await f.next();
+  const result = f.client.request!("/api/bounded-wait").catch(error => error);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(await result).toBeInstanceOf(MuxDeadlineError);
+  expect(await result).toMatchObject({ dispatched: false, code: "request_timeout" });
+  expect(streamMuxDiagnostics()[0].waitingReads).toBe(0);
+  f.head(first); f.text(first, '{}'); f.end(first);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.posted.some(post => post.path === "/api/bounded-wait")).toBe(false);
+});
+
+it("keeps the same deadline budget when a waiting read is admitted", async () => {
+  vi.useFakeTimers(); const f = fixture();
+  for (let index = 0; index < 48; index++) void f.client.request!(`/api/held-${index}`, { [MUX_REQUEST_TIMEOUT]: null } as MuxRequestInit).catch(() => {});
+  const first = await f.next();
+  const result = f.client.request!("/api/budget", { [MUX_REQUEST_TIMEOUT]: 10 } as MuxRequestInit).catch(error => error);
+  await vi.advanceTimersByTimeAsync(9);
+  f.head(first); f.text(first, '{}'); f.end(first);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.posted.some(post => post.path === "/api/budget")).toBe(true);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(await result).toMatchObject({ name: "TimeoutError" });
+});
+
+it("closes an admission waiter as retryable without reporting the gateway down", async () => {
+  const f = fixture();
+  for (let index = 0; index < 48; index++) void f.client.request!(`/api/held-${index}`).catch(() => {});
+  await f.next();
+  const gateway = vi.fn();
+  const client = withStreamMux({ origin: "http://mux.fixture", token: "fixture-token", fetch: f.fetch, onGatewayState: gateway });
+  let waiting!: () => void;
+  const started = new Promise<void>(resolve => { waiting = resolve; });
+  const result = client.request!("/api/waiting", { [MUX_CAPACITY_WAIT]: waiting } as MuxRequestInit).catch(error => error);
+  await started;
+  __resetStreamMuxesForTest();
+  expect(await result).toBeInstanceOf(RetryableMuxError);
+  expect(await result).toMatchObject({ dispatched: false });
+  expect(gateway).not.toHaveBeenCalledWith(false);
+});
+
+it("admits queued reads in FIFO order while retaining the read bound", async () => {
+  const f = fixture();
+  for (let index = 0; index < 48; index++) void f.client.request!(`/api/held-${index}`).catch(() => {});
+  const held = [];
+  for (let index = 0; index < 48; index++) held.push(await f.next());
+  const complete = (post: Posted) => { f.head(post); f.text(post, '{}'); f.end(post); };
+  const results = Array.from({ length: 16 }, (_, index) => f.client.localJson("GET", `/api/fifo-${index}`));
+  for (let index = 0; index < 16; index++) {
+    complete(held[index]);
+    const next = await f.next();
+    expect(next.path).toBe(`/api/fifo-${index}`);
+    expect(streamMuxDiagnostics()[0].requests).toBeLessThanOrEqual(48);
+  }
+  f.posted.filter(post => post.path.startsWith("/api/fifo-")).forEach(complete);
+  await Promise.all(results);
 });
 
 it("a queued read deadline remains a timeout and never becomes a client capacity error", async () => {
