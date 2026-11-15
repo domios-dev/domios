@@ -237,6 +237,7 @@ impl CapabilityRegistries {
                 id.clone(),
                 Arc::new(
                     super::JsAgentCommandHandler::new(vm.clone(), id.clone(), true)
+                        .with_read_only_verbs(manifest.agent_read_only_verbs.clone())
                         .with_catalog(super::catalog_from_manifest(manifest, core)),
                 ),
             );
