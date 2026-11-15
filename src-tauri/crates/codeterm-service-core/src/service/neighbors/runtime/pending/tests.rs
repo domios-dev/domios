@@ -217,7 +217,7 @@ fn failed_concierge_projects_auth_provider_crash_and_closed_without_changing_pen
         tab.role = Some(codeterm_types::pty::AgentRole::Worker);
     }
     let invalid = service.neighbor_concierge_view(&friendship, &settings, &receiving());
-    assert_eq!(invalid["state"], "concierge_crashed");
+    assert_eq!(invalid["state"], "concierge_invalid");
     assert!(invalid["gateway_tab"].is_null());
     service.mux.write().get_tab_mut(&gateway).unwrap().role = None;
     service.mux.write().close_tab(&gateway).unwrap();

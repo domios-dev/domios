@@ -1,5 +1,5 @@
 import { receiverLocation } from "./neighborReceiverLocationModel";
-import { currentToken, localJson, relayPeerUsable, selfHost } from "../../lib/webApi";
+import { localJson, relayPeerUsable, selfHost } from "../../lib/webApi";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { publishNotice } from "../../lib/notices";
@@ -37,5 +37,5 @@ export async function openReceiver(installationId: string, instanceId: string): 
   if (!self && (installation.instance_id !== instanceId || !relayPeerUsable(peers.paired.find(peer => peer.instance_id === instanceId)))) {
     throw new Error("The concierge machine is offline or its connection changed.");
   }
-  await nativeBridge.openUrl(webLinkWithTokenAndRelay(selfHost(), currentToken(), self ? null : { id: instanceId }));
+  await nativeBridge.openUrl(webLinkWithTokenAndRelay(selfHost(), null, self ? null : { id: instanceId }));
 }

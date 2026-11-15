@@ -14,17 +14,18 @@ const RECOVERY_SENTENCES: Partial<Record<ConciergeStatus["state"], string>> = {
   concierge_closed: "This concierge was closed.",
 };
 
-export function ConciergeRecoveryNotice({ status, onSetUpWithGeneral, onOpenConcierge, onReviewAccess }: {
-  status: ConciergeStatus; onSetUpWithGeneral: () => void; onOpenConcierge: (tabId: string) => void; onReviewAccess: () => void;
+export function ConciergeRecoveryNotice({ status, friendName, onSetUpWithGeneral, onOpenConcierge, onReviewAccess }: {
+  status: ConciergeStatus; friendName: string; onSetUpWithGeneral: () => void; onOpenConcierge: (tabId: string) => void; onReviewAccess: () => void;
 }) {
   if (!conciergeNeedsAttention(status)) return null;
-  const setup = status.state === "concierge_closed" || status.state === "concierge_missing" || !status.gateway_tab;
+  const setup = status.state === "concierge_closed" || status.state === "concierge_missing" || status.state === "concierge_invalid" || !status.gateway_tab;
   const reviewAccess = status.state === "concierge_access_needed";
-  const action = reviewAccess ? "Review access" : setup ? "Set up with General" : status.state === "concierge_auth_needed" ? "Open sign-in"
+  const invalid = status.state === "concierge_invalid";
+  const action = invalid ? "Ask General to fix" : reviewAccess ? "Review access" : setup ? "Set up with General" : status.state === "concierge_auth_needed" ? "Open sign-in"
     : status.state === "concierge_provider_refused" ? "Review provider" : "Open recovery";
   return <div role="status" aria-label="Concierge needs attention" className="ct-card ct-card--static neighbor-missing">
     <div className="min-w-0 flex-1">
-      <p className="ct-card__title">{RECOVERY_SENTENCES[status.state] ?? `${missingConciergeLine(status)}.`}</p>
+      <p className="ct-card__title">{invalid ? `This concierge's tab now has another job, so it can't answer ${friendName}.` : RECOVERY_SENTENCES[status.state] ?? `${missingConciergeLine(status)}.`}</p>
       <details className="ct-card__meta">
         <summary>Details</summary>
         <p>{reviewAccess ? "Domios can't confirm what this concierge is allowed to do. Check its saved permissions before it starts again." : setup ? "Messages stay pending until you set up a concierge here." : "Messages stay pending while you review this concierge."}</p>

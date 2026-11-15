@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { localJson } from "../../lib/webApi";
+import { currentToken, localJson } from "../../lib/webApi";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { openReceiver, receiverOpenItem } from "./neighborReceiverLocation";
 import { friendReceiveItems, friendReceivingLine } from "./neighborFriendReceiving";
@@ -7,7 +7,7 @@ import type { ReceiverState } from "./neighborRuntimeClient";
 
 vi.mock("../../lib/webApi", async actual => ({
   ...await actual<object>(),
-  localJson: vi.fn(), currentToken: () => "opaque-token", selfHost: () => "http://127.0.0.1:7717",
+  localJson: vi.fn(), currentToken: vi.fn(() => "opaque-token"), selfHost: () => "http://127.0.0.1:7717",
   relayPeerUsable: (peer: { online?: boolean }) => peer?.online === true,
 }));
 vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { openUrl: vi.fn(async () => {}) } }));
@@ -39,7 +39,8 @@ it("opens the exact receiver instance even when another machine has the same lab
     { installation_id: "receiver-installation", name: "Desk", active: true, signed_out: false, instance_id: "receiver-instance" },
   ], paired: [{ instance_id: "receiver-instance", online: true }] }).mockResolvedValueOnce({ instance_id: "gateway-instance" });
   await openReceiver("receiver-installation", "receiver-instance");
-  expect(nativeBridge.openUrl).toHaveBeenCalledExactlyOnceWith("http://127.0.0.1:7717#token=opaque-token&relay=receiver-instance");
+  expect(nativeBridge.openUrl).toHaveBeenCalledExactlyOnceWith("http://127.0.0.1:7717#relay=receiver-instance");
+  expect(currentToken).not.toHaveBeenCalled();
 });
 
 it("refuses an old destination when that installation now maps to another instance", async () => {
