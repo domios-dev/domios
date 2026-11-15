@@ -95,6 +95,9 @@ export function createEventSubscriptionRegistry(connect: Connect) {
           const url = new URL(path, "http://daemon");
           url.searchParams.set("since", cursor);
           path = url.pathname + url.search;
+        } else {
+          const requested = new URL(path, "http://daemon").searchParams.get("since");
+          if (requested) cursors.set(key, requested);
         }
         connection = { path, consumers: new Set(), close: () => {}, generation: 0, connected: false, ready: false };
         connections.set(key, connection);
