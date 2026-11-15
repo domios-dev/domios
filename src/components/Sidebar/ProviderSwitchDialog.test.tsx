@@ -75,6 +75,7 @@ it("exposes the selected value and menu state, and changes selection by keyboard
     expect(trigger?.getAttribute("aria-expanded")).toBe("true");
     const menu = document.getElementById(menuId!);
     expect(menu?.getAttribute("role")).toBe("menu");
+    expect(menu?.closest('[aria-modal="true"]')).toBe(document.querySelector('[role="dialog"]'));
     const sonnet = Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [])
       .find((item) => item.textContent?.includes("Sonnet 5.5"));
     const haiku = Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [])
@@ -207,6 +208,10 @@ it("keeps technical details collapsed and copies them without the Error prefix",
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
     await act(async () => button("Switch harness").click());
     const disclosure = button("Details");
+    const picker = document.querySelector('[aria-label="Target provider: Target"]');
+    const sentence = document.getElementById(picker?.getAttribute("aria-describedby") ?? "");
+    expect(sentence).not.toBeNull();
+    expect(sentence?.closest('[aria-live="polite"]')).not.toBeNull();
     const detail = document.getElementById(disclosure.getAttribute("aria-controls")!);
     expect(disclosure.getAttribute("aria-expanded")).toBe("false");
     expect(detail?.hidden).toBe(true);
@@ -216,6 +221,19 @@ it("keeps technical details collapsed and copies them without the Error prefix",
     await act(async () => button("Copy").click());
     expect(writeText).toHaveBeenCalledExactlyOnceWith("Runtime transcript binding is not current");
   } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
+});
+
+it("names the selected harness in an installation refusal", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  __setTabProviderApiForTest({ switchProvider: async () => { throw new Error("provider_switch_unavailable: fixture executable missing"); } });
+  try {
+    await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
+    await act(async () => button("Switch harness").click());
+    const notice = document.querySelector('[role="status"]');
+    expect(notice?.textContent).toContain("Target isn't installed on this machine");
+    expect(notice?.querySelector("pre")?.hidden).toBe(true);
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
 it("disables a known cooldown until its deadline without retrying the switch", async () => {

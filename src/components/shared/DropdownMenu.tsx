@@ -361,7 +361,7 @@ export function DropdownMenu({
         {triggerWithPopup}
       </div>
       {!open && <div id={menuId} role="menu" aria-label={menuLabel} hidden />}
-      <AnchoredPopover open={open} anchor={contextPoint ?? triggerRef} placement={placement} width={maxWidth} gap={contextPoint ? 0 : 2}>
+      <AnchoredPopover open={open} anchor={contextPoint ?? triggerRef} placement={placement} width={maxWidth} gap={contextPoint ? 0 : 2} portalContainer={triggerRef.current?.closest('[aria-modal="true"]')}>
           <div
             ref={menuRef}
             id={menuId}
@@ -560,6 +560,7 @@ export function DropdownSelect({
   leading,
   prefix,
   "aria-label": ariaLabel,
+  "aria-describedby": ariaDescribedBy,
   menuMaxHeight,
   className,
   "data-testid": testId,
@@ -576,6 +577,7 @@ export function DropdownSelect({
    *  "Effort" → "Effort Medium". */
   prefix?: string;
   "aria-label"?: string;
+  "aria-describedby"?: string;
   /** Pixel cap on the open menu; longer lists scroll internally. */
   menuMaxHeight?: number;
   className?: string;
@@ -611,6 +613,7 @@ export function DropdownSelect({
       data-value={value}
       disabled={disabled}
       aria-label={ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined}
+      aria-describedby={ariaDescribedBy}
       className={`${SELECT_TRIGGER} ${className ?? ""}`}
     >
       {leading}
