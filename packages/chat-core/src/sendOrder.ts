@@ -66,6 +66,22 @@ export function matchesMatchedRow(row: NormalizedChatMessage, matchedRow: Matche
     && (row.id === record.item_id || row.sourceMessageId === record.item_id);
 }
 
+/** The row lies where the claimed record's identity is comparable: its session and, for JSONL, its file incarnation. */
+function inClaimedRecordSpace(row: NormalizedChatMessage, matchedRow: MatchedRow): boolean {
+  if (row.sourceSessionId !== matchedRow.source.source_session_id) return false;
+  const record = matchedRow.source.record;
+  return record.kind !== "jsonl" || (row.sourceRecord?.kind === "jsonl" && row.sourceRecord.incarnation === record.incarnation);
+}
+
+/** An unstamped or regrown-file row of the claimed session cannot contradict the record, so ordinary echo rules may link it. */
+export function outsideClaimedRecordSpace(row: NormalizedChatMessage, matchedRow: MatchedRow): boolean {
+  return row.sourceSessionId === matchedRow.source.source_session_id && !inClaimedRecordSpace(row, matchedRow);
+}
+
+export function claimedRecordLoaded(rows: readonly NormalizedChatMessage[], matchedRow: MatchedRow): boolean {
+  return rows.some(row => inClaimedRecordSpace(row, matchedRow));
+}
+
 function echoContent(content: string): string {
   return normalizeChatText(content).toLowerCase();
 }
@@ -115,6 +131,7 @@ export function reconcileSends(
   const appendedRow = (sendId: string, index: number) => {
     const send = sendsById.get(sendId)!;
     const row = rows[index];
+    if (send.matchedRow && !outsideClaimedRecordSpace(row, send.matchedRow)) return false;
     if (send.echoBoundary && row.sourceSessionId === authority?.sourceSessionId) {
       if (send.correlationId != null && row.correlationId === send.correlationId) return true;
       const start = rowStarts.get(row.id);
@@ -144,8 +161,12 @@ export function reconcileSends(
       if (index != null) {
         recorded.add(index);
         claim(send, index);
-      } else if (!send.echo) pending.push(send);
-      continue;
+        continue;
+      }
+      if (!users.some(candidate => outsideClaimedRecordSpace(rows[candidate], send.matchedRow!))) {
+        if (!send.echo) pending.push(send);
+        continue;
+      }
     }
     if (send.echoBoundary && (send.echoBoundary.sourceSessionId !== authority?.sourceSessionId
       || send.echoBoundary.sessionBindingNonce !== authority?.sessionBindingNonce)) {

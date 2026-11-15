@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const send = (): DeliverySend => ({ id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 1000 });
 const status = (state: ChatSendStatus["state"], sequence: number): ChatSendStatus => ({
@@ -439,4 +440,25 @@ test("matched row identity and attachments survive reload and keep delivered sta
   assert.equal(sendForRow([restored], {
     id: "same-text-decoy", type: "user", content: "opaque", timestamp: "1000", sourceSessionId: "own-session",
   }), undefined);
+});
+
+test("a merged record hides only the dismissed send's segment and keeps the kept send's identity", () => {
+  const record = { kind: "jsonl" as const, incarnation: "file", record_start: 40, record_row: 0 };
+  const claim = (ordinal: number) => ({ source: { source_session_id: "own", record }, ordinal });
+  const first: DeliverySend = { id: "first", correlationId: "first", content: "opaque-a", sentAtMs: 1000, dismissed: true, matchedRow: claim(1) };
+  const second: DeliverySend = { id: "second", correlationId: "second", content: "opaque-b", sentAtMs: 2000, matchedRow: claim(2) };
+  const merged: NormalizedChatMessage = { id: "merged", type: "user", sourceSessionId: "own", sourceRecord: record, correlationId: "first",
+    content: "opaque-a\nopaque-b", segments: [{ type: "text", text: "opaque-a", correlationId: "first" }, { type: "text", text: "\n" },
+      { type: "text", text: "opaque-b", correlationId: "second" }] };
+  const [kept] = visibleDeliveryRows([merged], [first, second]);
+  assert.equal(kept.content, "opaque-b");
+  assert.deepEqual(kept.segments?.flatMap(segment => segment.correlationId ? [segment.correlationId] : []), ["second"]);
+  assert.equal(visibleDeliveryRows([merged], [first, second])[0], kept, "a stripped row keeps its identity across renders");
+  assert.equal(sendForRow([first, second], merged)?.id, "second");
+  assert.equal(visibleDeliveryRows([merged], [{ ...first, dismissed: false }, { ...second, dismissed: true }])[0].content, "opaque-a");
+  assert.deepEqual(visibleDeliveryRows([merged], [first, { ...second, dismissed: true }]), []);
+  const unsplit = { ...merged, segments: undefined };
+  assert.deepEqual(visibleDeliveryRows([unsplit], [first, second]), [unsplit], "unsplittable text stays whole rather than losing the kept send");
+  const local = { id: "first", type: "user" as const, content: "opaque-a", sourceSessionId: "own", sourceRecord: record };
+  assert.deepEqual(visibleDeliveryRows([local], [first, second]), [], "a dismissed local bubble belongs to its send alone");
 });

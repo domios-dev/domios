@@ -122,6 +122,7 @@ export { timestampMs } from "./time";
 export {
   captureSendEchoBoundary,
   matchesMatchedRow,
+  outsideClaimedRecordSpace,
   type ChatSend,
   type MatchedRow,
   type MatchedRowRecord,

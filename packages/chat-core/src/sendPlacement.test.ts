@@ -54,3 +54,15 @@ test("only an explicit flow anchor places a send inside the flow", () => {
   const anchored = [{ ...unanchored[0], flowAtMs: at }];
   assert.deepEqual(placePendingSends(later, anchored).map((item) => item.id), ["old", "pending", "new", "newer"]);
 });
+
+test("a claim whose session or file is not loaded keeps its send-time slot instead of pinning the tail", () => {
+  const rows = [row("before", -1000), row("after", 1000), row("newest", 2000)].map(item => ({ ...item, sourceSessionId: "new" }));
+  for (const record of [
+    { kind: "jsonl" as const, incarnation: "file", record_start: 40, record_row: 0 },
+    { kind: "structured" as const, thread_id: "old", item_id: "item" },
+  ]) {
+    const claimed = { ...send("old-send", 0), matchedRow: { source: { source_session_id: "old", record }, ordinal: 1 } };
+    assert.deepEqual(placePendingSends(rows, [claimed]).map(item => item.id), ["before", "old-send", "after", "newest"]);
+    assert.deepEqual(placePendingSends(rows, [{ ...claimed, held: true }]).map(item => item.id).at(-1), "old-send");
+  }
+});
