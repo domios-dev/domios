@@ -72,6 +72,7 @@ impl ServiceContext {
         u64,
     ) {
         let lapsed = self.neighbor_lapsed_installations();
+        let installations = self.neighbor_receiver_installations();
         let generation = self.neighbor_cell().generation.load(Ordering::Acquire);
         let cell = self.extensions.get_or_init(Cell::default);
         let known = cell.known.lock();
@@ -81,7 +82,7 @@ impl ServiceContext {
             .map(|(id, known)| {
                 (
                     id.clone(),
-                    Self::receiver_state(&known.receiver.status, &lapsed),
+                    Self::receiver_state(&known.receiver.status, &lapsed, &installations),
                 )
             })
             .collect();
