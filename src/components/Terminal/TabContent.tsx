@@ -7,7 +7,7 @@ import { RestoreStatePanel } from "./RestoreStatePanel";
 import { DeferredPresence } from "../shared/DeferredPresence";
 import { dockedTabFailure, restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
 import { useCurrentTabUiMode } from "../../hooks/useCurrentTabUiMode";
-import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
+import { runtimeSessionUnavailable } from "../../lib/agentRuntimeState";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect, useRef } from "react";
@@ -108,7 +108,7 @@ export function TabContent({
     <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} />
   </TabWrapper>;
   const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
-  const loadRefused = runtimeSessionLoadRefused(tab.agent_runtime_state);
+  const loadRefused = runtimeSessionUnavailable(tab.agent_runtime_state);
   const chatOwnsStartup = (tab.backing?.kind === "chat_backend" || uiMode === "chat")
     && (!tab.frozen || restore.phase === "failed");
   const dockedFailure = tab.backing?.kind === "chat_backend" || uiMode === "chat" ? dockedTabFailure(tab, wake) : null;

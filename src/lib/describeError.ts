@@ -20,9 +20,12 @@ export function isAuthoredCause(input: unknown): boolean {
   return unpack(input).code === AUTHORED_CAUSE;
 }
 
+export const MISSING_CONVERSATION_TITLE = "The agent no longer has this conversation, so it can't continue.";
+
 export function isMissingRuntimeConversation(input: unknown): boolean {
   const {raw, code} = unpack(input);
-  return code === "conversationMissing" || raw.startsWith("ConversationMissing:");
+  // Transport errors prefix the daemon's message with the route and status, e.g. "... HTTP 409: ConversationMissing: ...".
+  return code === "conversationMissing" || /(?:^|:\s)ConversationMissing:/.test(raw);
 }
 
 const RUNTIME_RECOVERY_REQUIRED = /runtime recovery required/i;
@@ -94,7 +97,7 @@ export function describeRuntimeConnectionError(input: unknown): ErrorDescription
     authentication_required: "Sign in to continue.",
     binding_mismatch: "The conversation no longer matches this tab.",
     protocol_error: "The agent could not complete the connection.",
-    conversationMissing: "The saved conversation is unavailable.",
+    conversationMissing: MISSING_CONVERSATION_TITLE,
     deadline: "The agent did not respond in time.",
   };
   const summary = Object.prototype.hasOwnProperty.call(summaries, code) ? summaries[code] : "The connection to the agent could not be completed.";
@@ -199,8 +202,8 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
     return result("The program could not be found", "The shell or agent program is unavailable. Check that it is installed and its path is correct.", ["check-executable", "retry"]);
   }
   const runtime = inferred ? runtimeFailures.find(([pattern]) => pattern.test(raw)) : undefined;
-  if (isMissingRuntimeConversation(input)) return result("The saved conversation is unavailable",
-    "The harness could not find this conversation's saved rollout. Its earlier messages cannot be resumed. Start a new conversation to continue.", ["start-new-conversation"]);
+  // The start-new-conversation action already says what to do, so no cause repeats it.
+  if (isMissingRuntimeConversation(input)) return result(MISSING_CONVERSATION_TITLE, "", ["start-new-conversation"]);
   if (runtime) return result(runtime[1], runtime[2], ["retry"]);
   if (kind === "spawn_failed" || inferred && spawn) {
     return result("The tab could not start", "Domios could not start the shell or agent. Check its program and starting folder, then try again.", ["retry"]);

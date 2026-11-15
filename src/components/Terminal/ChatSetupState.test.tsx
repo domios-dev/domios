@@ -82,6 +82,19 @@ async function main() {
       } finally { __setInvokeForTest(null); }
     });
   }
+  await test("an attach that reports a lost conversation is the one start-new-conversation notice, not a retry", async () => {
+    __setInvokeForTest(async <T,>(): Promise<T> => undefined as T);
+    try {
+      const reason = "opaque-path → HTTP 409: ConversationMissing: opaque provider detail";
+      const host = await render(<ChatSetupState tab={tab("agent_ready")} view={{ kind: "attach_failed", reason }} providerName="fixture" />);
+      assert(!host.querySelector('[aria-label="Chat connection failed"]'), "no connection-failure card");
+      assert(!host.querySelector('[data-testid="chat-retry"]'), "no Retry that cannot succeed");
+      assert(host.querySelectorAll('button[aria-label="Start a new conversation"]').length === 1, "one action that helps");
+      assert(host.querySelector("details pre")?.textContent === reason, "the raw cause stays in collapsed Details");
+      const other = await render(<ChatSetupState tab={tab("agent_ready")} view={{ kind: "attach_failed", reason: "opaque-path → HTTP 409: opaque" }} providerName="fixture" />);
+      assert(other.querySelector('[data-testid="chat-retry"]'), "other attach failures keep Retry");
+    } finally { __setInvokeForTest(null); }
+  });
   await test("unconfirmed launch offers a session-preserving restart", async () => {
     const requests: Array<{ command: string; args: unknown }> = [];
     __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
