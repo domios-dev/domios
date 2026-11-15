@@ -106,6 +106,7 @@ export type HostProgressOpts = OptionalWireFields<import("./gen/ProgressOpts").P
 
 export interface Host {
   io: import("./io").HostIo;
+  fs: { expandHome(path: string): string | null };
   exec: { async<T>(opts: ExecOpts, then: (result: ExecPollResult) => T): T };
   fetch: { async<T>(opts: FetchOpts, then: (result: FetchResult) => T): T };
   agentRun: HostAgentRun;

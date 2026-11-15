@@ -59,7 +59,7 @@ fn confined_vm() -> Arc<PluginVm> {
             "confined-bubble",
             CONFINED_SRC.to_string(),
             None,
-            Arc::new(PluginSandbox::restricted(vec![], vec![])),
+            Arc::new(PluginSandbox::restricted(vec![], vec![]).with_identity("confined-bubble")),
         )
         .expect("vm"),
     )

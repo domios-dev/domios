@@ -116,6 +116,15 @@ fn durable_media_observation_cannot_consume_or_close_an_admitted_effect_receipt(
     use std::sync::mpsc;
     let (started, entered) = mpsc::channel();
     let (release, held) = mpsc::channel();
+    struct ReleaseOnDrop(Option<mpsc::Sender<()>>);
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            if let Some(release) = self.0.take() {
+                let _ = release.send(());
+            }
+        }
+    }
+    let mut release = ReleaseOnDrop(Some(release));
     let job = host_exec::start_json_job("lookup-effects-receipt", move || {
         started.send(()).unwrap();
         held.recv().unwrap();
@@ -143,8 +152,11 @@ module.exports = {
         let _scope = RequestScope::observation_only(Instant::now() + Duration::from_secs(2));
         assert!(call_json::<bool>(&vm, "close", &[json!(job)]).unwrap());
         let refused: serde_json::Value = call_json(&vm, "poll", &[json!(job)]).unwrap();
+        assert_eq!(refused["error"], "host job belongs to another invocation");
+        let native_refused: serde_json::Value =
+            serde_json::from_str(&host_exec::poll("lookup-effects-receipt", &job)).unwrap();
         assert_eq!(
-            refused["error"],
+            native_refused["error"],
             "effect job unavailable during observation"
         );
         let refused = call_json::<serde_json::Value>(&vm, "await", &[json!(job)]).unwrap_err();
@@ -157,7 +169,7 @@ module.exports = {
         serde_json::from_str(&host_exec::poll("lookup-effects-receipt", &job)).unwrap();
     assert_eq!(pending["done"], false);
     assert!(pending.get("error").is_none());
-    release.send(()).unwrap();
+    release.0.take().unwrap().send(()).unwrap();
     let host_exec::WaitResult::Completed(receipt) =
         host_exec::wait_json("lookup-effects-receipt", &job)
     else {

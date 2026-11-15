@@ -14,11 +14,11 @@ fn parity_private_state_root_can_be_created_without_project_write_grants() {
     for instance in [".domios-dev", ".domios-dev-isolated"] {
         let data = home.path().join(instance).join("rotterdom");
         let (reads, writes) = super::super::loader::confined_roots(&manifest, &bundle, &data);
-        let sandbox = Arc::new(PluginSandbox::restricted(reads, writes).with_project_roots(
-            Vec::new(),
-            Vec::new(),
-            bundle.join("grants.yaml"),
-        ));
+        let sandbox = Arc::new(
+            PluginSandbox::restricted(reads, writes)
+                .with_identity("rotterdom")
+                .with_project_roots(Vec::new(), Vec::new(), bundle.join("grants.yaml")),
+        );
         let vm = PluginVm::from_source_sandboxed(
             "rotterdom",
             r#"module.exports.default = {
@@ -78,15 +78,17 @@ fn parity_project_write_grant_is_the_native_and_js_ceiling() {
     let file = project.join("result.txt");
     for approved in [false, true] {
         let sandbox = Arc::new(
-            PluginSandbox::restricted(Vec::new(), Vec::new()).with_project_roots(
-                vec![project.clone()],
-                if approved {
-                    vec![project.clone()]
-                } else {
-                    Vec::new()
-                },
-                root.path().join("grants.yaml"),
-            ),
+            PluginSandbox::restricted(Vec::new(), Vec::new())
+                .with_identity("project-files")
+                .with_project_roots(
+                    vec![project.clone()],
+                    if approved {
+                        vec![project.clone()]
+                    } else {
+                        Vec::new()
+                    },
+                    root.path().join("grants.yaml"),
+                ),
         );
         let native = sandbox.can_write(file.to_str().unwrap());
         assert_eq!(native, approved);
@@ -136,6 +138,7 @@ fn project_files_refuse_symlink_escape_even_with_missing_parents() {
         }
         let sb = Arc::new(
             PluginSandbox::restricted(vec![outside_root.clone()], vec![outside_root])
+                .with_identity("project-escape")
                 .with_project_roots(projects.clone(), projects, root.path().join("grants.yaml")),
         );
         let vm = PluginVm::from_source_sandboxed(
