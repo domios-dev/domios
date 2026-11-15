@@ -53,6 +53,9 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. Failed/missing per-friend receiver/registry watches stop reception and invalidate snapshots. Key mutations invalidate operation caches; each batch reads peer keys once and verifies every message. On starts watches outside network work; off/sign-out cancel startup. No polling/warmup. |
 | POST | `/api/account/neighbors/read` | Local owner UI only: mark a friend's messages read up to `through_message_id` (`{friendship_id, through_message_id}`). |
 | POST | `/api/account/neighbors/files` | Owner/General manage files; bound concierges may resolve permitted saved handles. Payloads below. |
+| POST | `/api/neighbors/list` | Owner-origin read of the friends list (`list`, `refresh`) for another of the owner's installations through the Mesh relay; every other operation is refused. |
+| POST | `/api/neighbors/runtime` | Owner-origin read of receiving status, conversation history, permission, notification preference and delivery status for a selected installation. It never marks messages read. |
+| POST | `/api/neighbors/files` | Owner-origin read of saved Neighbor files (`list`, `usage`) on a selected installation; writes stay on the local account routes. |
 | POST | `/api/analytics/consent` | Set analytics consent. |
 | POST | `/api/analytics/event` | Record an admitted typed analytics event. |
 | POST | `/api/app/quit` | Submit the exact Quit snapshot. |
@@ -125,4 +128,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

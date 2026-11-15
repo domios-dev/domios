@@ -318,8 +318,9 @@ async fn closing_a_concierge_retires_its_descendants_into_their_own_recently_clo
     let mux = service.mux.read();
     assert!(mux.get_tab(&root).is_none());
     assert!(mux.get_tab(&child).is_none());
-    assert!(mux
+    // Tagged concierge descendants must never reopen as ordinary agents.
+    assert!(!mux
         .list_recently_closed(&project)
         .iter()
-        .any(|entry| entry.tab_id == child));
+        .any(|entry| entry.tab_id == child || entry.tab_id == root));
 }
