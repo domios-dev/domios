@@ -18,7 +18,7 @@ import { AgentIcon } from "../AgentIcon";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabActivity } from "../../lib/tabActivity";
 import type { Tab } from "../../lib/types";
-import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
+import { askGeneralAgent, focusTab, permissionInterviewTask, workspaceOfTab } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { flagNeighborMessage, markNeighborRead, neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
 import { flagLine, NeighborFlagDialog } from "./NeighborFlagDialog";
@@ -29,9 +29,9 @@ import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGr
 import { openNeighborPage } from "./neighborFocus";
 import { useNeighborGateway } from "./neighborGateways";
 import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
-import { MissingConciergeNotice } from "./NeighborPanel";
+import { ConciergeRecoveryNotice } from "./NeighborPanel";
 import { NeighborComposer } from "./NeighborComposer";
-import { useConciergeStatus } from "./useConciergeStatus";
+import { conciergeNeedsAttention, useConciergeStatus } from "./useConciergeStatus";
 import { FINAL_REFUSALS, neighborRuntimeClient, NeighborRuntimeFailure, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
 import { readNeighborCache, type CachedFriend } from "./neighborListCache";
@@ -305,8 +305,9 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     </div>}
     {receive.request && receiver && <div className="neighbor-chat__notice"><FriendReceiveConfirm request={receive.request} receiver={receiver} friendName={name}
       targetMachine={machineLabel} client={runtimeClient} onClose={receive.close} /></div>}
-    {concierge?.concierge_missing && !concierge.gateway_tab && !friend.gateway_tab && <div className="neighbor-chat__notice"><MissingConciergeNotice status={concierge}
-      onSetUpWithGeneral={setUpWithGeneral} onEditPermissions={() => openNeighborPage(friendship, "permissions")} /></div>}
+    {enabled && concierge?.receiving_here && conciergeNeedsAttention(concierge) && <div className="neighbor-chat__notice"><ConciergeRecoveryNotice status={concierge}
+      onSetUpWithGeneral={setUpWithGeneral} onOpenConcierge={tabId => focusTab(tabId, workspaceOfTab({ workspaces, tabs }, tabId))}
+      onReviewAccess={() => openNeighborPage(friendship, "permissions")} /></div>}
     <div ref={scroller} className="neighbor-chat__scroll" onScroll={event => {
       const element = event.currentTarget;
       stickToEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;

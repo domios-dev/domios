@@ -239,15 +239,15 @@ pub(super) async fn run(session: Session, previous: Option<tokio::task::JoinHand
     if session.current().is_err() {
         return;
     }
-    if session.tab.is_none() && !session.service.neighbor_friend_paused(&session.friendship) {
-        super::pending::run(&session).await;
-        return;
+    tokio::select! {
+        biased;
+        _ = super::pending::watch_lifecycle(&session) => {},
+        _ = async {
+            if session.tab.is_none() && !session.service.neighbor_friend_paused(&session.friendship) {
+                super::pending::run(&session).await;
+            } else {
+                let _ = supervise(session.transport.as_ref(), &session.friendship, &session, &session).await;
+            }
+        } => {},
     }
-    let _ = supervise(
-        session.transport.as_ref(),
-        &session.friendship,
-        &session,
-        &session,
-    )
-    .await;
 }
