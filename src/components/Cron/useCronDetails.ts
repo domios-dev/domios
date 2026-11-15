@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { readWhenMuxCapacityAvailable } from "../../lib/streamMuxRequestModel";
@@ -20,6 +20,7 @@ interface CronDetails {
 
 export function useCronDetails(cronId: string) {
   const [state, setState] = useState<CronDetails>({ cronId, job: null, service: null, error: null });
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     let off: (() => void) | undefined;
@@ -45,12 +46,15 @@ export function useCronDetails(cronId: string) {
         } while (dirty && !controller.signal.aborted);
       } finally { reading = false; }
     };
+    refreshRef.current = refresh;
     void refresh();
     void listen("cron-run-finished", () => { if (!controller.signal.aborted) void refresh(); }).then((stop) => {
       if (controller.signal.aborted) stop();
       else off = stop;
     });
-    return () => { controller.abort(); off?.(); };
+    return () => { controller.abort(); off?.(); if (refreshRef.current === refresh) refreshRef.current = null; };
   }, [cronId]);
-  return state.cronId === cronId ? state : { cronId, job: null, service: null, error: null };
+  const refresh = useCallback(() => refreshRef.current?.() ?? Promise.resolve(), []);
+  const current = state.cronId === cronId ? state : { cronId, job: null, service: null, error: null };
+  return { ...current, refresh };
 }

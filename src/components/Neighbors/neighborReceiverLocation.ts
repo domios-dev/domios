@@ -31,7 +31,7 @@ export async function openReceiver(installationId: string, instanceId: string): 
     localJson<MeshPeersResponse>("GET", "/api/mesh/peers"),
     localJson<MeshStatus>("GET", "/api/mesh/status"),
   ]);
-  const installation = peers.installations.find(row => row.installation_id === installationId);
+  const installation = (peers.installations ?? []).find(row => row.installation_id === installationId);
   if (!installation?.active || installation.signed_out) throw new Error("The concierge machine is unavailable. Refresh its receiving status.");
   const self = instanceId === status.instance_id;
   if (!self && (installation.instance_id !== instanceId || !relayPeerUsable(peers.paired.find(peer => peer.instance_id === instanceId)))) {

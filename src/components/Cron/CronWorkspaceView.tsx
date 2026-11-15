@@ -23,7 +23,7 @@ interface Props {
 
 export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel, onBack }: Props) {
   const [showAutomation, setShowAutomation] = useState(false);
-  const { job, service, error } = useCronDetails(cronId);
+  const { job, service, error, refresh } = useCronDetails(cronId);
 
   const back = onBack
     ? <BackPill label={backLabel} onBack={onBack} />

@@ -119,7 +119,7 @@ it("opens the affected Neighbor's permissions once instead of retrying a refused
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const reason = "Opaque refused launch";
   const tab: Tab = {
-    id: "concierge", title: "Concierge", pty_id: null, tab_type: "Terminal", agent_type: "fixture",
+    id: "concierge", title: "Concierge", cwd: "/fixture", pty_id: null, tab_type: "Terminal", agent_type: "fixture",
     neighbor_authority: { uid: "owner", friendship_id: "a".repeat(64), root_tab_id: null },
     agent_runtime_state: { state: "degraded", epoch: 1, failureCode: "provider_refused", accessFailure: "neighbor_restore_grant_required", reason },
   };

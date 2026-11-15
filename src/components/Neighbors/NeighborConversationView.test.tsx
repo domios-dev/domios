@@ -107,7 +107,7 @@ it("updates recovery from concierge events and shows a closed notice despite the
   const runtimeClient = runtime({ pair: "tab-gateway" });
   vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ bindings: { pair: "tab-gateway" },
     concierges: { pair: conciergeState({ state: "ready", gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true }) } }));
-  const client: NeighborClient = { list: vi.fn(async () => ({ schema_version: 1, access: "paid", can_invite: true,
+  const client: NeighborClient = { list: vi.fn(async () => ({ schema_version: 1 as const, access: "paid" as const, can_invite: true,
     friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] })), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
