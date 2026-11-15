@@ -24,7 +24,13 @@ function useStableTop(dialog: RefObject<HTMLFormElement | null>, enabled: boolea
   }, [dialog, enabled, top]);
   useEffect(() => {
     if (!enabled) return;
-    const recentre = () => setTop(null);
+    let size = `${window.innerWidth}x${window.innerHeight}`;
+    const recentre = () => {
+      const next = `${window.innerWidth}x${window.innerHeight}`;
+      if (next === size) return;
+      size = next;
+      setTop(null);
+    };
     window.addEventListener("resize", recentre);
     return () => window.removeEventListener("resize", recentre);
   }, [enabled]);
