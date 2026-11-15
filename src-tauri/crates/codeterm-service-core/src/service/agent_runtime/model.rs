@@ -368,6 +368,9 @@ impl RuntimeState {
         }
         self.thread_id = Some(thread.into());
         self.failure_code = None;
+        if self.access_failure.as_deref() == Some("neighbor_restore_grant_required") {
+            self.access_failure = None;
+        }
         self.phase = RuntimePhase::Ready;
         true
     }
@@ -384,6 +387,12 @@ impl RuntimeState {
     pub fn degrade(&mut self, epoch: u64, reason: &RuntimeFailure) -> bool {
         if self.epoch != epoch {
             return false;
+        }
+        if matches!(reason, RuntimeFailure::Refused(message) if message.starts_with("neighbor_restore_grant_required:"))
+        {
+            self.access_failure = Some("neighbor_restore_grant_required".into());
+        } else if self.access_failure.as_deref() == Some("neighbor_restore_grant_required") {
+            self.access_failure = None;
         }
         self.failure_code = match reason.code() {
             Some(codeterm_plugin::agent_runtime::RuntimeFailureCode::ProviderRefused)
