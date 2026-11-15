@@ -31,7 +31,7 @@ Audit installed GitHub Apps and token grants with repository write access; revok
 
 ## CI environment
 
-Only release jobs use an environment (`release`). Other jobs read repository-level secrets: the public client configuration, the S3/sccache keys, the store addresses and the webhook token. GitHub withholds them from fork pull requests, and CI jobs reject every PR event regardless of actor. The warning-summary reusable workflow selects `release` on release branches and no environment otherwise.
+Only release jobs use an environment (`release`). Other jobs read repository-level secrets: the public client configuration, the S3/sccache keys, the store addresses and the webhook token. GitHub withholds them from fork pull requests, and privileged CI jobs reject every PR event regardless of actor. PR light checks and the qualification reader use only hosted runners and read-only tokens. The warning-summary reusable workflow selects `release` on release branches and no environment otherwise.
 
 ## Secret inventory
 
@@ -74,9 +74,28 @@ gh api orgs/domios-dev/actions/runner-groups/REVIEWED_GROUP_ID/runners
 gh api repos/domios-dev/domios/actions/runners --paginate
 ```
 
-Select `domios-trusted` by its returned ID. Its current policy is selected-repository access for `domios-dev/domios`, `allows_public_repositories=true`, `restricted_to_workflows=false` and `selected_workflows=[]`. Release preparation adds no workflow refs. Compare the returned policy and the reviewed workflow definitions before requesting runners; if the policy differs, stop and reconcile the procedure with the owner. Never change group policy, runner registrations or secrets as a release-preparation side effect.
+Select `domios-trusted` by its returned ID. The owner must apply the reviewed
+[runner-group PATCH payload](../../.github/admin/runner-group-policy.json) before requesting runners.
+For each application release, retarget every acquiring workflow in that payload to the exact
+`refs/heads/release/X.Y.Z` branch. Include reusable workflows as well as their callers. The prepared
+1.20.0 payload uses `refs/heads/release/1.20.0`; it has not been applied by this change.
 
-This current unrestricted workflow policy does not meet the isolation prerequisite above. Public self-hosted isolation requires a separately owner-approved hardening change: remove unrestricted repository runners and use `restricted_to_workflows=true` with every approved acquiring workflow at explicit reviewed branch refs, including reusable workflows. Wildcards and PR refs do not establish that isolation. Read back all selected workflow refs, repository grants and fleet membership after that owner operation before claiming enforcement. Outside-contributor approval alone is not workflow isolation.
+Owner operation, after reviewing the ID and payload:
+
+```bash
+gh api --method PATCH orgs/domios-dev/actions/runner-groups/REVIEWED_GROUP_ID --input .github/admin/runner-group-policy.json
+gh api orgs/domios-dev/actions/runner-groups/REVIEWED_GROUP_ID --jq '{name,visibility,allows_public_repositories,restricted_to_workflows,selected_workflows}'
+gh api orgs/domios-dev/actions/runner-groups/REVIEWED_GROUP_ID/repositories --jq '.repositories[].full_name'
+gh api orgs/domios-dev/actions/runner-groups/REVIEWED_GROUP_ID/runners --jq '.runners[] | {id,name,status,labels}'
+gh api repos/domios-dev/domios/actions/runners --jq '.total_count'
+```
+
+Require selected-repository access only for `domios-dev/domios`, public-repository access enabled,
+`restricted_to_workflows=true`, and selected workflows equal to the reviewed payload, with no wildcard,
+PR or unrelated branch refs. Require zero unrestricted repository runners. Inspect fleet membership
+and record the actual readback. A prepared payload or local tests do not prove enforcement.
+Never edit group policy, registrations or secrets as an agent release-preparation side effect.
+Owner approval for outside contributors alone does not establish workflow isolation.
 
 Some GitHub plans support environment reviewers only on public repositories. If policy application refuses while private, keep Actions disabled across the separately owner-approved visibility change, then apply and verify the protections. After the owner has reviewed runner isolation, secret scope and all effective settings, the final enable command is:
 
@@ -86,7 +105,22 @@ GH_TOKEN="$(gh auth token --user rollacode)" gh api --method PUT repos/domios-de
 
 ## Release commands
 
-Run dispatches from a reviewed `release/X.Y.Z` branch. Tag-triggered plugin/SDK publication and release-publish.yml automatic publication are disabled. Owner release pushes start tests.yml qualification; release.yml starts packaging only after that workflow succeeds for the same exact current release head. Its workflow_run admission rejects foreign repositories, actors, source events and branches before acquiring a release runner or secrets. Superseded heads skip packaging successfully. The exact-SHA receipt check remains mandatory in prepare, including owner dispatches. Deploy the trigger and reusable guards to the default branch to activate workflow_run; GitHub reads that event's workflow definition there. Plugin dispatch takes an existing plugin tag; the tag must resolve to the reviewed branch SHA. SDK publication uses the committed package version. All privileged release jobs require both the original and rerun actor to be the owner and the `release` environment, including reusable platform jobs and dry runs.
+Owner release pushes start the full tests.yml qualification graph and reusable release.yml dry-run
+packaging together in one push run, with per-branch concurrency and exact `github.sha` source.
+Only exact release/X.Y.Z pushes are admitted. All privileged reusable jobs reject PR events.
+Release PRs into master use hosted, secret-free light checks and a hosted read-only Release
+qualification job. Open or refresh the PR only after the push run is completed green; the reader
+fails on missing, failed, expired or superseded same-head evidence. No workflow_run reader or
+default-branch deployment is required.
+
+A master merge push finds its merged owner release PR and selects the green push run by exact
+SHA, branch, repository and owner actors. `promote_run_id` pins receipt lookup and retained packaging
+to that run. Qualification, attempt provenance, expiry, warnings, all platform and Debian receipts,
+manifest validation, protected environments and the publication switch remain required.
+Run dispatches from a reviewed release/X.Y.Z branch; diagnostics cannot qualify a SHA.
+Tag-triggered plugin/SDK publication and release-publish.yml automatic publication remain disabled.
+Plugin dispatch takes an existing plugin tag resolving to the reviewed branch SHA; SDK publication
+uses its committed package version. Original and rerun actors must both be the owner.
 
 ```bash
 gh workflow run release.yml --repo domios-dev/domios --ref release/X.Y.Z -f tag=vX.Y.Z -f dry_run=true -f mirror=false

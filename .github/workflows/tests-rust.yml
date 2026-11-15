@@ -56,7 +56,7 @@ jobs:
   # All Linux compilation shares the warm linux-build executor.
   rust-tests:
     name: rust tests (full suite)
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     # ubunta keeps a single runner, so its jobs never share the host's sccache server; hosted is the opt-out.
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted' && '"ubuntu-24.04"' || vars.CI_LINUX_RUST_FULL_RUNNER || '"ubuntu-24.04"') }}
     permissions:
@@ -288,7 +288,7 @@ jobs:
 
   rust-platform:
     name: rust platform (${{ matrix.os }})
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     runs-on: ${{ fromJSON(matrix.runner) }}
     permissions:
       contents: read
@@ -524,7 +524,7 @@ jobs:
 
   rust-embeddings:
     name: rust embeddings
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     runs-on: ${{ fromJSON(vars.CI_MACOS_EMBEDDINGS_RUNNER || '"macos-15"') }}
     permissions:
       contents: read
@@ -753,7 +753,7 @@ jobs:
   rust-receipts:
     name: rust test receipts
     needs: [rust-tests, rust-platform, rust-embeddings]
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (!cancelled() && fromJSON(inputs.resolved_scope).heavy == 'true') }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read

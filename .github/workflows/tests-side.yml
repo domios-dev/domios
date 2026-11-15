@@ -1,7 +1,7 @@
-name: Side PR CI
+name: PR CI
 on:
   pull_request:
-    branches: [develop]
+    branches: [develop, master]
     types: [opened, synchronize, reopened, ready_for_review]
 permissions:
   contents: read
@@ -15,7 +15,7 @@ env:
 jobs:
   guards:
     name: Repository guards
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     permissions:
       contents: read
@@ -99,7 +99,7 @@ jobs:
         if: ${{ !cancelled() }}
   fmt:
     name: fmt-check
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - &checkout
@@ -124,7 +124,7 @@ jobs:
   ts-static:
     name: ts static checks
     needs: guards
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - *checkout
@@ -158,7 +158,7 @@ jobs:
   ts-unit:
     name: ts unit
     needs: guards
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - *checkout
@@ -170,7 +170,7 @@ jobs:
   ts-vitest:
     name: ts vitest
     needs: guards
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - *checkout
@@ -182,7 +182,7 @@ jobs:
   plugins:
     name: plugin bundles + tests
     needs: guards
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - *checkout
@@ -196,7 +196,7 @@ jobs:
   rust-check:
     name: Rust workspace check
     needs: guards
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       OPENSSL_NO_VENDOR: '1'
@@ -232,20 +232,41 @@ jobs:
       - name: Clean compile fixtures
         if: always()
         run: node scripts/ci-rust-prepare.mjs cleanup
+  release-qualification:
+    name: Release qualification
+    if: github.base_ref == 'master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    steps:
+      - *checkout
+      - *node
+      - name: Verify the exact release push and its retained qualification
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |-
+            const {pathToFileURL} = require('node:url');
+            const {requireReleasePrQualification} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
+            await requireReleasePrQualification(github, context);
   result:
     name: CI result
     if: ${{ always() }}
-    needs: [guards, fmt, ts-static, ts-unit, ts-vitest, plugins, rust-check]
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    needs: [guards, fmt, ts-static, ts-unit, ts-vitest, plugins, rust-check, release-qualification]
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Require every side PR check
         env:
           RESULTS: ${{ toJSON(needs) }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           node --input-type=module - <<'JS'
           const jobs = JSON.parse(process.env.RESULTS);
-          const failed = Object.entries(jobs).filter(([, job]) => job.result !== 'success');
+          const failed = Object.entries(jobs).filter(([id, job]) =>
+            job.result !== (id === 'release-qualification' && process.env.BASE_REF !== 'master' ? 'skipped' : 'success'));
           for (const [name, job] of failed) console.error(name + ': ' + job.result);
           if (failed.length) process.exit(1);
           JS

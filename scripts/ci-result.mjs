@@ -7,6 +7,7 @@ export function ciFailures(event, needs, scope = '', { releaseHead = false, skip
   if (skipHeavy) required.splice(required.indexOf('fast'), 1);
   if (releaseHead) required.push('rust', 'rust-warnings', 'qualification', 'release-dry-run');
   const failures = new Set(required.filter(id => needs[id]?.result !== 'success'));
+  if (releaseHead && event !== 'push') failures.add('admission');
   for (const [id, job] of Object.entries(needs)) {
     if (job.result === 'failure' || job.result === 'cancelled') failures.add(id);
   }

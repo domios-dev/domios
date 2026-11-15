@@ -30,9 +30,9 @@ jobs:
       actions: read
       # The release PR comment posts to issues/<pr>/comments.
       pull-requests: write
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/'))) && github.event_name != 'pull_request_target' }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.triggering_actor == 'rollacode' && github.event_name != 'pull_request_target' }}
     environment: ${{ !((github.workflow == 'CI' && inputs.report_name != 'rust-warnings-release-report') && vars.CI_LINUX_LIGHT_RUNNER == 'ubuntu-24.04') && ((startsWith(github.head_ref, 'release/') || (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) || (github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && 'release' || '') || '' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ${{ fromJSON(github.ref == 'refs/heads/master' && '"ubuntu-24.04"' || vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 5
     steps:
       - name: Use the runner bundled Node
