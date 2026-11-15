@@ -1,17 +1,16 @@
 import { IS_WEB } from "./webApi";
-import { resetWebEvents, wakeWebEvents, webReconnectEnabled } from "./webEvents";
+import { wakeWebEvents } from "./webEvents";
 import { fireResync } from "./resync";
 import { verifyStreamMuxes } from "./streamMux";
 
-const DEBOUNCE_MS = 250;
 const MUX_REFRESH = "codeterm-refresh-mux-state";
 
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingWake: number | null = null;
+let wakeGeneration = 0;
 let mountedStop: (() => void) | null = null;
 let sawHidden = false;
 
 function defaultWakeResync(): void {
-  resetWebEvents();
   window.dispatchEvent(new Event(MUX_REFRESH));
   fireResync("wake");
 }
@@ -28,15 +27,15 @@ export function setWakeResyncForTests(fn: (() => void) | null): void {
 
 function scheduleWakeResync(): void {
   verifyStreamMuxes();
-  if (webReconnectEnabled()) {
-    wakeWebEvents();
-    return;
-  }
-  if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => {
-    debounceTimer = null;
+  wakeWebEvents();
+  if (pendingWake !== null) return;
+  const generation = ++wakeGeneration;
+  pendingWake = generation;
+  queueMicrotask(() => {
+    if (pendingWake !== generation) return;
+    pendingWake = null;
     runWebWakeResync();
-  }, DEBOUNCE_MS);
+  });
 }
 
 function onVisibilityChange(): void {
@@ -68,8 +67,7 @@ export function mountWebLifecycle(): () => void {
   window.addEventListener("online", onOnline);
 
   const stop = () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = null;
+    pendingWake = null;
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.removeEventListener("pageshow", onPageShow);
     window.removeEventListener("online", onOnline);
