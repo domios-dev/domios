@@ -19,6 +19,7 @@ import { TerminalOutputReplay } from "./outputReplay";
 import { planOutputResync } from "./outputResync";
 import { DEV_BUILD } from "./devBuild";
 import { acceptsTerminalOutput } from "./terminalFrameGate";
+import { verifyStreamMuxes } from "./streamMux";
 
 function selectedRelayTarget() {
   return typeof window === "undefined" || !window.location || typeof localStorage === "undefined" ? null : relayTarget();
@@ -36,6 +37,7 @@ export function bindOutputStreamTransport(client: TransportClient): void {
 
 export interface TabOutputSink {
   onOutput(text: string): void | Promise<void>;
+  onStarting?(): void;
   onReady?(): void;
   onReplayComplete?(): void | Promise<void>;
   onBytes?(bytes: Uint8Array): void | Promise<void>;
@@ -82,6 +84,7 @@ const completedReplays = new Map<string, OutputFrame>();
 let boot: string | null = readBoot();
 let streamAbort: AbortController | null = null;
 let started = false;
+let aggregateStarting = false;
 
 export function replayOffsetsAfterBootChange(tabIds: Iterable<string>): Map<string, number> {
   return new Map<string, number>([...tabIds].map((tabId): [string, number] => [tabId, 0]));
@@ -238,6 +241,7 @@ function recoverOutputStream(): void {
 function openAggregateStream(): () => void {
   const abort = new AbortController();
   streamAbort = abort;
+  aggregateStarting = false;
   let progressed = false;
   const client = outputClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
   client.subscribe(outputStreamUrl().slice(client.origin().length), (_name, data) => {
@@ -247,10 +251,21 @@ function openAggregateStream(): () => void {
     return handleFrame(frame);
   }, {
     signal: abort.signal, raw: true,
+    onStarting() {
+      if (abort.signal.aborted || streamAbort !== abort) return;
+      aggregateStarting = true;
+      for (const set of sinks.values()) for (const sink of set) sink.onStarting?.();
+    },
+    onReady() {
+      if (abort.signal.aborted || streamAbort !== abort) return;
+      aggregateStarting = false;
+      for (const set of sinks.values()) for (const sink of set) sink.onReady?.();
+    },
     onActivity() { for (const set of sinks.values()) for (const sink of set) sink.onReady?.(); },
     onEnd(end) {
       if (abort.signal.aborted || streamAbort !== abort) return;
       streamAbort = null;
+      aggregateStarting = false;
       aggregate.ended();
       if (end.reason === "capacity" && (progressed || !lagResumedWithoutProgress)) {
         lagResumedWithoutProgress = !progressed;
@@ -293,6 +308,7 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
     sinks.set(tabId, set);
   }
   set.add(sink);
+  if (aggregateStarting) sink.onStarting?.();
   const cached = retainedOutput.snapshot(tabId, replay.cursor(terminal, tabId));
   if (cached && (ptyId === undefined || cached.ptyId === ptyId)) {
     const from = cached.offset - cached.bytes.length;
@@ -305,6 +321,7 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
   // Attaching a terminal is an activation: it revives a parked aggregate connection.
   if (started) recoverOutputStream();
   else ensureStarted();
+  verifyStreamMuxes();
   return () => {
     set!.delete(sink);
     if (set!.size === 0) sinks.delete(tabId);
@@ -418,7 +435,13 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
     if (abort.signal.aborted || !record.recovery.isCurrent(generation)) return;
     return handleRemoteOutputFrame(ordinaryTabId, record, generation, remoteTabId, data as OutputFrame);
   }, {
-    signal: abort.signal, raw: true, onStarting() { deadline.clear(); }, onReady() { deadline.arm(); }, onActivity() {
+    signal: abort.signal, raw: true, onStarting() {
+      deadline.clear();
+      if (record.recovery.isCurrent(generation)) for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onStarting?.();
+    }, onReady() {
+      deadline.arm();
+      if (record.recovery.isCurrent(generation)) for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onReady?.();
+    }, onActivity() {
       deadline.arm();
       if (record.recovery.isCurrent(generation)) for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onReady?.();
     },
@@ -554,6 +577,7 @@ export function resetOutputStream(): void {
   aggregate.dispose();
   window.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, recoverOutputStream);
   streamAbort = null;
+  aggregateStarting = false;
   retainedOutput.clear();
   offsets.clear();
   rings.clear();

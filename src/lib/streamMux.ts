@@ -9,6 +9,8 @@ type FetchPort = NonNullable<TransportOptions["fetch"]>;
 type Head = Extract<MuxFrame, { kind: "open" }>;
 const SESSION_BUFFER = 4 * 1024 * 1024;
 const REQUEST_BUFFER = 512 * 1024;
+const CARRIER_PROBE = Symbol("mux-carrier-proof");
+type CarrierProbeInit = MuxRequestInit & { [CARRIER_PROBE]?: true };
 
 function responseBufferLimit(head: Head): number {
   const length = head.headers.find(([name]) => name.toLowerCase() === "content-length")?.[1];
@@ -85,13 +87,15 @@ interface Pending {
   reject: (error: unknown) => void;
 }
 
-export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void; verify: () => void; idle: () => Promise<void>; busy: () => boolean }
+export interface MuxDiagnostics { requests: number; streams: number; queued: number; bufferedBytes: number; carrier: CarrierLiveness; connected: boolean }
+export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void; verify: () => void; idle: () => Promise<void>; busy: () => boolean; diagnostics: () => MuxDiagnostics }
 
 export function createStreamMux(transport: () => TransportClient, fetcher: FetchPort): StreamMux {
   const pending = new Map<string, Pending>();
   const waiting = new Map<string, { resolve: (session: string) => void; reject: (error: unknown) => void }>();
   const posts = new Map<string, () => Promise<void>>();
   const readCapacity = createMuxReadCapacity();
+  const streamCapacity = createMuxReadCapacity();
   let postState: MuxPostState = EMPTY_MUX_POSTS;
   let current: string | null = null;
   let live: string | null = null;
@@ -139,6 +143,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     queueMicrotask(() => {
       kick(); notifyIdle();
       if (!closed && muxRequestAdmission(false, "interactive", 0, [...pending.values()].filter(item => !item.stream).length, 0)) readCapacity.released();
+      if (!closed && muxRequestAdmission(true, "interactive", [...pending.values()].filter(item => item.stream).length, 0, 0)) streamCapacity.released();
     });
   }
 
@@ -328,7 +333,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
   // The probe's response can only arrive through the carrier, so its delivery is the proof.
   function prove(owner: string): void {
     proof = setTimeout(() => { proof = undefined; if (current === owner) carrier("deadline", owner); }, CARRIER_PROOF_MS);
-    mux.fetch(transport().origin() + "/api/health").then(response => {
+    mux.fetch(transport().origin() + "/api/health", { [CARRIER_PROBE]: true } as CarrierProbeInit).then(response => {
       void response.arrayBuffer().catch(() => {});
       if (response.ok && current === owner) carrier("proven", owner);
     }, () => {});
@@ -455,17 +460,17 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       const stream = method === "GET" && isMuxStreamPath(path);
       const headers = new Headers(input instanceof Request ? input.headers : undefined);
       new Headers(init.headers).forEach((value, key) => headers.set(key, value));
-      const options: MuxRequestInit = { ...init, headers, signal: init.signal ?? (input instanceof Request ? input.signal : undefined), body: init.body ?? (input instanceof Request ? input.body : undefined) };
+      const options: CarrierProbeInit = { ...init, headers, signal: init.signal ?? (input instanceof Request ? input.signal : undefined), body: init.body ?? (input instanceof Request ? input.body : undefined) };
       const operation = muxRequestOperation(method, path, options.body);
       const policy = muxRequestPolicy(method, path, options.body);
-      const foreground = !policy.cancellable || operation.method === "POST" && /^\/api\/tabs\/[^/]+\/chat-raw\/start$/.test(operation.path.split("?")[0]);
+      const foreground = options[CARRIER_PROBE] === true || !policy.cancellable || operation.method === "POST" && /^\/api\/tabs\/[^/]+\/chat-raw\/start$/.test(operation.path.split("?")[0]);
       const postTraffic = muxPostTraffic(policy.traffic, options.body != null && (typeof options.body !== "string" || options.body.length > 64 * 1024));
       const entries = [...pending.values()];
       const streams = entries.filter(entry => entry.stream).length;
       const bulk = entries.filter(entry => !entry.stream && entry.postTraffic === "bulk").length;
       if (closed) return Promise.reject(new RetryableMuxError(path, "Mux connection closed before dispatch"));
       if (!muxRequestAdmission(stream, postTraffic, streams, entries.length - streams, bulk, foreground)) {
-        return Promise.reject(new MuxAdmissionError(path, !stream && ["GET", "HEAD"].includes(operation.method) ? readCapacity.capture() : undefined));
+        return Promise.reject(new MuxAdmissionError(path, ["GET", "HEAD"].includes(operation.method) ? (stream ? streamCapacity : readCapacity).capture() : undefined));
       }
       return new Promise<Response>((resolve, reject) => {
         const aborter = new AbortController();
@@ -487,6 +492,11 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       });
     },
     busy: requestsInFlight,
+    diagnostics() {
+      const entries = [...pending.values()];
+      const streams = entries.filter(entry => entry.stream).length;
+      return { requests: entries.length - streams, streams, queued: postState.pending.length, bufferedBytes: buffered, carrier: liveness, connected: live !== null };
+    },
     idle() {
       return requestsInFlight() ? new Promise<void>(resolve => { idleWaiters.push(resolve); }) : Promise.resolve();
     },
@@ -505,6 +515,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     close() {
       closed = true; clearTimeout(retry);
       readCapacity.close(new DOMException("Mux origin closed", "AbortError"));
+      streamCapacity.close(new DOMException("Mux origin closed", "AbortError"));
       const owner = current, close = closeStream;
       if (owner) lost(owner, new Error("Mux origin closed"));
       for (const entry of [...pending.values()]) cancel(entry, new DOMException("Mux origin closed", "AbortError"));
@@ -537,6 +548,10 @@ export function wakeStreamMuxes(): void {
 
 export function verifyStreamMuxes(): void {
   for (const holder of muxesByOrigin.values()) holder.mux.verify();
+}
+
+export function streamMuxDiagnostics(): Array<MuxDiagnostics & { origin: string }> {
+  return [...muxesByOrigin].map(([origin, holder]) => ({ origin, ...holder.mux.diagnostics() }));
 }
 
 /** Resolves once no carrier request is in flight and every finished response body is complete. */
