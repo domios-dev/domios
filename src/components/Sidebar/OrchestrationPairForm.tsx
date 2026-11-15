@@ -51,6 +51,10 @@ interface RoleRowProps {
   /** When set, a not-installed provider offers a one-click "Install" that
    *  opens the provider's installer in a terminal tab. */
   onInstallProvider?: (providerId: string) => void;
+  /** Locks every control, e.g. while a harness switch is in flight. */
+  disabled?: boolean;
+  /** Ties the provider control to a sentence that explains its current refusal. */
+  providerDescribedBy?: string;
 }
 
 export function OrchestrationRoleRow({
@@ -74,11 +78,14 @@ export function OrchestrationRoleRow({
   modelTestId,
   effortTestId,
   onInstallProvider,
+  disabled = false,
+  providerDescribedBy,
 }: RoleRowProps) {
   const provider = providers.find((p) => p.id === providerId);
   const models = provider?.available_models ?? [];
   const efforts = reasoningEffortsForModel(provider, modelId);
   const providerDisabled = disabledProviderIds?.has(providerId) === true;
+  const locked = disabled || providerDisabled;
   const awaitingProvider = Boolean(providerPlaceholder) && !provider;
   const providerOptions: DropdownSelectOption[] = providers.map((p) => {
     const disabled = disabledProviderIds?.has(p.id) === true;
@@ -110,6 +117,8 @@ export function OrchestrationRoleRow({
         <div className="flex-1 min-w-0">
           <DropdownSelect
             aria-label={`${label} provider`}
+            aria-describedby={providerDescribedBy}
+            disabled={disabled}
             data-testid={providerTestId}
             options={providerOptions}
             value={providerId}
@@ -120,7 +129,7 @@ export function OrchestrationRoleRow({
         </div>
         {modelSlot && <div className="flex-1 min-w-0">{modelSlot}</div>}
         {pill && <div className="flex-1 min-w-0">
-          <RoleModelButton label={label} provider={provider} modelId={modelId} effortId={effortId} disabled={providerDisabled} testId={modelTestId}
+          <RoleModelButton label={label} provider={provider} modelId={modelId} effortId={effortId} disabled={locked} testId={modelTestId}
             onChange={(nextModel, nextEffort) => {
               if (onSelectionChange) onSelectionChange(nextModel, nextEffort);
               else onModelChange(nextModel);
@@ -133,7 +142,7 @@ export function OrchestrationRoleRow({
             value={modelId}
             onChange={onModelChange}
             aria-label={`${label} model`}
-            disabled={models.length === 0 || providerDisabled}
+            disabled={models.length === 0 || locked}
             menuMaxHeight={MODEL_MENU_MAX_HEIGHT}
           />
         </div>}
@@ -147,7 +156,7 @@ export function OrchestrationRoleRow({
             onChange={onEffortChange}
             placeholder="Default"
             aria-label={`${label} effort`}
-            disabled={providerDisabled}
+            disabled={locked}
           />
         </div>
       )}
@@ -159,6 +168,7 @@ export function OrchestrationRoleRow({
             <button
               type="button"
               data-testid={`install-provider-${providerId}`}
+              disabled={disabled}
               onClick={() => onInstallProvider(providerId)}
               className="rounded border px-1.5 py-0.5 text-[10px] font-medium text-[var(--ct-accent)] hover:brightness-125"
               style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 40%, transparent)" }}

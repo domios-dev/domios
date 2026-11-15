@@ -11,10 +11,12 @@ import { __setInvokeForTest } from "../../lib/bridge";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const state = vi.hoisted(() => ({ status: "Idle", launching: false }));
+const navigation = vi.hoisted(() => ({ show: vi.fn(), activeTabId: () => null }));
 vi.mock("../../lib/useTabActivity", () => ({ useTabActivity: () => state as unknown as TabActivity }));
-vi.mock("../../lib/useAgentDescriptor", () => ({ useAgentDescriptors: () => [
+vi.mock("../AgentPicker/pickerNavigation", () => ({ usePickerNavigation: () => navigation }));
+vi.mock("../../lib/useAgentDescriptor", () => ({ useAgentDescriptor: () => undefined, useAgentDescriptors: () => [
   { id: "source", display_name: "Source", transport: "pty", available_models: [] },
-  { id: "unavailable", display_name: "Unavailable target", transport: "pty", available_models: [], availability: "unavailable" },
+  { id: "unavailable", display_name: "Unavailable target", transport: "pty", available_models: [], availability: "unavailable", install_command: "opaque-install" },
   { id: "target", display_name: "Target", transport: "chat_backend", agent_runtime: {}, default_model: "model-token", available_models: [
     { id: "model-token", display_name: "Sonnet 5.5", reasoning_efforts: [{ id: "effort-token", display_name: "Effort" }] },
     { id: "haiku-token", display_name: "Haiku 5.5" },
@@ -23,7 +25,7 @@ vi.mock("../../lib/useAgentDescriptor", () => ({ useAgentDescriptors: () => [
 
 const tab = { id: "owned", agent_type: "source", title: "Baton" } as Tab;
 const result: ProviderSwitchResult = { tab_id: "owned", provider: "target", session_id: "new-thread", previous_provider: "source", previous_session_id: "old-thread", previous_history_path: "archive", binding_restored: true, handoff_delivered: true };
-afterEach(() => { __setTabProviderApiForTest(null); __setInvokeForTest(null); state.status = "Idle"; vi.useRealTimers(); });
+afterEach(() => { __setTabProviderApiForTest(null); __setInvokeForTest(null); state.status = "Idle"; navigation.show.mockReset(); vi.useRealTimers(); });
 
 function button(label: string) {
   const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === label);
@@ -41,9 +43,9 @@ it("confirmation sends one target selection and shows its result", async () => {
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(document.querySelector('[aria-label="Target provider: Target"]')).not.toBeNull();
-    expect(document.querySelector('[aria-label="Target model: Sonnet 5.5"]')).not.toBeNull();
-    expect(document.querySelector('[aria-label="Reasoning effort: Effort"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Agent provider: Target"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Agent model: Sonnet 5.5"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Agent effort: Effort"]')).not.toBeNull();
     expect(send).not.toHaveBeenCalled();
     await act(async () => { const confirm = button("Switch harness"); confirm.click(); confirm.click(); });
     expect(send).toHaveBeenCalledExactlyOnceWith("owned", "target", { model: "model-token", reasoningEffort: "effort-token", force: false });
@@ -63,7 +65,7 @@ it("exposes the selected value and menu state, and changes selection by keyboard
   const root = createRoot(host);
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="Target model: Sonnet 5.5"]');
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="Agent model: Sonnet 5.5"]');
     expect(trigger).not.toBeNull();
     expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
@@ -89,7 +91,7 @@ it("exposes the selected value and menu state, and changes selection by keyboard
       expect(document.activeElement).toBe(haiku);
       haiku?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     });
-    const updatedTrigger = document.querySelector<HTMLButtonElement>('button[aria-label="Target model: Haiku 5.5"]');
+    const updatedTrigger = document.querySelector<HTMLButtonElement>('button[aria-label="Agent model: Haiku 5.5"]');
     expect(updatedTrigger?.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(updatedTrigger);
 
@@ -120,6 +122,9 @@ it("waiting follows the idle event and never submits while working", async () =>
     await act(async () => render());
     await act(async () => button("Wait for idle").click());
     expect(send).not.toHaveBeenCalled();
+    for (const name of ["Agent provider: Target", "Agent model: Sonnet 5.5", "Agent effort: Effort"]) {
+      expect(document.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)?.disabled).toBe(true);
+    }
     state.status = "Idle";
     await act(async () => render());
     expect(send).toHaveBeenCalledTimes(1);
@@ -171,13 +176,31 @@ it("disables unavailable targets with a reason and refuses submission from a sta
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="unavailable" onClose={() => {}} />));
     expect(button("Switch harness").disabled).toBe(true);
-    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Target provider:"]');
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Agent provider:"]');
     await act(async () => trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
     const unavailable = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')).find(item => item.textContent?.includes("Unavailable target"));
     expect(unavailable?.disabled).toBe(true);
     expect(unavailable?.textContent).toContain("not installed");
     await act(async () => { unavailable?.click(); button("Switch harness").click(); });
     expect(send).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("installs an unavailable target in its terminal tab and leaves the dialog", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const onClose = vi.fn();
+  const install = vi.fn(async (_args?: Record<string, unknown>) => ({ tab_id: "installer-tab", workspace_id: "installer-workspace", launch_state: "command_dispatched" }));
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
+    expect(command).toBe("install_provider_in_tab");
+    return await install(args) as T;
+  });
+  try {
+    await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="unavailable" onClose={onClose} />));
+    await act(async () => button("Install in terminal").click());
+    expect(install).toHaveBeenCalledExactlyOnceWith({ providerId: "unavailable" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(navigation.show).toHaveBeenCalledExactlyOnceWith({ workspaceId: "installer-workspace", tabId: "installer-tab" });
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -208,7 +231,7 @@ it("keeps technical details collapsed and copies them without the Error prefix",
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
     await act(async () => button("Switch harness").click());
     const disclosure = button("Details");
-    const picker = document.querySelector('[aria-label="Target provider: Target"]');
+    const picker = document.querySelector('[aria-label="Agent provider: Target"]');
     const sentence = document.getElementById(picker?.getAttribute("aria-describedby") ?? "");
     expect(sentence).not.toBeNull();
     expect(sentence?.closest('[aria-live="polite"]')).not.toBeNull();

@@ -212,14 +212,13 @@ describe("tab menu model", () => {
     }
   });
 
-  it("marks the current model and provider and leaves the current provider without an action", () => {
+  it("marks the current model and opens the harness switch directly on another harness", () => {
     const entries = buildTabMenu(input("sidebar", { tab: tab({ role: "Manager", role_profile: "general_agent" } as never) }));
     const model = child(submenu(entries, "model"), "model-model-a");
     expect(model?.kind === "item" ? model.selected : null).toBe(true);
-    const current = child(submenu(entries, "provider"), `provider-${CURRENT.id}`);
-    const other = child(submenu(entries, "provider"), `provider-${OTHER.id}`);
-    expect(current?.kind === "item" ? current.action : "missing").toBeNull();
-    expect(other?.kind === "item" ? other.action?.type : null).toBe("switchProvider");
+    const provider = entries.find((entry) => entry.id === "provider");
+    expect(provider?.kind).toBe("item");
+    expect(provider?.kind === "item" ? provider.action : null).toEqual({ type: "switchProvider", providerId: OTHER.id });
   });
 });
 
@@ -257,15 +256,15 @@ for (const surface of SURFACES) {
     expect(entries.map(entry => entry.id)).toEqual(["close"]);
   });
 }
-it("disables unavailable provider targets on both menu surfaces", () => {
+it("seeds the harness switch with an installed target before an unavailable one on both menu surfaces", () => {
+  const third = descriptor("third-provider");
   for (const surface of SURFACES) {
-    const entries = buildTabMenu(input(surface, { descriptors: [CURRENT, { ...OTHER, availability: "unavailable" }] }));
-    const target = child(submenu(entries, "provider"), `provider-${OTHER.id}`);
-    expect(target?.kind).toBe("item");
-    if (target?.kind !== "item") throw new Error("Missing target");
-    expect(target.disabled).toBe(true);
-    expect(target.action).toBe(null);
-    expect(target.hint).toBe("not installed");
+    const seeded = (descriptors: ProviderDescriptor[]) => {
+      const entry = buildTabMenu(input(surface, { descriptors })).find((candidate) => candidate.id === "provider");
+      return entry?.kind === "item" ? entry.action : null;
+    };
+    expect(seeded([CURRENT, { ...OTHER, availability: "unavailable" }, third])).toEqual({ type: "switchProvider", providerId: third.id });
+    expect(seeded([CURRENT, { ...OTHER, availability: "unavailable" }])).toEqual({ type: "switchProvider", providerId: OTHER.id });
   }
 });
 
