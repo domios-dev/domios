@@ -27,7 +27,8 @@ function echo(id = "provider-uuid", content = delivered, source = authority.sour
   const segments: MessageSegment[] = attachmentMarkerSegments(content).map(segment => "text" in segment
     ? { type: "text", text: segment.text }
     : { type: "attachment", kind: segment.attachment.kind, path: segment.attachment.path, label: segment.attachment.label ?? null, body: null, status: null });
-  return { id, type: "user", content, timestamp: String(at + 100), sourceSessionId: source, segments };
+  return { id, type: "user", content, timestamp: String(at + 100), sourceSessionId: source, segments,
+    sourceRecord: confirmed.matchedRow!.source.record };
 }
 
 function window(key: string, rows: NormalizedChatMessage[]) {

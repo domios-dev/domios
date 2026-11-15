@@ -232,3 +232,4 @@ export { placedAttachmentSegments, type PlacedAttachmentSegment } from "./userAt
 export { envelopeRows, envelopeText, type MessageSegment, type EnvelopeRow } from "./envelope";
 
 export { DsBlockScanner, parseDsBlocks, serializeDsBlock, DS_KINDS, DS_TASK_STATUSES, decodeDsEntities, isDsAbsolutePath, isDsTaskRef, type DsBlock, type DsKind, type DsTaskStatus, type DsTaskItem, type DsTaskSnapshot, type DsLifecycle, type DsAuthority, type DsSegment, type DsFenceSpan } from "./dsBlocks";
+export { pendingSendPosition } from "./sendPlacement";

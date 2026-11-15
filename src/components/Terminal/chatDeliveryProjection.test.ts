@@ -19,7 +19,7 @@ test("a queued send stays after the running output through turn end, while steer
         sequence: index, ledger_id: "ledger", retained_from: 1, error: null } } : send;
       const queued = queuedDeliveryIds([current], queue, state);
       assert.deepEqual(projectTranscript(transcript, deliveryProjectionSends([current], null, queued)).rows.map(row => row.id),
-        queue ? ["output", "local"] : ["local", "output"]);
+        queue && status !== "delivered" ? ["output", "local"] : ["local", "output"]);
     }
   }
 });
@@ -42,7 +42,7 @@ test("exact mid-turn image evidence releases tail placement while the agent keep
   const delivered: DeliverySend = { ...pending, status: { tab_id: "tab", send_id: "tx", correlationId: "token",
     state: "delivered", sequence: 2, ledger_id: "ledger", retained_from: 1, error: null } };
   const queued = queuedDeliveryIds([delivered], true, state);
-  assert.equal(queued.size, 1, "a receipt preserves placement until its exact source echo arrives");
+  assert.equal(queued.size, 0, "a delivered receipt ends tail placement immediately");
   const rows: NormalizedChatMessage[] = [
     { id: "before", sourceSessionId: "own", type: "tool_result", content: "read complete" },
     { id: "mid-turn", sourceSessionId: "own", type: "user", content, timelineMarker: { kind: "queued" }, timestamp: String(send.sentAtMs + 100) },
@@ -68,6 +68,7 @@ test("a source echo takes over one local row identity without a blank handoff re
   } };
   assert.equal(stableDeliveryEntries([], [confirmed], new Map(), state)[0], pending);
   const source = entry({ id: "source-segment-0", sourceMessageId: "source", sourceSessionId: "own", type: "user", content: send.content,
+    sourceRecord: confirmed.matchedRow!.source.record,
     timestamp: String(echo.timestampMs) });
   const foreign = entry({ ...source.msg, id: "foreign", sourceSessionId: "other" });
   assert.equal(stableDeliveryEntries([foreign], [confirmed], new Map(), memory())[0], foreign, "another session cannot take the local identity");
@@ -88,4 +89,46 @@ test("dismissal and a cleared send set remove the retained handoff bubble", () =
     assert.deepEqual(stableDeliveryEntries([], removed, new Map(), state), []);
     assert.equal(state.pending.size, 0);
   }
+});
+
+test("a delivered record moves from the tail to its final slot once before a late echo", () => {
+  const authority = { sourceSessionId: "own", sessionBindingNonce: "launch" };
+  const record = (offset: number) => ({ kind: "jsonl" as const, incarnation: "file", record_start: offset, record_row: 0 });
+  const row = (id: string, offset: number): NormalizedChatMessage => ({ id, type: "assistant", content: "opaque",
+    sourceSessionId: "own", sourceRecord: record(offset), timestamp: String(send.sentAtMs + offset) });
+  const sourceRows = [row("answer", 10), row("later-output", 30)];
+  const transcript = (rows: NormalizedChatMessage[]) => reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority, range: null, rows,
+  }).state;
+  const state = memory();
+  const delivered: DeliverySend = { ...send, matchedRow: { source: { source_session_id: "own", record: record(20) }, ordinal: 1 },
+    status: { tab_id: "tab", send_id: "tx", correlationId: "token", state: "delivered", sequence: 2,
+      ledger_id: "ledger", retained_from: 1, error: null } };
+  const render = (current: DeliverySend, rows: NormalizedChatMessage[]) => {
+    const sends = deliveryProjectionSends([current], null, queuedDeliveryIds([current], true, state));
+    const projection = projectTranscript(transcript(rows), sends);
+    return stableDeliveryEntries(projection.rows.map(entry), sends, projection.echoes, state).map(row => row.msg.id);
+  };
+  const phases = [render(send, sourceRows), render(delivered, sourceRows), render(delivered, sourceRows),
+    render(delivered, [sourceRows[0], { ...row("provider-row", 20), type: "user", content: "enriched caption" }, sourceRows[1]])];
+  assert.deepEqual(phases, [
+    ["answer", "later-output", "local"], ["answer", "local", "later-output"],
+    ["answer", "local", "later-output"], ["answer", "local", "later-output"],
+  ]);
+  const positions = phases.map(rows => rows.indexOf(send.id));
+  assert.equal(positions.filter((position, index) => index > 0 && position !== positions[index - 1]).length, 1);
+});
+
+test("a ledger-confirmed merged record cannot resurrect a retained second bubble", () => {
+  const state = memory();
+  const sends = [send, { ...send, id: "second", correlationId: "second", content: "second" }];
+  stableDeliveryEntries(sends.map(send => entry({ id: send.id, type: "user", content: send.content })), sends, new Map(), state);
+  const confirmed = sends.map((send, index) => ({ ...send, matchedRow: { ordinal: index + 1,
+    source: { source_session_id: "own", record: { kind: "jsonl" as const, incarnation: "file", record_start: 10, record_row: 0 } } } }));
+  const source = entry({ id: "source", sourceSessionId: "own", sourceRecord: confirmed[0].matchedRow.source.record,
+    type: "user", content: "opaque merged source" });
+  const echoes = new Map(confirmed.map(send => [send.id, { content: source.msg.content, timestampMs: null }]));
+  const rows = stableDeliveryEntries([source], confirmed, echoes, state);
+  assert.equal(rows.length, 1);
+  assert.equal(state.pending.size, 0);
 });

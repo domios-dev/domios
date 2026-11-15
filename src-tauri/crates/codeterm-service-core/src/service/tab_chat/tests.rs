@@ -5,6 +5,34 @@ use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
 use serde_json::json;
 
 #[test]
+fn flattened_rows_expose_exact_record_coordinates_in_snapshot_and_live() {
+    let rich = RichMessage {
+        role: "user".into(),
+        record_start: Some(859_693_837),
+        record_row: 2,
+        blocks: vec![MessageBlock {
+            kind: "text".into(),
+            data: json!({"text": "opaque caption"}),
+        }],
+        ..Default::default()
+    };
+    let mut snapshot = rich_to_chat_msgs_at(&rich, RowOrigin::at(800_000_000, 99));
+    let mut live = rich_to_chat_msgs_live(&rich, 400);
+    for rows in [&mut snapshot, &mut live] {
+        stamp_record_incarnation(rows, "own-file");
+        assert!(!rows.is_empty());
+        assert_eq!(
+            serde_json::to_value(&rows[0]).unwrap()["sourceRecord"],
+            json!({
+                "kind": "jsonl", "incarnation": "own-file", "record_start": 859_693_837,
+                "record_row": 2,
+            })
+        );
+    }
+    assert_eq!(snapshot[0].source_record, live[0].source_record);
+}
+
+#[test]
 fn envelope_segments_are_identical_in_snapshot_live_and_plugin_rows() {
     let rich = RichMessage {
         role: "user".into(),

@@ -1,4 +1,4 @@
-import { normalizeChatText, timestampMs, type SendEcho } from "@codeterm/chat-core";
+import { matchesMatchedRow, normalizeChatText, pendingSendPosition, timestampMs, type SendEcho } from "@codeterm/chat-core";
 import { ACTIVE_TURN_HOLD, deliveryState, sendForRow, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
@@ -24,6 +24,7 @@ const TURN_ENDS_BEFORE_UNCONFIRMED_RELEASE = 2;
 
 function tailWaitEnded(send: DeliverySend, state: DeliveryState, turnEnds: number): boolean {
   return Boolean(send.dismissed) || send.echo != null || state === "failed"
+    || state === "delivered"
     || (state === "uncertain" && turnEnds >= TURN_ENDS_BEFORE_UNCONFIRMED_RELEASE);
 }
 
@@ -62,7 +63,7 @@ export function stableDeliveryEntries(
   const present = new Set<string>();
   const rows = entries.map(entry => {
     const send = sendForRow(reconciled, entry.msg) ?? reconciled.find(candidate => {
-      if (present.has(candidate.id) || !candidate.echo || entry.msg.type !== "user" || entry.msg.inheritedFromSessionId != null) return false;
+      if (present.has(candidate.id) || candidate.matchedRow || !candidate.echo || entry.msg.type !== "user" || entry.msg.inheritedFromSessionId != null) return false;
       const source = candidate.matchedRow?.source.source_session_id ?? candidate.echoBoundary?.sourceSessionId;
       return source != null && entry.msg.sourceSessionId === source
         && candidate.echo.timestampMs === timestampMs(entry.msg.timestamp)
@@ -75,7 +76,7 @@ export function stableDeliveryEntries(
     const msg = entry.msg.id === send.id && !names.length ? entry.msg : { ...entry.msg, id: send.id,
       sourceMessageId: entry.msg.sourceMessageId ?? entry.msg.id, ...(names.length ? { attachmentNames: Object.fromEntries(names) } : {}) };
     const stable = msg === entry.msg ? entry : { ...entry, msg, item: { kind: "message" as const, message: msg } };
-    if (msg.sourceSessionId == null) memory.pending.set(send.id, stable);
+    if (entry.msg.id === send.id && entry.msg.sourceMessageId == null) memory.pending.set(send.id, stable);
     else memory.pending.delete(send.id);
     return stable;
   });
@@ -84,11 +85,12 @@ export function stableDeliveryEntries(
     const send = byId.get(id);
     if (!send || send.dismissed) { memory.pending.delete(id); continue; }
     if (present.has(id)) continue;
-    const index = send.held ? -1 : rows.findIndex(({ msg }) => {
-      const at = timestampMs(msg.timestamp);
-      return at != null && at > send.sentAtMs;
-    });
-    rows.splice(index < 0 ? rows.length : index, 0, entry);
+    if (send.matchedRow && echoes.has(id) && entries.some(entry => matchesMatchedRow(entry.msg, send.matchedRow!))) {
+      memory.pending.delete(id);
+      continue;
+    }
+    const index = pendingSendPosition(rows.map(row => row.msg), send);
+    rows.splice(index, 0, entry);
   }
   return rows;
 }
