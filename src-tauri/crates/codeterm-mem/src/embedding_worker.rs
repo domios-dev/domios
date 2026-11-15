@@ -8,6 +8,8 @@ use std::time::Duration;
 const QUEUE_CAPACITY: usize = 64;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const QUERY_BURST: usize = 8;
+
+mod priority;
 type Reply = mpsc::SyncSender<Result<Vec<f32>, String>>;
 
 struct Request {
@@ -199,8 +201,9 @@ pub(crate) fn embed(
 
 fn cpu_pool() -> rayon::ThreadPoolBuilder {
     rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
+        .num_threads(2)
         .thread_name(|index| format!("mem-embed-cpu-{index}"))
+        .start_handler(|_| priority::lower())
 }
 
 fn run<M: Sync>(

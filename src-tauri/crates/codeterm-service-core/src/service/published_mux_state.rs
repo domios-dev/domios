@@ -5,6 +5,15 @@ use std::sync::Arc;
 
 mod status_delta;
 
+#[cfg(test)]
+thread_local! { static JSON_ENCODINGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+fn encode(value: &serde_json::Value) -> Result<Bytes, serde_json::Error> {
+    #[cfg(test)]
+    JSON_ENCODINGS.with(|count| count.set(count.get() + 1));
+    serde_json::to_vec(value).map(Bytes::from)
+}
+
 struct Snapshot {
     generation: u64,
     /// Newest generation offered, which may carry content identical to `json`.
@@ -16,17 +25,13 @@ struct Snapshot {
 impl Snapshot {
     fn new(generation: u64, value: &impl Serialize) -> Result<Self, serde_json::Error> {
         let value = Arc::new(serde_json::to_value(value)?);
-        let json = Bytes::from(serde_json::to_vec(value.as_ref())?);
+        let json = encode(value.as_ref())?;
         Ok(Self {
             generation,
             latest: generation,
             json,
             value,
         })
-    }
-
-    fn same_content(&self, other: &Self) -> bool {
-        status_delta::equal_except(&self.value, &other.value, &["generation"])
     }
 }
 
@@ -75,11 +80,16 @@ impl PublishedMuxState {
         generation: u64,
         value: &impl Serialize,
     ) -> Result<Option<serde_json::Value>, serde_json::Error> {
-        let next = Arc::new(Snapshot::new(generation, value)?);
+        if generation <= self.current.load().latest {
+            return Ok(None);
+        }
+        let value = Arc::new(serde_json::to_value(value)?);
+        let mut encoded: Option<Arc<Snapshot>> = None;
+        let mut error = None;
         let previous = self.current.rcu(|current| {
-            if generation <= current.latest {
+            if generation <= current.latest || error.is_some() {
                 current.clone()
-            } else if next.same_content(current) {
+            } else if status_delta::equal_except(&value, &current.value, &["generation"]) {
                 Arc::new(Snapshot {
                     generation: current.generation,
                     latest: generation,
@@ -87,19 +97,33 @@ impl PublishedMuxState {
                     value: current.value.clone(),
                 })
             } else {
-                next.clone()
+                if let Some(encoded) = &encoded {
+                    return encoded.clone();
+                }
+                match encode(&value) {
+                    Ok(json) => {
+                        let next = Arc::new(Snapshot {
+                            generation,
+                            latest: generation,
+                            json,
+                            value: value.clone(),
+                        });
+                        encoded = Some(next.clone());
+                        next
+                    }
+                    Err(failure) => {
+                        error = Some(failure);
+                        current.clone()
+                    }
+                }
             }
         });
-        Ok(
-            (generation > previous.latest && !next.same_content(&previous)).then(|| {
-                status_delta::event(
-                    previous.generation,
-                    &previous.value,
-                    generation,
-                    &next.value,
-                )
-            }),
-        )
+        if let Some(error) = error {
+            return Err(error);
+        }
+        Ok((generation > previous.latest
+            && !status_delta::equal_except(&value, &previous.value, &["generation"]))
+        .then(|| status_delta::event(previous.generation, &previous.value, generation, &value)))
     }
 
     #[cfg(test)]
