@@ -79,4 +79,6 @@ pub fn schema_document(spec_version: &str) -> serde_json::Value {
 }
 
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;

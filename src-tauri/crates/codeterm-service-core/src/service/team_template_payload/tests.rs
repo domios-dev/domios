@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use codeterm_team_package::{check_folder, CheckOptions, MemoryKind, PackageMemory, PackageSkill};
 
@@ -71,7 +70,7 @@ impl PayloadPort for FakePort {
 }
 
 fn reference() -> Package {
-    let folder = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let folder = crate::test_support::fixture_manifest_dir()
         .join("../codeterm-team-package/fixtures/corpus/valid/reference");
     check_folder(&folder, &CheckOptions::default())
         .package
@@ -136,7 +135,7 @@ fn bake_collects_the_same_mapping_back_and_the_export_scrubs_it() {
     port.memory.borrow_mut().push(PackageMemory {
         title: "Staging login".into(),
         kind: MemoryKind::Fact,
-        body: "Use STAGING_PASSWORD=hunter2hunter2 on /home/ada/stage.".into(),
+        body: "Use STAGING_PASSWORD=hunter2hunter2 on /home/fixture/stage.".into(),
         tags: Vec::new(),
     });
     let descriptions: BTreeMap<String, String> = [(
@@ -169,7 +168,7 @@ fn bake_collects_the_same_mapping_back_and_the_export_scrubs_it() {
     let mut baked = package.clone();
     baked.document.memory = collected.memory;
     let context = ScrubContext {
-        personal_roots: vec!["/home/ada".into()],
+        personal_roots: vec!["/home/fixture".into()],
         machines: Vec::new(),
     };
     let report = scrub_package(&mut baked, &context);

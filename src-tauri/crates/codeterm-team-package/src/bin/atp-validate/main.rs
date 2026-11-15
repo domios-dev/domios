@@ -132,4 +132,7 @@ fn write_check(path: &str, json: bool, out: &mut impl Write) -> std::io::Result<
 }
 
 #[cfg(test)]
+#[path = "../../test_support.rs"]
+mod test_support;
+#[cfg(test)]
 mod tests;

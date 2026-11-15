@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8,7 +6,7 @@ use super::*;
 use crate::{check_folder, CheckOptions};
 
 fn fixture(name: &str) -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let path = crate::test_support::fixture_manifest_dir()
         .join("fixtures/contracts")
         .join(name);
     serde_json::from_str(&std::fs::read_to_string(&path).expect("fixture reads"))
@@ -87,7 +85,8 @@ fn icons_become_base64_data_urls() {
 
 #[test]
 fn portable_projections_come_from_the_package_alone() {
-    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/corpus/valid/reference");
+    let folder =
+        crate::test_support::fixture_manifest_dir().join("fixtures/corpus/valid/reference");
     let package = check_folder(&folder, &CheckOptions::default())
         .package
         .expect("reference is valid");

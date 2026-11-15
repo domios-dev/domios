@@ -16,7 +16,7 @@ use super::{
 use crate::service::team_template_payload::{knowledge_path, Collected};
 
 fn corpus() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../codeterm-team-package/fixtures/corpus")
+    crate::test_support::fixture_manifest_dir().join("../codeterm-team-package/fixtures/corpus")
 }
 
 fn inline_reference() -> Package {
@@ -35,7 +35,10 @@ fn folder_reference() -> Package {
 
 fn private_context() -> ScrubContext {
     ScrubContext {
-        personal_roots: vec!["C:\\Users\\ada\\work\\desk".into(), "/home/ada".into()],
+        personal_roots: vec![
+            "C:\\Users\\fixture\\work\\desk".into(),
+            "/home/fixture".into(),
+        ],
         machines: vec!["ada-laptop".into()],
     }
 }
@@ -155,13 +158,13 @@ fn the_scrub_rewrites_private_bindings_and_keeps_the_prose() {
     let prose =
         "Never print the token: ask the owner. The token budget is large. Review issue 1234567.";
     assert_eq!(scrubber.text(prose, "here"), prose);
-    let text = "Build in C:\\Users\\ada\\work\\desk\\app and /home/ada/notes on ada-laptop.\nOPENAI_API_KEY=sk-live1234567890abcdefXYZ\nCall https://api.example.com/v1?token=abc1234567";
+    let text = "Build in C:\\Users\\fixture\\work\\desk\\app and /home/fixture/notes on ada-laptop.\nOPENAI_API_KEY=sk-test-fixture-value\nCall https://api.example.com/v1?token=abc1234567";
     let clean = scrubber.text(text, "the worker instructions");
     assert!(clean.contains(&format!(
         "Build in {WORKSPACE}\\app and {WORKSPACE}/notes on {MACHINE}."
     )));
     assert!(clean.contains("OPENAI_API_KEY=[secret OPENAI_API_KEY]"));
-    assert!(!clean.contains("sk-live") && !clean.contains("token=abc"));
+    assert!(!clean.contains("sk-test-fixture-value") && !clean.contains("token=abc"));
     assert_eq!(scrubber.report.paths_generalized, 2);
     assert_eq!(scrubber.report.machines_removed, 1);
     assert!(scrubber.report.secret_values_removed >= 2);
@@ -175,7 +178,7 @@ fn the_scrub_rewrites_private_bindings_and_keeps_the_prose() {
         "the scrub is idempotent"
     );
     assert_eq!(
-        scrubber.text("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENG", "aws"),
+        scrubber.text("AWS_SECRET_ACCESS_KEY=opaque-canary", "aws"),
         "AWS_SECRET_ACCESS_KEY=[secret AWS_SECRET_ACCESS_KEY]"
     );
 }
@@ -189,12 +192,12 @@ fn a_scrubbed_package_asks_for_its_secrets_by_name_and_keeps_authors() {
         .get_mut("checker")
         .unwrap()
         .instructions = Some(
-        "Use GITHUB_TOKEN: ghp_abcdefghijklmnopqrstuvwxyz0123 from /home/ada/.config.\n".into(),
+        "Use GITHUB_TOKEN: ghp_abcdefghijklmnopqrstuvwxyz0123 from /home/fixture/.config.\n".into(),
     );
     package.document.memory = vec![codeterm_team_package::PackageMemory {
         title: "Where the archive lives".into(),
         kind: codeterm_team_package::MemoryKind::Fact,
-        body: "Kept at /home/ada/archive.".into(),
+        body: "Kept at /home/fixture/archive.".into(),
         tags: Vec::new(),
     }];
     let report = scrub_package(&mut package, &private_context());
