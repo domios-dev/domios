@@ -138,9 +138,10 @@ async fn spawn(
     request: Request,
 ) -> Result<(), Failure> {
     let entry = reservation.entry.clone();
+    let backpressure = entry.stream && request.uri().path() == "/api/output/stream";
     let task = tokio::spawn(async move {
         let response = dispatcher.call(request).await;
-        reservation.keep_queue = pump(&reservation, response).await
+        reservation.keep_queue = pump(&reservation, response, backpressure).await
             || reservation.entry.terminal_queued.load(Ordering::Acquire);
         drop(reservation);
     });
@@ -161,15 +162,23 @@ async fn send(
     bytes: axum::body::Bytes,
     kind: Kind,
     credit: u64,
+    backpressure: bool,
 ) -> bool {
     if reservation.entry.detached.load(Ordering::Acquire) {
         return false;
     }
-    match reservation
-        .scheduler
-        .send(&reservation.id, bytes, kind, credit)
-        .await
-    {
+    let result = if backpressure {
+        reservation
+            .scheduler
+            .send_output(&reservation.id, bytes, kind, credit)
+            .await
+    } else {
+        reservation
+            .scheduler
+            .send(&reservation.id, bytes, kind, credit)
+            .await
+    };
+    match result {
         Ok(()) => {
             if reservation.entry.stream {
                 tokio::task::yield_now().await;
@@ -199,12 +208,13 @@ async fn send(
     }
 }
 
-async fn pump(reservation: &Reservation, response: Response) -> bool {
+async fn pump(reservation: &Reservation, response: Response, backpressure: bool) -> bool {
     if !send(
         reservation,
         frames::encode_response_head(&reservation.id, &response),
         Kind::Head,
         0,
+        backpressure,
     )
     .await
     {
@@ -235,6 +245,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
                     frames::encode_end(&reservation.id, &ChannelEnd::Error { message }),
                     Kind::End,
                     0,
+                    backpressure,
                 )
                 .await;
             }
@@ -253,7 +264,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
                 continue;
             }
             let frame = frames::encode_chunk(&reservation.id, &tail[..size], text, cost(size));
-            if !send(reservation, frame, Kind::Data, cost(size)).await {
+            if !send(reservation, frame, Kind::Data, cost(size), backpressure).await {
                 return false;
             }
             tail.drain(..size);
@@ -265,6 +276,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
             frames::encode_chunk(&reservation.id, &tail, false, cost(tail.len())),
             Kind::Data,
             cost(tail.len()),
+            backpressure,
         )
         .await
     {
@@ -275,6 +287,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
         frames::encode_end(&reservation.id, &ChannelEnd::Eof),
         Kind::End,
         0,
+        backpressure,
     )
     .await
 }
