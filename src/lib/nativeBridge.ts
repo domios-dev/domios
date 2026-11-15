@@ -21,7 +21,13 @@ export type FileDropEvent =
   | { type: "over"; position: { x: number; y: number } }
   | { type: "leave" };
 
+export type NativeOutputFlowUpdate =
+  | { action: "rendered"; tab_id: string; pty_id: string; attachment: string; offset: number; attach: boolean }
+  | { action: "detach"; pty_id: string; attachment: string }
+  | { action: "detach_all" };
+
 export interface NativeBridge {
+  terminalOutputFlow?: (update: NativeOutputFlowUpdate) => Promise<void>;
   localRecording?: Record<LocalRecordingCommand, (args: Record<string, unknown>) => Promise<unknown>>;
   window: {
     minimize(): Promise<void>;
@@ -106,6 +112,7 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
     return globalThis.navigator.clipboard;
   };
   return {
+    terminalOutputFlow: native ? (update) => invoke("native_terminal_output_flow", { update }) : undefined,
     localRecording: native ? {
       local_recording_status: (args) => invoke("local_recording_status", args),
       local_recording_set_enabled: (args) => invoke("local_recording_set_enabled", args),

@@ -164,6 +164,7 @@ fn session(view: Option<NativeViewBinding>) -> Arc<Session<String, String>> {
     let (shutdown, _) = watch::channel(false);
     Arc::new(Session {
         connection,
+        output_service: Arc::default(),
         client_process,
         process,
         active_generation: Arc::new(AtomicU64::new(9)),
@@ -173,6 +174,7 @@ fn session(view: Option<NativeViewBinding>) -> Arc<Session<String, String>> {
         state: Mutex::new(SessionState {
             view,
             diagnostics: None,
+            output_attachments: HashMap::new(),
             pending: HashMap::new(),
         }),
         shutdown,
@@ -189,6 +191,7 @@ fn native_update_executor_is_unavailable_without_an_active_enrollment() {
         codeterm_types::native_update::NativeUpdateRequest,
         codeterm_types::native_update::NativeUpdateResult,
     > {
+        output_service: Arc::default(),
         active: Arc::new(RwLock::new(None)),
         active_generation: Arc::new(AtomicU64::new(0)),
         attached_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -654,6 +657,7 @@ fn health_cdp_port_follows_authenticated_view_diagnostics_and_attachment_lifetim
         b"server fixture image",
     );
     let endpoint = NativeHostEndpoint::<String, String> {
+        output_service: Arc::default(),
         active: Arc::new(RwLock::new(None)),
         active_generation: Arc::new(AtomicU64::new(9)),
         attached_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
