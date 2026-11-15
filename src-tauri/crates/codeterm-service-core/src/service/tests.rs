@@ -191,14 +191,16 @@ fn the_structural_manager_literal_is_refused_on_the_wire() {
 }
 
 #[test]
-fn unknown_role_is_rejected() {
+fn malformed_role_name_is_rejected() {
     let err = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",
         "role": "Lead",
     }))
     .unwrap_err();
-    assert!(err.contains("Lead"), "{err}");
-    assert!(err.contains("role type"), "{err}");
+    assert_eq!(
+        err,
+        codeterm_types::agent::role_kind::RoleTypeError::Malformed("Lead".into()).to_string()
+    );
 }
 
 #[test]

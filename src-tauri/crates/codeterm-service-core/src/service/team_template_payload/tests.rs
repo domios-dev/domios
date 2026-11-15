@@ -121,7 +121,11 @@ fn start_applies_only_opted_in_items_through_the_port() {
     assert!(sizing.files.iter().any(|(path, _)| path == "SKILL.md"));
     let automation = port.automation.borrow();
     assert_eq!(automation.len(), 1);
-    assert_eq!(automation[0].name, "research-digest");
+    assert_eq!(automation[0].name, "blueprints/digest.yaml");
+    assert_eq!(
+        automation[0].content.as_bytes(),
+        package.file_bytes("blueprints/digest.yaml").unwrap()
+    );
 }
 
 #[test]

@@ -10,12 +10,7 @@ fn usage_source_keys_normalize_windows_separators_without_changing_scope() {
     } else {
         "c:\\usage\\session.jsonl\u{1}thread\\scope"
     };
-    let canonical = if cfg!(windows) {
-        slash.to_owned()
-    } else {
-        backslash.replace('\\', "/")
-    };
-    assert_eq!(normalize_usage_source_key(backslash), canonical);
+    assert_eq!(normalize_usage_source_key(backslash), slash);
     assert_eq!(normalize_usage_source_key(slash), slash);
     if !cfg!(windows) {
         assert_eq!(

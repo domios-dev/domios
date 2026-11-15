@@ -31,7 +31,7 @@ fn interruption_recovery_and_assignment_have_bounded_work() {
                 "task_0000",
                 "worker",
                 "current",
-                "checkout".into(),
+                root.path().display().to_string(),
                 30,
             )
             .unwrap();
