@@ -143,7 +143,7 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
           renderOwner={() => <FriendRow friendshipId={friend.friendship_id} name={name} photoURL={friend.photoURL}
             uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === friend.friendship_id} paused={paused} line={line}
             tone={paused || !receiver || elsewhere ? "muted" : needsAttention ? "progress" : !loading && enabled && paid && lifecycle?.state === "ready" ? "ok" : "muted"}
-            items={[pauseItem, ...receiveItems, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }]} />}
+            items={[...receiveItems, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }, pauseItem]} />}
           renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode} paused={paused} pauseItem={pauseItem} active={tab.id === activeTabId}
             subline={paused ? "disabled" : needsAttention ? conciergeStatusLine(lifecycle) : undefined} working={!paused && !needsAttention && tabActivity(tab, tabStatuses[tab.id]).active}
             onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }}

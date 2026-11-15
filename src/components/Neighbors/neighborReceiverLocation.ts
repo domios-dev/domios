@@ -15,7 +15,7 @@ export function receiverOpenItem(receiver: unknown, label: string): DropdownMenu
   return {
     label: `Open on ${label}`,
     unavailable: !available,
-    description: expired ? `${label}'s membership expired` : available ? undefined : location.online === false ? `${label} is offline` : "Machine connection unavailable",
+    description: expired ? `${label}'s membership expired` : available ? undefined : location.online === false ? "That computer is offline." : "Machine connection unavailable",
     onClick: () => {
       if (!location.installationId || !location.instanceId || !available) return;
       void openReceiver(location.installationId, location.instanceId).catch((failure: unknown) => publishNotice({

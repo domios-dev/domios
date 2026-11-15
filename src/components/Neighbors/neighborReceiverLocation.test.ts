@@ -20,7 +20,7 @@ const location = { receiver_installation_id: "receiver-installation", receiver_i
 
 it("retains the receiver location offline and offers an unavailable open action alongside explicit receive-here", () => {
   const offline = { ...receiver, ...location, receiver_online: false };
-  expect(friendReceivingLine(offline)).toBe("receiving on Desk · offline");
+  expect(friendReceivingLine(offline)).toBe("offline on Desk");
   const item = receiverOpenItem(offline, "Desk");
   expect(item).toMatchObject({ label: "Open on Desk", unavailable: true });
   item?.onClick?.();
