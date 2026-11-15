@@ -8,7 +8,7 @@ import { STATUS_LABEL, type NeighborNodeStatus } from "./neighborhoodModel";
 
 const RECOVERY_SENTENCES: Partial<Record<ConciergeStatus["state"], string>> = {
   concierge_auth_needed: "Sign in to continue with this concierge.",
-  concierge_access_needed: "This concierge needs your permission to continue.",
+  concierge_access_needed: "This concierge can't continue until you review its access.",
   concierge_provider_refused: "This concierge's provider is unavailable.",
   concierge_crashed: "This concierge has stopped.",
   concierge_closed: "This concierge was closed.",
@@ -27,7 +27,7 @@ export function ConciergeRecoveryNotice({ status, onSetUpWithGeneral, onOpenConc
       <p className="ct-card__title">{RECOVERY_SENTENCES[status.state] ?? `${missingConciergeLine(status)}.`}</p>
       <details className="ct-card__meta">
         <summary>Details</summary>
-        <p>{setup ? "Messages stay pending until you set up a concierge here." : "Messages stay pending while you review this concierge."}</p>
+        <p>{reviewAccess ? "Its saved access permission needs confirmation." : setup ? "Messages stay pending until you set up a concierge here." : "Messages stay pending while you review this concierge."}</p>
       </details>
     </div>
     <div className="neighbor-confirm__actions">
