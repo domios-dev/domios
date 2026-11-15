@@ -100,7 +100,13 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
         }
         if receiving_here {
-            restore().await?;
+            match restore().await {
+                Ok(()) => {}
+                Err(error) if launch_error(error.clone()) == Error::RestoreGrantRequired => {
+                    self.clear_neighbor_friend_restore_grants(uid, friendship);
+                }
+                Err(error) => return Err(error),
+            }
         }
         Ok(())
     }

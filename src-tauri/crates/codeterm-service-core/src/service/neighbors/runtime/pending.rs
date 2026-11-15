@@ -183,52 +183,65 @@ impl ServiceContext {
 }
 
 pub(super) async fn watch_lifecycle(session: &listener::Session) {
-    let mut events = session.service.events.subscribe();
-    let Ok(settings) = session.metadata.settings().await else {
-        session.stopped().await;
-        return;
-    };
-    let Some(binding) = settings.bindings.get(&session.friendship) else {
-        session.stopped().await;
-        return;
-    };
-    let present = || session.service.mux.read().get_tab(binding).is_some();
-    let mut was_present = present();
-    let mut previous = Value::Null;
-    if publish_projection(session, &settings, &mut previous).is_err() {
-        return;
+    if let Err(error) = watch_lifecycle_changes(session).await {
+        log::debug!("[neighbors] concierge lifecycle observation stopped: {error}");
     }
+    session.stopped().await;
+}
+
+async fn watch_lifecycle_changes(session: &listener::Session) -> codeterm_neighbors::Result<()> {
+    let mut events = session.service.events.subscribe();
+    let settings = session.metadata.settings().await?;
+    let mut binding = settings.bindings.get(&session.friendship).cloned();
+    let present = |binding: Option<&String>| {
+        binding.is_some_and(|tab| session.service.mux.read().get_tab(tab).is_some())
+    };
+    let mut was_present = present(binding.as_ref());
+    let mut previous = Value::Null;
+    publish_projection(session, &settings, &mut previous)?;
     loop {
         let event = tokio::select! {
             biased;
-            _ = session.stopped() => return,
+            _ = session.stopped() => return Ok(()),
             event = events.recv() => event,
         };
-        match event {
+        let mux_changed = match event {
             Ok(event) => {
                 let codeterm_events::SystemEvent::Generic { event_type, data } = event.event else {
                     continue;
                 };
                 if event_type == "mux-state-changed" {
-                    let is_present = present();
-                    if is_present == was_present {
-                        continue;
-                    }
-                    was_present = is_present;
+                    true
+                } else if matches!(
+                    event_type.as_str(),
+                    "neighbor-permission-changed"
+                        | "neighbor-agent-changed"
+                        | "neighbor-friend-paused"
+                ) && data["friendship_id"].as_str() == Some(session.friendship.as_str())
+                {
+                    false
                 } else if !matches!(
                     event_type.as_str(),
                     "agent-runtime-state" | "tab-boot-stage" | "tab-status-changed"
-                ) || data["tab_id"].as_str() != Some(binding.as_str())
+                ) || data["tab_id"].as_str() != binding.as_deref()
                 {
                     continue;
+                } else {
+                    false
                 }
             }
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => false,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+        };
+        let settings = session.metadata.settings().await?;
+        let current_binding = settings.bindings.get(&session.friendship).cloned();
+        let is_present = present(current_binding.as_ref());
+        if mux_changed && current_binding == binding && is_present == was_present {
+            continue;
         }
-        if publish_projection(session, &settings, &mut previous).is_err() {
-            return;
-        }
+        binding = current_binding;
+        was_present = is_present;
+        publish_projection(session, &settings, &mut previous)?;
     }
 }
 

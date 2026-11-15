@@ -2,6 +2,8 @@ use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 use async_trait::async_trait;
 
+mod lifecycle_refresh;
+
 struct NoRemoteCalls;
 
 #[async_trait]
