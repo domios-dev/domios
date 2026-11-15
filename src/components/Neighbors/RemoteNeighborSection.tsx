@@ -5,7 +5,7 @@ import { SurfaceOwnerBlock } from "../Sidebar/SurfaceAttachments";
 import { publishNeighborGateways } from "./neighborGateways";
 import { focusTab, workspaceOfTab } from "./neighborAgent";
 import { useNeighborProjection } from "./neighborProjection";
-import { ConciergeRow, conciergeModelLine } from "./SidebarNeighborsSection";
+import { ConciergeRow } from "./SidebarNeighborsSection";
 import { tabActivity } from "../../lib/tabActivity";
 import { FriendRow } from "./FriendRow";
 import { openNeighborPage } from "./neighborFocus";
@@ -45,14 +45,14 @@ export function RemoteNeighborSection({ peer, uiFontScale, touchMode, activeChat
       const openThere = elsewhere ? receiverOpenItem(receiver, receiver.receiver_machine_label ?? "concierge machine") : null;
       const line = elsewhere ? friendReceivingLine(receiver) : paused ? `disabled${!receiver ? " · concierge location unknown" : ""}`
         : !receiver ? friendReceivingLine(null) : value.access === "locked" ? "paused by plan"
-        : conciergeStatusLine(lifecycle);
+        : lifecycle?.state === "ready" ? "" : conciergeStatusLine(lifecycle);
       return <li key={id}><SurfaceOwnerBlock ownerId={`neighbor:${id}`} attachments={tab && !elsewhere ? [tab] : []} compact={false}
         renderOwner={() => <FriendRow friendshipId={id} name={value.friend_display_name} photoURL={value.friend_photo_url ?? null}
           uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === id} paused={paused} line={line}
           tone={!paused && receiver && !elsewhere && value.access === "paid" && lifecycle?.state === "ready" ? "ok" : needsAttention ? "progress" : "muted"}
           items={[...(openThere ? [openThere] : []), { label: `${value.friend_display_name}'s settings`, onClick: () => openNeighborPage(id) }]} />}
         renderAttachment={tab => <ConciergeRow tab={tab} friendName={value.friend_display_name} text={text} touchMode={touchMode} paused={paused}
-          active={tab.id === activeTabId} subline={paused ? "disabled" : needsAttention ? conciergeStatusLine(lifecycle) : conciergeModelLine(tab)} working={!paused && !needsAttention && tabActivity(tab, statuses[tab.id]).active}
+          active={tab.id === activeTabId} subline={paused ? "disabled" : needsAttention ? conciergeStatusLine(lifecycle) : undefined} working={!paused && !needsAttention && tabActivity(tab, statuses[tab.id]).active}
           onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }} />} />
       </li>;
     })}</ul>}
