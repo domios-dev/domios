@@ -123,6 +123,7 @@ pub(super) fn await_shell_prompt_armed(
     timeout: std::time::Duration,
     mut on_armed: impl FnMut(u32),
 ) -> bool {
+    let _output_read = screen_state.suspend_output(pty_id);
     let short_id = &pty_id[..pty_id.len().min(8)];
     let t0 = std::time::Instant::now();
     let mut rearms = 0u32;
@@ -181,6 +182,7 @@ pub fn await_bare_shell_prompt(
     timeout: std::time::Duration,
 ) -> bool {
     let signal = screen_state.arm_bare_prompt_signal(pty_id);
+    let _output_read = screen_state.suspend_output(pty_id);
     let short_id = &pty_id[..pty_id.len().min(8)];
     let t0 = std::time::Instant::now();
     let ready = signal.wait(timeout);

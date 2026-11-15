@@ -5,6 +5,24 @@ pub(crate) fn handle_window_event(
     window: &codeterm_client_shell::app_runtime::Window,
     event: &tauri::WindowEvent,
 ) {
+    if window.label() == "main"
+        && matches!(
+            event,
+            tauri::WindowEvent::Focused(false)
+                | tauri::WindowEvent::Destroyed
+                | tauri::WindowEvent::CloseRequested { .. }
+        )
+    {
+        if let Some(slot) = window
+            .app_handle()
+            .try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
+        {
+            let _ = slot.report_output_flow(
+                None,
+                codeterm_types::native_host::NativeOutputFlow::DetachAll,
+            );
+        }
+    }
     if matches!(event, tauri::WindowEvent::Focused(true)) && window.label() == "main" {
         if let Some(attachment) = window
             .app_handle()

@@ -451,6 +451,15 @@ impl ServiceContext {
         stage: BootStage,
         reason: Option<&str>,
     ) {
+        if stage != BootStage::AgentReady {
+            if let Some(flow) = tab
+                .pty_id
+                .as_deref()
+                .and_then(|pty_id| self.screen_state.output_flow(pty_id))
+            {
+                flow.revoke();
+            }
+        }
         crate::startup::boot_timing::mark(tab_id, tab.pty_id.as_deref(), stage);
         self.ui.emit(
             "tab-boot-stage",

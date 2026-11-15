@@ -75,6 +75,7 @@ impl ServiceContext {
         timeout: std::time::Duration,
         require_composer: bool,
     ) -> bool {
+        let _output_read = self.screen_state.suspend_output(pty_id);
         let composer_position = self
             .agent_registry
             .with_provider(agent_id, |provider| provider.composer_cursor_position())

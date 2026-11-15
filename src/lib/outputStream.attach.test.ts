@@ -14,6 +14,33 @@ function pending<T>() {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("aggregate terminal attachment", () => {
+  it("acknowledges only completed xterm writes and disconnects even on capacity recovery", async () => {
+    vi.resetModules();
+    localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    let receive!: (name: string, frame: unknown) => void | Promise<void>;
+    let ended!: (end: import("./transportClient").StreamEnd) => void;
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (_path, handler, options) => {
+      receive = handler; ended = options!.onEnd!; return () => {};
+    } } as import("./transportClient").TransportClient);
+    const write = pending<void>();
+    const rendered = vi.fn(), disconnected = vi.fn();
+    const detach = output.subscribeTabOutput("tab", {
+      onOutput: () => write.promise, onRendered: rendered, onDisconnected: disconnected, onTruncated() {}, onEnded() {},
+    }, {}, "pty");
+    try {
+      const completed = receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", offset: 1, b64: "QQ" });
+      expect(rendered).not.toHaveBeenCalled();
+      await receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", offset: 1, b64: "QQ" });
+      expect(rendered).not.toHaveBeenCalled();
+      write.resolve();
+      await completed;
+      expect(rendered).toHaveBeenCalledExactlyOnceWith(1);
+      ended({ reason: "capacity", bytes: 100 });
+      expect(disconnected).toHaveBeenCalledOnce();
+    } finally { detach(); output.resetOutputStream(); }
+  });
   it.each(["tab", "mesh:928b06dd-1234-4567-890a-123456789abc/tab"])("reports an empty %s replay only for the bound PTY", async tabId => {
     vi.resetModules();
     localStorage.clear();

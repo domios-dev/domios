@@ -287,6 +287,9 @@ pub fn run(
                 )),
                 prepared,
             )?;
+            if let Some(endpoint) = service_native.read().as_ref() {
+                endpoint.install_output_service(running.service.clone());
+            }
             running
                 .service
                 .register_host_extension(Arc::new(diagnostics_port))
