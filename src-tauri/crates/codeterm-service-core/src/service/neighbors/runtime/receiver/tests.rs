@@ -230,11 +230,15 @@ fn receiver_destination_uses_installation_identity_and_keeps_offline_assignment(
     };
     let installations = [row("other", true), row("receiver", false)];
     let offline = ServiceContext::receiver_state(&status, &BTreeSet::new(), &installations);
-    assert_eq!(offline.receiver_instance_id.as_deref(), Some("instance-receiver"));
+    assert_eq!(
+        offline.receiver_instance_id.as_deref(),
+        Some("instance-receiver")
+    );
     assert_eq!(offline.receiver_online, Some(false));
     assert!(offline.receiving_enabled);
     assert_eq!(offline.revision, 8);
-    let expired = ServiceContext::receiver_state(&status, &["receiver".into()].into(), &installations);
+    let expired =
+        ServiceContext::receiver_state(&status, &["receiver".into()].into(), &installations);
     assert!(!expired.receiving_enabled);
     assert_eq!(expired.receiver_machine_label.as_deref(), Some("Desk"));
     assert_eq!(expired.receiver_instance_id, offline.receiver_instance_id);
