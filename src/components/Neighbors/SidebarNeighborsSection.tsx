@@ -142,7 +142,7 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
         <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge && !elsewhere ? [concierge] : []} compact={false}
           renderOwner={() => <FriendRow friendshipId={friend.friendship_id} name={name} photoURL={friend.photoURL}
             uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === friend.friendship_id} paused={paused} line={line}
-            tone={paused || !receiver || elsewhere ? "muted" : needsAttention ? "progress" : !loading && enabled && paid && lifecycle?.state === "ready" ? "ok" : "muted"}
+            tone={!paused && receiver && !elsewhere && !loading && enabled && paid && lifecycle?.state === "ready" ? "ok" : "muted"}
             items={[...receiveItems, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }, pauseItem]} />}
           renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode} paused={paused} pauseItem={pauseItem} active={tab.id === activeTabId}
             subline={paused ? "disabled" : needsAttention ? conciergeStatusLine(lifecycle) : undefined} working={!paused && !needsAttention && tabActivity(tab, tabStatuses[tab.id]).active}
