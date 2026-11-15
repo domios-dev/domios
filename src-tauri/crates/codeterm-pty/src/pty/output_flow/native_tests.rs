@@ -120,7 +120,7 @@ fn native_pause_preserves_input_and_every_output_record() {
                 bytes.len() <= 16 * 1024 * 1024,
                 "native fixture output exceeded its bound"
             );
-            reader_flow.produced(bytes.len() as u64);
+            reader_flow.produced(1, bytes.len() as u64);
         }
         let _ = drained_tx.send(bytes);
     });

@@ -45,7 +45,7 @@ export function createRendererOutputFlow(
           attempted = offset;
           pending = undefined;
           const current = revision;
-          const accepted = await send({ action: "rendered", tab_id: tabId, pty_id: ptyId, attachment, offset, attach: !attached });
+          const accepted = await send({ action: "rendered", tab_id: tabId, pty_id: ptyId, attachment, offset, attach: true });
           if (current === revision) {
             attached = accepted;
             acknowledged = accepted ? offset : undefined;
@@ -79,7 +79,7 @@ export function createRendererOutputFlow(
     rendered(offset: number) {
       if (!Number.isSafeInteger(offset) || offset < 0) return;
       latest = Math.max(latest ?? 0, offset);
-      if (!enabled) return;
+      if (!enabled) { if (release) void drain(); return; }
       pending = latest;
       void drain();
     },

@@ -121,7 +121,10 @@ fn output_flow_queue_full_preserves_the_native_client_and_view() {
         cancellations: Mutex::default(),
         last_event_id: AtomicU64::new(0),
     });
-    let slot = NativeHostClientSlot(Arc::new(RwLock::new(Some(client.clone()))));
+    let slot = NativeHostClientSlot(
+        Arc::new(RwLock::new(Some(client.clone()))),
+        Default::default(),
+    );
     let error = slot
         .report_output_flow(Some(&view.origin), NativeOutputFlow::DetachAll)
         .unwrap_err();
