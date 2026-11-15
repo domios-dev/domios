@@ -236,6 +236,21 @@ fn task_binding_returns_exact_bound_task_and_unknown_stays_null() {
     .unwrap();
     assert_eq!(bound["binding"]["plan_id"], plan_id);
     assert_eq!(bound["binding"]["task_id"], task_id);
+    let launch = store
+        .tab_launch_task_projection(&plan_id, &task_id, "tab-bound")
+        .unwrap()
+        .unwrap();
+    assert!(launch.attempt_id.is_some());
+    assert_eq!(bound["binding"]["attempt_id"], json!(launch.attempt_id));
+    assert_eq!(bound["binding"]["base"], json!(launch.base));
+
+    store.set_task_assignment(&task_id, None, None, 5).unwrap();
+    let detached = super::task_binding(
+        &store,
+        &Some(json!({"tab_id":"tab-bound"})),
+        None,
+    ).unwrap();
+    assert!(detached["binding"].is_null());
 
     let unknown = super::task_binding(
         &store,
@@ -259,6 +274,8 @@ fn team_member_binding_resolves_the_team_active_plan_without_a_task() {
     .unwrap();
     assert_eq!(binding["binding"]["plan_id"], plan_id);
     assert_eq!(binding["binding"]["task_id"], serde_json::Value::Null);
+    assert!(binding["binding"]["attempt_id"].is_null());
+    assert!(binding["binding"]["base"].is_null());
 }
 
 #[test]

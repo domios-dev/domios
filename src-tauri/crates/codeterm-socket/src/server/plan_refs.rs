@@ -104,20 +104,26 @@ pub(super) fn task_binding(
     let tab_id = get_string_param(params, "tab_id")?;
     let binding = store
         .assigned_task_binding_projection(&tab_id)
-        .map_err(super::plan::plan_rpc_err)?
-        .map(|binding| {
-            serde_json::json!({
+        .map_err(super::plan::plan_rpc_err)?;
+    let binding = if let Some(binding) = binding {
+        let launch = store
+            .tab_launch_task_projection(&binding.plan_id, &binding.task_id, &tab_id)
+            .map_err(super::plan::plan_rpc_err)?;
+        Some(serde_json::json!({
                 "plan_id": binding.plan_id,
                 "task_id": binding.task_id,
-            })
-        })
-        .or_else(|| {
-            let (plan_id, _) = store.active_plan_for_team(team_id?)?;
+                "attempt_id": launch.as_ref().and_then(|value| value.attempt_id.as_deref()),
+                "base": launch.as_ref().and_then(|value| value.base.as_deref()),
+        }))
+    } else {
+        team_id.and_then(|team_id| {
+            let (plan_id, _) = store.active_plan_for_team(team_id)?;
             Some(serde_json::json!({
                 "plan_id": plan_id,
                 "task_id": null,
             }))
-        });
+        })
+    };
     Ok(serde_json::json!({
         "tab_id": tab_id,
         "binding": binding,
