@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createTranscriptState, reduceTranscript, projectTranscript, type NormalizedChatMessage } from "@codeterm/chat-core";
-import { deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
+import { deliveryProjectionSends, queuedBehindTurn, type DeliverySend } from "./chatDeliveryModel";
 import { createDeliveryProjectionMemory, queuedDeliveryIds, stableDeliveryEntries } from "./chatDeliveryProjection";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
@@ -19,7 +19,7 @@ test("a queued send stays after the running output through turn end, while steer
         sequence: index, ledger_id: "ledger", retained_from: 1, error: null } } : send;
       const queued = queuedDeliveryIds([current], queue, state);
       assert.deepEqual(projectTranscript(transcript, deliveryProjectionSends([current], null, queued)).rows.map(row => row.id),
-        queue ? ["output", "local"] : ["local", "output"]);
+        queue && status !== "delivered" ? ["output", "local"] : ["local", "output"]);
     }
   }
 });
@@ -31,6 +31,31 @@ test("an explicit active-turn hold supplies queue placement without transport as
   assert(queuedDeliveryIds([held], false, state).has(send.id));
   assert(queuedDeliveryIds([{ ...send, wasHeld: true }], false, state).has(send.id));
   assert.equal(queuedDeliveryIds([], false, state).size, 0);
+});
+
+test("exact mid-turn image evidence releases tail placement while the agent keeps working", () => {
+  const authority = { sourceSessionId: "own", sessionBindingNonce: "launch" };
+  const content = 'Inspect this image\nThen check the caption <domios type="attachment" kind="image" path="C:/chat/image.png" label="image1" />';
+  const pending: DeliverySend = { ...send, content, echoBoundary: { ...authority, lastRowId: "before" } };
+  const state = memory();
+  assert(queuedDeliveryIds([pending], true, state).has(send.id));
+  const delivered: DeliverySend = { ...pending, status: { tab_id: "tab", send_id: "tx", correlationId: "token",
+    state: "delivered", sequence: 2, ledger_id: "ledger", retained_from: 1, error: null } };
+  const queued = queuedDeliveryIds([delivered], true, state);
+  assert.equal(queued.size, 0, "a delivered receipt ends the wait without waiting for idle");
+  const rows: NormalizedChatMessage[] = [
+    { id: "before", sourceSessionId: "own", type: "tool_result", content: "read complete" },
+    { id: "mid-turn", sourceSessionId: "own", type: "user", content, timelineMarker: { kind: "queued" }, timestamp: String(send.sentAtMs + 100) },
+    { id: "after", sourceSessionId: "own", type: "assistant", content: "image reviewed", timestamp: String(send.sentAtMs + 200) },
+  ];
+  const transcript = reduceTranscript(createTranscriptState(), { kind: "snapshot", authority, range: null, rows }).state;
+  const projection = projectTranscript(transcript, deliveryProjectionSends([delivered], null, queued));
+  assert.deepEqual(projection.pending, []);
+  assert.deepEqual(projection.rows.map(row => row.id), ["before", "mid-turn", "after"]);
+  const confirmed = { ...delivered, echo: projection.echoes.get(send.id) };
+  assert.equal(queuedBehindTurn(confirmed, "working"), false);
+  assert.equal(queuedDeliveryIds([confirmed], true, state).size, 0);
+  assert.equal(queuedDeliveryIds([confirmed], false, state).size, 0);
 });
 
 test("a source echo takes over one local row identity without a blank handoff render", () => {

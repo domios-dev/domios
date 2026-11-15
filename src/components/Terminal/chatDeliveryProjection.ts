@@ -23,7 +23,7 @@ export function createDeliveryProjectionMemory(key: string): DeliveryProjectionM
 const TURN_ENDS_BEFORE_UNCONFIRMED_RELEASE = 2;
 
 function tailWaitEnded(send: DeliverySend, state: DeliveryState, turnEnds: number): boolean {
-  return Boolean(send.dismissed) || state === "failed"
+  return Boolean(send.dismissed) || state === "delivered" || state === "failed"
     || (state === "uncertain" && turnEnds >= TURN_ENDS_BEFORE_UNCONFIRMED_RELEASE);
 }
 
