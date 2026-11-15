@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Exact source commit SHA
+        description: Full 40-hex commit SHA already on master, develop or the dispatching release/X.Y.Z branch
         required: true
         type: string
       scope:
@@ -45,7 +45,24 @@ jobs:
             const release = context.eventName === 'push' && /^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref);
             if (!owner || !(release || context.eventName === 'workflow_dispatch'))
               throw new Error('CI requires an owner release push or diagnostic dispatch');
-            core.setOutput('source_sha', release ? context.sha : process.env.SOURCE_REF);
+            const source = release ? context.sha : process.env.SOURCE_REF;
+            if (!release) {
+              // Diagnostics run with farm secrets: only commits already on an owner-only branch are admitted.
+              const trusted = /^refs\/heads\/(release\/\d+\.\d+\.\d+)$/.exec(context.ref)?.[1];
+              if (!trusted) throw new Error('Dispatch diagnostics from release/X.Y.Z');
+              if (!/^[0-9a-f]{40}$/.test(source)) throw new Error('source_ref must be a full 40-hex commit SHA');
+              let reachable = false;
+              for (const branch of new Set([trusted, 'develop', 'master'])) {
+                const status = await github.rest.repos.compareCommitsWithBasehead({...context.repo,
+                  basehead: source + '...' + branch, per_page: 1}).then(response => response.data.status, error => {
+                  if (error.status === 404) return 'missing';
+                  throw error;
+                });
+                if (status === 'ahead' || status === 'identical') { reachable = true; break; }
+              }
+              if (!reachable) throw new Error('source_ref is not reachable from an owner-only branch');
+            }
+            core.setOutput('source_sha', source);
             core.setOutput('release_head', String(release));
             core.setOutput('run', 'true');
   policy:
@@ -66,7 +83,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: ${{ inputs.source_ref || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ needs.admission.outputs.source_sha }}
           fetch-depth: 1
       - name: Fetch scoped policy history
         env:
@@ -270,7 +287,8 @@ jobs:
       mirror: false
     secrets: inherit
   result:
-    name: CI result
+    # A diagnostic attaches to the dispatching branch head, so it never shares the push context name.
+    name: ${{ github.event_name == 'push' && 'CI result' || 'CI diagnostic result' }}
     if: ${{ !cancelled() }}
     needs:
       - admission

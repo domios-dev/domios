@@ -70,7 +70,7 @@ function fakeDaemon() {
     }
     return new Response("UI request bypassed the mux", { status: 500 });
   });
-  return { fetch, longLived, opened, released, rpcs, drop: () => drop(), stall: () => { stalled = true; }, push };
+  return { fetch, longLived, opened, released, rpcs, drop: () => drop(), stall: () => { stalled = true; }, resume: () => { stalled = false; }, push };
 }
 
 async function boot() {
@@ -236,6 +236,52 @@ describe("one multiplexed stream per origin", () => {
       expect(daemon.longLived[0].signal?.aborted).toBe(true);
       expect(await verifyStreamMuxes(ORIGIN)).toBe(false);
     } finally { stop(); }
+  });
+
+  it("buffered unrelated frames cannot prove a suspect carrier", async () => {
+    const { daemon } = await boot();
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { verifyStreamMuxes, streamMuxDiagnostics } = await import("./streamMux");
+    const received = vi.fn();
+    const stop = baseDaemonTransport().subscribe("/api/events/stream", received);
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(1));
+      daemon.stall();
+      const proof = verifyStreamMuxes(ORIGIN);
+      await vi.waitFor(() => expect(daemon.rpcs).toHaveLength(1));
+      daemon.resume();
+      daemon.push({ channel: daemon.opened[0].channel, data: { event_type: "fixture", data: "buffered" } });
+      await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(1));
+      expect(streamMuxDiagnostics()[0].carrier).toBe("proving");
+      daemon.push({ channel: daemon.rpcs[0].channel, open: true, content_type: "application/json" });
+      expect(await proof).toBe(true);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+    } finally { stop(); }
+  });
+
+  it("a late proof deadline gives queued probe delivery a task before replacing the carrier", async () => {
+    const { daemon } = await boot();
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { verifyStreamMuxes } = await import("./streamMux");
+    const { CARRIER_PROOF_MS } = await import("./streamMuxModel");
+    const stop = baseDaemonTransport().subscribe("/api/events/stream", () => {});
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(1));
+      daemon.stall();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const proof = verifyStreamMuxes(ORIGIN);
+      await vi.advanceTimersByTimeAsync(CARRIER_PROOF_MS - 1);
+      vi.setSystemTime(Date.now() + 2000);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+      daemon.resume();
+      daemon.push({ channel: daemon.rpcs[0].channel, open: true, content_type: "application/json" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await proof).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(daemon.longLived).toHaveLength(1);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+    } finally { vi.useRealTimers(); stop(); }
   });
 
   it("N peers x M remote tabs plus a local terminal hold exactly one long-lived connection", async () => {

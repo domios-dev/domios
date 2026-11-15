@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 pub(crate) const FRAME_CAP: usize = 64 * 1024;
 pub(crate) const BYTE_BUDGET: usize = 4 * 1024 * 1024;
 const INTERACTIVE_RESERVE: usize = 512 * 1024;
+const OUTPUT_RESERVE: usize = 512 * 1024;
 const TERMINAL_RESERVE: usize = 256 * 1024;
 const CHANNEL_DEPTH: usize = 8;
 const INTERACTIVE_BURST: usize = 8;
@@ -16,6 +17,7 @@ pub(crate) const BULK_WINDOW: u64 = 4 * 1024 * 1024;
 pub(crate) enum Traffic {
     Interactive,
     Bulk,
+    Output,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,6 +104,8 @@ impl Model {
         let budget = if frame.kind == Kind::End {
             BYTE_BUDGET
         } else if bulk {
+            BYTE_BUDGET - INTERACTIVE_RESERVE - OUTPUT_RESERVE
+        } else if frame.kind == Kind::Data && channel.traffic == Traffic::Output {
             BYTE_BUDGET - INTERACTIVE_RESERVE
         } else {
             BYTE_BUDGET - TERMINAL_RESERVE

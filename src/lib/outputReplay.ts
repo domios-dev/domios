@@ -29,14 +29,14 @@ export class TerminalOutputReplay {
     cursor(terminal: object, tabId: string): OutputCursor | undefined {
         return this.cursors.get(terminal)?.get(tabId);
     }
-    resync(terminal: object, tabId: string, boot: string, ptyId: string, from: number, reportGap: () => void): void {
+    resync(terminal: object, tabId: string, boot: string, ptyId: string, from: number, reportGap: () => void, reset = false): void {
         let tabs = this.cursors.get(terminal);
         if (!tabs) {
             tabs = new Map();
             this.cursors.set(terminal, tabs);
         }
         const previous = tabs.get(tabId);
-        const result = planOutputResync(this.offset(terminal, tabId, boot, ptyId), from);
+        const result = reset ? { offset: from, reportGap: true } : planOutputResync(this.offset(terminal, tabId, boot, ptyId), from);
         if (!result.reportGap) return;
         tabs.set(tabId, { boot, ptyId, offset: result.offset });
         try {

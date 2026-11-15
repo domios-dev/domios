@@ -63,7 +63,7 @@ for (const origin of ["http://localhost:7686", "http://127.0.0.1:7685", "http://
   assert.equal(isLocalEventStream(origin, false), true);
   assert.equal(isLocalEventStream(origin, true), false, "relay streams keep remote outage bounds");
 }
-assert.equal(isLocalEventStream("http://100.64.0.1:7685", false), false);
+assert.equal(isLocalEventStream("http://192.0.2.1:7685", false), false);
 for (const hidden of [false, true]) {
   assert.equal(eventReconnectDelay(LOCAL_EVENT_RETRY_MS, 0, hidden, true), 125);
   assert.equal(eventReconnectDelay(60_000, 1, hidden, true), LOCAL_EVENT_RETRY_CAP_MS);

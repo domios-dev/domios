@@ -42,7 +42,7 @@ export function SavedSolutions({ sources, revision, api = blueprintSolutionsApi,
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
-    setEntries([]); setError(null);
+    setEntries((previous) => previous.filter((entry) => sources.includes(entry.solution.workspaceId))); setError(null);
     void readSolutionCatalogue(sources, api, controller.signal).then((entries) => {
       if (active) setEntries(entries);
     }, (failure: unknown) => { if (active) setError(String(failure)); });

@@ -81,7 +81,13 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
                     continue;
                 }
                 if body["method"] == "plan.binding.resolve" {
-                    reply(&mut stream, true, json!({"result":{"binding":null}}));
+                    assert_eq!(body["params"]["tab_id"], "fixture-worker");
+                    assert_eq!(body["params"]["caller_tab_id"], "fixture-worker");
+                    reply(
+                        &mut stream,
+                        true,
+                        json!({"result":{"tab_id":"fixture-worker","binding":null}}),
+                    );
                     continue;
                 }
                 assert_eq!(body["method"], "agent.report");

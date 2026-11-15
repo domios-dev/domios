@@ -10,9 +10,15 @@ From the reviewed checkout, select the personal account for this command without
 GH_TOKEN="$(gh auth token --user rollacode)" bash .github/admin/public-repo.sh --apply
 ```
 
-The script contains the exact `gh api` requests. It disables Actions first and leaves them disabled on success or failure. Separate rulesets restrict branch creation/update to the individual owner while retaining non-bypassable PR/check, deletion and force-push rules. Trusted dev branches are also owner-only because they run code on the build farm. Master requires a release PR and the always-present source and secret-scan checks. Release branches require secret-scan, which runs on release pushes and trusted dev pushes before branch creation. Other path-filtered checks are not required because absent checks would block merges indefinitely. Exact-SHA qualification remains a release preparation requirement.
+The script contains the exact `gh api` requests. It disables Actions first and leaves them disabled on success or failure. Separate rulesets restrict branch creation/update to the individual owner while retaining non-bypassable PR/check, deletion and force-push rules. Trusted dev branches are also owner-only because they run code on the build farm.
 
-Inspect existing rulesets and environment branch policies first. The named rulesets are updated in place; the deployment branch policy POST is for initial setup. On a second application, reuse its existing policy ID rather than adding duplicates. Delete any broader existing environment branch/tag policies with `gh api --method DELETE repos/domios-dev/domios/environments/release/deployment-branch-policies/POLICY_ID`. Verify that the final list contains only the branch policy `release/*` and that the only reviewer is `rollacode`. Self-review must remain enabled so the sole owner can approve their dispatch. Disable environment administrator bypass in the environment settings if available.
+Master requires a release PR and two status contexts, both pinned to the GitHub Actions app: **Release qualification** and **PR result**. Only `release-pr.yml` emits Release qualification, and only for a PR whose base is master, so a develop PR or a diagnostic dispatch on the same head SHA can never satisfy it. A base retarget arrives as `edited` and reruns the reader. The three aggregates carry distinct names: `PR result` (tests-side.yml), `CI result` (tests.yml release push) and `CI diagnostic result` (tests.yml dispatch); none of them alone admits a master merge. The reader and `scripts/ci-workflow-api.mjs` come from the PR head, so this gate guards against owner mistakes; the boundary against a hostile PR is that only the owner can merge.
+
+Release branches carry no required status check: their checks exist only after the push, so such a rule rejects every direct release push. The script deletes a previously applied `release-required-checks` ruleset. Release heads stay owner-only through `owner-only-trusted-branches`; qualification gates the master PR and publication.
+
+Inspect existing rulesets and environment branch policies first. The named rulesets are updated in place. The script reconciles the `release` environment's deployment branch policies to exactly two branch entries and deletes every other branch or tag policy: `release/*` (release push dry run and owner dispatches) and `master` (publication). Verify that the final list contains only those two and that the only reviewer is `rollacode`. Self-review must remain enabled so the sole owner can approve their own run. Disable environment administrator bypass in the environment settings if available.
+
+If develop has a live rule requiring the old `CI result` context, the owner replaces it with `PR result`; a rule naming a context no PR emits blocks every develop merge.
 
 CODEOWNERS declares review ownership; it does not independently restrict merges. The separate code-owner review ruleset lets only rollacode bypass review through a PR, because GitHub forbids self-approval. The independent master PR/status ruleset has no bypass, so even the owner must open a PR and pass its checks. Verify effective rules with an owner-authored release PR before publication. Use a narrowly scoped owner credential for automated promotion; a bot/App release token is deliberately unable to update protected branches. Remove automatic release-branch deletion from promotion because deletion is forbidden.
 
@@ -31,7 +37,7 @@ Audit installed GitHub Apps and token grants with repository write access; revok
 
 ## CI environment
 
-Only release jobs use an environment (`release`). Other jobs read repository-level secrets: the public client configuration, the S3/sccache keys, the store addresses and the webhook token. GitHub withholds them from fork pull requests, and privileged CI jobs reject every PR event regardless of actor. PR light checks and the qualification reader use only hosted runners and read-only tokens. The warning-summary reusable workflow selects `release` on release branches and no environment otherwise.
+Only release jobs use an environment (`release`). Other jobs read repository-level secrets: the public client configuration, the S3/sccache keys, the store addresses and the webhook token. GitHub withholds them from fork pull requests, and privileged CI jobs reject every PR event regardless of actor. PR light checks and the qualification reader use only hosted runners and read-only tokens; `tests-side.yml` and `release-pr.yml` are the only `pull_request` workflows. The Docker archive smoke needs the build configuration, so it is an owner dispatch from release/X.Y.Z and never a PR job. The warning-summary reusable workflow selects `release` on release branches and no environment otherwise.
 
 ## Secret inventory
 
@@ -80,6 +86,20 @@ For each application release, retarget every acquiring workflow in that payload 
 `refs/heads/release/X.Y.Z` branch. Include reusable workflows as well as their callers. The prepared
 1.20.0 payload uses `refs/heads/release/1.20.0`; it has not been applied by this change.
 
+The payload must list every workflow that can select a `vars.*` runner; an unlisted one queues until
+timeout once the policy is live. List the candidates and compare them with the payload:
+
+```bash
+grep -lE "vars\.[A-Z0-9_]*RUNNER" .github/workflows/*.yml
+```
+
+Workflows that run on the default branch cannot match a release ref, so they name hosted runners
+literally and stay out of the payload: `dep-audit.yml` (schedule), `wiki-sync.yml` (`workflow_run`),
+every `pull_request` workflow, and the master publication jobs of `release.yml`,
+`release-manifest-validate.yml` and `rust-warnings-summary.yml`. The allowlist therefore needs no master
+ref. Entries pin a branch, so isolation equals "who can push that branch": apply and read back the
+`owner-only-trusted-branches` ruleset before the runner policy.
+
 Owner operation, after reviewing the ID and payload:
 
 ```bash
@@ -108,23 +128,33 @@ GH_TOKEN="$(gh auth token --user rollacode)" gh api --method PUT repos/domios-de
 Owner release pushes start the full tests.yml qualification graph and reusable release.yml dry-run
 packaging together in one push run, with per-branch concurrency and exact `github.sha` source.
 Only exact release/X.Y.Z pushes are admitted. All privileged reusable jobs reject PR events.
-Release PRs into master use hosted, secret-free light checks and a hosted read-only Release
-qualification job. Open or refresh the PR only after the push run is completed green; the reader
+Release PRs into master use hosted, secret-free light checks (`PR result`) and the hosted read-only
+Release qualification job of `release-pr.yml`. Open or refresh the PR only after the push run is completed green; the reader
 fails on missing, failed, expired or superseded same-head evidence. No workflow_run reader or
 default-branch deployment is required.
 
-A master merge push finds its merged owner release PR and selects the green push run by exact
-SHA, branch, repository and owner actors. `promote_run_id` pins receipt lookup and retained packaging
-to that run. Qualification, attempt provenance, expiry, warnings, all platform and Debian receipts,
-manifest validation, protected environments and the publication switch remain required.
-Run dispatches from a reviewed release/X.Y.Z branch; diagnostics cannot qualify a SHA.
-Tag-triggered plugin/SDK publication and release-publish.yml automatic publication remain disabled.
-Plugin dispatch takes an existing plugin tag resolving to the reviewed branch SHA; SDK publication
-uses its committed package version. Original and rerun actors must both be the owner.
+Application publication has one supported path: the master merge push of the owner release PR.
+It finds its merged PR and selects the green push run by exact SHA, branch, repository and owner
+actors. `promote_run_id` pins receipt lookup and retained packaging to that run. Qualification,
+attempt provenance, expiry, warnings, all platform and Debian receipts, manifest validation, the
+protected `release` environment (branch policy `master`) and the publication switch remain required.
+Every master publication job runs on hosted Ubuntu. A failed publication is repaired by rerunning the
+failed jobs of that same master push run.
+
+Dispatches never publish an application release: a `release.yml` dispatch refuses unless
+`dry_run=true`, takes no `promote_run_id` and always builds the head of the dispatching release/X.Y.Z
+branch; `release-publish.yml` refuses unless `rehearsal=true`. Diagnostics cannot qualify a SHA, and
+a `tests.yml` dispatch admits only a full 40-hex `source_ref` already reachable from master, develop
+or the dispatching release/X.Y.Z branch, so a contributor's PR head never runs on the farm.
+Tag-triggered plugin/SDK publication remains disabled. Plugin dispatch takes an existing plugin tag
+resolving to the reviewed branch SHA; SDK publication uses its committed package version. Original
+and rerun actors must both be the owner.
 
 ```bash
 gh workflow run release.yml --repo domios-dev/domios --ref release/X.Y.Z -f tag=vX.Y.Z -f dry_run=true -f mirror=false
 gh workflow run release-publish.yml --repo domios-dev/domios --ref release/X.Y.Z -f run_id=REVIEWED_RUN_ID -f tag=vX.Y.Z -f rehearsal=true
+gh workflow run tests.yml --repo domios-dev/domios --ref release/X.Y.Z -f source_ref=FULL_40_HEX_SHA -f scope=fast
+gh workflow run docker-smoke.yml --repo domios-dev/domios --ref release/X.Y.Z
 gh workflow run plugin-release.yml --repo domios-dev/domios --ref release/X.Y.Z -f tag=plugin-ID-vVERSION
 gh workflow run publish-plugin-sdk.yml --repo domios-dev/domios --ref release/X.Y.Z
 ```

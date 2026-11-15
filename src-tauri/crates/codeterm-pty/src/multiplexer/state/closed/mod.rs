@@ -175,6 +175,10 @@ impl MultiplexerState {
     /// with a `worker_id`), which must stay restorable.
     fn build_closed_tab(&self, tab_id: &str, reason: TabCloseReason) -> Option<ClosedTab> {
         let tab = self.tabs.get(tab_id)?;
+        // General setup validates concierge access; ordinary reopen cannot restore that authority.
+        if tab.neighbor_authority.is_some() {
+            return None;
+        }
         let policy_worker = reason == TabCloseReason::PolicyWorker && tab.worker_id.is_some();
         if tab.protected {
             return None;

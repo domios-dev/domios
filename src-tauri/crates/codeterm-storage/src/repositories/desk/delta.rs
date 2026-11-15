@@ -44,8 +44,13 @@ impl ValidatedInventory {
             preserve_missing(current, self.snapshot)
         };
         retain_orphan_teams(&mut target);
-        // Preservation only adds old entities or reorders submitted ones; added rows need validation.
-        if inventory_counts(&target) != self.counts {
+        let target_counts = inventory_counts(&target);
+        // Equal counts reuse validation because preservation only adds or reorders submitted entities.
+        debug_assert!(target_counts
+            .iter()
+            .zip(self.counts)
+            .all(|(after, before)| *after >= before));
+        if target_counts != self.counts {
             target.validate()?;
         }
         Ok(target)

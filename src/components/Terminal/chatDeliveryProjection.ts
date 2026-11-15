@@ -1,5 +1,5 @@
-import { matchesMatchedRow, normalizeChatText, pendingSendPosition, timestampMs, type SendEcho } from "@codeterm/chat-core";
-import { ACTIVE_TURN_HOLD, deliveryState, sendForRow, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
+import { normalizeChatText, pendingSendPosition, timestampMs, type SendEcho } from "@codeterm/chat-core";
+import { ACTIVE_TURN_HOLD, deliveryState, sendForRow, sendsForRow, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
 export interface DeliveryProjectionMemory {
@@ -19,13 +19,14 @@ export function createDeliveryProjectionMemory(key: string): DeliveryProjectionM
 }
 
 // The turn it queued behind ends first; queued input is submitted then, so only a
-// following turn that also ends without its evidence proves it was not picked up.
-const TURN_ENDS_BEFORE_UNCONFIRMED_RELEASE = 2;
+// following turn that also ends without its echo proves its row is not coming here.
+const TURN_ENDS_BEFORE_UNECHOED_RELEASE = 2;
 
+// A delivered receipt alone keeps the tail: a loaded claimed record places it exactly, and
+// releasing before the echo would move it twice when the record cannot be located.
 function tailWaitEnded(send: DeliverySend, state: DeliveryState, turnEnds: number): boolean {
   return Boolean(send.dismissed) || send.echo != null || state === "failed"
-    || state === "delivered"
-    || (state === "uncertain" && turnEnds >= TURN_ENDS_BEFORE_UNCONFIRMED_RELEASE);
+    || ((state === "uncertain" || state === "delivered") && turnEnds >= TURN_ENDS_BEFORE_UNECHOED_RELEASE);
 }
 
 /** Sends drawn after the running turn's output. Only input still in flight joins, so a
@@ -69,7 +70,8 @@ export function stableDeliveryEntries(
         && candidate.echo.timestampMs === timestampMs(entry.msg.timestamp)
         && candidate.echo.content === normalizeChatText(entry.msg.content).toLowerCase();
     });
-    if (!send) return entry;
+    // Several rows of one record keep their own keys; only the first carries the send's identity.
+    if (!send || present.has(send.id)) return entry;
     present.add(send.id);
     const names = Object.values(send.draft?.capsules ?? {}).filter(capsule => capsule.path && capsule.displayName)
       .map(capsule => [capsule.path, capsule.displayName!] as const);
@@ -80,12 +82,12 @@ export function stableDeliveryEntries(
     else memory.pending.delete(send.id);
     return stable;
   });
-  const byId = new Map(sends.map(send => [send.id, send]));
+  const byId = new Map(reconciled.map(send => [send.id, send]));
   for (const [id, entry] of memory.pending) {
     const send = byId.get(id);
     if (!send || send.dismissed) { memory.pending.delete(id); continue; }
     if (present.has(id)) continue;
-    if (send.matchedRow && echoes.has(id) && entries.some(entry => matchesMatchedRow(entry.msg, send.matchedRow!))) {
+    if (echoes.has(id) && entries.some(entry => sendsForRow([send], entry.msg).length > 0)) {
       memory.pending.delete(id);
       continue;
     }

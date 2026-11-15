@@ -555,6 +555,7 @@ pub fn spawn_detached(executable: &Path) -> io::Result<Child> {
     #[cfg(windows)]
     exclude_bootstrap_stdio_from_children()?;
     let mut command = Command::new(executable.canonicalize()?);
+    codeterm_util::embedding_cpu::strip_injected_default(&mut command);
     command
         .arg("serve")
         .stdin(Stdio::piped())
@@ -599,6 +600,7 @@ fn spawn_supervised(executable: &Path) -> io::Result<Child> {
     #[cfg(windows)]
     exclude_bootstrap_stdio_from_children()?;
     let mut command = Command::new(executable.canonicalize()?);
+    codeterm_util::embedding_cpu::strip_injected_default(&mut command);
     command
         .arg("serve")
         .stdin(Stdio::piped())

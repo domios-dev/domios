@@ -118,6 +118,7 @@ pub(crate) fn nudge_unbound_launch_draft(
     draft: &str,
     submit_key: &[u8],
 ) -> Result<(), &'static str> {
+    let _output_read = svc.screen_state.suspend_output(pty_id);
     let (agent_id, session_bound, owns_pty, launch_nonce) = {
         let mux = svc.mux.read();
         let tab_id = mux.tab_id_for_pty(pty_id).ok_or("tab_missing")?;

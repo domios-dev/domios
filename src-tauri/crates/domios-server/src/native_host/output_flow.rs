@@ -97,6 +97,9 @@ where
                         tab.boot_stage,
                     )
                 {
+                    if let Some(flow) = service.screen_state.output_flow(&pty_id) {
+                        flow.detach(view, None);
+                    }
                     return;
                 }
                 let Some(flow) = service.screen_state.output_flow(&pty_id) else {
@@ -145,6 +148,9 @@ fn attachment_decision(
 ) -> AttachmentDecision {
     if attachment.is_nil() {
         return AttachmentDecision::Reject;
+    }
+    if attachments.get(pty_id) == Some(&(attachment, generation)) {
+        return AttachmentDecision::Acknowledge;
     }
     if !attach {
         let Some(&(owner, previous_generation)) = attachments.get(pty_id) else {

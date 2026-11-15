@@ -249,7 +249,7 @@ async fn backend_read_loop(
                 }
                 total_read = total_read.saturating_add(data_len as u64);
                 if let Some(flow) = &flow {
-                    flow.produced(total_read);
+                    flow.produced(generation, total_read);
                 }
                 let (completed, completion) = tokio::sync::oneshot::channel();
                 processed = Some(completion);

@@ -12,8 +12,9 @@ use crate::plan::{OrchestratorRef, Plan};
 use crate::service::test_fixture::ServiceFixture;
 use crate::service::ServiceContext;
 
-const PROBE_PLUGIN: &str =
-    r#"module.exports.default = { probe(query) { return host.analytics.query(query); } }"#;
+const PROBE_PLUGIN: &str = r#"module.exports.default = {
+    probe(query) { return host.io({ op: "analyticsQuery", query }, value => value); }
+}"#;
 
 mod mixed_usage;
 

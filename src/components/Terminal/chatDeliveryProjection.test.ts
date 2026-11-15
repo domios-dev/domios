@@ -19,7 +19,7 @@ test("a queued send stays after the running output through turn end, while steer
         sequence: index, ledger_id: "ledger", retained_from: 1, error: null } } : send;
       const queued = queuedDeliveryIds([current], queue, state);
       assert.deepEqual(projectTranscript(transcript, deliveryProjectionSends([current], null, queued)).rows.map(row => row.id),
-        queue && status !== "delivered" ? ["output", "local"] : ["local", "output"]);
+        queue ? ["output", "local"] : ["local", "output"]);
     }
   }
 });
@@ -42,7 +42,7 @@ test("exact mid-turn image evidence releases tail placement while the agent keep
   const delivered: DeliverySend = { ...pending, status: { tab_id: "tab", send_id: "tx", correlationId: "token",
     state: "delivered", sequence: 2, ledger_id: "ledger", retained_from: 1, error: null } };
   const queued = queuedDeliveryIds([delivered], true, state);
-  assert.equal(queued.size, 0, "a delivered receipt ends tail placement immediately");
+  assert.equal(queued.size, 1, "a receipt without a located record keeps the tail until its echo");
   const rows: NormalizedChatMessage[] = [
     { id: "before", sourceSessionId: "own", type: "tool_result", content: "read complete" },
     { id: "mid-turn", sourceSessionId: "own", type: "user", content, timelineMarker: { kind: "queued" }, timestamp: String(send.sentAtMs + 100) },
@@ -131,4 +131,33 @@ test("a ledger-confirmed merged record cannot resurrect a retained second bubble
   const rows = stableDeliveryEntries([source], confirmed, echoes, state);
   assert.equal(rows.length, 1);
   assert.equal(state.pending.size, 0);
+});
+
+test("a delivered claim whose record cannot be located stays one tail bubble until its row takes it over", () => {
+  const authority = { sourceSessionId: "own", sessionBindingNonce: "launch" };
+  const record = { kind: "jsonl" as const, incarnation: "file", record_start: 40, record_row: 0 };
+  const output: NormalizedChatMessage = { id: "output", type: "assistant", content: "streaming", sourceSessionId: "own",
+    timestamp: String(send.sentAtMs + 10) };
+  const delivered: DeliverySend = { ...send, matchedRow: { source: { source_session_id: "own", record }, ordinal: 1 },
+    status: { tab_id: "tab", send_id: "tx", correlationId: "token", state: "delivered", sequence: 2, ledger_id: "ledger", retained_from: 1, error: null } };
+  for (const sourceRecord of [undefined, { ...record, incarnation: "" }, { ...record, incarnation: "regrown" }]) {
+    const state = memory();
+    const render = (current: DeliverySend, rows: NormalizedChatMessage[]) => {
+      const sends = deliveryProjectionSends([current], null, queuedDeliveryIds([current], true, state));
+      const projection = projectTranscript(reduceTranscript(createTranscriptState(), { kind: "snapshot", authority, range: null, rows }).state, sends);
+      return stableDeliveryEntries(projection.rows.map(entry), sends, projection.echoes, state).map(row => row.msg.id);
+    };
+    const echo: NormalizedChatMessage = { id: "provider-row", type: "user", content: send.content, sourceSessionId: "own",
+      timestamp: String(send.sentAtMs + 20), ...(sourceRecord ? { sourceRecord } : {}) };
+    assert.deepEqual([render(send, [output]), render(delivered, [output]), render(delivered, [output, echo])],
+      [["output", "local"], ["output", "local"], ["output", "local"]], `record ${JSON.stringify(sourceRecord)}`);
+  }
+});
+
+test("rows flattened from one claimed record keep their keys; only the first takes the send identity", () => {
+  const record = { kind: "jsonl" as const, incarnation: "file", record_start: 20, record_row: 0 };
+  const claimed: DeliverySend = { ...send, matchedRow: { source: { source_session_id: "own", record }, ordinal: 1 } };
+  const rows = ["first", "second"].map(id => entry({ id, type: "user", content: id, sourceSessionId: "own", sourceRecord: record }));
+  const echoes = new Map([[send.id, { content: "first", timestampMs: null }]]);
+  assert.deepEqual(stableDeliveryEntries(rows, [claimed], echoes, memory()).map(row => row.msg.id), [send.id, "second"]);
 });

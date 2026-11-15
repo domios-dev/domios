@@ -1,25 +1,15 @@
 name: Docker headless archive smoke
+# Owner dispatch only: the production-profile build needs the build configuration, which no PR job may receive.
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - packaging/docker/**
-      - scripts/docker/**
-      - .github/workflows/docker-smoke.yml
-      - build.sh
-      - cli/src/cmd/update/**
-      - cli/src/cmd/update.rs
-      - src-tauri/crates/codeterm-update/**
-      - src-tauri/crates/codeterm-paths/src/container_install.rs
-      - src-tauri/crates/domios-server/src/headless_update.rs
-      - src-tauri/crates/codeterm-api/src/updater_routes.rs
 permissions:
   contents: read
 concurrency:
-  group: ${{ format('docker-smoke-{0}', github.event.pull_request.number || github.ref) }}
+  group: ${{ format('docker-smoke-{0}', github.ref) }}
   cancel-in-progress: true
 jobs:
   smoke:
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/') }}
     strategy:
       fail-fast: false
       matrix:
@@ -42,6 +32,8 @@ jobs:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 22.22.0

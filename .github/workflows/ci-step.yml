@@ -20,6 +20,7 @@ on:
           - ci-suite
           - nextest
           - build
+          - pty-flow-native
       target:
         description: "test-one: build.sh scope (pty, mem, cli, ...); ci-suite: full, platform or embeddings; nextest: build.sh nextest scope, usually workspace"
         required: true
@@ -148,6 +149,13 @@ jobs:
             ci-suite) bash build.sh ci-tests "$STEP_TARGET" ;;
             nextest) bash build.sh nextest "$STEP_TARGET" "$STEP_FILTER" ;;
             build) source build.sh env && cargo test --workspace --exclude codeterm-cli --no-run --locked --no-default-features --manifest-path src-tauri/Cargo.toml ;;
+            pty-flow-native)
+              source build.sh env
+              name=pty::output_flow::native_tests::native_pause_preserves_input_and_every_output_record
+              cargo test --locked --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-pty --lib \
+                -- --exact "$name" --ignored --nocapture --test-threads=1 2>&1 | tee "$RUNNER_TEMP/pty-flow-native.log"
+              grep -Fq "test $name ... ok" "$RUNNER_TEMP/pty-flow-native.log"
+              ;;
           esac
       - name: Run the step (Windows)
         if: runner.os == 'Windows'

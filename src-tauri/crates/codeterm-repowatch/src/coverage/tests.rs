@@ -89,6 +89,34 @@ fn builds() -> usize {
 }
 
 #[test]
+fn lost_events_rebuild_coverage_for_directories_without_create_events() {
+    for signal in [
+        crate::WatchSignal::Rescan,
+        crate::WatchSignal::Failed("queue lost".into()),
+    ] {
+        let mut fixture = Fixture::new();
+        let missed = fixture.path("missed/deep");
+        std::fs::create_dir_all(&missed).unwrap();
+        assert!(!fixture.active.contains_key(&missed));
+        let before = builds();
+        assert!(fixture.coverage.invalidate_on_signal(&signal));
+        assert!(fixture
+            .coverage
+            .reconcile(
+                &mut fixture.backend,
+                &mut fixture.active,
+                &fixture.specs,
+                &[],
+            )
+            .unwrap());
+        assert_eq!(builds() - before, 1);
+        assert!(fixture.active.keys().any(|path| missed.starts_with(path)
+            && fixture.active[path]
+            && path != fixture.directory.path()));
+    }
+}
+
+#[test]
 fn git_churn_rebuild_count_drops_without_losing_index_observation() {
     let mut fixture = Fixture::new();
     let index_path = fixture.repo.path().join("index");
@@ -166,6 +194,29 @@ fn ignore_edit_rebuilds_once_and_changes_subscriptions() {
     assert!(fixture.modify(fixture.path(".gitignore")));
     assert_eq!(builds() - before, 1);
     assert!(!fixture.active.contains_key(&fixture.path("source")));
+}
+
+#[test]
+fn external_ignore_edits_are_observed_when_index_inputs_are_read() {
+    let mut fixture = Fixture::new();
+    let external = tempfile::tempdir().unwrap();
+    let excludes = external.path().join("excludes");
+    std::fs::write(&excludes, "source/\n").unwrap();
+    fixture
+        .repo
+        .config()
+        .unwrap()
+        .set_str("core.excludesFile", excludes.to_str().unwrap())
+        .unwrap();
+    assert!(fixture.modify(fixture.repo.commondir().join("config")));
+    assert!(!fixture.active.contains_key(&fixture.path("source")));
+    let before = builds();
+    std::fs::write(&excludes, "\n").unwrap();
+    assert!(fixture.modify(fixture.repo.path().join("index")));
+    assert_eq!(builds() - before, 1);
+    assert!(fixture.active.contains_key(&fixture.path("source")));
+    assert!(!fixture.modify(fixture.repo.path().join("index")));
+    assert_eq!(builds() - before, 1);
 }
 
 #[test]
