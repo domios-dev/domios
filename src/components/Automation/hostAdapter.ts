@@ -72,8 +72,8 @@ export const hostAutomationAdapter: AutomationGraphAdapter = {
     const graph = pageCacheActive && PAGE_CACHED_CONNECTIONS.has(attachment.connection_id)
       ? await graphCache.read({ workspace_id: attachment.workspace_id, team_id: attachment.team_id })
       : attachment.team_id === ALL_JOBS_SCOPE
-        ? await orchestrationTransport().automation_graph_workspace_snapshot({ workspaceId: attachment.workspace_id })
-        : await orchestrationTransport().automation_graph_snapshot({ workspaceId: attachment.workspace_id, teamId: attachment.team_id });
+        ? await orchestrationTransport().automation_graph_workspace_snapshot({ workspaceId: attachment.workspace_id }, { signal })
+        : await orchestrationTransport().automation_graph_snapshot({ workspaceId: attachment.workspace_id, teamId: attachment.team_id }, { signal });
     signal.throwIfAborted();
     assertWebRequestContext(generation);
     return graph;
