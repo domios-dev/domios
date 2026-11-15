@@ -3,8 +3,16 @@ import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
 import { Button } from "../shared/Button";
 import { neighborIdentity, type NeighborRequest } from "./neighborModel";
-import { conciergeNeedsAttention, conciergeStatusLine, missingConciergeLine, type ConciergeStatus } from "./useConciergeStatus";
+import { conciergeNeedsAttention, missingConciergeLine, type ConciergeStatus } from "./useConciergeStatus";
 import { STATUS_LABEL, type NeighborNodeStatus } from "./neighborhoodModel";
+
+const RECOVERY_SENTENCES: Partial<Record<ConciergeStatus["state"], string>> = {
+  concierge_auth_needed: "Sign in to continue with this concierge.",
+  concierge_access_needed: "This concierge needs your permission to continue.",
+  concierge_provider_refused: "This concierge's provider is unavailable.",
+  concierge_crashed: "This concierge has stopped.",
+  concierge_closed: "This concierge was closed.",
+};
 
 export function ConciergeRecoveryNotice({ status, onSetUpWithGeneral, onOpenConcierge, onReviewAccess }: {
   status: ConciergeStatus; onSetUpWithGeneral: () => void; onOpenConcierge: (tabId: string) => void; onReviewAccess: () => void;
@@ -16,10 +24,11 @@ export function ConciergeRecoveryNotice({ status, onSetUpWithGeneral, onOpenConc
     : status.state === "concierge_provider_refused" ? "Review provider" : "Open recovery";
   return <div role="status" aria-label="Concierge needs attention" className="ct-card ct-card--static neighbor-missing">
     <div className="min-w-0 flex-1">
-      <p className="ct-card__title">{status.state === "concierge_missing" ? missingConciergeLine(status) : conciergeStatusLine(status)}</p>
-      <p className="ct-card__meta">{reviewAccess ? "Review this friend's permissions to continue. Messages wait here."
-        : setup ? "Messages wait until you choose to set up a concierge here."
-        : "Open this concierge to continue with its sign-in or recovery options. Messages are not resent."}</p>
+      <p className="ct-card__title">{RECOVERY_SENTENCES[status.state] ?? `${missingConciergeLine(status)}.`}</p>
+      <details className="ct-card__meta">
+        <summary>Details</summary>
+        <p>{setup ? "Messages stay pending until you set up a concierge here." : "Messages stay pending while you review this concierge."}</p>
+      </details>
     </div>
     <div className="neighbor-confirm__actions">
       <Button size="sm" variant="primary" onClick={() => reviewAccess ? onReviewAccess() : setup ? onSetUpWithGeneral() : onOpenConcierge(status.gateway_tab!)}>{action}</Button>

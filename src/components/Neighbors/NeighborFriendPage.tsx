@@ -137,8 +137,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
         <div className="min-w-0 flex-1">
           <h2 id={titleId} className="neighbor-friend__name">{name}</h2>
           {friend.email && <p className="neighbor-note">{friend.email}</p>}
-          <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />
-            <span>{status}<span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></span></p>
+          {!needsRecovery && <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />
+            <span>{status}<span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></span></p>}
           {receiver && <p className="neighbor-note">{receivingLine(receiver)}</p>}
           {paused && <p className="neighbor-note">{pausedLine(name)}</p>}
           {friend.their_paused && <p className="neighbor-note">{theyPausedLine(name)}</p>}
@@ -166,7 +166,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
 
         <div ref={conciergeCard}>
         <FriendSection icon={<Bot size={16} />} title="Concierge" description={`The agent that answers ${name} within the permissions below.`}
-          headerRight={<SettingsPill tone={state.tone}>{state.label}</SettingsPill>}>
+          headerRight={!needsRecovery && <SettingsPill tone={state.tone}>{state.label}</SettingsPill>}>
           {concierge?.concierge_dormant && <p className="neighbor-note">Starts fresh when you receive this friend's messages here.</p>}
           {enabled && !locked && receiver && !receiver.receiving_here && <NeighborReceiveHere key={`${friendship}:set`}
             receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
