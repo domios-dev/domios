@@ -72,6 +72,12 @@ impl Default for DeskLeafFields {
 
 impl DeskLeafFields {
     pub fn validate(&self) -> Result<(), StorageError> {
+        self.validated_size().map(|_| ())
+    }
+
+    fn validated_size(&self) -> Result<usize, StorageError> {
+        #[cfg(test)]
+        LEAF_VALIDATIONS.with(|count| count.set(count.get() + 1));
         let object = self
             .values
             .as_object()
@@ -102,9 +108,12 @@ impl DeskLeafFields {
                 format!("exceeds {MAX_DESK_LEAF_BYTES} bytes"),
             ));
         }
-        Ok(())
+        Ok(bytes)
     }
 }
+
+#[cfg(test)]
+thread_local! { pub(super) static LEAF_VALIDATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
 fn valid_leaf_value(field: &str, value: &Value) -> bool {
     match field {
@@ -362,12 +371,11 @@ fn count_layout(
                     "must not be empty",
                 ));
             }
-            fields.validate()?;
+            let fields_size = fields.validated_size()?;
             *cost = cost
                 .saturating_add(tab_id.len())
                 .saturating_add(cwd.as_ref().map_or(0, String::len));
-            *cost =
-                cost.saturating_add(serde_json::to_vec(&fields.values).unwrap_or_default().len());
+            *cost = cost.saturating_add(fields_size);
         }
         DeskLayoutNode::Split {
             orientation,
