@@ -57,7 +57,7 @@ export function requestWhenMuxCapacityAvailable<T>(policy: MuxRequestPolicy, req
 
 export type MuxRequestInit = RequestInit & { [MUX_REQUEST_TIMEOUT]?: number | null; [MUX_CAPACITY_WAIT]?: () => void };
 
-const READ_POST = /^\/api\/(?:tabs\/[^/]+\/(?:preview\/(?:read|check)|chat-raw\/(?:start|history|backfill|resume))|essence-maps)$/;
+const READ_POST = /^\/api\/(?:tabs\/[^/]+\/(?:preview\/(?:read|check)|chat-raw\/(?:start|history|backfill|resume))|essence-maps|automation\/blueprints\/solutions\/list)$/;
 const BULK_GET = /^\/api\/(?:essence-source|logs|sessions\/transcript|agent-runs\/[^/]+\/log|mem\/workers\/[^/]+\/log)$/;
 
 export function muxRequestOperation(method: string, path: string, body?: BodyInit | null): { method: string; path: string } {

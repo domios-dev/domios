@@ -4,6 +4,7 @@ import { createDelayedMessageFeed } from "../components/Terminal/delayedMessageF
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { useSurfaceDecl } from "../components/Surface/useSurfaceDecl";
+import { blueprintSolutionsApi } from "../components/Jobs/blueprintSolutions";
 import type { SurfaceDeclLookup } from "../components/Surface/surfaceRenderPlan";
 import { configureDaemonTransport } from "./daemonBootstrap";
 import { __setInvokeForTest, __setListenForTest } from "./bridge";
@@ -365,10 +366,20 @@ it.each([200, 503])("admits a read by default on released capacity; dispatched H
   expect(f.posted.filter(post => post.path === "/api/mesh/peers")).toHaveLength(1);
 });
 
-it("the Browser surface lookup waits at full read capacity and becomes ready after release", async () => {
+it("cancels catalogue reads and lets the Browser surface lookup recover released capacity", async () => {
   const f = fixture(undefined, window.location.origin);
   vi.stubGlobal("fetch", f.fetch);
-  configureDaemonTransport({origin:window.location.origin,token:"fixture-token"});
+  configureDaemonTransport({ origin: window.location.origin, token: "fixture-token" });
+  for (const kind of ["list", "document"] as const) {
+    const controller = new AbortController();
+    const result = blueprintSolutionsApi[kind]("owned", controller.signal).catch(error => error);
+    const post = await f.next();
+    expect(post.path).toBe(kind === "list" ? "/api/automation/blueprints/solutions/list" : "/api/mem/items/owned");
+    expect(new Headers(post.init.headers).get("X-Domios-Mux-Cancellable")).toBe("1");
+    controller.abort();
+    expect(await result).toMatchObject({ name: "AbortError" });
+    expect(await f.cancelled()).toBe(post.id);
+  }
   __setListenForTest(async () => () => {});
   f.reply(async post => {
     if (post.path === "/api/surfaces") {
