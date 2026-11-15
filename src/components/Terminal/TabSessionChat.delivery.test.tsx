@@ -612,7 +612,7 @@ test("a written prompt the agent refused while busy says so without offering Ret
 });
 
 for (const pty of [true, false]) {
-  test(`an own ${pty ? "queued" : "steered"} send keeps its row through turn end and transcript handoff`, async () => {
+  test(`an own ${pty ? "queued" : "steered"} send keeps one row through delivery release and transcript handoff`, async () => {
     const tabId = `turn-end-${pty}`;
     const at = Date.now();
     const tool = { id: "turn-tool", type: "tool_call", content: "", toolId: "turn-tool", toolKind: "command",
@@ -645,7 +645,7 @@ for (const pty of [true, false]) {
         const answer = host.querySelector('[data-message-id="turn-answer"]');
         assert(answer, "the answer is rendered");
         assert(answer.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING,
-          "existing output stays before the queued or steered send");
+          "delivery receipts preserve placement until the source echo owns its transcript slot");
       };
       stable();
       for (const [state, sequence] of [["written", 2], ["submit_unconfirmed", 3]] as const) {
@@ -668,12 +668,23 @@ for (const pty of [true, false]) {
       latest = status("delivered", 5);
       await act(async () => dispatch("chat-send-status", latest));
       stable();
+      const position = () => [...host.querySelectorAll('[data-chat-window-row]')]
+        .findIndex(row => row.contains(bubble));
+      const handoffPositions = [position()];
       const echo = { id: "source-send", type: "user", content: "opaque-send", timestamp: String(at + 2000), correlationId: "turn-send",
         segments: [{ type: "text", text: "opaque-send", correlationId: "turn-send" }] };
       await act(async () => emit([echo]));
+      handoffPositions.push(position());
       assert(host.querySelector('[data-message-id="turn-send"]') === bubble, "a segmented source echo takes over the same bubble node");
       assert(host.querySelectorAll('[data-message-id="turn-send"]').length === 1, "handoff renders exactly one bubble");
       assert(host.querySelector('[data-chat-window-row="turn-tool"]') === toolRow, "source handoff keeps the finished tool row");
+      const answer = host.querySelector('[data-message-id="turn-answer"]');
+      assert(answer && answer.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING,
+        "the committed source echo takes its transcript position after the answer");
+      await act(async () => dispatch("chat-send-status", latest));
+      handoffPositions.push(position());
+      assert(handoffPositions.every(index => index === handoffPositions[0]), "delivery and echo keep the same transcript slot without flicker");
+      assert(host.querySelector('[data-message-id="turn-send"]') === bubble, "settled delivery keeps the original DOM node");
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 }
