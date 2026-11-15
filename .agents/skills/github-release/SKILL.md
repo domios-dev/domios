@@ -309,6 +309,11 @@ DMG; staple/assess the app before creating its updater archive. Unexpected helpe
 Tauri re-signing fail loudly. Native execution must validate this path; injected fixtures are only
 source-contract evidence. Standard DMG, .app.tar.gz updater and self-install remain the transports.
 
+DMG creation flushes staged filesystem writes with `sync` and makes one `hdiutil create` attempt.
+On failure, the job retains `macos-dmg-diagnostics-<arch>-<attempt>` with bounded create output,
+image/disk inventory and source/output file holders. Diagnostic failures preserve the create error;
+use those receipts to identify contention before proposing recovery. No timed retry or forced detach.
+
 ### Runtime and bundle proof
 
 Release build jobs retain bundle contents, digest and signing checks.
@@ -593,4 +598,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->
