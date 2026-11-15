@@ -416,9 +416,27 @@ fn lane_turn_still_checkpoints_a_domios_lane() {
 
     for ownership in [Some(crate::plan::LaneOwnership::DomiosLane), None] {
         let target = turn_target(&canonical, &lane, "lane/slug", ownership);
+        let mut stats = LaneTurnChangeStats {
+            numstat: Some("1\t0\ttracked.txt\n".into()),
+            ..Default::default()
+        };
+        let mut repository = FixedRepository::default();
+        checkpoint_captured_turn(&target, &mut stats, |cwd, attempt_id, turn| {
+            assert_eq!(cwd, lane.as_path());
+            checkpoint::create(&mut repository, attempt_id, turn)
+        });
         assert_eq!(
-            captured_turn(&target).checkpoint_ref.as_deref(),
+            stats.checkpoint_ref.as_deref(),
             Some("refs/domios/checkpoints/attempt_turn/1")
         );
+        assert_eq!(stats.checkpoint_refusal, None);
+        assert!(repository.commands.contains(&(
+            vec![
+                "update-ref".into(),
+                "refs/domios/checkpoints/attempt_turn/1".into(),
+                "commit-object".into(),
+            ],
+            false,
+        )));
     }
 }

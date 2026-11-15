@@ -131,12 +131,21 @@ fn capture_turn(target: &LaneAttemptTarget, stats: &mut LaneTurnChangeStats, dea
             stats.checkpoint_refusal = Some(LaneCheckpointRefusal::GitFailure);
         }
     }
+    checkpoint_captured_turn(target, stats, |cwd, attempt_id, turn| {
+        create_checkpoint(cwd, attempt_id, turn, deadline)
+    });
+}
+
+fn checkpoint_captured_turn(
+    target: &LaneAttemptTarget,
+    stats: &mut LaneTurnChangeStats,
+    create: impl FnOnce(&Path, &str, u32) -> Result<CheckpointResult, CaptureFailure>,
+) {
     if stats.numstat.is_some() && may_checkpoint(target) {
-        match create_checkpoint(
+        match create(
             Path::new(&target.worktree_path),
             &target.attempt_id,
             target.turn,
-            deadline,
         ) {
             Ok(CheckpointResult::Created(reference)) => stats.checkpoint_ref = Some(reference),
             Ok(CheckpointResult::Refused(reason)) => stats.checkpoint_refusal = Some(reason),
