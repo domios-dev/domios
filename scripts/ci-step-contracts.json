@@ -1,8 +1,8 @@
 {
   "version": 1,
   "sources": {
-    "tests-fast.yml": "f5d13fc9a7056d5b81d868c96bd8c4fcf1c3c48c7f3e05324c98cf898db7e105",
-    "tests-pr.yml": "cd9d6b6de65a2b4a9c147fb94428bbc05ad5b235bc0de4e9f3ef97a53d18a64d"
+    "tests-fast.yml": "71b212f3ebb42e7e623f566380f199f7483572782661de9ebd83d36de903d2ed",
+    "tests-pr.yml": "4ab281d04cba338278b08cb288a4fe83370ba3db50b0ae2ac265ff858eaea2d8"
   },
   "bindings": [
     {
