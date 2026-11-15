@@ -116,6 +116,7 @@ export {
   type ClipRole,
 } from "./messageClipboard";
 export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
+export { presentedAttachmentSegments } from "./attachmentPresentation";
 export { mergeById } from "./merge";
 export { timestampMs } from "./time";
 export {

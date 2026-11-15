@@ -25,7 +25,7 @@ import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import { isCronRunning } from "../Jobs/jobsModel";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TabAttention } from "./tabAttention";
-import { curatorTabAttention, tabAttention } from "./tabAttention";
+import { curatorTabAttention, groupAttention, tabAttention } from "./tabAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
@@ -234,6 +234,11 @@ export function SidebarWorkspaceTabs({
     onRenameTab: renameRowTab,
   };
 
+  const sectionAttention = (members: readonly TeamTabMember[]) => groupAttention(
+    members.map((member) => member.tab.id), displayedAttention,
+    (tabId) => isWorkspaceTabActive(isActiveVisual, workspaceCanvasActive, tabId, wsActiveTabId ?? undefined),
+  );
+
   const renderMemberShellRow = (
     member: TeamTabMember,
     section: TeamSection,
@@ -409,6 +414,12 @@ export function SidebarWorkspaceTabs({
           : undefined}
         closing={closingTeamIds?.has(teamId)}
         onCloseTeam={onCloseTeam}
+        attention={{
+          managers: sectionAttention(managers),
+          workers: sectionAttention(workers),
+          agents: sectionAttention(agents),
+          utilities: sectionAttention(terminals),
+        }}
       />
       </SortableRow>,
     );

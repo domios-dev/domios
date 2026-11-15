@@ -46,7 +46,7 @@ export function devApi(dev, deadline, {fetch = globalThis.fetch, now = () => per
   return {
     health: () => api('/api/health'),
     providers: () => api('/api/agents/providers'),
-    focus: tab => api(`/api/tabs/${encode(tab)}/focus`, 'POST'),
+    select: tab => api(`/api/tabs/${encode(tab)}/select`, 'POST'),
     inspect: async tab => {
       const rows = await api(`/api/tabs/inspect?tab_ids=${encode(tab)}`);
       return Array.isArray(rows) ? rows[0] : rows;

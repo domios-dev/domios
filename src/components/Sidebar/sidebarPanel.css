@@ -350,6 +350,21 @@
   bottom: 7px;
 }
 
+.tab-attention-mark.sidebar-section-attention-mark {
+  position: static;
+  flex-shrink: 0;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+}
+
+.sidebar-team-disclosure-bar > .tab-attention-mark {
+  right: 10px;
+  bottom: 4px;
+  width: 6px;
+  height: 6px;
+}
+
 .tab-starting-mark {
   flex-shrink: 0;
   align-items: center;

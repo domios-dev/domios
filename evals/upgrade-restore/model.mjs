@@ -88,6 +88,13 @@ export function validateCapture(document) {
   return tabs;
 }
 
+export function capturedUnavailable(document, tab) {
+  const history = document.histories.find(row => row.tab_id === tab.tab_id);
+  const runtime = tab.agent_identity?.agent_runtime_state;
+  return history?.transcript?.status === 'unavailable'
+    && ['degraded', 'refused', 'unavailable'].includes(runtime?.state) ? runtime : null;
+}
+
 export function requireBackings(document) {
   const tabs = validateCapture(document);
   const ids = new Set(tabs.map(tab => tab.tab_id));
@@ -96,7 +103,7 @@ export function requireBackings(document) {
   }
   for (const tab of tabs) {
     const transcript = document.histories.find(row => row.tab_id === tab.tab_id)?.transcript;
-    if (transcript?.status === 'unavailable') {
+    if (transcript?.status === 'unavailable' && !capturedUnavailable(document, tab)) {
       throw new Error(`tab=${tab.tab_id}: transcript unavailable (backing=${transcript.backing_kind}, provider=${transcript.provider ?? 'none'})`);
     }
     if (!tab.agent_type) throw new Error(`tab=${tab.tab_id}: fake shell/surface backing missing`);
@@ -151,7 +158,7 @@ export function historyMatches(expected, actual) {
   });
 }
 
-export function verdict(expected, actual) {
+export function identityVerdict(expected, actual) {
   const id = expected.tab_id;
   if (!actual) return {tab_id: id, ready: false, reason: 'tab missing after restore'};
   for (const key of ['agent_type', 'role', 'role_profile', 'team_id', 'parent_tab_id']) {
@@ -173,6 +180,13 @@ export function verdict(expected, actual) {
       return {tab_id: id, ready: false, reason: 'attempt binding changed after restore'};
     }
   }
+  return null;
+}
+
+export function verdict(expected, actual) {
+  const identity = identityVerdict(expected, actual);
+  if (identity) return identity;
+  const id = expected.tab_id;
   if (!expected.agent_type) return {tab_id: id, ready: false, reason: 'shell/surface readiness backing missing'};
   const runtime = actual.agent_runtime_state;
   if (runtime?.state !== 'loaded' || !(runtime.epoch > 0)) {

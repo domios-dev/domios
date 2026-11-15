@@ -62,7 +62,7 @@ Good to know:
 - A curator manager with `start: {schedule: "<min>..<max>"}` sets how often the Curator visits, kept within 45m..2h; owner Auto, Heartbeat and Off modes still decide whether it runs. A Team without a scheduled curator has no Curator rounds. A schedule on any other role is refused at preview and start with `schedule_unsupported_role`.
 - Every Team starts with its Orchestrator. A Planner starts only when the template lists a `planner` manager that starts with the Team; without one the Orchestrator drafts the plan itself. Other `with_team` managers, custom ones included, join at start.
 - `refused` can also be `schedule_unsupported_role` or `host_owned_role` (`watcher` and `general_agent` are Domios names, never package roles).
-- `domios team check <path>` validates a package; the format is `domios docs TEAM-FORMAT`.
+- `domios team check <path>` validates a package; TEAM-FORMAT (linked above) defines its format.
 
 `domios role list --team <team-id>` shows exactly the roles a Team has, each with its kind, its Domios authority (a built-in manager's, or none) and the package it comes from; `domios role show <name> --team <team-id>` renders one. A Team with no registrations is the builtin default package as a whole. A Team keeps the template version it started from: saving or importing a newer version never changes an active Team.
 
@@ -121,4 +121,4 @@ The bake writes the `roles` map with `kind` first in each role and keeps each ro
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

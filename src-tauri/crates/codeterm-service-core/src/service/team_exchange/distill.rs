@@ -117,10 +117,8 @@ pub fn bake(
         }
     }
     if let Some(orchestrator) = roles.get_mut(ORCHESTRATOR) {
-        orchestrator.instructions = with_runbook(
-            orchestrator.instructions.take(),
-            request.runbook.as_deref(),
-        );
+        orchestrator.instructions =
+            with_runbook(orchestrator.instructions.take(), request.runbook.as_deref());
     }
     document.roles = roles;
 

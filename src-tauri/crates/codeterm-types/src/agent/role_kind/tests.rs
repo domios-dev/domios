@@ -514,7 +514,11 @@ fn a_custom_manager_has_exactly_the_cartographer_authority_matrix() {
         .chain(["security_lead", QA, WORKER, REVIEWER])
     {
         let profile = Some(id);
-        assert_eq!(query::kind_capability(role, profile), Some(cartographer), "{id}");
+        assert_eq!(
+            query::kind_capability(role, profile),
+            Some(cartographer),
+            "{id}"
+        );
         let descriptor = query::kind_descriptor(role, profile).expect("generic descriptor");
         assert_eq!(descriptor.id(), builtins::CUSTOM_MANAGER, "{id}");
         assert_eq!(descriptor.origin(), RoleKindOrigin::Generic, "{id}");
@@ -555,7 +559,10 @@ fn a_built_in_manager_name_is_honored_only_for_kind_manager() {
         );
     }
     for name in ["checker", WORKER, QA, "security_lead"] {
-        assert!(!query::registered_capability(AgentRole::Worker, name).manages(), "{name}");
+        assert!(
+            !query::registered_capability(AgentRole::Worker, name).manages(),
+            "{name}"
+        );
     }
 }
 

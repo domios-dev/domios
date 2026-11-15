@@ -72,9 +72,14 @@ fn composed_custom_manager() -> String {
     custom.label = custom.name.clone();
     custom.instructions = longest;
     team.push(custom);
-    crate::role_preset::resolve_in(&team, Some(AgentRole::Manager), Some("fixture_manager"), None)
-        .expect("custom manager preset")
-        .contract_guidance()
+    crate::role_preset::resolve_in(
+        &team,
+        Some(AgentRole::Manager),
+        Some("fixture_manager"),
+        None,
+    )
+    .expect("custom manager preset")
+    .contract_guidance()
 }
 
 #[test]

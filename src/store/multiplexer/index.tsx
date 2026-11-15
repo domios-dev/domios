@@ -899,6 +899,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         setPendingCommand(res.tab_id, res.launch_command);
       }
       pendingTabSwitchRef.current[res.workspace_id] = { tabId: res.tab_id };
+      // The owner spawned it here: only this client moves, and it records that as the last selection.
+      guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId: res.workspace_id, tabId: res.tab_id }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: res.workspace_id });
       dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: res.workspace_id, tabId: res.tab_id });
       dispatch({ type: "SET_FOCUSED_TAB", tabId: res.tab_id });

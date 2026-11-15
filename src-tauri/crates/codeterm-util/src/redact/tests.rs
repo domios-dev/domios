@@ -3,7 +3,7 @@ use super::text;
 #[test]
 fn secret_names_that_continue_as_identifiers_are_redacted() {
     for (input, kept) in [
-        ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENG", "AWS_"),
+        ("AWS_SECRET_ACCESS_KEY=opaque-canary", "AWS_"),
         ("aws_access_key_id: AKIAOPAQUECANARY", "aws_"),
         ("GITHUB_TOKEN=opaque-canary", "GITHUB_"),
         ("db_password_main = opaque-canary", "db_"),
@@ -13,10 +13,7 @@ fn secret_names_that_continue_as_identifiers_are_redacted() {
     ] {
         let clean = text(input);
         assert_eq!(clean, format!("{kept}[redacted]"), "{input}");
-        assert!(
-            !clean.contains("canary") && !clean.contains("wJalr"),
-            "{input}"
-        );
+        assert!(!clean.contains("canary"), "{input}");
     }
 }
 

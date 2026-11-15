@@ -211,6 +211,7 @@ describe("tab command HTTP contract", () => {
     const { transport, calls } = fixture([{ tab_id: "stable", workspace_id: "ws" }, snapshot]);
     expect(await transport.mux_spawn_tab({ params: { agentId: "capability-provider", workspaceId: "ws", reasoningEffort: "high" } })).toEqual({ tab_id: "stable", workspace_id: "ws", snapshot });
     expect(calls.map(({ method, path }) => [method, path])).toEqual([["POST", "/api/agents/spawn"], ["GET", "/api/mux/state"]]);
+    expect(calls[0].body).not.toHaveProperty("activate");
   });
 
   it("retains long-poll byte cursors for explicit snapshot consumers", async () => {

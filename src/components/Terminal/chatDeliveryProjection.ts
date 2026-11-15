@@ -70,7 +70,10 @@ export function stableDeliveryEntries(
     });
     if (!send) return entry;
     present.add(send.id);
-    const msg = entry.msg.id === send.id ? entry.msg : { ...entry.msg, id: send.id, sourceMessageId: entry.msg.sourceMessageId ?? entry.msg.id };
+    const names = Object.values(send.draft?.capsules ?? {}).filter(capsule => capsule.path && capsule.displayName)
+      .map(capsule => [capsule.path, capsule.displayName!] as const);
+    const msg = entry.msg.id === send.id && !names.length ? entry.msg : { ...entry.msg, id: send.id,
+      sourceMessageId: entry.msg.sourceMessageId ?? entry.msg.id, ...(names.length ? { attachmentNames: Object.fromEntries(names) } : {}) };
     const stable = msg === entry.msg ? entry : { ...entry, msg, item: { kind: "message" as const, message: msg } };
     if (msg.sourceSessionId == null) memory.pending.set(send.id, stable);
     else memory.pending.delete(send.id);

@@ -34,11 +34,18 @@ e8a91318bfd8c897e8e88dbc122ebe05bc06e7be:plugins/browser/tests/blueprintStep.tes
 5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-claude/plugin.js:generic-api-key:667
 5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-codex/plugin.js:generic-api-key:1178
 096608ee249126d0e1271b3910d43bbb2cc704d8:plugins/provider-codex/plugin.js:generic-api-key:2268
-plugins/provider-claude/plugin.js:generic-api-key:1010
-plugins/provider-codex/plugin.js:generic-api-key:2268
+plugins/provider-claude/plugin.js:generic-api-key:1072
+plugins/provider-codex/plugin.js:generic-api-key:2299
 1f3a5e301ca97f94190ba98b51418bf059496c3e:tests/fixtures/chat/image-stress.jsonl:generic-api-key:6
 1f3a5e301ca97f94190ba98b51418bf059496c3e:tests/fixtures/chat/image-stress.jsonl:generic-api-key:22
 1f3a5e301ca97f94190ba98b51418bf059496c3e:tests/fixtures/chat/image-stress.jsonl:generic-api-key:31
 tests/fixtures/chat/image-stress.jsonl:generic-api-key:6
 tests/fixtures/chat/image-stress.jsonl:generic-api-key:22
 tests/fixtures/chat/image-stress.jsonl:generic-api-key:31
+
+# Verified synthetic redaction canary: AWS-shaped test value in package scrub coverage, never a credential.
+72a3b38e2aed8b29ed0a11be3eb725845fc9d59d:src-tauri/crates/codeterm-service-core/src/service/team_exchange/tests.rs:generic-api-key:173
+# Verified synthetic redaction canary: the same AWS-shaped value in identifier-prefix redaction coverage, never a credential.
+72a3b38e2aed8b29ed0a11be3eb725845fc9d59d:src-tauri/crates/codeterm-util/src/redact/tests.rs:generic-api-key:6
+# Verified synthetic redaction canary: sk-live-prefixed test string in package scrub coverage, never a credential.
+50774f400542ce4be9c31abee1d9f1f9aa6ef934:src-tauri/crates/codeterm-service-core/src/service/team_exchange/tests.rs:generic-api-key:153

@@ -221,7 +221,10 @@ fn agent_spawn_provider_args_bypass_label_normalization() {
         Commands::Agent {
             action: AgentAction::Spawn { role, args, .. },
         } => {
-            assert_eq!(role.map(|role| role.to_string()), Some("worker".to_string()));
+            assert_eq!(
+                role.map(|role| role.to_string()),
+                Some("worker".to_string())
+            );
             assert_eq!(
                 args,
                 Some(vec![

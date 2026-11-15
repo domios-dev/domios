@@ -15,13 +15,8 @@ const EXIT_USAGE_OR_IO: i32 = 2;
 
 enum Command {
     Help,
-    Check {
-        path: String,
-        json: bool,
-    },
-    Schema {
-        spec_version: String,
-    },
+    Check { path: String, json: bool },
+    Schema { spec_version: String },
 }
 
 fn main() {
@@ -136,5 +131,8 @@ fn write_check(path: &str, json: bool, out: &mut impl Write) -> std::io::Result<
     })
 }
 
+#[cfg(test)]
+#[path = "../../test_support.rs"]
+mod test_support;
 #[cfg(test)]
 mod tests;

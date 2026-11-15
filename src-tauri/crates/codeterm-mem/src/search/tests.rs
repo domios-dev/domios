@@ -316,6 +316,7 @@ fn fts_path_unchanged_by_mode_flag() {
 fn archived_documents_with_retained_vectors_are_excluded_from_semantic_search() {
     use crate::embedder::{index, EmbedderIdentity, StampedVector};
 
+    crate::embeddings::ensure_extension_registered();
     let (conn, blobs) = fresh();
     let vector = StampedVector {
         identity: EmbedderIdentity {

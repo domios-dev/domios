@@ -95,6 +95,53 @@ fn sync_spawn_persists_restorable_launch_parameters() {
 }
 
 #[test]
+fn activated_spawn_highlights_without_moving_the_last_selection() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace_id = mux.create_workspace("spawn highlight".into(), None).id;
+    let selected = mux.create_tab(&workspace_id).unwrap();
+    mux.set_active_tab(&workspace_id, &selected).unwrap();
+    mux.set_focused_tab(&selected).unwrap();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("spawn-highlight")
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
+    ));
+    let params = SpawnAgentParams {
+        agent: Some("spawn-highlight".into()),
+        workspace_id: Some(workspace_id.clone()),
+        activate: Some(true),
+        ..Default::default()
+    };
+    let spawned = [
+        fixture
+            .service
+            .spawn_agent_sync(params.clone())
+            .unwrap()
+            .tab_id,
+        fixture
+            .service
+            .spawn_visible_agent_impl(
+                crate::service::spawn::SpawnTabSpec::from_agent_params(params),
+                None,
+            )
+            .unwrap()
+            .tab_id,
+    ];
+    {
+        let mux = fixture.service.mux.read();
+        let workspace = mux.get_workspace(&workspace_id).unwrap();
+        assert_eq!(workspace.active_tab_id.as_deref(), Some(selected.as_str()));
+        assert_eq!(mux.get_focused_tab_id(), Some(selected.as_str()));
+        for tab_id in &spawned {
+            assert!(mux.get_tab(tab_id).unwrap().focus_requested);
+        }
+    }
+    for tab_id in spawned {
+        fixture.service.close_tab(&tab_id).unwrap();
+    }
+}
+
+#[test]
 fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);

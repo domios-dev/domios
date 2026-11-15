@@ -1,9 +1,9 @@
-import { attachmentPathName as fileName, inlineArtifactBlockBoundary } from "@codeterm/chat-core";
+import { attachmentPathName as fileName, inlineArtifactBlockBoundary, presentedAttachmentSegments } from "@codeterm/chat-core";
 import { Fragment, useCallback, useContext, useId, useRef, useState, type ClipboardEvent, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Button } from "./Button";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { X, Maximize2, Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
-import { attachmentFileName, attachmentPreviewKind, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, visibleAttachmentLabel, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
+import { attachmentPreviewKind, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, visibleAttachmentLabel, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
 import { DsRenderContext } from "./blocks/DsRenderContext";
 import { useDsSegments } from "./blocks/useDsSegments";
@@ -134,7 +134,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
   const label = attachment.label ?? fileName(path);
   const accessibleName = attachmentAccessibleName(kind, path, label);
   const inline = nativeImage ? inlineAttachmentSrc(nativeImage) : null;
-  const local = useLocalImage(kind === "image" && !inline ? path : undefined);
+  const local = useLocalImage(kind === "image" && !inline ? attachment.previewPath ?? path : undefined);
   const image = inline ? { ...local, src: inline, failed: false } : local;
   const [open, setOpen] = useState<FullscreenImage | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -172,7 +172,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
           event.currentTarget.focus();
           setPreviewing(false);
           if (opensImage || kind === "video") skipPreviewFocus.current = true;
-          if (opensImage && image.src) setOpen({ name: nativeImage ? attachmentFileName(nativeImage) : fileName(path), src: image.src, path });
+          if (opensImage && image.src) setOpen({ name: accessibleName, src: image.src, path });
           else if (kind === "video") setPlaying(true);
           else if (kind === "image") setPreviewing(true);
           else if (localArtifactOpeningAvailable()) revealLocalFile(path);
@@ -184,7 +184,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
       </button>
       <AnchoredPopover open={previewing && !open && !playing} anchor={triggerRef} floatingRef={previewRef} placement="top-start" gap={0} onClose={closePreview} style={{ overflow: "auto" }} onPointerEnter={() => setPreviewing(true)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setPreviewing(false); }}>
           <CapsulePreview kind={kind} path={path} label={label} image={image} onClose={closePreview} closeLabel={`Close preview ${accessibleName}`} actions={<>{actions}
-            {(opensImage || kind === "video") && <Button variant="icon" aria-label={`Expand ${kind} ${accessibleName}`} title="Expand" onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: fileName(path), src: image.src, path }); }} style={{ minWidth: 44, minHeight: 44 }}><Maximize2 size={16} aria-hidden /></Button>}
+            {(opensImage || kind === "video") && <Button variant="icon" aria-label={`Expand ${kind} ${accessibleName}`} title="Expand" onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: accessibleName, src: image.src, path }); }} style={{ minWidth: 44, minHeight: 44 }}><Maximize2 size={16} aria-hidden /></Button>}
           </>} />
       </AnchoredPopover>
       {open && <ImageFullscreen image={open} anchorRef={anchorRef} onClose={close} />}
@@ -194,13 +194,13 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
 }
 
 /** User text with its capsules rendered where they were typed; a copy keeps capsules as tags for a composer. */
-export function InlineAttachmentText({ segments, renderText }: { segments: PlacedAttachmentSegment[]; renderText?: (text: string) => ReactNode }) {
+export function InlineAttachmentText({ segments, renderText, attachmentNames }: { segments: PlacedAttachmentSegment[]; renderText?: (text: string) => ReactNode; attachmentNames?: Readonly<Record<string, string>> }) {
   const scope = useContext(DsRenderContext);
   const instance = useId();
   const tab = useLocalArtifactTabId();
   let source = "";
   const attachments: Array<{ offset: number; index: number; segment: Extract<PlacedAttachmentSegment, { attachment: AttachmentMarker }> }> = [];
-  for (const [index, segment] of segments.entries()) {
+  for (const [index, segment] of presentedAttachmentSegments(segments, attachmentNames).entries()) {
     if ("text" in segment) source += segment.text;
     else { attachments.push({ offset: source.length, index, segment }); source += "\0"; }
   }
@@ -216,7 +216,7 @@ export function InlineAttachmentText({ segments, renderText }: { segments: Place
     const text = (start: number, end: number) => {
       if (end <= start) return;
       const value = source.slice(start, end);
-      result.push(part.type === "markdown" && renderText
+      result.push(value.trim() && part.type === "markdown" && renderText
         ? <DsRenderContext.Provider key={`text:${start}`} value={{ ...scope, proseOnly: true }}>{renderText(value)}</DsRenderContext.Provider>
         : <Fragment key={`text:${start}`}>{value}</Fragment>);
     };

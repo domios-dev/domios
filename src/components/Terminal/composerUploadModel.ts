@@ -34,7 +34,7 @@ export function createComposerUploads(deps: {
       const added = addCapsule(deps.registry(), {
         path: upload.name, kind: attachmentKindForUpload({ name: upload.name, mime: upload.blob.type }),
       }, deps.draft?.());
-      const capsule = { ...added.capsule, path: "", uploadId: upload.id };
+      const capsule = { ...added.capsule, path: "", uploadId: upload.id, displayName: upload.name };
       labels.set(upload.id, capsule.label);
       deps.commit({ ...added.registry, [capsule.label]: capsule });
       deps.insert(capsule);
