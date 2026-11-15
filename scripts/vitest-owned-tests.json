@@ -25,6 +25,7 @@
   "src/components/Neighbors/neighborNotify.test.tsx",
   "src/components/Neighbors/neighborRuntimeClient.test.ts",
   "src/components/Neighbors/neighborStatusStore.test.tsx",
+  "src/components/Neighbors/NeighborPanel.test.tsx",
   "src/components/Neighbors/neighborFriendReceiving.test.tsx",
   "src/components/Neighbors/NeighborReceiveHere.test.tsx",
   "src/components/Neighbors/neighborScopeConflicts.test.ts",

@@ -1,4 +1,4 @@
-import { channelStatus, permissionResponse } from "./neighborRuntime.testdata";
+import { channelStatus, conciergeState, permissionResponse } from "./neighborRuntime.testdata";
 import { it, expect, vi } from "vitest";
 import { act } from "react";
 import type { NeighborList } from "./neighborModel";
@@ -116,6 +116,20 @@ it("opens a friend's own page: limit, talk about, and removal only after confirm
   expect(client.apply).not.toHaveBeenCalledWith({ operation: "remove", friendship_id: "pair" });
   await act(async () => button("Confirm remove").click());
   expect(client.apply).toHaveBeenCalledWith({ operation: "remove", friendship_id: "pair" });
+});
+
+it("shows one recovery action in the friend's page when its bound concierge fails", async () => {
+  const runtimeClient = runtime({ pair: "tab-gateway" });
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ bindings: { pair: "tab-gateway" },
+    concierges: { pair: conciergeState({ state: "concierge_crashed", gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true }) } }));
+  await render("paid", { runtimeClient, friend: { ...neighbor, gateway_tab: "tab-gateway" } });
+  await act(async () => button("Ada, connected").click());
+  const notice = document.querySelector('[role="status"][aria-label="Concierge needs attention"]')!;
+  expect(notice.querySelectorAll("button")).toHaveLength(1);
+  expect(hasButton("Open recovery")).toBe(true);
+  expect(hasButton("Open its chat")).toBe(false);
+  expect(hasButton("Change agent")).toBe(false);
+  expect(sentText()).toHaveLength(0);
 });
 
 it("opens the conversation and the concierge's chat from the friend page", async () => {

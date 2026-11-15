@@ -17,12 +17,12 @@ import type { HistoryPage, NeighborConciergeClient, NeighborNotify } from "./nei
 import { Chip } from "../shared/Chip";
 import { openNeighbor, type NeighborSection } from "./neighborFocus";
 import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
-import { MissingConciergeNotice } from "./NeighborPanel";
+import { ConciergeRecoveryNotice } from "./NeighborPanel";
 import { NeighborPermissionsEditor } from "./NeighborPermissionsEditor";
 import { formatBytes, neighborFilesClient, type NeighborFileQuota, type NeighborFilesClient } from "./neighborFilesClient";
 import { formatAge, formatUntil } from "../../lib/timeLabels";
 import type { NeighborPermissionDraft, NeighborRuntimeClient } from "./neighborRuntimeClient";
-import { useConciergeStatus, type ConciergeStatus } from "./useConciergeStatus";
+import { conciergeNeedsAttention, conciergeStatusLine, useConciergeStatus, type ConciergeStatus } from "./useConciergeStatus";
 import { useNeighborPermission } from "./useNeighborPermission";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
@@ -32,12 +32,13 @@ import { useNeighborStatus } from "./neighborStatusStore";
 import { NeighborReceiveHere } from "./NeighborReceiveHere";
 
 function conciergeState(status: ConciergeStatus | null, bound: boolean): { label: string; tone: "green" | "amber" | "muted" | "accent" } {
+  if (conciergeNeedsAttention(status)) return { label: conciergeStatusLine(status), tone: "amber" };
   if (status?.state === "concierge_missing" || (!status && !bound)) return { label: "missing", tone: "amber" };
   if (status?.state === "concierge_starting") return { label: "starting", tone: "accent" };
   if (status?.state === "receiving_elsewhere") return { label: "idle", tone: "muted" };
   if (status?.state === "not_receiving") return { label: "not receiving", tone: "muted" };
   if (status?.state === "paused") return { label: "disabled", tone: "muted" };
-  return { label: "ready", tone: "green" };
+  return status?.state === "ready" ? { label: "ready", tone: "green" } : { label: "checking concierge", tone: "muted" };
 }
 
 /** One Neighbor's settings: the conversation, their concierge, what they may ask, notifications, and removal. */
@@ -83,6 +84,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   const gatewayId = concierge?.gateway_tab ?? friend.gateway_tab ?? null;
   const gateway = gatewayId ? tabs[gatewayId] : undefined;
   const state = conciergeState(concierge, Boolean(gateway));
+  const needsRecovery = enabled && concierge?.receiving_here && conciergeNeedsAttention(concierge);
   const provider = gateway?.agent_type ? providers.find(entry => entry.id === gateway.agent_type) : undefined;
   const model = gateway?.agent_provider_resolved_model;
 
@@ -117,7 +119,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
     else setClosing(true);
   };
   useBackDismissal(true, close);
-  const status = !enabled ? "Neighbors is off" : locked ? "paused by plan" : "connected";
+  const status = !enabled ? "Neighbors is off" : locked ? "paused by plan" : conciergeStatusLine(concierge);
 
   return <div ref={layer} className="neighbor-window-layer" data-closing={closing || undefined}
     onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
@@ -158,8 +160,9 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
       <div className="neighbor-window__body">
       <SettingsPage title={name}>
         {error && <InlineErrorNotice error={error} operation={`managing ${name}`} role="alert" />}
-        {concierge?.concierge_missing && !gateway && <MissingConciergeNotice status={concierge} onSetUpWithGeneral={onInterview}
-          onEditPermissions={() => permissions.current?.scrollIntoView({ block: "start", behavior: "smooth" })} />}
+        {needsRecovery && concierge && <ConciergeRecoveryNotice status={concierge} onSetUpWithGeneral={onInterview}
+          onOpenConcierge={tabId => focusTab(tabId, workspaceOfTab({ workspaces, tabs }, tabId))}
+          onReviewAccess={() => permissions.current?.scrollIntoView({ block: "start", behavior: "smooth" })} />}
 
         <div ref={conciergeCard}>
         <FriendSection icon={<Bot size={16} />} title="Concierge" description={`The agent that answers ${name} within the permissions below.`}
@@ -176,10 +179,10 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
               <span className="neighbor-friend__label">{gateway ? `${provider?.display_name ?? gateway.agent_type ?? "Agent"}${model ? `, ${model}` : ""}` : "No concierge on this machine"}</span>
               {gateway && <span className="neighbor-note"> in {gateway.title}</span>}
             </span>
-            <span className="neighbor-confirm__actions">
+            {!needsRecovery && <span className="neighbor-confirm__actions">
               {gateway && gatewayId && <Button size="sm" onClick={() => focusTab(gatewayId, workspaceOfTab({ workspaces, tabs }, gatewayId))}>Open its chat</Button>}
               <Button size="sm" variant={gateway ? "ghost" : "accent"} onClick={() => setChanging(true)}>{gateway ? "Change agent" : "Set up concierge"}</Button>
-            </span>
+            </span>}
           </div>
         </FriendSection>
         </div>
