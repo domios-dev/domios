@@ -1,5 +1,5 @@
 import { listen } from "../../lib/bridge";
-import { localFetch } from "../../lib/webApi";
+import { neighborFetch } from "./neighborFetch";
 import { recordProductEvent } from "../../lib/productAnalytics";
 import { nativeBridge, type NativeBridge } from "../../lib/nativeBridge";
 import { receipt, type NeighborReceipt } from "./neighborRuntimeClient";
@@ -40,7 +40,7 @@ const record = (value: unknown): value is Record<string, unknown> => typeof valu
 const count = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
 async function call(command: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
-  const response = await localFetch("/api/account/neighbors/files", {
+  const response = await neighborFetch("/api/account/neighbors/files", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), signal,
   });
   if (!response.ok) {

@@ -123,10 +123,18 @@ impl ServiceContext {
             self.require_neighbors_enabled()
                 .map_err(|error| error.to_string())?;
             self.require_neighbor_generation(generation)?;
-            let (registry, _scope, _metadata) = self.neighbor_key_ports().await?;
+            let (registry, _scope, metadata) = self.neighbor_key_ports().await?;
             let list = self
                 .neighbor_registry_owned(super::super::NeighborCommand::List {})
                 .await?;
+            self.reconcile_neighbor_nonlocal_receivers(
+                &metadata,
+                &registry.uid,
+                &registry.installation_id,
+                &list,
+                generation,
+            )
+            .await?;
             if !super::super::updates::receives_friends(&list, &registry.installation_id) {
                 return Ok(true);
             }
