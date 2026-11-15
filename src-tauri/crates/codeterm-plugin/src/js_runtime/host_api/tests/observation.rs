@@ -136,8 +136,11 @@ fn durable_media_observation_cannot_consume_or_close_an_admitted_effect_receipt(
         "lookup-effects-receipt",
         r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
 module.exports = {
-    close(job) {
-        return host.io.run((function* () { (yield* attempt({ op: "execClose", job: job })); return true; }).call(this));
+    close(job, op) {
+        return host.io.run((function* () {
+            var reply = yield* attempt({op:op,job:job});
+            return reply && reply.error === "effect job unavailable during observation";
+        })());
     },
     poll(job) {
         return host.io.run((function* () { return (yield* attempt({ op: "execPoll", job: job })); }).call(this));
@@ -150,7 +153,12 @@ module.exports = {
     .unwrap();
     {
         let _scope = RequestScope::observation_only(Instant::now() + Duration::from_secs(2));
-        assert!(call_json::<bool>(&vm, "close", &[json!(job)]).unwrap());
+        for op in ["execClose", "fetchStreamPoll", "fetchStreamClose"] {
+            assert!(
+                call_json::<bool>(&vm, "close", &[json!(job), json!(op)]).unwrap(),
+                "{op} must refuse observation before mutating a receipt"
+            );
+        }
         let refused: serde_json::Value = call_json(&vm, "poll", &[json!(job)]).unwrap();
         assert_eq!(refused["error"], "host job belongs to another invocation");
         let native_refused: serde_json::Value =
