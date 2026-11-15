@@ -222,9 +222,28 @@ fn flatten_rich(rich: &RichMessage, fallback_base: &str, seq: i64) -> Vec<ChatMs
     );
     for m in &mut out {
         m.seq = seq;
+        m.source_record = rich.record_start.map(|record_start| {
+            codeterm_types::agent::delivery::SourceRecord::Jsonl {
+                incarnation: String::new(),
+                record_start,
+                record_row: rich.record_row,
+            }
+        });
         m.refresh_segments();
     }
     out
+}
+
+pub fn stamp_record_incarnation(messages: &mut [ChatMsg], incarnation: &str) {
+    for message in messages {
+        if let Some(codeterm_types::agent::delivery::SourceRecord::Jsonl {
+            incarnation: current,
+            ..
+        }) = &mut message.source_record
+        {
+            *current = incarnation.to_owned();
+        }
+    }
 }
 
 fn apply_capabilities(

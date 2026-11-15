@@ -56,6 +56,11 @@ function isUserAuthored(row: NormalizedChatMessage): boolean {
 export function matchesMatchedRow(row: NormalizedChatMessage, matchedRow: MatchedRow): boolean {
   if (!isUserAuthored(row) || row.sourceSessionId !== matchedRow.source.source_session_id) return false;
   const record = matchedRow.source.record;
+  if (record.kind === "jsonl") {
+    const source = row.sourceRecord;
+    return source?.kind === "jsonl" && source.incarnation === record.incarnation
+      && source.record_start === record.record_start && source.record_row === record.record_row;
+  }
   return record.kind === "structured"
     && record.thread_id === matchedRow.source.source_session_id
     && (row.id === record.item_id || row.sourceMessageId === record.item_id);
@@ -81,6 +86,8 @@ export function sendRow(send: ChatSend): NormalizedChatMessage {
     segments: send.segments,
     timestamp: String(send.sentAtMs),
     correlationId: send.correlationId,
+    ...(send.matchedRow ? { sourceSessionId: send.matchedRow.source.source_session_id,
+      sourceRecord: send.matchedRow.source.record } : {}),
   };
 }
 
@@ -133,47 +140,12 @@ export function reconcileSends(
       continue;
     }
     if (send.matchedRow) {
-      const matchedRow = send.matchedRow;
-      const sourceSessionId = matchedRow.source.source_session_id;
-      const record = matchedRow.source.record;
-      if (record.kind === "structured") {
-        if (send.echoBoundary
-          ? send.echoBoundary.sourceSessionId !== sourceSessionId
-          : sourceSessionId !== authority?.sourceSessionId) {
-          if (!send.echo) pending.push(send);
-          continue;
-        }
-        const index = users.find((candidate) => !recorded.has(candidate)
-          && matchesMatchedRow(rows[candidate], matchedRow));
-        if (index == null && !send.echo) pending.push(send);
-        else if (index != null) {
-          recorded.add(index);
-          claim(send, index);
-        }
-        continue;
-      }
-      if (send.echo) {
-        if (send.echoBoundary
-          ? send.echoBoundary.sourceSessionId !== sourceSessionId
-          : sourceSessionId !== authority?.sourceSessionId) continue;
-        const index = users.find((candidate) => !recorded.has(candidate)
-          && rows[candidate].sourceSessionId === sourceSessionId
-          && send.correlationId != null
-          && rows[candidate].correlationId === send.correlationId);
-        if (index != null) {
-          recorded.add(index);
-          claim(send, index);
-        }
-        continue;
-      }
-      const boundary = send.echoBoundary;
-      if (!boundary
-        || boundary.sourceSessionId !== sourceSessionId
-        || boundary.sourceSessionId !== authority?.sourceSessionId
-        || boundary.sessionBindingNonce !== authority?.sessionBindingNonce) {
-        pending.push(send);
-        continue;
-      }
+      const index = users.find(candidate => matchesMatchedRow(rows[candidate], send.matchedRow!));
+      if (index != null) {
+        recorded.add(index);
+        claim(send, index);
+      } else if (!send.echo) pending.push(send);
+      continue;
     }
     if (send.echoBoundary && (send.echoBoundary.sourceSessionId !== authority?.sourceSessionId
       || send.echoBoundary.sessionBindingNonce !== authority?.sessionBindingNonce)) {

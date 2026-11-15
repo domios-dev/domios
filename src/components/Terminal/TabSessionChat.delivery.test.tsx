@@ -615,18 +615,21 @@ for (const pty of [true, false]) {
   test(`an own ${pty ? "queued" : "steered"} send keeps one row through delivery release and transcript handoff`, async () => {
     const tabId = `turn-end-${pty}`;
     const at = Date.now();
+    const record = (offset: number) => ({ kind: "jsonl" as const, incarnation: "own-file", record_start: offset, record_row: 0 });
     const tool = { id: "turn-tool", type: "tool_call", content: "", toolId: "turn-tool", toolKind: "command",
+      sourceRecord: record(20),
       toolInput: { cmd: "opaque-command" }, toolStatus: "running", toolStartedAtMs: at - 1000, timestamp: String(at - 1000) };
     const turn = [
       { id: "turn-prompt", type: "user", content: "opaque-prompt", timestamp: String(at - 2000) },
       tool,
-      { id: "turn-answer", type: "assistant", content: "opaque-stream", timestamp: String(pty ? at + 1 : at - 500) },
+      { id: "turn-answer", type: "assistant", content: "opaque-stream", sourceRecord: record(30), timestamp: String(pty ? at + 1 : at - 500) },
     ];
     const { host, root, dispatch, setWorking } = await renderChat(tabId, undefined, undefined, undefined, { messages: turn, working: true, pty });
     const { __setInvokeForTest } = await import("../../lib/bridge");
     const status = (state: "written" | "submit_unconfirmed" | "delivered", sequence: number) => ({
       tab_id: tabId, send_id: "turn-tx", correlationId: "turn-send", state, sequence,
       ledger_id: "ledger", retained_from: 1, error: null,
+      ...(state === "delivered" ? { matched_row: { source: { source_session_id: "session-1", record: record(40) }, ordinal: 1 } } : {}),
     });
     let latest = status("written", 1);
     __setInvokeForTest(async <T,>(command: string) => (command === "chat_send_status" ? [latest] : []) as T);
@@ -671,7 +674,7 @@ for (const pty of [true, false]) {
       const position = () => [...host.querySelectorAll('[data-chat-window-row]')]
         .findIndex(row => row.contains(bubble));
       const handoffPositions = [position()];
-      const echo = { id: "source-send", type: "user", content: "opaque-send", timestamp: String(at + 2000), correlationId: "turn-send",
+      const echo = { id: "source-send", type: "user", content: "opaque-send", sourceRecord: record(40), timestamp: String(at + 2000), correlationId: "turn-send",
         segments: [{ type: "text", text: "opaque-send", correlationId: "turn-send" }] };
       await act(async () => emit([echo]));
       handoffPositions.push(position());

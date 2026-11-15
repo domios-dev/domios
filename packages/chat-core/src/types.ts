@@ -126,6 +126,7 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   id: string;
   /** An explicit source identity supplied by a projection adapter. */
   sourceMessageId?: string;
+  sourceRecord?: import("./gen/SourceRecord").SourceRecord;
   type: ChatMessageKind;
   content: string;
   segments?: import("./envelope").MessageSegment[] | null;
