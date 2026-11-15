@@ -1,13 +1,7 @@
 name: CI
 on:
-  # CI runs only for a release PR into master; a new push to the PR cancels its previous run.
-  pull_request:
-    branches:
-      - master
-    types:
-      - opened
-      - synchronize
-      - reopened
+  push:
+    branches: ['release/[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
     inputs:
       source_ref:
@@ -24,7 +18,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ inputs.source_ref != '' && format('tests-dispatch-{0}', github.run_id) || format('tests-pr-{0}', github.event.pull_request.number) }}
+  group: ${{ github.event_name == 'push' && format('tests-push-{0}', github.ref) || format('tests-dispatch-{0}', github.run_id) }}
   cancel-in-progress: true
 jobs:
   admission:
@@ -46,18 +40,13 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
         with:
           script: |-
-            // The Rust tier starts from the exact PR head, not the synthetic merge commit.
-            const pr = context.payload.pull_request;
-            core.setOutput('source_sha', process.env.SOURCE_REF || pr?.head.sha || context.sha);
-            const release = context.eventName === 'pull_request' && /^release\/\d+\.\d+\.\d+$/.test(pr.head.ref) &&
-              pr.head.repo.full_name === context.repo.owner + '/' + context.repo.repo && pr.user.login === 'rollacode' &&
+            const owner = ['rollacode', 'domios-dev'].includes(context.repo.owner) &&
               context.actor === 'rollacode' && process.env.GITHUB_TRIGGERING_ACTOR === 'rollacode';
+            const release = context.eventName === 'push' && /^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref);
+            if (!owner || !(release || context.eventName === 'workflow_dispatch'))
+              throw new Error('CI requires an owner release push or diagnostic dispatch');
+            core.setOutput('source_sha', release ? context.sha : process.env.SOURCE_REF);
             core.setOutput('release_head', String(release));
-            if (context.eventName === 'pull_request' && !release) {
-              core.notice('Only an owner release/X.Y.Z PR into master runs CI');
-              core.setOutput('run', 'false');
-              return;
-            }
             core.setOutput('run', 'true');
   policy:
     name: Repository guards
@@ -141,22 +130,6 @@ jobs:
           SCAN_BASE: ${{ steps.change.outputs.base }}
         run: bash scripts/secret-scan.sh "$SCAN_BASE"
         if: ${{ !cancelled() && steps.change.outcome == 'success' }}
-      - name: Require a release branch
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          SOURCE_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$HEAD_REPO" == "$SOURCE_REPO" && "$PR_AUTHOR" == rollacode ]]
-          if [[ ! "$HEAD_REF" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::master accepts only release/X.Y.Z; open this pull request against develop (head was '$HEAD_REF')"
-            exit 1
-          fi
-          echo "release branch $HEAD_REF"
-        if: ${{ success() && github.event_name == 'pull_request' && github.base_ref == 'master' }}
     needs: admission
   fast:
     name: Fast checks
@@ -177,7 +150,7 @@ jobs:
     name: Rust tests
     # Starts with the push, beside the guards and the fast tier.
     needs: [admission]
-    if: ${{ !cancelled() && inputs.scope != 'fast' && github.event_name == 'pull_request' && needs.admission.outputs.run != 'false' }}
+    if: ${{ !cancelled() && inputs.scope != 'fast' && github.event_name == 'push' && needs.admission.outputs.run != 'false' }}
     uses: ./.github/workflows/tests-rust.yml
     with:
       source_ref: ${{ needs.admission.outputs.source_sha }}
@@ -205,7 +178,7 @@ jobs:
     with:
       source_ref: ${{ needs.fast.outputs.source_sha || github.ref }}
       report_name: rust-warnings-tests-all-report
-      comment: ${{ needs.admission.outputs.release_head == 'true' }}
+      comment: false
       additional_artifacts: ${{ needs.admission.outputs.release_head == 'true' && '["rust-warnings-release-macOS-aarch64-apple-darwin","rust-warnings-release-macOS-x86_64-apple-darwin","rust-warnings-release-Linux-aarch64-unknown-linux-gnu","rust-warnings-release-Linux-x86_64-unknown-linux-gnu","rust-warnings-release-Windows-x86_64-pc-windows-msvc","rust-warnings-release-Windows-aarch64-pc-windows-msvc"]' || '[]' }}
       artifacts: ${{ needs.fast.outputs.heavy == 'true' && format('["{0}","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc"]', needs.rust.outputs.warnings) || '[]' }}
   qualification:
@@ -291,7 +264,7 @@ jobs:
       issues: write
       pull-requests: write
     with:
-      tag: ${{ github.head_ref }}
+      tag: ${{ github.ref_name }}
       source_sha: ${{ needs.admission.outputs.source_sha }}
       dry_run: true
       mirror: false

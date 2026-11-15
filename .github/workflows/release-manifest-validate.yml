@@ -12,6 +12,10 @@ on:
       source_sha:
         required: true
         type: string
+      promote_run_id:
+        required: false
+        default: ''
+        type: string
       mirror:
         required: true
         type: boolean
@@ -24,13 +28,13 @@ permissions:
 jobs:
   validate:
     name: publish and verify all platform manifests
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || ((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || ((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
     environment: release
     concurrency:
       group: codeterm-core-channel-publication
       cancel-in-progress: false
     # Publication only talks to the GitHub API, so it runs where no machine of ours can stall it.
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ${{ fromJSON(github.ref == 'refs/heads/master' && '"ubuntu-24.04"' || vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
@@ -97,13 +101,14 @@ jobs:
       - name: Recheck exact-SHA dev qualification before publication
         env:
           QUALIFICATION_SHA: ${{ inputs.source_sha }}
+          PROMOTE_RUN_ID: ${{ inputs.promote_run_id }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
           script: |-
             const {pathToFileURL} = require('node:url');
             const {requireQualificationWithGithub} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
             const sha = process.env.QUALIFICATION_SHA || require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
-            await requireQualificationWithGithub(github, context, sha);
+            await requireQualificationWithGithub(github, context, sha, {runId: process.env.PROMOTE_RUN_ID || undefined});
 
       - name: Stamp the source release tag after all gates succeed
         env:

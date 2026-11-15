@@ -61,7 +61,7 @@ jobs:
   changed:
     name: tree is new
     # A release branch's push already runs these checks on the exact SHA in release.yml.
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' }}
     # Every job waits on this gate, so any free light runner takes it.
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
@@ -187,7 +187,7 @@ jobs:
     name: script tests and rustfmt
     needs: changed
     # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
@@ -275,7 +275,7 @@ jobs:
   plugins:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.plugins != '[]') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (needs.changed.outputs.plugins != '[]') }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
@@ -320,7 +320,7 @@ jobs:
   ts-static:
     name: ts static checks
     needs: changed
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (needs.changed.outputs.frontend == 'true') }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
@@ -376,7 +376,7 @@ jobs:
   frontend-dist:
     name: frontend producer
     needs: changed
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
@@ -417,7 +417,7 @@ jobs:
   ts-types:
     name: ts generated types
     needs: changed
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
@@ -502,7 +502,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (needs.changed.outputs.frontend == 'true') }}
     # Air is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
@@ -548,7 +548,7 @@ jobs:
   ts-vitest:
     name: ts vitest
     needs: changed
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (needs.changed.outputs.frontend == 'true') }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
@@ -591,7 +591,7 @@ jobs:
   ts-plugins:
     name: plugin bundles + tests
     needs: changed
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.rust == 'true') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' && (needs.changed.outputs.rust == 'true') }}
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read

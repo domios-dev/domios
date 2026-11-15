@@ -15,6 +15,24 @@ export const QUALIFICATION_JOBS = [
   'Rust tests / rust embeddings', 'Rust tests / rust test receipts', 'qualification receipt',
 ];
 
+export function isReleasePushRun(run, sha, repository = sourceRepository()) {
+  return run.path === '.github/workflows/tests.yml' && run.event === 'push' && run.head_sha === sha &&
+    /^release\/\d+\.\d+\.\d+$/.test(run.head_branch) &&
+    run.repository?.full_name === repository && run.head_repository?.full_name === repository &&
+    ['rollacode', 'domios-dev'].includes(repository.split('/')[0]) &&
+    run.actor?.login === 'rollacode' && run.triggering_actor?.login === 'rollacode';
+}
+
+export function selectReleasePushRun(runs, sha, branch, repository = sourceRepository()) {
+  if (!/^release\/\d+\.\d+\.\d+$/.test(branch) || !/^[a-f0-9]{40}$/.test(sha))
+    throw new Error('Invalid release qualification source');
+  const run = runs.filter(run => isReleasePushRun(run, sha, repository) && run.head_branch === branch)
+    .sort((a, b) => b.id - a.id)[0];
+  if (!run || run.status !== 'completed' || run.conclusion !== 'success')
+    throw new Error('No completed green release push run for the exact head');
+  return run;
+}
+
 export function latestQualificationJobs(jobs, run, sha) {
   const latest = new Map();
   for (const job of jobs) {
@@ -120,9 +138,7 @@ export function resolveQualificationOrigins(required, jobs, run, attempts, sha, 
 export function verifyQualification(receipt, run, jobs, sha, repository = sourceRepository(), attempts = []) {
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid qualification SHA');
   if (run.path !== '.github/workflows/tests.yml' || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('Qualification run is not green tests.yml');
-  const trustedBranch = ['develop', 'rename/domios', 'master'].includes(run.head_branch) || /^release\/\d+\.\d+\.\d+$/.test(run.head_branch);
-  const ownHead = run.head_repository?.full_name === repository && run.repository?.full_name === repository;
-  if (!(['push', 'pull_request'].includes(run.event) && trustedBranch && ownHead && run.head_sha === sha)) throw new Error('Untrusted qualification source');
+  if (!isReleasePushRun(run, sha, repository)) throw new Error('Untrusted qualification source');
   if (receipt.version !== 2 || receipt.sha !== sha || String(receipt.run_id) !== String(run.id)
     || receipt.repository !== repository || receipt.workflow !== run.path
     || !Number.isSafeInteger(receipt.run_attempt) || receipt.run_attempt < 1 || receipt.run_attempt > run.run_attempt) throw new Error('Foreign or stale qualification receipt');
@@ -181,10 +197,11 @@ export function recordQualification(sha, rust, results, { repository, run_id, ru
 const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
 const api = route => JSON.parse(gh(['api', route]));
 
-export function selectQualificationArtifact(artifacts, sha, now = Date.now()) {
+export function selectQualificationArtifact(artifacts, sha, now = Date.now(), runId) {
   const name = `qualification-${sha}`;
   const artifact = artifacts.filter(row => row.name === name && !row.expired
-    && Date.parse(row.expires_at) > now && row.workflow_run?.head_sha === sha)
+    && Date.parse(row.expires_at) > now && row.workflow_run?.head_sha === sha
+    && (runId === undefined || String(row.workflow_run.id) === String(runId)))
     .sort((a, b) => b.id - a.id)[0];
   if (!artifact) throw new Error(`No unexpired qualification receipt for ${sha}`);
   return artifact;
@@ -201,13 +218,14 @@ export function qualificationJobs(run, repository, request) {
   throw new Error('Qualification job inventory exceeds bound or is incomplete');
 }
 
-export function requireQualification(sha, { repository = sourceRepository(), request = api,
+export function requireQualification(sha, { repository = sourceRepository(), request = api, runId,
   download = args => execFileSync('gh', args, { timeout: 120_000, maxBuffer: 16 * 1024 * 1024 }),
   readArchive = readQualificationArchive, retain = retainQualificationEvidence } = {}) {
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid qualification SHA');
+  if (runId !== undefined && !/^[1-9]\d*$/.test(String(runId))) throw new Error('Invalid qualification run ID');
   const name = `qualification-${sha}`;
-  const artifacts = request(`repos/${repository}/actions/artifacts?name=${name}&per_page=100`).artifacts;
-  const artifact = selectQualificationArtifact(artifacts, sha);
+  const artifacts = request(`repos/${repository}/actions/${runId === undefined ? "artifacts" : `runs/${runId}/artifacts`}?name=${name}&per_page=100`).artifacts;
+  const artifact = selectQualificationArtifact(artifacts, sha, Date.now(), runId);
   const run = request(`repos/${repository}/actions/runs/${artifact.workflow_run.id}`);
   if (String(run.id) !== String(artifact.workflow_run.id)) throw new Error('Foreign qualification artifact run');
   const jobs = qualificationJobs(run, repository, request);

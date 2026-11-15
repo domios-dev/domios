@@ -36,7 +36,7 @@ concurrency:
 jobs:
   step:
     name: ${{ inputs.recipe }} ${{ inputs.target }} on ${{ inputs.runner }}
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.triggering_actor == 'rollacode' }}
     runs-on: ${{ fromJSON(vars.CI_STEP_RUNNERS || '{"hosted-linux":"ubuntu-24.04","hosted-windows":"windows-2025","hosted-macos":"macos-15"}')[inputs.runner] }}
     timeout-minutes: 60
     env:

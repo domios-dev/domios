@@ -1,24 +1,25 @@
 # CI and release admission
 
-CI has two PR tiers. **CI result** is the aggregate to require: tests.yml owns
-release PRs into master; tests-side.yml owns all PRs into develop, including
-Dependabot and forks. Repository rules remain an owner operation; changing a
+**CI result** is the aggregate to require: tests-side.yml owns all PR light checks
+into develop and master, including Dependabot and forks. Master release PRs additionally
+require **Release qualification**. tests.yml owns owner release pushes and diagnostics. Repository rules remain an owner operation; changing a
 workflow does not update live required-check settings.
 
 | Event | Checks |
 | --- | --- |
-| Trusted owner release/X.Y.Z PR into master | Existing heavy fast/Rust graph, qualification and dry-run packaging, with the existing self-hosted routing |
+| Owner push to exact release/X.Y.Z | Full fast/Rust/warnings graph, qualification and reusable dry-run packaging in the same run, with per-branch concurrency |
+| Owner release/X.Y.Z PR into master | Hosted light graph plus read-only same-SHA Release qualification reader |
 | Any PR into develop | Hosted repository guards, fmt-check, TS static checks/unit/Vitest, plugin bundle checks/tests, one workspace cargo check --all-targets, then CI result |
 | Other PR into master | Existing repository refusal: master accepts only the owner's release/X.Y.Z |
 | Owner CI dispatch | Existing tests.yml dispatch behavior and scope |
 
-The develop path uses literal ubuntu-24.04 for every job, independent of runner
+Every PR job uses literal ubuntu-24.04, independent of runner
 variables. It requests a read-only token, no repository/environment secrets,
 no release environment, no reusable release graph, no qualification and no Rust
 test execution. Rust checking includes the CLI workspace member and all target
 kinds on Linux; it uses the GitHub Actions sccache backend and Cargo dependency
 cache without private-store credentials or endpoints. Fork/Dependabot PRs need
-no store access. Every light check runs for every develop PR, regardless of
+no store access. Every light check runs for every PR, regardless of
 changed-file scope. The aggregate rejects failed, cancelled or skipped checks.
 
 After merge, verify the first Dependabot PR into develop by its commit SHA:
@@ -60,26 +61,27 @@ nextest and platform matrices keep fail-fast off, and no failing qualification
 can start packaging. A newer commit can still supersede an older run.
 CI result reads named failing/timed-out child jobs from the Actions API; timeouts remain failures rather than cancelling siblings. Hosted TS checks have 15-minute bounds; generated types and the private guard role have 20 minutes.
 
-The trusted release PR into master retains its existing tests.yml admission,
-heavy checks, qualification and packaging. Side PRs never call that graph.
-The workflows have disjoint PR base-branch filters, so their CI result checks
-cannot mask each other on the same PR event.
+The release push runs full qualification and dry-run packaging together from `github.sha`.
+Only owner pushes to exact release/X.Y.Z branches enter that graph. Open or refresh the release
+PR after this push run is green. Its hosted read-only reader validates the current PR head and
+branch tip, selects the completed green tests.yml push run for the exact SHA, branch, repository
+and owner actors, then validates unexpired receipts from that run. Missing, failed, foreign,
+superseded or expired evidence fails; absence never passes. No PR event can call privileged jobs. Master promotion jobs are pinned to hosted Ubuntu,
+so the release-only runner-group allowlist needs no master workflow refs.
 
-An admin squash-merges the green release PR (the only allowed method; the branch is deleted). The master push
-event discovers the merged release PR, verifies the merge parents, selects the successful tests.yml push run of
-the same release head, and sets promote_run_id. Qualification and promotion
-validate the same-repository release/X.Y.Z push head, owner actors,
-green jobs, exact SHA, producing run and attempt. All retained artifacts are
-verified before publication; the master merge commit is never a build source.
-The existing release environment and publication switch still protect shipping.
-CI runs from the owner's release/X.Y.Z PR, so the trusted runner group serves this
-repository's workflows without a ref list (`restricted_to_workflows=false`,
-`selected_workflows=[]`). Use the [read-only runner policy procedure](public-repo.md#runner-isolation-is-a-publicization-prerequisite)
-before requesting runners; release preparation changes no live policy. A fork PR's run waits for owner approval,
-fork PRs receive no secrets, and only the owner merges into master. Hosted unsigned
-compile jobs receive only their existing public build configuration; signing
-credentials remain in protected signing jobs. Branch synchronization after
-publication is an admin-owned merge PR, never a workflow push to master/develop.
+An admin merges the green release PR with a merge commit, preserving its branch. The master push
+requires the merged PR and qualified head tree, selects its exact owner push run and sets
+promote_run_id. Qualification and packaging must belong to that same run. The master merge commit
+is never built. Existing attempt provenance, expiry, warning, platform, Debian and manifest guards,
+release environment and publication switch remain required.
+
+Before the first push of each application release, the OWNER retargets every approved acquiring
+workflow in the runner-group payload to that exact release branch and reads the policy back.
+See [the runner policy procedure](public-repo.md#runner-isolation-is-a-publicization-prerequisite).
+Require restricted_to_workflows=true and exact reviewed refs, selected repository access and no
+unrestricted repository runners. Preparing the payload changes no live policy. Hosted unsigned
+compile jobs receive their existing public build configuration; signing credentials remain in
+protected signing jobs. Branch synchronization uses an admin-owned merge PR.
 
 Read status by commit, not by the latest run:
 
