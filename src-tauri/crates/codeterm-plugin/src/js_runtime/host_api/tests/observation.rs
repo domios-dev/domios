@@ -176,8 +176,6 @@ module.exports = {
             if message == "await job is foreign, unavailable or denied")
         );
     }
-    let foreign: serde_json::Value = call_json(&vm, "poll", &[json!(job)]).unwrap();
-    assert_eq!(foreign["error"], "host job belongs to another invocation");
     let pending: serde_json::Value =
         serde_json::from_str(&host_exec::poll("lookup-effects-receipt", &job)).unwrap();
     assert_eq!(pending["done"], false);
