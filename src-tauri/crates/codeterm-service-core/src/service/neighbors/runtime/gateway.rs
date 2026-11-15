@@ -124,14 +124,7 @@ impl NeighborGateway for Gateway {
         }
         let history_generation = self.history_generation;
         self.current()?;
-        if self
-            .service
-            .mux
-            .read()
-            .get_tab(&self.tab)
-            .and_then(|tab| tab.neighbor_authority.as_ref())
-            .is_some_and(|authority| authority.uid != message.doc.envelope.recipient_uid)
-        {
+        if !self.recipient_matches(&message.doc.envelope.recipient_uid) {
             return Err(Error::WrongPeer);
         }
         let events = self.service.events.subscribe();
@@ -288,33 +281,30 @@ impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
 }
 
 impl Gateway {
-    fn current(&self) -> Result<()> {
+    fn recipient_matches(&self, uid: &str) -> bool {
+        if self.tab.is_empty() && self.reply_target.is_none() {
+            return true;
+        }
+        self.service
+            .mux
+            .read()
+            .get_tab(&self.tab)
+            .is_some_and(|tab| {
+                tab.neighbor_authority
+                    .as_ref()
+                    .map_or(self.reply_target.is_some(), |authority| {
+                        authority.uid == uid
+                    })
+            })
+    }
+
+    fn scope_current(&self) -> Result<()> {
         if *self.stopped.borrow() {
             return Err(Error::Revoked);
         }
         self.service.require_neighbors_enabled()?;
         self.service
             .require_neighbor_friend_receiver(&self.friendship, None)?;
-        if self
-            .service
-            .mux
-            .read()
-            .get_tab(&self.tab)
-            .and_then(|tab| tab.neighbor_authority.as_ref())
-            .is_some_and(|authority| {
-                authority.friendship_id != self.friendship
-                    || self.reply_target.is_none() && authority.root_tab_id.is_some()
-            })
-        {
-            return Err(Error::Gateway);
-        }
-        if self
-            .reply_target
-            .as_ref()
-            .is_some_and(|target| !self.target_current(target))
-        {
-            return Err(Error::Gateway);
-        }
         use std::sync::atomic::Ordering;
         if self
             .service
@@ -324,6 +314,40 @@ impl Gateway {
             != self.generation
         {
             return Err(Error::Revoked);
+        }
+        Ok(())
+    }
+
+    fn current(&self) -> Result<()> {
+        self.scope_current()?;
+        if self.tab.is_empty()
+            && self.reply_target.is_none()
+            && self.service.neighbor_friend_paused(&self.friendship)
+        {
+            return Ok(());
+        }
+        let authorized = self
+            .service
+            .mux
+            .read()
+            .get_tab(&self.tab)
+            .is_some_and(|tab| {
+                tab.neighbor_authority
+                    .as_ref()
+                    .map_or(self.reply_target.is_some(), |authority| {
+                        authority.friendship_id == self.friendship
+                            && (self.reply_target.is_some() || authority.root_tab_id.is_none())
+                    })
+            });
+        if !authorized {
+            return Err(Error::Gateway);
+        }
+        if self
+            .reply_target
+            .as_ref()
+            .is_some_and(|target| !self.target_current(target))
+        {
+            return Err(Error::Gateway);
         }
         Ok(())
     }

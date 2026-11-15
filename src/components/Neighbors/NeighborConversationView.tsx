@@ -305,7 +305,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     </div>}
     {receive.request && receiver && <div className="neighbor-chat__notice"><FriendReceiveConfirm request={receive.request} receiver={receiver} friendName={name}
       targetMachine={machineLabel} client={runtimeClient} onClose={receive.close} /></div>}
-    {enabled && concierge?.receiving_here && conciergeNeedsAttention(concierge) && <div className="neighbor-chat__notice"><ConciergeRecoveryNotice status={concierge}
+    {enabled && concierge?.receiving_here && conciergeNeedsAttention(concierge) && <div className="neighbor-chat__notice"><ConciergeRecoveryNotice status={concierge} friendName={name}
       onSetUpWithGeneral={setUpWithGeneral} onOpenConcierge={tabId => focusTab(tabId, workspaceOfTab({ workspaces, tabs }, tabId))}
       onReviewAccess={() => openNeighborPage(friendship, "permissions")} /></div>}
     <div ref={scroller} className="neighbor-chat__scroll" onScroll={event => {
