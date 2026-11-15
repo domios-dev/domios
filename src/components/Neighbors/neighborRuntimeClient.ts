@@ -1,5 +1,5 @@
 import { listen } from "../../lib/bridge";
-import { localFetch } from "../../lib/webApi";
+import { neighborFetch } from "./neighborFetch";
 
 export type NeighborDeliveryStatus = import("../../../gen/DeliveryStatus").DeliveryStatus;
 export type NeighborListenerState = import("../../../gen/ListenerState").ListenerState;
@@ -64,7 +64,7 @@ export function receipt(value: unknown): NeighborReceipt {
 }
 
 export async function runtimeCall(command: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
-  const response = await localFetch("/api/account/neighbors/runtime", {
+  const response = await neighborFetch("/api/account/neighbors/runtime", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), signal,
   });
   if (!response.ok) {
