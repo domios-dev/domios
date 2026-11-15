@@ -175,10 +175,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           {enabled && !locked && receiver && !receiver.receiving_here && <NeighborReceiveHere key={`${friendship}:set`}
             receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
             onReceive={revision => runtimeClient.receiveFriend(friendship, revision)} />}
-          {enabled && !locked && receiver?.receiving_here && <NeighborReceiveHere key={`${friendship}:reset`}
-            receiver={receiver} friendName={name} operation="reset" targetMachine={runtimeStatus?.machine_label}
-            onReceive={revision => runtimeClient.receiveFriend(friendship, revision, "reset")} />}
-          <div className="neighbor-friend__row">
+          <div className="neighbor-friend__row pl-[calc(2rem+var(--neighbor-space-2))]">
             <span className="min-w-0">
               <span className="neighbor-friend__label">{gateway ? `${provider?.display_name ?? gateway.agent_type ?? "Agent"}${modelName ? ` · ${modelName}` : ""}` : "No concierge on this machine"}</span>
             </span>
@@ -187,6 +184,9 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
               <Button size="sm" variant={gateway ? "ghost" : "accent"} onClick={() => setChanging(true)}>{gateway ? "Change agent" : "Set up concierge"}</Button>
             </span>}
           </div>
+          {enabled && !locked && receiver?.receiving_here && <NeighborReceiveHere key={`${friendship}:reset`}
+            receiver={receiver} friendName={name} operation="reset" targetMachine={runtimeStatus?.machine_label}
+            onReceive={revision => runtimeClient.receiveFriend(friendship, revision, "reset")} />}
         </FriendSection>
         </div>
 
