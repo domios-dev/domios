@@ -438,13 +438,13 @@ impl ServiceContext {
                         std::time::Duration::from_secs(super::RESTART_READY_TIMEOUT_SECS),
                     )
                     .map_err(|error| {
-                        switch_restart_error("provider_switch_launch_failed", error)
+                        switch_attempt_error("provider_switch_launch_failed", error)
                     })?;
             }
         }
         let outcome = self
             .settle_restored_binding(outcome, snap, carry_required)
-            .map_err(|error| switch_restart_error("provider_switch_binding_failed", error))?;
+            .map_err(|error| switch_attempt_error("provider_switch_binding_failed", error))?;
         self.mux
             .read()
             .get_tab(&outcome.tab_id)
@@ -508,6 +508,13 @@ impl ServiceContext {
             }
         }
         Ok(())
+    }
+}
+
+fn switch_attempt_error(code: &str, error: super::RestartAttemptError) -> String {
+    match error {
+        super::RestartAttemptError::Request(error) => switch_restart_error(code, error),
+        super::RestartAttemptError::Failed { reason, .. } => format!("{code}: {reason}"),
     }
 }
 
