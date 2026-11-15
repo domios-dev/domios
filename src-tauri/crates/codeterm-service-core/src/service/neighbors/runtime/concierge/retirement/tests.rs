@@ -306,14 +306,12 @@ async fn per_friend_loss_retires_only_its_root_and_descendants_and_revokes_crede
     assert!(mux.get_tab(&other).is_some());
     let workspace = mux.find_workspace_for_tab(&other).unwrap();
     let closed = mux.list_recently_closed(&workspace);
-    assert_eq!(
-        closed.iter().filter(|entry| entry.tab_id == root).count(),
-        1
-    );
-    assert_eq!(
-        closed.iter().filter(|entry| entry.tab_id == child).count(),
-        1
-    );
+    for id in [&root, &child] {
+        assert!(
+            !closed.iter().any(|entry| &entry.tab_id == id),
+            "retired concierge must not enter ordinary reopen history"
+        );
+    }
 }
 
 #[tokio::test]
@@ -741,7 +739,10 @@ async fn signout_metadata_failures_still_retire_current_account_agents_and_crede
         let closed = mux.list_recently_closed(&workspace);
         for id in [&root, &child, &other_friend] {
             assert!(mux.get_tab(id).is_none());
-            assert_eq!(closed.iter().filter(|entry| &entry.tab_id == id).count(), 1);
+            assert!(
+                !closed.iter().any(|entry| &entry.tab_id == id),
+                "retired concierge must not enter ordinary reopen history"
+            );
         }
         drop(mux);
         if fail_save {
