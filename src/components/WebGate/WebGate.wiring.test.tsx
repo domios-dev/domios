@@ -53,6 +53,23 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
+it("opens a relay-only link with the stored origin credential and authenticates through the API", async () => {
+  const { setRelayTarget, usableRelayTarget } = await import("../../lib/webApi");
+  api.token = "stored-origin-credential";
+  window.history.replaceState(null, "", "/app#relay=receiver-instance");
+  vi.mocked(usableRelayTarget).mockReturnValue({ id: "receiver-instance", name: "Desk" });
+  api.localJson.mockImplementation((_method: string, path: string) => {
+    expect(window.location.hash).toBe("");
+    return Promise.resolve(path === "/api/mesh/peers" ? { paired: [] } : []);
+  });
+  await act(async () => root.render(<WebGate><main>Authenticated app</main></WebGate>));
+  expect(api.token).toBe("stored-origin-credential");
+  expect(api.setTokenFor).not.toHaveBeenCalled();
+  expect(setRelayTarget).toHaveBeenCalledWith("receiver-instance", "Desk");
+  expect(api.localJson).toHaveBeenCalledWith("GET", "/api/workspaces");
+  expect(host.querySelector("main")?.textContent).toBe("Authenticated app");
+});
+
 it.each(["hashchange", "popstate"])("consumes %s credentials while mounted and scrubs history before pending validation", async (type) => {
   await act(async () => root.render(<WebGate><main>Authenticated app</main></WebGate>));
   expect(host.querySelector('input[type="password"]')).not.toBeNull();
