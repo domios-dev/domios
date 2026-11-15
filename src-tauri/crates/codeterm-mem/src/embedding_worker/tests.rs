@@ -5,6 +5,28 @@ use std::sync::Arc;
 static L12: &LocalModel = &crate::embedder::local::MODELS[0];
 
 #[test]
+fn embedding_cpu_pool_is_bounded_and_runs_below_interactive_priority() {
+    cpu_pool()
+        .build_scoped(
+            |thread| thread.run(),
+            |pool| {
+                let threads = pool.broadcast(|_| {
+                    #[cfg(windows)]
+                    assert!(unsafe {
+                        windows_sys::Win32::System::Threading::GetThreadPriority(
+                            windows_sys::Win32::System::Threading::GetCurrentThread(),
+                        ) <= windows_sys::Win32::System::Threading::THREAD_PRIORITY_BELOW_NORMAL
+                    });
+                    #[cfg(target_os = "linux")]
+                    assert!(unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) } >= 10);
+                });
+                assert_eq!(threads.len(), 2);
+            },
+        )
+        .unwrap();
+}
+
+#[test]
 fn recall_priority_queries_preempt_a_full_bulk_lane_at_the_next_boundary() {
     let (worker, receivers) = channels();
     for _ in 0..QUEUE_CAPACITY {
@@ -189,8 +211,8 @@ fn idle_worker_joins_cpu_pool_and_retains_model_until_descriptor_changes() {
         assert_eq!(worker.embed(descriptor, "job", true).unwrap(), vec![1.0]);
         idle.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(pools.load(Ordering::SeqCst), index + 1);
-        assert_eq!(started.load(Ordering::SeqCst), (index + 1) * 4);
-        assert_eq!(exited.load(Ordering::SeqCst), (index + 1) * 4);
+        assert_eq!(started.load(Ordering::SeqCst), (index + 1) * 2);
+        assert_eq!(exited.load(Ordering::SeqCst), (index + 1) * 2);
         assert_eq!(forwards.load(Ordering::SeqCst), index + 1);
         assert_eq!(loads.load(Ordering::SeqCst), [1, 1, 2, 2, 3][index]);
         assert!(matches!(idle.try_recv(), Err(mpsc::TryRecvError::Empty)));
