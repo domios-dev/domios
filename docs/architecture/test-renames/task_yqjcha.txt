@@ -1,0 +1,17 @@
+# Relocated directory resource/data oracles and renamed job-shape checks.
+js_runtime::host_api::tests::walk_truncates_a_wide_tree_at_the_entry_budget -> js_runtime::host_api::tests::directory::walk_refuses_a_wide_tree_at_the_entry_budget
+js_runtime::host_api::tests::walk_under_the_budget_reports_every_entry -> js_runtime::host_api::tests::directory::walk_under_the_budget_reports_every_entry
+js_runtime::vm::tests::fetch_stream_preamble_is_sync_and_uses_fetch_allowlist -> js_runtime::vm::tests::fetch_stream_jobs_preserve_the_fetch_allowlist
+js_runtime::vm::tests::preamble_compute_is_fully_synchronous -> js_runtime::vm::tests::preamble_compute_jobs_return_plain_results
+# Synchronous fallback and three no-op agent APIs are deleted. The retained oracle proves their bindings are absent.
+js_runtime::host_api::sqlite::async_query_tests::refused_start_falls_back_to_the_synchronous_rows -> js_runtime::host_api::io::tests::jobs_only_contract_refuses_legacy_callbacks_and_preserves_confined_io
+js_runtime::host_compute::tests::agent_get_is_null_host_keeps_no_key_map -> js_runtime::host_api::io::tests::jobs_only_contract_refuses_legacy_callbacks_and_preserves_confined_io
+js_runtime::host_compute::tests::agent_resume_echoes_session_id -> js_runtime::host_api::io::tests::jobs_only_contract_refuses_legacy_callbacks_and_preserves_confined_io
+js_runtime::host_compute::tests::agent_usage_is_null_until_wired -> js_runtime::host_api::io::tests::jobs_only_contract_refuses_legacy_callbacks_and_preserves_confined_io
+# Invalidation has no plugin consumer or replacement job. Native invalidation remains host-owned; its plugin binding is absent.
+js_runtime::host_compute::tests::view_invalidation_uses_sandbox_plugin_identity_without_agent_scope_and_is_bounded -> js_runtime::host_api::io::tests::jobs_only_contract_refuses_legacy_callbacks_and_preserves_confined_io
+# The old query-specific registry and receipt reuse are gone; the job owner retains capacity until native work exits, without replay.
+js_runtime::host_api::sqlite::async_query_tests::timed_out_query_keeps_running_and_the_next_call_takes_its_rows -> js_runtime::host_api::io::tests::cancellation_does_not_release_native_capacity_until_started_jobs_exit
+# JS view dispatch is removed. Native exact origin/root phases and unwinding remain covered, together with io caller/owner/grant and view continuation tests.
+js_runtime::host_surface::continuation_tests::surface_job_origin_survives_real_sqlite_continuation_and_is_absent_after_final_return_or_raw_plan -> surface_invocation::tests::surface_job_origin_is_exact_to_handler_phases_and_restores_nested_or_unwound_roots
+js_runtime::host_surface::continuation_tests::surface_origin_is_revoked_when_cancelled_while_awaiting -> surface_invocation::tests::surface_job_origin_is_exact_to_handler_phases_and_restores_nested_or_unwound_roots

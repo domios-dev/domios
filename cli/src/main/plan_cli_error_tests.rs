@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn explicit_empty_task_option_suppresses_binding_hydration() {
+fn explicit_empty_options_are_present() {
     let separated = vec!["codeterm".into(), "--task".into(), "".into()];
     let joined = vec!["codeterm".into(), "--task=".into()];
     assert!(option_is_present(&separated, "--task"));

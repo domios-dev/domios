@@ -154,7 +154,7 @@ delivered or read.
 
 ### Plugin access
 
-A plugin calls `host.surface.call(verb, argsJson)` inside `onAgentCommand`,
+A plugin yields `host.io.surface.call(verb, argsJson)` inside `onAgentCommand`,
 with the `surfaces` permission. The first declared stream or view with nonempty
 `agentVerbs` is selected. The result is JSON text `{result:string}` or `{error:string}`.
 Arguments are a word array or `{args,of}`, at most 32768 UTF-8 bytes. `of` resolves
@@ -163,24 +163,12 @@ cannot use it. Own `open` creates the attachment; another agent may drive an
 already-open attachment but cannot open or close it. Activity contains only the
 sanitized verb and acting agent label, never arguments.
 
-For a view, declared verbs call the synchronous export
-`onSurfaceCall(context, verb, args): string`. The host supplies
-`context = {surface,instance,tab,owner,actor,actorLabel}`. Owner and actor are tab
-ids; actorLabel is sanitized display text. Arguments cannot override this context.
-`open`/`close` remain host lifecycle verbs; declaring `open` also calls the export
-after opening. An undeclared view verb refuses before dispatch. Missing handlers,
-exceptions and oversized results return an error. A result does not imply a remote
-job finished; keep job state and cancellation support in the plugin.
-
-With `stateInvalidation:true`, backend exports may call
-`host.surface.invalidate({surface,instance,tab})` and receive `{ok:true}` or `{error}`.
-The host stamps the plugin id and emits `surface-state-invalidated` only for that
-plugin's exact live view instance. The input is strict, at most 1024 UTF-8 bytes;
-no custom event payload is accepted. Closed, replaced or unloaded instances refuse.
-The exact document receives a hint without reload or polling. Subscribe through
-`ct.onSurfaceStateChanged(callback)`; its return value unsubscribes. Refetch through
-`ct.invoke`, also on initial mount; hints carry no state or delivery guarantee.
-Frame readiness supplies a catch-up hint. Reopening never refreshes the old instance.
+Plugin I/O jobs support native surfaces only. JavaScript view dispatch is refused.
+Plugins have no surface invalidation binding; native host ports own invalidation
+and its exact live-instance checks. View documents may subscribe to native
+`surface-state-invalidated` hints through `ct.onSurfaceStateChanged(callback)`;
+its return value unsubscribes. Refetch through `ct.invoke` on a hint and on mount.
+Hints carry no state or delivery guarantee.
 
 Stream verbs continue through their core runtime. Stream `annotate` delivers an
 element card to the surface owner, signed by the caller.
@@ -235,4 +223,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

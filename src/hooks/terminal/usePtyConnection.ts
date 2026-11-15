@@ -133,14 +133,17 @@ export function usePtyConnection({
     setReadinessFailed(false);
     const failReadiness = (reason: string) => {
       if (disposed || framed) return;
-      if (DEV_BUILD) console.debug("[terminal-output] first frame failed", { tabId, ptyId, reason, mux: streamMuxDiagnostics() });
+      if (DEV_BUILD) console.debug("[terminal-output] first frame failed", JSON.stringify({ tabId, ptyId, reason, mux: streamMuxDiagnostics() }));
       verifyStreamMuxes();
       setReadinessFailed(true);
     };
     let failureDeadline: ReturnType<typeof setTimeout> | undefined = setTimeout(() => failReadiness("first_frame_deadline"), TERMINAL_READINESS_FAILURE_MS);
     const frameReady = (id: string) => {
       if (termRef.current !== term) return;
-      if (!framed) { framed = true; clearTimeout(failureDeadline); setReadinessFailed(false); }
+      if (!framed) {
+        if (DEV_BUILD) console.debug("[terminal-output] frame ready", JSON.stringify({ tabId, ptyId: id, mux: streamMuxDiagnostics() }));
+        framed = true; clearTimeout(failureDeadline); setReadinessFailed(false);
+      }
       callbacks.current.onFrameReady?.(id);
     };
 

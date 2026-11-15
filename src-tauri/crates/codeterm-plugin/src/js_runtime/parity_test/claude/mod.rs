@@ -40,7 +40,7 @@ fn claude_in_temp(rule_path: &std::path::Path, settings_path: &std::path::Path) 
     let plugin_js = std::fs::read_to_string(plugin_fixture_root().join("plugin.js")).unwrap();
     let manifest_json = format!(
         r#"{{
-                "id":"claude-test","version":"0.1.0","displayName":"X",
+                "id":"claude-test","version":"0.1.0","hostIoJobs":true,"displayName":"X",
                 "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                          "taskDelivery":"pty_input",
                          "verifySubmit":{{"kind":"none"}}}},
@@ -64,7 +64,7 @@ fn claude_in_temp(rule_path: &std::path::Path, settings_path: &std::path::Path) 
 /// declaring `interactiveEvents: true` so the host dispatches to it.
 fn claude_interactive_js() -> JsProvider {
     let manifest_json = r#"{
-            "id":"claude-interactive","version":"0.1.0","displayName":"X",
+            "id":"claude-interactive","version":"0.1.0","hostIoJobs":true,"displayName":"X",
             "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
                      "taskDelivery":"pty_input",
                      "verifySubmit":{"kind":"none"},

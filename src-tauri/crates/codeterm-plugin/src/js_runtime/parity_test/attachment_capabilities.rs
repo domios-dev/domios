@@ -5,7 +5,7 @@ use crate::provider::AttachmentCapabilities;
 fn attachment_capabilities_native_js_parity() {
     let native = super::reply_relay::RelayNative;
     let manifest = serde_json::json!({
-        "id": "attachment-fixture", "version": "0.1.0", "displayName": "Fixture",
+        "id": "attachment-fixture", "version": "0.1.0", "hostIoJobs":true,"displayName": "Fixture",
         "capabilities": { "agentProvider": true,
             "attachments": { "filePaths": true, "inlineText": true, "imagePaths": true } },
         "spawn": { "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },

@@ -20,7 +20,7 @@ fn execution_sandbox_native_js_parity() {
     let native = NativeSandbox;
     let capability = native.execution_sandbox_capability().unwrap();
     let manifest_json = serde_json::json!({
-        "id":"sandbox-fixture", "version":"0.1.0", "displayName":"Fixture",
+        "id":"sandbox-fixture", "version":"0.1.0", "hostIoJobs":true,"displayName":"Fixture",
         "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
         "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}, "executionSandbox":capability}
     })

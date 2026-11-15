@@ -118,7 +118,7 @@ fn restricted_cli_descriptor_requires_a_valid_metadata_directory() {
 }
 
 fn provider(source: &str) -> JsProvider {
-    let manifest = PluginManifest::from_json_str(&json!({"id":"runtime-hook-fixture","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["handshake"],"submitTurn":["submit"],"answer":[],"interrupt":["interrupt"]},"notificationMethods":["changed"]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest = PluginManifest::from_json_str(&json!({"id":"runtime-hook-fixture","version":"1.0.0","hostIoJobs":true,"displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["handshake"],"submitTurn":["submit"],"answer":[],"interrupt":["interrupt"]},"notificationMethods":["changed"]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     JsProvider::new(
         manifest,
         Arc::new(PluginVm::from_source("runtime-hook-fixture", source.into()).unwrap()),
@@ -268,7 +268,7 @@ async fn runtime_hooks_refuse_host_io_at_bundle_init_and_during_hook() {
         .unwrap_err();
     assert_eq!(error.code, RuntimeFailureCode::HookFailed);
     assert!(error.message.contains("envGet"));
-    let js = provider("module.exports={runtimePlan(){host.exec({bin:'anything'});return {}}}");
+    let js = provider("module.exports={runtimePlan(){host.io({op:'execStart',options:{bin:'anything'}},function(value){return value;});return {}}}");
     let error = js
         .runtime_plan(&context(), &RuntimeOperation::Initialize)
         .await
@@ -712,7 +712,7 @@ async fn stream_window_native_value_survives_quickjs_only_for_declared_turn_requ
         serde_json::from_value(json!([{"kind":"notification","method":"changed","params":{}}]))
             .unwrap();
     for declared in [false, true] {
-        let mut raw = json!({"id":"stream-window-fixture","version":"1.0.0","displayName":"Fixture",
+        let mut raw = json!({"id":"stream-window-fixture","version":"1.0.0","hostIoJobs":true,"displayName":"Fixture",
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["handshake"],"submitTurn":["submit"]},"notificationMethods":["changed"]}},
             "permissions":{"subprocess":{"allow":["fixture-engine"]}}});

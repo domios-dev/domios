@@ -1,16 +1,12 @@
-use super::*;
 use crate::host_traits::PluginHostCtx;
-use crate::{
-    agent_commands::AgentCommandProvider,
-    js_runtime::{
-        host_api::PluginSandbox,
-        host_compute::tests::AnalyticsHost,
-        manifest::PermissionsConfig,
-        vm::{call_json, PluginVm},
-        JsAgentCommandHandler,
-    },
+use crate::js_runtime::{
+    host_api::PluginSandbox,
+    host_compute::tests::AnalyticsHost,
+    manifest::PermissionsConfig,
+    vm::{call_json, PluginVm},
 };
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 fn fixture(source: String, root: &std::path::Path) -> (Arc<PluginVm>, Arc<dyn PluginHostCtx>) {
     let sandbox = Arc::new(
@@ -28,53 +24,6 @@ fn fixture(source: String, root: &std::path::Path) -> (Arc<PluginVm>, Arc<dyn Pl
     let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
     assert!(vm.set_service(Arc::downgrade(&host)));
     (vm, host)
-}
-
-#[test]
-fn surface_job_origin_survives_real_sqlite_continuation_and_is_absent_after_final_return_or_raw_plan(
-) {
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("read.sqlite");
-    rusqlite::Connection::open(&path)
-        .unwrap()
-        .execute_batch("CREATE TABLE sample(value INTEGER); INSERT INTO sample VALUES(42);")
-        .unwrap();
-    let source = r#"module.exports.default={
-        onAgentCommand(c){if(c.verb==='raw'){host.surfaceCall('origin-sync','[]');return {result:JSON.stringify(host.receiverTarget.get())};}
-            if(c.verb==='origin-sync'){var result=JSON.parse(host.surface.call(c.verb,'[]'));return {result:JSON.stringify({inside:JSON.parse(result.result),after:host.receiverTarget.get()})};}
-            return host.surface.dispatch(c.verb,[]);},
-        onSurfaceCall(c,verb){var first=host.receiverTarget.get();if(verb==='origin-sync')return JSON.stringify(first);
-            return host.fs.sqliteQueryAsync(DB,'SELECT value FROM sample',[],function(rows){return JSON.stringify({first:first,inside:host.receiverTarget.get(),rows:rows});});},
-        outside(){return host.receiverTarget.get();}
-    };"#.replace("DB", &json!(path.to_string_lossy()).to_string());
-    let (vm, _host) = fixture(source, root.path());
-    let handler = JsAgentCommandHandler::new(vm.clone(), "origin-fixture", true);
-    let out = handler
-        .on_agent_command("authenticated-agent", "origin-probe", &[], None)
-        .unwrap();
-    let out: Value = serde_json::from_str(&out.result).unwrap();
-    assert_eq!(out["rows"][0]["value"], 42);
-    assert_eq!(out["first"]["origin"], out["inside"]["origin"]);
-    assert_eq!(out["inside"]["origin"]["actor"], "authenticated-agent");
-    assert_eq!(out["inside"]["origin"]["owner"], "owner");
-    let sync = handler
-        .on_agent_command("authenticated-agent", "origin-sync", &[], None)
-        .unwrap();
-    let sync: Value = serde_json::from_str(&sync.result).unwrap();
-    assert_eq!(sync["inside"]["origin"]["actor"], "authenticated-agent");
-    assert_eq!(sync["after"]["error"], "surface_origin_unavailable");
-    let raw = handler
-        .on_agent_command("authenticated-agent", "raw", &[], None)
-        .unwrap();
-    assert_eq!(
-        serde_json::from_str::<Value>(&raw.result).unwrap()["error"],
-        "surface_origin_unavailable"
-    );
-    assert_eq!(
-        call_json::<Value>(&vm, "outside", &[]).unwrap()["error"],
-        "surface_origin_unavailable"
-    );
-    assert!(crate::surface_invocation::current("origin-fixture").is_none());
 }
 
 #[test]
@@ -118,53 +67,6 @@ fn surface_continuations_refuse_foreign_jobs_and_stale_root_markers_without_cons
             expected
         );
     }
-}
-
-#[test]
-fn surface_origin_is_revoked_when_cancelled_while_awaiting() {
-    use crate::js_runtime::{call_gate, vm::call_json_interruptible};
-    use std::time::{Duration, Instant};
-    let root = tempfile::tempdir().unwrap();
-    let entered = format!("origin-entered-{}", uuid::Uuid::new_v4().simple());
-    let release = format!("origin-release-{}", uuid::Uuid::new_v4().simple());
-    let source = r#"module.exports.default={onAgentCommand(c){return host.surface.dispatch('origin-probe',[]);},
-        onSurfaceCall(){if(host.receiverTarget.get().origin.actor!=='authenticated-agent')throw Error('missing origin');
-          host.testGateOpen(ENTERED);return host.awaitJob(host.testGateStart(RELEASE),function(){throw Error('cancelled continuation ran');});},
-        outside(){return host.receiverTarget.get();}};"#.replace("ENTERED",&json!(entered).to_string()).replace("RELEASE",&json!(release).to_string());
-    let (vm, _host) = fixture(source, root.path());
-    let cancellation = crate::converter::ConversionCancellation::default();
-    let stop = cancellation.clone();
-    let worker = vm.clone();
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let join = std::thread::spawn(move || {
-        let _caller = AgentCallerScope::enter("authenticated-agent");
-        let result = call_json_interruptible::<Value>(
-            &worker,
-            "onAgentCommand",
-            &[json!({"verb":"origin-probe"})],
-            stop,
-            Instant::now() + Duration::from_secs(2),
-        );
-        sender
-            .send((
-                result.is_err(),
-                crate::surface_invocation::current("origin-fixture").is_none(),
-            ))
-            .unwrap();
-    });
-    let observed = call_gate::wait_opened(&entered, Duration::from_secs(2));
-    cancellation.cancel();
-    let completed = receiver.recv_timeout(Duration::from_secs(2));
-    call_gate::open(&release);
-    join.join().unwrap();
-    assert!(observed);
-    assert_eq!(completed.unwrap(), (true, true));
-    assert_eq!(
-        call_json::<Value>(&vm, "outside", &[]).unwrap()["error"],
-        "surface_origin_unavailable"
-    );
-    call_gate::reset(&entered);
-    call_gate::reset(&release);
 }
 
 #[test]

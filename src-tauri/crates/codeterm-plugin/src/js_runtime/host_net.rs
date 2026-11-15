@@ -96,6 +96,7 @@ pub(super) fn host_of(opts_json: &str) -> Option<String> {
 ///
 /// Runs on a dedicated OS thread with its own current-thread runtime. The caller
 /// blocks on `join`, which is fine because the VM call is synchronous anyway.
+#[cfg(test)]
 pub(super) fn run(opts_json: &str) -> String {
     let owned = opts_json.to_string();
     let observer = physical::current();

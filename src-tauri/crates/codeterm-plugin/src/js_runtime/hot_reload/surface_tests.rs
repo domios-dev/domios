@@ -7,7 +7,7 @@ fn surface_manifest(view: bool) -> PluginManifest {
     serde_json::from_value(serde_json::json!({
         "id": "surface-fixture",
         "version": "0",
-        "displayName": "Surface fixture",
+        "hostIoJobs":true,"displayName": "Surface fixture",
         "capabilities": {
             "view": view,
             "surfaces": [{ "id": "board", "title": "Board", "renderer": "view" }]
@@ -52,7 +52,7 @@ fn surface_registry_registers_stream_surfaces_without_a_view() {
     let manifest: PluginManifest = serde_json::from_value(serde_json::json!({
         "id": "surface-fixture",
         "version": "0",
-        "displayName": "Surface fixture",
+        "hostIoJobs":true,"displayName": "Surface fixture",
         "capabilities": {
             "surfaces": [
                 { "id": "board", "title": "Board", "renderer": "view" },

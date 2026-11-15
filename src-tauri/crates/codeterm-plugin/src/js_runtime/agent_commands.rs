@@ -17,6 +17,7 @@ pub struct JsAgentCommandHandler {
     /// The `agent_commands` grant, stamped from the manifest at registration.
     granted: bool,
     catalog: Option<AgentVerbCatalog>,
+    read_only_verbs: Vec<String>,
 }
 
 impl JsAgentCommandHandler {
@@ -26,6 +27,7 @@ impl JsAgentCommandHandler {
             id: id.into(),
             granted,
             catalog: None,
+            read_only_verbs: Vec::new(),
         }
     }
 
@@ -33,6 +35,25 @@ impl JsAgentCommandHandler {
         self.vm.configure_connection(&catalog);
         self.catalog = Some(catalog);
         self
+    }
+
+    pub fn with_read_only_verbs(mut self, verbs: Vec<String>) -> Self {
+        self.read_only_verbs = verbs;
+        self
+    }
+
+    fn command_error(&self, verb: &str, error: super::vm::VmError) -> String {
+        let reason = if matches!(error, super::vm::VmError::IoUnconfirmed)
+            && self.read_only_verbs.iter().any(|name| name == verb)
+        {
+            "read-only command result unavailable after host I/O interruption".to_string()
+        } else {
+            error.to_string()
+        };
+        format!(
+            "plugin {} onAgentCommand {verb} failed: {reason}",
+            self.vm.plugin_id()
+        )
     }
 }
 
@@ -105,6 +126,19 @@ impl AgentCommandProvider for JsAgentCommandHandler {
         args: &[String],
         body: Option<&str>,
     ) -> Result<crate::agent_commands::AgentCommandResult, String> {
+        if matches!(verb, "help" | "--help" | "-h") {
+            if let Some(catalog) = &self.catalog {
+                return Ok(crate::agent_commands::AgentCommandResult {
+                    result: format!(
+                        "{}\n\n{}\n\n{}",
+                        catalog.invocation(),
+                        catalog.verbs.join("\n"),
+                        catalog.guide.as_deref().unwrap_or("")
+                    ),
+                    catalogue_changed: false,
+                });
+            }
+        }
         let ctx = json!(AgentCommandCtx {
             session_id,
             verb,
@@ -138,10 +172,7 @@ impl AgentCommandProvider for JsAgentCommandHandler {
                 self.vm.plugin_id(),
                 super::host_exec::wait_bound(self.vm.plugin_id()).as_millis()
             )),
-            Err(e) => Err(format!(
-                "plugin {} onAgentCommand {verb} failed: {e}",
-                self.vm.plugin_id()
-            )),
+            Err(e) => Err(self.command_error(verb, e)),
         }
     }
 }

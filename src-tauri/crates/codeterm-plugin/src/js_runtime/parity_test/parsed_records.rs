@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 fn fixture(filters: Value) -> JsProvider {
-    let mut manifest = json!({"id":"record-fixture","version":"1.0.0","displayName":"Record fixture",
+    let mut manifest = json!({"id":"record-fixture","version":"1.0.0","hostIoJobs":true,"displayName":"Record fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"storedHistory":true,"runtime":"stdio-jsonrpc","command":{"binary":"runtime-engine","args":["serve"]},
                 "requestMethods":{"initialize":["handshake"],"submitTurn":["turn.submit"]},"notificationMethods":["item.changed"]}},

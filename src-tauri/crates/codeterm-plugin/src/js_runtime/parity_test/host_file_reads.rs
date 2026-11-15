@@ -78,7 +78,7 @@ fn host_read_file_refuses_past_cap() {
 
     let vm = super::super::vm::PluginVm::from_source(
         "read-file-cap-fixture",
-        "module.exports.default = { read(path) { return host.fs.readFile(path); } };".into(),
+        "module.exports.default = { read(path) { return host.io.run(host.io.fs.readFile(path)); } };".into(),
     )
     .unwrap();
     let small = small_path.to_string_lossy().into_owned();

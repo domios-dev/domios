@@ -37,7 +37,11 @@ each failed run. An untested proposal must not become an established recipe.
 
 ## Public repository policy
 
-Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only trusted owner release/X.Y.Z PRs, admitted master merge publication and reviewed release dispatches may acquire release runners and secrets, behind the `release` environment approval. Non-release jobs use no environment. Side PR checks into develop run hosted and secret-free; trusted owner release PRs into master retain their existing heavy graph and runner policy; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
+Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions.
+Only owner release/X.Y.Z pushes qualify and package; admitted master merge publication and reviewed
+release dispatches retain their existing guards and `release` environment approval. Every PR uses
+hosted, secret-free checks. The trusted organization runner group must restrict every acquiring
+workflow to explicit reviewed release branch refs; unrestricted repository runners are forbidden.
 
 ## Choose the release kind
 
@@ -101,22 +105,21 @@ then sync them here. Never hand-edit the bundled snapshot.
    that committed head and `git diff --check`.
    Keep the release branch separate from moving `develop`. Commit release fixes on that line,
    then real-merge the release into `develop`; never pull unrelated dev work into the release.
-   Push release/X.Y.Z and open its PR into master. The release PR's tests.yml
-   run checks out its exact head SHA for full CI, records qualification, then calls
-   release.yml with dry_run=true to build and sign every platform and retain bytes.
-   New PR pushes cancel the previous run through per-PR concurrency. Side PR
-   runs into develop remain hosted and secret-free; they never run full CI or packaging.
-   With publication GO, an admin squash-merges the green PR; publication checks that master carries the qualified tree.
-   The master push discovers that merged release PR, verifies both merge parents,
-   and publishes the exact head's retained green push run through promote_run_id.
-   Qualification and packaging must belong to that same run. No master merge
-   commit is built. Protected release environments and the publication switch
-   remain required. The release PR runs CI, so the trusted runner group serves this
-   repository's workflows without a ref list; every fork PR run waits for owner approval
-   and only the owner merges into master. Signing keys remain out of unsigned compile jobs.
+   Before pushing, complete the OWNER runner-policy step below. Push release/X.Y.Z and wait for
+   its exact-SHA tests.yml push run to finish green, including full CI, qualification and the
+   reusable release.yml dry run (`dry_run=true`, `mirror=false`). A newer push cancels the previous
+   run through per-branch concurrency. Only then open or refresh the PR into master.
+   Every PR uses hosted light checks; the master PR also requires **Release qualification**, a
+   read-only job that verifies the current head's owner push run and its unexpired receipts.
+   Missing, failed or superseded evidence fails this check; refresh it after a green push run.
+   With publication GO, an admin merges the green PR with a merge commit. Master must carry the
+   qualified head tree. Its push selects the completed green tests.yml push run for the exact
+   release head, branch, repository and owner, then pins qualification and retained packaging
+   to that `promote_run_id`. The master merge commit is never built. Protected release environments,
+   manifest validation and the publication switch remain required.
    After publication, synchronize develop through an admin-owned merge PR; workflows
    never push master/develop with GITHUB_TOKEN.
-   Two nightly schedules qualify dev as fallback. Fast checks own
+   Fast checks own
    frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
    The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
    `scripts/ci-qualification.mjs check <40-hex-sha>` verifies a green trusted tests run,
@@ -130,12 +133,15 @@ then sync them here. Never hand-edit the bundled snapshot.
    gh login: it skips private-runner discovery for hosted images and requires one online runner
    matching every label in each self-hosted array. It does not prove hosted capacity or signing;
    completed Actions jobs do. Confirm the intended version is unpublished.
-   Read back `domios-trusted` through the [runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
-   Its current policy has `restricted_to_workflows=false` and `selected_workflows=[]`;
-   release preparation does not edit the group or add workflow refs. If readback differs,
-   stop and reconcile the owner-approved procedure before requesting a runner.
-   Push `release/X.Y.Z` and open its PR to master for CI and dry-run packaging. Do not manually create
-   `vX.Y.Z`; release.yml owns tag creation and promotion.
+   **OWNER, once per application release, before the first push:** retarget every entry in
+   [.github/admin/runner-group-policy.json](../../../.github/admin/runner-group-policy.json) to
+   `refs/heads/release/X.Y.Z`, review the acquiring workflow list, PATCH `domios-trusted`, then
+   read back its policy, selected repository grant, fleet and absence of repository runners using
+   [the runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
+   Require `restricted_to_workflows=true` and exact reviewed refs, with no wildcard or PR refs.
+   This is an explicit owner operation; agents prepare the payload and never apply it as a
+   release-preparation side effect. Record the readback before requesting runners.
+   Do not manually create `vX.Y.Z`; release.yml owns tag creation and promotion.
 5. The final manifest job requires all builds and test gates, publishes and verifies served
    bytes after the admin merge starts promotion. The master ruleset reports the PR as BLOCKED, so
    the admin merges with `gh pr merge <n> --merge --admin` (never squash or rebase). Merge within
@@ -152,8 +158,9 @@ Compilation uses hosted sccache; forks require no private store access.
 CI result requires every light job to succeed. No Rust suites, qualification
 receipt or packaging run on this path. Require that aggregate in develop's
 rules as an owner operation and inspect the first Dependabot run's actual
-runners after merge. Trusted release/X.Y.Z PRs into master retain tests.yml
-and its existing heavy graph; other master PRs remain refused.
+runners after merge. Release PRs into master use the same hosted light checks plus the read-only
+Release qualification job. Other master PRs fail admission. tests.yml owns only release pushes
+and owner diagnostics; no PR calls privileged reusable jobs.
 See [CI admission](../../../docs/release/ci.md).
 
 ## Dry runs and narrow diagnostics
@@ -201,7 +208,7 @@ gh workflow run release-publish.yml --repo domios-dev/domios --ref release/X.Y.Z
   -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true   # then rehearsal=false with publication GO
 ```
 
-`scripts/release-publish.sh` refuses unless the run is a completed, successful release.yml dry run
+`scripts/release-publish.sh` refuses unless the run is a completed, successful tests.yml release push run
 on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. A rehearsal checks both
 tokens' write access, downloads and re-validates every retained byte and signature, and changes
 nothing. Publication creates both drafts, uploads the retained bytes (fragments only to the source
@@ -400,7 +407,7 @@ Release workflows verify the compiled server's production analytics fingerprint 
 key variables and emits non-secret hash cfgs so sccache cannot reuse a keyless build; never
 replace the binary check with a secret-presence check or print the keys.
 
-All `runs-on` selectors use `fromJSON(variable || '<hosted image as JSON>')`, directly or
+Privileged `runs-on` selectors use `fromJSON(variable || '<hosted image as JSON>')`, directly or
 through a matrix value. Set each runner variable to a JSON string for a hosted image or a JSON
 array for self-hosted labels. The complete array is selected; no workflow adds an outer
 `self-hosted` constraint. Empty variables use hosted defaults. For example, the literal variable
@@ -452,7 +459,7 @@ Windows, Linux and shared-cache matrix jobs finish on the intended runners, incl
 Mac notarization probe. For a single Mac diagnostic, `macos_label=macos-15` or
 `macos_label=macos-15-intel` selects that hosted image; another label explicitly selects a
 self-hosted Mac. A successful dispatch is not a probe pass: read the completed jobs and logs.
-Then use the 1.19.1 release PR CI to prove hosted packaging, notarization, updater signatures
+Then use the release push CI to prove hosted packaging, notarization, updater signatures
 and retained artifact readback. Local lint cannot establish these platform results.
 
 A persistent self-hosted runner accumulates job PATH entries in its `.path` file. On Windows an
@@ -598,4 +605,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->

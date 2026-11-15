@@ -51,7 +51,7 @@ fn slow_transcription_outlives_the_standard_bound_without_blocking_the_plugin() 
     }
     // The scaled-down standard bound stands in for the 5 s production bound.
     crate::js_runtime::host_exec::set_test_wait_bound(PLUGIN, Duration::from_millis(100));
-    let manifest = json!({"id":PLUGIN,"version":"0.0.0","displayName":"Transcribe deadline","hostIoJobs":true});
+    let manifest = json!({"id":PLUGIN,"version":"0.0.0","hostIoJobs":true,"displayName":"Transcribe deadline"});
     let vm = Arc::new(
         PluginVm::from_source_with(
             PLUGIN,

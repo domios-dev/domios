@@ -14,9 +14,3 @@ export type TransferFailure = import("./gen/TransferFailure").TransferFailure;
 export type TransferReceipt = import("./gen/TransferReceipt").TransferReceipt;
 export type TransferResult = TransferReceipt | TransferFailure;
 export type TransferStart = import("./gen/HostJobStart").HostJobStart | TransferFailure;
-export interface HostTransfer {
-  bindInput<T>(handle: string, destinationOrigin: string, then: (result: TransferInputGrant | TransferFailure) => T): T;
-  start(request: TransferRequest): TransferStart;
-  async<T>(request: TransferRequest, then: (result: TransferResult) => T): T;
-  abort(jobId: string): boolean;
-}

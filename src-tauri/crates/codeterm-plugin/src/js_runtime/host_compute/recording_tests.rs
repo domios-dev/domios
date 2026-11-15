@@ -17,12 +17,20 @@ fn recording_vm(host: &Arc<dyn PluginHostCtx>, granted: bool, id: &str) -> Plugi
             },
         ),
     );
-    let vm = PluginVm::from_source_sandboxed(id, r#"module.exports.default = {
-        read() { return host.localRecording.status(); },
-        enable() { return host.localRecording.setEnabled(true); },
-        disable() { return host.localRecording.setEnabled(false); },
-        authority() { return [typeof host.localRecording.start, typeof host.localRecording.commit, typeof host.localRecording.selectDevices, typeof host.receiverTarget.set]; },
-    }"#.into(), None, sandbox).unwrap();
+    let vm = PluginVm::from_source_sandboxed(id, r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
+module.exports.default = {
+    read() {
+        return host.io.run((function* () { return (yield* attempt({ op: "localRecordingStatus" })); }).call(this));
+    },
+    enable() {
+        return host.io.run((function* () { return (yield* attempt({ op: "localRecordingSetEnabled", enabled: true })); }).call(this));
+    },
+    disable() {
+        return host.io.run((function* () { return (yield* attempt({ op: "localRecordingSetEnabled", enabled: false })); }).call(this));
+    },
+    authority() { return [typeof host.localRecording, typeof host.localRecording, typeof host.localRecording, typeof host.receiverTarget]; },
+};
+"#.into(), None, sandbox).unwrap();
     assert!(vm.set_service(Arc::downgrade(host)));
     vm
 }
@@ -54,7 +62,7 @@ fn lark_recording_contract_native_js_status_enable_revocation_and_confinement_pa
     assert_eq!(enabled["captureActive"], false);
     assert_eq!(
         call_json::<Value>(&vm, "authority", &[]).unwrap(),
-        json!(["undefined", "undefined", "function", "undefined"])
+        json!(["undefined", "undefined", "undefined", "undefined"])
     );
     native.recordings.revoke("trigger");
     let refused: Value = call_json(&vm, "enable", &[]).unwrap();
@@ -125,7 +133,11 @@ fn receiver_status_fixed_declaration_is_confined_and_native_js_equal() {
                 )
                 .with_receiver_status_query(Some(query.clone())),
         );
-        let vm = PluginVm::from_source_sandboxed("own", r#"module.exports.default = { read() { return host.localRecording.statusReport({request:[99],path:'foreign-device'}); } };"#.into(), None, sandbox).unwrap();
+        let vm = PluginVm::from_source_sandboxed("own", r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
+module.exports.default = { read() {
+        return host.io.run((function* () { return (yield* attempt({ op: "receiverStatusReport" })); }).call(this));
+    } };
+"#.into(), None, sandbox).unwrap();
         assert!(vm.set_service(Arc::downgrade(&host)));
         let actual: Value = call_json(&vm, "read", &[]).unwrap();
         if granted {
@@ -160,7 +172,7 @@ fn receiver_status_missing_or_oversized_declaration_refuses_io() {
         );
         let vm = PluginVm::from_source_sandboxed(
             "own",
-            "module.exports.default = { read() { return host.localRecording.statusReport(); } };"
+            r#"module.exports.default = {read(){return host.io.run((function*(){try{return yield {op:"receiverStatusReport"};}catch(error){return {error:String(error.message)};}})());}};"#
                 .into(),
             None,
             sandbox,

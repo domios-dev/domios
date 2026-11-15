@@ -58,7 +58,7 @@ fn session_model_identity_path_native_js_parity_and_confinement() {
     std::fs::write(root.path().join("summary.json"), "{}").unwrap();
     let outside = tempfile::NamedTempFile::new().unwrap();
     let manifest = serde_json::json!({
-        "id": "identity-fixture", "version": "0.1.0", "displayName": "Fixture",
+        "id": "identity-fixture", "version": "0.1.0", "hostIoJobs":true,"displayName": "Fixture",
         "sessions": {"rootDir": root.path().to_string_lossy(), "cwdEncoding": "none"}
     });
     let script = format!(
