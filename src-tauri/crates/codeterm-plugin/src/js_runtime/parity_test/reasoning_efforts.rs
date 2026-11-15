@@ -202,11 +202,11 @@ fn model_catalog_override_applies_reasoning_efforts() {
     let id = "model-catalog-effort-override-fixture";
     let manifest_json = format!(
         r#"{{"id":"{id}","version":"0.1.0","hostIoJobs":true,"displayName":"Fixture",
-                "models":[{{"id":"fixture-model","hostIoJobs":true,"displayName":"Fixture Model"}}],
+                "models":[{{"id":"fixture-model","displayName":"Fixture Model"}}],
                 "reasoningEfforts":[
-                    {{"id":"low","hostIoJobs":true,"displayName":"Low"}},
-                    {{"id":"medium","hostIoJobs":true,"displayName":"Medium"}},
-                    {{"id":"high","hostIoJobs":true,"displayName":"High"}}
+                    {{"id":"low","displayName":"Low"}},
+                    {{"id":"medium","displayName":"Medium"}},
+                    {{"id":"high","displayName":"High"}}
                 ],
                 "defaultReasoningEffort":"medium",
                 "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},

@@ -10,7 +10,7 @@ use super::super::vm::{call_json, PluginVm};
 
 const FIXTURE: &str = r#"module.exports.default = {
     execute(opts) {
-        return host.io.run((function* () { return (function (result) { return result; })((yield* host.io.exec.async(opts))); }).call(this));
+        return host.io.run((function* () { return (function (result) { return result; })((yield* host.io.exec(opts))); }).call(this));
     },
     fast() { return { ready: true }; }
 };
