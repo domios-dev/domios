@@ -13,6 +13,7 @@ import { capabilityFor, capabilityReason, type MeshResourceActionAdapter } from 
 import { attachment, FixtureTransport } from "../Automation/fixtures.testdata";
 import type { AutomationGraphViewProps } from "../Automation/AutomationGraphView";
 import { CronWorkspaceView, selectCronService } from "./CronWorkspaceView";
+import { createMuxReadCapacity, MUX_READ_CAPACITY } from "../../lib/streamMuxRequestModel";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -214,6 +215,44 @@ test("a background refresh failure keeps loaded cron details without an alert", 
   assert(host.querySelector('[role="alert"]') === null, "background refresh failure does not create an alert");
   await act(async () => root.unmount());
   failCronRead = false;
+});
+
+test("cron detail waits for unsent read capacity and coalesces refresh events", async () => {
+  const capacity = createMuxReadCapacity();
+  let attempts = 0;
+  let finishRead: (() => void) | undefined;
+  let refresh: (() => void) | undefined;
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => {
+    attempts++;
+    if (attempts === 1) throw { code: "client_capacity", [MUX_READ_CAPACITY]: capacity.capture() };
+    if (attempts === 3) await new Promise<void>((resolve) => { finishRead = resolve; });
+    return cronJob() as T;
+  }));
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    assert(command === "mesh_inventory_list", "only the inventory read uses invoke");
+    return inventory([projectedCronService("Success")]) as T;
+  });
+  __setListenForTest(async (event, handler) => {
+    if (event === "cron-run-finished" && !refresh) refresh = handler as () => void;
+    return () => undefined;
+  });
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<CronWorkspaceView cronId={CRON_ID} actionAdapter={adapter()} />));
+    assert(Number(attempts) === 1, "the unsent read waits for a capacity event");
+    assert(host.querySelector('[role="alert"]') === null, "capacity pressure is not shown as an error");
+    await act(async () => {
+      capacity.released();
+      await flushUntil(() => attempts === 2);
+    });
+    assert(host.querySelector('[aria-label="Cron Nightly sync"]'), "the details render after capacity is released");
+    await act(async () => { refresh?.(); refresh?.(); refresh?.(); });
+    assert(Number(attempts) === 3, "only one detail refresh runs at a time");
+    await act(async () => { finishRead?.(); await flushUntil(() => attempts === 4); });
+    assert(host.querySelector('[aria-label="Cron Nightly sync"]'), "the coalesced refresh keeps the detail usable");
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
 test("a cancelled run names why it stopped, and a run without a reason stays plain Cancelled", async () => {
