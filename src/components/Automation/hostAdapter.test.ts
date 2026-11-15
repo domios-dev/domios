@@ -59,13 +59,21 @@ async function main() {
     assert.equal(calls.length, 0);
     console.log("✓ stop and delete retain identity Team scope without creator or nonce impersonation");
 
-    const held = deferred<AutomationGraph>();
-    configureOrchestrationTransport(orchestrationTestClient(async <T,>() => held.promise as Promise<T>));
-    const controller = new AbortController();
-    const pending = hostAutomationAdapter.read(attachment, controller.signal);
-    controller.abort();
-    held.resolve(fixtureGraph());
-    await assert.rejects(pending);
+    for (const scope of [attachment, { ...attachment, team_id: ALL_JOBS_SCOPE }]) {
+      const held = deferred<AutomationGraph>();
+      let transportSignal: AbortSignal | undefined;
+      configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, _path: string, _body?: unknown, opts?: { signal?: AbortSignal }) => {
+        transportSignal = opts?.signal;
+        return held.promise as Promise<T>;
+      }));
+      const controller = new AbortController();
+      const pending = hostAutomationAdapter.read(scope, controller.signal);
+      assert.equal(transportSignal?.aborted, false);
+      controller.abort();
+      assert.equal(transportSignal?.aborted, true, "unmount cancels the actual graph transport request");
+      held.resolve(fixtureGraph());
+      await assert.rejects(pending);
+    }
     console.log("✓ aborted attachment rejects a late HTTP snapshot");
 
     const reads: string[] = [];

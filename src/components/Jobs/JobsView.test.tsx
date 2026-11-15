@@ -168,6 +168,19 @@ async function main() {
     } finally { await view.close(); }
   });
 
+  test("a large Jobs workspace list bounds graph reads and discards queued reads on close", async () => {
+    const transport = workspaceTransport();
+    const manyWorkspaces = Array.from({ length: 64 }, (_, index) => ({ id: `workspace-${index}`, name: `Workspace ${index}` }));
+    transport.readOverride = (_scope, signal) => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+    const view = await mount(<JobsView solutionsApi={solutionsApi} workspaces={manyWorkspaces} teams={[]}
+      adapter={transport} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />);
+    await settle(() => transport.reads === 3);
+    await view.close();
+    assert.equal(transport.reads, 3, "closing the view never dispatches its queued workspace reads");
+  });
+
   test("Jobs import entry opens the placeholder form and cancel restores the list", async () => {
     const view = await mount(jobsView(workspaceTransport()));
     await act(async () => buttonWith(view.host, "Import Blueprint").click());

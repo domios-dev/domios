@@ -55,8 +55,8 @@ export function createOrchestrationTransport(client: OrchestrationClient) {
       if (args.project) query.set("project", args.project);
       return (await client.json<{ plans: Plan[] }>("GET", `/api/plans?${query}`, undefined, opts)).plans;
     },
-    automation_graph_snapshot: (args: GraphScope) => client.json<AutomationGraph>("GET", `/api/automation/graph?${scopeQuery(args)}`),
-    automation_graph_workspace_snapshot: ({ workspaceId }: { workspaceId: string }) => client.json<AutomationGraph>("GET", `/api/automation/graph/workspace?workspace_id=${enc(required(workspaceId, "Automation workspace scope"))}`),
+    automation_graph_snapshot: (args: GraphScope, opts?: { signal?: AbortSignal }) => client.json<AutomationGraph>("GET", `/api/automation/graph?${scopeQuery(args)}`, undefined, opts),
+    automation_graph_workspace_snapshot: ({ workspaceId }: { workspaceId: string }, opts?: { signal?: AbortSignal }) => client.json<AutomationGraph>("GET", `/api/automation/graph/workspace?workspace_id=${enc(required(workspaceId, "Automation workspace scope"))}`, undefined, opts),
     automation_graph_stop_blueprint: (args: GraphScope & CallerClaim & { id: string }) => client.json<{ id: string; state: string; reason: string }>("POST", `${blueprintPath(args.id)}/stop`, { ...scopeBody(args), ...claimBody(args) }),
     automation_graph_delete_blueprint: (args: GraphScope & { id: string }) => client.json<void>("DELETE", blueprintPath(args.id), scopeBody(args)),
     automation_node_files: (args: { identity: AutomationIdentity; bucket?: string | null; handler?: string | null }) => client.json<NodeFile[]>("POST", "/api/automation/node-files", args),
