@@ -1090,9 +1090,9 @@ pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Optio
 }
 
 mod binding;
-pub(crate) use binding::session_load_refused;
 pub use binding::validate_binding;
 pub(super) use binding::validate_restart_binding;
+pub(crate) use binding::{conversation_unavailable, session_load_refused};
 
 fn bind(
     svc: &ServiceContext,
