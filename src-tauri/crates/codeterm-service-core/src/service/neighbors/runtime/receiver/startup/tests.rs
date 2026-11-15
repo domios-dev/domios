@@ -300,9 +300,7 @@ async fn closed_or_reassigned_concierge_keeps_local_receivers_during_restart_act
             serde_json::to_value(&settings.permissions).unwrap()
         );
         assert!(saved.dormant_concierges.is_empty());
-        assert!(service
-            .require_neighbor_restore_grant(&root, false)
-            .is_err());
+        assert!(service.neighbor_cell().restore_grants.lock().is_empty());
         assert_eq!(service.mux.read().get_tab(&root).is_some(), reassigned);
         assert!(!fixture
             .ui
