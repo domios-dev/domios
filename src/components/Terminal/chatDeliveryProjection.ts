@@ -64,7 +64,7 @@ export function stableDeliveryEntries(
   const rows = entries.map(entry => {
     const send = sendForRow(reconciled, entry.msg) ?? reconciled.find(candidate => {
       if (present.has(candidate.id) || candidate.matchedRow || !candidate.echo || entry.msg.type !== "user" || entry.msg.inheritedFromSessionId != null) return false;
-      const source = candidate.matchedRow?.source.source_session_id ?? candidate.echoBoundary?.sourceSessionId;
+      const source = candidate.echoBoundary?.sourceSessionId;
       return source != null && entry.msg.sourceSessionId === source
         && candidate.echo.timestampMs === timestampMs(entry.msg.timestamp)
         && candidate.echo.content === normalizeChatText(entry.msg.content).toLowerCase();
