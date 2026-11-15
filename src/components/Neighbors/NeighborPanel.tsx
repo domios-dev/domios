@@ -27,7 +27,7 @@ export function ConciergeRecoveryNotice({ status, onSetUpWithGeneral, onOpenConc
       <p className="ct-card__title">{RECOVERY_SENTENCES[status.state] ?? `${missingConciergeLine(status)}.`}</p>
       <details className="ct-card__meta">
         <summary>Details</summary>
-        <p>{reviewAccess ? "Its saved access permission needs confirmation." : setup ? "Messages stay pending until you set up a concierge here." : "Messages stay pending while you review this concierge."}</p>
+        <p>{reviewAccess ? "Domios can't confirm what this concierge is allowed to do. Check its saved permissions before it starts again." : setup ? "Messages stay pending until you set up a concierge here." : "Messages stay pending while you review this concierge."}</p>
       </details>
     </div>
     <div className="neighbor-confirm__actions">
