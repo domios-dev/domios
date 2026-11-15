@@ -26,7 +26,7 @@ where
     let cursor_offset = stream_tab_id
         .as_deref()
         .and_then(|tab| cursor.as_ref()?.tabs.get(tab))
-        .copied();
+        .map(|value| value.offset);
     let mut diagnostics = StreamDiagnostics::new(
         level,
         "relay",

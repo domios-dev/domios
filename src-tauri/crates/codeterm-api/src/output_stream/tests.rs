@@ -536,13 +536,8 @@ fn reconnect_replays_replaced_or_regressed_rings_with_explicit_truncation() {
         );
         assert_eq!(starts[0].resume_offset, Some(0));
         assert_eq!(starts[0].replay_truncated_from, Some(0));
-        let (frames, _, _) = sweep(
-            &fixture.service,
-            &mut tracked,
-            Some(&tab),
-            &HashSet::new(),
-            true,
-        );
+        let service = Arc::new(fixture.service.clone());
+        let (frames, _, _) = sweep(&service, &mut tracked, Some(&tab), &HashSet::new(), true);
         assert_eq!(
             frames[0],
             serde_json::json!({ "tab_id":tab,"pty_id":"new-pty","boot":boot,"truncated":true,"reset":true,"from":0 })
