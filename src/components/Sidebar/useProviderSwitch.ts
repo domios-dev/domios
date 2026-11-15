@@ -11,7 +11,7 @@ import { supportsProviderHandoff, switchTabProvider, type ProviderSwitchResult, 
 
 export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const providers = useAgentDescriptors().filter((provider) => supportsProviderHandoff(provider) && provider.id !== tab.agent_type);
-  const [providerId, setProviderId] = useState(initialProviderId);
+  const [providerId, updateProviderId] = useState(initialProviderId);
   const provider = providers.find((candidate) => candidate.id === providerId && isProviderSelectable(candidate));
   const [selectedModel, setModel] = useState<string>();
   const model = resolveProviderModel(provider, selectedModel) ?? selectedModel;
@@ -26,6 +26,11 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const [history, setHistory] = useState<Array<{ kind: string; content: string }> | null>(null);
   const submitting = useRef(false);
   const ready = activity.status === "Idle" && !activity.launching;
+
+  function setProviderId(id: string) {
+    updateProviderId(id);
+    setError(null);
+  }
 
   async function submit(force = false) {
     if (!provider || submitting.current || retryAfterSeconds !== null) return;

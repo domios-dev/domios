@@ -7,7 +7,7 @@ export interface ErrorDescription {
   pending?: boolean;
   retryAfterSeconds?: number;
 }
-export interface ErrorContext { operation?: string; cwd?: string | null }
+export interface ErrorContext { operation?: string; cwd?: string | null; harnessName?: string }
 
 const AUTHORED_CAUSE = "authored_cause";
 
@@ -150,7 +150,7 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
       return result("The target authentication could not be verified", "Check the target harness's sign-in status, then retry the switch.", ["retry"]);
     }
     if (kind === "provider_switch_unavailable" || /\bprovider_switch_unavailable\b|Provider not installed:/i.test(raw)) {
-      return result("The target harness is unavailable", "Install it and try again.", ["check-executable", "retry"]);
+      return result(context.harnessName ? `${context.harnessName} isn't installed on this machine` : "The target harness is unavailable", "Install it, then switch again.", ["check-executable", "retry"]);
     }
     return result("The harness could not be switched", "Try again, or check the details if it keeps happening.", ["retry"]);
   }
