@@ -30,6 +30,8 @@ import { LiquidToggle } from "../shared/LiquidToggle";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 import { useNeighborStatus } from "./neighborStatusStore";
 import { NeighborReceiveHere } from "./NeighborReceiveHere";
+import { agentModelForBadge } from "../../lib/agentLabel";
+import { matchesModel } from "../Terminal/statusLinePickerModel";
 
 function conciergeState(status: ConciergeStatus | null, bound: boolean): { label: string; tone: "green" | "amber" | "muted" | "accent" } {
   if (conciergeNeedsAttention(status)) return { label: conciergeStatusLine(status), tone: "amber" };
@@ -86,7 +88,9 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   const state = conciergeState(concierge, Boolean(gateway));
   const needsRecovery = enabled && concierge?.receiving_here && conciergeNeedsAttention(concierge);
   const provider = gateway?.agent_type ? providers.find(entry => entry.id === gateway.agent_type) : undefined;
-  const model = gateway?.agent_provider_resolved_model;
+  const model = gateway ? agentModelForBadge({ sessionModel: gateway.agent_session_model,
+    providerResolvedModel: gateway.agent_provider_resolved_model, requestedModel: gateway.agent_requested_model }) : null;
+  const modelName = provider?.available_models.find(entry => matchesModel(entry, model))?.display_name ?? model;
 
   const conciergeCard = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -166,7 +170,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
 
         <div ref={conciergeCard}>
         <FriendSection icon={<Bot size={16} />} title="Concierge" description={`The agent that answers ${name} within the permissions below.`}
-          headerRight={!needsRecovery && <SettingsPill tone={state.tone}>{state.label}</SettingsPill>}>
+          headerRight={!needsRecovery && concierge?.state !== "ready" && <SettingsPill tone={state.tone}>{state.label}</SettingsPill>}>
           {concierge?.concierge_dormant && <p className="neighbor-note">Starts fresh when you receive this friend's messages here.</p>}
           {enabled && !locked && receiver && !receiver.receiving_here && <NeighborReceiveHere key={`${friendship}:set`}
             receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
@@ -176,8 +180,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
             onReceive={revision => runtimeClient.receiveFriend(friendship, revision, "reset")} />}
           <div className="neighbor-friend__row">
             <span className="min-w-0">
-              <span className="neighbor-friend__label">{gateway ? `${provider?.display_name ?? gateway.agent_type ?? "Agent"}${model ? `, ${model}` : ""}` : "No concierge on this machine"}</span>
-              {gateway && <span className="neighbor-note"> in {gateway.title}</span>}
+              <span className="neighbor-friend__label">{gateway ? `${provider?.display_name ?? gateway.agent_type ?? "Agent"}${modelName ? ` · ${modelName}` : ""}` : "No concierge on this machine"}</span>
             </span>
             {!needsRecovery && <span className="neighbor-confirm__actions">
               {gateway && gatewayId && <Button size="sm" onClick={() => focusTab(gatewayId, workspaceOfTab({ workspaces, tabs }, gatewayId))}>Open its chat</Button>}
