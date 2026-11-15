@@ -63,9 +63,11 @@ impl OutputFlow {
         }
     }
 
-    pub fn produced(&self, total: u64) {
+    pub fn produced(&self, generation: u64, total: u64) {
         let mut state = self.state.lock();
-        state.produced = state.produced.max(total);
+        if state.generation == generation {
+            state.produced = state.produced.max(total);
+        }
     }
 
     pub fn attach(

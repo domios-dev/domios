@@ -1,6 +1,7 @@
 mod peer;
 use peer::{validate_challenge, verify_native_peer};
 mod bootstrap;
+mod output_flow;
 mod quit;
 mod recovery;
 mod startup_log;
@@ -155,10 +156,13 @@ pub(crate) enum ExactServerShutdownUncertainty {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct NativeHostClientSlot(Arc<RwLock<Option<Arc<NativeHostClient>>>>);
+pub(crate) struct NativeHostClientSlot(
+    Arc<RwLock<Option<Arc<NativeHostClient>>>>,
+    Arc<Mutex<output_flow::OutputWindowState>>,
+);
 
 impl NativeHostClientSlot {
-    pub(crate) fn report_output_flow(
+    fn send_output_flow(
         &self,
         origin: Option<&str>,
         update: codeterm_types::native_host::NativeOutputFlow,
@@ -696,7 +700,7 @@ impl NativeHostClient {
     ) where
         W: tokio::io::AsyncWrite + Unpin,
     {
-        loop {
+        'outbound: loop {
             let frame = tokio::select! {
                 changed = shutdown.changed() => {
                     if changed.is_err() || *shutdown.borrow() { break; }
@@ -707,11 +711,13 @@ impl NativeHostClient {
                     None => break,
                 },
             };
-            if !matches!(
-                timeout(REQUEST_DEADLINE, write_frame(&mut writer, &frame)).await,
-                Ok(Ok(()))
-            ) {
-                break;
+            for frame in self.prepare_output_frames(frame) {
+                if !matches!(
+                    timeout(REQUEST_DEADLINE, write_frame(&mut writer, &frame)).await,
+                    Ok(Ok(()))
+                ) {
+                    break 'outbound;
+                }
             }
         }
         let _ = writer.shutdown().await;

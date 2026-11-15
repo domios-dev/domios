@@ -30,7 +30,7 @@ describe("primary renderer output ACKs", () => {
     for (let offset = 11; offset <= OUTPUT_ACK_BYTES + 10; offset++) flow.rendered(offset);
     expect(updates).toEqual([{ action: "rendered", tab_id: "tab", pty_id: "pty", attachment: "attachment", offset: 10, attach: true }]);
     await complete();
-    expect(updates[updates.length - 1]).toMatchObject({ offset: OUTPUT_ACK_BYTES + 10, attach: false });
+    expect(updates[updates.length - 1]).toMatchObject({ offset: OUTPUT_ACK_BYTES + 10, attach: true });
     await complete();
     expect(updates).toHaveLength(2);
   });
@@ -89,7 +89,7 @@ describe("primary renderer output ACKs", () => {
     for (let offset = 1; offset < OUTPUT_ACK_BYTES; offset++) { flow.rendered(offset); flow.resume(); }
     expect(updates).toHaveLength(1);
     flow.rendered(OUTPUT_ACK_BYTES);
-    expect(updates[1]).toMatchObject({ offset: OUTPUT_ACK_BYTES, attach: false });
+    expect(updates[1]).toMatchObject({ offset: OUTPUT_ACK_BYTES, attach: true });
     await complete();
   });
 
@@ -123,4 +123,23 @@ describe("primary renderer output ACKs", () => {
     expect(updates[2]).toMatchObject({ offset: 1, attach: true });
     await complete();
   });
+});
+
+it("reasserts attachment after a transport-accepted attach has no server lease yet", async () => {
+  const { flow, updates, complete } = fixture();
+  flow.rendered(0); await complete();
+  flow.rendered(OUTPUT_ACK_BYTES); await complete();
+  expect(updates).toHaveLength(2);
+  expect(updates.every(update => update.action === "rendered" && update.attach)).toBe(true);
+});
+
+it("retries a failed release on hidden render activity without reattaching", async () => {
+  const send = vi.fn().mockRejectedValueOnce(new Error("QueueFull")).mockResolvedValue(true);
+  const flow = createRendererOutputFlow("tab", "pty", "id", send);
+  flow.suspend();
+  await Promise.resolve(); await Promise.resolve();
+  expect(send).toHaveBeenCalledTimes(1);
+  flow.rendered(OUTPUT_ACK_BYTES);
+  await Promise.resolve();
+  expect(send.mock.calls.map(call => call[0].action)).toEqual(["detach", "detach"]);
 });

@@ -126,6 +126,9 @@ struct Observation {
 
 #[allow(dead_code)]
 trait SubmitTransport {
+    fn suspend_output(&self) -> Option<crate::pty::output_flow::ReadPermit> {
+        None
+    }
     fn observe(&self) -> Option<Observation>;
     /// Predicate over the FULL parsed screen: the normalized draft or a
     /// structured paste placeholder is present (paste ingested by the TUI).
@@ -232,6 +235,9 @@ fn initial_submit_frames(
 }
 
 impl SubmitTransport for PtySubmitTransport<'_> {
+    fn suspend_output(&self) -> Option<crate::pty::output_flow::ReadPermit> {
+        self.svc.screen_state.suspend_output(self.pty_id)
+    }
     fn max_submit_keys(&self) -> usize {
         self.max_submit_keys
     }
