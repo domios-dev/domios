@@ -11,9 +11,9 @@ import type { LockedView } from "../billing/freeLimitModel";
 import { LockedOverlay } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
 import { useTabRecovery } from "./useTabRecovery";
-import { describeRuntimeConnectionError } from "../../lib/describeError";
+import { describeRuntimeConnectionError, isMissingRuntimeConversation, MISSING_CONVERSATION_TITLE } from "../../lib/describeError";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
+import { runtimeSessionUnavailable } from "../../lib/agentRuntimeState";
 import { tabFailure, tabLaunched } from "../../lib/tabFailure";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { chatLaunchFailureDescription } from "./chatSetupModel";
@@ -90,12 +90,17 @@ export function ChatSetupState({
   }
   const startUnbound = tab?.agent_runtime_state?.state === "degraded"
     && tab.agent_runtime_state.failureCode === "runtime_start_unbound";
-  if (runtimeSessionLoadRefused(tab?.agent_runtime_state) || startUnbound) {
-    const detail = tab?.agent_runtime_state?.reason ?? "";
+  // The attach can report a missing conversation before the runtime state names it; both are the same one notice.
+  const attachConversationMissing = view.kind === "attach_failed" && isMissingRuntimeConversation(view.reason);
+  if (runtimeSessionUnavailable(tab?.agent_runtime_state) || startUnbound || attachConversationMissing) {
+    const detail = (attachConversationMissing ? view.reason : tab?.agent_runtime_state?.reason) ?? "";
+    const conversationMissing = attachConversationMissing || tab?.agent_runtime_state?.failureCode === "thread_not_found";
+    const start = conversationMissing ? "Start a new conversation" : "Start new session";
     return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl" data-testid="chat-launch-failed">
       <TabLaunchFailure tabId={tab?.id} workspace={workspace} reason={detail} inline
-        description={{ title: startUnbound ? "The agent could not start a session" : "The agent no longer has this session", cause: "", raw: detail, actions: [] }}
-        actions={[{ label: fresh.startingNewSession ? "Starting…" : "Start new session", ariaLabel: "Start new session",
+        description={{ title: startUnbound ? "The agent could not start a session"
+          : conversationMissing ? MISSING_CONVERSATION_TITLE : "The agent no longer has this session", cause: "", raw: detail, actions: [] }}
+        actions={[{ label: fresh.startingNewSession ? "Starting…" : start, ariaLabel: start,
           disabled: fresh.startingNewSession, onClick: () => void fresh.onStartNewSession() }]} />
       {fresh.actionError && <InlineErrorNotice error={fresh.actionError} operation="starting a new session" />}
     </div>;

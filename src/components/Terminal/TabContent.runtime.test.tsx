@@ -192,6 +192,53 @@ it.each(["agent_launching", "spawn_failed"] as const)("keeps saved chat visible 
   }
 });
 
+it("a conversation the harness lost is one notice whose one action starts a new conversation", async () => {
+  const detail = "opaque-path → HTTP 409: ConversationMissing: opaque provider detail";
+  const tab: Tab = {
+    id:"lost-thread-chat", title:"Fixture", tab_type:"Terminal", cwd:null, pty_id:null,
+    agent_type:"fixture", agent_session_id:"lost-thread", session_binding_nonce:"lost-binding",
+    backing:{kind:"chat_backend",plugin_id:"fixture",session_id:"lost-thread"}, boot_stage:"agent_launching",
+    agent_runtime_state:{state:"degraded",epoch:1,failureCode:"thread_not_found",reason:"ConversationMissing: opaque provider detail"},
+  };
+  const state: ExtendedState = { workspaces:[],tabs:{[tab.id]:tab},teams:[],active_workspace_id:null,
+    focused_tab_id:tab.id,notifications:[],tabStatuses:{},toasts:[],activeTabIds:{},generation:1,pendingCloses:[] };
+  const requests: Array<{command:string;args?:Record<string,unknown>}> = [];
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command:string,args?:Record<string,unknown>) => {
+    requests.push({command,args});
+    if (command === "chat_start") throw new Error(detail);
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? {plugins:[],channels:[],diff:[],marketplace:[]} : {};
+    return value as T;
+  });
+  const host=document.createElement("div");document.body.append(host);
+  const root=createRoot(host);
+  const actions=new Proxy({}, {get:()=>()=>{}}) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(()=>state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={()=>{}} onPtySpawned={()=>{}}
+          theme={{name:"fixture",background:"#000",foreground:"#fff"} as ThemeConfig}/>
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    await act(async () => {});
+    expect(host.querySelector('[aria-label="Chat connection failed"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Runtime needs recovery"]')).toBeNull();
+    expect(host.querySelector('button[aria-label="Restart the agent"]')).toBeNull();
+    expect(host.querySelector('[data-testid="chat-retry"]')).toBeNull();
+    expect(host.textContent?.split("This conversation's saved history is no longer available.").length).toBe(2);
+    const start=host.querySelectorAll<HTMLButtonElement>('button[aria-label="Start a new conversation"]');
+    expect(start).toHaveLength(1);
+    expect(host.querySelector("details")?.open).toBe(false);
+    await act(async()=>start[0].click());
+    expect(requests.filter(request=>request.command==="restart_agent_tab")).toEqual([
+      {command:"restart_agent_tab",args:{tabId:tab.id,fresh:true}},
+    ]);
+  } finally {
+    await act(async()=>root.unmount());host.remove();__setInvokeForTest(null);__setListenForTest(null);
+  }
+});
+
 it("makes the previous kept-alive composer inert and releases focus in the tab-switch commit", async () => {
   const tabs: Tab[] = ["input-a", "input-b"].map(id => ({
     id, title: id, tab_type: "Terminal", cwd: null, pty_id: null,

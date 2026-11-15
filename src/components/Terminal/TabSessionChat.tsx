@@ -16,7 +16,7 @@ import { heldMessagesForLaunch } from "./chatSetupModel";
 import { useComposerPresentation } from "./useComposerPresentation";
 import { RuntimeLoginActions, signInPlacement } from "./RuntimeLoginActions";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
-import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
+import { runtimeResponseDeadlinePending, runtimeSessionUnavailable, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 
@@ -374,7 +374,7 @@ function TabSessionChatBody({
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading;
-  const restoreLoadRefused = runtime.state?.state === "degraded" && runtime.state.failureCode === "session_load_refused";
+  const restoreLoadRefused = runtimeSessionUnavailable(runtime.state);
   const undelivered = useMemo(() => sendsOfCurrentAttempt(undeliveredSends(deliverySends), tab?.pty_id, tab?.session_binding_nonce),
     [deliverySends, tab?.pty_id, tab?.session_binding_nonce]);
   const setupView = runtimeUnavailable && snapshotReady && !tabLock.locked && attachmentState !== "failed" && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
