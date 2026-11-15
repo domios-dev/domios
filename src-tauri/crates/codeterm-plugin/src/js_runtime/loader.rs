@@ -318,6 +318,12 @@ fn validate_conformance(
     use crate::js_runtime::host_api::HOST_API_VERSION;
     use crate::provider::ProviderTrust;
 
+    if !manifest.host_io_jobs {
+        return Err(format!(
+            "incompatible: hostApi {:?} requires hostIoJobs=true; removed synchronous APIs: host.fs, host.exec, host.fetch, host.sqliteQueryAllJson, host.worker, host.workspace, host.agent, host.mem, host.analytics, host.surface, host.transfer, host.receiverTarget, host.localRecording and their raw bindings; use host.io jobs — skipping load",
+            manifest.host_api
+        ));
+    }
     if !matches!(trust, ProviderTrust::ThirdParty) {
         return Ok(());
     }

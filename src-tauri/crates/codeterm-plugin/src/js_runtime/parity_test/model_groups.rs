@@ -110,7 +110,7 @@ fn model_groups_usage_and_credentials_match_native_and_js() {
     let manifest_json = r#"{
         "id":"model-group-fixture",
         "version":"0.1.0",
-        "displayName":"Model Group Fixture",
+        "hostIoJobs":true,"displayName":"Model Group Fixture",
         "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
                  "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}},
         "modelGroups":[{"id":"alpha","label":"Alpha Co"},{"id":"beta","label":"Beta Co"}],

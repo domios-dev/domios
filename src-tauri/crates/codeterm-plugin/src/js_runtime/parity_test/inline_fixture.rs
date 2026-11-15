@@ -10,7 +10,7 @@ pub(super) fn provider_fixture(id: &str, relative: &str) -> String {
 
 pub(super) fn load_inline_js(id: &str, plugin_js: &str) -> JsProvider {
     let manifest_json = format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",
+        r#"{{"id":"{id}","version":"0.1.0","hostIoJobs":true,"displayName":"Fixture",
                 "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                          "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
     );

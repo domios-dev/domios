@@ -62,7 +62,7 @@ impl AgentProvider for NativeGeneralOffer {
 fn general_offer_native_js_parity_and_default() {
     for offer in [None, Some(false), Some(true)] {
         let mut value = serde_json::json!({
-            "id":"general-offer-fixture", "version":"0.1.0", "displayName":"Fixture"
+            "id":"general-offer-fixture", "version":"0.1.0", "hostIoJobs":true,"displayName":"Fixture"
         });
         if let Some(offer) = offer {
             value["generalAgentOfferWhenAbsent"] = offer.into();

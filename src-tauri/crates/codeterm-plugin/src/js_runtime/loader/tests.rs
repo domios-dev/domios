@@ -350,7 +350,7 @@ fn min_manifest(id: &str) -> String {
         r#"{{
             "id": "{id}",
             "version": "0.1.0",
-            "displayName": "{id} Test",
+            "hostIoJobs":true,"displayName": "{id} Test",
             "hostApi": {HOST_API_VERSION},
             "spawn": {{
                 "readinessStrategy": {{ "kind": "fixed_delay", "durationMs": 0 }},
@@ -368,7 +368,7 @@ fn cap_manifest(id: &str, version: &str, host_api: u32) -> String {
         r#"{{
             "id": "{id}",
             "version": "{version}",
-            "displayName": "{id} Test",
+            "hostIoJobs":true,"displayName": "{id} Test",
             "hostApi": {host_api},
             "entry": "plugin.js",
             "capabilities": {{ "transcriber": true }}
@@ -460,7 +460,7 @@ fn legacy_manifest_without_host_api(id: &str) -> String {
         r#"{{
             "id": "{id}",
             "version": "0.1.0",
-            "displayName": "{id} Test",
+            "hostIoJobs":true,"displayName": "{id} Test",
             "spawn": {{
                 "readinessStrategy": {{ "kind": "fixed_delay", "durationMs": 0 }},
                 "taskDelivery": "pty_input",
@@ -486,7 +486,7 @@ fn manifest_with_host_api(id: &str, host_api: u32) -> String {
         r#"{{
             "id": "{id}",
             "version": "0.1.0",
-            "displayName": "{id} Test",
+            "hostIoJobs":true,"displayName": "{id} Test",
             "hostApi": {host_api},
             "spawn": {{
                 "readinessStrategy": {{ "kind": "fixed_delay", "durationMs": 0 }},
@@ -876,5 +876,48 @@ fn trust_matrix() {
         write(&dir.join("plugin.js"), "module.exports.default = {};");
         let p = load_one(&dir.join("plugin.json")).unwrap();
         assert_eq!(p.trust(), ProviderTrust::ThirdParty, "case 4");
+    }
+}
+
+#[test]
+fn loader_refuses_false_and_omitted_host_io_jobs_before_evaluation() {
+    use crate::provider::ProviderTrust;
+    for declared in [Some(false), None] {
+        let root = tempfile::tempdir().unwrap();
+        let bundle = root.path().join("legacy-io");
+        let mut raw: serde_json::Value = serde_json::from_str(&min_manifest("legacy-io")).unwrap();
+        raw.as_object_mut().unwrap().remove("hostIoJobs");
+        if let Some(value) = declared {
+            raw["hostIoJobs"] = serde_json::json!(value);
+        }
+        let manifest: PluginManifest = serde_json::from_value(raw.clone()).unwrap();
+        for trust in [
+            ProviderTrust::System,
+            ProviderTrust::ThirdParty,
+            ProviderTrust::Unverified,
+            ProviderTrust::Unknown,
+        ] {
+            let error = validate_conformance(&manifest, &trust).unwrap_err();
+            for field in [
+                "hostApi",
+                "hostIoJobs",
+                "host.fs",
+                "host.exec",
+                "host.fetch",
+                "host.surface",
+                "host.transfer",
+                "removed synchronous APIs",
+            ] {
+                assert!(error.contains(field), "{error}");
+            }
+        }
+        write(&bundle.join("plugin.json"), &raw.to_string());
+        write(
+            &bundle.join("plugin.js"),
+            "throw Error('legacy bundle evaluated');",
+        );
+        let (plugins, outcomes) = scan_roots(&[root.path().to_path_buf()]);
+        assert!(plugins.is_empty());
+        assert!(outcomes.iter().any(|outcome| matches!(outcome, LoadOutcome::Skipped { reason, .. } if reason.contains("hostIoJobs") && !reason.contains("legacy bundle evaluated"))));
     }
 }

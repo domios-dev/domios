@@ -28,41 +28,23 @@ import type {
   WebhookReceiver,
   LocalRecordingTriggerCapability,
 } from "./capabilities";
-import type { Host, Backend, TabRef, UsageSnapshot } from "./host";
+import type { Host, Backend } from "./host";
 
 const localTrigger: LocalRecordingTriggerCapability = {
   vendorId: 1, productId: 2, usagePage: 3, usage: 4,
 };
 void localTrigger;
 
-function localRecordingConformance(host: Host) {
-  const status = host.localRecording.status();
-  if (status && !("error" in status)) {
-    const granted: boolean = status.granted;
-    const generation: number = status.generation;
-    void [granted, generation];
-  }
-  host.localRecording.setEnabled(true);
-  host.localRecording.statusReport();
-  // @ts-expect-error The status query is immutable manifest metadata.
-  host.localRecording.statusReport({ request: [1], path: "foreign" });
-  // @ts-expect-error START is host-owned.
+function* localRecordingConformance(host: Host): import("./io").HostIoSteps<void> {
+  yield {op:"localRecordingStatus"};
+  yield {op:"localRecordingSetEnabled",enabled:true};
+  yield {op:"receiverStatusReport"};
+  // @ts-expect-error status request bytes belong to the manifest
+  yield {op:"receiverStatusReport",request:[1],path:"foreign"};
+  // @ts-expect-error device selection remains host-owned
+  yield {op:"localRecordingSelect",devices:{inputId:"input"}};
+  // @ts-expect-error synchronous recording APIs have been removed
   host.localRecording.start();
-  host.localRecording.selectDevices({ inputId: "input", collectionId: "collection", microphoneId: "microphone" });
-  const saved = host.localRecording.savedSelection();
-  if (saved && !("error" in saved)) {
-    const microphone: string = saved.microphoneId;
-    void microphone;
-  }
-  const inputs = host.localRecording.listInputDevices();
-  if (inputs && !("error" in inputs)) {
-    const kind: "hid" | "audio_input" = inputs[0].kind;
-    void kind;
-  }
-  // @ts-expect-error Selection requires the full offered identity.
-  host.localRecording.selectDevices("arbitrary-device");
-  // @ts-expect-error A plugin cannot commit a transcript or choose a recipient.
-  host.localRecording.commit("tab-B", "injected-text");
 }
 void localRecordingConformance;
 
@@ -284,85 +266,28 @@ function typeCheckAsyncFetch(): string {
 }
 void typeCheckAsyncFetch;
 
-async function exercise() {
-  // worker: non-blocking start → poll (F4), not blocking run.
-  const { jobId } = await host.worker.start({ task: "do it" });
-  if (!jobId) throw new Error("worker start failed");
-  const w = await host.worker.poll(jobId);
-  if ("done" in w && w.done) void w.report;
-  void w.error;
-
-  // workspace: ensure + tabs — SYNCHRONOUS (cheap mux ops, no agent turn).
-  const { workspaceId } = host.workspace.ensure({ name: "ws" });
-  if (!workspaceId) throw new Error("workspace unavailable");
-  const tabs: TabRef[] = host.workspace.tabs(workspaceId);
-  void tabs;
-
-  // agent: spawn (fresh) / resume (specific) / get (key→session) / send (ticket) / poll / reap / usage.
-  const backendSpec: Backend = { provider: "claude", model: "opus" };
-  const { sessionId } = await host.agent.spawn(workspaceId, {
-    ...backendSpec,
-    task: "play npc",
-    key: "npc_1",
-    commands: ["say", "move"],
-  });
-  if (!sessionId) throw new Error("agent spawn failed");
-  const resumed = await host.agent.resume(workspaceId, sessionId);
-  void resumed;
-  const found = await host.agent.get(workspaceId, "npc_1");
-  void found;
-  const { ticket } = await host.agent.send(sessionId, "hello");
-  if (!ticket) throw new Error("agent send failed");
-  const reply = await host.agent.poll(ticket);
-  if ("done" in reply && reply.done) void reply.reply;
-  void reply.error;
-  const usage: UsageSnapshot | null = host.agent.usage ? await host.agent.usage(sessionId) : null;
-  void usage;
-  await host.agent.reap(sessionId);
-
-  // mem: SYNCHRONOUS search (callable mid-turn by a sync stage), scored hits.
-  const search = host.mem.search({ query: "q", k: 5 });
-  if ("error" in search) throw new Error(search.error);
-  const { hits } = search;
-  void hits.map((h) => `${h.id}:${h.text}:${h.score}`);
-
-  // fetch streaming: same sync job-id + poll shape as worker/agent.
-  const rawFetchResult = JSON.parse(host.fetch(JSON.stringify({ url: "http://127.0.0.1" })));
-  void rawFetchResult;
-  const stream = host.fetch.stream({ url: "http://127.0.0.1/stream" });
-  if (stream.jobId) {
-    const streamPoll = host.fetch.streamPoll(stream.jobId);
-    void streamPoll.chunks.join("");
-    void streamPoll.status;
-    void streamPoll.error;
-    host.fetch.streamClose(stream.jobId);
-  }
-
-  // exec: same sync job-id + poll shape — start, poll until done, then drained.
-  const rawExecResult = host.exec(JSON.stringify({ bin: "echo", args: ["hi"] }));
-  void rawExecResult;
-  const exec = host.exec.start({ bin: "echo", args: ["hi"] });
-  if (exec.jobId) {
-    const execPoll = host.exec.poll(exec.jobId);
-    if (execPoll.done) {
-      void execPoll.code;
-      void execPoll.stdout;
-      void execPoll.stderr;
-    }
-    void execPoll.error;
-    host.exec.close(exec.jobId);
-  }
-
-  // receiverTarget: the plugin reads or clears its own binding; assigning a tab is host chrome.
-  const target = host.receiverTarget.get();
-  if (target && "tabId" in target) {
-    const tabId: string | null = target.tabId;
-    void tabId;
-    void target.live;
-  }
-  void host.receiverTarget.clear();
-  // @ts-expect-error a plugin cannot assign a receiver tab
-  host.receiverTarget.set("tab-1");
+function* exercise(): import("./io").HostIoSteps<void> {
+  yield {op:"workerStart",options:{task:"do it"}};
+  yield {op:"workerPoll",job:"owned-job"};
+  yield {op:"workspaceEnsure",options:{name:"ws"}};
+  yield {op:"workspaceTabs",workspace:"ws"};
+  const backendSpec: Backend = {provider:"claude",model:"opus"};
+  yield {op:"agentSpawn",workspace:"ws",options:{...backendSpec,task:"play npc"}};
+  yield {op:"agentSend",session:"owned-session",text:"hello"};
+  yield {op:"agentPoll",session:"owned-session"};
+  yield {op:"agentReap",session:"owned-session"};
+  yield {op:"memSearch",options:{query:"q",k:5}};
+  yield* host.io.fetch({url:"http://127.0.0.1"});
+  yield {op:"fetchStreamStart",options:{url:"http://127.0.0.1/stream"}};
+  yield {op:"fetchStreamPoll",job:"owned-stream"};
+  yield {op:"fetchStreamClose",job:"owned-stream"};
+  yield* host.io.exec({bin:"echo",args:["hi"]});
+  yield {op:"execPoll",job:"owned-exec"};
+  yield {op:"execClose",job:"owned-exec"};
+  yield {op:"receiverTarget"};
+  yield {op:"receiverTargetClear"};
+  // @ts-expect-error receiver assignment remains host-owned
+  yield {op:"receiverTargetSet",tab:"tab-1"};
 }
 void exercise;
 
@@ -426,8 +351,7 @@ async function saveFromView(bridge: ViewHostBridge): Promise<string> {
 }
 void saveFromView;
 function callSurface(): string {
-  // host.surface.call answers with JSON text; the plugin parses it.
-  return host.surface.call("status", "[]");
+  return host.io.run(host.io.surface.call("status", "[]"));
 }
 void callSurface;
 

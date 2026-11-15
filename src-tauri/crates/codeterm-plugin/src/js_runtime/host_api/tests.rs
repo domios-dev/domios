@@ -128,12 +128,15 @@ fn list_child_dirs_gated_by_cwd_grant_with_negative_controls() {
     let sibling = tmp.path().join("ungranted-ws");
     std::fs::create_dir_all(sibling.join("x").join(".git")).unwrap();
 
-    const SRC: &str = r#"
-        module.exports.default = {
-            list(p) { return host.listChildDirs(p); },
-            exists(p) { return host.fileExists(p); }
-        };
-    "#;
+    const SRC: &str = r#"module.exports.default = {
+    list(p) {
+        return host.io.run((function* () { return (yield { op: "listChildDirs", path: p }); }).call(this));
+    },
+    exists(p) {
+        return host.io.run((function* () { return (yield { op: "fileExists", path: p }); }).call(this));
+    }
+};
+"#;
     let sandbox = Arc::new(PluginSandbox::restricted(vec![], vec![]));
     let vm = PluginVm::from_source_sandboxed("confined", SRC.to_string(), None, sandbox.clone())
         .unwrap();
@@ -435,13 +438,18 @@ fn host_write_then_read_file_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("hello.txt").to_string_lossy().into_owned();
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                write(p, c) { return host.writeFile(p, c); },
-                read(p) { return host.readFile(p); },
-                exists(p) { return host.fileExists(p); }
-            };
-        "#,
+        r#"module.exports.default = {
+    write(p, c) {
+        return host.io.run((function* () { return (yield { op: "writeFile", path: p, contents: c }); }).call(this));
+    },
+    read(p) {
+        return host.io.run((function* () { return (yield { op: "readFile", path: p }); }).call(this));
+    },
+    exists(p) {
+        return host.io.run((function* () { return (yield { op: "fileExists", path: p }); }).call(this));
+    }
+};
+"#,
     );
     let ok: bool =
         crate::js_runtime::vm::call_json(&vm, "write", &[json!(path), json!("plugin wrote this")])
@@ -463,23 +471,37 @@ fn host_atomic_write_and_exclusive_file_lock_round_trip() {
         .to_string_lossy()
         .into_owned();
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                lock(p) { return host.lockFile(p); },
-                unlock(id) { return host.unlockFile(id); },
-                lockAndUnlock(p) {
-                    const id = host.lockFile(p);
-                    return id !== null && host.unlockFile(id);
-                },
-                symlink(p) { return host.fs.isSymlink(p); },
-                writeLocked(p, c) {
-                    const id = host.lockFile(p);
-                    if (id === null) return false;
-                    try { return host.writeFileAtomic(p, c); }
-                    finally { host.unlockFile(id); }
-                }
-            };
-        "#,
+        r#"module.exports.default = {
+    lock(p) {
+        return host.io.run((function* () { return (yield { op: "lockFile", path: p }); }).call(this));
+    },
+    unlock(id) {
+        return host.io.run((function* () { return (yield { op: "unlockFile", id: id }); }).call(this));
+    },
+    lockAndUnlock(p) {
+        return host.io.run((function* () {
+            const id = (yield { op: "lockFile", path: p });
+            return id !== null && (yield { op: "unlockFile", id: id });
+        }).call(this));
+    },
+    symlink(p) {
+        return host.io.run((function* () { return (yield { op: "isSymlink", path: p }); }).call(this));
+    },
+    writeLocked(p, c) {
+        return host.io.run((function* () {
+            const id = (yield { op: "lockFile", path: p });
+            if (id === null)
+                return false;
+            try {
+                return (yield { op: "writeFileAtomic", path: p, contents: c });
+            }
+            finally {
+                (yield { op: "unlockFile", id: id });
+            }
+        }).call(this));
+    }
+};
+"#,
     );
     let lock_id: Option<String> =
         crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path.clone())]).unwrap();
@@ -670,12 +692,15 @@ fn host_bounded_reads_exposed_through_preamble() {
     std::fs::write(&p, "META\nMIDDLE\nTAIL").unwrap();
     let path = p.to_string_lossy().into_owned();
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                head(p, n) { return host.fs.readFileHead(p, n); },
-                tail(p, n) { return host.fs.readFileTail(p, n); },
-            };
-        "#,
+        r#"module.exports.default = {
+    head(p, n) {
+        return host.io.run((function* () { return (yield { op: "readFileHead", path: p, maxBytes: n }); }).call(this));
+    },
+    tail(p, n) {
+        return host.io.run((function* () { return (yield { op: "readFileTail", path: p, maxBytes: n }); }).call(this));
+    },
+};
+"#,
     );
     let head: Option<String> =
         crate::js_runtime::vm::call_json(&vm, "head", &[json!(path), json!(4)]).unwrap();
@@ -694,11 +719,12 @@ fn host_write_file_creates_parent_dirs() {
         .to_string_lossy()
         .into_owned();
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                write(p, c) { return host.writeFile(p, c); }
-            };
-        "#,
+        r#"module.exports.default = {
+    write(p, c) {
+        return host.io.run((function* () { return (yield { op: "writeFile", path: p, contents: c }); }).call(this));
+    }
+};
+"#,
     );
     let ok: bool =
         crate::js_runtime::vm::call_json(&vm, "write", &[json!(nested), json!("nested")]).unwrap();
@@ -717,15 +743,16 @@ fn host_read_dir_json_lists_entries() {
     std::fs::create_dir(dir.path().join("sub")).unwrap();
     let path = dir.path().to_string_lossy().into_owned();
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                list(p) {
-                    const j = host.readDirJson(p);
-                    return JSON.parse(j).map(e => ({name: e.name, isDir: e.isDir}))
-                        .sort((x, y) => x.name.localeCompare(y.name));
-                }
-            };
-        "#,
+        r#"module.exports.default = {
+    list(p) {
+        return host.io.run((function* () {
+            const j = JSON.stringify((yield { op: "readDir", path: p }));
+            return JSON.parse(j).map(e => ({ name: e.name, isDir: e.isDir }))
+                .sort((x, y) => x.name.localeCompare(y.name));
+        }).call(this));
+    }
+};
+"#,
     );
     let entries: Vec<serde_json::Value> =
         crate::js_runtime::vm::call_json(&vm, "list", &[json!(path)]).unwrap();
@@ -745,11 +772,12 @@ fn host_walk_dir_json_depth_bounded() {
     std::fs::write(dir.path().join("a/b/c/z.txt"), "z").unwrap();
     let path = dir.path().to_string_lossy().into_owned();
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                walk(p, d) { return JSON.parse(host.walkDirJson(p, d)).map(e => e.name); }
-            };
-        "#,
+        r#"module.exports.default = {
+    walk(p, d) {
+        return host.io.run((function* () { return JSON.parse(JSON.stringify((yield { op: "walkDir", path: p, maxDepth: d }))).map(e => e.name); }).call(this));
+    }
+};
+"#,
     );
     let names1: Vec<String> =
         crate::js_runtime::vm::call_json(&vm, "walk", &[json!(path), json!(1)]).unwrap();
@@ -852,11 +880,12 @@ fn host_shell_env_prefix_windows_quotes_embedded_single_quote() {
 #[test]
 fn host_write_temp_file_returns_real_path() {
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                mk(c) { return host.writeTempFile(c, ".task.txt"); }
-            };
-        "#,
+        r#"module.exports.default = {
+    mk(c) {
+        return host.io.run((function* () { return (yield { op: "writeTempFile", contents: c, suffix: ".task.txt" }); }).call(this));
+    }
+};
+"#,
     );
     let path: Option<String> =
         crate::js_runtime::vm::call_json(&vm, "mk", &[json!("payload payload")]).unwrap();
@@ -880,11 +909,12 @@ fn host_write_temp_file_confined_lands_under_instance_task_dir() {
     );
     let vm = PluginVm::from_source_sandboxed(
         &plugin_id,
-        r#"
-            module.exports.default = {
-                mk(c) { return host.writeTempFile(c, ".task.txt"); }
-            };
-        "#
+        r#"module.exports.default = {
+    mk(c) {
+        return host.io.run((function* () { return (yield { op: "writeTempFile", contents: c, suffix: ".task.txt" }); }).call(this));
+    }
+};
+"#
         .to_string(),
         None,
         sandbox,
@@ -908,11 +938,12 @@ fn host_write_temp_file_confined_lands_under_instance_task_dir() {
 #[test]
 fn host_launch_task_file_is_captured_for_its_tab() {
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                mk(c) { return host.writeTempFile(c, ".ct-task.md"); }
-            };
-        "#,
+        r#"module.exports.default = {
+    mk(c) {
+        return host.io.run((function* () { return (yield { op: "writeTempFile", contents: c, suffix: ".ct-task.md" }); }).call(this));
+    }
+};
+"#,
     );
     let (path, files) = codeterm_util::task_files::capture("tab-host-capture", || {
         crate::js_runtime::vm::call_json::<Option<String>>(&vm, "mk", &[json!("payload")])
@@ -974,14 +1005,14 @@ fn host_sqlite_query_roundtrip() {
     }
     let db_path = db.to_string_lossy().into_owned();
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                topByName(p) {
-                    return JSON.parse(host.sqliteQueryAllJson(
-                        p, "SELECT id, name, score FROM k WHERE score > ?1 ORDER BY name DESC", "[2.0]"));
-                }
-            };
-        "#,
+        r#"module.exports.default = {
+    topByName(p) {
+        return host.io.run((function* () {
+            return JSON.parse(((rows) => rows === null ? null : JSON.stringify(rows))((yield { op: "sqliteQuery", db: p, sql: "SELECT id, name, score FROM k WHERE score > ?1 ORDER BY name DESC", params: JSON.parse("[2.0]"), nullable: true })));
+        }).call(this));
+    }
+};
+"#,
     );
     let rows: Vec<serde_json::Value> =
         crate::js_runtime::vm::call_json(&vm, "topByName", &[json!(db_path)]).unwrap();
@@ -994,11 +1025,12 @@ fn host_sqlite_query_roundtrip() {
 #[test]
 fn host_sqlite_handles_missing_db_gracefully() {
     let vm = vm_with(
-        r#"
-            module.exports.default = {
-                run() { return host.sqliteQueryAllJson("/no/such/db.sqlite", "SELECT 1", null); }
-            };
-        "#,
+        r#"module.exports.default = {
+    run() {
+        return host.io.run((function* () { return ((rows) => rows === null ? null : JSON.stringify(rows))((yield { op: "sqliteQuery", db: "/no/such/db.sqlite", sql: "SELECT 1", params: JSON.parse(null), nullable: true })); }).call(this));
+    }
+};
+"#,
     );
     let r: Option<String> = crate::js_runtime::vm::call_json(&vm, "run", &[]).unwrap();
     assert_eq!(r, None);
@@ -1020,52 +1052,6 @@ fn host_install_idempotent_across_reload() {
     .unwrap();
     let p2: String = crate::js_runtime::vm::call_json(&vm, "go", &[]).unwrap();
     assert_eq!(p2, format!("{p1}!"));
-}
-
-/// A tree wider than the budget is truncated AT the budget rather than walked
-/// whole: the depth limit alone bounds nothing, which is how one provider
-/// session root pegged a daemon's CPU and starved everything behind it (#319).
-#[test]
-fn walk_truncates_a_wide_tree_at_the_entry_budget() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path();
-    let over = WALK_ENTRY_BUDGET + 25;
-    for i in 0..over {
-        std::fs::write(root.join(format!("f{i}.jsonl")), b"x").unwrap();
-    }
-
-    let walked: Vec<serde_json::Value> =
-        serde_json::from_str(&walk_dir_json(root.to_str().unwrap(), 8).unwrap()).unwrap();
-    assert_eq!(
-        walked.len(),
-        WALK_ENTRY_BUDGET,
-        "a walk must stop at its budget, not at the end of a wide directory"
-    );
-}
-
-/// Under the budget nothing changes: every entry is still reported, so bounding
-/// the walk did not quietly shrink an ordinary result.
-#[test]
-fn walk_under_the_budget_reports_every_entry() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path();
-    std::fs::create_dir(root.join("nested")).unwrap();
-    std::fs::write(root.join("a.jsonl"), b"x").unwrap();
-    std::fs::write(root.join("nested").join("b.jsonl"), b"x").unwrap();
-
-    let walked: Vec<serde_json::Value> =
-        serde_json::from_str(&walk_dir_json(root.to_str().unwrap(), 8).unwrap()).unwrap();
-    let names: Vec<&str> = walked
-        .iter()
-        .filter_map(|entry| entry.get("name").and_then(|n| n.as_str()))
-        .collect();
-    assert_eq!(walked.len(), 3, "two files and one directory");
-    for expected in ["a.jsonl", "nested", "b.jsonl"] {
-        assert!(
-            names.contains(&expected),
-            "{expected} missing from {names:?}"
-        );
-    }
 }
 
 /// The confinement heuristic is a substring match, so it cannot tell a host-set
@@ -1196,3 +1182,5 @@ fn missing_directory_metadata_keeps_null_timestamps() {
     assert!(value.as_object().unwrap().contains_key("createdMs"));
     assert!(value.as_object().unwrap().contains_key("modifiedMs"));
 }
+
+mod directory;

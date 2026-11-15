@@ -26,7 +26,7 @@ module.exports = {
     return callbackEntries;
   }); },
   nestedGenerator(path) { return host.io.run((function*() { return (function*() { return yield* host.io.fs.readFile(path); })(); })()); },
-  legacy(path) { return host.readFile(path); },
+  legacy() { return ["readFile", "execStart", "sqliteQueryAllJson", "workerStart", "surfaceCall", "transferStart", "localRecordingInputs", "surfaceInvalidate", "agentResume", "agentGet", "agentUsage"].every(function(name) { return typeof host[name] === "undefined"; }); },
   pause(request) { return host.io(request, function() { return "resumed"; }); },
   read(path) { return host.io.run((function*() { return yield* host.io.fs.readFile(path); })()); },
   write(path) { return host.io.run((function*() { return yield* host.io.fs.writeFile(path, "written-once"); })()); },
@@ -89,7 +89,7 @@ fn vm(id: &str, roots: Option<&std::path::Path>) -> Arc<PluginVm> {
         None => PluginSandbox::unrestricted().with_identity(id),
     };
     let manifest =
-        json!({"id":id,"version":"0.0.0","displayName":"Fixture","hostIoJobs":true}).to_string();
+        json!({"id":id,"version":"0.0.0","hostIoJobs":true,"displayName":"Fixture"}).to_string();
     Arc::new(
         PluginVm::from_source_sandboxed(id, SOURCE.into(), Some(manifest), Arc::new(sandbox))
             .unwrap(),
@@ -118,9 +118,7 @@ fn jobs_only_contract_refuses_legacy_callbacks_and_preserves_confined_io() {
     std::fs::write(&owned, "owned").unwrap();
     std::fs::write(&denied, "foreign").unwrap();
     let vm = vm("io-confinement", Some(root.path()));
-    assert!(
-        matches!(call_json::<Value>(&vm, "legacy", &[json!(owned)]), Err(VmError::Script(message)) if message.contains("requires a host.io job"))
-    );
+    assert!(call_json::<bool>(&vm, "legacy", &[]).unwrap());
     assert_eq!(
         call_json::<Value>(&vm, "read", &[json!(owned)]).unwrap(),
         "owned"

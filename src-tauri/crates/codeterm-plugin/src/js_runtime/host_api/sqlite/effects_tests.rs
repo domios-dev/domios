@@ -8,8 +8,7 @@ use serde_json::{json, Value};
 use std::{sync::Arc, time::Instant};
 
 const FIXTURE: &str = r#"module.exports={
-    sync(db,sql,params){var rows=host.sqliteQueryAllJson(db,sql,JSON.stringify(params));return rows==null?{refused:true}:{rows:JSON.parse(rows),refused:false};},
-    async(db,sql,params){var ticket=JSON.parse(host.sqliteQueryStart(db,sql,JSON.stringify(params)));if(!ticket.jobId)return {refused:true};return host.awaitJob(ticket.jobId,function(result){return {refused:!Array.isArray(result.rows),rows:result.rows};});}
+    query(db,sql,params){return host.io.run((function*(){var rows=yield* host.io.fs.sqliteQueryNullable(db,sql,params);return {refused:rows===null,rows:rows};})());}
 };"#;
 
 #[test]
@@ -34,7 +33,7 @@ fn durable_media_observation_sqlite_sync_and_async_cannot_create_or_attach_files
     let vm = PluginVm::from_source_sandboxed("lookup-sql-policy", FIXTURE.into(), None, sandbox)
         .unwrap();
     let _lease = lease_plugin_sqlite("lookup-sql-policy");
-    for method in ["sync", "async"] {
+    for method in ["query"] {
         let output = outside.path().join(format!("vacuum-{method}.sqlite"));
         let attached = outside.path().join(format!("attached-{method}.sqlite"));
         let deadline = Instant::now() + Duration::from_secs(5);

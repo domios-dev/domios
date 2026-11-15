@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostAnalytics, ViewCallContext } from "@codeterm/plugin-sdk";
+import type { ViewCallContext } from "@codeterm/plugin-sdk";
 import rawPlugin, { runQuery } from "../src/plugin";
 const plugin = ioTestExport(rawPlugin);
 import { snapshotFor } from "../ui/src/model/fixtures.testdata";
@@ -15,8 +15,8 @@ const VIEW_CONTEXT: ViewCallContext = {
 
 const QUERY = { range: { from: "2026-09-09", to: "2026-09-15", tz: "UTC" }, bucket: "day", group_by: "workspace" };
 
-function analytics(answer: unknown): HostAnalytics {
-  return { query: vi.fn(() => answer) } as unknown as HostAnalytics;
+function analytics(answer: unknown) {
+  return { query: vi.fn(() => answer) };
 }
 
 afterEach(() => {

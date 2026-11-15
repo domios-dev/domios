@@ -69,7 +69,7 @@ fn lazy_session_start_capability_native_js_parity() {
     let manifest_json = r#"{
         "id": "resume-first-turn-fixture",
         "version": "0.1.0",
-        "displayName": "Resume First Turn Fixture",
+        "hostIoJobs":true,"displayName": "Resume First Turn Fixture",
         "spawn": {
             "readinessStrategy": {"kind": "fixed_delay", "durationMs": 0},
             "taskDelivery": "pty_input",
@@ -105,8 +105,7 @@ fn lazy_session_start_capability_native_js_parity() {
 
 #[test]
 fn session_exists_native_js_parity_preserves_unknown() {
-    let manifest_json =
-        r#"{"id":"resume-first-turn-fixture","version":"0.1.0","displayName":"Presence Fixture"}"#;
+    let manifest_json = r#"{"id":"resume-first-turn-fixture","version":"0.1.0","hostIoJobs":true,"displayName":"Presence Fixture"}"#;
     let manifest = super::super::PluginManifest::from_json_str(manifest_json).unwrap();
     let vm = super::super::PluginVm::from_source_with(
         "resume-first-turn-fixture",

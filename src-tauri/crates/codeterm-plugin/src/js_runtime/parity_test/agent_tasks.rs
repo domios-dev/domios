@@ -45,7 +45,7 @@ impl ChatBackendProvider for Native {
 
 #[test]
 fn parity_agent_tasks_preserve_input_and_structured_result() {
-    let manifest_json = r#"{"id":"task-fixture","displayName":"fixture","version":"0.1.0","capabilities":{"chatBackend":{"agentTasks":true}}}"#;
+    let manifest_json = r#"{"id":"task-fixture","hostIoJobs":true,"displayName":"fixture","version":"0.1.0","capabilities":{"chatBackend":{"agentTasks":true}}}"#;
     let manifest = serde_json::from_str(manifest_json).unwrap();
     let vm = super::super::PluginVm::from_source_with("task-fixture", r#"module.exports.default = {
         runAgentTask(request) { return {status:'done', output:{task:request.task,input:request.input}}; },
@@ -81,7 +81,7 @@ fn parity_agent_tasks_preserve_input_and_structured_result() {
 
 #[test]
 fn agent_task_methods_without_a_capability_are_refused() {
-    let manifest_json = r#"{"id":"task-fixture","displayName":"fixture","version":"0.1.0","capabilities":{"chatBackend":true}}"#;
+    let manifest_json = r#"{"id":"task-fixture","hostIoJobs":true,"displayName":"fixture","version":"0.1.0","capabilities":{"chatBackend":true}}"#;
     let manifest = serde_json::from_str(manifest_json).unwrap();
     let vm = super::super::PluginVm::from_source_with(
         "task-fixture",

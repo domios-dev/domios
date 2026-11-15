@@ -1,6 +1,5 @@
 use crate::binary_transfer::{self as transfer, *};
 use crate::js_runtime::{
-    call_json,
     host_api::PluginSandbox,
     host_transfer,
     manifest::{CredentialConfig, PermissionsConfig},
@@ -93,9 +92,7 @@ fn native_and_js_binary_transports_preserve_identical_bytes_and_keep_credentials
     let session = host_transfer::fixture_session(&sandbox, root.path().into(), network.clone());
     let request:TransferRequest=serde_json::from_value(serde_json::json!({"url":"https://api.example/upload","method":"POST","credential":{"kind":"declared","id":"account","headers":{"Authorization":"Bearer {token}"}},"body":{"kind":"file","file":{"kind":"owned","path":"reference.bin","contentType":"application/octet-stream","fileName":"Reference.bin"}},"response":{"kind":"file","statuses":[200],"fileName":"Output.bin","contentType":"application/octet-stream","maxBytes":1024*1024}})).unwrap();
     let native = transfer::execute(session, request.clone(), TransferAbort::default()).unwrap();
-    let vm=PluginVm::from_source_sandboxed("parity-binary",r#"module.exports.default={run(request){return host.transfer.async(request,function(result){return result;});}}"#.into(),None,sandbox).unwrap();
-    let js: serde_json::Value =
-        call_json(&vm, "run", &[serde_json::to_value(&request).unwrap()]).unwrap();
+    let js: serde_json::Value = native_transfer(&sandbox, serde_json::to_value(&request).unwrap());
     assert_eq!(js["file"]["size"], native.file().unwrap().size);
     assert_eq!(js["file"]["sha256"], native.file().unwrap().sha256);
     assert_eq!(
@@ -123,16 +120,15 @@ fn native_and_js_binary_transports_preserve_identical_bytes_and_keep_credentials
         },
     });
     let result: serde_json::Value =
-        call_json(&vm, "run", &[serde_json::to_value(denied).unwrap()]).unwrap();
+        native_transfer(&sandbox, serde_json::to_value(denied).unwrap());
     assert_eq!(result["error"], "not_allowed");
     assert_eq!(network.uploads.lock().len(), 2);
 }
 #[test]
 fn unrestricted_js_still_needs_a_binary_declaration_and_exact_network_grant() {
-    let source = r#"module.exports.default={run(request){return host.transfer.async(request,function(result){return result;});}}"#;
     let request = serde_json::json!({"url":"https://api.example/output","method":"GET","response":{"kind":"file","statuses":[200],"fileName":"Output.bin","contentType":"application/octet-stream","maxBytes":100}});
-    let vm = PluginVm::from_source("undeclared-transfer", source.into()).unwrap();
-    let denied: serde_json::Value = call_json(&vm, "run", &[request.clone()]).unwrap();
+    let sandbox = Arc::new(PluginSandbox::unrestricted().with_identity("undeclared-transfer"));
+    let denied: serde_json::Value = native_transfer(&sandbox, request.clone());
     assert_eq!(denied["error"], "not_allowed");
     let root = tempfile::tempdir().unwrap();
     let permissions = PermissionsConfig::default();
@@ -147,9 +143,7 @@ fn unrestricted_js_still_needs_a_binary_declaration_and_exact_network_grant() {
     );
     let network = Arc::new(Network::default());
     host_transfer::fixture_session(&sandbox, root.path().into(), network.clone());
-    let vm = PluginVm::from_source_sandboxed("ungranted-transfer", source.into(), None, sandbox)
-        .unwrap();
-    let denied: serde_json::Value = call_json(&vm, "run", &[request]).unwrap();
+    let denied: serde_json::Value = native_transfer(&sandbox, request);
     assert_eq!(denied["error"], "not_allowed");
     assert!(network.uploads.lock().is_empty());
 }
@@ -158,7 +152,7 @@ fn unrestricted_js_still_needs_a_binary_declaration_and_exact_network_grant() {
 fn manifest_binary_transfer_is_typed_and_enforces_host_bounds() {
     use crate::js_runtime::PluginManifest;
     let parse = |descriptor: serde_json::Value| {
-        PluginManifest::from_json_str(&serde_json::json!({"id":"fixture","version":"1.0.0","displayName":"Fixture","capabilities":{"binaryTransfer":descriptor}}).to_string())
+        PluginManifest::from_json_str(&serde_json::json!({"id":"fixture","version":"1.0.0","hostIoJobs":true,"displayName":"Fixture","capabilities":{"binaryTransfer":descriptor}}).to_string())
     };
     assert!(parse(serde_json::json!({})).is_ok());
     for descriptor in [
@@ -218,9 +212,8 @@ fn native_and_js_preserve_json_and_empty_receipts_without_inventing_files_or_pro
             transfer::execute(session, request.clone(), TransferAbort::default()).unwrap(),
         )
         .unwrap();
-        let vm=PluginVm::from_source_sandboxed(&plugin,r#"module.exports.default={run(request){return host.transfer.async(request,function(result){return result;});}}"#.into(),None,sandbox).unwrap();
         let js: serde_json::Value =
-            call_json(&vm, "run", &[serde_json::to_value(request).unwrap()]).unwrap();
+            native_transfer(&sandbox, serde_json::to_value(request).unwrap());
         assert_eq!(js, native);
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     }
@@ -253,12 +246,11 @@ fn js_upload_consumes_only_a_fresh_host_selected_origin_bound_file_grant() {
         None,
     )
     .unwrap();
-    let vm=PluginVm::from_source_sandboxed(&plugin,r#"module.exports.default={run(request){return host.transfer.async(request,function(result){return result;});}}"#.into(),None,sandbox).unwrap();
     let request = serde_json::json!({"url":"https://api.example/upload","method":"PUT","body":{"kind":"file","file":{"kind":"selected","handle":grant.handle}},"response":{"kind":"file","fileName":"output.bin","contentType":"application/octet-stream","maxBytes":1024*1024,"statuses":[200]}});
-    let result: serde_json::Value = call_json(&vm, "run", &[request.clone()]).unwrap();
+    let result: serde_json::Value = native_transfer(&sandbox, request.clone());
     assert_eq!(result["kind"], "file");
     assert_eq!(network.uploads.lock().as_slice(), &[bytes()]);
-    let denied: serde_json::Value = call_json(&vm, "run", &[request]).unwrap();
+    let denied: serde_json::Value = native_transfer(&sandbox, request);
     assert_eq!(denied["error"], "not_allowed");
     assert_eq!(network.uploads.lock().len(), 1);
     assert!(transfer::is_current(&session));
@@ -312,4 +304,18 @@ fn in_place_vm_reload_revokes_old_selected_grants_and_rotates_only_its_active_ep
         )
         .is_err());
     assert!(network.uploads.lock().is_empty());
+}
+
+fn native_transfer(sandbox: &Arc<PluginSandbox>, request: serde_json::Value) -> serde_json::Value {
+    match host_transfer::session(sandbox) {
+        Ok(session) => match transfer::execute(
+            session,
+            serde_json::from_value(request).unwrap(),
+            TransferAbort::default(),
+        ) {
+            Ok(receipt) => serde_json::to_value(receipt).unwrap(),
+            Err(failure) => serde_json::to_value(failure).unwrap(),
+        },
+        Err(error) => serde_json::json!({"error":error}),
+    }
 }

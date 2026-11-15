@@ -47,15 +47,18 @@ impl Converter for NativeFakeConverter {
 
 const JS_FIXTURE: &str = r#"module.exports.default = {
     convert(request) {
-        var text = String(host.fs.readFile(request.inputPath)).toUpperCase();
-        if (request.to === "text") {
-            return { text: text };
-        }
-        var out = request.outputDir + "/converted.bin";
-        host.fs.writeFile(out, text);
-        return { path: out };
+        return host.io.run((function* () {
+            var text = String((yield { op: "readFile", path: request.inputPath })).toUpperCase();
+            if (request.to === "text") {
+                return { text: text };
+            }
+            var out = request.outputDir + "/converted.bin";
+            (yield { op: "writeFile", path: out, contents: text });
+            return { path: out };
+        }).call(this));
     }
-};"#;
+};
+"#;
 
 fn fixture_request(
     input: &std::path::Path,

@@ -9,7 +9,7 @@ contracts for that surface — the `host` global, and the capability interfaces 
 plugin can implement. Type imports have zero runtime weight. The optional pure
 diff helpers are bundled only when imported as values.
 
-For plugin-owned storage, use `host.dataDir()`. `host.fs.expandHome("~/.domios")`
+For plugin-owned storage, use `host.dataDir()`. `host.expandHome("~/.domios")`
 and paths beneath `~/.domios/` resolve to the running instance's data directory,
 including development and named instances. Other `~/` paths use the user's home;
 the former product directory has no special mapping. Filesystem grants still apply after expansion.
@@ -18,7 +18,8 @@ public technical contract; they do not select a legacy data root.
 
 ## Host I/O jobs
 
-A plugin declaring `hostIoJobs: true` requires Domios 1.19.0 or newer and uses
+Every plugin must declare `hostIoJobs: true`; Domios 1.20.0 refuses false or
+omitted declarations before evaluating the bundle. `hostApi` remains 2. Plugins use
 `host.io(request, then)` for blocking host operations. The host releases the VM
 before running a job and resumes exactly that invocation's continuation once.
 `host.io.run(steps)` drives a generator; nested helpers use `yield*`:
@@ -47,7 +48,7 @@ invocation-owned file locks until it exits, and produces an unconfirmed outcome
 when its effect cannot be observed. Late completion cannot resume a cancelled
 or replaced invocation. A call that starts an I/O job must await it.
 
-The jobs-only contract refuses legacy synchronous filesystem, SQLite, process,
+The legacy synchronous bindings and SDK types are removed: filesystem, SQLite, process,
 network, credential and service bindings. Pure path, string, JSON and manifest
 helpers remain synchronous. `host.io.fs` provides generator equivalents for
 filesystem operations; `host.io.exec` and `host.io.fetch` await their existing

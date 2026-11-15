@@ -54,7 +54,7 @@ fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
     assert!(!data.exists());
     assert!(sandbox.can_write(data.to_str().unwrap()));
     let setup = format!(
-        "host.fs.expandHome = function(path) {{ return path === '~/.codeterm/rotterdom' ? {} : null; }};",
+        "host.expandHome = function(path) {{ return path === '~/.codeterm/rotterdom' ? {} : null; }};",
         serde_json::to_string(&data).unwrap()
     );
     let vm = PluginVm::from_source_sandboxed(
@@ -97,7 +97,7 @@ fn model(failure: &str) -> JsDecisionModel {
             profiles:[{id:'decision',endpoint:'local',model:'fixture-model',root:'',
                 budgets:{tokens:4096,deadlineMs:10000}}],defaultProfile:'decision'
         }); };
-        host.projectWriteAllowed = function() { throw new Error('decision requested filesystem grants'); };
+        host.io.fs.projectWriteAllowed = function() { throw new Error('decision requested filesystem grants'); };
         function fixtureFetch(opts) {
             if (opts.headers.authorization) throw new Error('unexpected token');
             if (opts.method === 'GET') {

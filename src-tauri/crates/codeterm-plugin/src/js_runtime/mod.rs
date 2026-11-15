@@ -14,11 +14,11 @@ mod glance;
 pub mod grants;
 mod host_agent_run;
 mod host_api;
+#[cfg(test)]
 mod host_compute;
 mod host_credentials;
 mod host_exec;
 mod host_net;
-mod host_recording_devices;
 mod host_surface;
 mod host_transfer;
 pub mod hot_reload;

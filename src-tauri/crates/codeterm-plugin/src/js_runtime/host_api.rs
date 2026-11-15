@@ -1,18 +1,3 @@
-//! `host` global injected into every plugin VM — the generic FS / sqlite /
-//! shell-quoting / env / logging primitives that let all per-provider logic
-//! live in TS.
-//!
-//! Contract: all functions are synchronous (QuickJS blocks their VM, so nothing
-//! here may block on the hot path); complex data is returned as a JSON string;
-//! errors are signalled by `null`; a breached size bound throws a RangeError.
-//!
-//! Safety: bundled/in-workspace plugins get the full surface; a drop-in under
-//! `~/.domios/plugins/` is confined by `PluginSandbox` (FS/sqlite scoped to
-//! its own dir + declared session root, secret-looking env vars blocked).
-//! `dataDir` discloses only the instance path; FS/sqlite/env grants are unchanged.
-
-/// Version of the plugin/host contract; a drop-in must declare a matching `hostApi`
-/// or it's skipped at load. Bump on any breaking change to the host or `AgentProvider` surface.
 pub const HOST_API_VERSION: u32 = 2;
 
 use std::cell::RefCell;
@@ -534,7 +519,7 @@ pub(super) use install::install;
 fn prepare_fetch(sandbox: &PluginSandbox, opts_json: &str) -> Result<String, String> {
     let host = super::host_net::host_of(opts_json).unwrap_or_default();
     if !sandbox.can_reach(&host) {
-        return Err("fetch denied".to_string());
+        return Err(format!("fetch denied: {host}"));
     }
     let prepared = super::host_credentials::inject(sandbox.credentials(), opts_json)?;
     let prepared = super::host_credentials::inject_profile_secret(&prepared, |profile, env| {
@@ -632,86 +617,7 @@ fn utf8_trim_partial(bytes: &[u8], trim_front: bool) -> String {
     }
 }
 
-fn read_dir_json(path: &str) -> Option<String> {
-    let entries = std::fs::read_dir(path).ok()?;
-    let mut out: Vec<serde_json::Value> = Vec::new();
-    for e in entries.flatten() {
-        out.push(dir_entry_to_json(
-            &e.path(),
-            &e.file_name().to_string_lossy(),
-            e.metadata().ok(),
-        ));
-    }
-    serde_json::to_string(&out).ok()
-}
-
-/// Immediate child DIRECTORY names only — no files, no recursion, no metadata.
-fn list_child_dirs_json(path: &str) -> Option<String> {
-    let entries = std::fs::read_dir(path).ok()?;
-    let mut names: Vec<String> = entries
-        .flatten()
-        .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    names.sort();
-    serde_json::to_string(&names).ok()
-}
-
-/// Entries one walk may visit. The depth limit alone bounds nothing on a wide
-/// tree: a provider session root with tens of thousands of files was walked on
-/// every poll, pegging a long-lived daemon at 95-120% CPU and starving the mesh
-/// relay behind it (#319). A truncated walk is reported, never silently short.
 const WALK_ENTRY_BUDGET: usize = 20_000;
-
-fn walk_dir_json(path: &str, max_depth: usize) -> Option<String> {
-    let mut out: Vec<serde_json::Value> = Vec::new();
-    let started = std::time::Instant::now();
-    let mut budget = WALK_ENTRY_BUDGET;
-    walk_recursive(Path::new(path), 0, max_depth, &mut out, &mut budget);
-    let elapsed = started.elapsed();
-    if budget == 0 {
-        log::warn!(
-            "[host-api] walk of {path} hit the {WALK_ENTRY_BUDGET}-entry budget after {}ms;              the result is truncated",
-            elapsed.as_millis()
-        );
-    } else if elapsed >= std::time::Duration::from_millis(250) {
-        log::warn!(
-            "[host-api] walk of {path} visited {} entries in {}ms",
-            out.len(),
-            elapsed.as_millis()
-        );
-    }
-    serde_json::to_string(&out).ok()
-}
-
-fn walk_recursive(
-    path: &Path,
-    depth: usize,
-    max_depth: usize,
-    out: &mut Vec<serde_json::Value>,
-    budget: &mut usize,
-) {
-    if depth > max_depth || *budget == 0 {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(path) else {
-        return;
-    };
-    for e in entries.flatten() {
-        if *budget == 0 {
-            return;
-        }
-        *budget -= 1;
-        let p = e.path();
-        let name = e.file_name().to_string_lossy().into_owned();
-        // `DirEntry::metadata` reuses what the directory scan already read where
-        // the platform allows it; `fs::metadata` always pays a fresh lookup.
-        out.push(dir_entry_to_json(&p, &name, e.metadata().ok()));
-        if e.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-            walk_recursive(&p, depth + 1, max_depth, out, budget);
-        }
-    }
-}
 
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]

@@ -7,7 +7,7 @@ const KEYWORD: &str = "kw-q7";
 
 fn manifest() -> PluginManifest {
     serde_json::from_str(&format!(
-        r#"{{"id":"{PLUGIN_ID}","version":"0","displayName":"Verb fixture",
+        r#"{{"id":"{PLUGIN_ID}","version":"0","hostIoJobs":true,"displayName":"Verb fixture",
             "capabilities":{{}},"agentVerbs":["{VERB}"],"agentKeywords":["{KEYWORD}"]}}"#
     ))
     .expect("manifest")
