@@ -2,7 +2,7 @@ import { uid } from "./uid";
 import { withRestRequestSignal } from "./restTimeoutPolicy";
 import { createStartupLoading, startingSubsystem } from "./startupLoading";
 import { createStartupMutations, startupMutationKey } from "./startupMutations";
-import { MUX_REQUEST_TIMEOUT, readWhenMuxCapacityAvailable, type MuxRequestInit } from "./streamMuxRequestModel";
+import { MUX_REQUEST_TIMEOUT, MUX_CAPACITY_WAIT, type MuxRequestInit } from "./streamMuxRequestModel";
 
 export const streamClientId = uid();
 export const browserFetch: NonNullable<TransportOptions["fetch"]> = (input, init) => {
@@ -282,8 +282,8 @@ export function createTransportClient(options: TransportOptions): TransportClien
         try {
           const streamPath = options.relayPeerId && !init.local
             ? `/api/mesh/relay-stream?${new URLSearchParams({ peer: options.relayPeerId, path })}` : path;
-          const streamRequest = { headers: { Accept: "text/event-stream", "X-CodeTerm-Client-Id": streamClientId }, signal: controller.signal };
-          const fetchStream = () => readWhenMuxCapacityAvailable(() => localFetch(streamPath, streamRequest), controller.signal, init.onStarting);
+          const streamRequest: MuxRequestInit = { headers: { Accept: "text/event-stream", "X-CodeTerm-Client-Id": streamClientId }, signal: controller.signal, [MUX_CAPACITY_WAIT]: init.onStarting };
+          const fetchStream = () => localFetch(streamPath, streamRequest);
           let response = await fetchStream();
           if (response.status === 503 && path !== "/api/startup/events") {
             const value: unknown = await response.clone().json().catch(() => null);

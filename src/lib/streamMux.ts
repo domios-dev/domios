@@ -1,7 +1,7 @@
 import { uid } from "./uid";
 import { browserFetch, createTransportClient, SseCapacityError, streamClientId, TransportError, type TransportClient, type TransportOptions, type Unsubscribe } from "./transportClient";
 import { bulkCreditDue, CARRIER_PROOF_MS, CREDIT_ATTEMPTS, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused, transitionCarrierLiveness, type CarrierLiveness, type CarrierLivenessEvent, type MuxFrame } from "./streamMuxModel";
-import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, MUX_REQUEST_TIMEOUT, muxPostCancel, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestOperation, muxRequestPolicy, transitionMuxRequest, type MuxPostState, type MuxRequestInit, type MuxRequestState, type MuxTraffic } from "./streamMuxRequestModel";
+import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, MUX_CAPACITY_WAIT, MUX_REQUEST_TIMEOUT, muxPostCancel, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestOperation, muxRequestPolicy, requestWhenMuxCapacityAvailable, transitionMuxRequest, type MuxPostState, type MuxRequestInit, type MuxRequestState, type MuxTraffic } from "./streamMuxRequestModel";
 import { restRequestTimeoutMs } from "./restTimeoutPolicy";
 import { RECONNECT_FIRST_MS, reconnectDelay, nextReconnectBackoff, shouldResetReconnectBackoff } from "./webReconnectModel";
 
@@ -59,6 +59,8 @@ class MuxResponse extends Response {
 }
 
 interface Pending {
+  startedAt: number;
+  operation: { method: string; path: string };
   id: string;
   outcome: unknown;
   path: string;
@@ -87,7 +89,11 @@ interface Pending {
   reject: (error: unknown) => void;
 }
 
-export interface MuxDiagnostics { requests: number; streams: number; queued: number; bufferedBytes: number; carrier: CarrierLiveness; connected: boolean }
+export interface MuxDiagnostics {
+  requests: number; streams: number; queued: number; bufferedBytes: number; carrier: CarrierLiveness; connected: boolean;
+  waitingReads: number; waitingStreams: number;
+  readHolders: Array<{ method: string; path: string; phase: MuxRequestState["phase"]; ageMs: number }>;
+}
 export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void; verify: () => void; idle: () => Promise<void>; busy: () => boolean; diagnostics: () => MuxDiagnostics }
 
 export function createStreamMux(transport: () => TransportClient, fetcher: FetchPort): StreamMux {
@@ -196,7 +202,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     entry.state = step.state;
     if (step.action === "cancel-read" || step.action === "detach-mutation") cancelRemote(entry);
     const rejection = step.action === "detach-mutation" ? new OutcomeUnknown(entry.method, entry.path)
-      : previous.phase === "registered" && posts.has(entry.id) && reason instanceof DOMException && reason.name === "TimeoutError"
+      : !previous.cancellable && previous.phase === "registered" && posts.has(entry.id) && reason instanceof DOMException && reason.name === "TimeoutError"
         ? new MuxAdmissionError(entry.path) : reason;
     entry.outcome = rejection;
     cleanup(entry); releaseBuffer(entry); entry.aborter.abort(reason);
@@ -465,37 +471,45 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       const policy = muxRequestPolicy(method, path, options.body);
       const foreground = options[CARRIER_PROBE] === true || !policy.cancellable || operation.method === "POST" && /^\/api\/tabs\/[^/]+\/chat-raw\/start$/.test(operation.path.split("?")[0]);
       const postTraffic = muxPostTraffic(policy.traffic, options.body != null && (typeof options.body !== "string" || options.body.length > 64 * 1024));
-      const entries = [...pending.values()];
-      const streams = entries.filter(entry => entry.stream).length;
-      const bulk = entries.filter(entry => !entry.stream && entry.postTraffic === "bulk").length;
-      if (closed) return Promise.reject(new RetryableMuxError(path, "Mux connection closed before dispatch"));
-      if (!muxRequestAdmission(stream, postTraffic, streams, entries.length - streams, bulk, foreground)) {
-        return Promise.reject(new MuxAdmissionError(path, ["GET", "HEAD"].includes(operation.method) ? (stream ? streamCapacity : readCapacity).capture() : undefined));
-      }
-      return new Promise<Response>((resolve, reject) => {
-        const aborter = new AbortController();
-        const entry: Pending = {
-          id: uid(), method, path, init: options, stream, traffic: policy.traffic,
-          postTraffic, foreground,
-          state: initialMuxRequest(stream || policy.cancellable), session: null, acked: false, head: null,
-          outcome: undefined, resolved: false, ended: false, queue: [], buffered: 0, bufferLimit: REQUEST_BUFFER, tracked: true, demand: false, controller: null,
-          aborter, post: null, detach: () => {}, resolve, reject,
-        };
-        const timeout = stream ? null : restRequestTimeoutMs(operation.method, operation.path, options[MUX_REQUEST_TIMEOUT]);
-        const timer = timeout === null ? undefined : setTimeout(() => cancel(entry, new DOMException("The operation timed out.", "TimeoutError")), timeout);
-        const abort = () => cancel(entry, options.signal?.reason ?? new DOMException("Aborted", "AbortError"));
-        entry.detach = () => { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); earlyEnds.delete(entry.id); };
-        pending.set(entry.id, entry);
-        if (options.signal?.aborted) { abort(); return; }
-        options.signal?.addEventListener("abort", abort, { once: true });
-        void prepare(entry);
-      });
+      return requestWhenMuxCapacityAvailable(policy, () => {
+        const entries = [...pending.values()];
+        const streams = entries.filter(entry => entry.stream).length;
+        const bulk = entries.filter(entry => !entry.stream && entry.postTraffic === "bulk").length;
+        if (closed) return Promise.reject(new RetryableMuxError(path, "Mux connection closed before dispatch"));
+        if (!muxRequestAdmission(stream, postTraffic, streams, entries.length - streams, bulk, foreground)) {
+          return Promise.reject(new MuxAdmissionError(path, policy.cancellable ? (stream ? streamCapacity : readCapacity).capture() : undefined));
+        }
+        return new Promise<Response>((resolve, reject) => {
+          const aborter = new AbortController();
+          const entry: Pending = {
+            startedAt: performance.now(), operation,
+            id: uid(), method, path, init: options, stream, traffic: policy.traffic,
+            postTraffic, foreground,
+            state: initialMuxRequest(stream || policy.cancellable), session: null, acked: false, head: null,
+            outcome: undefined, resolved: false, ended: false, queue: [], buffered: 0, bufferLimit: REQUEST_BUFFER, tracked: true, demand: false, controller: null,
+            aborter, post: null, detach: () => {}, resolve, reject,
+          };
+          const timeout = stream ? null : restRequestTimeoutMs(operation.method, operation.path, options[MUX_REQUEST_TIMEOUT]);
+          const timer = timeout === null ? undefined : setTimeout(() => cancel(entry, new DOMException("The operation timed out.", "TimeoutError")), timeout);
+          const abort = () => cancel(entry, options.signal?.reason ?? new DOMException("Aborted", "AbortError"));
+          entry.detach = () => { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); earlyEnds.delete(entry.id); };
+          pending.set(entry.id, entry);
+          if (options.signal?.aborted) { abort(); return; }
+          options.signal?.addEventListener("abort", abort, { once: true });
+          void prepare(entry);
+        });
+      }, options.signal ?? undefined, options[MUX_CAPACITY_WAIT]);
     },
     busy: requestsInFlight,
     diagnostics() {
       const entries = [...pending.values()];
       const streams = entries.filter(entry => entry.stream).length;
-      return { requests: entries.length - streams, streams, queued: postState.pending.length, bufferedBytes: buffered, carrier: liveness, connected: live !== null };
+      const now = performance.now();
+      const readHolders = entries.filter(entry => !entry.stream && entry.state.cancellable)
+        .sort((a, b) => a.startedAt - b.startedAt).slice(0, 48)
+        .map(entry => ({ method: entry.operation.method, path: entry.operation.path.split("?")[0], phase: entry.state.phase, ageMs: Math.round(now - entry.startedAt) }));
+      return { requests: entries.length - streams, streams, queued: postState.pending.length, bufferedBytes: buffered, carrier: liveness, connected: live !== null,
+        waitingReads: readCapacity.waiting(), waitingStreams: streamCapacity.waiting(), readHolders };
     },
     idle() {
       return requestsInFlight() ? new Promise<void>(resolve => { idleWaiters.push(resolve); }) : Promise.resolve();

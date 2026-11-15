@@ -1,5 +1,52 @@
-import { describe, expect, it } from "vitest";
-import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestPolicy, readWhenMuxCapacityAvailable, transitionMuxRequest } from "./streamMuxRequestModel";
+import { describe, expect, it, vi } from "vitest";
+import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestPolicy, readWhenMuxCapacityAvailable, requestWhenMuxCapacityAvailable, transitionMuxRequest } from "./streamMuxRequestModel";
+
+it.each([["GET", "/api/surfaces"], ["POST", "/api/tabs/t/preview/read"]])("an idempotent %s waits for admission without dispatching until release", async (method, path) => {
+  const capacity = createMuxReadCapacity();
+  let available = false;
+  let waited!: () => void;
+  const waiting = new Promise<void>(resolve => { waited = resolve; });
+  const dispatched = vi.fn(() => "read result");
+  const request = vi.fn(async () => {
+    if (!available) throw { [MUX_READ_CAPACITY]: capacity.capture() };
+    return dispatched();
+  });
+  const result = requestWhenMuxCapacityAvailable(muxRequestPolicy(method, path), request, undefined, waited);
+  await waiting;
+  expect(capacity.waiting()).toBe(1);
+  expect(dispatched).not.toHaveBeenCalled();
+  available = true;
+  capacity.released();
+  expect(await result).toBe("read result");
+  expect(dispatched).toHaveBeenCalledTimes(1);
+  expect(capacity.waiting()).toBe(0);
+});
+
+it("a write refuses admission without waiting or replaying after release", async () => {
+  const capacity = createMuxReadCapacity();
+  const refusal = { code: "client_capacity", dispatched: false, [MUX_READ_CAPACITY]: capacity.capture() };
+  const request = vi.fn(async () => { throw refusal; });
+  await expect(requestWhenMuxCapacityAvailable(muxRequestPolicy("POST", "/api/tabs/t/send"), request)).rejects.toBe(refusal);
+  capacity.released();
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(capacity.waiting()).toBe(0);
+});
+
+it("cancelling an admission waiter releases it and never dispatches later", async () => {
+  const capacity = createMuxReadCapacity();
+  const controller = new AbortController();
+  let waited!: () => void;
+  const waiting = new Promise<void>(resolve => { waited = resolve; });
+  const request = vi.fn(async () => { throw { [MUX_READ_CAPACITY]: capacity.capture() }; });
+  const result = requestWhenMuxCapacityAvailable(muxRequestPolicy("GET", "/api/surfaces"), request, controller.signal, waited).catch(error => error);
+  await waiting;
+  expect(capacity.waiting()).toBe(1);
+  controller.abort();
+  expect(await result).toMatchObject({ name: "AbortError" });
+  expect(capacity.waiting()).toBe(0);
+  capacity.released();
+  expect(request).toHaveBeenCalledTimes(1);
+});
 
 it("capacity waiters handle a release before registration, cancellation and origin closure", async () => {
   const capacity = createMuxReadCapacity();

@@ -121,7 +121,7 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   const kind = code.toLowerCase();
   if (kind === AUTHORED_CAUSE && message.trim()) return { title: message.trim(), cause: "", actions: [], raw: "" };
   if (kind === "client_capacity" || /client_capacity:|Mux client capacity reached before dispatch/.test(raw)) {
-    return result("The connection is busy", "This request was not sent because other requests are using the available connection capacity. Try again.", ["retry"], true);
+    return result("This action could not be sent yet.", "", ["retry"], true);
   }
   if (switching) {
     const cooldown = raw.match(/provider_switch_rate_limited:\s*(\d+)|RateLimited\s*\{\s*retry_after_secs:\s*(\d+)/);
