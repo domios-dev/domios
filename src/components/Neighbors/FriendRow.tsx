@@ -28,10 +28,10 @@ export function FriendRow({ friendshipId, name, photoURL, uiFontScale, touchMode
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
           <span className={`${text} block truncate min-w-0 text-[var(--ct-fg)]`}>{name}</span>
         </span>
-        <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3" title={line}>
+        {line && <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3" title={line}>
           <span className="neighbor-dot" data-tone={tone} aria-hidden="true" />
           <span className={`min-w-0 ${touchMode ? "whitespace-normal [overflow-wrap:anywhere]" : "truncate"}`}>{line}</span>
-        </span>
+        </span>}
       </span>
     </button>
     <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={row} menuLabel={`${name} actions`}

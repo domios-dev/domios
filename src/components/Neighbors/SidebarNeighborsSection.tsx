@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot } from "lucide-react";
 import { AgentIcon } from "../AgentIcon";
 import { agentModelForBadge } from "../../lib/agentLabel";
-import { shortModelName } from "../../lib/agentModelName";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
+import { matchesModel } from "../Terminal/statusLinePickerModel";
 import { ActiveTabPill } from "../Sidebar/ActiveTabPill";
-import type { Tab } from "../../lib/types";
+import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAccount } from "../Settings/useAccount";
 import { SidebarDisclosure } from "../Sidebar/SidebarDisclosure";
 import { SurfaceOwnerBlock } from "../Sidebar/SurfaceAttachments";
@@ -134,7 +135,7 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
       const elsewhere = receiver !== null && !receiver.receiving_here;
       const line = loading ? "refreshing" : !enabled ? "off" : elsewhere ? friendReceivingLine(receiver)
         : paused ? `disabled${!receiver ? " · concierge location unknown" : ""}` : !receiver ? friendReceivingLine(null)
-        : paid ? conciergeStatusLine(lifecycle) : "paused by plan";
+        : paid ? lifecycle?.state === "ready" ? "" : conciergeStatusLine(lifecycle) : "paused by plan";
       const pauseItem = { label: `${paused ? "Enable" : "Disable"} ${name}`, onClick: () => togglePaused(friend, paused) };
       const receiveItems = friendReceiveItems(receiver, operation => receive.open(friend.friendship_id, operation));
       return <li key={friend.friendship_id}>
@@ -144,7 +145,7 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
             tone={paused || !receiver || elsewhere ? "muted" : needsAttention ? "progress" : !loading && enabled && paid && lifecycle?.state === "ready" ? "ok" : "muted"}
             items={[pauseItem, ...receiveItems, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }]} />}
           renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode} paused={paused} pauseItem={pauseItem} active={tab.id === activeTabId}
-            subline={paused ? "disabled" : needsAttention ? conciergeStatusLine(lifecycle) : conciergeModelLine(tab)} working={!paused && !needsAttention && tabActivity(tab, tabStatuses[tab.id]).active}
+            subline={paused ? "disabled" : needsAttention ? conciergeStatusLine(lifecycle) : undefined} working={!paused && !needsAttention && tabActivity(tab, tabStatuses[tab.id]).active}
             onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }}
             onChangeAgent={() => openNeighborPage(friend.friendship_id, "concierge")}
             onViewPermissions={() => openNeighborPage(friend.friendship_id, "permissions")}
@@ -159,22 +160,23 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
 }
 
 /** The concierge's model (and effort) is its stable subline; what it is doing shows only as the working dots. */
-export function conciergeModelLine(tab: Tab): string {
+export function conciergeModelLine(tab: Tab, descriptor?: Pick<ProviderDescriptor, "available_models">): string {
   const model = agentModelForBadge({
     sessionModel: tab.agent_session_model,
     providerResolvedModel: tab.agent_provider_resolved_model,
     requestedModel: tab.agent_requested_model,
   });
   const effort = tab.reasoning_effort_identity?.actual ?? tab.reasoning_effort_identity?.resolved ?? tab.reasoning_effort_identity?.requested;
-  const name = model ? shortModelName(model) ?? model : tab.agent_type ?? "Concierge";
+  const name = descriptor?.available_models.find(candidate => matchesModel(candidate, model))?.display_name ?? model ?? tab.agent_type ?? "Concierge";
   return effort ? `${name} · ${effort}` : name;
 }
 
 export function ConciergeRow({ tab, friendName, text, touchMode, subline, working, paused, pauseItem, receiveItems = [], active, onOpen, onChangeAgent, onViewPermissions, onEditWithGeneral }: {
-  tab: Tab; friendName: string; text: string; touchMode: boolean; subline: string; working: boolean; paused?: boolean; pauseItem?: { label: string; onClick: () => void };
+  tab: Tab; friendName: string; text: string; touchMode: boolean; subline?: string; working: boolean; paused?: boolean; pauseItem?: { label: string; onClick: () => void };
   receiveItems?: DropdownMenuItem[]; active: boolean; onOpen: () => void; onChangeAgent?: () => void; onViewPermissions?: () => void; onEditWithGeneral?: () => void;
 }) {
   const label = `${friendName}'s concierge`;
+  const descriptor = useAgentDescriptor(tab.agent_type);
   const row = useRef<HTMLDivElement>(null);
   // An open concierge chat highlights like any open tab: the same pill, full-strength text, aria-current.
   return <div ref={row} className={`${active ? ROW.replace(" sidebar-tab-dimmed", "") : ROW} relative sidebar-neighbor-concierge ${touchMode ? "min-h-9 pl-5 pr-2 py-1" : "pr-4 py-0.5"}`}
@@ -191,7 +193,7 @@ export function ConciergeRow({ tab, friendName, text, touchMode, subline, workin
           {working && <span data-testid="concierge-working" role="img" aria-label={`${label} working`} className="inline-flex items-center shrink-0">
             <ActivityDots size="small" tone="muted" active /></span>}
         </span>
-        <span className="sidebar-tab-body__sub block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{subline}</span>
+        <span className="sidebar-tab-body__sub block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{subline ?? conciergeModelLine(tab, descriptor)}</span>
       </span>
     </button>
     {onChangeAgent && onViewPermissions && onEditWithGeneral && pauseItem && <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={row} menuLabel={`${label} actions`}

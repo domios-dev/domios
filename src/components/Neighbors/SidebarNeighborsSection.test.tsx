@@ -5,7 +5,8 @@ import { useNeighborGatewayIds } from "./neighborGateways";
 import type { NeighborList } from "./neighborModel";
 import type { NeighborClient } from "./neighborClient";
 import { createRoot } from "react-dom/client";
-import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
+import { conciergeModelLine, SidebarNeighborsSection } from "./SidebarNeighborsSection";
+import type { Tab } from "../../lib/types";
 import { resetNeighborReads } from "./neighborReads";
 import { missingConciergeLine } from "./useConciergeStatus";
 import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
@@ -136,13 +137,22 @@ it.each(["local", "remote"])("updates the %s sidebar from concierge lifecycle ev
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} />));
   await expandSection();
-  expect(button("Open Ada").textContent).toContain("connected");
+  expect(button("Open Ada").textContent).not.toContain("connected");
   const failed = { ...ready, state: "concierge_auth_needed" };
   transport.webJson.mockResolvedValue({ pair: { ...projection.pair, concierge: failed } });
   await act(async () => emit("neighbor-concierge-status", { ...failed, friendship_id: "pair" }));
   expect(button("Open Ada").textContent).toContain("concierge needs sign-in");
   expect(button("Open Ada's concierge").textContent).toContain("concierge needs sign-in");
   expect(button("Open Ada").textContent).not.toContain("connected");
+});
+
+it("uses the picker's display name for the concierge's evidenced model", () => {
+  const tab = { agent_type: "fixture", agent_session_model: "current-model", agent_requested_model: "requested-model",
+    reasoning_effort_identity: { actual: "standard" } } as Tab;
+  const descriptor = { available_models: [{ id: "current-model", display_name: "Friendly Model" }, { id: "requested-model", display_name: "Other Model" }] };
+  expect(conciergeModelLine(tab, descriptor)).toBe("Friendly Model · standard");
+  expect(conciergeModelLine({ ...tab, agent_session_model: "Friendly Model" }, descriptor)).toBe("Friendly Model · standard");
+  expect(conciergeModelLine(tab)).toBe("current-model · standard");
 });
 
 it("updates the sidebar from an account push and removes the shared subscription on account reset", async () => {
