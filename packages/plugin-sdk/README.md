@@ -64,6 +64,15 @@ Ordinary calls have bounded admission, an absolute operation deadline and
 cancellation; every VM frame of a call shares that deadline. Immutable
 capabilities remain outside VM execution.
 
+`agentReadOnlyVerbs` lists exact `onAgentCommand` names whose external operations
+only read data (for example chat lookup). The host uses this declaration only
+for interruption reporting: these commands return an unavailable read result
+instead of write uncertainty. It adds no grant, replay or automatic retry.
+Leave sends, login, account selection and commands that settle pending writes
+out of this list. Undeclared commands retain write uncertainty. The host serves
+`help`, `--help` and `-h` from the plugin's declared verbs and bundled agent guide
+without executing its command handler.
+
 The synchronous host APIs remain a **legacy surface in 1.19** for external
 capability plugins pending their own migrations. Native synchronous callbacks
 are **not cancellable**. A stuck legacy callback holds that plugin's own VM;
