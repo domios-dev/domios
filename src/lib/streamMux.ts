@@ -371,14 +371,23 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     const promise = new Promise<boolean>(resolve => { settle = resolve; });
     proofResult = { promise, resolve: settle, aborter };
     const startedAt = Date.now();
+    let yielded = false;
     diagnose("proof-start");
-    proof = setTimeout(() => {
+    const deadline = () => {
       proof = undefined;
-      if (current === owner) {
-        diagnose("proof-deadline", { elapsedMs: Date.now() - startedAt, deadlineLagMs: Math.max(0, Date.now() - startedAt - CARRIER_PROOF_MS) });
+      if (current === owner && proofResult?.aborter === aborter) {
+        const deadlineLagMs = Math.max(0, Date.now() - startedAt - CARRIER_PROOF_MS);
+        if (deadlineLagMs > 100 && !yielded) {
+          yielded = true;
+          diagnose("proof-deadline-yield", { deadlineLagMs });
+          proof = setTimeout(deadline, 0);
+          return;
+        }
+        diagnose("proof-deadline", { elapsedMs: Date.now() - startedAt, deadlineLagMs });
         carrier("deadline", owner);
       }
-    }, CARRIER_PROOF_MS);
+    };
+    proof = setTimeout(deadline, CARRIER_PROOF_MS);
     mux.fetch(transport().origin() + "/api/health", { [CARRIER_PROBE]: true, signal: aborter.signal } as CarrierProbeInit).then(response => {
       void response.arrayBuffer().catch(() => {});
       if (response.ok && current === owner) carrier("proven", owner);
@@ -402,12 +411,8 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     closeStream = transport().subscribe("/api/stream-mux?session=" + owner, (_name, value) => {
       if (current !== owner) return;
       sawFrame = true; route(value);
-      if (liveness === "proving") carrier("proven", owner);
     }, {
       raw: true, requireEventStream: true, local: true,
-      onActivity() {
-        if (current === owner && liveness === "proving") carrier("proven", owner);
-      },
       onReady() {
         if (current !== owner) return;
         live = owner;

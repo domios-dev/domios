@@ -65,7 +65,7 @@ let receiveDeadline: ReturnType<typeof setTimeout> | null = null;
 let streamRelayed = false;
 let silentProof: Promise<void> | null = null;
 
-type ConnectionStage = "attempt" | "ready" | "activity" | "frame" | "silence" | "proof-ok" | "proof-failed" | "lost" | "retry" | "wake";
+type ConnectionStage = "attempt" | "ready" | "activity" | "frame" | "silence" | "proof-ok" | "proof-failed" | "channel-replace" | "lost" | "retry" | "wake";
 const connectionDiagnostics: object[] = [];
 declare global { interface Window { __ctConnectionDiagnostics?: () => readonly object[] } }
 
@@ -112,13 +112,13 @@ async function checkSilentStream(abort: AbortController, generation: number): Pr
   diagnose("silence");
   const alive = await verifyStreamMuxes(eventOrigin());
   if (abort.signal.aborted || generation !== streamGeneration) return;
-  if (alive || activityRevision !== observedActivity) {
+  if (activityRevision !== observedActivity) {
     diagnose("proof-ok");
     armReceiveDeadline(abort);
   } else {
-    diagnose("proof-failed");
+    diagnose(alive ? "channel-replace" : "proof-failed");
     wakeRequested = true;
-    abort.abort(new DOMException("Carrier liveness proof failed", "TimeoutError"));
+    abort.abort(new DOMException(alive ? "Event channel stopped delivering keepalives" : "Carrier liveness proof failed", "TimeoutError"));
   }
 }
 
