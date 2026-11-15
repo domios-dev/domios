@@ -38,8 +38,10 @@ each failed run. An untested proposal must not become an established recipe.
 ## Public repository policy
 
 Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions.
-Only owner release/X.Y.Z pushes qualify and package; admitted master merge publication and reviewed
-release dispatches retain their existing guards and `release` environment approval. Every PR uses
+Only owner release/X.Y.Z pushes qualify and package. Application publication has exactly one path:
+the master merge push of the owner release PR, approved in the `release` environment (branch policies
+`release/*` and `master`). Dispatches never publish an application: `release.yml` dispatches are
+dry runs of the dispatching release head and `release-publish.yml` only rehearses. Every PR uses
 hosted, secret-free checks. The trusted organization runner group must restrict every acquiring
 workflow to explicit reviewed release branch refs; unrestricted repository runners are forbidden.
 
@@ -109,8 +111,10 @@ then sync them here. Never hand-edit the bundled snapshot.
    its exact-SHA tests.yml push run to finish green, including full CI, qualification and the
    reusable release.yml dry run (`dry_run=true`, `mirror=false`). A newer push cancels the previous
    run through per-branch concurrency. Only then open or refresh the PR into master.
-   Every PR uses hosted light checks; the master PR also requires **Release qualification**, a
-   read-only job that verifies the current head's owner push run and its unexpired receipts.
+   Every PR uses hosted light checks (**PR result**); the master PR also requires **Release
+   qualification**, a read-only `release-pr.yml` job that verifies the current head's owner push run
+   and its unexpired receipts. Only a PR whose base is master emits that context, so a develop PR or
+   a diagnostic on the same head cannot satisfy it; a base retarget reruns it.
    Missing, failed or superseded evidence fails this check; refresh it after a green push run.
    With publication GO, an admin merges the green PR with a merge commit. Master must carry the
    qualified head tree. Its push selects the completed green tests.yml push run for the exact
@@ -139,6 +143,8 @@ then sync them here. Never hand-edit the bundled snapshot.
    read back its policy, selected repository grant, fleet and absence of repository runners using
    [the runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
    Require `restricted_to_workflows=true` and exact reviewed refs, with no wildcard or PR refs.
+   The list must hold every workflow that can select a `vars.*` runner (an unlisted one queues
+   until timeout); default-branch and PR workflows name hosted runners literally and stay out.
    This is an explicit owner operation; agents prepare the payload and never apply it as a
    release-preparation side effect. Record the readback before requesting runners.
    Do not manually create `vX.Y.Z`; release.yml owns tag creation and promotion.
@@ -155,12 +161,14 @@ repository guards, fmt-check, TS static/unit/Vitest, plugin bundles/tests and
 one cargo check --workspace --all-targets --locked. Every job defaults to
 ubuntu-24.04 with read-only permissions and no repository/environment secrets.
 Compilation uses hosted sccache; forks require no private store access.
-CI result requires every light job to succeed. No Rust suites, qualification
+PR result requires every light job to succeed. No Rust suites, qualification
 receipt or packaging run on this path. Require that aggregate in develop's
 rules as an owner operation and inspect the first Dependabot run's actual
 runners after merge. Release PRs into master use the same hosted light checks plus the read-only
-Release qualification job. Other master PRs fail admission. tests.yml owns only release pushes
-and owner diagnostics; no PR calls privileged reusable jobs.
+Release qualification job in release-pr.yml. Other master PRs fail admission. tests.yml owns only
+release pushes (CI result) and owner diagnostics (CI diagnostic result); neither name is a merge
+gate, and no PR calls privileged reusable jobs. The Docker archive smoke is an owner dispatch from
+release/X.Y.Z, never a PR job.
 See [CI admission](../../../docs/release/ci.md).
 
 ## Dry runs and narrow diagnostics
@@ -169,9 +177,12 @@ Inspect the actual workflow inputs and publication conditions at the pinned work
 any dispatch. `mirror=false` alone is not a dry run. For the full graph use:
 
 ```bash
-gh workflow run release.yml --repo domios-dev/domios --ref <reviewed-ref> \
-  -f tag=<version-tag> -f dry_run=true -f mirror=false
+gh workflow run release.yml --repo domios-dev/domios --ref release/X.Y.Z \
+  -f tag=vX.Y.Z -f dry_run=true -f mirror=false
 ```
+
+A `release.yml` dispatch refuses unless `dry_run=true` and the ref is an exact release/X.Y.Z
+branch; it always builds that branch head, whatever `tag` says, and can never publish.
 
 The release branch push always packages with dry_run=true regardless of the publication switch.
 The master merge push selects its retained green release push run; RELEASE_PUBLISH_ENABLED must be true for
@@ -199,22 +210,20 @@ explicitly selects it too. Native Windows, macOS and embeddings have hosted defa
 Embeddings start independently of the platform matrix because they consume no platform artifacts.
 Targets remain per workspace.
 
-Manual fallback only: the normal publication is the admin merge of the release PR. To publish a
-wholly green dry run without that merge, use `release-publish.yml`, never a rebuild. Its tooling
-comes from the reviewed release branch; publication reuses the qualified bytes:
+The only application publication path is the admin merge of the release PR; its master push
+promotes the qualified run's retained bytes. There is no dispatch fallback: a failed publication is
+repaired by rerunning the failed jobs of that same master push run, and a further change takes a new
+version. `release-publish.yml` remains as a rehearsal only and refuses `rehearsal=false`:
 
 ```bash
 gh workflow run release-publish.yml --repo domios-dev/domios --ref release/X.Y.Z \
-  -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true   # then rehearsal=false with publication GO
+  -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true
 ```
 
 `scripts/release-publish.sh` refuses unless the run is a completed, successful tests.yml release push run
-on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. A rehearsal checks both
+on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. The rehearsal checks both
 tokens' write access, downloads and re-validates every retained byte and signature, and changes
-nothing. Publication creates both drafts, uploads the retained bytes (fragments only to the source
-draft) with read-back against each receipt, merges and verifies `domios-latest.json`/`domios-latest-deb.json`,
-tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. Automatic publication through `release-publish.yml` is disabled; the owner dispatches this workflow and approves the release environment. Issue closure and the
-merge to master stay separate steps.
+nothing. The owner dispatches it and approves the release environment.
 
 The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
 `ci-artifact.sh put` spools the file with a warning and the job's `ci-artifact-spool` action uploads
@@ -228,10 +237,12 @@ that refuses a request, and any digest or signature mismatch, still fail.
 
 For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml`, `release-windows-arm64.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
-and `mirror=false`, using that workflow's declared inputs. A `tests.yml` dispatch runs the fast tier only.
+and `mirror=false`, using that workflow's declared inputs. A `tests.yml` dispatch runs the fast tier only;
+dispatch it from release/X.Y.Z with a full 40-hex `source_ref` already reachable from master, develop
+or that release branch. Admission refuses anything else, so a contributor's PR head never reaches the farm.
 Direct platform dispatch cannot mutate release assets. Its guard distinguishes the direct workflow
 name from a manually dispatched release.yml caller: reusable workflows inherit the caller's event.
-Do not disable publication for a legitimate release caller merely because its event is workflow_dispatch.
+A dispatched release.yml caller is always a dry run; publication arrives only as the master push event.
 
 `tests-fast.yml` resolves scope once and passes it to `tests-rust.yml`. Required Rust
 receipts include one nonempty Linux full suite, macOS and Windows subsets, and embeddings.
