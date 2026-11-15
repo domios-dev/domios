@@ -260,4 +260,26 @@ describe("terminal frame readiness over the shared output channel", () => {
     await vi.waitFor(() => expect(probe.frameReady.get("hugo")).toBe("pty-hugo"));
     expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
   });
+
+  it("exhausted no-progress capacity resumes park with a visible failure until Retry", async () => {
+    const { daemon, probe } = await boot();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await probe.render([{ tabId: "hugo" }]);
+    await daemon.openedAt(1);
+    for (const [index, delay] of [125, 250].entries()) {
+      await act(async () => daemon.end(daemon.outputChannels()[index].channel, { reason: "capacity", bytes: 1 }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+      await daemon.openedAt(index + 2);
+    }
+    await act(async () => daemon.end(daemon.outputChannels()[2].channel, { reason: "capacity", bytes: 1 }));
+    expect(probe.hook.get("hugo")!.readinessFailed).toBe(true);
+    expect(probe.frameReady.has("hugo")).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(daemon.outputChannels()).toHaveLength(3);
+    await act(async () => probe.hook.get("hugo")!.retryConnection());
+    await daemon.openedAt(4);
+    expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
+    await act(async () => daemon.send(daemon.outputChannels()[3].channel, replayComplete("hugo")));
+    expect(probe.frameReady.get("hugo")).toBe("pty-hugo");
+  });
 });

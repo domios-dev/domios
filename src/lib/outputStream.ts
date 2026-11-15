@@ -254,10 +254,11 @@ function writeSinkBytes(sink: TabOutputSink, bytes: Uint8Array): void | Promise<
 }
 
 let capacityRetry: ReturnType<typeof setTimeout> | undefined;
-let capacityBackoff = 125;
+let capacityResumes = 0;
+const CAPACITY_RESUME_DELAYS = [125, 250];
 
 function clearCapacityRetry(): void {
-  clearTimeout(capacityRetry); capacityRetry = undefined; capacityBackoff = 125;
+  clearTimeout(capacityRetry); capacityRetry = undefined; capacityResumes = 0;
 }
 
 function recoverOutputStream(): void {
@@ -275,7 +276,7 @@ function openAggregateStream(): () => void {
   client.subscribe(outputStreamUrl().slice(client.origin().length), (_name, data) => {
     if (abort.signal.aborted || streamAbort !== abort) return;
     const frame = data as OutputFrame;
-    if (typeof frame?.b64 === "string" || frame?.replay_complete) { progressed = true; capacityBackoff = 125; }
+    if (typeof frame?.b64 === "string" || frame?.replay_complete) { progressed = true; capacityResumes = 0; }
     return handleFrame(frame);
   }, {
     signal: abort.signal, raw: true,
@@ -296,19 +297,18 @@ function openAggregateStream(): () => void {
       aggregateStarting = false;
       aggregate.ended();
       for (const set of sinks.values()) for (const sink of set) sink.onDisconnected?.();
-      if (end.reason === "capacity") {
+      if (end.reason === "capacity" && (progressed || capacityResumes < CAPACITY_RESUME_DELAYS.length)) {
         if (DEV_BUILD) console.debug("[output-stream] resuming after capacity end", { progressed });
         if (progressed) aggregate.recover();
         else {
-          capacityRetry = setTimeout(() => { capacityRetry = undefined; aggregate.recover(); }, capacityBackoff);
-          capacityBackoff = Math.min(2000, capacityBackoff * 2);
+          capacityRetry = setTimeout(() => { capacityRetry = undefined; aggregate.recover(); }, CAPACITY_RESUME_DELAYS[capacityResumes++]);
         }
         return;
       }
       if (DEV_BUILD) console.debug("[output-stream] waiting for recovery signal", { reason: end.reason });
       if (end.reason === "abort") return;
       const error = end.error instanceof Error ? end.error
-        : new Error(end.reason === "eof" ? "Output stream ended" : String(end.error));
+        : new Error(end.reason === "capacity" ? `SSE capacity exceeded (${end.bytes} bytes)` : end.reason === "eof" ? "Output stream ended" : String(end.error));
       for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
     },
   });

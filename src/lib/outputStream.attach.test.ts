@@ -11,7 +11,7 @@ function pending<T>() {
   return { promise, resolve };
 }
 
-it("keeps recovering unproductive capacity ends with a capped backoff", async () => {
+it("bounds no-progress capacity resumes and resets the budget after output progress", async () => {
   vi.useFakeTimers(); vi.resetModules(); sessionStorage.setItem("codeterm-web-output-boot", "boot");
   const output = await import("./outputStream");
   let end!: (end: import("./transportClient").StreamEnd) => void;
@@ -22,7 +22,7 @@ it("keeps recovering unproductive capacity ends with a capped backoff", async ()
   } } as import("./transportClient").TransportClient);
   const stop = output.subscribeTabOutput("own", { onOutput() {}, onTruncated() {}, onEnded() {}, onStreamError: errors }, {}, "pty");
   try {
-    for (const delay of [125, 250, 500, 1000, 2000, 2000]) {
+    for (const delay of [125, 250]) {
       const count = paths.length;
       end({ reason: "capacity", bytes: 1 });
       await vi.advanceTimersByTimeAsync(delay - 1);
@@ -34,7 +34,17 @@ it("keeps recovering unproductive capacity ends with a capped backoff", async ()
     const count = paths.length;
     end({ reason: "capacity", bytes: 1 });
     expect(paths).toHaveLength(count + 1);
-    expect(errors).not.toHaveBeenCalled();
+    for (const delay of [125, 250]) {
+      const count = paths.length;
+      end({ reason: "capacity", bytes: 1 });
+      await vi.advanceTimersByTimeAsync(delay);
+      expect(paths).toHaveLength(count + 1);
+    }
+    const parked = paths.length;
+    end({ reason: "capacity", bytes: 1 });
+    expect(errors).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(paths).toHaveLength(parked);
   } finally { stop(); output.resetOutputStream(); vi.useRealTimers(); }
 });
 
