@@ -251,11 +251,14 @@ async fn closed_or_reassigned_concierge_keeps_local_receivers_during_restart_act
         };
         let mut settings = crate::service::neighbors::storage::Settings::default();
         settings.bindings.insert(friend.clone(), root.clone());
-        settings.permissions.insert(friend.clone(), Permission {
-            allowed: true,
-            machine_access: codeterm_neighbors::permissions::MachineAccess::Full,
-            ..Default::default()
-        });
+        settings.permissions.insert(
+            friend.clone(),
+            Permission {
+                allowed: true,
+                machine_access: codeterm_neighbors::permissions::MachineAccess::Full,
+                ..Default::default()
+            },
+        );
         metadata.save_settings(settings.clone()).await.unwrap();
         let owner = service.clone();
         let id = friend.clone();
@@ -278,13 +281,35 @@ async fn closed_or_reassigned_concierge_keeps_local_receivers_during_restart_act
             assert_eq!(receivers[id].revision, 4);
         }
         let saved = metadata.settings().await.unwrap();
-        let projection = service.neighbor_concierge_view(&friend, &saved, &service.neighbor_friend_receiver(&friend).unwrap());
-        assert_eq!(projection["state"], if reassigned { "concierge_invalid" } else { "concierge_closed" });
+        let projection = service.neighbor_concierge_view(
+            &friend,
+            &saved,
+            &service.neighbor_friend_receiver(&friend).unwrap(),
+        );
+        assert_eq!(
+            projection["state"],
+            if reassigned {
+                "concierge_invalid"
+            } else {
+                "concierge_closed"
+            }
+        );
         assert_eq!(saved.bindings, settings.bindings);
-        assert_eq!(serde_json::to_value(&saved.permissions).unwrap(), serde_json::to_value(&settings.permissions).unwrap());
+        assert_eq!(
+            serde_json::to_value(&saved.permissions).unwrap(),
+            serde_json::to_value(&settings.permissions).unwrap()
+        );
         assert!(saved.dormant_concierges.is_empty());
-        assert!(service.require_neighbor_restore_grant(&root, false).is_err());
+        assert!(service
+            .require_neighbor_restore_grant(&root, false)
+            .is_err());
         assert_eq!(service.mux.read().get_tab(&root).is_some(), reassigned);
-        assert!(!fixture.ui.0.lock().iter().any(|(name, payload)| name == "neighbor-runtime-status" && payload["receiver_unavailable"] == true));
+        assert!(!fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .any(|(name, payload)| name == "neighbor-runtime-status"
+                && payload["receiver_unavailable"] == true));
     }
 }
