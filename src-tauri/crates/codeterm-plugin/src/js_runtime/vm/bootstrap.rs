@@ -5,6 +5,7 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
     if (s === null || s === undefined) return null;
     try { return JSON.parse(s); } catch (_) { return null; }
   }
+  host.fs = { expandHome: host.expandHome };
   host.shell = {
     quote:     host.shellQuote,
     quoteFor:  host.shellQuoteFor,

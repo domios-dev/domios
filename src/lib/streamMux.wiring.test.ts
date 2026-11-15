@@ -183,19 +183,24 @@ describe("one multiplexed stream per origin", () => {
       daemon.push({ channel: first, data: { boot: "boot", seq: 1, prev_seq: null, event_type: "fixture", data: "before" } });
       await vi.waitFor(() => expect(payloads).toEqual(["before"]));
 
-      verifyStreamMuxes();
+      const healthyProof = verifyStreamMuxes(ORIGIN);
       await vi.waitFor(() => expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(1));
+      expect(await healthyProof).toBe(true);
       expect(daemon.longLived).toHaveLength(1);
       expect(daemon.longLived[0].signal?.aborted).toBe(false);
 
       daemon.stall();
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const disconnected = new Promise<void>(resolve => window.addEventListener(TERMINAL_VIEWER_DISCONNECTED_EVENT, () => resolve(), { once: true }));
-      verifyStreamMuxes();
+      const failedProof = verifyStreamMuxes(ORIGIN);
+      const sameCarrierProof = verifyStreamMuxes(ORIGIN);
+      expect(await verifyStreamMuxes("http://other-origin.invalid")).toBe(false);
       await vi.advanceTimersByTimeAsync(CARRIER_PROOF_MS - 1);
       expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(2);
       expect(daemon.longLived[0].signal?.aborted).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
+      expect(await failedProof).toBe(false);
+      expect(await sameCarrierProof).toBe(false);
       vi.useRealTimers();
       await disconnected;
       expect(daemon.longLived[0].signal?.aborted).toBe(true);
@@ -214,6 +219,23 @@ describe("one multiplexed stream per origin", () => {
       stopEvents();
       webEvents.__resetWebEventsForTest();
     }
+  });
+
+  it("closing an origin settles an outstanding carrier proof and cancels its health read", async () => {
+    const { daemon } = await boot();
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { verifyStreamMuxes, __resetStreamMuxesForTest } = await import("./streamMux");
+    const stop = baseDaemonTransport().subscribe("/api/events/stream", () => {});
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(1));
+      daemon.stall();
+      const proof = verifyStreamMuxes(ORIGIN);
+      await vi.waitFor(() => expect(daemon.rpcs).toHaveLength(1));
+      __resetStreamMuxesForTest();
+      expect(await proof).toBe(false);
+      expect(daemon.longLived[0].signal?.aborted).toBe(true);
+      expect(await verifyStreamMuxes(ORIGIN)).toBe(false);
+    } finally { stop(); }
   });
 
   it("N peers x M remote tabs plus a local terminal hold exactly one long-lived connection", async () => {

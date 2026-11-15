@@ -2,6 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { primeWorkspaceGraphs } from "../Automation/hostAdapter";
 import { AutomationResource, type AutomationSnapshot } from "../Automation/resource";
 import { ALL_JOBS_SCOPE, type AutomationAttachment, type AutomationGraphAdapter } from "../Automation/types";
+import { createWorkspaceGraphReads } from "./workspaceGraphReads";
 
 export interface WorkspaceGraph extends AutomationSnapshot {
   attachment: AutomationAttachment;
@@ -14,9 +15,16 @@ class WorkspaceGraphSet {
   private cached: readonly AutomationSnapshot[] = [];
 
   constructor(adapter: AutomationGraphAdapter, connectionId: string, workspaceIds: readonly string[]) {
+    const bounded: AutomationGraphAdapter = {
+      read: createWorkspaceGraphReads(adapter.read.bind(adapter)),
+      peek: adapter.peek?.bind(adapter),
+      subscribe: adapter.subscribe.bind(adapter),
+      stop: adapter.stop.bind(adapter),
+      delete: adapter.delete.bind(adapter),
+    };
     this.entries = workspaceIds.map((workspace_id) => {
       const attachment = { connection_id: connectionId, workspace_id, team_id: ALL_JOBS_SCOPE };
-      return { attachment, resource: new AutomationResource(adapter, attachment) };
+      return { attachment, resource: new AutomationResource(bounded, attachment) };
     });
   }
 

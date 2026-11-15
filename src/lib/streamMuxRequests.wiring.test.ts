@@ -3,14 +3,17 @@ import { fireResync, onResync } from "./resync";
 import { createDelayedMessageFeed } from "../components/Terminal/delayedMessageFeed";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { useSurfaceDecl } from "../components/Surface/useSurfaceDecl";
+import type { SurfaceDeclLookup } from "../components/Surface/surfaceRenderPlan";
+import { configureDaemonTransport } from "./daemonBootstrap";
 import { __setInvokeForTest, __setListenForTest } from "./bridge";
 import { useChatSession } from "../components/Terminal/useChatSession";
 import { chatBodyView } from "../components/Terminal/chatBodyVisibility";
 import { ChatSetupState } from "../components/Terminal/ChatSetupState";
 import { clearTranscriptWindows } from "../components/Terminal/transcriptStore";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { __resetStreamMuxesForTest, OutcomeUnknown, RetryableMuxError, withStreamMux } from "./streamMux";
-import { MUX_REQUEST_TIMEOUT, readWhenMuxCapacityAvailable, type MuxRequestInit } from "./streamMuxRequestModel";
+import { __resetStreamMuxesForTest, OutcomeUnknown, RetryableMuxError, streamMuxDiagnostics, withStreamMux } from "./streamMux";
+import { MUX_CAPACITY_WAIT, MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
 import type { TransportOptions } from "./transportClient";
 
 interface Posted { id: string; session: string; path: string; method: string; init: RequestInit }
@@ -48,7 +51,7 @@ function fixture(onGatewayState?: (available: boolean) => void, origin = "http:/
   const client = withStreamMux({ origin, token: "fixture-token", fetch, onGatewayState });
   const push = (value: unknown) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`));
   return {
-    client, posted, deleted, sessions, credits, push,
+    client, posted, deleted, sessions, credits, push, fetch,
     refuse(status: number) { refuseMux = status; },
     failCredits(count: number) { failCredits = count; },
     head(post: Posted, status = 200, headers: [string, string][] = [["content-type", "application/json"]]) { push({ channel: post.id, open: true, status, headers }); },
@@ -61,7 +64,7 @@ function fixture(onGatewayState?: (available: boolean) => void, origin = "http:/
   };
 }
 
-afterEach(() => { __resetStreamMuxesForTest(); vi.useRealTimers(); });
+afterEach(() => { __resetStreamMuxesForTest(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("RPC responses over one mux", () => {
   it("registers before posting and delivers a complete response that arrived before its ack", async () => {
@@ -328,11 +331,19 @@ it("does not declare the healthy browser gateway unavailable for a local admissi
   const gateway = vi.fn(); const f = fixture(gateway);
   for (let index = 0; index < 64; index++) void f.client.localJson("GET", `/api/read-${index}`).catch(() => {});
   await f.next();
-  await expect(f.client.localJson("GET", "/api/one-more-read")).rejects.toBeInstanceOf(RetryableMuxError);
+  const controller = new AbortController();
+  let capacityWait!: () => void;
+  const waitObserved = new Promise<void>(resolve => { capacityWait = resolve; });
+  const init: MuxRequestInit = { signal: controller.signal, [MUX_CAPACITY_WAIT]: capacityWait };
+  const waiting = f.client.request!("/api/one-more-read", init).catch(error => error);
+  await waitObserved;
+  expect(streamMuxDiagnostics()[0].waitingReads).toBeGreaterThan(0);
+  controller.abort();
+  expect(await waiting).toMatchObject({name:"AbortError"});
   expect(gateway.mock.calls.some(([available]) => available === false)).toBe(false);
 });
 
-it.each([200, 503])("reissues an opted-in, never-dispatched read once on released capacity; dispatched HTTP %s settles", async (status) => {
+it.each([200, 503])("admits a read by default on released capacity; dispatched HTTP %s settles without replay", async (status) => {
   const f = fixture();
   const attempts = vi.fn(() => f.client.localJson("GET", "/api/mesh/peers"));
   f.reply(async post => {
@@ -343,15 +354,42 @@ it.each([200, 503])("reissues an opted-in, never-dispatched read once on release
   });
   for (let index = 0; index < 48; index++) void f.client.localJson("GET", `/api/read-${index}`).catch(() => {});
   const first = await f.next();
-  const result = readWhenMuxCapacityAvailable(attempts, new AbortController().signal).catch(error => error);
+  const result = attempts().catch(error => error);
   expect(attempts).toHaveBeenCalledTimes(1);
   expect(f.posted.some(post => post.path === "/api/mesh/peers")).toBe(false);
   f.head(first); f.text(first, '{}'); f.end(first);
   const settled = await result;
   if (status === 200) expect(settled).toEqual({paired:[]});
   else expect(settled).toMatchObject({status:503});
-  expect(attempts).toHaveBeenCalledTimes(2);
+  expect(attempts).toHaveBeenCalledTimes(1);
   expect(f.posted.filter(post => post.path === "/api/mesh/peers")).toHaveLength(1);
+});
+
+it("the Browser surface lookup waits at full read capacity and becomes ready after release", async () => {
+  const f = fixture(undefined, window.location.origin);
+  vi.stubGlobal("fetch", f.fetch);
+  configureDaemonTransport({origin:window.location.origin,token:"fixture-token"});
+  __setListenForTest(async () => () => {});
+  f.reply(async post => {
+    if (post.path === "/api/surfaces") {
+      f.head(post); f.text(post, JSON.stringify({declared:[{plugin_id:"browser",surface_id:"browser",renderer:"stream",runtime:"browser"}],open:[]})); f.end(post);
+    }
+    return Response.json({accepted:true},{status:202});
+  });
+  for (let index=0;index<48;index++) void f.client.localJson("GET",`/api/read-${index}`).catch(()=>{});
+  const first = await f.next();
+  let lookup: SurfaceDeclLookup = {status:"loading"};
+  function Probe() { lookup=useSurfaceDecl(undefined,"browser","browser",0,null); return null; }
+  const root=createRoot(document.createElement("div"));
+  try {
+    await act(async()=>root.render(createElement(Probe)));
+    expect(lookup.status).toBe("loading");
+    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:48,waitingReads:1});
+    expect(f.posted.some(post=>post.path==="/api/surfaces")).toBe(false);
+    await act(async()=>{ f.head(first); f.text(first,'{}'); f.end(first); });
+    expect(lookup).toMatchObject({status:"ready",declared:{runtime:"browser"}});
+    expect(f.posted.filter(post=>post.path==="/api/surfaces")).toHaveLength(1);
+  } finally { await act(async()=>root.unmount()); __setListenForTest(null); }
 });
 
 it("expires an undispatched queued action as safe to retry without later sending it", async () => {
@@ -369,6 +407,20 @@ it("expires an undispatched queued action as safe to retry without later sending
   f.head(first); f.text(first, '{}'); f.end(first);
   await expect(f.client.localJson("POST", "/api/witness", {})).resolves.toEqual({});
   expect(f.posted.some(post => post.path.endsWith("/stop"))).toBe(false);
+});
+
+it("a queued read deadline remains a timeout and never becomes a client capacity error", async () => {
+  vi.useFakeTimers(); const f = fixture();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  f.reply(async () => { await gate; return Response.json({accepted:true},{status:202}); });
+  for (let index=0;index<4;index++) void f.client.localJson("POST",`/api/held-write-${index}`,{}).catch(()=>{});
+  for (let index=0;index<4;index++) await f.next();
+  const result=f.client.localJson("GET","/api/surfaces",undefined,{timeoutMs:10}).catch(error=>error);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(await result).toMatchObject({name:"TimeoutError"});
+  expect(f.posted.some(post=>post.path==="/api/surfaces")).toBe(false);
+  release();
 });
 
 it("keeps a passive browser single-flight while another browser switches shared selection and causes resync", async () => {

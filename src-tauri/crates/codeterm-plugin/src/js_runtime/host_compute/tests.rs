@@ -55,7 +55,7 @@ fn event_source_plugin_without_graph_events_grant_cannot_emit() {
     );
     let vm = PluginVm::from_source_sandboxed(
         "event-probe",
-        "module.exports.default = { emit() { return host.events.emit({subscriptionId:'sub',token:'secret',eventId:'event',payload:{}}); } };".into(),
+        r#"module.exports.default={emit(){return host.io.run((function*(){try{return yield {op:"graphEventEmit",event:{subscriptionId:'sub',token:'secret',eventId:'event',payload:{}}};}catch(error){return {error:String(error.message)};}})());}};"#.into(),
         None,
         sandbox,
     )

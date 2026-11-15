@@ -70,7 +70,7 @@ fn storage() -> (TempRoot, Storage) {
     (root, storage)
 }
 
-fn desk() -> DeskSnapshot {
+pub(super) fn desk() -> DeskSnapshot {
     DeskSnapshot {
         version: "1.12.4".into(),
         timestamp: 91,

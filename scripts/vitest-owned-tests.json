@@ -435,6 +435,7 @@
   "src/components/Sidebar/TeamStatusTally.test.tsx",
   "src/components/Sidebar/useSidebarScrollAnchor.test.tsx",
   "src/components/Jobs/TeamJobsUnit.test.tsx",
+  "src/components/Jobs/workspaceGraphReads.test.ts",
   "src/components/Terminal/voice/TranscriberSetupAction.test.tsx",
   "src/components/Terminal/composerDropSurface.test.tsx",
   "src/lib/teamTemplates/peerStartOutcome.test.ts"

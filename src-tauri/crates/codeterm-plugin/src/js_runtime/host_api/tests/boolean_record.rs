@@ -23,7 +23,8 @@ fn json_boolean_record_preserves_sandbox_read_and_write_boundaries() {
         ),
     ] {
         std::fs::write(&record, "{}").unwrap();
-        let sandbox = Arc::new(PluginSandbox::restricted(reads, writes));
+        let sandbox =
+            Arc::new(PluginSandbox::restricted(reads, writes).with_identity("record-test"));
         let vm = PluginVm::from_source_sandboxed("record-test", source.to_string(), None, sandbox)
             .unwrap();
         let path = record.to_str().unwrap();

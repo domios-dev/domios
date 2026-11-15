@@ -137,7 +137,7 @@ fn list_child_dirs_gated_by_cwd_grant_with_negative_controls() {
     }
 };
 "#;
-    let sandbox = Arc::new(PluginSandbox::restricted(vec![], vec![]));
+    let sandbox = Arc::new(PluginSandbox::restricted(vec![], vec![]).with_identity("confined"));
     let vm = PluginVm::from_source_sandboxed("confined", SRC.to_string(), None, sandbox.clone())
         .unwrap();
     let t_str = t.to_string_lossy().into_owned();
@@ -234,7 +234,7 @@ fn supporter_header_preparation_refuses_unallowed_hosts_before_injection() {
         .with_token_mode(TokenMode::Optional);
     let opts = r#"{"url":"http://127.0.0.1:1234/decision"}"#;
     let error = prepare_fetch(&sandbox, opts).unwrap_err();
-    assert_eq!(error, "fetch denied");
+    assert_eq!(error, "fetch denied: 127.0.0.1:1234");
     assert!(!error.contains("Bearer"));
 }
 

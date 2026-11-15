@@ -15,7 +15,7 @@ export function admitDevSurface({health,provenance,instance='',port=7686,surface
   const selected = provenance.instance;
   requireValue(selected?.name === instance && (health.instance.name??'') === instance &&
     Number(selected.apiPort) === port, 'Selected DEV instance/API drift');
-  requireValue(/^com\.codeterm\.dev(?:\.|$)/.test(selected.identifier??''), 'PROD client provenance refused');
+  requireValue(/^com\.domios\.dev(?:\.|$)/.test(selected.identifier??''), 'PROD client provenance refused');
   requireValue(['native','chrome'].includes(surface), 'Expected native or chrome surface');
   const gui = health.instance;
   const legacy = Boolean(gui.identifier || gui.vite_port || gui.cdp_port);

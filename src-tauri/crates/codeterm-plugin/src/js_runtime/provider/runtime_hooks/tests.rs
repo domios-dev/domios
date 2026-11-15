@@ -274,7 +274,9 @@ async fn runtime_hooks_refuse_host_io_at_bundle_init_and_during_hook() {
         .await
         .unwrap_err();
     assert_eq!(error.code, RuntimeFailureCode::HookFailed);
-    assert!(error.message.contains("exec"));
+    assert!(error
+        .message
+        .contains("runtime hook host binding unavailable: io"));
 }
 
 #[tokio::test(flavor = "current_thread")]
