@@ -96,13 +96,17 @@ export function ChatSetupState({
     const detail = (attachConversationMissing ? view.reason : tab?.agent_runtime_state?.reason) ?? "";
     const conversationMissing = attachConversationMissing || tab?.agent_runtime_state?.failureCode === "thread_not_found";
     const start = conversationMissing ? "Start a new conversation" : "Start new session";
-    return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl" data-testid="chat-launch-failed">
+    // A failed start is the same problem, so it folds into this notice: pressing the action again is the retry.
+    const startFailed = fresh.actionError
+      ? conversationMissing ? "A new conversation couldn't start. Try again." : "A new session couldn't start. Try again."
+      : "";
+    return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl [&>section>div>button]:border-0 [&>section>div>button]:p-0 [&>section>div>button]:text-[var(--ct-accent)] [&>section>div>button:hover]:underline" data-testid="chat-launch-failed">
       <TabLaunchFailure tabId={tab?.id} workspace={workspace} reason={detail} inline
         description={{ title: startUnbound ? "The agent could not start a session"
-          : conversationMissing ? MISSING_CONVERSATION_TITLE : "The agent no longer has this session", cause: "", raw: detail, actions: [] }}
+          : conversationMissing ? MISSING_CONVERSATION_TITLE : "The agent no longer has this session", cause: startFailed,
+          raw: [fresh.actionError, detail].filter(Boolean).join("\n\n"), actions: [] }}
         actions={[{ label: fresh.startingNewSession ? "Starting…" : start, ariaLabel: start,
           disabled: fresh.startingNewSession, onClick: () => void fresh.onStartNewSession() }]} />
-      {fresh.actionError && <InlineErrorNotice error={fresh.actionError} operation="starting a new session" />}
     </div>;
   }
   if (view.kind === "attach_failed") {
