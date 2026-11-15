@@ -109,6 +109,7 @@ interface MessageBubbleProps {
 }
 
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
+const ARCHIVED_SESSION_UNAVAILABLE_TEXT = "Earlier messages in this tab aren't available.";
 
 function tabOriginTitle(origin: Extract<ChatOrigin, { kind: "tab" }>, resolveTabName?: TabNameResolver): string {
   const tabRef = shortTabRef(origin.tabIdShort);
@@ -427,6 +428,19 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   if (message.type === "system" || message.type === "local_command") {
     if (message.systemSubtype === "api_error") {
       return <div role="alert" aria-label="Provider API error" className="mb-2 w-full rounded-md border p-3 text-sm" style={{ color: "var(--ct-red)", borderColor: "var(--ct-red)" }}><BoundedNoticeText text={message.content} /></div>;
+    }
+    if (message.systemSubtype === "archived_session_unavailable") {
+      // The owner reads one calm line; the daemon's code and error chain stay in Details for diagnosis.
+      return (
+        <div role="status" aria-label={ARCHIVED_SESSION_UNAVAILABLE_TEXT} data-testid="chat-archived-unavailable"
+          className="mb-2 w-full min-w-0 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+          <p>{ARCHIVED_SESSION_UNAVAILABLE_TEXT}</p>
+          <details className="mt-1">
+            <summary className="cursor-pointer">Details</summary>
+            <pre className="mt-1 max-h-48 select-text overflow-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{message.content}</pre>
+          </details>
+        </div>
+      );
     }
     if (message.systemSubtype === "context_epoch_boundary") {
       return (
