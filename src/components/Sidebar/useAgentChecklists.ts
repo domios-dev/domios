@@ -3,7 +3,7 @@ import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import { readWhenMuxCapacityAvailable } from "../../lib/streamMuxRequestModel";
 import { boundedChecklist, eventNeedsReread, isTabTodoChanged, TAB_TODO_CHANGED_EVENT, type AgentChecklist } from "./agentChecklistModel";
 
-export type ChecklistView = { status: "loading" } | { status: "error"; retry: () => void } | { status: "ready"; checklist: AgentChecklist | null };
+export type ChecklistView = { status: "loading" } | { status: "error"; error: unknown; retry: () => void } | { status: "ready"; checklist: AgentChecklist | null };
 const LOADING: ChecklistView = { status: "loading" };
 
 export function useAgentChecklists(tabIds: readonly string[]): ReadonlyMap<string, ChecklistView> {
@@ -32,9 +32,9 @@ export function useAgentChecklists(tabIds: readonly string[]): ReadonlyMap<strin
             const checklist = boundedChecklist(raw);
             shown.set(tabId, checklist);
             setViews((current) => new Map(current).set(tabId, { status: "ready", checklist }));
-          } catch {
+          } catch (error) {
             if (controller.signal.aborted || issued.get(tabId) !== request) continue;
-            setViews((current) => new Map(current).set(tabId, { status: "error", retry: () => reread(tabId, true) }));
+            setViews((current) => new Map(current).set(tabId, { status: "error", error, retry: () => reread(tabId, true) }));
           }
         }
       } finally { reading = false; }
