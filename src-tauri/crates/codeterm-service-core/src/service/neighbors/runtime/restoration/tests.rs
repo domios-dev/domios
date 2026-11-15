@@ -13,23 +13,44 @@ async fn fresh_nonreceiver_projects_location_without_creating_local_concierge_or
         "installation_id":"other-installation","enc_key_id":"other-key",
         "machine_label":"Other desk","receiving":true,"revision":2
     }}]});
-    assert!(!super::super::super::updates::receives_friends(&list, "fresh-installation"));
+    assert!(!super::super::super::updates::receives_friends(
+        &list,
+        "fresh-installation"
+    ));
     assert!(service.neighbor_friend_receiver_snapshot().0.is_empty());
-    service.reconcile_neighbor_nonlocal_receivers(
-        &metadata, "owner", "fresh-installation", &list, generation,
-    ).await.unwrap();
+    service
+        .reconcile_neighbor_nonlocal_receivers(
+            &metadata,
+            "owner",
+            "fresh-installation",
+            &list,
+            generation,
+        )
+        .await
+        .unwrap();
     let (receivers, _) = service.neighbor_friend_receiver_snapshot();
     let receiver = &receivers[&friendship];
     assert!(!receiver.receiving_here);
     assert!(receiver.receiving_enabled);
     assert_eq!(receiver.revision, 2);
-    assert_eq!(receiver.receiver_machine_label.as_deref(), Some("Other desk"));
+    assert_eq!(
+        receiver.receiver_machine_label.as_deref(),
+        Some("Other desk")
+    );
     let saved = metadata.settings().await.unwrap();
     assert!(saved.bindings.is_empty());
     assert!(saved.permissions.is_empty());
     assert!(saved.dormant_concierges.is_empty());
-    assert!(service.mux.read().snapshot().tabs.values().all(|tab| tab.neighbor_authority.is_none()));
-    assert!(service.require_neighbor_concierge_receiver(&friendship).is_err());
+    assert!(service
+        .mux
+        .read()
+        .snapshot()
+        .tabs
+        .values()
+        .all(|tab| tab.neighbor_authority.is_none()));
+    assert!(service
+        .require_neighbor_concierge_receiver(&friendship)
+        .is_err());
 }
 
 #[tokio::test]

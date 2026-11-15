@@ -6,21 +6,31 @@ fn admit(actor: &RequestActor) -> Result<(), Response> {
     if matches!(actor, RequestActor::Owner) {
         Ok(())
     } else {
-        Err((StatusCode::FORBIDDEN, "Neighbor viewing requires owner authority").into_response())
+        Err((
+            StatusCode::FORBIDDEN,
+            "Neighbor viewing requires owner authority",
+        )
+            .into_response())
     }
 }
 
 fn read_only() -> Response {
-    (StatusCode::FORBIDDEN, "Open this machine directly to change its Neighbors settings.").into_response()
+    (
+        StatusCode::FORBIDDEN,
+        "Open this machine directly to change its Neighbors settings.",
+    )
+        .into_response()
 }
 
 fn runtime_read(command: &NeighborRuntimeCommand) -> bool {
-    matches!(command,
+    matches!(
+        command,
         NeighborRuntimeCommand::Status
-        | NeighborRuntimeCommand::History { .. }
-        | NeighborRuntimeCommand::Permission { .. }
-        | NeighborRuntimeCommand::NotificationPreference { .. }
-        | NeighborRuntimeCommand::DeliveryStatus { .. })
+            | NeighborRuntimeCommand::History { .. }
+            | NeighborRuntimeCommand::Permission { .. }
+            | NeighborRuntimeCommand::NotificationPreference { .. }
+            | NeighborRuntimeCommand::DeliveryStatus { .. }
+    )
 }
 
 pub async fn list(
@@ -29,11 +39,19 @@ pub async fn list(
     Json(command): Json<NeighborCommand>,
 ) -> Result<Json<serde_json::Value>, Response> {
     admit(&headers.actor)?;
-    if !matches!(&command, NeighborCommand::List {} | NeighborCommand::Refresh {}) {
+    if !matches!(
+        &command,
+        NeighborCommand::List {} | NeighborCommand::Refresh {}
+    ) {
         return Err(read_only());
     }
-    super::neighbors(State(state), Some(Extension(CallerIdentity::Local)), Json(command))
-        .await.map_err(IntoResponse::into_response)
+    super::neighbors(
+        State(state),
+        Some(Extension(CallerIdentity::Local)),
+        Json(command),
+    )
+    .await
+    .map_err(IntoResponse::into_response)
 }
 
 pub async fn runtime(
@@ -45,7 +63,13 @@ pub async fn runtime(
     if !runtime_read(&command) {
         return Err(read_only());
     }
-    super::neighbor_runtime(State(state), Some(Extension(CallerIdentity::Local)), Default::default(), Json(command)).await
+    super::neighbor_runtime(
+        State(state),
+        Some(Extension(CallerIdentity::Local)),
+        Default::default(),
+        Json(command),
+    )
+    .await
 }
 
 pub async fn files(
@@ -57,7 +81,12 @@ pub async fn files(
     if !matches!(command["operation"].as_str(), Some("list" | "usage")) {
         return Err(read_only());
     }
-    super::neighbor_files(State(state), Some(Extension(CallerIdentity::Local)), Json(command)).await
+    super::neighbor_files(
+        State(state),
+        Some(Extension(CallerIdentity::Local)),
+        Json(command),
+    )
+    .await
 }
 
 #[cfg(test)]

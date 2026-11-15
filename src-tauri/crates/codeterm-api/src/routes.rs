@@ -545,9 +545,18 @@ pub(super) fn create_router_with_preview_admission(
             "/api/neighbors/sidebar",
             get(super::account_routes::neighbor_sidebar::read),
         )
-        .route("/api/neighbors/list", post(super::account_routes::neighbor_remote::list))
-        .route("/api/neighbors/runtime", post(super::account_routes::neighbor_remote::runtime))
-        .route("/api/neighbors/files", post(super::account_routes::neighbor_remote::files))
+        .route(
+            "/api/neighbors/list",
+            post(super::account_routes::neighbor_remote::list),
+        )
+        .route(
+            "/api/neighbors/runtime",
+            post(super::account_routes::neighbor_remote::runtime),
+        )
+        .route(
+            "/api/neighbors/files",
+            post(super::account_routes::neighbor_remote::files),
+        )
         .route("/api/account/plan", get(super::account_routes::plan))
         .route("/api/account/upgrade", post(super::account_routes::upgrade))
         .route("/api/account/portal", post(super::account_routes::portal))
