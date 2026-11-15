@@ -30,7 +30,7 @@ describe("primary renderer output ACKs", () => {
     for (let offset = 11; offset <= 10000; offset++) flow.rendered(offset);
     expect(updates).toEqual([{ action: "rendered", tab_id: "tab", pty_id: "pty", attachment: "attachment", offset: 10, attach: true }]);
     await complete();
-    expect(updates.at(-1)).toMatchObject({ offset: 10000, attach: false });
+    expect(updates[updates.length - 1]).toMatchObject({ offset: 10000, attach: false });
     await complete();
     expect(updates).toHaveLength(2);
   });
@@ -43,9 +43,9 @@ describe("primary renderer output ACKs", () => {
     flow.rendered(30);
     flow.resume();
     await complete();
-    expect(updates.at(-1)).toEqual({ action: "detach", pty_id: "pty", attachment: "attachment" });
+    expect(updates[updates.length - 1]).toEqual({ action: "detach", pty_id: "pty", attachment: "attachment" });
     await complete();
-    expect(updates.at(-1)).toMatchObject({ offset: 30, attach: true });
+    expect(updates[updates.length - 1]).toMatchObject({ offset: 30, attach: true });
     await complete();
   });
 
@@ -56,7 +56,7 @@ describe("primary renderer output ACKs", () => {
     await complete();
     expect(updates).toEqual([{ action: "detach", pty_id: "pty", attachment: "attachment" }]);
     flow.resume();
-    expect(updates.at(-1)).toMatchObject({ offset: 100, attach: true });
+    expect(updates[updates.length - 1]).toMatchObject({ offset: 100, attach: true });
     await complete();
   });
 
@@ -68,7 +68,7 @@ describe("primary renderer output ACKs", () => {
     flow.rendered(100);
     flow.rendered(50);
     await complete();
-    expect(updates.at(-1)).toMatchObject({ offset: 100 });
+    expect(updates[updates.length - 1]).toMatchObject({ offset: 100 });
     await complete();
   });
 
