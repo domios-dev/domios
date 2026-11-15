@@ -1,9 +1,9 @@
-import { sendRow, type ChatSend } from "./sendOrder";
+import { claimedRecordLoaded, sendRow, type ChatSend } from "./sendOrder";
 import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 
 export function pendingSendPosition(committed: readonly NormalizedChatMessage[], send: ChatSend): number {
-  const record = send.matchedRow?.source.record;
+  const record = send.matchedRow && claimedRecordLoaded(committed, send.matchedRow) ? send.matchedRow.source.record : undefined;
   const flowAtMs = send.held ? undefined : send.flowAtMs;
   const index = record?.kind === "jsonl" ? committed.findIndex(row => {
     const source = row.sourceRecord;
