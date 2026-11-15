@@ -31,7 +31,7 @@ async fn replayable_output_paths_deliver_events_larger_than_channel_depth_whole(
             ))
             .unwrap();
         request.headers_mut().extend(headers());
-        stream_mux_open_channel(Extension(dispatcher), Path(session), request)
+        let _opened = stream_mux_open_channel(Extension(dispatcher), Path(session), request)
             .await
             .unwrap();
         assert_eq!(frame(&mut body).await["status"], 200);
