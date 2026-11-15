@@ -16,6 +16,7 @@ module.exports = {
   health() { return "healthy"; },
   remembered(request) { rememberedJob = JSON.parse(host.ioStart(JSON.stringify(request))).jobId; return host.awaitJob(rememberedJob, function() { return "owned"; }); },
   steal() { return host.awaitJob(rememberedJob, function() { return "stolen"; }); },
+  pollRemembered() { return host.io({op:"execPoll",job:rememberedJob}, function(reply) { return reply; }); },
   range(path) { return host.io.run((function*() { try { yield* host.io.fs.readFileHead(path, 2097152); } catch(error) { return error instanceof RangeError; } return false; })()); },
   tail(path, bytes) { return host.io.run((function*() { try { return yield* host.io.fs.readFileTail(path, bytes); } catch(error) { return {range:error instanceof RangeError}; } })()); },
   query(db, sql) { return host.io({op:"sqliteQuery",db:db,sql:sql,params:[]}, function(rows) { return rows; }); },
@@ -541,6 +542,31 @@ fn another_invocation_cannot_consume_a_pending_host_io_result() {
         matches!(stolen, Err(VmError::Script(message)) if message.contains("foreign, unavailable or denied"))
     );
     assert_eq!(caller.join().unwrap().unwrap(), "owned");
+}
+
+#[test]
+fn another_invocation_cannot_poll_a_bound_host_io_job() {
+    assert!(codeterm_decision::physical::effects_allowed());
+    let plugin = "io-bound-poll-owner";
+    let vm = vm(plugin, None);
+    let gates = Gates::new(plugin);
+    let request = gates.request();
+    let owner_vm = vm.clone();
+    let owner =
+        std::thread::spawn(move || call_json::<String>(&owner_vm, "remembered", &[request]));
+    gates.entered();
+
+    let refused: Value = call_json(&vm, "pollRemembered", &[]).unwrap();
+    assert_eq!(
+        refused,
+        json!({"error":"host job belongs to another invocation"})
+    );
+    assert!(!call_gate::is_open(&gates.release));
+    assert_eq!(crate::js_runtime::host_exec::plugin_job_count(plugin), 1);
+
+    gates.finish();
+    assert_eq!(owner.join().unwrap().unwrap(), "owned");
+    assert_eq!(crate::js_runtime::host_exec::plugin_job_count(plugin), 0);
 }
 
 #[test]
