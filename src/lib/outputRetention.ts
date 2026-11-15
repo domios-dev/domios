@@ -5,6 +5,7 @@ export class OutputRetention {
   private tabs = new Map<string, Retained>();
   constructor(private capacity = 2 * 1024 * 1024) {}
   clear() { this.tabs.clear(); }
+  delete(tabId: string) { this.tabs.delete(tabId); }
   append(tabId: string, frame: OutputBytesFrame) {
     const old = this.tabs.get(tabId);
     const sameRing = old?.boot === frame.boot && old.ptyId === frame.ptyId;

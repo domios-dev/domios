@@ -15,6 +15,7 @@ use tower::ServiceExt;
 
 mod cancellation;
 mod liveness;
+mod output;
 
 fn app(domains: Router<crate::routes::AppState>, state: crate::routes::AppState) -> Router {
     crate::routes::apply_middleware(domains.merge(super::router()), state)

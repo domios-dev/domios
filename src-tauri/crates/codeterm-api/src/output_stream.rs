@@ -40,10 +40,16 @@ pub(crate) struct Cursor {
     #[serde(default)]
     pub(crate) boot: String,
     #[serde(default)]
-    pub(crate) tabs: HashMap<String, u64>,
+    pub(crate) tabs: HashMap<String, TabCursor>,
 }
 
-/// b64url (with or without padding) of `{boot, tabs:{id:offset}}`.
+#[derive(Clone, Deserialize)]
+pub(crate) struct TabCursor {
+    pub(crate) offset: u64,
+    pub(crate) pty_id: Option<String>,
+}
+
+/// b64url (with or without padding) of `{boot, tabs:{id:{pty_id,offset}}}`.
 pub(crate) fn parse_cursor(raw: &str) -> Option<Cursor> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(raw.as_bytes())
@@ -373,6 +379,8 @@ struct Tracked {
     offset: u64,
     ended: bool,
     replay_complete: bool,
+    truncated_from: Option<u64>,
+    priority: bool,
 }
 
 fn tab_is_in_scope(candidate: &str, requested: Option<&str>) -> bool {
@@ -452,17 +460,21 @@ fn seed_initial_state(
             total_written,
             retained_from,
         } = entry;
-        let cursor_offset = cursor
-            .as_ref()
-            .and_then(|value| value.tabs.get(&tab))
-            .copied();
+        let tab_cursor = cursor.as_ref().and_then(|value| value.tabs.get(&tab));
+        let cursor_offset = tab_cursor.map(|value| value.offset);
+        let reset_ring = tab_cursor.is_some_and(|value| {
+            value.pty_id.as_deref() != Some(pty.as_str()) || value.offset > total_written
+        });
         let (resume_offset, replaying) = if boot_changed || (cursor.is_none() && tab_id.is_none()) {
             (total_written, false)
+        } else if reset_ring {
+            (retained_from, true)
         } else {
             (cursor_offset.unwrap_or(0), true)
         };
-        let replay_truncated_from =
-            (replaying && cursor_offset.unwrap_or(0) < retained_from).then_some(retained_from);
+        let replay_truncated_from = (replaying
+            && (reset_ring || cursor_offset.unwrap_or(0) < retained_from))
+            .then_some(retained_from);
         tracked.insert(
             tab.clone(),
             Tracked {
@@ -470,6 +482,8 @@ fn seed_initial_state(
                 offset: resume_offset,
                 ended: false,
                 replay_complete: false,
+                truncated_from: (reset_ring && replaying).then_some(retained_from),
+                priority: tab_cursor.is_some(),
             },
         );
         starts.push(StreamTabStart {
@@ -499,6 +513,10 @@ fn selected_tabs(
         })
         .map(|(tab, pty)| (tab.clone(), pty.clone()))
         .collect()
+}
+
+fn prioritize_replay(selected: &mut [(String, String)], tracked: &HashMap<String, Tracked>) {
+    selected.sort_by_key(|(tab, _)| !tracked.get(tab).is_some_and(|state| state.priority));
 }
 
 pub(crate) fn output_ended_frame(tab: &str, ended: &mut bool) -> Option<serde_json::Value> {
@@ -577,6 +595,8 @@ fn sweep(
                 offset: 0,
                 ended: false,
                 replay_complete: false,
+                truncated_from: None,
+                priority: false,
             },
         );
     }
@@ -587,7 +607,8 @@ fn sweep(
     let mut more_pty_ids = Vec::new();
     let boot = svc.events.boot_id().to_string();
     let changed_tab_ids: HashSet<String> = new_tabs.iter().cloned().collect();
-    let selected = selected_tabs(&live, dirty_pty_ids, &changed_tab_ids, read_all);
+    let mut selected = selected_tabs(&live, dirty_pty_ids, &changed_tab_ids, read_all);
+    prioritize_replay(&mut selected, tracked);
     {
         let buf = svc.output_buf.lock();
         for tab in &new_tabs {
@@ -613,6 +634,8 @@ fn sweep(
                 offset: 0,
                 ended: false,
                 replay_complete: false,
+                truncated_from: None,
+                priority: false,
             });
             if t.ended {
                 silent.push(tab.clone());
@@ -623,8 +646,16 @@ fn sweep(
             if read.has_more {
                 more_pty_ids.push(pty.clone());
             }
-            if let Some(from) = read.truncated_from {
-                frames.push(serde_json::json!({ "tab_id": tab, "truncated": true, "from": from }));
+            let reset = t.truncated_from.take();
+            if let Some(from) = reset.or(read.truncated_from) {
+                let mut frame =
+                    serde_json::json!({ "tab_id": tab, "truncated": true, "from": from });
+                if reset.is_some() {
+                    frame["reset"] = serde_json::json!(true);
+                    frame["pty_id"] = serde_json::json!(pty);
+                    frame["boot"] = serde_json::json!(boot);
+                }
+                frames.push(frame);
             }
             if read.output.is_empty() {
                 silent.push(tab.clone());
@@ -663,6 +694,8 @@ fn sweep(
                 offset: 0,
                 ended: false,
                 replay_complete: false,
+                truncated_from: None,
+                priority: false,
             });
             let dead = known.contains(pty) && tracker.get_status(pty) == TabStatus::Dead;
             if dead {

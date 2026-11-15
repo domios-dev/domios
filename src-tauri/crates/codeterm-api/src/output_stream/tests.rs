@@ -53,12 +53,13 @@ fn silent_pty_sweep_emits_replay_completion_without_output_once() {
 
 #[test]
 fn cursor_round_trips_b64url() {
-    let json = serde_json::json!({ "boot": "abc123", "tabs": { "p1": 42u64, "p2": 0u64 } });
+    let json = serde_json::json!({ "boot": "abc123", "tabs": { "p1": {"pty_id":"pty1","offset":42u64}, "p2": {"pty_id":null,"offset":0u64} } });
     let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json.to_string());
     let c = parse_cursor(&raw).expect("decodes");
     assert_eq!(c.boot, "abc123");
-    assert_eq!(c.tabs.get("p1"), Some(&42));
-    assert_eq!(c.tabs.get("p2"), Some(&0));
+    assert_eq!(c.tabs["p1"].offset, 42);
+    assert_eq!(c.tabs["p1"].pty_id.as_deref(), Some("pty1"));
+    assert_eq!(c.tabs["p2"].offset, 0);
 }
 
 #[test]
@@ -404,6 +405,8 @@ fn replacement_pty_output_before_mux_event_starts_at_zero() {
             offset: 7,
             ended: false,
             replay_complete: false,
+            truncated_from: None,
+            priority: false,
         },
     )]);
     let dirty = HashSet::from(["pty-new".to_string()]);
@@ -470,7 +473,13 @@ fn seed_initial_without_cursor_emits_tab_boot_frame_and_starts_at_zero() {
 #[test]
 fn seed_initial_same_boot_resumes_cursor_without_boot_frame() {
     let mut tabs = HashMap::new();
-    tabs.insert("tab-1".into(), 17);
+    tabs.insert(
+        "tab-1".into(),
+        TabCursor {
+            offset: 17,
+            pty_id: Some("pty-1".into()),
+        },
+    );
     let (boot_frame, tracked, starts) = seed_initial_state(
         "boot-current".into(),
         Some(Cursor {
@@ -494,9 +503,109 @@ fn seed_initial_same_boot_resumes_cursor_without_boot_frame() {
 }
 
 #[test]
+fn reconnect_replays_replaced_or_regressed_rings_with_explicit_truncation() {
+    for (cursor_pty, offset) in [("old-pty", 2), ("old-pty", 100), ("new-pty", 100)] {
+        let (mut mux, tab) = MultiplexerState::new();
+        mux.get_tab_mut(&tab).unwrap().pty_id = Some("new-pty".into());
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .output_buf
+            .lock()
+            .append("new-pty", b"fresh");
+        let boot = fixture.service.events.boot_id().to_string();
+        let (_, mut tracked, starts) = seed_initial_state(
+            boot.clone(),
+            Some(Cursor {
+                boot: boot.clone(),
+                tabs: HashMap::from([(
+                    tab.clone(),
+                    TabCursor {
+                        offset,
+                        pty_id: Some(cursor_pty.into()),
+                    },
+                )]),
+            }),
+            Some(&tab),
+            vec![InitialTab {
+                tab_id: tab.clone(),
+                pty_id: "new-pty".into(),
+                total_written: 5,
+                retained_from: 0,
+            }],
+        );
+        assert_eq!(starts[0].resume_offset, Some(0));
+        assert_eq!(starts[0].replay_truncated_from, Some(0));
+        let (frames, _, _) = sweep(
+            &fixture.service,
+            &mut tracked,
+            Some(&tab),
+            &HashSet::new(),
+            true,
+        );
+        assert_eq!(
+            frames[0],
+            serde_json::json!({ "tab_id":tab,"pty_id":"new-pty","boot":boot,"truncated":true,"reset":true,"from":0 })
+        );
+        assert_eq!(
+            frames[1],
+            output_bytes_frame(&tab, "new-pty", &boot, b"fresh", 5)
+        );
+        assert_eq!(frames[2]["replay_complete"], true);
+    }
+}
+
+#[test]
+fn aggregate_prioritizes_cursor_listed_tabs_ahead_of_unmounted_rings() {
+    let (_, tracked, starts) = seed_initial_state(
+        "boot".into(),
+        Some(Cursor {
+            boot: "boot".into(),
+            tabs: HashMap::from([(
+                "mounted".into(),
+                TabCursor {
+                    offset: 0,
+                    pty_id: Some("own-pty".into()),
+                },
+            )]),
+        }),
+        None,
+        vec![
+            InitialTab {
+                tab_id: "mounted".into(),
+                pty_id: "own-pty".into(),
+                total_written: 100,
+                retained_from: 0,
+            },
+            InitialTab {
+                tab_id: "unmounted".into(),
+                pty_id: "other-pty".into(),
+                total_written: 2 * 1024 * 1024,
+                retained_from: 1024,
+            },
+        ],
+    );
+    assert_eq!(tracked["mounted"].offset, 0);
+    assert_eq!(tracked["unmounted"].offset, 0);
+    assert_eq!(starts[1].replay_truncated, Some(true));
+    let mut selected = vec![
+        ("unmounted".into(), "other-pty".into()),
+        ("mounted".into(), "own-pty".into()),
+    ];
+    prioritize_replay(&mut selected, &tracked);
+    assert_eq!(selected[0].0, "mounted");
+}
+
+#[test]
 fn seed_initial_different_boot_emits_boot_changed_and_starts_at_tail() {
     let mut tabs = HashMap::new();
-    tabs.insert("tab-1".into(), 17);
+    tabs.insert(
+        "tab-1".into(),
+        TabCursor {
+            offset: 17,
+            pty_id: Some("pty-1".into()),
+        },
+    );
     let (boot_frame, tracked, starts) = seed_initial_state(
         "boot-current".into(),
         Some(Cursor {

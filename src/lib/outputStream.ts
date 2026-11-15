@@ -56,6 +56,7 @@ interface OutputFrame {
   pty_id?: string;
   offset?: number;
   truncated?: boolean;
+  reset?: boolean;
   from?: number;
   ended?: boolean;
   boot_changed?: boolean;
@@ -121,8 +122,11 @@ export function webOutputTransportActive(_isWeb: boolean, _relayPeerId: string |
 }
 
 function sinceCursor(): string {
-  const tabs: Record<string, number> = {};
-  for (const [tab, off] of offsets) tabs[tab] = off;
+  const tabs: Record<string, { offset: number; pty_id: string | null }> = {};
+  for (const tab of sinks.keys()) {
+    const bound = [...(sinks.get(tab) ?? [])].map(sink => sinkIdentities.get(sink)?.boundPtyId).find(Boolean);
+    tabs[tab] = { offset: offsets.get(tab) ?? 0, pty_id: rings.get(tab)?.ptyId ?? bound ?? null };
+  }
   const json = JSON.stringify({ boot: boot ?? "", tabs });
   return btoa(String.fromCharCode(...new TextEncoder().encode(json)))
     .replace(/\+/g, "-")
@@ -193,8 +197,13 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
     return;
   }
   if (msg.truncated && typeof msg.from === "number") {
-    offsets.set(tab, planOutputResync(offsets.get(tab), msg.from).offset);
-    if (set) for (const sink of set) deliverTruncation(tab, sink, msg.from, boot ?? "");
+    if (msg.reset && set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
+    offsets.set(tab, msg.reset ? msg.from : planOutputResync(offsets.get(tab), msg.from).offset);
+    if (msg.reset) {
+      rings.set(tab, { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id });
+      retainedOutput.delete(tab); completedReplays.delete(tab);
+    }
+    if (set) for (const sink of set) deliverTruncation(tab, sink, msg.from, boot ?? "", msg.reset);
     return;
   }
   if (msg.ended) {
@@ -202,9 +211,9 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
   }
 }
 
-function deliverTruncation(tabId: string, sink: TabOutputSink, from: number, bootId: string): void {
+function deliverTruncation(tabId: string, sink: TabOutputSink, from: number, bootId: string, reset = false): void {
   const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: tabId };
-  replay.resync(identity.terminal, tabId, bootId, identity.ptyId, from, () => sink.onTruncated(from));
+  replay.resync(identity.terminal, tabId, bootId, identity.ptyId, from, () => sink.onTruncated(from), reset);
 }
 
 function decodeOutputBytes(b64: string): Uint8Array {
@@ -244,15 +253,20 @@ function writeSinkBytes(sink: TabOutputSink, bytes: Uint8Array): void | Promise<
   return sink.onOutput(new TextDecoder().decode(bytes));
 }
 
-// A capacity end means this client fell behind; one resume without delivered output is allowed before parking.
-let lagResumedWithoutProgress = false;
+let capacityRetry: ReturnType<typeof setTimeout> | undefined;
+let capacityBackoff = 125;
+
+function clearCapacityRetry(): void {
+  clearTimeout(capacityRetry); capacityRetry = undefined; capacityBackoff = 125;
+}
 
 function recoverOutputStream(): void {
-  lagResumedWithoutProgress = false;
+  clearCapacityRetry();
   aggregate.recover();
 }
 
 function openAggregateStream(): () => void {
+  clearTimeout(capacityRetry); capacityRetry = undefined;
   const abort = new AbortController();
   streamAbort = abort;
   aggregateStarting = false;
@@ -261,7 +275,7 @@ function openAggregateStream(): () => void {
   client.subscribe(outputStreamUrl().slice(client.origin().length), (_name, data) => {
     if (abort.signal.aborted || streamAbort !== abort) return;
     const frame = data as OutputFrame;
-    if (typeof frame?.b64 === "string" || frame?.replay_complete) progressed = true;
+    if (typeof frame?.b64 === "string" || frame?.replay_complete) { progressed = true; capacityBackoff = 125; }
     return handleFrame(frame);
   }, {
     signal: abort.signal, raw: true,
@@ -282,10 +296,13 @@ function openAggregateStream(): () => void {
       aggregateStarting = false;
       aggregate.ended();
       for (const set of sinks.values()) for (const sink of set) sink.onDisconnected?.();
-      if (end.reason === "capacity" && (progressed || !lagResumedWithoutProgress)) {
-        lagResumedWithoutProgress = !progressed;
+      if (end.reason === "capacity") {
         if (DEV_BUILD) console.debug("[output-stream] resuming after capacity end", { progressed });
-        aggregate.recover();
+        if (progressed) aggregate.recover();
+        else {
+          capacityRetry = setTimeout(() => { capacityRetry = undefined; aggregate.recover(); }, capacityBackoff);
+          capacityBackoff = Math.min(2000, capacityBackoff * 2);
+        }
         return;
       }
       if (DEV_BUILD) console.debug("[output-stream] waiting for recovery signal", { reason: end.reason });
@@ -303,7 +320,7 @@ function openAggregateStream(): () => void {
 
 /** An explicit Retry: replace the aggregate connection (even one that is open but not delivering) from the cursor. */
 export function restartOutputStream(): void {
-  lagResumedWithoutProgress = false;
+  clearCapacityRetry();
   if (started) aggregate.replace(openAggregateStream);
   else if (sinks.size > 0) ensureStarted();
   resumeRemoteOutputStreams();
@@ -381,6 +398,7 @@ interface RemoteOutputCursor {
   boot?: string;
   ptyId?: string;
   offset: number;
+  reset?: boolean;
 }
 
 interface RemoteOutputRecord {
@@ -397,13 +415,14 @@ const remoteRecords = new Map<string, RemoteOutputRecord>();
 // Strictly-ahead cursor test: a new boot ring or a higher byte offset is forward
 // progress; anything else is a frame the server replayed and we already delivered.
 function remoteOutputAdvanced(prev: RemoteOutputCursor | null, next: RemoteOutputCursor): boolean {
+  if (next.reset) return true;
   if (!prev) return true;
   if (next.boot !== prev.boot || next.ptyId !== prev.ptyId) return true;
   return next.offset > prev.offset;
 }
 
-export function remoteOutputSinceCursor(remoteTabId: string, bootId: string, offset: number): string {
-  const raw = JSON.stringify({ boot: bootId, tabs: { [remoteTabId]: offset } });
+export function remoteOutputSinceCursor(remoteTabId: string, bootId: string, offset: number, ptyId?: string): string {
+  const raw = JSON.stringify({ boot: bootId, tabs: { [remoteTabId]: { offset, pty_id: ptyId ?? null } } });
   return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
@@ -444,7 +463,7 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   const deadline = createSilenceDeadline(record.recovery, generation, abort);
   deadline.arm();
   const cursor = record.recovery.currentCursor();
-  const since = cursor?.boot ? remoteOutputSinceCursor(remoteTabId, cursor.boot, cursor.offset) : undefined;
+  const since = cursor?.boot ? remoteOutputSinceCursor(remoteTabId, cursor.boot, cursor.offset, cursor.ptyId) : undefined;
   const path = remoteTabStreamPath({ peerId: record.peerId, tabId: remoteTabId }, since);
   if (DEV_BUILD) console.debug("[output-stream] remote tab stream", { ordinaryTabId, path, generation });
   const transport = remoteTabTransportHttp();
@@ -497,10 +516,13 @@ async function handleRemoteOutputFrame(
   if (message.truncated && typeof message.from === "number") {
     if (!record.recovery.isCurrent(generation)) return;
     const previous = record.recovery.currentCursor();
-    const next = { ...previous, offset: planOutputResync(previous?.offset, message.from).offset };
+    if (message.reset && ![...(remoteSinks.get(ordinaryTabId) ?? [])].some(target => acceptsSinkOutput(ordinaryTabId, target, message))) return;
+    const next = { ...previous, boot: message.boot ?? previous?.boot, ptyId: message.pty_id ?? previous?.ptyId,
+      offset: message.reset ? message.from : planOutputResync(previous?.offset, message.from).offset, reset: message.reset };
+    if (message.reset) record.replayComplete = undefined;
     record.recovery.noteProgress(generation, next);
     for (const target of remoteSinks.get(ordinaryTabId) ?? []) {
-      deliverTruncation(ordinaryTabId, target, message.from, next.boot ?? "");
+      deliverTruncation(ordinaryTabId, target, message.from, next.boot ?? "", message.reset);
     }
     return;
   }
@@ -590,6 +612,7 @@ onResync(() => pokeOutputStream());
 
 /** Tear down (peer switch) — next subscription reconnects to the current host. */
 export function resetOutputStream(): void {
+  clearCapacityRetry();
   completedReplays.clear();
   started = false;
   aggregate.dispose();
