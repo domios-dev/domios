@@ -14,7 +14,7 @@ export function friendReceivingLine(receiver: ReceiverState | null): string {
   if (receiver.receiving_here) return "receiving here";
   const reason = notReceivingReason(receiver);
   if (reason) return `not receiving · ${reason}`;
-  if (receiver.receiving_enabled) return `receiving on ${receiver.receiver_machine_label ?? "another machine"}${receiverLocation(receiver).online === false ? " · offline" : ""}`;
+  if (receiver.receiving_enabled) return `${receiverLocation(receiver).online === false ? "offline" : "receiving"} on ${receiver.receiver_machine_label ?? "another machine"}`;
   if (receiver.receiver_machine_label) return `not receiving · concierge on ${receiver.receiver_machine_label}`;
   if (receiver.revision === 0) return "concierge machine not chosen";
   return "not receiving";
