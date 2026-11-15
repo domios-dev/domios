@@ -50,7 +50,8 @@ or replaced invocation. A call that starts an I/O job must await it.
 
 The legacy synchronous bindings and SDK types are removed: filesystem, SQLite, process,
 network, credential and service bindings. Pure path, string, JSON and manifest
-helpers remain synchronous. `host.io.fs` provides generator equivalents for
+helpers remain synchronous, including `host.fs.expandHome` and `host.expandHome`.
+The `host.fs` namespace exposes only that pure path helper. `host.io.fs` provides generator equivalents for
 filesystem operations; `host.io.exec` and `host.io.fetch` await their existing
 host-owned process/network jobs. Pure provider exports need no generator.
 Use `defineProviderIo` at the export boundary. It drives effectful generators

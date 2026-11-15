@@ -44,7 +44,7 @@ async fn render_ctx_cwd_becomes_sandbox_read_root() {
 "#
             .to_string(),
             None,
-            Arc::new(PluginSandbox::restricted(vec![], vec![])),
+            Arc::new(PluginSandbox::restricted(vec![], vec![]).with_identity("confined-glance")),
         )
         .expect("vm"),
     );

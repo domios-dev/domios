@@ -266,6 +266,14 @@ function typeCheckAsyncFetch(): string {
 }
 void typeCheckAsyncFetch;
 
+function pureFsConformance(host: Host) {
+  const path: string | null = host.fs.expandHome("~/.domios");
+  void path;
+  // @ts-expect-error synchronous filesystem I/O remains removed
+  host.fs.readFile("foreign");
+}
+void pureFsConformance;
+
 function* exercise(): import("./io").HostIoSteps<void> {
   yield {op:"workerStart",options:{task:"do it"}};
   yield {op:"workerPoll",job:"owned-job"};

@@ -229,6 +229,7 @@ fn preamble_exposes_host_fs_and_host_manifest() {
     listNames(p) {
         return host.io.run((function* () { return (yield { op: "readDir", path: p }).map(e => e.name).sort(); }).call(this));
     },
+    pureFs(p) { return {keys:Object.keys(host.fs),expanded:host.fs.expandHome(p),direct:host.expandHome(p)}; },
     getManifestId() {
         var m = host.manifest();
         return m ? m.id : null;
@@ -240,6 +241,11 @@ fn preamble_exposes_host_fs_and_host_manifest() {
         Some(r#"{"id":"test","version":"0","hostIoJobs":true,"displayName":"X","spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}}"#.to_string()),
     )
     .unwrap();
+    let pure: serde_json::Value = call_json(&vm, "pureFs", &[json!("opaque-path")]).unwrap();
+    assert_eq!(
+        pure,
+        json!({"keys":["expandHome"],"expanded":"opaque-path","direct":"opaque-path"})
+    );
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a"), "1").unwrap();
     std::fs::write(dir.path().join("b"), "2").unwrap();
