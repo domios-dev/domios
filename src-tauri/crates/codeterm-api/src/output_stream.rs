@@ -730,7 +730,7 @@ pub async fn output_stream(
     let cursor_offset = tab_id
         .as_deref()
         .and_then(|tab| cursor.as_ref()?.tabs.get(tab))
-        .copied();
+        .map(|value| value.offset);
     let diagnostic_level = configured_level(state.config.lock().diagnostics.terminal_transport);
     let session_id = diagnostic_level.map(|_| uuid::Uuid::new_v4().simple().to_string());
 
