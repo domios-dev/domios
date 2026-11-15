@@ -8,6 +8,68 @@ use crate::service::plan::{
 use crate::service::test_fixture::ServiceFixture;
 
 #[test]
+fn owner_switch_bypasses_restart_cooldown_but_keeps_lifecycle_exclusion() {
+    let (mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let restart = fixture.service.claim_restart(&id, false).unwrap();
+    assert!(fixture.service.claim_provider_switch(&id).is_err());
+    drop(restart);
+    let switch = fixture.service.claim_provider_switch(&id).unwrap();
+    assert!(fixture.service.claim_restart(&id, true).is_err());
+    assert!(fixture.service.claim_provider_switch(&id).is_err());
+    drop(switch);
+    drop(fixture.service.claim_provider_switch(&id).unwrap());
+    assert!(matches!(
+        fixture.service.claim_restart(&id, false),
+        Err(super::super::AgentRestartError::RateLimited { .. })
+    ));
+}
+
+#[test]
+fn switch_restart_refusals_keep_typed_details_without_debug_formatting() {
+    use super::super::AgentRestartError;
+    assert_eq!(
+        switch_restart_error(
+            "provider_switch_in_progress",
+            AgentRestartError::RateLimited {
+                retry_after_secs: 19
+            }
+        ),
+        "provider_switch_rate_limited: 19"
+    );
+    assert_eq!(
+        switch_restart_error(
+            "provider_switch_in_progress",
+            AgentRestartError::BadRequest("already restarting".into())
+        ),
+        "provider_switch_in_progress: already restarting"
+    );
+    assert_eq!(
+        switch_restart_error(
+            "provider_switch_launch_failed",
+            AgentRestartError::Internal("launch unavailable".into())
+        ),
+        "provider_switch_launch_failed: launch unavailable"
+    );
+    assert_eq!(
+        switch_restart_error(
+            "unused",
+            AgentRestartError::BackgroundWork {
+                items: vec!["background task".into()]
+            }
+        ),
+        "provider_switch_background_work: background task"
+    );
+    assert_eq!(
+        switch_restart_error(
+            "unused",
+            AgentRestartError::RuntimeProviderHandoffUnsupported
+        ),
+        "runtime_provider_handoff_unsupported: this harness cannot transfer its session"
+    );
+}
+
+#[test]
 fn provider_switch_keeps_roleless_spawn_metadata_without_plan_authority() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     let binding = crate::multiplexer::types::TaskBinding {
