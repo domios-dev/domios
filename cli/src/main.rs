@@ -365,7 +365,9 @@ fn main_impl() {
     cmd::inbound::mark_daemon_reached();
 
     if command_consumes_binding(&cli.command) {
-        hydrate_tab_task_binding_env(&args, &mut client);
+        if let Err(error) = hydrate_tab_task_binding_env(&args, &mut client) {
+            crate::cmd::print::fail(1, error);
+        }
         cli = Cli::try_parse_from(&args).unwrap_or_else(|error| error.exit());
     }
 
@@ -799,7 +801,9 @@ fn command_consumes_binding(command: &Commands) -> bool {
         } | Commands::Orchestrator { .. }
             | Commands::Plan {
                 action: PlanAction::Record { .. }
-                    | PlanAction::Skill { .. }
+                    | PlanAction::Task {
+                        action: args::plan::PlanTaskAction::ExtendFiles { .. }
+                    }
                     | PlanAction::Loop {
                         action: args::plan::PlanLoopAction::Record { .. }
                     }
@@ -807,45 +811,51 @@ fn command_consumes_binding(command: &Commands) -> bool {
     )
 }
 
-fn hydrate_tab_task_binding_env(args: &[String], client: &mut impl client::RpcClient) {
-    if args
-        .iter()
-        .any(|arg| arg == "--mesh" || arg.starts_with("--mesh="))
-        || !args
-            .iter()
-            .any(|arg| matches!(arg.as_str(), "agent" | "report" | "orchestrator" | "plan"))
-    {
-        return;
+fn hydrate_tab_task_binding_env(
+    args: &[String],
+    client: &mut impl client::RpcClient,
+) -> Result<(), String> {
+    if option_is_present(args, "--mesh") {
+        return Ok(());
     }
     let Some(tab_id) = nonempty_env("CODETERM_TAB_ID") else {
-        return;
+        return Ok(());
     };
-    let explicit_plan = option_is_present(args, "--plan");
-    let explicit_task = option_is_present(args, "--task");
-    let has_plan = explicit_plan || nonempty_env("CODETERM_PLAN_ID").is_some();
-    let has_task = explicit_task || nonempty_env("CODETERM_TASK_ID").is_some();
-    if tab_id.trim().is_empty() || (has_plan && has_task) {
-        return;
-    }
-    let Ok(response) = client.call(
+    let response = client.call(
         "plan.binding.resolve",
-        Some(serde_json::json!({"tab_id": tab_id})),
-    ) else {
-        return;
-    };
-    let Some(binding) = response.get("binding").and_then(|value| value.as_object()) else {
-        return;
-    };
-    if !has_plan {
-        if let Some(plan_id) = binding.get("plan_id").and_then(|value| value.as_str()) {
-            std::env::set_var("CODETERM_PLAN_ID", plan_id);
+        Some(serde_json::json!({"tab_id": tab_id, "caller_tab_id": tab_id})),
+    ).map_err(|error| format!("Current tab binding could not be resolved: {error}"))?;
+    if response.get("tab_id").and_then(serde_json::Value::as_str) != Some(tab_id.as_str()) {
+        return Err("Current tab binding returned a different tab".into());
+    }
+    let binding = response.get("binding").ok_or("Current tab binding is missing")?;
+    if !binding.is_null() && !binding.is_object() {
+        return Err("Current tab binding is invalid".into());
+    }
+    if binding.is_object()
+        && (binding.get("plan_id").and_then(serde_json::Value::as_str).is_none_or(|value| value.trim().is_empty())
+            || binding.get("task_id").is_none())
+    {
+        return Err("Current tab binding is incomplete".into());
+    }
+    let fields = [
+        ("CODETERM_PLAN_ID", "plan_id"),
+        ("CODETERM_TASK_ID", "task_id"),
+        ("CODETERM_ATTEMPT_ID", "attempt_id"),
+        ("CODETERM_LANE_BASE", "base"),
+    ];
+    for (_, field) in fields {
+        if binding.get(field).is_some_and(|value| !value.is_null() && !value.is_string()) {
+            return Err(format!("Current tab binding has an invalid {field}"));
         }
     }
-    if !has_task {
-        if let Some(task_id) = binding.get("task_id").and_then(|value| value.as_str()) {
-            std::env::set_var("CODETERM_TASK_ID", task_id);
+    for (key, field) in fields {
+        match binding.get(field).and_then(serde_json::Value::as_str).filter(|value| !value.trim().is_empty()) {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
         }
     }
+    Ok(())
 }
 
 fn option_is_present(args: &[String], name: &str) -> bool {
