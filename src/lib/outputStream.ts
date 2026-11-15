@@ -37,6 +37,8 @@ export function bindOutputStreamTransport(client: TransportClient): void {
 
 export interface TabOutputSink {
   onOutput(text: string): void | Promise<void>;
+  onRendered?(offset: number): void;
+  onDisconnected?(): void;
   onStarting?(): void;
   onSubscribed?(): void;
   onReady?(): void;
@@ -214,7 +216,10 @@ function acceptsSinkOutput(tabId: string, sink: TabOutputSink, frame: OutputFram
 }
 
 function deliverReplayComplete(tabId: string, sink: TabOutputSink, frame: OutputFrame): void | Promise<void> {
-  if (acceptsSinkOutput(tabId, sink, frame)) return sink.onReplayComplete?.();
+  if (!acceptsSinkOutput(tabId, sink, frame)) return;
+  return Promise.resolve(sink.onReplayComplete?.()).then(() => {
+    if (typeof frame.offset === "number") sink.onRendered?.(frame.offset);
+  });
 }
 
 function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame, bytes: Uint8Array): void | Promise<void> {
@@ -223,7 +228,9 @@ function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame, b
   return replay.deliver(identity.terminal, tabId, {
     boot: frame.boot ?? boot ?? "", ptyId: frame.pty_id ?? identity.ptyId,
     offset: frame.offset ?? bytes.length, bytes,
-  }, (payload) => writeSinkBytes(sink, payload));
+  }, (payload) => Promise.resolve(writeSinkBytes(sink, payload)).then(() => {
+    if (typeof frame.offset === "number") sink.onRendered?.(frame.offset);
+  }));
 }
 
 function writeSinkBytes(sink: TabOutputSink, bytes: Uint8Array): void | Promise<void> {
@@ -268,6 +275,7 @@ function openAggregateStream(): () => void {
       streamAbort = null;
       aggregateStarting = false;
       aggregate.ended();
+      for (const set of sinks.values()) for (const sink of set) sink.onDisconnected?.();
       if (end.reason === "capacity" && (progressed || !lagResumedWithoutProgress)) {
         lagResumedWithoutProgress = !progressed;
         if (DEV_BUILD) console.debug("[output-stream] resuming after capacity end", { progressed });
@@ -281,7 +289,10 @@ function openAggregateStream(): () => void {
       for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
     },
   });
-  return () => { abort.abort(); if (streamAbort === abort) streamAbort = null; };
+  return () => {
+    for (const set of sinks.values()) for (const sink of set) sink.onDisconnected?.();
+    abort.abort(); if (streamAbort === abort) streamAbort = null;
+  };
 }
 
 /** An explicit Retry: replace the aggregate connection (even one that is open but not delivering) from the cursor. */

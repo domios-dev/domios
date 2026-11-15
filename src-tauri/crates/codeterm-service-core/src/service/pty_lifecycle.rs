@@ -169,7 +169,36 @@ async fn backend_read_loop(
         let _role = codeterm_util::named_thread::Scope::enter(&format!("pty-feed:{feed_pty_id}"));
         process_pty_feed(feed_rx, feed_svc, feed_pty_id, generation, rd_trace)
     });
+    let flow = svc.screen_state.output_flow(&pty_id);
+    let mut total_read = svc.output_buf.lock().total_written(&pty_id);
+    let mut processed: Option<tokio::sync::oneshot::Receiver<()>> = None;
     loop {
+        if !cfg!(windows) {
+            if let Some(flow) = &flow {
+                if flow.pause_deadline(std::time::Instant::now()).is_some() {
+                    let eligible = {
+                        let mux = svc.mux.read();
+                        mux.tab_id_for_pty(&pty_id)
+                            .and_then(|id| mux.get_tab(&id))
+                            .is_some_and(|tab| {
+                                codeterm_pty::pty::output_flow::renderer_may_pause(
+                                    tab.agent_booting,
+                                    tab.agent_type.is_some(),
+                                    tab.boot_stage,
+                                )
+                            })
+                    };
+                    if !eligible {
+                        flow.revoke();
+                    } else {
+                        if let Some(processed) = processed.take() {
+                            let _ = processed.await;
+                        }
+                        flow.wait_to_read().await;
+                    }
+                }
+            }
+        }
         // Blocking read in a dedicated thread — same pattern as read_pty.
         let read_started = std::time::Instant::now();
         let read_role = format!("pty-read:{pty_id}");
@@ -218,7 +247,14 @@ async fn backend_read_loop(
                 if let Some(receipt) = &receipt {
                     receipt.phase("enqueue_started", data_len);
                 }
+                total_read = total_read.saturating_add(data_len as u64);
+                if let Some(flow) = &flow {
+                    flow.produced(total_read);
+                }
+                let (completed, completion) = tokio::sync::oneshot::channel();
+                processed = Some(completion);
                 let packet = OutputBatch {
+                    completed: vec![completed],
                     data,
                     receipts: receipt.into_iter().collect(),
                 };
@@ -326,6 +362,9 @@ async fn process_pty_status(
                 );
             }
             svc.emit_tab_status_if_changed(&pty_id, prev, now);
+            for completed in data.completed {
+                let _ = completed.send(());
+            }
         })
         .await
         {

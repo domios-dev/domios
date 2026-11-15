@@ -1,6 +1,9 @@
-export function ChecklistReadFailure({ onRetry }: { onRetry: () => void }) {
-  return <span className="sidebar-agent-checklist__note">
-    <span role="status">Could not read the saved checklist.</span>{" "}
-    <button type="button" className="underline" onClick={(event) => { event.stopPropagation(); onRetry(); }}>Retry checklist</button>
-  </span>;
+import { describeError } from "../../lib/describeError";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
+
+export function ChecklistReadFailure({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  return <div className="sidebar-agent-checklist__note">
+    <InlineErrorNotice description={{ ...describeError(error), title: "Could not read the saved checklist.", cause: "" }}
+      actions={[{ label: "Retry checklist", onClick: onRetry }]} />
+  </div>;
 }

@@ -47,7 +47,7 @@ impl ChatBackendProvider for RemoteNativeStub {
 #[test]
 fn remote_task_capability_native_js_parity_and_manifest_round_trip() {
     let capability = serde_json::json!({
-        "backend":"fixture", "mode":"cloud", "hostIoJobs":true,"displayName":"Cloud",
+        "backend":"fixture", "mode":"cloud", "displayName":"Cloud",
         "availability":{"status":"unavailable","reason":"Connect an account"},
         "environments":[],"followUp":false,"cancel":false,"applyDiff":false
     });
@@ -98,7 +98,7 @@ fn remote_task_capability_native_js_parity_and_manifest_round_trip() {
 #[test]
 fn remote_task_runtime_discovery_native_js_parity() {
     let capability = serde_json::json!({
-        "backend":"fixture", "mode":"cloud", "hostIoJobs":true,"displayName":"Cloud",
+        "backend":"fixture", "mode":"cloud", "displayName":"Cloud",
         "availability":{"status":"unavailable","reason":"Sign in"},
         "environments":[],"followUp":false,"cancel":false,"applyDiff":false
     });
@@ -205,7 +205,7 @@ impl AgentProvider for RemoteAgentNativeStub {
 #[test]
 fn remote_mode_adapter_never_replaces_or_unregisters_the_local_model_catalogue() {
     let capability = serde_json::from_value(serde_json::json!({
-        "backend":"fixture","mode":"cloud","hostIoJobs":true,"displayName":"Cloud","availability":{"status":"available"},
+        "backend":"fixture","mode":"cloud","displayName":"Cloud","availability":{"status":"available"},
         "environments":[],"followUp":false,"cancel":false,"applyDiff":false
     })).unwrap();
     let defaults = crate::model_catalog::RegisteredDefaults {

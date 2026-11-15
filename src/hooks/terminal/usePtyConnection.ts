@@ -5,6 +5,10 @@ import { restartOutputStream, subscribeTabOutput, type TabOutputSink } from "../
 import { outputBindingPtyId } from "../../lib/terminalFrameGate";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { consumePendingCwd } from "../../lib/pendingCommands";
+import { tabOutputRoute } from "../../lib/remoteTabRoute";
+import { relayTarget } from "../../lib/webApi";
+import { nativeBridge } from "../../lib/nativeBridge";
+import { createRendererOutputFlow, rendererFlowEligible } from "./rendererOutputFlow";
 import { uid } from "../../lib/uid";
 import { isPlanLockedRefusal } from "../../lib/spawnErrorMessage";
 import { tabWakeRequiresRetry } from "../../lib/wakeOnOpen";
@@ -80,6 +84,7 @@ export function usePtyConnection({
   );
   const tabCwdRef = useRef(tabCwd);
   const spawnBlocked = useMuxSelector(s => !ptyId && tabWakeRequiresRetry(s.tabs[tabId]));
+  const flowAllowed = useMuxSelector(s => rendererFlowEligible(s.tabs[tabId]));
   const remotePtyId = useMuxSelector(s => s.tabs[tabId]?.remote_pty_id ?? null);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const viewportRestoreRequestRef = useRef(0);
@@ -128,6 +133,7 @@ export function usePtyConnection({
     let disposed = false;
     let framed = false;
     let unsubscribe: (() => void) | undefined;
+    let releaseFlow: (() => void) | undefined;
     callbacks.current.onConnectionStateChange?.(false);
     callbacks.current.onHistoryReplayStateChange?.(false);
     setReadinessFailed(false);
@@ -161,8 +167,27 @@ export function usePtyConnection({
       }
       if (disposed) return;
       connectedPtyRef.current = id;
+      const flow = flowAllowed && !remotePtyId && !tabOutputRoute(tabId, relayTarget()?.id ?? null) && nativeBridge.terminalOutputFlow
+        ? createRendererOutputFlow(tabId, id, uid(), nativeBridge.terminalOutputFlow) : undefined;
+      const updateVisibility = () => {
+        if (document.visibilityState === "hidden" || !document.hasFocus()) flow?.suspend();
+        else flow?.resume();
+      };
+      updateVisibility();
+      document.addEventListener("visibilitychange", updateVisibility);
+      window.addEventListener("blur", updateVisibility);
+      window.addEventListener("focus", updateVisibility);
+      releaseFlow = () => {
+        flow?.suspend();
+        document.removeEventListener("visibilitychange", updateVisibility);
+        window.removeEventListener("blur", updateVisibility);
+        window.removeEventListener("focus", updateVisibility);
+      };
       const sink: TabOutputSink = {
+        onRendered(offset) { if (!disposed) flow?.rendered(offset); },
+        onDisconnected() { flow?.suspend(); },
         onStarting() {
+          flow?.suspend();
           if (disposed || framed) return;
           clearTimeout(failureDeadline);
           failureDeadline = undefined;
@@ -173,6 +198,7 @@ export function usePtyConnection({
           if (!framed && failureDeadline === undefined) failureDeadline = setTimeout(() => failReadiness("first_frame_deadline"), TERMINAL_READINESS_FAILURE_MS);
         },
         onReady() {
+          updateVisibility();
           if (disposed) return;
           callbacks.current.onConnectionStateChange?.(true);
         },
@@ -197,11 +223,13 @@ export function usePtyConnection({
           if (!disposed) term.writeln(`\r\n\x1b[90m[output truncated — resuming from byte ${from}]\x1b[0m`);
         },
         onEnded: () => {
+          flow?.suspend();
           if (disposed) return;
           connectedPtyRef.current = null;
           callbacks.current.onConnectionStateChange?.(false);
         },
         onStreamError: (error) => {
+          flow?.suspend();
           if (disposed) return;
           callbacks.current.onConnectionStateChange?.(false);
           failReadiness(error.name);
@@ -223,11 +251,12 @@ export function usePtyConnection({
     return () => {
       disposed = true;
       clearTimeout(failureDeadline);
+      releaseFlow?.();
       unsubscribe?.();
       connectedPtyRef.current = null;
       callbacks.current.onConnectionStateChange?.(false);
     };
-  }, [ptyId, remotePtyId, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt, spawnBlocked]);
+  }, [ptyId, remotePtyId, flowAllowed, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt, spawnBlocked]);
 
   return { writePty, readinessFailed, retryConnection };
 }

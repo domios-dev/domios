@@ -10,6 +10,9 @@ pub mod cast {
 pub mod manager {
     pub use codeterm_pty::pty::manager::*;
 }
+pub mod output_flow {
+    pub use codeterm_pty::pty::output_flow::*;
+}
 pub mod screen_state {
     pub use codeterm_pty::pty::screen_state::*;
 }

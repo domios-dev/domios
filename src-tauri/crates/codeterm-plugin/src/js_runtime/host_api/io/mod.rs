@@ -197,6 +197,14 @@ fn execute(
     operation: &operation::Context,
 ) -> Result<Value, Failure> {
     use Request::*;
+    if !codeterm_decision::physical::effects_allowed()
+        && matches!(
+            &request,
+            ExecClose { .. } | FetchStreamPoll { .. } | FetchStreamClose { .. }
+        )
+    {
+        return Err("effect job unavailable during observation".into());
+    }
     match request {
         SurfaceCall { verb, args } => {
             operation

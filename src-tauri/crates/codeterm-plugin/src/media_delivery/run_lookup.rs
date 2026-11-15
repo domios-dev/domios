@@ -45,6 +45,7 @@ impl Drop for LookupScope {
         LOOKUP.with(|slot| *slot.borrow_mut() = self.0.take());
     }
 }
+#[cfg(test)]
 pub(crate) fn run_media_lookup_active() -> bool {
     LOOKUP.with(|slot| slot.borrow().is_some())
 }

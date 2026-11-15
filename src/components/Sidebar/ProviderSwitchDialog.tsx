@@ -11,6 +11,7 @@ import { UI_INPUT } from "../shared/design";
 export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab: Tab; initialProviderId: string; onClose(): void }) {
   const titleId = useId();
   const descriptionId = useId();
+  const errorId = useId();
   const { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort, efforts,
     phase, setPhase, error, retryAfterSeconds, result, history, ready, activity, submit, showHistory } = useProviderSwitch(tab, initialProviderId);
   const locked = phase !== "choosing";
@@ -18,11 +19,11 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
     <h2 id={titleId} className="font-semibold">Switch harness</h2>
     <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">Continue on another harness using recent messages and task context. The full history stays here.</p>
     {phase !== "complete" && <>
-      <DropdownSelect aria-label="Target provider" value={providerId} options={providers.map((provider) => ({ value: provider.id, label: isProviderSelectable(provider) ? provider.display_name : `${provider.display_name} (${providerAvailabilityLabel(provider)})`, disabled: !isProviderSelectable(provider) }))} disabled={locked} onChange={(id) => { setProviderId(id); setModel(undefined); setEffort(undefined); }} />
+      <DropdownSelect aria-label="Target provider" aria-describedby={error ? errorId : undefined} value={providerId} options={providers.map((provider) => ({ value: provider.id, label: isProviderSelectable(provider) ? provider.display_name : `${provider.display_name} (${providerAvailabilityLabel(provider)})`, disabled: !isProviderSelectable(provider) }))} disabled={locked} onChange={(id) => { setProviderId(id); setModel(undefined); setEffort(undefined); }} />
       {(provider?.available_models.length ?? 0) > 0 ? <DropdownSelect aria-label="Target model" value={model ?? ""} disabled={locked} options={(provider?.available_models ?? []).map((model) => ({ value: model.id, label: model.display_name, disabled: model.available === false }))} onChange={(model) => { setModel(model); setEffort(undefined); }} /> : <label className="text-sm">Model (optional)<input className={UI_INPUT.full} value={selectedModel ?? ""} disabled={locked} onChange={(event) => setModel(event.target.value || undefined)} /></label>}
       {efforts.length > 0 && <DropdownSelect aria-label="Reasoning effort" value={effort ?? ""} options={efforts.map((effort) => ({ value: effort.id, label: effort.display_name }))} disabled={locked} onChange={setEffort} />}
     </>}
-    {error && <SwitchFailure error={error} />}
+    {error && <SwitchFailure error={error} id={errorId} harnessName={provider?.display_name} />}
     {phase === "switching" && <p role="status">Switching harness…</p>}
     {phase === "waiting" && <p role="status">Waiting for this tab to become idle. Cancel to keep the current harness.</p>}
     {result && <div role="status" className="text-sm">Continued on {result.provider}.</div>}
@@ -39,8 +40,8 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
   </FormDialog>;
 }
 
-function SwitchFailure({ error }: { error: string }) {
-  const view = describeError(error, { operation: "switching the harness" });
+function SwitchFailure({ error, id, harnessName }: { error: string; id: string; harnessName?: string }) {
+  const view = describeError(error, { operation: "switching the harness", harnessName });
   const [expanded, setExpanded] = useState(false);
   const [copyState, setCopyState] = useState("");
   const detailsId = useId();
@@ -48,8 +49,8 @@ function SwitchFailure({ error }: { error: string }) {
     try { await navigator.clipboard.writeText(view.raw); setCopyState("Copied"); }
     catch { setCopyState("Select the details to copy them."); }
   }
-  return <section role="status" aria-label={view.title} className="space-y-2 text-sm">
-    <p>{view.title}; {view.cause ? view.cause[0].toLowerCase() + view.cause.slice(1) : "try again."}</p>
+  return <section role="status" aria-live="polite" aria-label={view.title} className="space-y-2 text-sm">
+    <p id={id}>{view.title}; {view.cause ? view.cause[0].toLowerCase() + view.cause.slice(1) : "try again."}</p>
     <div className="flex items-center gap-3 text-xs text-[var(--ct-muted-fg)]">
       <button type="button" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)} className="hover:text-[var(--ct-fg)]">{expanded ? "Hide details" : "Details"}</button>
       <button type="button" onClick={() => void copy()} className="hover:text-[var(--ct-fg)]">{copyState || "Copy"}</button>

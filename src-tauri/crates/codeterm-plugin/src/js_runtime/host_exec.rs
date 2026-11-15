@@ -27,8 +27,7 @@ mod child;
 mod control;
 mod scoped;
 pub(super) use scoped::{
-    abort_scoped_json_job, drop_scoped_json_jobs, start_admitted_scoped_json_job,
-    start_scoped_json_job,
+    drop_scoped_json_jobs, start_admitted_scoped_json_job, start_scoped_json_job,
 };
 
 thread_local! {
@@ -865,7 +864,7 @@ pub(super) fn plugin_job_count(plugin_id: &str) -> usize {
         .count()
 }
 
-/// A job that outlives a timed-out waiter; `attach_retained` joins it.
+#[cfg(test)]
 pub(super) fn start_retained_json_job<F>(plugin_id: &str, work: F) -> Result<String, String>
 where
     F: FnOnce() -> String + Send + 'static,
@@ -877,30 +876,6 @@ where
     }
     spawn_json_worker(job_id.clone(), work);
     Ok(job_id)
-}
-
-/// Adds one consumer to a live retained job; `false` once it is gone.
-pub(super) fn attach_retained(plugin_id: &str, job_id: &str) -> bool {
-    let plugin_id = normalize_plugin_id(plugin_id);
-    let mut jobs = EXEC_JOBS.lock();
-    match jobs
-        .get_mut(job_id)
-        .filter(|job| job.plugin_id == plugin_id && job.retained)
-    {
-        Some(job) => {
-            job.consumers += 1;
-            true
-        }
-        None => false,
-    }
-}
-
-pub(super) fn retained_job_live(plugin_id: &str, job_id: &str) -> bool {
-    let plugin_id = normalize_plugin_id(plugin_id);
-    EXEC_JOBS
-        .lock()
-        .get(job_id)
-        .is_some_and(|job| job.plugin_id == plugin_id && job.retained)
 }
 
 fn spawn_json_worker<F>(job_id: String, work: F)

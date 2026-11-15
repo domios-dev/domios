@@ -40,15 +40,6 @@ pub fn execute(
     let network = session.network();
     execute_with(session, request, abort, network)
 }
-pub(crate) fn execute_until(
-    session: Arc<TransferSession>,
-    request: TransferRequest,
-    abort: TransferAbort,
-    deadline: Instant,
-) -> std::result::Result<TransferReceipt, TransferFailure> {
-    let network = session.network();
-    execute_at(session, request, abort, network, Some(deadline))
-}
 pub(crate) fn execute_with(
     session: Arc<TransferSession>,
     request: TransferRequest,

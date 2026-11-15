@@ -185,6 +185,10 @@ test("a genuine checklist read failure offers an explicit retry without collapsi
     assert(Number(reads) === 1, "a dispatched failure is not automatically retried");
     const retry = [...region().querySelectorAll("button")].find((button) => button.textContent === "Retry checklist");
     assert(retry && region().querySelector('[role="status"]'), "the read failure has a status note and a named retry");
+    const details = region().querySelector("details");
+    assert(details && !details.open, "technical failure details stay collapsed");
+    await act(async () => details.querySelector("summary")!.click());
+    assert(details.open && details.textContent?.includes("read failed after dispatch"), "details disclose the read failure on request");
     await act(async () => retry.click());
     assert(Number(reads) === 2 && checklistRows(region())[0] === "Recovered stepDone", "retry reads the same expanded agent's checklist");
   } finally { await act(async () => root.unmount()); store.restore(); }

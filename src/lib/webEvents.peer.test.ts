@@ -90,7 +90,7 @@ async function main() {
     assert.equal(returned.url.searchParams.get("since"), "boot:10", "switching back resumes only the local cursor");
     assert.throws(() => push(peer, 999, "pl_late_peer"));
     await deliver(returned, 11, "pl_local_updated");
-    assert.equal(reconnects, 2, "both peer switches dispatch a DOM reconnect event");
+    assert.equal(reconnects, 3, "same-target reconnect and both peer switches restore on stream readiness");
     assert.deepEqual(received, [{ plan_id: "pl_local" }, { plan_id: "pl_peer" }, { plan_id: "pl_local_updated" }]);
   } finally {
     unlisten();

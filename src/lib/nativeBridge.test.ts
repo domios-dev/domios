@@ -11,6 +11,12 @@ import { bindNativeBridgeTransport, createNativeBridge, NativeCapabilityUnavaila
 
 beforeEach(() => vi.clearAllMocks());
 describe("nativeBridge", () => {
+  it("keeps renderer ACK authority native-only", async () => {
+    expect(createNativeBridge(false).terminalOutputFlow).toBeUndefined();
+    const update = { action: "detach_all" } as const;
+    await createNativeBridge(true).terminalOutputFlow!(update);
+    expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("native_terminal_output_flow", { update });
+  });
   it("makes OS capabilities explicitly unavailable in a browser", async () => {
     const bridge = createNativeBridge(false);
     expect([bridge.window, bridge.tray, bridge.dialogs, bridge.notificationPermission, bridge.updater, bridge.deepLinks, bridge.fileDrop, bridge.resizeEvents, bridge.autostart]).toEqual(Array(9).fill(undefined));

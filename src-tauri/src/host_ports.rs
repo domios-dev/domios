@@ -161,6 +161,25 @@ pub(crate) async fn frontend_view_root_ready(
 }
 
 #[tauri::command]
+pub(crate) fn native_terminal_output_flow(
+    window: codeterm_client_shell::app_runtime::WebviewWindow,
+    mut update: codeterm_types::native_host::NativeOutputFlow,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Primary native view required".into());
+    }
+    if !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
+        update = codeterm_types::native_host::NativeOutputFlow::DetachAll;
+    }
+    let app = window.app_handle();
+    let url = window.url().map_err(|error| error.to_string())?;
+    let origin = url.origin().ascii_serialization();
+    app.try_state::<native_client::NativeHostClientSlot>()
+        .ok_or("Native host unavailable")?
+        .report_output_flow(Some(&origin), update)
+}
+
+#[tauri::command]
 pub(crate) fn native_webview_diagnostics_snapshot(
     window: codeterm_client_shell::app_runtime::WebviewWindow,
 ) -> Option<codeterm_types::native_host::NativeWebviewDiagnosticsSnapshot> {

@@ -158,6 +158,31 @@ pub(crate) enum ExactServerShutdownUncertainty {
 pub(crate) struct NativeHostClientSlot(Arc<RwLock<Option<Arc<NativeHostClient>>>>);
 
 impl NativeHostClientSlot {
+    pub(crate) fn report_output_flow(
+        &self,
+        origin: Option<&str>,
+        update: codeterm_types::native_host::NativeOutputFlow,
+    ) -> Result<(), String> {
+        let client = self.0.read().clone().ok_or("Native client unavailable")?;
+        let view = client
+            .view
+            .lock()
+            .clone()
+            .ok_or("Native view unavailable")?;
+        if origin.is_some_and(|origin| origin != view.origin) {
+            return Err("Native view mismatch".into());
+        }
+        let result = client.try_send(Frame::OutputFlow {
+            connection: client.connection.clone(),
+            view_session: view.session_id,
+            update,
+        });
+        if result.is_err() {
+            client.retire();
+        }
+        result.map_err(|error| format!("Output flow unavailable: {error:?}"))
+    }
+
     pub(crate) async fn request_exact_server_shutdown(
         &self,
         api: &super::ServerApiAttachmentSlot,

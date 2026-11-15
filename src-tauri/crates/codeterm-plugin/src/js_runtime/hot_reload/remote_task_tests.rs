@@ -6,7 +6,7 @@ async fn remote_tasks_keep_the_call_bridge_without_advertising_an_html_view() {
     let manifest: PluginManifest = serde_json::from_value(json!({
         "id":"remote-call-fixture","version":"1.0.0","hostIoJobs":true,"displayName":"Fixture",
         "capabilities":{"chatBackend":{"spawnable":true},"remoteTask":{
-            "backend":"fixture","mode":"cloud","hostIoJobs":true,"displayName":"Cloud",
+            "backend":"fixture","mode":"cloud","displayName":"Cloud",
             "availability":{"status":"available"},"environments":[],
             "followUp":false,"cancel":false,"applyDiff":false
         }}

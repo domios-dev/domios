@@ -4,6 +4,7 @@ import type { ChatSessionIntent } from "./ChatSessionIntent";
 import type { ChatTimelineMarker } from "./ChatTimelineMarker";
 import type { InteractiveElement } from "./InteractiveElement";
 import type { MessageSegment } from "./MessageSegment";
+import type { SourceRecord } from "./SourceRecord";
 
 /**
  * A single chat message shaped like the frontend `ChatMessage`
@@ -14,7 +15,7 @@ import type { MessageSegment } from "./MessageSegment";
  * `id` must be stable across polls so the UI merges an updated message in
  * place instead of duplicating it.
  */
-export type ChatMsg = { id: string, runtimeSourceItemId?: string, inheritedFromSessionId?: string, type: string, content: string, segments?: Array<MessageSegment>, 
+export type ChatMsg = { id: string, sourceRecord?: SourceRecord, runtimeSourceItemId?: string, inheritedFromSessionId?: string, type: string, content: string, segments?: Array<MessageSegment>, 
 /**
  * The envelope grammar that produced `segments`; a client built for
  * another grammar refuses them instead of re-parsing `content`.

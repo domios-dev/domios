@@ -405,6 +405,12 @@ impl FlattenDeltaSink {
             range,
             positions,
         });
+        if let Some(incarnation) = provenance
+            .as_ref()
+            .and_then(|p| p.range.incarnation.as_ref())
+        {
+            super::stamp_record_incarnation(&mut out, &incarnation.id);
+        }
         reconcile_current_session_turns(
             &self.journal,
             self.ui.as_ref(),

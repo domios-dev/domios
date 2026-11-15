@@ -137,7 +137,8 @@ export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly
 
 export function sendForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend | undefined {
   if (row.type !== "user" && row.type !== "local_command") return;
-  return sends.find((send) => send.id === row.id || (row.correlationId != null && send.correlationId === row.correlationId))
+  return sends.find((send) => send.id === row.id || (row.correlationId != null && send.correlationId === row.correlationId
+    && (!send.matchedRow || matchesMatchedRow(row, send.matchedRow))))
     ?? sends.find((send) => send.matchedRow != null && matchesMatchedRow(row, send.matchedRow))
     ?? sends.find((send) => !send.matchedRow && deliveryState(send) !== "failed" && send.echo?.timestampMs === timestampMs(row.timestamp)
       && send.echo.content === normalizeChatText(row.content).toLowerCase());
@@ -169,7 +170,7 @@ export function deliveryProjectionSends(
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",
         flowAtMs: send.sentAtMs,
-        held: queuedIds.has(send.id) || send.status?.pending_reason === ACTIVE_TURN_HOLD,
+        held: deliveryState(send) !== "delivered" && (queuedIds.has(send.id) || send.status?.pending_reason === ACTIVE_TURN_HOLD),
       };
     });
 }

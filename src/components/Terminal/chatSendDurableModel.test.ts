@@ -151,6 +151,23 @@ test("dismissal echo fallback uses the transcript row identity without retaining
   assert.equal(JSON.stringify(marker).includes("HELLO"), false);
 });
 
+test("compacted JSONL dismissals keep exact record identity across reload", () => {
+  const record = { kind: "jsonl" as const, incarnation: "own-file", record_start: 90, record_row: 2 };
+  const marker = JSON.parse(JSON.stringify(encodeChatSendDismissalMarker("tab", {
+    id: "local", content: "private caption", sentAtMs: 1, dismissed: true,
+    matchedRow: { ordinal: 1, source: { source_session_id: "own", record } },
+  })));
+  const row = { id: "provider", type: "user" as const, sourceSessionId: "own", sourceRecord: record, content: "enriched caption" };
+  assert.equal(chatSendDismissalMatchesIdentity(marker, chatSendDismissalIdentity(row)!), true);
+  for (const changed of [{ ...row, sourceSessionId: "other" },
+    { ...row, sourceRecord: { ...record, incarnation: "replacement" } },
+    { ...row, sourceRecord: { ...record, record_start: 91 } },
+    { ...row, sourceRecord: { ...record, record_row: 3 } }]) {
+    assert.equal(chatSendDismissalMatchesIdentity(marker, chatSendDismissalIdentity(changed)!), false);
+  }
+  assert.equal(JSON.stringify(marker).includes("private caption"), false);
+});
+
 test("a precise matched row replaces the compact echo fallback", () => {
   const prior = encodeChatSendDismissalMarker("tab", {
     id: "send-id", content: "message", sentAtMs: 10, dismissed: true,
