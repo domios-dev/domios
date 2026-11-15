@@ -95,6 +95,27 @@ async function main() {
       assert(other.querySelector('[data-testid="chat-retry"]'), "other attach failures keep Retry");
     } finally { __setInvokeForTest(null); }
   });
+  await test("a failed new conversation folds into the one notice and its action is the retry", async () => {
+    const requests: string[] = [];
+    __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+      requests.push(command);
+      throw new Error("opaque restart refusal");
+    });
+    try {
+      const p = { ...tab("spawn_failed"), agent_runtime_state: { state: "degraded" as const, epoch: 1,
+        failureCode: "thread_not_found" as const, reason: "opaque missing detail" } };
+      const host = await render(<ChatSetupState tab={p} view={{ kind: "none" }} providerName="fixture" />);
+      const start = host.querySelector<HTMLButtonElement>('button[aria-label="Start a new conversation"]')!;
+      await act(async () => { start.click(); });
+      assert(host.querySelectorAll("section").length === 1, "one notice, not a second card");
+      assert(host.textContent?.includes("A new conversation couldn't start. Try again."), "the failure is the notice's cause line");
+      assert(host.querySelectorAll("details").length === 1, "one Details");
+      const raw = host.querySelector("details pre")?.textContent ?? "";
+      assert(raw.indexOf("opaque restart refusal") === 0 && raw.includes("opaque missing detail"), "the new failure leads, the original cause follows");
+      await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="Start a new conversation"]')!.click(); });
+      assert(requests.filter(command => command === "restart_agent_tab").length === 2, "pressing the action again retries");
+    } finally { __setInvokeForTest(null); }
+  });
   await test("unconfirmed launch offers a session-preserving restart", async () => {
     const requests: Array<{ command: string; args: unknown }> = [];
     __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {

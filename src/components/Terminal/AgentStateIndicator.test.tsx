@@ -82,6 +82,12 @@ async function main(): Promise<void> {
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "idle keeps exactly one status row mounted");
   assert(!idle.host.querySelector('[data-testid="agent-activity-slot"]'), "an idle row with nothing to say shows no activity dots");
   assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol · high", "idle row includes session-owned actual effort");
+  const lost = tabActivity({ agent_session_id: "session", agent_state: { state: "idle" },
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "session" },
+    agent_runtime_state: { state: "degraded", epoch: 1, failureCode: "thread_not_found", reason: "opaque" } }, "Idle");
+  await act(async () => idle.root.render(<AgentStateIndicator activity={lost} providerName="Codex" />));
+  assert(lost.kind === "failed" && idle.host.querySelector(".ct-agent-msg")?.textContent?.includes(lost.label), "the failed row names its failure");
+  assert(!idle.host.querySelector('[data-testid="agent-activity-slot"]'), "a failed row shows no resting activity dots");
 
   let stopCalls = 0;
   await act(async () => idle.root.render(

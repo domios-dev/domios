@@ -105,8 +105,9 @@ impl ServiceContext {
         }
         // A failed relaunch of the lost session must not rate-limit the owner's way out of it.
         let replaces_lost_session = fresh
-            && agent_runtime::engine::for_tab(tab_id)
-                .is_some_and(|session| agent_runtime::engine::session_load_refused(self, &session));
+            && agent_runtime::engine::for_tab(tab_id).is_some_and(|session| {
+                agent_runtime::engine::conversation_unavailable(self, &session)
+            });
         let claim = self.claim_restart(tab_id, replaces_lost_session)?;
         if snap
             .session_id

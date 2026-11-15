@@ -2,6 +2,10 @@ use super::*;
 use crate::agent::chat_types::ChatMsg;
 
 fn refused_load_fixture(saved: &[ChatMsg]) -> (RuntimeFixture, String, Value) {
+    refused_resume_fixture(saved, "session_load_refused")
+}
+
+fn refused_resume_fixture(saved: &[ChatMsg], code: &str) -> (RuntimeFixture, String, Value) {
     let methods = [
         "initialize",
         "openThread",
@@ -12,7 +16,7 @@ fn refused_load_fixture(saved: &[ChatMsg]) -> (RuntimeFixture, String, Value) {
     .into_iter()
     .map(|kind| (kind.to_owned(), json!([kind])))
     .collect::<serde_json::Map<String, Value>>();
-    let source = SOURCE.replace("code:'provider_refused'", "code:'session_load_refused'");
+    let source = SOURCE.replace("code:'provider_refused'", &format!("code:'{code}'"));
     let fixture = RuntimeFixture::prepared_with_runtime(
         &source,
         true,
@@ -436,4 +440,58 @@ fn fresh_runtime_restart_still_refuses_a_loaded_live_session() {
             fixture.service.mux.read().get_tab(&fixture.tab).unwrap()
         ));
     }
+}
+
+#[test]
+fn a_conversation_the_provider_lost_starts_fresh_without_force_and_never_by_itself() {
+    let saved = [ChatMsg {
+        id: "saved-turn".into(),
+        kind: "user".into(),
+        content: "opaque earlier turn".into(),
+        ..Default::default()
+    }];
+    let (fixture, old_thread, config) = refused_resume_fixture(&saved, "thread_not_found");
+    assert!(
+        agent_runtime::transport::launch(&fixture.service, PROVIDER, &fixture.tab, config).is_err()
+    );
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    assert!(agent_runtime::engine::conversation_unavailable(
+        &fixture.service,
+        &session
+    ));
+    assert!(!agent_runtime::engine::session_load_refused(
+        &fixture.service,
+        &session
+    ));
+    assert!(session
+        .process
+        .lock()
+        .clone()
+        .unwrap()
+        .ended
+        .borrow()
+        .is_none());
+    assert!(!fixture
+        .requests()
+        .iter()
+        .any(|request| request["method"] == "openThread"));
+    let outcome = fixture
+        .service
+        .agent_restart_observed_with_options(
+            &fixture.tab,
+            RestartOptions {
+                fresh: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(outcome.agent_ready);
+    assert!(!outcome.force);
+    assert_ne!(outcome.session_id.as_deref(), Some(old_thread.as_str()));
+    let opens = fixture
+        .requests()
+        .into_iter()
+        .filter(|request| request["method"] == "openThread")
+        .count();
+    assert_eq!(opens, 1);
 }
