@@ -91,6 +91,12 @@ impl ServiceContext {
         let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
             return "concierge_closed";
         };
+        if tab.team_id.is_some()
+            || tab.role.is_some()
+            || crate::service::general_agent::is_general_agent(&tab)
+        {
+            return "concierge_invalid";
+        }
         if self.validate_neighbor_gateway(tab_id).is_err() {
             return "concierge_crashed";
         }

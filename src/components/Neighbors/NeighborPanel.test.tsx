@@ -13,6 +13,7 @@ it.each([
   ["concierge_auth_needed", "Open sign-in", "open"],
   ["concierge_access_needed", "Review access", "access"],
   ["concierge_provider_refused", "Review provider", "open"],
+  ["concierge_invalid", "Ask General to fix", "setup"],
   ["concierge_crashed", "Open recovery", "open"],
   ["concierge_closed", "Set up with General", "setup"],
   ["concierge_missing", "Set up with General", "setup"],
@@ -31,12 +32,13 @@ it.each([
   document.body.append(host);
   const root = createRoot(host);
   cleanup = () => { act(() => root.unmount()); host.remove(); };
-  await act(async () => root.render(<ConciergeRecoveryNotice status={status} onSetUpWithGeneral={actions.setup}
+  await act(async () => root.render(<ConciergeRecoveryNotice status={status} friendName="Fixture friend" onSetUpWithGeneral={actions.setup}
     onOpenConcierge={actions.open} onReviewAccess={actions.access} />));
   const notice = host.querySelector('[role="status"]')!;
   const buttons = notice.querySelectorAll("button");
   expect(buttons).toHaveLength(1);
   expect(buttons[0].textContent).toBe(label);
+  if (state === "concierge_invalid") expect(notice.textContent).toContain("Fixture friend");
   await act(async () => buttons[0].click());
   expect(actions[target]).toHaveBeenCalledTimes(1);
   if (target === "open") expect(actions.open).toHaveBeenCalledWith("own-concierge");
@@ -48,7 +50,7 @@ it.each(["ready", "concierge_starting", "paused", "receiving_elsewhere", "not_re
   const root = createRoot(host);
   cleanup = () => act(() => root.unmount());
   const action = vi.fn();
-  await act(async () => root.render(<ConciergeRecoveryNotice status={{ state, gateway_tab: "tab", concierge_missing: false,
+  await act(async () => root.render(<ConciergeRecoveryNotice friendName="Fixture friend" status={{ state, gateway_tab: "tab", concierge_missing: false,
     pending_count: null, receiving_here: true, receiver_machine_label: null }} onSetUpWithGeneral={action}
     onOpenConcierge={action} onReviewAccess={action} />));
   expect(host.querySelector('[role="status"]')).toBeNull();

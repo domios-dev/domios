@@ -20,6 +20,28 @@ fn pending() -> (ServiceFixture, String, watch::Receiver<bool>) {
 }
 
 #[test]
+fn cli_login_pending_publication_reaches_the_runtime_event_bus() {
+    let (fixture, tab, _stopping) = pending();
+    let mut events = fixture.service.events.subscribe();
+    publish(&fixture.service, &tab);
+    let data = std::iter::from_fn(|| events.try_recv().ok())
+        .find_map(|event| match event.event {
+            codeterm_events::SystemEvent::Generic { event_type, data }
+                if event_type == "agent-runtime-state" && data["tab_id"] == tab =>
+            {
+                Some(data)
+            }
+            _ => None,
+        })
+        .expect("runtime state reaches the bus synchronously");
+    assert_eq!(data["tab_id"], tab);
+    assert_eq!(data["session_binding_nonce"], "own-nonce");
+    assert_eq!(data["state"]["state"], "loginPending");
+    assert_eq!(data["state"]["auth"], "signedOut");
+    close(&tab);
+}
+
+#[test]
 fn cli_login_requires_own_completion_and_verified_authentication() {
     let (fixture, tab, _stopping) = pending();
     finish(&fixture.service, &tab, "foreign-login", Ok(true));

@@ -164,7 +164,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
       <div className="neighbor-window__body">
       <SettingsPage title={name}>
         {error && <InlineErrorNotice error={error} operation={`managing ${name}`} role="alert" />}
-        {needsRecovery && concierge && <ConciergeRecoveryNotice status={concierge} onSetUpWithGeneral={onInterview}
+        {needsRecovery && concierge && <ConciergeRecoveryNotice status={concierge} friendName={name} onSetUpWithGeneral={onInterview}
           onOpenConcierge={tabId => focusTab(tabId, workspaceOfTab({ workspaces, tabs }, tabId))}
           onReviewAccess={() => permissions.current?.scrollIntoView({ block: "start", behavior: "smooth" })} />}
 
