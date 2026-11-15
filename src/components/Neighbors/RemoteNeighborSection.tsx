@@ -49,7 +49,7 @@ export function RemoteNeighborSection({ peer, uiFontScale, touchMode, activeChat
       return <li key={id}><SurfaceOwnerBlock ownerId={`neighbor:${id}`} attachments={tab && !elsewhere ? [tab] : []} compact={false}
         renderOwner={() => <FriendRow friendshipId={id} name={value.friend_display_name} photoURL={value.friend_photo_url ?? null}
           uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === id} paused={paused} line={line}
-          tone={!paused && receiver && !elsewhere && value.access === "paid" && lifecycle?.state === "ready" ? "ok" : needsAttention ? "progress" : "muted"}
+          tone={!paused && receiver && !elsewhere && value.access === "paid" && lifecycle?.state === "ready" ? "ok" : "muted"}
           items={[...(openThere ? [openThere] : []), { label: `${value.friend_display_name}'s settings`, onClick: () => openNeighborPage(id) }]} />}
         renderAttachment={tab => <ConciergeRow tab={tab} friendName={value.friend_display_name} text={text} touchMode={touchMode} paused={paused}
           active={tab.id === activeTabId} subline={paused ? "disabled" : needsAttention ? conciergeStatusLine(lifecycle) : undefined} working={!paused && !needsAttention && tabActivity(tab, statuses[tab.id]).active}
