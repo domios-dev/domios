@@ -14,11 +14,13 @@ import { missingConciergeLine } from "./useConciergeStatus";
 import { openNeighborPage } from "./neighborFocus";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
 import { plansAction } from "../billing/purchaseSwitch";
+import type { ProviderDescriptor } from "../../lib/types";
 
 const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
 const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
 const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, Set<(event: { payload: unknown }) => void>>, invoke: vi.fn(async () => undefined) }));
 const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid: "owner", email: "me@example.test", display_name: "Me", photo_url: null } } as Record<string, unknown>, signIn: vi.fn() }));
+const catalogue = vi.hoisted(() => ({ providers: [] as ProviderDescriptor[] }));
 const mux = vi.hoisted(() => ({
   workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
   tabs: { "tab-general": { id: "tab-general", title: "Main", protected: true }, "tab-gateway": { id: "tab-gateway", title: "Concierge" } },
@@ -32,6 +34,7 @@ vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async 
   return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
 }) }));
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
+vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: catalogue.providers, loading: false, error: null, refetch: vi.fn() }) }));
 vi.mock("../../store/multiplexer/hooks", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
 
 const { neighbor, signedIn, mounted, button, hasButton, emit, runtime, render, sentText, concierge, pendingClient } = createNeighborsViewFixture({ notices, transport, bridge, account, mux });
@@ -130,6 +133,32 @@ it("shows one recovery action in the friend's page when its bound concierge fail
   expect(hasButton("Open its chat")).toBe(false);
   expect(hasButton("Change agent")).toBe(false);
   expect(sentText()).toHaveLength(0);
+});
+
+it("uses the picker catalogue's model name without a normal ready badge or repeated concierge name", async () => {
+  transport.localFetch.mockImplementation(async () => new Response("{}", { status: 200 }));
+  const originalTab = { ...mux.tabs["tab-gateway"] };
+  catalogue.providers = [{ schema_version: 1, id: "fixture-harness", display_name: "Harness Display", transport: "pty",
+    system_prompt_delivery: "external", available_models: [{ id: "model-wire", display_name: "Model Display" }],
+    settings_schema: [], notifications_schema: [], supports_lazy_skills: false, has_hooks: false }];
+  Object.assign(mux.tabs["tab-gateway"], { agent_type: "fixture-harness", agent_session_model: "model-wire", agent_provider_resolved_model: "old-model" });
+  const runtimeClient = runtime({ pair: "tab-gateway" });
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ bindings: { pair: "tab-gateway" },
+    concierges: { pair: conciergeState({ state: "ready", gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true }) } }));
+  try {
+    await render("paid", { runtimeClient, friend: { ...neighbor, gateway_tab: "tab-gateway" } });
+    await act(async () => button("Ada, connected").click());
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Harness Display · Model Display");
+    expect(dialog.textContent).not.toContain("model-wire");
+    expect(dialog.textContent).not.toContain("in Concierge");
+    expect(dialog.textContent).not.toMatch(/\bready\b/);
+    expect(hasButton("Open its chat")).toBe(true);
+    expect(hasButton("Change agent")).toBe(true);
+  } finally {
+    catalogue.providers = [];
+    mux.tabs["tab-gateway"] = originalTab;
+  }
 });
 
 it("opens the conversation and the concierge's chat from the friend page", async () => {
