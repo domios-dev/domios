@@ -179,7 +179,7 @@ async fn backend_read_loop(
                     let eligible = {
                         let mux = svc.mux.read();
                         mux.tab_id_for_pty(&pty_id)
-                            .and_then(|id| mux.tabs.get(&id))
+                            .and_then(|id| mux.get_tab(&id))
                             .is_some_and(|tab| {
                                 codeterm_pty::pty::output_flow::renderer_may_pause(
                                     tab.agent_booting,

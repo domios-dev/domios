@@ -136,7 +136,7 @@ impl<F: EventHandler> EventHandler for RescanRelay<F> {
 thread_local! {
     /// Read by `RescanWatcher::new`, which the debouncer calls synchronously on
     /// this same thread while `build` is still on the stack.
-    pub(super) static RESCAN_SINK: RefCell<Option<RescanSink>> = RefCell::new(None);
+    pub(super) static RESCAN_SINK: RefCell<Option<RescanSink>> = const { RefCell::new(None) };
     pub(super) static COVERAGE_CHANGES: RefCell<Option<Arc<parking_lot::Mutex<crate::coverage::PendingChanges>>>> = RefCell::new(None);
 }
 
