@@ -10,6 +10,7 @@ import { resetNeighborReads } from "./neighborReads";
 import { missingConciergeLine } from "./useConciergeStatus";
 import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
+import { channelStatus, conciergeState } from "./neighborRuntime.testdata";
 
 const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
 const transport = vi.hoisted(() => ({ localFetch: vi.fn(), webJson: vi.fn() }));
@@ -119,6 +120,29 @@ it("keeps a remote friend visible while its concierge tab and receiver are unava
   await expandSection();
   expect(button("Open Known Friend").textContent).toContain("concierge location unknown");
   expect(hasButton("Open Known Friend's concierge")).toBe(false);
+});
+
+it.each(["local", "remote"])("updates the %s sidebar from concierge lifecycle evidence without treating paid access as readiness", async source => {
+  const { setRelayTarget } = await import("../../lib/webApi");
+  const receiver = { receiving_here: true, receiver_machine_label: "Desk", receiving_enabled: true, revision: 1, is_me: true };
+  const ready = conciergeState({ gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true, state: "ready" });
+  const list: NeighborList = { schema_version: 1, access: "paid", friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn() };
+  const runtimeClient = runtime({ pair: "tab-gateway" });
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ bindings: { pair: "tab-gateway" }, friend_receivers: { pair: receiver }, concierges: { pair: ready } }));
+  const projection = { pair: { tab_id: "tab-gateway", friend_display_name: "Ada", friend_photo_url: null, paused: false, access: "paid", receiver, concierge: ready } };
+  if (source === "remote") { setRelayTarget("remote", "Remote"); transport.webJson.mockResolvedValue(projection); }
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} />));
+  await expandSection();
+  expect(button("Open Ada").textContent).toContain("connected");
+  const failed = { ...ready, state: "concierge_auth_needed" };
+  transport.webJson.mockResolvedValue({ pair: { ...projection.pair, concierge: failed } });
+  await act(async () => emit("neighbor-concierge-status", { ...failed, friendship_id: "pair" }));
+  expect(button("Open Ada").textContent).toContain("concierge needs sign-in");
+  expect(button("Open Ada's concierge").textContent).toContain("concierge needs sign-in");
+  expect(button("Open Ada").textContent).not.toContain("connected");
 });
 
 it("updates the sidebar from an account push and removes the shared subscription on account reset", async () => {

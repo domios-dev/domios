@@ -12,6 +12,7 @@ import { openNeighborPage } from "./neighborFocus";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { friendReceivingLine } from "./neighborFriendReceiving";
 import { receiverOpenItem } from "./neighborReceiverLocation";
+import { conciergeNeedsAttention, conciergeStatusLine, parseConciergeStatus } from "./useConciergeStatus";
 
 export function RemoteNeighborSection({ peer, uiFontScale, touchMode, activeChat, activeTabId, onNavigateToTab }: {
   peer: string; uiFontScale?: number; touchMode: boolean; activeChat?: string | null; activeTabId?: string | null; onNavigateToTab?: () => void;
@@ -39,17 +40,19 @@ export function RemoteNeighborSection({ peer, uiFontScale, touchMode, activeChat
       const paused = value.paused === true;
       const receiver = value.receiver;
       const elsewhere = receiver != null && !receiver.receiving_here;
+      const lifecycle = parseConciergeStatus(value.concierge);
+      const needsAttention = conciergeNeedsAttention(lifecycle);
       const openThere = elsewhere ? receiverOpenItem(receiver, receiver.receiver_machine_label ?? "concierge machine") : null;
       const line = elsewhere ? friendReceivingLine(receiver) : paused ? `disabled${!receiver ? " · concierge location unknown" : ""}`
         : !receiver ? friendReceivingLine(null) : value.access === "locked" ? "paused by plan"
-        : !tab ? "no concierge here" : value.access === "paid" ? "connected" : "concierge assigned";
+        : conciergeStatusLine(lifecycle);
       return <li key={id}><SurfaceOwnerBlock ownerId={`neighbor:${id}`} attachments={tab && !elsewhere ? [tab] : []} compact={false}
         renderOwner={() => <FriendRow friendshipId={id} name={value.friend_display_name} photoURL={value.friend_photo_url ?? null}
           uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === id} paused={paused} line={line}
-          tone={!paused && receiver && !elsewhere && value.access === "paid" ? "ok" : "muted"}
+          tone={!paused && receiver && !elsewhere && value.access === "paid" && lifecycle?.state === "ready" ? "ok" : needsAttention ? "progress" : "muted"}
           items={[...(openThere ? [openThere] : []), { label: `${value.friend_display_name}'s settings`, onClick: () => openNeighborPage(id) }]} />}
         renderAttachment={tab => <ConciergeRow tab={tab} friendName={value.friend_display_name} text={text} touchMode={touchMode} paused={paused}
-          active={tab.id === activeTabId} subline={paused ? "disabled" : conciergeModelLine(tab)} working={!paused && tabActivity(tab, statuses[tab.id]).active}
+          active={tab.id === activeTabId} subline={paused ? "disabled" : needsAttention ? conciergeStatusLine(lifecycle) : conciergeModelLine(tab)} working={!paused && !needsAttention && tabActivity(tab, statuses[tab.id]).active}
           onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }} />} />
       </li>;
     })}</ul>}

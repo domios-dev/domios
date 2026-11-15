@@ -24,7 +24,7 @@ import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRun
 import { useNeighbors } from "./useNeighbors";
 import { clearNeighborCaches, lastKnownNeighborIdentity, readNeighborCache, writeNeighborCache, type CachedFriend, type CachedNeighbors } from "./neighborListCache";
 import { ActivityDots } from "../shared/ActivityDots";
-import { missingConciergeLine, useConciergeStatus } from "./useConciergeStatus";
+import { conciergeNeedsAttention, conciergeStatusLine, useConciergeStatus } from "./useConciergeStatus";
 import { resetNeighborStatus, useNeighborStatus } from "./neighborStatusStore";
 import { resetPausedFriends, setFriendPaused, usePausedFriends } from "./neighborPause";
 import { FriendReceiveConfirm, friendReceiveItems, friendReceivingLine, useFriendReceiveRequest } from "./neighborFriendReceiving";
@@ -126,25 +126,25 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
       const name = neighborName(friend);
       const conciergeId = allBindings[friend.friendship_id];
       const concierge = conciergeId ? tabs[conciergeId] : undefined;
-      // A bound concierge wins over a stale missing state.
-      const missing = enabled && !concierge && concierges[friend.friendship_id]?.concierge_missing ? concierges[friend.friendship_id] : null;
+      const lifecycle = concierges[friend.friendship_id];
+      const needsAttention = conciergeNeedsAttention(lifecycle);
       const paused = isPaused(friend.friendship_id, listedPaused(friend));
       // A friend received on another machine says where; its concierge there, not here, is the one that answers.
       const receiver = enabled ? friendReceiverState(status, friend.friendship_id) : null;
       const elsewhere = receiver !== null && !receiver.receiving_here;
       const line = loading ? "refreshing" : !enabled ? "off" : elsewhere ? friendReceivingLine(receiver)
         : paused ? `disabled${!receiver ? " · concierge location unknown" : ""}` : !receiver ? friendReceivingLine(null)
-        : missing ? missingConciergeLine(missing).replace("No concierge on this machine", "no concierge here") : paid ? "connected" : "paused by plan";
+        : paid ? conciergeStatusLine(lifecycle) : "paused by plan";
       const pauseItem = { label: `${paused ? "Enable" : "Disable"} ${name}`, onClick: () => togglePaused(friend, paused) };
       const receiveItems = friendReceiveItems(receiver, operation => receive.open(friend.friendship_id, operation));
       return <li key={friend.friendship_id}>
         <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge && !elsewhere ? [concierge] : []} compact={false}
           renderOwner={() => <FriendRow friendshipId={friend.friendship_id} name={name} photoURL={friend.photoURL}
             uiFontScale={uiFontScale} touchMode={touchMode} active={activeChat === friend.friendship_id} paused={paused} line={line}
-            tone={paused || !receiver || elsewhere ? "muted" : missing ? "progress" : !loading && enabled && paid ? "ok" : "muted"}
+            tone={paused || !receiver || elsewhere ? "muted" : needsAttention ? "progress" : !loading && enabled && paid && lifecycle?.state === "ready" ? "ok" : "muted"}
             items={[pauseItem, ...receiveItems, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }]} />}
           renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode} paused={paused} pauseItem={pauseItem} active={tab.id === activeTabId}
-            subline={paused ? "disabled" : conciergeModelLine(tab)} working={!paused && tabActivity(tab, tabStatuses[tab.id]).active}
+            subline={paused ? "disabled" : needsAttention ? conciergeStatusLine(lifecycle) : conciergeModelLine(tab)} working={!paused && !needsAttention && tabActivity(tab, tabStatuses[tab.id]).active}
             onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }}
             onChangeAgent={() => openNeighborPage(friend.friendship_id, "concierge")}
             onViewPermissions={() => openNeighborPage(friend.friendship_id, "permissions")}
