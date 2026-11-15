@@ -45,6 +45,26 @@ dry runs of the dispatching release head and `release-publish.yml` only rehearse
 hosted, secret-free checks. The trusted organization runner group must restrict every acquiring
 workflow to explicit reviewed release branch refs; unrestricted repository runners are forbidden.
 
+### Release environment approvals
+
+The `release` environment requires the owner's review. Two kinds of approval exist:
+
+- **Build approvals** cover the build, signing and dry-run packaging stages of an owner `release/X.Y.Z` push run.
+  The release Orchestrator holds the owner's standing permission to approve these as `rollacode`, without asking each
+  time. Before each approval, verify the run's event (`push`), branch and exact head SHA against the intended candidate,
+  then read back the approval:
+
+  ```bash
+  gh api repos/domios-dev/domios/actions/runs/RUN_ID/pending_deployments
+  GH_TOKEN="$(gh auth token --user rollacode)" gh api --method POST \
+    repos/domios-dev/domios/actions/runs/RUN_ID/pending_deployments \
+    -F 'environment_ids[]=ENV_ID' -f state=approved -f comment="dry-run packaging for SHA; not publication"
+  gh api repos/domios-dev/domios/actions/runs/RUN_ID/approvals
+  ```
+
+- **Publication** (the master merge of the release PR and its promotion) needs the owner's explicit GO for each release.
+  Never infer it from a build approval.
+
 ## Choose the release kind
 
 | Kind | Procedure |
