@@ -1,15 +1,11 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { Clock3 } from "lucide-react";
-import { DEV_BUILD } from "../../lib/devBuild";
 import { BackPill } from "../shared/BackPill";
-import { invoke, listen } from "../../lib/bridge";
-import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
-import type { CronJob } from "../../lib/types";
 import { CronDrawerSection } from "../MeshPanel/CronDrawerSection";
 import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
-import { CRON_ID_PREFIX, type Service } from "../MeshPanel/types";
-import type { MeshInventoryView } from "../MeshPanel/servicesView";
+import { useCronDetails } from "./useCronDetails";
+export { selectCronService } from "./useCronDetails";
 import { cronSelectionStore } from "./cronSelectionStore";
 import { HostAutomationGraph } from "../Automation/HostAutomationGraph";
 import { CronFlowView } from "./CronFlowView";
@@ -25,60 +21,14 @@ interface Props {
   onBack?: () => void;
 }
 
-// Same inventory projection MeshPanel renders from — never a hand-built capability map.
-export function selectCronService(inventory: MeshInventoryView, cronId: string): Service | null {
-  const resourceId = `${CRON_ID_PREFIX}${cronId}`;
-  return inventory.resources.find((resource) => resource.id === resourceId) ?? null;
-}
-
 export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel, onBack }: Props) {
   const [showAutomation, setShowAutomation] = useState(false);
-  const [job, setJob] = useState<CronJob | null>(null);
-  const [service, setService] = useState<Service | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const loadedCronId = useRef<string | null>(null);
-
-  const refresh = async () => {
-    try {
-      const [nextJob, inventory] = await Promise.all([
-        orchestrationTransport().cron_get({ id: cronId }),
-        invoke<MeshInventoryView>("mesh_inventory_list"),
-      ]);
-      setJob(nextJob);
-      setService(selectCronService(inventory, cronId));
-      setError(null);
-      loadedCronId.current = cronId;
-    } catch (cause) {
-      if (DEV_BUILD) console.debug("Background Cron details refresh failed", cause);
-      if (loadedCronId.current !== cronId) setError(String(cause));
-    }
-  };
-
-  useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | undefined;
-    if (loadedCronId.current !== cronId) {
-      setJob(null);
-      setService(null);
-      setError(null);
-    }
-    void refresh();
-    void listen("cron-run-finished", () => {
-      if (active) void refresh();
-    }).then((stop) => {
-      if (active) unlisten = stop;
-      else stop();
-    });
-    return () => {
-      active = false;
-      unlisten?.();
-    };
-  }, [cronId]);
+  const { job, service, error } = useCronDetails(cronId);
 
   const back = onBack
     ? <BackPill label={backLabel} onBack={onBack} />
     : <BackPill ariaLabel="Close cron details" onBack={() => cronSelectionStore.close()} />;
-  if (error && loadedCronId.current !== cronId) {
+  if (error && !job) {
     return <div className="h-full grid place-items-center gap-3 text-sm text-[var(--ct-red)]"><InlineErrorNotice error={error} operation="loading scheduled jobs" blocking />{back}</div>;
   }
   if (!job || !service) return <div className="p-4">{back}</div>;

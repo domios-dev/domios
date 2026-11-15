@@ -12,6 +12,145 @@ const NOW: u64 = 1_700_000_000_000;
 const DEADLINE: Duration = Duration::from_secs(3);
 
 #[test]
+fn session_owned_access_loss_ends_visible_round_and_rearms_its_cron() {
+    use crate::agent::chat_types::RichMessage;
+    use codeterm_provider_signals::{ApiErrorKind, SessionObservations};
+
+    let (fixture, id, cron) = fixture(false);
+    let service = &fixture.service;
+    assert!(service.set_ext(CuratorTabs::default()).is_ok());
+    let state = service.control_loop_show(&id).unwrap();
+    let job_id = state.cron_id.unwrap();
+    let owner = service.plan_store.get(&id).unwrap().owner.tab_id.unwrap();
+    let tab = {
+        let mut mux = service.mux.write();
+        let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+        let tab = mux.create_tab(&workspace).unwrap();
+        mux.link_pty(&tab, "curator-visible-pty".into());
+        let current = mux.get_tab_mut(&tab).unwrap();
+        current.role_profile = Some("curator".into());
+        current.agent_type = Some("provider-neutral".into());
+        current.agent_session_id = Some("own-session".into());
+        current.session_binding_nonce = Some("own-nonce".into());
+        current.reported_session_binding_nonce = Some("own-nonce".into());
+        tab
+    };
+    let mut job = cron.lock().get(&job_id).unwrap().clone();
+    job.last_run = Some(CronRunInfo {
+        run_id: "access-loss-run".into(),
+        started_at: NOW,
+        finished_at: None,
+        status: CronRunStatus::Running,
+        tab_id: Some(tab.clone()),
+        session_id: None,
+        cwd: None,
+        summary: None,
+        report_delivery: None,
+        cancel_reason: None,
+    });
+    commit(&cron, |_| {
+        Ok(Prepared::new(CronChange::Patch(job.clone()), ()))
+    })
+    .unwrap();
+    cron.lock().register_tab(&tab, &job_id, "access-loss-run");
+    service
+        .plan_store
+        .edit_plan_fixture(&id, NOW, |plan| {
+            plan.control_loop.running = Some(crate::plan::CuratorRun {
+                number: 1,
+                tab_id: Some(tab.clone()),
+                run_id: Some("access-loss-run".into()),
+                started_at: NOW,
+                ..Default::default()
+            });
+            plan.control_loop.next_at = None;
+            Ok(())
+        })
+        .unwrap();
+    service
+        .ext::<CuratorTabs>()
+        .0
+        .write()
+        .insert(tab.clone(), id.clone());
+    assert!(!service.agent_run_pty_map.lock().contains_key(&tab));
+    service.bind_curator_session(&tab).unwrap();
+    let watched = service
+        .run_watcher
+        .cron_launch_exit_eligibility(service, "curator-visible-pty")
+        .is_some();
+    let observation = |session: &str| RichMessage {
+        provider_session_id: Some(session.into()),
+        provider_observations: Some(SessionObservations {
+            api_error: Some(ApiErrorKind::Authentication),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    crate::service::provider_signals::apply(
+        service,
+        &tab,
+        "own-session",
+        "own-nonce",
+        &[observation("foreign")],
+    );
+    service.reconcile_curator_for_test(&id, NOW + 1);
+    assert!(service
+        .plan_store
+        .get(&id)
+        .unwrap()
+        .control_loop
+        .running
+        .is_some());
+    crate::service::provider_signals::apply(
+        service,
+        &tab,
+        "own-session",
+        "own-nonce",
+        &[observation("own-session")],
+    );
+    service.reconcile_curator_for_test(&id, NOW + 2);
+    let ended = service.plan_store.get(&id).unwrap().control_loop;
+    assert!(
+        ended.running.is_none(),
+        "access loss must end the round without waiting for its deadline"
+    );
+    let round = ended.last_round.unwrap();
+    assert_eq!(round.outcome, codeterm_types::plan::CuratorOutcome::Failed);
+    assert_eq!(round.reason, "provider_access_lost");
+    assert_eq!(round.duration_ms, 2);
+    assert!(
+        watched,
+        "the visible lifecycle PTY must own a watcher even without the hidden-run map"
+    );
+    assert!(service.mux.read().get_tab(&tab).is_none());
+    assert!(service.mux.read().get_tab(&owner).is_some());
+    assert!(cron.lock().get_tab_owner(&tab).is_none());
+    assert_eq!(
+        cron.lock()
+            .get(&job_id)
+            .unwrap()
+            .last_run
+            .as_ref()
+            .unwrap()
+            .status,
+        CronRunStatus::Failed
+    );
+    assert!(service
+        .run_watcher
+        .cron_launch_exit_eligibility(service, "curator-visible-pty")
+        .is_none());
+    service.reconcile_curator_for_test(&id, NOW + 3);
+    let resumed = service.plan_store.get(&id).unwrap().control_loop;
+    assert_eq!(resumed.consecutive_failures, 1);
+    assert!(resumed.owner_heartbeat());
+    assert!(resumed
+        .next_at
+        .is_some_and(|next| next > NOW && next <= NOW + 2 + 7_200_000));
+    assert_eq!(cron.lock().get(&job_id).unwrap().next_run, resumed.next_at);
+    assert!(cron.lock().get(&job_id).unwrap().enabled);
+}
+
+#[test]
 fn restored_orchestrator_recovers_unbound_fallback_only_while_runtime_is_live() {
     use crate::multiplexer::types::TabBacking;
     use crate::service::agent_runtime::engine;

@@ -139,6 +139,16 @@ impl RunWatcherRegistry {
         runs.remove(pty_id);
     }
 
+    pub(crate) fn mark_tab_completed_externally(&self, tab_id: &str) {
+        self.runs.lock().retain(|_, state| {
+            if state.tab_id != tab_id {
+                return true;
+            }
+            state.completed.store(true, Ordering::Release);
+            false
+        });
+    }
+
     /// Finalize a run as Failed immediately, for a definite failure (e.g. a
     /// genuine PTY write failure during task delivery) rather than waiting on
     /// the idle / hard-timeout backstop. No-op if the run isn't registered yet

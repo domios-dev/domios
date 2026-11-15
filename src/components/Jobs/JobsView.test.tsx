@@ -156,6 +156,18 @@ async function main() {
     }
   });
 
+  test("a cron deep link reads its detail without loading every workspace graph", async () => {
+    const transport = workspaceTransport();
+    const view = await mount(<JobsView solutionsApi={solutionsApi} workspaces={workspaces} teams={teams} adapter={transport}
+      initialCronId={teamCron.id} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />);
+    try {
+      await settle(() => view.host.querySelector('button[aria-label="Back to All jobs"]') !== null);
+      assert.equal(transport.reads, 0, "workspace job graphs are not needed by cron detail");
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to All jobs"]')!.click());
+      await settle(() => transport.reads > 0 && entry(view.host, `cron:${teamCron.id}`) !== null);
+    } finally { await view.close(); }
+  });
+
   test("Jobs import entry opens the placeholder form and cancel restores the list", async () => {
     const view = await mount(jobsView(workspaceTransport()));
     await act(async () => buttonWith(view.host, "Import Blueprint").click());
