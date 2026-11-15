@@ -15,6 +15,7 @@ export type NeighborProjection = Record<string, {
   paused: boolean;
   access: "paid" | "locked" | null;
   receiver: ReceiverState | null;
+  concierge?: unknown;
 }>;
 
 export function projectionForPeer(selected: string | null, source: string | null, projection: NeighborProjection): NeighborProjection {
@@ -60,11 +61,12 @@ export function useNeighborProjection(peer: string, tabKey: string): NeighborPro
       }).catch(() => {});
     };
     const keep = (stop: () => void) => { if (live) stops.push(stop); else stop(); };
-    for (const event of ["neighbor-agent-changed", "neighbor-friend-paused", "neighbors-changed", "account-changed", "account-mesh-changed"]) void listen(event, load).then(keep);
+    for (const event of ["neighbor-agent-changed", "neighbor-friend-paused", "neighbors-changed", "account-changed", "account-mesh-changed", "mesh-state-changed"]) void listen(event, load).then(keep);
     void listen<unknown>("neighbor-runtime-status", event => {
       const value = event.payload;
       if (receiverState(value) || (typeof value === "object" && value !== null && "receiver_unavailable" in value)) load();
     }).then(keep);
+    void listen("neighbor-concierge-status", load).then(keep);
     stops.push(onResync(load));
     load();
     return () => { live = false; controller?.abort(); stops.forEach(stop => stop()); };

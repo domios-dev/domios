@@ -6,7 +6,11 @@ import type { ChannelStatus, NeighborListenerEvent, NeighborRuntimeClient, Recei
 import { resetNeighborStatus } from "./neighborStatusStore";
 import { friendReceiverState, useReceiverState } from "./useReceiverState";
 
-vi.mock("../../lib/bridge", () => ({ listen: vi.fn(async () => () => {}) }));
+const events = vi.hoisted(() => ({ handlers: {} as Record<string, () => void> }));
+vi.mock("../../lib/bridge", () => ({ listen: vi.fn(async (name: string, handler: () => void) => {
+  events.handlers[name] = handler;
+  return () => { delete events.handlers[name]; };
+}) }));
 
 const receiver = (receiving_here: boolean, revision: number): ReceiverState =>
   ({ receiving_here, receiving_enabled: true, receiver_machine_label: "desk", revision, is_me: receiving_here });
@@ -190,4 +194,22 @@ it("replaces mounted consumers' shared status when the account generation resets
   await act(async () => resetNeighborStatus());
   expect(probe.seen[probe.seen.length - 1]).toBe(false);
   expect(runtime.status).toHaveBeenCalledTimes(2);
+});
+
+it("refreshes offline and expired receiver observations at the same assignment revision", async () => {
+  const known = { ...receiver(false, 8), receiver_installation_id: "installation", receiver_instance_id: "instance", receiver_online: true };
+  const initial = { ...status(false, 8), friend_receivers: { first: known } };
+  const offline = { ...initial, friend_receivers: { first: { ...known, receiver_online: false } } };
+  const expired = { ...initial, friend_receivers: { first: { ...known, receiver_online: false, receiving_enabled: false, not_receiving_reason: "membership_expired" as const } } };
+  const { runtime } = client(Promise.resolve(initial), Promise.resolve(offline), Promise.resolve(expired));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let seen: ReturnType<typeof useReceiverState> = null;
+  const Probe = () => { seen = useReceiverState(runtime, true, "first"); return null; };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<Probe />));
+  await act(async () => events.handlers["mesh-state-changed"]());
+  expect(seen).toMatchObject({ revision: 8, receiver_online: false, receiving_enabled: true });
+  await act(async () => events.handlers["account-mesh-changed"]());
+  expect(seen).toMatchObject({ revision: 8, receiver_instance_id: "instance", not_receiving_reason: "membership_expired", receiving_enabled: false });
 });

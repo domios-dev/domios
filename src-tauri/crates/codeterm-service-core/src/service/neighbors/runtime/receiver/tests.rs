@@ -42,7 +42,7 @@ async fn friend_receiver_fence_requires_current_enabled_installation_and_revisio
     }
     assert_eq!(
         ServiceContext::receiver_view(&status, &["machine".to_string()].into()),
-        json!({"receiving_here":true,"receiver_machine_label":"Desk","receiving_enabled":true,"revision":8,"is_me":true})
+        json!({"receiving_here":true,"receiver_machine_label":"Desk","receiver_installation_id":"machine","receiver_online":true,"receiving_enabled":true,"revision":8,"is_me":true})
     );
     assert!(serde_json::from_value::<NeighborRuntimeCommand>(
         json!({"operation":"enroll","takeover_confirmed":true})
@@ -89,11 +89,11 @@ fn an_installation_with_expired_membership_is_never_presented_as_the_receiver() 
     };
     assert_eq!(
         ServiceContext::receiver_view(&elsewhere("expired"), &lapsed),
-        json!({"receiving_here":false,"receiver_machine_label":"Other desk","receiving_enabled":false,"revision":4,"is_me":false,"not_receiving_reason":"membership_expired"})
+        json!({"receiving_here":false,"receiver_machine_label":"Other desk","receiver_installation_id":"expired","receiving_enabled":false,"revision":4,"is_me":false,"not_receiving_reason":"membership_expired"})
     );
     assert_eq!(
         ServiceContext::receiver_view(&elsewhere("current"), &lapsed),
-        json!({"receiving_here":false,"receiver_machine_label":"Other desk","receiving_enabled":true,"revision":4,"is_me":false})
+        json!({"receiving_here":false,"receiver_machine_label":"Other desk","receiver_installation_id":"current","receiving_enabled":true,"revision":4,"is_me":false})
     );
 }
 
@@ -206,4 +206,36 @@ fn listener_response_distinguishes_omitted_metadata_from_explicit_null() {
             {"friendship_id":"friend","status":"stopped","error":{"kind":"listen_retries_exhausted","last_error":null}}
         ])
     );
+}
+
+#[test]
+fn receiver_destination_uses_installation_identity_and_keeps_offline_assignment() {
+    let status = ReceiverStatus {
+        receiver_revision: 8,
+        receiver_installation_id: Some("receiver".into()),
+        receiver_encryption_key_id: Some("key".into()),
+        receiver_machine_label: Some("Desk".into()),
+        receiving_enabled: true,
+        is_me: false,
+    };
+    let row = |id: &str, online| codeterm_mesh::types::AccountInstallation {
+        installation_id: id.into(),
+        name: "Desk".into(),
+        active: true,
+        signed_out: false,
+        membership_expires_at: None,
+        endpoint_expires_at: None,
+        instance_id: Some(format!("instance-{id}")),
+        online,
+    };
+    let installations = [row("other", true), row("receiver", false)];
+    let offline = ServiceContext::receiver_state(&status, &BTreeSet::new(), &installations);
+    assert_eq!(offline.receiver_instance_id.as_deref(), Some("instance-receiver"));
+    assert_eq!(offline.receiver_online, Some(false));
+    assert!(offline.receiving_enabled);
+    assert_eq!(offline.revision, 8);
+    let expired = ServiceContext::receiver_state(&status, &["receiver".into()].into(), &installations);
+    assert!(!expired.receiving_enabled);
+    assert_eq!(expired.receiver_machine_label.as_deref(), Some("Desk"));
+    assert_eq!(expired.receiver_instance_id, offline.receiver_instance_id);
 }

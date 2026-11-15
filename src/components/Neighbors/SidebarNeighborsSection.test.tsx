@@ -10,6 +10,7 @@ import { resetNeighborReads } from "./neighborReads";
 import { missingConciergeLine } from "./useConciergeStatus";
 import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
+import { channelStatus, conciergeState } from "./neighborRuntime.testdata";
 
 const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
 const transport = vi.hoisted(() => ({ localFetch: vi.fn(), webJson: vi.fn() }));
@@ -54,7 +55,7 @@ it("groups the selected remote peer's concierge without reading or managing the 
   const friend = button("Open Remote Friend");
   expect(friend.getAttribute("aria-current")).toBe("page");
   expect(friend.querySelector("img")?.getAttribute("src")).toBe("https://example.test/friend.png");
-  expect(friend.textContent).toContain("connected");
+  expect(friend.textContent).toContain("concierge location unknown");
   const opened = vi.fn();
   window.addEventListener("codeterm:open-panel", opened);
   try {
@@ -78,7 +79,7 @@ it("groups the selected remote peer's concierge without reading or managing the 
   await act(async () => emit("neighbor-friend-paused", { friendship_id: "pair", paused: true }));
   expect(button("Open Remote Friend").querySelector("img")).toBeNull();
   expect(button("Open Remote Friend").textContent).toContain("RF");
-  expect(button("Open Remote Friend").textContent).toContain("disabled");
+  expect(button("Open Remote Friend").textContent).toContain("concierge location unknown");
   const receiver = { receiving_here: false, receiver_machine_label: "air", receiving_enabled: true, revision: 2, is_me: false };
   const moved = { tab_id: "tab-gateway", friend_display_name: "Remote Friend", friend_photo_url: null, paused: true, access: "paid", receiver };
   transport.webJson.mockResolvedValue({ pair: moved });
@@ -107,6 +108,41 @@ it("groups the selected remote peer's concierge without reading or managing the 
 it("keeps the sidebar Neighbors section away until there is a Neighbor", async () => {
   await renderSection([]);
   expect(document.querySelector('section[aria-label="Neighbors"]')).toBeNull();
+});
+
+it("keeps a remote friend visible while its concierge tab and receiver are unavailable", async () => {
+  const { setRelayTarget } = await import("../../lib/webApi");
+  setRelayTarget("remote", "Remote");
+  transport.webJson.mockResolvedValue({ pair: { tab_id: "absent-tab", friend_display_name: "Known Friend", friend_photo_url: null, paused: false, access: "paid", receiver: null } });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} />));
+  await expandSection();
+  expect(button("Open Known Friend").textContent).toContain("concierge location unknown");
+  expect(hasButton("Open Known Friend's concierge")).toBe(false);
+});
+
+it.each(["local", "remote"])("updates the %s sidebar from concierge lifecycle evidence without treating paid access as readiness", async source => {
+  const { setRelayTarget } = await import("../../lib/webApi");
+  const receiver = { receiving_here: true, receiver_machine_label: "Desk", receiving_enabled: true, revision: 1, is_me: true };
+  const ready = conciergeState({ gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true, state: "ready" });
+  const list: NeighborList = { schema_version: 1, access: "paid", friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn() };
+  const runtimeClient = runtime({ pair: "tab-gateway" });
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ bindings: { pair: "tab-gateway" }, friend_receivers: { pair: receiver }, concierges: { pair: ready } }));
+  const projection = { pair: { tab_id: "tab-gateway", friend_display_name: "Ada", friend_photo_url: null, paused: false, access: "paid", receiver, concierge: ready } };
+  if (source === "remote") { setRelayTarget("remote", "Remote"); transport.webJson.mockResolvedValue(projection); }
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} />));
+  await expandSection();
+  expect(button("Open Ada").textContent).toContain("connected");
+  const failed = { ...ready, state: "concierge_auth_needed" };
+  transport.webJson.mockResolvedValue({ pair: { ...projection.pair, concierge: failed } });
+  await act(async () => emit("neighbor-concierge-status", { ...failed, friendship_id: "pair" }));
+  expect(button("Open Ada").textContent).toContain("concierge needs sign-in");
+  expect(button("Open Ada's concierge").textContent).toContain("concierge needs sign-in");
+  expect(button("Open Ada").textContent).not.toContain("connected");
 });
 
 it("updates the sidebar from an account push and removes the shared subscription on account reset", async () => {
