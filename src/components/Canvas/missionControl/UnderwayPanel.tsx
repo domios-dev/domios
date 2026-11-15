@@ -53,7 +53,7 @@ function UnderwayRow({ tab, task, view, plans, refs, deepLinks }: {
       onClick={() => { if (task) refs.get(task.id)?.open?.(); }}>{task?.key ?? "–"}</button>
     <div className="mc-underway-track">
       {view?.status === "ready" && view.checklist?.proposal?.state === "proposed" && <span role="status">Not reviewed yet</span>}
-      {view?.status !== "ready" ? view?.status === "error" ? <ChecklistReadFailure onRetry={view.retry} /> : <span role="status"><span className="sr-only">Loading checklist</span><Skeleton inline><SkeletonBlock width={160} height={12} /></Skeleton></span>
+      {view?.status !== "ready" ? view?.status === "error" ? <ChecklistReadFailure error={view.error} onRetry={view.retry} /> : <span role="status"><span className="sr-only">Loading checklist</span><Skeleton inline><SkeletonBlock width={160} height={12} /></Skeleton></span>
         : items.length === 0 ? <span>No checklist</span>
         : <ol aria-label={`Checklist of ${tab.title}`}>{items.map((item, index) => <Segment key={item.id} item={item} index={index} total={items.length} plans={plans} tabId={tab.id} />)}</ol>}
     </div>

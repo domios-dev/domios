@@ -58,7 +58,7 @@ function AgentChecklistRegion({ id, tabId, title, plans }: { id: string; tabId: 
       {view.status === "loading" ? (
         <BusyState inline label="Loading checklist" phase="work" className="sidebar-agent-checklist__note" />
       ) : view.status === "error" ? (
-        <ChecklistReadFailure onRetry={view.retry} />
+        <ChecklistReadFailure error={view.error} onRetry={view.retry} />
       ) : items.length === 0 ? (
         <p className="sidebar-agent-checklist__note">No checklist</p>
       ) : (
