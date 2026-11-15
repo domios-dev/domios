@@ -31,7 +31,7 @@ import { useNeighborGateway } from "./neighborGateways";
 import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
 import { ConciergeRecoveryNotice } from "./NeighborPanel";
 import { NeighborComposer } from "./NeighborComposer";
-import { conciergeNeedsAttention, useConciergeStatus } from "./useConciergeStatus";
+import { conciergeNeedsAttention, conciergeStatusLine, useConciergeStatus } from "./useConciergeStatus";
 import { FINAL_REFUSALS, neighborRuntimeClient, NeighborRuntimeFailure, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
 import { readNeighborCache, type CachedFriend } from "./neighborListCache";
@@ -276,14 +276,15 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     } finally { setSending(false); }
   };
 
+  const headerStatus = removed ? "no longer connected" : !enabled ? "Neighbors is off" : locked ? "paused by plan"
+    : concierge?.state === "concierge_starting" || concierge?.state === "paused" ? conciergeStatusLine(concierge) : null;
   return <div className="neighbor-chat absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
     <div className={`${UI_PANEL.toolbar} ct-section-toolbar gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
       <button type="button" className="neighbor-chat__who ct-liquid-interactive" aria-label={`Open ${name}'s page`} onClick={() => openNeighborPage(friendship)}>
         <span className="neighbor-chat__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
         <strong className="min-w-0 truncate">{name}</strong>
       </button>
-      <span className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked && !removed ? "ok" : "muted"} aria-hidden="true" />
-        {removed ? "no longer connected" : !enabled ? "Neighbors is off" : locked ? "paused by plan" : "connected"}</span>
+      {headerStatus && <span className="neighbor-status"><span className="neighbor-dot" data-tone="muted" aria-hidden="true" />{headerStatus}</span>}
       {allowance && <span className="neighbor-note" title={`${name} allows you ${allowance.limit} messages a day`}>{allowance.limit}/day, {allowance.sent} sent today</span>}
       <span className="ml-auto" />
       <DropdownMenu menuLabel={`${name} actions`} items={[

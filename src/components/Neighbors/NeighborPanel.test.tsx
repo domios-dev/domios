@@ -15,7 +15,7 @@ it.each([
   ["concierge_provider_refused", "Review provider", "open"],
   ["concierge_invalid", "Ask General to fix", "setup"],
   ["concierge_crashed", "Open recovery", "open"],
-  ["concierge_closed", "Set up with General", "setup"],
+  ["concierge_closed", "Ask General to fix", "setup"],
   ["concierge_missing", "Set up with General", "setup"],
 ] as const)("%s survives parsing and exposes exactly one recovery action", async (state, label, target) => {
   const status: ConciergeStatus = {
@@ -38,7 +38,8 @@ it.each([
   const buttons = notice.querySelectorAll("button");
   expect(buttons).toHaveLength(1);
   expect(buttons[0].textContent).toBe(label);
-  if (state === "concierge_invalid") expect(notice.textContent).toContain("Fixture friend");
+  if (state === "concierge_invalid" || state === "concierge_closed") expect(notice.textContent).toContain("Fixture friend");
+  expect(notice.querySelector("details")?.open).toBe(false);
   await act(async () => buttons[0].click());
   expect(actions[target]).toHaveBeenCalledTimes(1);
   if (target === "open") expect(actions.open).toHaveBeenCalledWith("own-concierge");

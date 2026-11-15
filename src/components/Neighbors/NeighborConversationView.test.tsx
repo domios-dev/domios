@@ -120,13 +120,15 @@ it("updates recovery from concierge events and shows a closed notice despite the
       gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true }) }));
     const notice = host.querySelector('[role="status"][aria-label="Concierge needs attention"]')!;
     expect(notice.querySelectorAll("button")).toHaveLength(1);
+    expect(host.textContent).not.toMatch(/\bconnected\b|concierge starting/);
     await act(async () => button("Open recovery").click());
     expect(focused.mock.calls[0][0].detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
     expect(sentText()).toHaveLength(0);
     await act(async () => emit("neighbor-concierge-status", { friendship_id: "pair", ...conciergeState({ state: "concierge_closed",
       gateway_tab: null, concierge_missing: true, pending_count: 3, receiving_here: true }) }));
     expect(hasButton("Open recovery")).toBe(false);
-    expect(hasButton("Set up with General")).toBe(true);
+    expect(hasButton("Ask General to fix")).toBe(true);
+    expect(host.textContent).not.toMatch(/\bconnected\b|concierge starting/);
     expect(host.querySelector('[role="status"][aria-label="Concierge needs attention"]')?.querySelectorAll("button")).toHaveLength(1);
     expect(sentText()).toHaveLength(0);
     expect(runtimeClient.send).not.toHaveBeenCalled();
