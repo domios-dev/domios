@@ -9,7 +9,7 @@ describe("Jobs workspace graph reads", () => {
     const starts = scopes.map(() => deferred<void>());
     const reads = scopes.map(() => deferred<AutomationGraph>());
     let active = 0, peak = 0, issued = 0;
-    const load = vi.fn(async (scope: AutomationAttachment) => {
+    const load = vi.fn(async (_scope: AutomationAttachment) => {
       const index=issued++;
       active++; peak=Math.max(peak,active); starts[index].resolve();
       try { return await reads[index].promise; }

@@ -61,16 +61,17 @@ async function main() {
 
     for (const scope of [attachment, { ...attachment, team_id: ALL_JOBS_SCOPE }]) {
       const held = deferred<AutomationGraph>();
-      let transportSignal: AbortSignal | undefined;
+      const transportSignals: AbortSignal[] = [];
       configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, _path: string, _body?: unknown, opts?: { signal?: AbortSignal }) => {
-        transportSignal = opts?.signal;
+        if (opts?.signal) transportSignals.push(opts.signal);
         return held.promise as Promise<T>;
       }));
       const controller = new AbortController();
       const pending = hostAutomationAdapter.read(scope, controller.signal);
-      assert.equal(transportSignal?.aborted, false);
+      assert.equal(transportSignals.length, 1);
+      assert.equal(transportSignals[0].aborted, false);
       controller.abort();
-      assert.equal(transportSignal?.aborted, true, "unmount cancels the actual graph transport request");
+      assert.equal(transportSignals[0].aborted, true, "unmount cancels the actual graph transport request");
       held.resolve(fixtureGraph());
       await assert.rejects(pending);
     }
