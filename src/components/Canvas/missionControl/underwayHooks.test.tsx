@@ -88,3 +88,45 @@ test("resize controls clamp to the minimum and start from the default on remount
   assert.equal(host.querySelector("output")?.textContent, "null");
   await act(async () => root.unmount());
 });
+
+test("a large Team queues checklist reads and coalesces same-agent change bursts", async () => {
+  const ids = Array.from({ length: 64 }, (_, index) => `agent-${index}`);
+  const reads: string[] = [];
+  let active = 0;
+  let peak = 0;
+  let release: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let listener: ((event: { payload: unknown }) => void) | undefined;
+  __setInvokeForTest((async (_command: string, args?: Record<string, unknown>) => {
+    const id = String(args?.tabId);
+    reads.push(id);
+    active++;
+    peak = Math.max(peak, active);
+    try {
+      if (reads.length === 1) await held;
+      return { tab_id: id, generation: 1, revision: 4, items: [{ id: "step", title: id, state: "open" }] };
+    } finally { active--; }
+  }) as never);
+  __setListenForTest((async (_event: string, handler: (event: { payload: unknown }) => void) => {
+    listener = handler;
+    return () => {};
+  }) as never);
+  function Harness() {
+    const views = useAgentChecklists(ids);
+    return <div>{[...views].filter(([, view]) => view.status === "ready").length}</div>;
+  }
+  const host = document.createElement("div"); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Harness />));
+    assert.deepEqual(reads, ["agent-0"], "a Team larger than mux admission does not dispatch every row at once");
+    await act(async () => {
+      for (const revision of [2, 3, 4]) listener?.({ payload: { tab_id: "agent-0", generation: 1, revision } });
+    });
+    assert.equal(reads.length, 1, "events do not overlap the active read");
+    await act(async () => release?.());
+    assert.equal(host.textContent, "64");
+    assert.equal(peak, 1, "the Team uses one checklist read at a time");
+    assert.equal(reads.filter((id) => id === "agent-0").length, 2, "the changed active agent has one follow-up read");
+    assert.equal(reads.length, 65);
+  } finally { await act(async () => root.unmount()); __setInvokeForTest(null); __setListenForTest(null); }
+});

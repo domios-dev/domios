@@ -4,9 +4,24 @@ use super::*;
 enum RunEnd {
     ExecutionEnded,
     TabClosed,
+    ProviderAccessLost,
 }
 
 impl ServiceContext {
+    pub(super) fn fail_provider_blocked_curator(
+        &self,
+        plan_id: &str,
+        tab: &str,
+        run_id: &str,
+        now: u64,
+    ) -> Result<(), String> {
+        self.settle_curator_run_end(plan_id, tab, run_id, now, RunEnd::ProviderAccessLost)?;
+        self.close_tab_with_reason(
+            tab,
+            crate::multiplexer::types::TabCloseReason::AgentRunEnded,
+        )
+    }
+
     pub(crate) fn settle_curator_run(
         &self,
         plan_id: &str,
@@ -83,10 +98,7 @@ impl ServiceContext {
                 self.emit_cron_changed();
             }
         }
-        let pty = self.agent_run_pty_map.lock().get(tab).cloned();
-        if let Some(pty) = pty {
-            self.run_watcher.mark_completed_externally(&pty);
-        }
+        self.run_watcher.mark_tab_completed_externally(tab);
         index.0.write().remove(tab);
         Ok(())
     }
@@ -123,6 +135,7 @@ impl ServiceContext {
                         )
                     })?;
                 let closed = matches!(end, RunEnd::TabClosed);
+                let access_lost = matches!(end, RunEnd::ProviderAccessLost);
                 let deadline = !closed && now.saturating_sub(run.started_at) >= CURATOR_TIMEOUT_MS;
                 let round = CuratorRound {
                     run_id: run.run_id.clone(),
@@ -130,12 +143,14 @@ impl ServiceContext {
                     number: run.number,
                     started_at: run.started_at,
                     ended_at: now,
-                    outcome: if closed || deadline {
+                    outcome: if !access_lost && (closed || deadline) {
                         codeterm_types::plan::CuratorOutcome::Partial
                     } else {
                         codeterm_types::plan::CuratorOutcome::Failed
                     },
-                    reason: if closed {
+                    reason: if access_lost {
+                        "provider_access_lost"
+                    } else if closed {
                         "tab_closed"
                     } else if deadline {
                         "deadline"
@@ -143,7 +158,9 @@ impl ServiceContext {
                         "run_ended_without_finish"
                     }
                     .into(),
-                    summary: if closed {
+                    summary: if access_lost {
+                        "Curator failed because provider access was lost"
+                    } else if closed {
                         "Curator tab closed without finish"
                     } else if deadline {
                         "Curator deadline reached"

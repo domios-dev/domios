@@ -24,10 +24,18 @@ async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding(
     fixture.service.remember_neighbor_names(&list);
     fixture.service.remember_neighbor_registry(&list);
     let mut projection = fixture.service.neighbor_sidebar_projection().await.unwrap();
-    let concierge = projection[&friendship].as_object_mut().unwrap().remove("concierge").unwrap();
+    let concierge = projection[&friendship]
+        .as_object_mut()
+        .unwrap()
+        .remove("concierge")
+        .unwrap();
     assert_eq!(concierge["gateway_tab"], tab);
     assert_eq!(concierge["receiving_here"], true);
-    let unbound_concierge = projection["b".repeat(64)].as_object_mut().unwrap().remove("concierge").unwrap();
+    let unbound_concierge = projection["b".repeat(64)]
+        .as_object_mut()
+        .unwrap()
+        .remove("concierge")
+        .unwrap();
     assert!(unbound_concierge["gateway_tab"].is_null());
     assert_eq!(unbound_concierge["receiving_here"], false);
     assert_eq!(
@@ -79,13 +87,20 @@ async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding(
     let projection = fixture.service.neighbor_sidebar_projection().await.unwrap();
     assert!(projection[&friendship]["friend_photo_url"].is_null());
     assert!(projection[&friendship]["access"].is_null());
-    fixture.service.set_neighbor_friend_receiver_for_test(&friendship, None, 3);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&friendship, None, 3);
     let unknown = fixture.service.neighbor_sidebar_projection().await.unwrap();
     assert_eq!(unknown[&friendship]["friend_display_name"], "Opaque Friend");
     assert!(unknown[&friendship]["tab_id"].is_null());
     assert!(unknown[&friendship]["receiver"].is_null());
-    fixture.service.remember_neighbor_names(&json!({"friends":[]}));
-    assert_eq!(fixture.service.neighbor_sidebar_projection().await.unwrap(), json!({}));
+    fixture
+        .service
+        .remember_neighbor_names(&json!({"friends":[]}));
+    assert_eq!(
+        fixture.service.neighbor_sidebar_projection().await.unwrap(),
+        json!({})
+    );
 }
 
 #[test]

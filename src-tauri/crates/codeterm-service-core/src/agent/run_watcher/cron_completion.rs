@@ -46,6 +46,15 @@ pub(super) struct PendingCompletion {
 }
 
 impl RunWatcherRegistry {
+    pub(crate) fn ensure_cron_watcher(
+        &self,
+        svc: &ServiceContext,
+        tab: &str,
+        run: &str,
+    ) -> Result<(), String> {
+        self.cron_completion_state(svc, tab, run).map(|_| ())
+    }
+
     pub fn request_cron_completion(
         &self,
         svc: &ServiceContext,

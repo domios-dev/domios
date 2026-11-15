@@ -103,6 +103,11 @@ impl ServiceContext {
                         {
                             pending.extend(plans.iter().cloned())
                         }
+                        SystemEvent::Generic { event_type, .. }
+                            if event_type == "provider-access-lost" =>
+                        {
+                            pending.extend(plans.iter().cloned())
+                        }
                         _ => {}
                     },
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
@@ -175,7 +180,38 @@ impl ServiceContext {
             .as_ref()
             .and_then(|run| run.tab_id.as_deref())
         {
-            let missing = { self.mux.read().get_tab(tab).is_none() };
+            let (missing, access_lost) = {
+                let mux = self.mux.read();
+                let current = mux.get_tab(tab);
+                (
+                    current.is_none(),
+                    current.is_some_and(|tab| {
+                        tab.provider_signals.access_lost()
+                            && plan.control_loop.running.as_ref().is_some_and(|run| {
+                                run.session_id.as_ref().is_none_or(|session| {
+                                    tab.agent_session_id.as_ref() == Some(session)
+                                }) && run.binding_nonce.as_ref().is_none_or(|nonce| {
+                                    tab.session_binding_nonce.as_ref() == Some(nonce)
+                                })
+                            })
+                    }),
+                )
+            };
+            if access_lost {
+                let tab = tab.to_string();
+                let run_id = plan
+                    .control_loop
+                    .running
+                    .as_ref()
+                    .and_then(|run| run.run_id.clone());
+                drop(read);
+                if let Some(run_id) = run_id {
+                    return self
+                        .fail_provider_blocked_curator(id, &tab, &run_id, now)
+                        .map_err(crate::service::plan::PlanError::Io);
+                }
+                return Ok(());
+            }
             if missing {
                 let tab = tab.to_string();
                 drop(read);

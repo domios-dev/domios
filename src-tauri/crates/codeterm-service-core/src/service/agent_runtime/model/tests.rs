@@ -1,4 +1,25 @@
 use super::*;
+
+#[test]
+fn missing_neighbor_grant_publishes_structured_access_recovery_only_in_its_own_epoch() {
+    let mut state = RuntimeState::unloaded(Some("own-thread".into()));
+    let epoch = state.begin();
+    let failure =
+        RuntimeFailure::Refused(codeterm_neighbors::Error::RestoreGrantRequired.to_string());
+    assert!(!state.degrade(epoch + 1, &failure));
+    assert!(state.snapshot().access_failure.is_none());
+    assert!(state.degrade(epoch, &failure));
+    assert_eq!(
+        state.snapshot().access_failure.as_deref(),
+        Some("neighbor_restore_grant_required")
+    );
+    assert!(state.load(epoch, "own-thread"));
+    assert!(state.snapshot().access_failure.is_none());
+    assert!(state.degrade(epoch, &failure));
+    state.begin();
+    assert!(state.snapshot().access_failure.is_none());
+}
+
 #[test]
 fn sign_in_required_waits_in_the_owned_epoch_and_preserves_thread_identity() {
     let mut state = RuntimeState::unloaded(Some("opaque-thread".into()));

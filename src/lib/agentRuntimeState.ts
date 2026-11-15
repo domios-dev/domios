@@ -6,6 +6,7 @@ export interface AgentRuntimeState {
   controls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   authentication?: import("@codeterm/plugin-sdk").RuntimeAuthentication;
   notice?: string | null;
+  accessFailure?: string | null;
   requiredSecrets?: string[];
   /** Declared sign-in methods that take an API key, which the host stores and injects. */
   apiKeyMethods?: string[];

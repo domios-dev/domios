@@ -8,6 +8,7 @@ import { ChatSetupState } from "./ChatSetupState";
 import { chatLaunchFailureDescription, chatSetupView } from "./chatSetupModel";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { tabActivity } from "../../lib/tabActivity";
+import { takeNeighborFocus } from "../Neighbors/neighborFocus";
 
 const reason = "SessionBindingNotObserved: launch readiness deadline elapsed";
 const starting: Tab = { id: "launch-fixture", title: "Fixture", cwd: "/fixture", pty_id: "own-pty", tab_type: "Terminal",
@@ -111,5 +112,41 @@ it("replaces startup in one render with host cause and working terminal and rest
     await act(async () => { root.unmount(); });
     host.remove();
     __setInvokeForTest(null);
+  }
+});
+
+it("opens the affected Neighbor's permissions once instead of retrying a refused chat connection", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const reason = "Opaque refused launch";
+  const tab: Tab = {
+    id: "concierge", title: "Concierge", cwd: "/fixture", pty_id: null, tab_type: "Terminal", agent_type: "fixture",
+    neighbor_authority: { uid: "owner", friendship_id: "a".repeat(64), root_tab_id: null },
+    agent_runtime_state: { state: "degraded", epoch: 1, failureCode: "provider_refused", accessFailure: "neighbor_restore_grant_required", reason },
+  };
+  const retry = vi.fn();
+  const opened = vi.fn();
+  window.addEventListener("codeterm:open-panel", opened);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<ChatSetupState tab={tab} providerName="Fixture" onRetry={retry}
+      view={{ kind: "attach_failed", reason: "/api/tabs/concierge/chat-raw/start -> HTTP 409" }} />));
+    expect(host.querySelector('[role="progressbar"]')).toBeNull();
+    expect(host.textContent).not.toMatch(/HTTP 409|chat-raw|platform/);
+    const actions = host.querySelectorAll("button");
+    expect(actions).toHaveLength(1);
+    expect(actions[0].getAttribute("aria-label")).toBe("Review concierge access");
+    await act(async () => actions[0].click());
+    expect(takeNeighborFocus()).toEqual({ id: tab.neighbor_authority!.friendship_id, section: "permissions" });
+    expect(opened).toHaveBeenCalledOnce();
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbors" });
+    expect(retry).not.toHaveBeenCalled();
+    await act(async () => root.render(<ChatSetupState tab={{ ...tab, agent_runtime_state: { state: "loaded", epoch: 2 } }} providerName="Fixture" view={{ kind: "none" }} />));
+    expect(host.querySelector('[data-testid="chat-neighbor-access-required"]')).toBeNull();
+  } finally {
+    window.removeEventListener("codeterm:open-panel", opened);
+    await act(async () => root.unmount());
+    host.remove();
   }
 });
