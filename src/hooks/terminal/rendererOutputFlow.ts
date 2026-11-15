@@ -6,45 +6,75 @@ export function rendererFlowEligible(tab: { agent_booting?: boolean; agent_type?
   return tab.boot_stage == null || ["shell_ready", "pty_reattached", "agent_ready"].includes(tab.boot_stage);
 }
 
+export const OUTPUT_ACK_BYTES = 32 * 1024;
+
 export function createRendererOutputFlow(
   tabId: string,
   ptyId: string,
   attachment: string,
-  send: (update: NativeOutputFlowUpdate) => Promise<void>,
+  send: (update: NativeOutputFlowUpdate) => Promise<boolean>,
 ) {
   let enabled = true;
   let attached = false;
   let sending = false;
-  let failed = false;
   let release = false;
+  let revision = 0;
+  let acknowledged: number | undefined;
+  let attempted: number | undefined;
   let latest: number | undefined;
   let pending: number | undefined;
+  const detach = (): NativeOutputFlowUpdate => ({ action: "detach", pty_id: ptyId, attachment });
 
   const drain = async () => {
-    if (sending || failed) return;
+    if (sending) return;
     sending = true;
+    let releasing = false;
     try {
       while (release || pending !== undefined) {
         if (release) {
+          releasing = true;
           release = false;
           attached = false;
-          await send({ action: "detach", pty_id: ptyId, attachment });
+          acknowledged = undefined;
+          await send(detach());
+          releasing = false;
         } else {
+          const watermark = attached ? acknowledged : attempted;
+          if (watermark !== undefined && pending! - watermark < OUTPUT_ACK_BYTES) break;
           const offset = pending!;
+          attempted = offset;
           pending = undefined;
-          const attach = !attached;
-          attached = true;
-          await send({ action: "rendered", tab_id: tabId, pty_id: ptyId, attachment, offset, attach });
+          const current = revision;
+          const accepted = await send({ action: "rendered", tab_id: tabId, pty_id: ptyId, attachment, offset, attach: !attached });
+          if (current === revision) {
+            attached = accepted;
+            acknowledged = accepted ? offset : undefined;
+          }
         }
       }
     } catch {
-      failed = true;
+      attached = false;
+      acknowledged = undefined;
       pending = undefined;
+      release = true;
+      if (!releasing) {
+        try { await send(detach()); release = false; } catch { release = true; }
+      }
     } finally {
       sending = false;
     }
   };
 
+  const suspend = () => {
+    revision++;
+    attempted = undefined;
+    enabled = false;
+    attached = false;
+    acknowledged = undefined;
+    pending = undefined;
+    release = true;
+    void drain();
+  };
   return {
     rendered(offset: number) {
       if (!Number.isSafeInteger(offset) || offset < 0) return;
@@ -53,14 +83,26 @@ export function createRendererOutputFlow(
       pending = latest;
       void drain();
     },
-    suspend() {
-      enabled = false;
-      pending = undefined;
-      release = true;
+    suspend,
+    refresh() {
+      revision++;
+      attached = false;
+      acknowledged = undefined;
+      attempted = undefined;
+      pending = enabled ? latest : undefined;
       void drain();
     },
+    reset() {
+      latest = undefined;
+      suspend();
+    },
     resume() {
-      enabled = true;
+      if (!enabled) {
+        enabled = true;
+        attempted = undefined;
+        attached = false;
+        acknowledged = undefined;
+      }
       pending = latest;
       void drain();
     },

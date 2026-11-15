@@ -38,7 +38,6 @@ where
         let Some(service) = service else {
             return;
         };
-        let mux = service.mux.read();
         let mut state = self.state.lock();
         if self.retired.load(Ordering::Acquire)
             || self.active_generation.load(Ordering::Acquire) != self.connection.generation
@@ -76,6 +75,18 @@ where
                 if cfg!(windows) {
                     return;
                 }
+                drop(state);
+                let mux = service.mux.read();
+                let mut state = self.state.lock();
+                if self.retired.load(Ordering::Acquire)
+                    || self.active_generation.load(Ordering::Acquire) != self.connection.generation
+                    || !state
+                        .view
+                        .as_ref()
+                        .is_some_and(|binding| binding.session_id == view)
+                {
+                    return;
+                }
                 let Some(tab) = mux.get_tab(&tab_id) else {
                     return;
                 };
@@ -94,36 +105,65 @@ where
                 let Some(current_generation) = service.screen_state.pty_generation(&pty_id) else {
                     return;
                 };
-                if attach {
-                    if state.output_attachments.len() >= MAX_PRIMARY_OUTPUT_ATTACHMENTS
-                        && !state.output_attachments.contains_key(&pty_id)
-                    {
-                        return;
-                    }
-                    if state
-                        .output_attachments
-                        .get(&pty_id)
-                        .is_none_or(|(owner, generation)| {
-                            *owner != attachment || *generation != current_generation
-                        })
-                    {
-                        flow.detach(view, None);
-                        state
-                            .output_attachments
-                            .insert(pty_id.clone(), (attachment, current_generation));
-                    }
+                let decision = attachment_decision(
+                    &mut state.output_attachments,
+                    &pty_id,
+                    attachment,
+                    current_generation,
+                    attach,
+                );
+                if decision == AttachmentDecision::Reject {
+                    return;
                 }
-                let Some(&(owner, generation)) = state.output_attachments.get(&pty_id) else {
-                    return;
-                };
-                if owner != attachment || generation != current_generation {
-                    return;
+                if decision == AttachmentDecision::Attach {
+                    flow.detach(view, None);
                 }
                 let now = Instant::now();
-                if attach || !flow.acknowledge(view, attachment, offset, now) {
-                    flow.attach(generation, view, attachment, offset, now);
+                if decision == AttachmentDecision::Attach
+                    || !flow.acknowledge(view, attachment, offset, now)
+                {
+                    flow.attach(current_generation, view, attachment, offset, now);
                 }
             }
         }
     }
 }
+
+#[derive(Debug, PartialEq)]
+enum AttachmentDecision {
+    Attach,
+    Acknowledge,
+    Reject,
+}
+
+fn attachment_decision(
+    attachments: &mut std::collections::HashMap<String, (Uuid, u64)>,
+    pty_id: &str,
+    attachment: Uuid,
+    generation: u64,
+    attach: bool,
+) -> AttachmentDecision {
+    if attachment.is_nil() {
+        return AttachmentDecision::Reject;
+    }
+    if !attach {
+        let Some(&(owner, previous_generation)) = attachments.get(pty_id) else {
+            return AttachmentDecision::Reject;
+        };
+        if owner != attachment {
+            return AttachmentDecision::Reject;
+        }
+        if previous_generation == generation {
+            return AttachmentDecision::Acknowledge;
+        }
+    } else if attachments.len() >= MAX_PRIMARY_OUTPUT_ATTACHMENTS
+        && !attachments.contains_key(pty_id)
+    {
+        return AttachmentDecision::Reject;
+    }
+    attachments.insert(pty_id.to_string(), (attachment, generation));
+    AttachmentDecision::Attach
+}
+
+#[cfg(test)]
+mod tests;

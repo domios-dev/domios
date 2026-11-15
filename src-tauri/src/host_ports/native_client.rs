@@ -177,9 +177,6 @@ impl NativeHostClientSlot {
             view_session: view.session_id,
             update,
         });
-        if result.is_err() {
-            client.retire();
-        }
         result.map_err(|error| format!("Output flow unavailable: {error:?}"))
     }
 
@@ -1094,52 +1091,4 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn startup_diagnostic_never_serializes_error_text_or_request_data() {
-        let error = std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "secret callback-url bearer-token request-body",
-        );
-        let value = bootstrap::diagnostic_payload(
-            ClientStartupStage::Install,
-            "io_error",
-            Some(&error),
-            None,
-        );
-        let encoded = value.to_string();
-        assert!(!encoded.contains("secret"));
-        assert!(!encoded.contains("callback-url"));
-        assert_eq!(value["io_kind"], "PermissionDenied");
-        assert_eq!(value["stage"], "install");
-        assert!(encoded.len() < 256);
-    }
-
-    #[test]
-    fn component_manifest_rejects_absolute_and_parent_server_paths() {
-        assert!(!bootstrap::valid_server_relative_path(Path::new("/server")));
-        assert!(!bootstrap::valid_server_relative_path(Path::new(
-            "../server"
-        )));
-        assert!(bootstrap::valid_server_relative_path(Path::new(
-            "bin/domios-server"
-        )));
-    }
-
-    #[test]
-    fn digest_format_requires_exact_lowercase_sha256() {
-        assert!(bootstrap::valid_digest(&"a".repeat(64)));
-        assert!(!bootstrap::valid_digest(&"A".repeat(64)));
-        assert!(!bootstrap::valid_digest(&"a".repeat(63)));
-    }
-
-    #[test]
-    fn shutdown_cleanup_completion_rejects_protocol_one() {
-        assert!(bootstrap::supports_shutdown_completion_protocol(
-            codeterm_types::server_bootstrap::BOOTSTRAP_PROTOCOL
-        ));
-        assert!(!bootstrap::supports_shutdown_completion_protocol(1));
-    }
-}
+mod tests;

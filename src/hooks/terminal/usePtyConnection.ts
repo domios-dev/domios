@@ -173,11 +173,15 @@ export function usePtyConnection({
         if (document.visibilityState === "hidden" || !document.hasFocus()) flow?.suspend();
         else flow?.resume();
       };
+      const leaveNativeFocus = flow ? nativeBridge.terminalOutputFocus?.(focused => {
+        if (focused) { updateVisibility(); flow.refresh(); } else flow.suspend();
+      }) : undefined;
       updateVisibility();
       document.addEventListener("visibilitychange", updateVisibility);
       window.addEventListener("blur", updateVisibility);
       window.addEventListener("focus", updateVisibility);
       releaseFlow = () => {
+        leaveNativeFocus?.();
         flow?.suspend();
         document.removeEventListener("visibilitychange", updateVisibility);
         window.removeEventListener("blur", updateVisibility);
@@ -186,6 +190,7 @@ export function usePtyConnection({
       const sink: TabOutputSink = {
         onRendered(offset) { if (!disposed) flow?.rendered(offset); },
         onDisconnected() { flow?.suspend(); },
+        onReset() { flow?.reset(); },
         onStarting() {
           flow?.suspend();
           if (disposed || framed) return;
