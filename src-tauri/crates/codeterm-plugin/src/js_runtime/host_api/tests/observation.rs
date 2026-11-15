@@ -9,18 +9,26 @@ fn durable_media_observation_denies_real_effect_admission_and_preserves_reads() 
     std::fs::write(&path, "retained").unwrap();
     let missing = temp.path().join("never-created");
     let vm = vm_with(
-        r#"module.exports={
-        attack(p,d){ return {
-            read:host.readFile(p),write:host.writeFile(p,'changed'),atomic:host.writeFileAtomic(p,'changed'),
-            remove:host.removeFile(p),mkdir:host.makeDirs(d),temp:host.writeTempFile('changed','.txt'),lock:host.lockFile(p),
-            exec:JSON.parse(host.exec(JSON.stringify({bin:'never-execute-fixture',args:[]}))),queuedExec:host.exec.start({bin:'never-execute-fixture',args:[]}),
-            fetch:JSON.parse(host.fetch(JSON.stringify({url:'https://example.invalid/'}))),stream:host.fetch.stream({url:'https://example.invalid/'}),
-            secret:host.secretSet('fixture','changed'),worker:host.worker.start({}),agent:host.agent.spawn('workspace',{}),
-            capture:host.localRecording.setEnabled(true)
-        }; },
-        queued(){return host.fetch.async({url:'https://example.invalid/'},function(result){return {result:result,write:host.writeTempFile('changed','.txt')};});},
-        write(p){return host.writeFile(p,'normal');}
-    };"#,
+        r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
+module.exports = {
+    attack(p, d) {
+        return host.io.run((function* () {
+            return {
+                read: (yield { op: "readFile", path: p }), write: (yield { op: "writeFile", path: p, contents: 'changed' }), atomic: (yield { op: "writeFileAtomic", path: p, contents: 'changed' }),
+                remove: (yield { op: "removeFile", path: p }), mkdir: (yield { op: "makeDirs", path: d }), temp: (yield { op: "writeTempFile", contents: 'changed', suffix: '.txt' }), lock: (yield { op: "lockFile", path: p }),
+                exec: (yield* attempt({op:"execStart", options:{bin:"never-execute-fixture",args:[]}})), queuedExec: (yield* attempt({ op: "execStart", options: { bin: 'never-execute-fixture', args: [] } })),
+                fetch: (yield* attempt({op:"fetchStart", options:{url:"https://example.invalid/"}})), stream: (yield* attempt({ op: "fetchStreamStart", options: { url: 'https://example.invalid/' } })),
+                secret: (yield { op: "secretSet", name: 'fixture', value: 'changed' }), worker: (yield* attempt({ op: "workerStart", options: {} })), agent: (yield* attempt({ op: "agentSpawn", workspace: 'workspace', options: {} })),
+                capture: (yield* attempt({ op: "localRecordingSetEnabled", enabled: true }))
+            };
+        }).call(this));
+    },
+    queued() { return host.fetch.async({url:"https://example.invalid/"},function*(result){return {result:result,write:yield* host.io.fs.writeTempFile("changed",".txt")};}); },
+    write(p) {
+        return host.io.run((function* () { return (yield { op: "writeFile", path: p, contents: 'normal' }); }).call(this));
+    }
+};
+"#,
     );
     let denied = {
         let _scope = RequestScope::observation_only(Instant::now() + Duration::from_secs(2));
@@ -117,11 +125,17 @@ fn durable_media_observation_cannot_consume_or_close_an_admitted_effect_receipt(
     entered.recv_timeout(Duration::from_secs(2)).unwrap();
     let vm = PluginVm::from_source(
         "lookup-effects-receipt",
-        r#"module.exports={
-        close(job){host.exec.close(job);return true;},
-        poll(job){return host.exec.poll(job);},
-        await(job){return host.awaitJob(job,function(receipt){return receipt;});}
-    };"#
+        r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
+module.exports = {
+    close(job) {
+        return host.io.run((function* () { (yield* attempt({ op: "execClose", job: job })); return true; }).call(this));
+    },
+    poll(job) {
+        return host.io.run((function* () { return (yield* attempt({ op: "execPoll", job: job })); }).call(this));
+    },
+    await(job) { return host.awaitJob(job, function (receipt) { return receipt; }); }
+};
+"#
         .into(),
     )
     .unwrap();
@@ -164,9 +178,14 @@ fn durable_media_observation_allows_real_read_query_continuation_without_restori
         .execute_batch("CREATE TABLE source(value TEXT); INSERT INTO source VALUES('retained');")
         .unwrap();
     let output = temp.path().join("must-not-exist.txt");
-    let vm = PluginVm::from_source("lookup-read-continuation", r#"module.exports={
-        query(db,out){return host.fs.sqliteQueryAsync(db,'SELECT value FROM source',[],function(rows){return {rows:rows,written:host.writeFile(out,'changed')};});}
-    };"#.into()).unwrap();
+    let vm = PluginVm::from_source("lookup-read-continuation", r#"module.exports = {
+    query(db, out) {
+        return host.io.run((function* () { return (function (rows) {
+            return host.io.run((function* () { return { rows: rows, written: (yield { op: "writeFile", path: out, contents: 'changed' }) }; }).call(this));
+        })((yield { op: "sqliteQuery", db: db, sql: 'SELECT value FROM source', params: [] })); }).call(this));
+    }
+};
+"#.into()).unwrap();
     let result: serde_json::Value = {
         let deadline = Instant::now() + Duration::from_secs(2);
         let _scope = RequestScope::observation_only(deadline);

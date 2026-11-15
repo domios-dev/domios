@@ -363,7 +363,7 @@ fn chatbackend_session_config_descriptor_native_js_parity() {
     let manifest_json = r#"{
         "id":"session-config-fixture",
         "version":"0.1.0",
-        "displayName":"Session Config Fixture",
+        "hostIoJobs":true,"displayName":"Session Config Fixture",
         "capabilities":{"chatBackend":{"sessionConfig":true}}
     }"#;
     let manifest: super::PluginManifest = serde_json::from_str(manifest_json).unwrap();
@@ -475,7 +475,7 @@ fn js_model_capability(source: &str) -> super::JsChatBackend {
     let manifest_json = r#"{
         "id":"chatbackend-model-parity-fixture",
         "version":"0.1.0",
-        "displayName":"Model parity fixture",
+        "hostIoJobs":true,"displayName":"Model parity fixture",
         "credentials":[{"id":"fixtureAuth","file":"/tmp/chatbackend-model-parity-auth.json"}],
         "modelCatalogue":{"authority":"authoritative","liveDiscoveryRequired":true,
                            "configFiles":["/tmp/chatbackend-model-parity-config.json"]},
@@ -639,7 +639,7 @@ fn provider_readiness_native_js_parity() {
     let manifest_json = r#"{
         "id": "provider-readiness-fixture",
         "version": "0.1.0",
-        "displayName": "Provider readiness fixture",
+        "hostIoJobs":true,"displayName": "Provider readiness fixture",
         "spawn": {
             "readinessStrategy": {"kind": "poll_shell_prompt", "timeoutSecs": 30},
             "taskDelivery": "pty_input",
@@ -985,7 +985,7 @@ fn third_party_without_host_api_is_rejected_before_vm_load() {
         r#"{
             "id": "unknown-third-party",
             "version": "0.1.0",
-            "displayName": "Unknown Third Party",
+            "hostIoJobs":true,"displayName": "Unknown Third Party",
             "spawn": {
                 "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
                 "taskDelivery": "pty_input",
@@ -1116,7 +1116,7 @@ fn agent_state_status_reconciliation_capability_contract() {
 fn subagent_visibility_capability_contract() {
     for enabled in [true, false] {
         let manifest = format!(
-            r#"{{"id":"subagent-visibility-fixture","version":"0.1.0","displayName":"Fixture",
+            r#"{{"id":"subagent-visibility-fixture","version":"0.1.0","hostIoJobs":true,"displayName":"Fixture",
                 "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                          "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}},
                 "capabilities":{{"subagentVisibility":{enabled}}}}}"#

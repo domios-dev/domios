@@ -70,82 +70,6 @@ pub(in crate::js_runtime) fn install(
     .map_err(|error| VmError::Script(format!("set ioStart: {error}")))
 }
 
-pub(super) fn enforce_jobs_only(host: &Object<'_>) -> Result<(), VmError> {
-    for name in [
-        "surfaceCall",
-        "surfaceInvalidate",
-        "transferStart",
-        "transferAbort",
-        "transferBindInput",
-        "execPoll",
-        "execClose",
-        "fetchStreamPoll",
-        "fetchStreamClose",
-        "providerVersionJson",
-        "fileExists",
-        "isSymlink",
-        "readFile",
-        "readFileHead",
-        "readFileTail",
-        "writeFile",
-        "writeFileAtomic",
-        "canonicalPath",
-        "projectWriteAllowed",
-        "jsonBooleanRecord",
-        "lockFile",
-        "unlockFile",
-        "removeFile",
-        "makeDirs",
-        "readDirJson",
-        "listChildDirsJson",
-        "walkDirJson",
-        "writeTempFile",
-        "sqliteQueryAllJson",
-        "sqliteQueryStart",
-        "exec",
-        "execStart",
-        "credentialPublic",
-        "fetch",
-        "fetchStart",
-        "fetchStream",
-        "secretGet",
-        "secretSet",
-        "secretDelete",
-        "workerStart",
-        "workerPoll",
-        "progressRaw",
-        "workspaceEnsure",
-        "workspaceTabs",
-        "agentSpawn",
-        "agentSend",
-        "agentPoll",
-        "agentReap",
-        "memSearch",
-        "analyticsQuery",
-        "graphEventEmit",
-        "receiverTargetGet",
-        "receiverTargetClear",
-        "receiverStatusReport",
-        "localRecordingInputs",
-        "localRecordingSelect",
-        "localRecordingSavedSelection",
-        "localRecordingStatus",
-        "localRecordingSetEnabled",
-    ] {
-        host.set(
-            name,
-            Func::new(move |ctx: rquickjs::Ctx| -> rquickjs::Result<()> {
-                Err(rquickjs::Exception::throw_type(
-                    &ctx,
-                    &format!("{name} requires a host.io job"),
-                ))
-            }),
-        )
-        .map_err(|error| VmError::Script(format!("host I/O contract: {error}")))?;
-    }
-    Ok(())
-}
-
 fn start(
     sandbox: &Arc<PluginSandbox>,
     observation: &Arc<ProviderObservation>,
@@ -329,7 +253,7 @@ fn execute(
             let options = options.to_string();
             let binary = host_exec::bin_of(&options).unwrap_or_default();
             if !sandbox.can_exec(&binary) {
-                return Err("subprocess permission denied".into());
+                return Err(format!("exec denied: {binary}").into());
             }
             operation
                 .begin_effect()

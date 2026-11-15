@@ -123,7 +123,7 @@ fn fixture(enabled: bool, source: &str) -> JsProvider {
 
 fn fixture_class(enabled: bool, tool_less: bool, source: &str) -> JsProvider {
     let manifest_json = serde_json::json!({
-        "id": "relay-js", "version": "0.1.0", "displayName": "Relay fixture",
+        "id": "relay-js", "version": "0.1.0", "hostIoJobs":true,"displayName": "Relay fixture",
         "capabilities": { "agentProvider": true, "replyRelay": enabled, "toolLess": tool_less, "contextAttach": if tool_less { serde_json::json!({"editable":true,"readOnly":true}) } else { serde_json::Value::Null } },
         "spawn": { "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
             "restoresConversationHistoryOnResume": tool_less,

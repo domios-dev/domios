@@ -96,7 +96,7 @@ impl AgentProvider for TrustGrantNativeStub {
 const DECLARING_MANIFEST: &str = r#"{
     "id": "trust-grant-js-fixture",
     "version": "0.1.0",
-    "displayName": "Trust Grant Fixture",
+    "hostIoJobs":true,"displayName": "Trust Grant Fixture",
     "spawn": {
         "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
         "taskDelivery": "pty_input",
@@ -200,7 +200,7 @@ fn integration_trust_grant_absent_capability_leaves_providers_unaffected() {
     let manifest_json = r#"{
         "id": "trust-grant-undeclared-fixture",
         "version": "0.1.0",
-        "displayName": "Undeclared Fixture",
+        "hostIoJobs":true,"displayName": "Undeclared Fixture",
         "spawn": {
             "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
             "taskDelivery": "pty_input",
@@ -216,7 +216,7 @@ fn integration_trust_grant_absent_capability_leaves_providers_unaffected() {
         module.exports.default = {{
             installIntegration() {{ return {{ ok: true }}; }},
             grantIntegrationTrust() {{
-                host.fs.writeFile({sentinel:?}, "invoked");
+                return host.io({{op:"writeFile",path:{sentinel:?},contents:"invoked"}},function(){{return {{granted:true}};}});
                 return {{ granted: true }};
             }}
         }};

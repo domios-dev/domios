@@ -13,10 +13,17 @@ use crate::js_runtime::JsBlueprintStep;
 
 // Each entry point reports what host.surface.call answered, so the fake host's echo
 // (`plugin|caller|verb|args`) shows which caller core received.
-const STEP_PROBE: &str = r#"function answer(req){var r=JSON.parse(host.surface.call("status",JSON.stringify(["--of","forged"])));
-    return {job:req.context.operation,state:'succeeded',outcome:'done',outputs:{text:[{kind:'text',text:r.result||r.error}]}};}
-module.exports.default={blueprintSubmit:answer,blueprintReconcile:answer,blueprintCancel:answer,
-    outside(){return JSON.parse(host.surface.call("status","[]"));}};"#;
+const STEP_PROBE: &str = r#"function answer(req) {
+    return host.io.run((function* () {
+        var r = JSON.parse((yield* host.io.surface.call("status", JSON.stringify(["--of", "forged"]))));
+        return { job: req.context.operation, state: 'succeeded', outcome: 'done', outputs: { text: [{ kind: 'text', text: r.result || r.error }] } };
+    }).call(this));
+}
+module.exports.default = { blueprintSubmit: answer, blueprintReconcile: answer, blueprintCancel: answer,
+    outside() {
+        return host.io.run((function* () { return JSON.parse((yield* host.io.surface.call("status", "[]"))); }).call(this));
+    } };
+"#;
 
 fn step_probe(surfaces: bool) -> (Arc<PluginVm>, Arc<dyn PluginHostCtx>) {
     let sandbox = Arc::new(

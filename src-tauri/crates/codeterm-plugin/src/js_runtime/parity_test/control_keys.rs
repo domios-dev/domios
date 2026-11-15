@@ -49,7 +49,7 @@ impl AgentProvider for NativeControlKeys {
 fn win32_control_keys_native_js_parity_and_default() {
     for declared in [false, true] {
         let json =
-            serde_json::json!({"id":"control-fixture","version":"0.1.0","displayName":"Fixture",
+            serde_json::json!({"id":"control-fixture","version":"0.1.0","hostIoJobs":true,"displayName":"Fixture",
             "commands":{"usesWin32ControlKeys":declared}})
             .to_string();
         let manifest: super::super::PluginManifest = serde_json::from_str(&json).unwrap();

@@ -31,7 +31,7 @@ fn bump_mtime(path: &std::path::Path) {
 fn manifest_with(id: &str, capabilities: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
-        r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+        r#"{{"id":"{id}","version":"0","hostIoJobs":true,"displayName":"{id}","hostApi":{HOST_API_VERSION},
             "capabilities":{{{capabilities}}},"entry":"plugin.js"}}"#
     )
 }

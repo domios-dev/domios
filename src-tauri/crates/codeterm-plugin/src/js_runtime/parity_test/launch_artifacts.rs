@@ -132,13 +132,14 @@ fn launch_task_file_capture_native_js_parity() {
     let native = LaunchArtifactsNativeStub;
     let js = load_inline_js(
         "artifact-fixture",
-        r#"
-        module.exports.default = {
-            buildLaunchCommand(params) {
-                return host.writeTempFile(params.task, ".ct-task.md");
-            }
-        };
-        "#,
+        r#"module.exports.default = {
+    buildLaunchCommand(params) {
+        return host.io.run((function* () {
+            return (yield { op: "writeTempFile", contents: params.task, suffix: ".ct-task.md" });
+        }).call(this));
+    }
+};
+"#,
     );
     let params = AgentLaunchParams {
         task: Some("opaque-task-fragment".into()),

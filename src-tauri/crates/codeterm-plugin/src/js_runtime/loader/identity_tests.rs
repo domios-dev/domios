@@ -21,7 +21,9 @@ fn plugin_identity_refuses_manifest_preconstructed_sandbox_and_vm_before_host_st
         "com1",
         "lpt9",
     ] {
-        let manifest_json = json!({"id":id,"displayName":"Fixture","version":"0.1.0"}).to_string();
+        let manifest_json =
+            json!({"id":id,"hostIoJobs":true,"displayName":"Fixture","version":"0.1.0"})
+                .to_string();
         assert!(PluginManifest::from_json_str(&manifest_json).is_err());
         let manifest: PluginManifest = serde_json::from_str(&manifest_json).unwrap();
         assert!(compute_sandbox(
@@ -31,7 +33,7 @@ fn plugin_identity_refuses_manifest_preconstructed_sandbox_and_vm_before_host_st
         )
         .is_err());
         let source = format!(
-            "host.fs.writeFile({},'modified');module.exports.default={{}};",
+            "host.io.run(host.io.fs.writeFile({},'modified'));module.exports.default={{}};",
             json!(host.to_string_lossy())
         );
         let sandbox = Arc::new(PluginSandbox::restricted(
@@ -78,7 +80,7 @@ fn plugin_identity_valid_confined_vm_retains_only_its_real_directory() {
     let file = owned.join("own.txt");
     let host = root.path().join("blueprint-run-media.sqlite");
     std::fs::write(&host, "seeded host authority").unwrap();
-    let source = format!("module.exports.default={{probe(){{return {{own:host.fs.writeFile({},'owned'),read:host.fs.readFile({}),foreign:host.fs.readFile({}),writeForeign:host.fs.writeFile({},'modified')}};}}}};",json!(file.to_string_lossy()),json!(file.to_string_lossy()),json!(host.to_string_lossy()),json!(host.to_string_lossy()));
+    let source = format!("module.exports.default={{probe(){{return host.io.run((function*(){{return {{own:yield* host.io.fs.writeFile({},'owned'),read:yield* host.io.fs.readFile({}),foreign:yield* host.io.fs.readFile({}),writeForeign:yield* host.io.fs.writeFile({},'modified')}};}})());}}}};",json!(file.to_string_lossy()),json!(file.to_string_lossy()),json!(host.to_string_lossy()),json!(host.to_string_lossy()));
     let sandbox = Arc::new(
         PluginSandbox::restricted(vec![owned.clone()], vec![owned]).with_identity("valid-plugin"),
     );

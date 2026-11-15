@@ -12,7 +12,7 @@ fn declared_toml_folder_trust_native_js_parity() {
     let canonical = codeterm_paths::strip_verbatim_prefix(&canonical.to_string_lossy());
     let record = temp.path().join("trusted_folders.toml");
     let manifest_json = serde_json::json!({
-        "id": "folder-fixture", "version": "0.1.0", "displayName": "Folder fixture", "entry": "plugin.js",
+        "id": "folder-fixture", "version": "0.1.0", "hostIoJobs":true,"displayName": "Folder fixture", "entry": "plugin.js",
         "directoryTrustRecord": {"format": "toml_folders", "path": record},
         "sessions": {"rootDir": temp.path().join("sessions"), "fileExtension": "jsonl"},
         "spawn": {"readinessStrategy":{"kind":"poll_shell_prompt","timeoutSecs":1},

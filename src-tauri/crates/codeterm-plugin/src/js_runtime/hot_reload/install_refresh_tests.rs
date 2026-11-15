@@ -20,11 +20,11 @@ impl codeterm_plugins::InstallLifecycle for FixtureLifecycle {
 fn write_install_bundle(directory: &std::path::Path, id: &str, version: &str, marker: &str) {
     std::fs::create_dir_all(directory).unwrap();
     std::fs::write(directory.join("plugin.json"), serde_json::json!({
-        "id": id, "version": version, "displayName": "Fixture", "entry": "plugin.js",
+        "id": id, "version": version, "hostIoJobs":true,"displayName": "Fixture", "entry": "plugin.js",
         "capabilities": {"agentProvider": true}, "hostApi": super::super::host_api::HOST_API_VERSION,
     }).to_string()).unwrap();
     std::fs::write(directory.join("plugin.js"), format!(
-        "module.exports.default = {{ marker() {{ return '{marker}'; }}, hold(db) {{ return host.fs.sqliteQuery(db, 'SELECT value FROM items', []); }} }};"
+        "module.exports.default = {{ marker() {{ return '{marker}'; }}, hold(db) {{ return host.io.run(host.io.fs.sqliteQuery(db, 'SELECT value FROM items', [])); }} }};"
     )).unwrap();
 }
 
@@ -125,7 +125,7 @@ fn staging_and_rollback_are_never_discovered_as_plugins() {
         std::fs::create_dir(&directory).unwrap();
         std::fs::write(
             directory.join("plugin.json"),
-            r#"{"id":"fixture","version":"2","displayName":"Fixture"}"#,
+            r#"{"id":"fixture","version":"2","hostIoJobs":true,"displayName":"Fixture"}"#,
         )
         .unwrap();
     }
@@ -145,7 +145,7 @@ fn install_acknowledges_registration_without_a_watcher_tick() {
     let registrar = TestRegistrar::new();
     let watcher = HotReloadRegistry::new(vec![root.path().into()], registrar.clone(), test_caps());
     let manifest = serde_json::json!({
-        "id": "fixture", "version": "1", "displayName": "Fixture",
+        "id": "fixture", "version": "1", "hostIoJobs":true,"displayName": "Fixture",
         "capabilities": {"agentProvider": true}, "entry": "plugin.js",
         "hostApi": super::super::host_api::HOST_API_VERSION
     });

@@ -44,7 +44,7 @@ impl AgentProvider for Native {
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
         Some(serde_json::from_value(serde_json::json!({
             "runtime":"stdio-jsonrpc", "command":{"binary":"fixture-engine","args":[]},
-            "runtimeModes":[{"id":"auto","displayName":"Auto"},{"id":"full-access","displayName":"Full access"}],
+            "runtimeModes":[{"id":"auto","hostIoJobs":true,"displayName":"Auto"},{"id":"full-access","hostIoJobs":true,"displayName":"Full access"}],
             "requestMethods":{"control":["fixture/settings"]}, "notificationMethods":[]
         })).unwrap())
     }
@@ -53,10 +53,10 @@ impl AgentProvider for Native {
 #[test]
 fn parity_runtime_modes_native_js_describe() {
     let manifest = crate::js_runtime::PluginManifest::from_json_str(&serde_json::json!({
-        "id":"fixture", "version":"1.0.0", "displayName":"Fixture",
+        "id":"fixture", "version":"1.0.0", "hostIoJobs":true,"displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},
-                "runtimeModes":[{"id":"auto","displayName":"Auto"},{"id":"full-access","displayName":"Full access"}],
+                "runtimeModes":[{"id":"auto","hostIoJobs":true,"displayName":"Auto"},{"id":"full-access","hostIoJobs":true,"displayName":"Full access"}],
                 "requestMethods":{"control":["fixture/settings"]},"notificationMethods":[]}},
         "permissions":{"subprocess":{"allow":["fixture-engine"]}}
     }).to_string()).unwrap();

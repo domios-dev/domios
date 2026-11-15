@@ -88,7 +88,7 @@ pub(super) fn assert_native_js_parity(native: &dyn AgentProvider, js: &dyn Agent
 
 fn fixture(spec: serde_json::Value, source: &str) -> JsProvider {
     let manifest_json = serde_json::json!({
-        "id": "launch-spec-fixture", "version": "0.1.0", "displayName": "Fixture",
+        "id": "launch-spec-fixture", "version": "0.1.0", "hostIoJobs":true,"displayName": "Fixture",
         "commands": {"autoApproveFlags": ["--approve", "value with spaces"], "launchSpec": spec}
     })
     .to_string();

@@ -22,15 +22,23 @@ fn configured_fixture(surfaces: bool) -> (PluginVm, Arc<dyn PluginHostCtx>) {
     let vm = PluginVm::from_source_sandboxed(
         id,
         r#"module.exports = {
-          request(request) { return host.io.run((function* () {
-            try { return yield request; } catch (error) { return {error:String(error)}; }
-          })()); },
-          surface() { return host.io.run((function* () { return JSON.parse(yield* host.io.surface.call('status','[]')); })()); },
-          legacy() { return host.progress({label:'denied'}); }
-        };"#
+    request(request) {
+        return host.io.run((function* () {
+            try {
+                return yield request;
+            }
+            catch (error) {
+                return { error: String(error) };
+            }
+        })());
+    },
+    surface() { return host.io.run((function* () { return JSON.parse(yield* host.io.surface.call('status', '[]')); })()); },
+    legacy() { return typeof host.progressRaw === "undefined"; }
+};
+"#
         .into(),
         Some(
-            json!({"id":id,"version":"0.0.0","displayName":"Fixture","hostIoJobs":true})
+            json!({"id":id,"version":"0.0.0","hostIoJobs":true,"displayName":"Fixture"})
                 .to_string(),
         ),
         sandbox,
@@ -53,9 +61,7 @@ fn lifecycle_jobs_preserve_progress_result_and_refuse_legacy_progress() {
         .unwrap(),
         ""
     );
-    assert!(
-        matches!(call_json::<Value>(&vm, "legacy", &[]), Err(VmError::Script(message)) if message.contains("requires a host.io job"))
-    );
+    assert!(call_json::<bool>(&vm, "legacy", &[]).unwrap());
 }
 
 #[test]

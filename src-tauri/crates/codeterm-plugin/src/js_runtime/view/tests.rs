@@ -76,8 +76,11 @@ async fn view_args_cwd_never_mints_a_read_grant() {
         PluginVm::from_source_sandboxed(
             "confined-view",
             r#"module.exports.default = {
-                viewCall(method, args) { return { names: host.listChildDirs(args.cwd) }; }
-            }"#
+    viewCall(method, args) {
+        return host.io.run((function* () { return { names: (yield { op: "listChildDirs", path: args.cwd }) }; }).call(this));
+    }
+};
+"#
             .to_string(),
             None,
             sandbox.clone(),

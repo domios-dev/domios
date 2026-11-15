@@ -73,7 +73,7 @@ fn parity_provider_compat_bundled_declarations_are_strict_and_honest() {
 
 #[test]
 fn parity_provider_compat_rejects_invalid_ranges_before_plugin_load() {
-    let json = r#"{"id":"invalid-policy","version":"1.0.0","displayName":"Fixture",
+    let json = r#"{"id":"invalid-policy","version":"1.0.0","hostIoJobs":true,"displayName":"Fixture",
         "cliCompatibility":{"supported":["bad range"]}}"#;
     assert!(super::super::PluginManifest::from_json_str(json).is_err());
 }

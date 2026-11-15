@@ -23,41 +23,17 @@ pub(super) fn park_on_test_gate(sql: &str) {
     }
 }
 
-const START_REFUSED: &str = "/*test-start-refused*/";
-
-/// A query whose SQL opens with `/*test-start-refused*/` is refused at start, as the job limit does.
-pub(super) fn start_refused(sql: &str) -> Option<String> {
-    sql.starts_with(START_REFUSED)
-        .then(|| serde_json::json!({ "error": "test seam refused the start" }).to_string())
-}
-
-static STARTS: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashMap<String, usize>>> =
-    std::sync::LazyLock::new(Default::default);
-
-pub(super) fn record_start(plugin_id: &str) {
-    *STARTS.lock().entry(plugin_id.to_string()).or_default() += 1;
-}
-
-fn starts(plugin_id: &str) -> usize {
-    STARTS.lock().get(plugin_id).copied().unwrap_or(0)
-}
-
 const FIXTURE: &str = r#"
 module.exports.default = {
-  sync: function (db, sql, params) { return host.fs.sqliteQuery(db, sql, params); },
-  async: function (db, sql, params) {
-    return host.fs.sqliteQueryAsync(db, sql, params, function (rows) { return rows; });
-  },
-  raw: function (db, sql) { return host.sqliteQueryStart(db, sql, null); },
-  gated: function (db, sql, entered) {
-    var out = host.fs.sqliteQueryAsync(db, sql, [], function (rows) { return rows; });
+  async(db, sql, params) { return host.io.run(host.io.fs.sqliteQuery(db, sql, params)); },
+  raw(db, sql) { return host.io.run(host.io.fs.sqliteQueryNullable(db, sql)); },
+  gated(db, sql, entered) {
+    var ticket = JSON.parse(host.ioStart(JSON.stringify({op:"sqliteQuery",db:db,sql:sql,params:[]})));
     host.testGateOpen(entered);
-    return out;
+    return host.awaitJob(ticket.jobId, function(result) { if(result.error) throw Error(result.error); return result.value; });
   },
-  overCap: function (db, bytes) {
-    return host.fs.sqliteQueryAsync(db, "SELECT zeroblob(?1) AS z", [bytes], function () { return "returned"; });
-  },
-  cheap: function () { return 7; },
+  overCap(db, bytes) { return host.io({op:"sqliteQuery",db:db,sql:"SELECT zeroblob(?1) AS z",params:[bytes]}, function() { return "returned"; }); },
+  cheap() { return 7; },
 };
 "#;
 
@@ -114,7 +90,15 @@ fn async_query_returns_the_same_rows_as_the_synchronous_call() {
         ),
         ("SELECT * FROM missing_table", serde_json::Value::Null),
     ] {
-        let sync = rows(&vm, "sync", &db, sql, params.clone());
+        let sync = super::query_value(
+            &PluginSandbox::unrestricted().with_identity("sqlite-native-parity"),
+            &crate::js_runtime::provider_observation::ProviderObservation::from_manifest(None),
+            &db,
+            sql,
+            params.as_array().map(|_| params.to_string()).as_deref(),
+            false,
+        )
+        .unwrap();
         let async_rows = rows(&vm, "async", &db, sql, params);
         assert_eq!(async_rows, sync, "{sql}");
     }
@@ -195,13 +179,13 @@ fn async_query_keeps_the_sandbox_read_gate() {
         rows(&confined, "async", &db, sql, serde_json::Value::Null),
         serde_json::json!([])
     );
-    let raw: String = call_json(
+    let raw: serde_json::Value = call_json(
         &confined,
         "raw",
         &[serde_json::json!(db), serde_json::json!(sql)],
     )
     .unwrap();
-    assert_eq!(raw, r#"{"rows":null}"#, "a denied db never starts a job");
+    assert!(raw.is_null(), "a denied db never opens a connection");
 
     let granted = vm(
         "sqlite-async-granted",
@@ -240,62 +224,4 @@ fn async_query_cap_breach_throws_in_the_continuation() {
     )
     .unwrap();
     assert_eq!(small, "returned");
-}
-
-#[test]
-fn timed_out_query_keeps_running_and_the_next_call_takes_its_rows() {
-    let plugin = "sqlite-async-retained";
-    let release = "sqlite_async_retained.release";
-    call_gate::reset(release);
-    let (_dir, db) = fixture_db();
-    let vm = vm(plugin, None);
-    let sql = format!("{GATE_PREFIX}{release}*/ SELECT i FROM t ORDER BY i");
-    let call = |vm: &PluginVm| {
-        call_json::<serde_json::Value>(
-            vm,
-            "async",
-            &[
-                serde_json::json!(db),
-                serde_json::json!(sql),
-                serde_json::Value::Null,
-            ],
-        )
-    };
-
-    crate::js_runtime::host_exec::set_test_wait_bound(plugin, Duration::from_millis(50));
-    assert!(matches!(call(&vm), Err(VmError::AsyncJobTimedOut)));
-    assert_eq!(starts(plugin), 1);
-    assert_eq!(
-        crate::js_runtime::host_exec::plugin_job_count(plugin),
-        1,
-        "the timed-out query is still running"
-    );
-
-    crate::js_runtime::host_exec::set_test_wait_bound(plugin, WEDGED);
-    call_gate::open(release);
-    assert_eq!(
-        call(&vm).unwrap(),
-        serde_json::json!([{ "i": -5 }, { "i": 42 }])
-    );
-    assert_eq!(starts(plugin), 1, "the second call awaited the same job");
-    assert_eq!(
-        crate::js_runtime::host_exec::plugin_job_count(plugin),
-        0,
-        "the consuming poll removed the job"
-    );
-
-    assert_eq!(call(&vm).unwrap().as_array().map(Vec::len), Some(2));
-    assert_eq!(starts(plugin), 2, "a consumed key starts a fresh job");
-    call_gate::reset(release);
-}
-
-#[test]
-fn refused_start_falls_back_to_the_synchronous_rows() {
-    let (_dir, db) = fixture_db();
-    let vm = vm("sqlite-async-refused", None);
-    let sql = format!("{START_REFUSED} SELECT * FROM t ORDER BY i");
-    let sync = rows(&vm, "sync", &db, &sql, serde_json::Value::Null);
-    assert_eq!(sync.as_array().map(Vec::len), Some(2));
-    assert_eq!(rows(&vm, "async", &db, &sql, serde_json::Value::Null), sync);
-    assert_eq!(starts("sqlite-async-refused"), 0);
 }

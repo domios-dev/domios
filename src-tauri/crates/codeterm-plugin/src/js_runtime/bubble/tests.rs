@@ -44,10 +44,13 @@ async fn null_hides_the_pill() {
 
 const CONFINED_SRC: &str = r#"module.exports.default = {
     statusBubble(ctx) {
-        var names = host.listChildDirs(ctx.cwd || ctx.probe);
-        return { label: names === null ? "denied" : names.join(",") };
+        return host.io.run((function* () {
+            var names = (yield { op: "listChildDirs", path: ctx.cwd || ctx.probe });
+            return { label: names === null ? "denied" : names.join(",") };
+        }).call(this));
     }
-}"#;
+};
+"#;
 
 fn confined_vm() -> Arc<PluginVm> {
     use crate::js_runtime::host_api::PluginSandbox;
