@@ -190,12 +190,13 @@ function modelSubmenu({ tab, descriptor, status }: TabMenuInput): TabMenuSubmenu
   };
 }
 
-/** Opens the switch dialog directly; its chooser owns the target, so the menu only seeds the first installed alternative. */
+/** Opens the switch dialog directly; its chooser owns the target, so the menu only seeds an installed alternative with a model catalog. */
 function providerItem({ tab, descriptors, status }: TabMenuInput): TabMenuItemEntry | null {
   const view = tabProviderMenuView(tab, descriptors, status);
   if (!view) return null;
   const others = view.providers.filter((provider) => provider.id !== view.currentProviderId);
-  const target = others.find(isProviderSelectable) ?? others[0];
+  const target = others.find((provider) => isProviderSelectable(provider) && provider.available_models.length > 0)
+    ?? others.find(isProviderSelectable) ?? others[0];
   return {
     kind: "item",
     id: "provider",

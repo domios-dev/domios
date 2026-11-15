@@ -256,7 +256,7 @@ for (const surface of SURFACES) {
     expect(entries.map(entry => entry.id)).toEqual(["close"]);
   });
 }
-it("seeds the harness switch with an installed target before an unavailable one on both menu surfaces", () => {
+it("seeds the harness switch with an installed, catalogued target first on both menu surfaces", () => {
   const third = descriptor("third-provider");
   for (const surface of SURFACES) {
     const seeded = (descriptors: ProviderDescriptor[]) => {
@@ -265,6 +265,9 @@ it("seeds the harness switch with an installed target before an unavailable one 
     };
     expect(seeded([CURRENT, { ...OTHER, availability: "unavailable" }, third])).toEqual({ type: "switchProvider", providerId: third.id });
     expect(seeded([CURRENT, { ...OTHER, availability: "unavailable" }])).toEqual({ type: "switchProvider", providerId: OTHER.id });
+    const uncatalogued = { ...descriptor("uncatalogued-provider"), available_models: [] };
+    expect(seeded([CURRENT, uncatalogued, third])).toEqual({ type: "switchProvider", providerId: third.id });
+    expect(seeded([CURRENT, uncatalogued])).toEqual({ type: "switchProvider", providerId: uncatalogued.id });
   }
 });
 

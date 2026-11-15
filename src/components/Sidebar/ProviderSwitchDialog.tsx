@@ -19,6 +19,8 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
   const navigation = usePickerNavigation();
   const [installError, setInstallError] = useState<string | null>(null);
   const locked = phase !== "choosing";
+  // Same order as Start a session: launch-profile harnesses follow the direct ones.
+  const ordered = [...providers.filter((candidate) => !candidate.agent_runtime?.launchProfiles), ...providers.filter((candidate) => candidate.agent_runtime?.launchProfiles)];
   const unavailableIds = useMemo(() => new Set(providers.filter((candidate) => !isProviderSelectable(candidate)).map((candidate) => candidate.id)), [providers]);
   const freeModel = provider && provider.available_models.length === 0
     ? <input aria-label="Agent model" placeholder="Model (optional)" className={SELECT_TRIGGER} value={selectedModel ?? ""} disabled={locked}
@@ -39,7 +41,7 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
     <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">Continue on another harness using recent messages and task context. The full history stays here.</p>
     {phase !== "complete" && <OrchestrationRoleRow
       label="Agent"
-      providers={providers}
+      providers={ordered}
       providerId={providerId}
       modelId={model ?? ""}
       effortId={effort}
