@@ -14,6 +14,18 @@ pub fn child_env_changes_with_exclusions<'a>(
     vars: impl IntoIterator<Item = (&'a str, &'a str)>,
     excluded: &[&str],
 ) -> Vec<(String, Option<String>)> {
+    child_env_changes_with_budget(
+        vars,
+        excluded,
+        codeterm_util::embedding_cpu::default_was_injected(),
+    )
+}
+
+fn child_env_changes_with_budget<'a>(
+    vars: impl IntoIterator<Item = (&'a str, &'a str)>,
+    excluded: &[&str],
+    default_injected: bool,
+) -> Vec<(String, Option<String>)> {
     let vars: Vec<(&str, &str)> = vars.into_iter().collect();
     let mut changes = Vec::new();
     // Windows Python otherwise writes the ANSI code page and crashes on Cyrillic or emoji output.
@@ -29,8 +41,10 @@ pub fn child_env_changes_with_exclusions<'a>(
     }
     changes.extend(
         vars.iter()
-            .filter(|(key, _)| {
-                key.eq_ignore_ascii_case("CANDLE_NUM_THREADS")
+            .filter(|(key, value)| {
+                (default_injected
+                    && key.eq_ignore_ascii_case("CANDLE_NUM_THREADS")
+                    && *value == codeterm_util::embedding_cpu::DEFAULT_THREADS)
                     || excluded
                         .iter()
                         .any(|excluded| key.eq_ignore_ascii_case(excluded))

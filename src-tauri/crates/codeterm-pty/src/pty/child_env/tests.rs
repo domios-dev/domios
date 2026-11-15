@@ -2,14 +2,35 @@ use super::*;
 
 #[test]
 fn child_environment_drops_the_daemon_candle_budget_and_keeps_user_values() {
-    let edits = child_env_changes_with_exclusions(
+    let edits = child_env_changes_with_budget(
         [("CANDLE_NUM_THREADS", "2"), ("KEEP", "user value")],
         &[],
+        true,
     );
     assert!(edits.contains(&("CANDLE_NUM_THREADS".into(), None)));
     assert!(!edits.iter().any(|(key, _)| key == "KEEP"));
-    let edits = child_env_changes_with_exclusions([("Candle_Num_Threads", "8")], &[]);
+    let edits = child_env_changes_with_budget([("Candle_Num_Threads", "2")], &[], true);
     assert!(edits.contains(&("Candle_Num_Threads".into(), None)));
+}
+
+#[test]
+fn child_environment_preserves_user_candle_values_without_host_injection() {
+    for value in ["2", "8", ""] {
+        let edits = child_env_changes_with_budget([("CANDLE_NUM_THREADS", value)], &[], false);
+        assert!(!edits.iter().any(|(key, _)| key == "CANDLE_NUM_THREADS"));
+    }
+}
+
+#[test]
+fn child_environment_preserves_an_override_of_the_injected_candle_budget() {
+    let edits = child_env_changes_with_budget([("CANDLE_NUM_THREADS", "8")], &[], true);
+    assert!(!edits.iter().any(|(key, _)| key == "CANDLE_NUM_THREADS"));
+    let edits = child_env_changes_with_budget(
+        [("CANDLE_NUM_THREADS", "8")],
+        &["CANDLE_NUM_THREADS"],
+        false,
+    );
+    assert!(edits.contains(&("CANDLE_NUM_THREADS".into(), None)));
 }
 
 const APPDIR: &str = "/tmp/.mount_CodeTeXyz";
