@@ -27,7 +27,8 @@ export type NativeOutputFlowUpdate =
   | { action: "detach_all" };
 
 export interface NativeBridge {
-  terminalOutputFlow?: (update: NativeOutputFlowUpdate) => Promise<void>;
+  terminalOutputFlow?: (update: NativeOutputFlowUpdate) => Promise<boolean>;
+  terminalOutputFocus?: (handler: (focused: boolean) => void) => NativeUnsubscribe;
   localRecording?: Record<LocalRecordingCommand, (args: Record<string, unknown>) => Promise<unknown>>;
   window: {
     minimize(): Promise<void>;
@@ -102,8 +103,10 @@ function nativeEventFanout<T>(name: string, register: (emit: (value: T) => void)
   };
 }
 
-export function createNativeBridge(native: boolean = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window): NativeBridge {
+export function createNativeBridge(native: boolean = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window, platform = typeof navigator === "undefined" ? "" : navigator.platform): NativeBridge {
+  const outputFlowEnabled = native && !platform.startsWith("Win");
   const unavailable = (name: string): never => { throw new NativeCapabilityUnavailable(name); };
+  const terminalFocus = nativeEventFanout<boolean>("terminal focus", emit => getCurrentWindow().onFocusChanged(event => emit(event.payload)));
   const fileDrop = nativeEventFanout<FileDropEvent>("file drop", (emit) => getCurrentWebview().onDragDropEvent((event) => emit(event.payload)));
   const resizeStart = nativeEventFanout<void>("resize", (emit) => listen("terminal-window-resize-start", () => emit()));
   const resizeCommit = nativeEventFanout<void>("resize", (emit) => listen("terminal-window-resize-commit", () => emit()));
@@ -112,7 +115,8 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
     return globalThis.navigator.clipboard;
   };
   return {
-    terminalOutputFlow: native ? (update) => invoke("native_terminal_output_flow", { update }) : undefined,
+    terminalOutputFlow: outputFlowEnabled ? (update) => invoke<boolean>("native_terminal_output_flow", { update }) : undefined,
+    terminalOutputFocus: outputFlowEnabled ? terminalFocus : undefined,
     localRecording: native ? {
       local_recording_status: (args) => invoke("local_recording_status", args),
       local_recording_set_enabled: (args) => invoke("local_recording_set_enabled", args),
