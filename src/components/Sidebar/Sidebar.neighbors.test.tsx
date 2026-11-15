@@ -18,7 +18,7 @@ vi.mock("../../hooks/useTouchOptimizedUi", () => ({ useTouchOptimizedUi: () => f
 vi.mock("../../lib/bridge", () => ({ invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: { kind: "signed_in", identity: { uid: "owner" } } }) }));
 vi.mock("../Neighbors/useNeighbors", () => ({ useNeighbors: () => ({ list: { access: "paid", friends: data.friends, incoming: [], outgoing: [] } }) }));
-vi.mock("../Neighbors/useConciergeStatus", () => ({ useConciergeStatus: () => ({}) }));
+vi.mock("../Neighbors/useConciergeStatus", async (importOriginal) => ({ ...await importOriginal<typeof import("../Neighbors/useConciergeStatus")>(), useConciergeStatus: () => ({}) }));
 vi.mock("../Neighbors/neighborStatusStore", () => ({ useNeighborStatus: () => null, resetNeighborStatus: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
