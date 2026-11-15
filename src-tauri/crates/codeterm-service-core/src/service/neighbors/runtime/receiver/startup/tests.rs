@@ -229,3 +229,62 @@ async fn current_owned_application_retains_real_key_receiver_revision_and_gatewa
         .active
         .is_empty());
 }
+
+#[tokio::test]
+async fn closed_or_reassigned_concierge_keeps_local_receivers_during_restart_activation() {
+    for reassigned in [false, true] {
+        let (fixture, ticket) = fixture().await;
+        let service = &fixture.service;
+        let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+        let friend = "a".repeat(64);
+        let other = "b".repeat(64);
+        let root = if reassigned {
+            let mut mux = service.mux.write();
+            let workspace = mux.snapshot().workspaces[0].id.clone();
+            let root = mux.create_tab(&workspace).unwrap();
+            let tab = mux.get_tab_mut(&root).unwrap();
+            tab.agent_type = Some("opaque-provider".into());
+            tab.role = Some(codeterm_types::pty::AgentRole::Worker);
+            root
+        } else {
+            "closed-root".into()
+        };
+        let mut settings = crate::service::neighbors::storage::Settings::default();
+        settings.bindings.insert(friend.clone(), root.clone());
+        settings.permissions.insert(friend.clone(), Permission {
+            allowed: true,
+            machine_access: codeterm_neighbors::permissions::MachineAccess::Full,
+            ..Default::default()
+        });
+        metadata.save_settings(settings.clone()).await.unwrap();
+        let owner = service.clone();
+        let id = friend.clone();
+        let second = other.clone();
+        let stored = metadata.clone();
+        service.activate_prepared_neighbor(ticket, 0, async { Ok("ek_current") }, move |key| async move {
+            let registry = FirebaseRegistry { calls: Arc::new(NoCalls), uid: "owner".into(), installation_id: "here".into(), machine_label: "Desk".into() };
+            let receiver = json!({"installation_id":"here","enc_key_id":"ek_current","machine_label":"Desk","revision":4,"receiving":true});
+            let list = json!({"access":"paid","friends":[{"friendship_id":id,"my_receiver":receiver},{"friendship_id":second,"my_receiver":receiver}]});
+            owner.reconcile_neighbor_friend_receiver_rows(&stored, &registry, &list, Some(key), 0).await?;
+            for friendship in [&id, &second] {
+                owner.reconcile_neighbor_concierge_receiver(&stored, "owner", friendship, true, 4, 0).await?;
+            }
+            Ok(())
+        }).await.unwrap();
+        let (receivers, _) = service.neighbor_friend_receiver_snapshot();
+        assert_eq!(receivers.len(), 2);
+        for id in [&friend, &other] {
+            assert!(receivers[id].receiving_here);
+            assert_eq!(receivers[id].revision, 4);
+        }
+        let saved = metadata.settings().await.unwrap();
+        let projection = service.neighbor_concierge_view(&friend, &saved, &service.neighbor_friend_receiver(&friend).unwrap());
+        assert_eq!(projection["state"], if reassigned { "concierge_invalid" } else { "concierge_closed" });
+        assert_eq!(saved.bindings, settings.bindings);
+        assert_eq!(serde_json::to_value(&saved.permissions).unwrap(), serde_json::to_value(&settings.permissions).unwrap());
+        assert!(saved.dormant_concierges.is_empty());
+        assert!(service.require_neighbor_restore_grant(&root, false).is_err());
+        assert_eq!(service.mux.read().get_tab(&root).is_some(), reassigned);
+        assert!(!fixture.ui.0.lock().iter().any(|(name, payload)| name == "neighbor-runtime-status" && payload["receiver_unavailable"] == true));
+    }
+}
