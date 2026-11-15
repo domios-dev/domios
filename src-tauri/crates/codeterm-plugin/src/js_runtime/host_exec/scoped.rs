@@ -100,6 +100,7 @@ where
     admitted?;
     Ok(job_id)
 }
+#[cfg(test)]
 pub(in crate::js_runtime) fn abort_scoped_json_job(plugin: &str, scope: &str, id: &str) -> bool {
     let hook = EXEC_JOBS
         .lock()

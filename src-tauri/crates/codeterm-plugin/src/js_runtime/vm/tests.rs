@@ -85,7 +85,7 @@ fn round_trip_object_arg_and_return() {
     );
     let out: serde_json::Value = call_json(&vm, "meta", &[]).unwrap();
     assert_eq!(out["id"], "x");
-    assert_eq!(out["hostIoJobs":true,"displayName"], "X");
+    assert_eq!(out["displayName"], "X");
 }
 
 #[test]

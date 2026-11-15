@@ -10,7 +10,6 @@ pub use policy::{
     InputPreparation, PreparedInputGrant, TransferAbort, TransferAuthority, TransferSession,
 };
 pub(crate) use policy::{current as is_current, live_session};
-pub(crate) use worker::execute_until;
 pub use worker::{execute, execute_async};
 #[cfg(test)]
 mod tests;

@@ -29,7 +29,7 @@ function probe(then) {
             if (out.code !== 0)
                 throw new Error(JSON.stringify(out));
             return then(out.stdout);
-        })((yield* host.io.exec.async(opts)));
+        })((yield* host.io.exec(opts)));
     }).call(this));
 }
 module.exports.default = {
