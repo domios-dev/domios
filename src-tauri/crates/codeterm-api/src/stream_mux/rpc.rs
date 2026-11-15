@@ -43,7 +43,11 @@ pub(crate) async fn stream_mux_open_channel(
         &session,
         &channel.channel,
         &parts.headers,
-        Traffic::Bulk,
+        if super::paths::replayable_output(&uri) {
+            Traffic::Output
+        } else {
+            Traffic::Bulk
+        },
         true,
     )
     .await?;
@@ -138,7 +142,7 @@ async fn spawn(
     request: Request,
 ) -> Result<(), Failure> {
     let entry = reservation.entry.clone();
-    let backpressure = entry.stream && request.uri().path() == "/api/output/stream";
+    let backpressure = entry.stream && entry.traffic == Traffic::Output;
     let task = tokio::spawn(async move {
         let response = dispatcher.call(request).await;
         reservation.keep_queue = pump(&reservation, response, backpressure).await
