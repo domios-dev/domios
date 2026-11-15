@@ -11,7 +11,9 @@ module.exports.default = {
   buildResumeCommandWithContext: params => command(params.sessionId),
   sessionResume: () => ({ exact: true }),
   sessionFilePath: (_cwd, id) => valid(id) ? settings.sessions + "/" + id + ".jsonl" : null,
-  sessionExists: (_cwd, id) => valid(id) && host.fs.fileExists(settings.sessions + "/" + id + ".jsonl"),
+  sessionExists: (_cwd, id) => valid(id)
+    ? host.io({ op: "fileExists", path: settings.sessions + "/" + id + ".jsonl" }, value => value)
+    : false,
   screenHasTui: () => false,
   detectEvents: () => [],
   parsePrompt: () => null,
