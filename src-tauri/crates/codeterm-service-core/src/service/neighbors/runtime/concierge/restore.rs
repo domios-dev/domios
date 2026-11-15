@@ -77,6 +77,11 @@ impl ServiceContext {
             }
             return Ok(());
         };
+        // A closed or reassigned root stays an owner recovery choice, not a channel failure.
+        if self.validate_neighbor_gateway(tab_id).is_err() {
+            self.clear_neighbor_friend_restore_grants(uid, friendship);
+            return Ok(());
+        }
         self.retire_superseded_neighbor_concierges(metadata, uid, friendship, tab_id)
             .await?;
         self.validate_neighbor_gateway(tab_id)?;
