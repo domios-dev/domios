@@ -17,9 +17,9 @@ test("reorder failures retain their reason through transport and notification se
 });
 
 const fixtures: { input: unknown; title: string; actions: ErrorAction[] }[] = [
-  {input:"ConversationMissing: opaque diagnostic",title:"This conversation's saved history is no longer available.",actions:["start-new-conversation"]},
-  {input:"/api/tabs/opaque/chat-raw/start → HTTP 409: ConversationMissing: opaque diagnostic",title:"This conversation's saved history is no longer available.",actions:["start-new-conversation"]},
-  {input:{kind:"conversationMissing",detail:"opaque diagnostic"},title:"This conversation's saved history is no longer available.",actions:["start-new-conversation"]},
+  {input:"ConversationMissing: opaque diagnostic",title:"The agent no longer has this conversation, so it can't continue.",actions:["start-new-conversation"]},
+  {input:"/api/tabs/opaque/chat-raw/start → HTTP 409: ConversationMissing: opaque diagnostic",title:"The agent no longer has this conversation, so it can't continue.",actions:["start-new-conversation"]},
+  {input:{kind:"conversationMissing",detail:"opaque diagnostic"},title:"The agent no longer has this conversation, so it can't continue.",actions:["start-new-conversation"]},
   { input: { code: "constructor", raw: "opaque" }, title: "Something went wrong while opening this file", actions: ["retry"] },
   { input: { code: "memory_run_incomplete", raw: "opaque" }, title: "The memory run needs attention", actions: ["retry"] },
   { input: { code: "frontend_version_mismatch", raw: "opaque" }, title: "The interface needs an update", actions: ["retry"] },
@@ -62,7 +62,9 @@ for (const [index, fixture] of fixtures.entries()) {
     const view = describeError(fixture.input, { operation: "opening this file" });
     assert.equal(view.title, fixture.title);
     assert.deepEqual(view.actions, fixture.actions);
-    assert.ok(view.cause);
+    // Starting a new conversation is the whole guidance, so its button is not repeated as a cause.
+    if (fixture.actions.includes("start-new-conversation")) assert.equal(view.cause, "");
+    else assert.ok(view.cause);
   });
 }
 

@@ -226,7 +226,7 @@ it("a conversation the harness lost is one notice whose one action starts a new 
     expect(host.querySelector('[aria-label="Runtime needs recovery"]')).toBeNull();
     expect(host.querySelector('button[aria-label="Restart the agent"]')).toBeNull();
     expect(host.querySelector('[data-testid="chat-retry"]')).toBeNull();
-    expect(host.textContent?.split("This conversation's saved history is no longer available.").length).toBe(2);
+    expect(host.textContent?.split("The agent no longer has this conversation, so it can't continue.").length).toBe(2);
     const start=host.querySelectorAll<HTMLButtonElement>('button[aria-label="Start a new conversation"]');
     expect(start).toHaveLength(1);
     expect(host.querySelector("details")?.open).toBe(false);
