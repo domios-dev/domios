@@ -37,7 +37,7 @@ export class OutcomeUnknown extends Error {
 }
 export class RetryableMuxError extends TransportError {
   readonly retryable = true;
-  constructor(path: string, message: string) { super(0, path, message); this.name = "RetryableTransportError"; }
+  constructor(path: string, message: string, public readonly dispatched?: false) { super(0, path, message); this.name = "RetryableTransportError"; }
 }
 
 export class MuxAdmissionError extends RetryableMuxError {
@@ -48,6 +48,12 @@ export class MuxAdmissionError extends RetryableMuxError {
     super(path, "client_capacity: Other requests are using the available connection capacity; this request was not sent.");
     this[MUX_READ_CAPACITY] = capacity;
   }
+}
+
+export class MuxDeadlineError extends RetryableMuxError {
+  readonly dispatched = false;
+  readonly code = "request_timeout";
+  constructor(path: string) { super(path, "The request deadline expired before it could be sent."); }
 }
 
 // Body readers rethrow the typed carrier outcome; runtimes may wrap stream errors.
@@ -100,6 +106,7 @@ export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => vo
 
 export function createStreamMux(transport: () => TransportClient, fetcher: FetchPort): StreamMux {
   const pending = new Map<string, Pending>();
+  let pendingReads = 0, pendingStreams = 0, pendingBulk = 0;
   const waiting = new Map<string, { resolve: (session: string) => void; reject: (error: unknown) => void }>();
   const posts = new Map<string, () => Promise<void>>();
   const readCapacity = createMuxReadCapacity();
@@ -146,7 +153,10 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
   function cleanup(entry: Pending): void {
     entry.detach();
     if (entry.tracked) { buffered -= entry.buffered; entry.tracked = false; }
-    pending.delete(entry.id);
+    if (pending.delete(entry.id)) {
+      if (entry.stream) pendingStreams--;
+      else { pendingReads--; if (entry.postTraffic === "bulk") pendingBulk--; }
+    }
     posts.delete(entry.id);
     postState = muxPostCancel(postState, entry.id);
     const waiter = waiting.get(entry.id); waiting.delete(entry.id);
@@ -157,8 +167,8 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     // After the caller's drain, so an idle waiter sees complete bodies.
     queueMicrotask(() => {
       kick(); notifyIdle();
-      if (!closed && muxRequestAdmission(false, "interactive", 0, [...pending.values()].filter(item => !item.stream).length, 0)) readCapacity.released();
-      if (!closed && muxRequestAdmission(true, "interactive", [...pending.values()].filter(item => item.stream).length, 0, 0)) streamCapacity.released();
+      if (!closed && muxRequestAdmission(false, "interactive", 0, pendingReads, 0)) readCapacity.released();
+      if (!closed && muxRequestAdmission(true, "interactive", pendingStreams, 0, 0)) streamCapacity.released();
     });
   }
 
@@ -361,14 +371,23 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     const promise = new Promise<boolean>(resolve => { settle = resolve; });
     proofResult = { promise, resolve: settle, aborter };
     const startedAt = Date.now();
+    let yielded = false;
     diagnose("proof-start");
-    proof = setTimeout(() => {
+    const deadline = () => {
       proof = undefined;
-      if (current === owner) {
-        diagnose("proof-deadline", { elapsedMs: Date.now() - startedAt, deadlineLagMs: Math.max(0, Date.now() - startedAt - CARRIER_PROOF_MS) });
+      if (current === owner && proofResult?.aborter === aborter) {
+        const deadlineLagMs = Math.max(0, Date.now() - startedAt - CARRIER_PROOF_MS);
+        if (deadlineLagMs > 100 && !yielded) {
+          yielded = true;
+          diagnose("proof-deadline-yield", { deadlineLagMs });
+          proof = setTimeout(deadline, 0);
+          return;
+        }
+        diagnose("proof-deadline", { elapsedMs: Date.now() - startedAt, deadlineLagMs });
         carrier("deadline", owner);
       }
-    }, CARRIER_PROOF_MS);
+    };
+    proof = setTimeout(deadline, CARRIER_PROOF_MS);
     mux.fetch(transport().origin() + "/api/health", { [CARRIER_PROBE]: true, signal: aborter.signal } as CarrierProbeInit).then(response => {
       void response.arrayBuffer().catch(() => {});
       if (response.ok && current === owner) carrier("proven", owner);
@@ -392,12 +411,8 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     closeStream = transport().subscribe("/api/stream-mux?session=" + owner, (_name, value) => {
       if (current !== owner) return;
       sawFrame = true; route(value);
-      if (liveness === "proving") carrier("proven", owner);
     }, {
       raw: true, requireEventStream: true, local: true,
-      onActivity() {
-        if (current === owner && liveness === "proving") carrier("proven", owner);
-      },
       onReady() {
         if (current !== owner) return;
         live = owner;
@@ -507,15 +522,24 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       const policy = muxRequestPolicy(method, path, options.body);
       const foreground = options[CARRIER_PROBE] === true || !policy.cancellable || operation.method === "POST" && /^\/api\/tabs\/[^/]+\/chat-raw\/start$/.test(operation.path.split("?")[0]);
       const postTraffic = muxPostTraffic(policy.traffic, options.body != null && (typeof options.body !== "string" || options.body.length > 64 * 1024));
+      const caller = options.signal;
+      const deadline = new AbortController();
+      const forward = () => deadline.abort(caller?.reason);
+      if (caller?.aborted) forward();
+      else caller?.addEventListener("abort", forward, { once: true });
+      options.signal = deadline.signal;
+      let admitted = false;
+      const timeout = stream ? null : restRequestTimeoutMs(operation.method, operation.path, options[MUX_REQUEST_TIMEOUT]);
+      const timer = timeout === null ? undefined : setTimeout(() => deadline.abort(admitted
+        ? new DOMException("The operation timed out.", "TimeoutError") : new MuxDeadlineError(path)), timeout);
+      const detachDeadline = () => { clearTimeout(timer); caller?.removeEventListener("abort", forward); };
       return requestWhenMuxCapacityAvailable(policy, () => {
-        const entries = [...pending.values()];
-        const streams = entries.filter(entry => entry.stream).length;
-        const bulk = entries.filter(entry => !entry.stream && entry.postTraffic === "bulk").length;
-        if (closed) return Promise.reject(new RetryableMuxError(path, "Mux connection closed before dispatch"));
-        if (!muxRequestAdmission(stream, postTraffic, streams, entries.length - streams, bulk, foreground)) {
+        if (closed) return Promise.reject(new RetryableMuxError(path, "Mux connection closed before dispatch", false));
+        if (!muxRequestAdmission(stream, postTraffic, pendingStreams, pendingReads, pendingBulk, foreground)) {
           return Promise.reject(new MuxAdmissionError(path, policy.cancellable ? (stream ? streamCapacity : readCapacity).capture() : undefined));
         }
         return new Promise<Response>((resolve, reject) => {
+          admitted = true;
           const aborter = new AbortController();
           const entry: Pending = {
             startedAt: performance.now(), operation,
@@ -525,16 +549,16 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
             outcome: undefined, resolved: false, ended: false, queue: [], buffered: 0, bufferLimit: REQUEST_BUFFER, tracked: true, demand: false, controller: null,
             aborter, post: null, detach: () => {}, resolve, reject,
           };
-          const timeout = stream ? null : restRequestTimeoutMs(operation.method, operation.path, options[MUX_REQUEST_TIMEOUT]);
-          const timer = timeout === null ? undefined : setTimeout(() => cancel(entry, new DOMException("The operation timed out.", "TimeoutError")), timeout);
           const abort = () => cancel(entry, options.signal?.reason ?? new DOMException("Aborted", "AbortError"));
-          entry.detach = () => { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); earlyEnds.delete(entry.id); };
+          entry.detach = () => { detachDeadline(); options.signal?.removeEventListener("abort", abort); earlyEnds.delete(entry.id); };
           pending.set(entry.id, entry);
+          if (stream) pendingStreams++;
+          else { pendingReads++; if (postTraffic === "bulk") pendingBulk++; }
           if (options.signal?.aborted) { abort(); return; }
           options.signal?.addEventListener("abort", abort, { once: true });
           void prepare(entry);
         });
-      }, options.signal ?? undefined, options[MUX_CAPACITY_WAIT]);
+      }, options.signal, options[MUX_CAPACITY_WAIT]).finally(() => { if (!admitted) detachDeadline(); });
     },
     busy: requestsInFlight,
     diagnostics() {
@@ -565,11 +589,13 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     },
     close() {
       closed = true; clearTimeout(retry);
-      readCapacity.close(new DOMException("Mux origin closed", "AbortError"));
-      streamCapacity.close(new DOMException("Mux origin closed", "AbortError"));
+      const reason = new RetryableMuxError("/api/stream-mux", "Mux origin closed before the request completed");
+      const notDispatched = new RetryableMuxError("/api/stream-mux", "Mux origin closed before dispatch", false);
+      readCapacity.close(notDispatched);
+      streamCapacity.close(notDispatched);
       const owner = current, close = closeStream;
       if (owner) lost(owner, new Error("Mux origin closed"));
-      for (const entry of [...pending.values()]) cancel(entry, new DOMException("Mux origin closed", "AbortError"));
+      for (const entry of [...pending.values()]) cancel(entry, reason);
       close?.(); closeStream = null;
     },
   };

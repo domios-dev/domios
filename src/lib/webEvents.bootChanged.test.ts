@@ -5,7 +5,7 @@ import { bindWebEventsTransport, resetWebEvents, webListen, __resetWebEventsForT
 import { WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT, type BootChangedDetail } from "./buildDriftReload";
 import type { TransportClient } from "./transportClient";
 import { verifyStreamMuxes } from "./streamMux";
-import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
+import { TERMINAL_VIEWER_DISCONNECTED_EVENT, TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
 
 vi.mock("./streamMux", async importOriginal => ({
   ...await importOriginal<typeof import("./streamMux")>(),
@@ -25,8 +25,9 @@ interface Subscription {
 function fakeClient(subscriptions: Subscription[]): TransportClient {
   return {
     origin: () => window.location.origin,
-    subscribe(path: string, onEvent: (name: string, data: unknown) => void, opts?: { signal?: AbortSignal; onReady?: () => void; onActivity?: () => void }) {
+    subscribe(path: string, onEvent: (name: string, data: unknown) => void, opts?: { signal?: AbortSignal; onReady?: () => void; onActivity?: () => void; onEnd?: (end: {reason: "abort"}) => void }) {
       subscriptions.push({ path, emit: frame => onEvent("message", frame), ready: () => opts?.onReady?.(), activity: () => opts?.onActivity?.(), signal: opts?.signal });
+      opts?.signal?.addEventListener("abort", () => opts.onEnd?.({ reason: "abort" }), { once: true });
       return () => {};
     },
   } as unknown as TransportClient;
@@ -112,18 +113,25 @@ describe("webEvents boot-changed detail", () => {
       expect(restored).toHaveBeenCalledTimes(1);
     } finally { window.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, restored); }
   });
-  it("keeps a silent subscription alive until its carrier proof resolves and preserves it on success", async () => {
+  it("replaces only a silent event channel after carrier proof, retaining its cursor without a lost notice", async () => {
     let settle!: (alive: boolean) => void;
     vi.mocked(verifyStreamMuxes).mockReturnValue(new Promise(resolve => { settle = resolve; }));
     const stream = latest();
+    stream.emit({ boot: "boot", seq: 42, event_type: "tab-focused", data: {} });
     stream.ready();
+    const lost = vi.fn();
+    window.addEventListener(TERMINAL_VIEWER_DISCONNECTED_EVENT, lost);
+    try {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(verifyStreamMuxes).toHaveBeenCalledWith(window.location.origin);
     expect(stream.signal?.aborted).toBe(false);
     settle(true);
     await vi.advanceTimersByTimeAsync(0);
-    expect(stream.signal?.aborted).toBe(false);
-    expect(subscriptions).toHaveLength(1);
+    expect(stream.signal?.aborted).toBe(true);
+    expect(subscriptions).toHaveLength(2);
+    expect(new URL(latest().path, window.location.origin).searchParams.get("since")).toBe("boot:42");
+    expect(lost).not.toHaveBeenCalled();
+    } finally { window.removeEventListener(TERMINAL_VIEWER_DISCONNECTED_EVENT, lost); }
   });
   it("aborts only after a failed carrier proof", async () => {
     vi.mocked(verifyStreamMuxes).mockResolvedValue(false);

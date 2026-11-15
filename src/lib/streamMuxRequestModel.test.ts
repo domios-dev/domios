@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import readPostCases from "../../tests/fixtures/mux-read-post.json";
 import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestPolicy, readWhenMuxCapacityAvailable, requestWhenMuxCapacityAvailable, transitionMuxRequest } from "./streamMuxRequestModel";
 
 it.each([["GET", "/api/surfaces"], ["POST", "/api/tabs/t/preview/read"]])("an idempotent %s waits for admission without dispatching until release", async (method, path) => {
@@ -166,6 +167,12 @@ describe("mux POST admission", () => {
 });
 
 describe("mux request authority and traffic class", () => {
+  it("matches the shared daemon read POST fixture directly and relayed", () => {
+    for (const { path, cancellable } of readPostCases) {
+      expect(muxRequestPolicy("POST", path).cancellable, path).toBe(cancellable);
+      expect(muxRequestPolicy("POST", "/api/mesh/relay-to", JSON.stringify({ method: "POST", path })).cancellable, `relay ${path}`).toBe(cancellable);
+    }
+  });
   it("treats only the saved-solution catalogue POST as a read", () => {
     expect(muxRequestPolicy("POST", "/api/automation/blueprints/solutions/list")).toEqual({ traffic: "bulk", cancellable: true });
     for (const action of ["save", "archive", "list/extra"]) {
