@@ -39,6 +39,7 @@ export interface TabOutputSink {
   onOutput(text: string): void | Promise<void>;
   onRendered?(offset: number): void;
   onDisconnected?(): void;
+  onReset?(): void;
   onStarting?(): void;
   onSubscribed?(): void;
   onReady?(): void;
@@ -88,6 +89,7 @@ let boot: string | null = readBoot();
 let streamAbort: AbortController | null = null;
 let started = false;
 let aggregateStarting = false;
+let outputGeneration = 0;
 
 export function replayOffsetsAfterBootChange(tabIds: Iterable<string>): Map<string, number> {
   return new Map<string, number>([...tabIds].map((tabId): [string, number] => [tabId, 0]));
@@ -149,6 +151,8 @@ async function handleFrame(msg: OutputFrame): Promise<void> {
   const bytes = typeof msg.b64 === "string" ? decodeOutputBytes(msg.b64) : undefined;
   const perf = accountOutputFrame(bytes);
   if (msg.boot_changed && msg.boot) {
+    outputGeneration++;
+    for (const set of sinks.values()) for (const sink of set) sink.onReset?.();
     // boot-scoped offsets and reconnect — the boot-matched cursor full-replays.
     saveBoot(msg.boot);
     offsets.clear();
@@ -217,19 +221,21 @@ function acceptsSinkOutput(tabId: string, sink: TabOutputSink, frame: OutputFram
 
 function deliverReplayComplete(tabId: string, sink: TabOutputSink, frame: OutputFrame): void | Promise<void> {
   if (!acceptsSinkOutput(tabId, sink, frame)) return;
+  const generation = outputGeneration;
   return Promise.resolve(sink.onReplayComplete?.()).then(() => {
-    if (typeof frame.offset === "number") sink.onRendered?.(frame.offset);
+    if (generation === outputGeneration && typeof frame.offset === "number") sink.onRendered?.(frame.offset);
   });
 }
 
 function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame, bytes: Uint8Array): void | Promise<void> {
   if (!acceptsSinkOutput(tabId, sink, frame)) return;
   const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: frame.pty_id ?? tabId };
+  const generation = outputGeneration;
   return replay.deliver(identity.terminal, tabId, {
     boot: frame.boot ?? boot ?? "", ptyId: frame.pty_id ?? identity.ptyId,
     offset: frame.offset ?? bytes.length, bytes,
   }, (payload) => Promise.resolve(writeSinkBytes(sink, payload)).then(() => {
-    if (typeof frame.offset === "number") sink.onRendered?.(frame.offset);
+    if (generation === outputGeneration && typeof frame.offset === "number") sink.onRendered?.(frame.offset);
   }));
 }
 

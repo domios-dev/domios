@@ -6,8 +6,8 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { JobRow } from "./JobRow";
 import { useBlueprintLibraryRevision } from "./useBlueprintLibraryRevision";
 import { blueprintSolutionsApi, type BlueprintSolutionsApi } from "./blueprintSolutions";
-import { catalogEntry, catalogKinds, catalogTags, filterCatalog, NO_CATALOG_FILTER, type CatalogEntry, type CatalogFilter, type SolutionKind } from "./solutionCatalog";
-import { readWhenMuxCapacityAvailable } from "../../lib/streamMuxRequestModel";
+import { catalogKinds, catalogTags, filterCatalog, NO_CATALOG_FILTER, type CatalogEntry, type CatalogFilter, type SolutionKind } from "./solutionCatalog";
+import { readSolutionCatalogue } from "./readSolutionCatalogue";
 
 const KIND_LABEL: Record<SolutionKind, string> = { pipeline: "Pipeline", watch: "Watch", call: "Callable" };
 
@@ -43,10 +43,8 @@ export function SavedSolutions({ sources, revision, api = blueprintSolutionsApi,
     let active = true;
     const controller = new AbortController();
     setEntries([]); setError(null);
-    void Promise.all(sources.map(async (workspaceId) => (await api.list(workspaceId)).map((entry) => ({ ...entry, workspaceId })))).then(async (results) => {
-      const solutions = results.flat();
-      const stored = await Promise.all(solutions.map((solution) => readWhenMuxCapacityAvailable(() => api.document(solution.id), controller.signal).catch((failure: unknown) => failure instanceof Error ? failure : new Error(String(failure)))));
-      if (active) setEntries(solutions.map((solution, index) => catalogEntry(solution, stored[index])));
+    void readSolutionCatalogue(sources, api, controller.signal).then((entries) => {
+      if (active) setEntries(entries);
     }, (failure: unknown) => { if (active) setError(String(failure)); });
     return () => { active = false; controller.abort(); };
   }, [sources, revision, libraryRevision, api]);

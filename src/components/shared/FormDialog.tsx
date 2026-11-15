@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { trapDialogTab, useDialogFocus } from "./dialogFocusTrap";
 import { useBackDismissal } from "../../lib/backDismissal";
 
-const SCRIM = "bg-[color-mix(in_srgb,var(--ct-bg)_60%,transparent)]";
+/** The same backdrop as Start a session, so content behind a dialog never competes with it. */
+const SCRIM = "bg-black/55 backdrop-blur-sm";
 /** Over another dialog: a full scrim, so the parent's controls never read through. */
 const STACKED_SCRIM = "bg-[color-mix(in_srgb,var(--ct-bg)_88%,transparent)] backdrop-blur-sm";
 

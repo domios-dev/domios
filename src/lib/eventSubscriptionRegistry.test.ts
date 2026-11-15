@@ -130,6 +130,19 @@ describe("page event subscription ownership", () => {
     f.registry.replace(next);
     expect(next.mock.calls[0][0]).toBe("/api/events/stream?since=new%3A4");
   });
+  it("retains the supplied cursor when an attach fails before its first frame", () => {
+    const f = fixture();
+    f.registry.subscribe("/api/events/stream?since=boot%3A42", () => {}, { onEnd: vi.fn() });
+    f.connect.mock.calls[0][2]?.onEnd?.({ reason: "error", error: new Error("Attach failed") });
+    const listener = vi.fn();
+    f.registry.subscribe("/api/events/stream", listener);
+    expect(f.connect.mock.calls[1][0]).toBe("/api/events/stream?since=boot%3A42");
+    f.connect.mock.calls[1][1]("message", { boot: "boot", seq: 43 });
+    expect(listener).toHaveBeenCalledExactlyOnceWith("message", { boot: "boot", seq: 43 });
+    const next = vi.fn<TransportClient["subscribe"]>(() => () => {});
+    f.registry.replace(next);
+    expect(next.mock.calls[0][0]).toBe("/api/events/stream?since=boot%3A43");
+  });
   it("delivers to other consumers when one callback throws", () => {
     const f = fixture();
     const error = new Error("consumer failure");

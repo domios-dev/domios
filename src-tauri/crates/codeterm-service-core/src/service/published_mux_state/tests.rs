@@ -78,6 +78,50 @@ fn first_read_has_a_complete_snapshot_and_shares_its_buffer() {
     assert_eq!(first.as_ptr(), second.as_ptr());
 }
 
+#[test]
+fn silent_emits_reuse_the_published_payload_without_json_encoding() {
+    let published = PublishedMuxState::new(1, &status_snapshot(1)).unwrap();
+    let first = published.read();
+    let initial_encodings = JSON_ENCODINGS.with(|count| count.get());
+    for generation in 2..100 {
+        assert!(published
+            .publish_change(generation, &status_snapshot(generation))
+            .unwrap()
+            .is_none());
+        assert_eq!(published.read().as_ptr(), first.as_ptr());
+    }
+    assert_eq!(JSON_ENCODINGS.with(|count| count.get()), initial_encodings);
+    let mut changed = status_snapshot(100);
+    changed["tabs"]["a"]["title"] = json!("Changed");
+    assert!(published.publish_change(100, &changed).unwrap().is_some());
+    assert_eq!(
+        JSON_ENCODINGS.with(|count| count.get()),
+        initial_encodings + 1
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&published.read()).unwrap(),
+        changed
+    );
+}
+
+#[test]
+fn already_fenced_emits_never_serialize_the_offered_snapshot() {
+    struct Unexpected;
+    impl Serialize for Unexpected {
+        fn serialize<S: Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            panic!("a fenced snapshot must not be serialized")
+        }
+    }
+    let published = PublishedMuxState::new(20, &status_snapshot(20)).unwrap();
+    for generation in [1, 19, 20] {
+        assert!(published
+            .publish_change(generation, &Unexpected)
+            .unwrap()
+            .is_none());
+    }
+    assert_eq!(published.read_versioned().0, 20);
+}
+
 struct PausedSnapshot {
     entered: mpsc::Sender<()>,
     release: mpsc::Receiver<()>,

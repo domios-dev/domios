@@ -1,9 +1,9 @@
 import type { TransportClient } from "./transportClient";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn(), minimize: vi.fn(), open: vi.fn(), drop: vi.fn(), tray: vi.fn() }));
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn(), minimize: vi.fn(), open: vi.fn(), drop: vi.fn(), tray: vi.fn(), focus: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke, isTauri: () => false }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
-vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ minimize: mocks.minimize }) }));
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ minimize: mocks.minimize, onFocusChanged: mocks.focus }) }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDropEvent: mocks.drop }) }));
 vi.mock("@tauri-apps/api/tray", () => ({ TrayIcon: { getById: mocks.tray } }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: mocks.open, save: vi.fn() }));
@@ -11,10 +11,32 @@ import { bindNativeBridgeTransport, createNativeBridge, NativeCapabilityUnavaila
 
 beforeEach(() => vi.clearAllMocks());
 describe("nativeBridge", () => {
+  it("never creates output-flow or focus subscriptions on exempt Windows", () => {
+    const bridge = createNativeBridge(true, "Win32");
+    expect(bridge.terminalOutputFlow).toBeUndefined();
+    expect(bridge.terminalOutputFocus).toBeUndefined();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.focus).not.toHaveBeenCalled();
+  });
+  it("shares authoritative native focus events between terminal attachments", () => {
+    mocks.focus.mockResolvedValue(vi.fn());
+    const bridge = createNativeBridge(true, "Linux x86_64");
+    const first = vi.fn(), second = vi.fn();
+    const leave = bridge.terminalOutputFocus!(first);
+    bridge.terminalOutputFocus!(second);
+    expect(mocks.focus).toHaveBeenCalledOnce();
+    mocks.focus.mock.calls[0][0]({ payload: true });
+    expect(first).toHaveBeenCalledWith(true);
+    expect(second).toHaveBeenCalledWith(true);
+    leave();
+    mocks.focus.mock.calls[0][0]({ payload: false });
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenLastCalledWith(false);
+  });
   it("keeps renderer ACK authority native-only", async () => {
     expect(createNativeBridge(false).terminalOutputFlow).toBeUndefined();
     const update = { action: "detach_all" } as const;
-    await createNativeBridge(true).terminalOutputFlow!(update);
+    await createNativeBridge(true, "Linux x86_64").terminalOutputFlow!(update);
     expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("native_terminal_output_flow", { update });
   });
   it("makes OS capabilities explicitly unavailable in a browser", async () => {

@@ -166,6 +166,12 @@ describe("mux POST admission", () => {
 });
 
 describe("mux request authority and traffic class", () => {
+  it("treats only the saved-solution catalogue POST as a read", () => {
+    expect(muxRequestPolicy("POST", "/api/automation/blueprints/solutions/list")).toEqual({ traffic: "bulk", cancellable: true });
+    for (const action of ["save", "archive", "list/extra"]) {
+      expect(muxRequestPolicy("POST", `/api/automation/blueprints/solutions/${action}`)).toEqual({ traffic: "interactive", cancellable: false });
+    }
+  });
   it("declares only specific read POSTs cancellable and bulk", () => {
     for (const path of ["/api/tabs/t/preview/read", "/api/tabs/t/preview/check", "/api/tabs/t/chat-raw/start", "/api/tabs/t/chat-raw/history", "/api/tabs/t/chat-raw/backfill", "/api/tabs/t/chat-raw/resume", "/api/essence-maps"]) {
       expect(muxRequestPolicy("POST", path)).toMatchObject({ traffic: "bulk", cancellable: true });

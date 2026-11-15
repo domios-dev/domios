@@ -14,6 +14,26 @@ function pending<T>() {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("aggregate terminal attachment", () => {
+  it("resets render ACK state on a new boot and suppresses the old write completion", async () => {
+    vi.resetModules(); localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    let receive!: (name: string, frame: unknown) => void | Promise<void>;
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (_path, handler) => {
+      receive = handler; return () => {};
+    } } as import("./transportClient").TransportClient);
+    const write = pending<void>(), rendered = vi.fn(), reset = vi.fn();
+    const stop = output.subscribeTabOutput("tab", { onOutput: () => write.promise, onRendered: rendered, onReset: reset, onTruncated() {}, onEnded() {} }, {}, "pty");
+    try {
+      const old = receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", offset: 1000000, b64: "QQ" });
+      await receive("message", { boot_changed: true, boot: "next-boot" });
+      expect(reset).toHaveBeenCalledOnce();
+      write.resolve(); await old;
+      expect(rendered).not.toHaveBeenCalled();
+      await receive("message", { tab_id: "tab", pty_id: "pty", boot: "next-boot", offset: 1, b64: "Qg" });
+      expect(rendered).toHaveBeenCalledExactlyOnceWith(1);
+    } finally { stop(); output.resetOutputStream(); }
+  });
   it("acknowledges only completed xterm writes and disconnects even on capacity recovery", async () => {
     vi.resetModules();
     localStorage.clear();

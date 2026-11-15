@@ -160,6 +160,32 @@ async function main() {
   const afterUnmount = reads;
   await act(async () => { change("w", "blueprint-library:5"); });
   assert.equal(reads, afterUnmount);
+  const pendingLists: Array<() => void> = [];
+  const catalogueScopes = Array.from({ length: 64 }, (_, index) => `scope${index}`);
+  let listStarted = 0, listActive = 0, peakLists = 0;
+  const boundedApi: BlueprintSolutionsApi = { ...api, list: async (_workspace, signal) => {
+    listStarted++; listActive++; peakLists = Math.max(peakLists, listActive);
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => { listActive--; reject(signal?.reason); };
+      signal?.addEventListener("abort", abort, { once: true });
+      pendingLists.push(() => { signal?.removeEventListener("abort", abort); listActive--; resolve(); });
+    });
+    return [];
+  } };
+  await render(<SavedSolutions sources={catalogueScopes} revision={0} api={boundedApi} />);
+  assert.equal(listStarted, 3, "the catalogue bounds list admission before transport dispatch");
+  while (pendingLists.length) {
+    await act(async () => { pendingLists.splice(0).forEach((finish) => finish()); });
+  }
+  assert.equal(listStarted, 64, "every requested workspace is read");
+  assert.equal(peakLists, 3);
+  listStarted = 0;
+  await render(<SavedSolutions sources={catalogueScopes} revision={1} api={boundedApi} />);
+  assert.equal(listStarted, 3);
+  await render(<div />);
+  assert.equal(listActive, 0, "leaving aborts active catalogue reads");
+  assert.equal(listStarted, 3, "leaving never dispatches the queued workspaces");
+  pendingLists.length = 0;
   const capacity = createMuxReadCapacity();
   let documentReads = 0;
   const capacityApi = {
