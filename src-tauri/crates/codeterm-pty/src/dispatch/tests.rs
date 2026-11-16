@@ -349,6 +349,13 @@ fn sleeping_tab_projection_says_it_is_asleep_and_how_to_wake_it() {
             "{wake}"
         );
     }
+
+    state.get_tab_mut(&tab_id).unwrap().pty_id = Some("live-terminal".into());
+    let attached = state.snapshot();
+    assert!(
+        build_tab_summary_json(&attached, None, None, false, false)[0]["asleep"].is_null(),
+        "a tab with a live terminal is never reported asleep"
+    );
 }
 
 // ── Command enum round-trip tests ───────────────────────────────
