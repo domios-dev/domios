@@ -1,9 +1,5 @@
 use super::*;
-use crate::prelude::*;
-use crate::{
-    multiplexer::{state::MultiplexerState, types::NeighborAuthority},
-    service::test_fixture::ServiceFixture,
-};
+use crate::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
 
 #[test]
 fn account_refresh_keeps_root_and_child_authorized_until_atomic_publication() {

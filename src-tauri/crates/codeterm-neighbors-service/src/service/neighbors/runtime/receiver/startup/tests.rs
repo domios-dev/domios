@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::service::neighbors::{projection::ActivationTicket, reconciliation::Kind};
 use codeterm_neighbors::state::Snapshot;
 use tokio::sync::oneshot;
@@ -14,9 +13,8 @@ async fn fixture() -> (
     crate::service::test_fixture::ServiceFixture,
     ActivationTicket,
 ) {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     fixture
         .service
         .select_neighbor_projection("owner", 1)

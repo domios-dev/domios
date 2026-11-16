@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_neighbors::adapter::ReceiverStatus;
 use std::collections::BTreeSet;
 pub mod friends;

@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_account::IdentityObserver;
 
 pub struct GatedCredentials {
@@ -37,7 +36,7 @@ impl codeterm_account::CredentialStore for GatedCredentials {
 async fn account_login_disconnect_still_publishes_settled_status() {
     for fail in [false, true] {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-        let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+        let fixture = crate::test_support::fixture(mux);
         let service = Arc::new(fixture.service.clone());
         service.ext::<crate::config::ConfigState>().lock().billing =
             serde_json::json!({"endpoint": "fixture-unavailable"});
@@ -96,7 +95,7 @@ async fn account_login_disconnect_still_publishes_settled_status() {
 #[tokio::test]
 async fn account_identity_changes_reach_the_frontend_event_stream() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = Arc::new(fixture.service.clone());
     let observer = AccountIdentity(Arc::downgrade(&service), "fixture".into());
     let mut events = service.events.subscribe();

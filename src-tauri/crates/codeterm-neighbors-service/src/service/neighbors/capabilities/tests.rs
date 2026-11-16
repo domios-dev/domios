@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 #[test]
 fn default_deny_rejects_every_non_allowlisted_rpc_and_http_surface() {
@@ -138,7 +137,7 @@ async fn capability_lookup_requires_the_exact_live_bound_concierge_nonce() {
     tab.agent_session_id = Some("own-session".into());
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.reported_session_binding_nonce = Some("own-nonce".into());
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);
     let mut settings = super::super::storage::Settings::default();

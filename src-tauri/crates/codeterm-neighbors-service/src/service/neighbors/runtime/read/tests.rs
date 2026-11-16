@@ -1,10 +1,9 @@
 use super::*;
-use crate::prelude::*;
 
 #[tokio::test]
 async fn ack_commit_refuses_stale_account_generation_while_neighbors_is_off() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     fixture
         .service
         .ext::<crate::config::ConfigState>()
@@ -38,7 +37,7 @@ async fn ack_commit_refuses_stale_account_generation_while_neighbors_is_off() {
 #[tokio::test]
 async fn ack_commit_persists_proof_and_keeps_pending_visibility_while_neighbors_is_off() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     fixture
         .service
         .ext::<crate::config::ConfigState>()

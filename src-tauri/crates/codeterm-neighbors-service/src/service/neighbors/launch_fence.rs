@@ -1,5 +1,4 @@
 use super::ServiceContext;
-use crate::prelude::*;
 
 pub use codeterm_service_core::service::neighbor_state::{begin, Mutation};
 

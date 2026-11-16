@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_account::{Callback, CredentialStore, Secret};
 
 #[derive(Default)]
@@ -23,7 +22,7 @@ impl CredentialStore for MemoryCredentials {
 #[tokio::test]
 async fn paste_login_returns_url_and_waits_for_verified_redemption() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     service.ext::<crate::config::ConfigState>().lock().billing =
         serde_json::json!({"endpoint":"fixture-unavailable"});

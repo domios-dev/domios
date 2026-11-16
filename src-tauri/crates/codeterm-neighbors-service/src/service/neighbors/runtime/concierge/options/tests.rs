@@ -1,6 +1,5 @@
 use super::*;
-use crate::prelude::*;
-use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+use crate::multiplexer::state::MultiplexerState;
 
 #[test]
 fn change_agent_parses_provider_choices_and_omitted_defaults() {

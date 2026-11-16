@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_neighbors::wire::{InboxDocument, InboxMessage, Timestamp};
 
 #[test]
@@ -77,7 +76,7 @@ fn restored_initial_context_must_match_the_applied_grant() {
 
 #[tokio::test]
 async fn each_permission_apply_creates_once_with_the_complete_new_initial_context() {
-    use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+    use crate::multiplexer::state::MultiplexerState;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,

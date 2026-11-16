@@ -1,7 +1,6 @@
 use super::super::history::ReceivedBy;
 use super::*;
-use crate::prelude::*;
-use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+use crate::multiplexer::state::MultiplexerState;
 
 fn receipt(tab: &str) -> ReceivedBy {
     ReceivedBy {

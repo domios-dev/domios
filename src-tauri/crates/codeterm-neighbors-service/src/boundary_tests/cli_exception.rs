@@ -6,7 +6,7 @@ use std::path::Path;
 #[test]
 fn full_concierge_skips_optional_exception_only_with_current_host_bypass_grant() {
     use crate::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
-    use crate::service::{test_fixture::ServiceFixture, SpawnAgentParams};
+    use crate::service::SpawnAgentParams;
     use codeterm_neighbors::permissions::MachineAccess;
 
     let (_directory, mut context, policy, _executable) = fixture();

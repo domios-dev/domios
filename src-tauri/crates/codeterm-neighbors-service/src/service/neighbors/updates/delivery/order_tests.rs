@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use async_trait::async_trait;
 use codeterm_neighbors::{
     receive::InboxListener,
@@ -46,7 +45,7 @@ async fn read_before_delivery_survives_and_a_hidden_read_requests_bounded_catchu
     for ordering in 0..3 {
         let read_signal_seen = ordering != 1;
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-        let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+        let fixture = crate::test_support::fixture(mux);
         fixture
             .service
             .ext::<crate::config::ConfigState>()

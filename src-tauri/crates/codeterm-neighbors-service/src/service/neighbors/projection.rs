@@ -178,8 +178,8 @@ pub trait NeighborsExt {
         reconcile: F,
     ) -> impl std::future::Future<Output = Result<bool>> + Send
     where
-        F: FnOnce(Value) -> R,
-        R: std::future::Future<Output = Result<()>>;
+        F: FnOnce(Value) -> R + Send,
+        R: std::future::Future<Output = Result<()>> + Send;
     fn peek_neighbor_projection(
         &self,
         uid: &str,
@@ -738,8 +738,8 @@ impl NeighborsExt for ServiceContext {
         reconcile: F,
     ) -> Result<bool>
     where
-        F: FnOnce(Value) -> R,
-        R: std::future::Future<Output = Result<()>>,
+        F: FnOnce(Value) -> R + Send,
+        R: std::future::Future<Output = Result<()>> + Send,
     {
         self.require_neighbor_reconciliation_account(uid, generation)
             .await?;

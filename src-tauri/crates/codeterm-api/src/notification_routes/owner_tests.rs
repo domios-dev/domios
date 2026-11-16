@@ -4,7 +4,6 @@ use axum::{body::Body, http::Request, routing::post, Router};
 use codeterm_service_core::{
     multiplexer::state::MultiplexerState,
     ports::daemon_question::{DaemonQuestionHandler, DaemonQuestions},
-    service::test_fixture::ServiceFixture,
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},

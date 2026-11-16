@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 pub mod outbound_authority;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};

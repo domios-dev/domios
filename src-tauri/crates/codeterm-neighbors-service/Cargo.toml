@@ -35,6 +35,7 @@ codeterm-plugin = { path = "../codeterm-plugin" }
 log = { version = "0.4", features = ["release_max_level_info"] }
 parking_lot = "0.12"
 base64 = "0.23"
+md-5 = "0.10"
 axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
@@ -50,3 +51,8 @@ codeterm-paths = { path = "../codeterm-paths" }
 
 [dev-dependencies]
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Foundation"] }
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

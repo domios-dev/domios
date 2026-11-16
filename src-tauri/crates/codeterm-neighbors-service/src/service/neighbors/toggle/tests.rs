@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::service::{neighbors::NeighborRuntimeCommand, test_fixture::ServiceFixture};
+use crate::service::neighbors::NeighborRuntimeCommand;
 use codeterm_neighbors::Error;
 
 #[tokio::test]

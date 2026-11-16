@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 pub trait NeighborsExt {
     fn neighbor_restore_access(&self, tab_id: &str) -> std::result::Result<MachineAccess, String>;

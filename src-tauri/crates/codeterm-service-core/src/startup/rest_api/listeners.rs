@@ -187,7 +187,7 @@ where
     serve_pair(primary, remote, address, publication, Some(shutdown_tx)).await
 }
 
-pub(crate) async fn serve_listener(
+pub async fn serve_listener(
     listener: std::net::TcpListener,
     router: axum::Router,
     shutdown: oneshot::Receiver<()>,

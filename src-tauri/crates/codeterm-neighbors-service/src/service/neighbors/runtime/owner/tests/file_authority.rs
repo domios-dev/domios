@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 #[tokio::test]
 async fn general_file_send_keeps_its_authenticated_caller_and_rejects_a_rotated_queued_nonce() {
@@ -11,7 +10,7 @@ async fn general_file_send_keeps_its_authenticated_caller_and_rejects_a_rotated_
     tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
     tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
     tab.role_profile = Some(crate::service::general_agent::GENERAL_AGENT_KIND.into());
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     let (sender, mut requests) = mpsc::channel::<Request>(1);
     *service.neighbor_cell().owner.lock() = Some(sender);

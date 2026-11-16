@@ -1,6 +1,5 @@
 use super::*;
-use crate::prelude::*;
-use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+use crate::multiplexer::state::MultiplexerState;
 
 #[tokio::test]
 async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding() {

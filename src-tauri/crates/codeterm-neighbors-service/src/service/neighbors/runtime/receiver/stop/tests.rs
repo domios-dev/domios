@@ -1,11 +1,9 @@
 use super::*;
-use crate::prelude::*;
 
 #[test]
 fn pending_global_stop_fences_racing_startup_until_retirement() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service.set_neighbor_friend_receiver_for_test("friend", Some(true), 1);
     assert!(service.neighbor_friend_receiving_here("friend"));
@@ -20,9 +18,8 @@ fn pending_global_stop_fences_racing_startup_until_retirement() {
 async fn off_cleanup_drains_projection_then_closes_before_successor_even_when_waiter_is_abandoned()
 {
     use crate::service::neighbors::reconciliation::Kind;
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let effects = Arc::new(parking_lot::Mutex::new(Vec::new()));
     let (started, running) = tokio::sync::oneshot::channel();
@@ -97,9 +94,8 @@ async fn off_cleanup_drains_projection_then_closes_before_successor_even_when_wa
 #[tokio::test]
 async fn failed_owned_off_cleanup_keeps_pending_and_refuses_new_account_effects() {
     use crate::service::neighbors::reconciliation::Kind;
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service.queue_neighbor_stop_local();
     assert!(service

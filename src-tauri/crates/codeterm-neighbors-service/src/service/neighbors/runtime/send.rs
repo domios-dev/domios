@@ -1,6 +1,5 @@
 use super::authority::SendAuthority;
 use super::*;
-use crate::prelude::*;
 
 pub trait NeighborsExt {
     fn send_neighbor(

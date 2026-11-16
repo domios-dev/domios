@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -90,7 +89,7 @@ async fn sign_in_or_account_switch_does_not_inherit_an_old_permanent_refusal() {
 #[tokio::test]
 async fn request_count_oracle_fallback_is_shared_across_four_consumers_and_ui_activity() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     fixture
         .service
         .ext::<crate::config::ConfigState>()
@@ -200,9 +199,8 @@ async fn account_and_login_switch_fence_in_flight_completions() {
 
 #[tokio::test]
 async fn mutation_and_refresh_recover_cached_failures_once_per_explicit_epoch() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .ext::<crate::config::ConfigState>()
@@ -243,9 +241,8 @@ async fn mutation_and_refresh_recover_cached_failures_once_per_explicit_epoch() 
 #[tokio::test]
 async fn mutation_and_refresh_retire_an_active_service_list_read() {
     for refresh in [false, true] {
-        let fixture = crate::service::test_fixture::crate::test_support::fixture(
-            crate::multiplexer::state::MultiplexerState::new().0,
-        );
+        let fixture =
+            crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
         let service = &fixture.service;
         service
             .ext::<crate::config::ConfigState>()
@@ -289,9 +286,8 @@ async fn mutation_and_refresh_retire_an_active_service_list_read() {
 
 #[test]
 fn registry_commit_keeps_the_epoch_locked_through_the_injected_publication() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let epoch = service.neighbor_list_epoch("owner", 1);
     let mut published = false;

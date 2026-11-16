@@ -1,10 +1,9 @@
 use super::*;
-use crate::prelude::*;
 
 #[tokio::test]
 async fn concierge_cannot_upload_open_applications_or_change_file_limits() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     for command in [
         json!({"operation":"send","friendship_id":"a".repeat(64),"kind":"question","body":"opaque","in_reply_to":null,"paths":["local"]}),
         json!({"operation":"open_folder","friendship_id":"a".repeat(64)}),
@@ -26,7 +25,7 @@ async fn concierge_cannot_upload_open_applications_or_change_file_limits() {
 #[tokio::test]
 async fn file_operation_rejects_traversal_friendship_before_local_access() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     for friendship in ["../escape", "NUL", "", "/absolute"] {
         let error = fixture
             .service

@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use async_trait::async_trait;
 use codeterm_account::{CredentialStore, IdentityProvider};
 use codeterm_neighbors::{adapter::AuthenticatedCall, crypto::PrivateKeys, keys::Slot};
@@ -185,7 +184,7 @@ async fn logout(
 ) {
     use codeterm_billing::GrantStore;
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     let grants = codeterm_billing::FileGrantStore::new(service.account_data_root().unwrap());
     grants.save(&json!({"opaque":"cached-grant"})).unwrap();
@@ -337,7 +336,7 @@ async fn self_session_revocation_keeps_local_sign_out_when_backend_is_unavailabl
 #[tokio::test]
 async fn failed_local_key_cleanup_remains_pending_until_the_store_accepts_it() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     let evidence = Arc::new(Evidence::default());
     *evidence.fail_delete.lock() = true;

@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Default)]
@@ -31,7 +30,7 @@ fn test_credentials_refuse_a_missing_fixture_root() {
 
 #[tokio::test]
 async fn fixture_credentials_share_one_store_and_isolate_other_fixtures() {
-    use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+    use crate::multiplexer::state::MultiplexerState;
     let first = crate::test_support::fixture(MultiplexerState::empty());
     let second = crate::test_support::fixture(MultiplexerState::empty());
     let first_store = first.service.account_credentials().await.unwrap();

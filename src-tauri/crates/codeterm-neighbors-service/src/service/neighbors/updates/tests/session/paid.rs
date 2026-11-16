@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::service::neighbors::paid_fixture::{reading, Paid};
 
 pub struct LockedProjection;

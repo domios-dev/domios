@@ -1,10 +1,9 @@
 use super::*;
-use crate::prelude::*;
 
 #[tokio::test]
 async fn friend_receiver_fence_requires_current_enabled_installation_and_revision() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     assert_eq!(
         service.require_neighbor_friend_receiver("friend", None),
@@ -101,9 +100,8 @@ fn an_installation_with_expired_membership_is_never_presented_as_the_receiver() 
 #[tokio::test]
 async fn failed_receiver_watch_keeps_reconnecting_cause_and_visible_exhaustion() {
     use codeterm_neighbors::supervisor::ListenerState;
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let friend = "a".repeat(64);
     service

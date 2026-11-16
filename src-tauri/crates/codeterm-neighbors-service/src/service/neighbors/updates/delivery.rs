@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::service::neighbors::history::{HistoryReceipt, Submission};
 use codeterm_neighbors::{
     receive::NeighborTransport, registry::DeliverySignal, wire::DeliveryStatus,

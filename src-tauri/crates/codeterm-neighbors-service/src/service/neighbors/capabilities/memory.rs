@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 pub fn area_allowed(areas: &[String], area: Option<&str>) -> bool {
     areas

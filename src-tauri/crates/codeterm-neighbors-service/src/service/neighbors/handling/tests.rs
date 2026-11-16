@@ -1,6 +1,5 @@
 use super::super::history::{Entry, HistoryReceipt, Submission};
 use super::*;
-use crate::prelude::*;
 use crate::{
     multiplexer::{state::MultiplexerState, types::TabBacking},
     service::test_fixture::ServiceFixture,

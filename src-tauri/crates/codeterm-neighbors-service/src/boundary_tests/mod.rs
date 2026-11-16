@@ -1,3 +1,4 @@
+mod billing;
 mod cli_exception;
 mod cli_local_admission;
 mod engine;

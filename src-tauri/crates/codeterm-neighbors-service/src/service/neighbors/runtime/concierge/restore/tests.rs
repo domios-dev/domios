@@ -1,6 +1,5 @@
 use super::*;
-use crate::prelude::*;
-use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+use crate::multiplexer::state::MultiplexerState;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -305,7 +304,7 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
 async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once() {
     use crate::{
         multiplexer::{state::MultiplexerState, types::NeighborAuthority},
-        service::{lazy_restore::test_boundary::Boundary, test_fixture::ServiceFixture},
+        service::lazy_restore::test_boundary::Boundary,
     };
     use codeterm_neighbors::permissions::MachineAccess;
     use codeterm_types::pty::BootStage;

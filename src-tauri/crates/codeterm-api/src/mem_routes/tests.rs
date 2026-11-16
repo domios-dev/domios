@@ -1,9 +1,6 @@
 use super::*;
 use axum::{extract::State, http::HeaderValue, Json};
-use codeterm_service_core::{
-    multiplexer::{state::MultiplexerState, types::NeighborAuthority},
-    service::test_fixture::ServiceFixture,
-};
+use codeterm_service_core::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
 
 #[tokio::test]
 async fn actor_and_selected_tab_headers_cannot_forge_save_author() {

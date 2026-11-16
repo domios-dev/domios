@@ -120,7 +120,7 @@ pub trait NeighborsExt {
         &self,
         provider: &str,
         access: MachineAccess,
-        params: &crate::service::SpawnAgentParams,
+        params: &mut crate::service::SpawnAgentParams,
     ) -> std::result::Result<(), String>;
     fn validate_neighbor_bound_launch(
         &self,

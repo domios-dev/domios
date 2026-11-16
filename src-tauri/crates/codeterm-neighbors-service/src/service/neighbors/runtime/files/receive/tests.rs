@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_neighbors::adapter::AuthenticatedCall;
 use std::{path::PathBuf, sync::Mutex};
 
@@ -13,9 +12,8 @@ pub struct Calls {
 
 #[tokio::test]
 async fn moved_friend_files_are_never_downloaded_saved_or_confirmed_by_the_old_receiver() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "recipient");
     let envelope = envelope();
@@ -124,7 +122,7 @@ fn envelope() -> Envelope {
 #[tokio::test]
 async fn file_bearing_answer_saves_confirms_acks_and_commits_proof_before_read() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
 
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "recipient");

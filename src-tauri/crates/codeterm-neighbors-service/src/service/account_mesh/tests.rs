@@ -1,6 +1,5 @@
 use super::authority::{admission_refusal, membership_refusal};
 use super::*;
-use crate::prelude::*;
 use async_trait::async_trait;
 use codeterm_account::account_mesh::{
     AccountMeshConfig, AccountMeshPorts, AccountMeshStore, Cleanup, Clock, EndpointSource,
@@ -452,7 +451,7 @@ fn account_mesh_with_sessions(
 #[tokio::test]
 async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let mesh_state = fixture.service.ext::<crate::MeshStateHandle>().clone();
     let service = Arc::new(fixture.service.clone());
     let store = Arc::new(HeldSignOutStore::default());

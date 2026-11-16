@@ -1,15 +1,11 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_neighbors::keys::{KeyStore, Slot};
 
 #[tokio::test]
 async fn injected_keys_share_scope_and_slots_without_crossing_service_or_retired_binding() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
-    let other = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
+    let other = crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let keys = fixture.service.fixture_neighbor_key_store();
     let other_keys = other.service.fixture_neighbor_key_store();
     let scope = KeyScope::installation("fixture-machine", "fixture-owner").unwrap();

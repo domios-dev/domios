@@ -6,9 +6,7 @@ use axum::{
     routing::get,
     Router,
 };
-use codeterm_service_core::{
-    multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
-};
+use codeterm_service_core::multiplexer::state::MultiplexerState;
 use tower::ServiceExt;
 
 #[test]

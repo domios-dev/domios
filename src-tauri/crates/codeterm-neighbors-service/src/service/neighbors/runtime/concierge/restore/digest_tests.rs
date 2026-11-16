@@ -1,6 +1,5 @@
 use super::*;
-use crate::prelude::*;
-use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+use crate::multiplexer::state::MultiplexerState;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,

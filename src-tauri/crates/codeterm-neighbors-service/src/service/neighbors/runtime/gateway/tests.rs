@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_neighbors::wire::{InboxDocument, Timestamp};
 
 #[test]
@@ -13,7 +12,7 @@ fn gateway_rejects_a_different_friendship_or_a_descendant_before_delivery() {
             friendship_id: "a".repeat(64),
             root_tab_id: None,
         });
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     fixture
         .service
         .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
@@ -96,7 +95,7 @@ async fn disabled_gateway_never_admits_or_records_a_message() {
     let workspace = mux.find_workspace_for_tab(&general).unwrap();
     let untagged = mux.create_tab(&workspace).unwrap();
     mux.get_tab_mut(&untagged).unwrap().agent_type = Some("fixture".into());
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     fixture
         .service
         .set_neighbor_friend_receiver_for_test("f", Some(true), 1);
@@ -194,7 +193,7 @@ async fn restored_bound_pty_concierge_wakes_and_becomes_ready_without_ui_activat
     concierge.restored_from_snapshot = true;
     concierge.frozen = false;
     concierge.boot_stage = Some(codeterm_types::pty::BootStage::PtyStarting);
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     service.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");

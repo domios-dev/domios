@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use serde_json::json;
 use std::{
     collections::BTreeSet,
@@ -9,9 +8,8 @@ use std::{
 #[tokio::test(start_paused = true)]
 async fn confirmation_timeout_and_unavailable_projection_are_pending_and_retired_account_is_revoked(
 ) {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .ext::<crate::config::ConfigState>()
@@ -54,9 +52,8 @@ async fn confirmation_timeout_and_unavailable_projection_are_pending_and_retired
 
 #[tokio::test]
 async fn receiver_confirmation_observes_completed_reconciliation_and_is_woken_by_its_commit() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .ext::<crate::config::ConfigState>()
@@ -163,9 +160,8 @@ async fn deliver(
 
 #[tokio::test]
 async fn projection_count_oracle_idle_focus_views_reconnects_and_remote_receiver_assignment() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .ext::<crate::config::ConfigState>()
@@ -220,9 +216,8 @@ async fn projection_count_oracle_idle_focus_views_reconnects_and_remote_receiver
 #[tokio::test]
 async fn failed_local_inbox_reconciliation_can_recover_on_equal_snapshot_without_accepting_old_data(
 ) {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .select_neighbor_projection("owner", 1)
@@ -258,9 +253,8 @@ async fn failed_local_inbox_reconciliation_can_recover_on_equal_snapshot_without
 
 #[tokio::test]
 async fn fallback_is_bounded_per_account_generation_and_does_not_reset_on_reconnect() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .select_neighbor_projection("owner", 1)
@@ -283,9 +277,8 @@ async fn fallback_is_bounded_per_account_generation_and_does_not_reset_on_reconn
 
 #[tokio::test]
 async fn mutation_and_refresh_bypass_old_list_projection_until_a_newer_snapshot() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .ext::<crate::config::ConfigState>()
@@ -348,9 +341,8 @@ async fn mutation_and_refresh_bypass_old_list_projection_until_a_newer_snapshot(
 
 #[tokio::test]
 async fn projection_arriving_during_fallback_wins_the_returned_list() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .ext::<crate::config::ConfigState>()
@@ -385,9 +377,8 @@ async fn projection_arriving_during_fallback_wins_the_returned_list() {
 
 #[tokio::test]
 async fn fallback_publication_cannot_overwrite_a_projection_or_cross_account_or_epoch() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .select_neighbor_projection("owner", 1)
@@ -446,9 +437,8 @@ async fn fallback_publication_cannot_overwrite_a_projection_or_cross_account_or_
 
 #[tokio::test]
 async fn explicit_invalidation_rearms_one_fallback_but_reconnect_does_not() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .select_neighbor_projection("owner", 1)
@@ -468,9 +458,8 @@ async fn explicit_invalidation_rearms_one_fallback_but_reconnect_does_not() {
 
 #[tokio::test]
 async fn expired_projection_reconciliation_cannot_publish_after_refresh_or_account_switch() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .select_neighbor_projection("owner", 1)
@@ -536,9 +525,8 @@ async fn expired_projection_reconciliation_cannot_publish_after_refresh_or_accou
 #[tokio::test]
 async fn prepared_registry_completion_cannot_reinstall_after_invalidation_or_account_selection() {
     for transition in 0..3 {
-        let fixture = crate::service::test_fixture::crate::test_support::fixture(
-            crate::multiplexer::state::MultiplexerState::new().0,
-        );
+        let fixture =
+            crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
         let service = &fixture.service;
         service
             .ext::<crate::config::ConfigState>()
@@ -612,9 +600,8 @@ async fn prepared_registry_completion_cannot_reinstall_after_invalidation_or_acc
 
 #[tokio::test]
 async fn registry_publication_before_invalidation_is_cleared_and_old_projection_cannot_reinstall() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .ext::<crate::config::ConfigState>()
@@ -682,9 +669,8 @@ async fn registry_publication_before_invalidation_is_cleared_and_old_projection_
 
 #[tokio::test]
 async fn registry_commit_keeps_account_selection_locked_through_the_injected_publication() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .ext::<crate::config::ConfigState>()
@@ -725,9 +711,8 @@ async fn registry_commit_keeps_account_selection_locked_through_the_injected_pub
 
 #[tokio::test]
 async fn queued_newer_projection_refuses_older_effects_and_activation_until_current_commit() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     service
         .select_neighbor_projection("owner", 1)

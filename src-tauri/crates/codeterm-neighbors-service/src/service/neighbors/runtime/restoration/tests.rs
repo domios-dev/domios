@@ -1,6 +1,5 @@
 use super::*;
-use crate::prelude::*;
-use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+use crate::multiplexer::state::MultiplexerState;
 
 #[tokio::test]
 async fn fresh_nonreceiver_projects_location_without_creating_local_concierge_or_grants() {

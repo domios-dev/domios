@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 impl NeighborRuntimeCommand {
     pub fn is_local_read(&self) -> bool {

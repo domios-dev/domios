@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 #[test]
 fn list_includes_local_scopes_and_preserves_backend_outgoing_requests() {
@@ -161,9 +160,8 @@ fn neighbor_frames_preserve_provenance_without_a_local_reply_route() {
 
 #[tokio::test]
 async fn fallback_observation_preserves_bindings_history_and_pause_state() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let metadata = storage::Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);
@@ -187,9 +185,8 @@ async fn fallback_observation_preserves_bindings_history_and_pause_state() {
 
 #[tokio::test]
 async fn confirmed_remove_cleans_only_its_friendship_and_preserves_other_bindings() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let metadata = storage::Metadata::new(fixture.temp.path().to_owned(), "owner");
     let first = "a".repeat(64);
@@ -232,9 +229,8 @@ async fn confirmed_remove_partial_failure_survives_refresh_until_corresponding_l
 ) {
     use codeterm_neighbors::Error;
     use reconciliation::Kind;
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let metadata = storage::Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);

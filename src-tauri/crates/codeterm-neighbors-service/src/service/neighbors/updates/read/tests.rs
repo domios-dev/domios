@@ -1,11 +1,10 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_neighbors::wire::DeliveryStatus;
 
 #[tokio::test]
 async fn read_signal_persists_sender_timestamps_and_emits_one_history_change() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     fixture
         .service
         .ext::<crate::config::ConfigState>()
@@ -78,7 +77,7 @@ async fn delivery_catchup_adds_read_time_to_an_already_delivered_entry() {
     use crate::service::neighbors::history::Entry;
     use codeterm_neighbors::wire::DeliveryResult;
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "b".repeat(64);
     let message = "c".repeat(32);

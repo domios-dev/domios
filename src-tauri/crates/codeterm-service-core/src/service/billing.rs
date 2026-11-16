@@ -340,3 +340,6 @@ pub fn admit_new_team(gate: &LimitGate) -> impl FnOnce(usize) -> Result<(), Stri
             .map_err(|refusal| refusal.to_string())
     }
 }
+
+#[cfg(any(test, feature = "test-support"))]
+pub use locks::test_support as locks_test_support;

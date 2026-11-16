@@ -6,7 +6,6 @@ use codeterm_neighbors_service::prelude::*;
 use codeterm_service_core::{
     mesh::types::{AccessLevel, PairedPeer, RELAY_PROTOCOL_VERSION},
     multiplexer::{state::MultiplexerState, types::AgentRole},
-    service::test_fixture::ServiceFixture,
 };
 use tower::ServiceExt;
 

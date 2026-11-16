@@ -1,11 +1,9 @@
 use super::*;
-use crate::prelude::*;
 
 #[tokio::test]
 async fn receiver_move_settlement_is_persisted_for_pending_outgoing_history() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);
     let outgoing = entry(1, "owner", "out", DeliveryStatus::Pending);
@@ -122,7 +120,7 @@ async fn catchup_selects_bounded_current_account_outgoing_entries_until_read() {
 #[tokio::test]
 async fn delivery_signal_updates_only_own_outgoing_history_and_emits_change_without_polling() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);

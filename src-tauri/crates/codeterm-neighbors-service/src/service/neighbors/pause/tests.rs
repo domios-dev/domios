@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 use codeterm_neighbors::adapter::AuthenticatedCall;
 use std::sync::Arc;

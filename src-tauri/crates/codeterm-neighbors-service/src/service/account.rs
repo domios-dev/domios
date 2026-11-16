@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use codeterm_service_core::service::ServiceContext;
 pub mod deep_links;
 pub mod startup;
 #[cfg(test)]

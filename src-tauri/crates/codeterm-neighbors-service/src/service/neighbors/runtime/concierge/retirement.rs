@@ -1,6 +1,5 @@
 use super::super::super::storage::{ConciergeReceiver, DormantConcierge};
 use super::*;
-use crate::prelude::*;
 use std::collections::BTreeSet;
 
 fn receiver_authority(
@@ -39,8 +38,8 @@ pub trait NeighborsExt {
         restore: F,
     ) -> impl std::future::Future<Output = Result<(), String>> + Send
     where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<(), String>>;
+        F: FnOnce() -> Fut + Send,
+        Fut: std::future::Future<Output = Result<(), String>> + Send;
     fn retire_local_neighbor_concierges(
         &self,
         metadata: &Metadata,
@@ -96,8 +95,8 @@ impl NeighborsExt for ServiceContext {
         restore: F,
     ) -> Result<(), String>
     where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<(), String>>,
+        F: FnOnce() -> Fut + Send,
+        Fut: std::future::Future<Output = Result<(), String>> + Send,
     {
         self.require_neighbor_generation(generation)?;
         if !hex_id(friendship, 64) {

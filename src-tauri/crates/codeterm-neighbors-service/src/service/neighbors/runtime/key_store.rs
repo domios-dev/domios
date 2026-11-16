@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_neighbors::keys::ConfiguredKeyStore;
 
 #[cfg(not(test))]

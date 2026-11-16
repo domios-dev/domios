@@ -44,7 +44,7 @@ impl ServiceContext {
         self.apply_limit_gate(self.limit_gate());
     }
 
-    pub(crate) fn apply_limit_gate(&self, gate: LimitGate) {
+    pub fn apply_limit_gate(&self, gate: LimitGate) {
         self.project_limit_gate(gate, false);
     }
 
@@ -72,3 +72,6 @@ impl ServiceContext {
 
 #[cfg(test)]
 pub mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

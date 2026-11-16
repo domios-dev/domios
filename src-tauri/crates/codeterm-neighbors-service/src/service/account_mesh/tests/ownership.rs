@@ -41,7 +41,7 @@ impl Drop for Dropped {
 #[tokio::test]
 async fn initialized_account_mesh_graph_drops_and_sessions_refuse_a_missing_owner() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = Arc::new(fixture.service.clone());
     let owner = Arc::new(OnceCell::new());
     let changes = Arc::new(watch::channel(0).0);

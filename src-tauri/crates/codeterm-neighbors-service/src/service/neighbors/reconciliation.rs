@@ -1,5 +1,5 @@
-use crate::prelude::*;
 use codeterm_neighbors::{Error, Result};
+use codeterm_service_core::service::ServiceContext;
 use std::{
     future::Future,
     sync::{Arc, Weak},

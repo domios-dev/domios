@@ -102,7 +102,7 @@ pub struct SpawnTabSpec {
 #[derive(Debug, Clone)]
 pub struct ChatBackendLaunchMetadata {
     pub(crate) agent: AgentSpawnSpec,
-    pub(crate) params: super::SpawnAgentParams,
+    pub params: super::SpawnAgentParams,
     pub(crate) owner_linkage: Option<RuntimeOwnerLinkage>,
     pub(crate) runtime_fork: Option<RuntimeForkLaunch>,
 }

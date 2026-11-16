@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::{
     multiplexer::{state::MultiplexerState, types::NeighborAuthority},
     service::test_fixture::ServiceFixture,

@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::{
     multiplexer::types::NeighborAuthority,
     service::{

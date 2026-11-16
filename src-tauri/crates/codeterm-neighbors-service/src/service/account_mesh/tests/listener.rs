@@ -67,7 +67,7 @@ async fn tailnet_listener_recovers_when_another_observer_records_the_transport()
 
 async fn transport_recovery() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = Arc::new(fixture.service.clone());
     let mesh = service.ext::<crate::MeshStateHandle>().clone();
     {
@@ -153,7 +153,7 @@ async fn tailnet_production_lifecycle_binds_signed_out_and_preserves_socket_on_s
 
 async fn lifecycle() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = Arc::new(fixture.service.clone());
     let mesh = service.ext::<crate::MeshStateHandle>().clone();
     let account = listener_account_mesh(

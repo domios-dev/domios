@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 pub trait NeighborsExt {
     fn neighbor_rpc_discovery(

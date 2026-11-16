@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 #[cfg(not(any(test, feature = "test-support")))]
 pub type WatchStartup<'a> =

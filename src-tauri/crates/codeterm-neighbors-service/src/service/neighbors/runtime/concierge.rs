@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::service::{general_agent, SpawnAgentParams, SpawnIdentityProvenance};
 
 pub mod initial_prompt;
@@ -50,14 +49,15 @@ pub trait NeighborsExt {
     ) -> impl std::future::Future<Output = codeterm_neighbors::Result<Value>> + Send
     where
         F: FnOnce(
-            Option<String>,
-            Option<String>,
-            String,
-            Permission,
-            Option<String>,
-            ConciergeOptions,
-        ) -> Fut,
-        Fut: std::future::Future<Output = Result<String, String>>;
+                Option<String>,
+                Option<String>,
+                String,
+                Permission,
+                Option<String>,
+                ConciergeOptions,
+            ) -> Fut
+            + Send,
+        Fut: std::future::Future<Output = Result<String, String>> + Send;
     fn neighbor_initial_context_resume(&self, id: &str) -> Option<String>;
     fn create_neighbor_concierge(
         &self,
@@ -86,8 +86,8 @@ pub trait NeighborsExt {
         create: F,
     ) -> impl std::future::Future<Output = Result<String, String>> + Send
     where
-        F: FnOnce(String, Permission) -> Fut,
-        Fut: std::future::Future<Output = Result<String, String>>;
+        F: FnOnce(String, Permission) -> Fut + Send,
+        Fut: std::future::Future<Output = Result<String, String>> + Send;
 }
 
 impl NeighborsExt for ServiceContext {
@@ -276,14 +276,15 @@ impl NeighborsExt for ServiceContext {
     ) -> codeterm_neighbors::Result<Value>
     where
         F: FnOnce(
-            Option<String>,
-            Option<String>,
-            String,
-            Permission,
-            Option<String>,
-            ConciergeOptions,
-        ) -> Fut,
-        Fut: std::future::Future<Output = Result<String, String>>,
+                Option<String>,
+                Option<String>,
+                String,
+                Permission,
+                Option<String>,
+                ConciergeOptions,
+            ) -> Fut
+            + Send,
+        Fut: std::future::Future<Output = Result<String, String>> + Send,
     {
         let cwd = super::super::confinement::prepare_folder(metadata, friendship, &permission)
             .await
@@ -541,8 +542,8 @@ impl NeighborsExt for ServiceContext {
         create: F,
     ) -> Result<String, String>
     where
-        F: FnOnce(String, Permission) -> Fut,
-        Fut: std::future::Future<Output = Result<String, String>>,
+        F: FnOnce(String, Permission) -> Fut + Send,
+        Fut: std::future::Future<Output = Result<String, String>> + Send,
     {
         self.require_neighbor_concierge_receiver(friendship)
             .map_err(|error| error.to_string())?;

@@ -108,7 +108,7 @@ where
         "missing_friend_author" => {
             fixture
                 .service
-                .try_ext::<super::super::author::FixtureNeighborAuthors>()
+                .try_ext::<codeterm_service_core::mem_ops::author::FixtureNeighborAuthors>()
                 .unwrap()
                 .0
                 .write()

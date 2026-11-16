@@ -1,6 +1,5 @@
 use super::*;
-use crate::prelude::*;
-use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+use crate::multiplexer::state::MultiplexerState;
 
 #[tokio::test]
 async fn paused_concierge_cannot_send_or_unpause_but_owner_and_general_can_still_write() {

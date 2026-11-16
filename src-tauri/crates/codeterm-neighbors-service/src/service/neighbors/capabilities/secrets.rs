@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 pub fn secret_path(path: &str) -> bool {
     let path = path.split('?').next().unwrap_or(path);

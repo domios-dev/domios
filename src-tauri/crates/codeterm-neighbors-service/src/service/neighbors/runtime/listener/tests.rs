@@ -1,7 +1,6 @@
 use super::*;
-use crate::prelude::*;
+use crate::multiplexer::state::MultiplexerState;
 use crate::service::neighbors::{history::Entry, storage::Settings};
-use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
 #[tokio::test]
 async fn lifecycle_watch_completion_cannot_cancel_a_claimed_delivery() {

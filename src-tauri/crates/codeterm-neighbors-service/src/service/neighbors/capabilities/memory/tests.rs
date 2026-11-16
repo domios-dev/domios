@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 #[test]
 fn memory_areas_cannot_include_foreign_or_unassigned_items_implicitly() {
@@ -14,7 +13,7 @@ fn memory_areas_cannot_include_foreign_or_unassigned_items_implicitly() {
 #[tokio::test]
 async fn saved_grants_validate_write_areas_even_without_a_read_area_filter() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let permission = crate::memory_matrix::grant();
     let authority = crate::multiplexer::types::NeighborAuthority {
         uid: "owner".into(),

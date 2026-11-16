@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 pub mod file_authority;
 
@@ -37,9 +36,8 @@ fn committed_receiver(
 
 #[tokio::test]
 async fn retired_committed_confirmation_returns_assignment_without_late_local_effects() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let committed = committed_receiver(&fixture);
     let expected = committed.result.clone();
     fixture
@@ -85,7 +83,7 @@ async fn resumed_owner_action_rechecks_original_caller_nonce_before_local_reconc
     tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
     tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
     tab.role_profile = Some(crate::service::general_agent::GENERAL_AGENT_KIND.into());
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let phase = ReceiverCommit {
         committed: committed_receiver(&fixture),
         continuation: Some(Continuation {
@@ -112,9 +110,8 @@ async fn resumed_owner_action_rechecks_original_caller_nonce_before_local_reconc
 
 #[tokio::test]
 async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_network_dispatch() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let (sender, mut requests) = mpsc::channel::<Request>(1);
     *service.neighbor_cell().owner.lock() = Some(sender);
@@ -171,9 +168,8 @@ async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_networ
 
 #[tokio::test]
 async fn public_file_only_send_still_enters_its_distinct_owner_operation() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let (sender, mut requests) = mpsc::channel::<Request>(1);
     *service.neighbor_cell().owner.lock() = Some(sender);
@@ -274,7 +270,7 @@ async fn operation_owner_finishes_rotation_before_revoke_even_when_caller_discon
 #[test]
 fn identity_change_invalidates_old_operations_and_listener_generations() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     assert!(service.require_neighbor_generation(0).is_ok());
     service.neighbor_identity_changed();
@@ -292,7 +288,7 @@ fn identity_change_invalidates_old_operations_and_listener_generations() {
 #[tokio::test]
 async fn disabling_neighbors_stops_the_owned_inbox_listener() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let (shutdown, mut stopped) = tokio::sync::watch::channel(false);
     let (finished, completion) = tokio::sync::oneshot::channel();
     let task = tokio::spawn(async move {

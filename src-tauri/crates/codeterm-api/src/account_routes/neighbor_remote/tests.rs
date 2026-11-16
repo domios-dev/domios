@@ -1,9 +1,7 @@
 use super::*;
 use crate::auth::AuthenticatedOrigin;
 use axum::{body::Body, http::Request, routing::post, Router};
-use codeterm_service_core::{
-    multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
-};
+use codeterm_service_core::multiplexer::state::MultiplexerState;
 use serde_json::json;
 use tower::ServiceExt;
 

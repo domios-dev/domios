@@ -1,4 +1,3 @@
-use crate::prelude::*;
 pub mod paid;
 pub mod selection;
 
@@ -208,9 +207,8 @@ async fn fixture(
     Arc<Calls>,
     tokio::sync::mpsc::UnboundedReceiver<Duration>,
 ) {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     fixture
         .service
         .ext::<crate::config::ConfigState>()

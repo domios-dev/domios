@@ -3,7 +3,6 @@ use axum::{body::Body, routing::get, Router};
 use codeterm_service_core::{
     mesh::{account_mesh::AccountPresence, types::PairedPeer},
     multiplexer::state::MultiplexerState,
-    service::test_fixture::ServiceFixture,
 };
 use futures_util::StreamExt;
 use tower::ServiceExt;

@@ -1,5 +1,5 @@
 use super::*;
-use crate::prelude::*;
+use codeterm_service_core::service::ServiceContext;
 use tokio::sync::{oneshot, Mutex};
 
 pub type LoginResult = tokio::task::JoinHandle<Result<codeterm_account::Status, String>>;

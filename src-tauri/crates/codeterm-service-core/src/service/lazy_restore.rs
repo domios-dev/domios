@@ -13,7 +13,7 @@ mod policy;
 mod read_failure_tests;
 mod user_send;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_boundary;
 
 struct WakeRequest(String);
@@ -177,7 +177,7 @@ impl ServiceContext {
             allow_failed,
             intent,
             |id, retry_started_agent| {
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 if let Some(result) = test_boundary::materialize(id) {
                     return result;
                 }

@@ -1,10 +1,10 @@
-use crate::prelude::*;
 use crate::secrets::SecretStoreState;
 use async_trait::async_trait;
 use codeterm_account::{
     protected_credentials::ProtectedCredentials, Account, CredentialStore, Error, Secret,
 };
-pub use codeterm_service_core::service::neighbor_account::AccountDataRoot;
+pub use codeterm_service_core::service::neighbor_account::{credential_root, AccountDataRoot};
+use codeterm_service_core::service::ServiceContext;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 const MESH_INSTALLATION_KEY: &str = "domios-account-mesh-installation-key";

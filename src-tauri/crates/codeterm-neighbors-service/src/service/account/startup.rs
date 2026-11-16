@@ -2,7 +2,7 @@ pub use codeterm_service_core::service::neighbor_account::{monotonic_now, now, S
 pub mod identity_writer;
 pub use identity_writer::IdentityWriter;
 
-use codeterm_account::{account_target::build_target, Identity};
+use codeterm_account::{account_target::build_target, Identity, TargetMismatch};
 use codeterm_billing::{FileGrantStore, GrantStore};
 use codeterm_util::secret_file::SecretFile;
 use serde::{Deserialize, Serialize};

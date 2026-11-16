@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 use codeterm_neighbors::wire::{InboxDocument, Kind, Timestamp};
 use serde_json::json;

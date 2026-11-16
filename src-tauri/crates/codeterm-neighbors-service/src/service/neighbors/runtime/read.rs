@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::service::neighbors::history::HistoryCell;
 
 pub trait NeighborsExt {

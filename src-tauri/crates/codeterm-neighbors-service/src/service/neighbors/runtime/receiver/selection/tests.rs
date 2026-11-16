@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 pub struct Credentials;
 #[async_trait::async_trait]
@@ -28,9 +27,8 @@ impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {
 
 #[tokio::test]
 async fn committed_reconciliation_rejects_foreign_uid_and_retired_login_before_read_or_effects() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     fixture
         .service
         .ext::<crate::config::ConfigState>()

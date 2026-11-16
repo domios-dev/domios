@@ -1,11 +1,10 @@
 use super::*;
-use crate::prelude::*;
 pub mod session;
 
 #[tokio::test]
 async fn disabling_cancels_the_account_signal_watch_and_invalidates_its_generation() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let (started, running) = tokio::sync::oneshot::channel();
     let (held, ended) = tokio::sync::oneshot::channel::<()>();
     let (stopped, _shutdown) = watch::channel(false);
@@ -47,7 +46,7 @@ async fn disabling_cancels_the_account_signal_watch_and_invalidates_its_generati
 #[tokio::test]
 async fn account_setup_outage_recovers_without_a_ui_action_and_stop_cancels_active_work() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     let (clock, mut deadlines) = super::super::recovery::test_clock::Clock::new();
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -95,7 +94,7 @@ async fn account_setup_outage_recovers_without_a_ui_action_and_stop_cancels_acti
 #[tokio::test]
 async fn account_rearm_during_a_failing_setup_is_retained() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let service = &fixture.service;
     let (clock, mut deadlines) = super::super::recovery::test_clock::Clock::new();
     let release = Arc::new(tokio::sync::Semaphore::new(0));

@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 fn status(here: bool, revision: u64) -> FriendReceiver {
     FriendReceiver::from_status(&ReceiverStatus {
@@ -14,9 +13,8 @@ fn status(here: bool, revision: u64) -> FriendReceiver {
 
 #[test]
 fn friendship_admission_requires_known_enabled_current_generation_and_exact_revision() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     assert!(!service.neighbor_friend_receiving_here("friend"));
     service.set_neighbor_friend_receiver_for_test("friend", Some(true), 7);
@@ -53,9 +51,8 @@ fn friendship_admission_requires_known_enabled_current_generation_and_exact_revi
 
 #[test]
 fn moving_one_friend_changes_only_its_authority_and_duplicate_snapshots_are_inert() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let generation = service.neighbor_cell().generation.load(Ordering::Acquire);
     let initial = BTreeMap::from([
@@ -112,9 +109,8 @@ fn moving_one_friend_changes_only_its_authority_and_duplicate_snapshots_are_iner
 
 #[test]
 fn an_old_account_snapshot_cannot_authorize_a_new_session() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let generation = service.neighbor_cell().generation.load(Ordering::Acquire);
     service.set_neighbor_friend_receiver_for_test("friend", Some(true), 1);
@@ -152,9 +148,8 @@ fn binding_digest_ignores_labels_but_detects_equal_revision_key_changes() {
 
 #[tokio::test]
 async fn deferred_publication_keeps_its_batch_version_after_invalidation() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let generation = service.neighbor_cell().generation.load(Ordering::Acquire);
     let changes = service
@@ -225,9 +220,8 @@ impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {
 
 #[tokio::test]
 async fn receiver_rows_are_per_friend_and_missing_projections_never_inherit_authority() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let registry = FirebaseRegistry {
@@ -282,9 +276,8 @@ async fn receiver_rows_are_per_friend_and_missing_projections_never_inherit_auth
 
 #[tokio::test]
 async fn targeted_listener_stop_keeps_other_friends_and_cached_registry_rows() {
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
     let service = &fixture.service;
     let first = "a".repeat(64);
     let second = "b".repeat(64);

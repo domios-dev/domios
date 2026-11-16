@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 fn entry(id: usize) -> storage::Entry {
     storage::Entry {
@@ -28,7 +27,7 @@ async fn open_fixture() -> (
     tab.agent_session_id = Some("opaque-session".into());
     tab.session_binding_nonce = Some("opaque-nonce".into());
     tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let friend = "a".repeat(64);
     let file_id = "1".repeat(32);
     fixture

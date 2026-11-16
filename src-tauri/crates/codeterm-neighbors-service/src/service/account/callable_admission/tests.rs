@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_account::account_mesh::callable::{CallableClock, CallableFailure, CallableTransport};
 use std::{
     sync::{
@@ -68,7 +67,7 @@ async fn parked_gift_and_neighbor_dispatch_rechecks_the_real_account_generation(
     for (route, neighbors) in [("redeemGiftKey", false), ("friendsSetFriendReceiver", true)] {
         for retire in [false, true] {
             let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-            let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+            let fixture = crate::test_support::fixture(mux);
             let account = Arc::new(codeterm_account::Account::new(
                 Arc::new(codeterm_account::adapters::fake::Fake::default()),
                 Arc::new(Credentials),

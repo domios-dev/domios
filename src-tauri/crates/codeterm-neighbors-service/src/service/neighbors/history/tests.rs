@@ -1,6 +1,5 @@
 use super::*;
-use crate::prelude::*;
-use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+use crate::multiplexer::state::MultiplexerState;
 
 fn entry(id: usize, direction: &str, kind: Kind, reply: Option<String>) -> Entry {
     Entry {

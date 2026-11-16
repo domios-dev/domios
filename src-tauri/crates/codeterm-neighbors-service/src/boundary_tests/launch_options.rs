@@ -6,12 +6,9 @@ use std::path::PathBuf;
 
 #[test]
 fn concierge_runtime_restart_carries_only_the_current_root_grant() {
-    use crate::{
-        multiplexer::{
-            state::MultiplexerState,
-            types::{NeighborAuthority, TabBacking},
-        },
-        service::test_fixture::ServiceFixture,
+    use crate::multiplexer::{
+        state::MultiplexerState,
+        types::{NeighborAuthority, TabBacking},
     };
     use codeterm_neighbors::permissions::MachineAccess;
 
@@ -140,10 +137,7 @@ fn concierge_runtime_restart_carries_only_the_current_root_grant() {
 
 #[tokio::test]
 async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_and_restore() {
-    use crate::{
-        multiplexer::{state::MultiplexerState, types::NeighborAuthority},
-        service::test_fixture::ServiceFixture,
-    };
+    use crate::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
     use codeterm_neighbors::permissions::MachineAccess;
     let shared = crate::test_support::fixture(MultiplexerState::new().0);
     register_neighbor_runtime(&shared.service);
@@ -341,10 +335,7 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
 
 #[test]
 fn contradictory_neighbor_bypass_records_require_current_root_grant_for_both_restore_adapters() {
-    use crate::{
-        multiplexer::{state::MultiplexerState, types::NeighborAuthority},
-        service::test_fixture::ServiceFixture,
-    };
+    use crate::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
     use codeterm_neighbors::permissions::MachineAccess;
     for access in [MachineAccess::ReadOnly, MachineAccess::Folder] {
         for global in [false, true] {

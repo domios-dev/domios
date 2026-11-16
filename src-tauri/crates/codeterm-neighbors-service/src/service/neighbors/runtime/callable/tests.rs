@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 #[test]
 fn friend_receiver_refusals_preserve_feature_key_and_machine_slot_reasons() {
@@ -135,7 +134,7 @@ impl codeterm_account::Browser for NoBrowser {
 #[tokio::test]
 async fn post_call_validation_never_refreshes_and_rejects_logout_or_new_login() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let account = Arc::new(codeterm_account::Account::new(
         Arc::new(ExpiredProvider),
         Arc::new(MemoryCredential),
@@ -176,7 +175,7 @@ fn server_ciphertext_size_refusal_reports_the_plaintext_limit() {
 #[tokio::test]
 async fn cached_own_inventory_and_receiver_reads_still_require_the_current_account_session() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::crate::test_support::fixture(mux);
+    let fixture = crate::test_support::fixture(mux);
     let calls = Calls {
         service: fixture.service.clone(),
         uid: "owner".into(),

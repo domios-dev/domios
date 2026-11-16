@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use crate::service::tab_credentials::TabCaller;
 
 #[cfg(test)]
@@ -37,8 +36,8 @@ pub trait NeighborsExt {
         open: F,
     ) -> impl std::future::Future<Output = Result<Value, String>> + Send
     where
-        F: FnOnce(std::path::PathBuf) -> Fut,
-        Fut: std::future::Future<Output = codeterm_neighbors::Result<()>>;
+        F: FnOnce(std::path::PathBuf) -> Fut + Send,
+        Fut: std::future::Future<Output = codeterm_neighbors::Result<()>> + Send;
 }
 
 impl NeighborsExt for ServiceContext {
@@ -58,8 +57,8 @@ impl NeighborsExt for ServiceContext {
         open: F,
     ) -> Result<Value, String>
     where
-        F: FnOnce(std::path::PathBuf) -> Fut,
-        Fut: std::future::Future<Output = codeterm_neighbors::Result<()>>,
+        F: FnOnce(std::path::PathBuf) -> Fut + Send,
+        Fut: std::future::Future<Output = codeterm_neighbors::Result<()>> + Send,
     {
         let generation = self.neighbor_history_generation();
         let account = self

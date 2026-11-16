@@ -17,7 +17,7 @@ impl super::ServiceContext {
         credential_root(self.try_ext::<AccountDataRoot>())
     }
 }
-fn credential_root(explicit: Option<&AccountDataRoot>) -> Result<PathBuf, String> {
+pub fn credential_root(explicit: Option<&AccountDataRoot>) -> Result<PathBuf, String> {
     if let Some(root) = explicit {
         return Ok(root.0.clone());
     }
