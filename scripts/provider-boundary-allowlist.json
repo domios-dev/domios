@@ -3569,15 +3569,36 @@
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
-      "token": "codex",
+      "token": "agent_claude",
       "count": 1,
+      "justification": "Native/JS parity test for the declared input attach signal; provider-named fixtures are the test subject.",
+      "removalSlice": "Remaining provider boundary extraction"
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
+      "token": "claude",
+      "count": 1,
+      "justification": "Native/JS parity test for the declared input attach signal; provider-named fixtures are the test subject.",
+      "removalSlice": "Remaining provider boundary extraction"
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
+      "token": "ClaudeProvider",
+      "count": 1,
+      "justification": "Native/JS parity test for the declared input attach signal; provider-named fixtures are the test subject.",
+      "removalSlice": "Remaining provider boundary extraction"
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
+      "token": "codex",
+      "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
       "token": "opencode",
-      "count": 1,
+      "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
