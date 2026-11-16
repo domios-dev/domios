@@ -14,15 +14,19 @@ use codeterm_types::pty::AgentLiveness;
 use super::ServiceContext;
 use crate::agent::provider::{AgentLaunchParams, ProviderTransport, StructuredPromptServer};
 use crate::prelude::*;
-#[cfg(test)]
-use crate::service::agent_lifecycle::command_prompt_owner_matches;
 use crate::service::agent_lifecycle::restart_carries_task_attempt;
+#[cfg(test)]
+use crate::service::agent_lifecycle::{
+    command_prompt_owner_matches, new_restart_tracker, screen_shows_agent_tui,
+};
 pub use crate::service::agent_lifecycle::{
     AgentRestartError, ControlChange, ModelSwitchConfirmation, ModelSwitchError,
     ModelSwitchEvidence, ModelSwitchOutcome, RestartAttemptError, RestartOptions, RestartOutcome,
     RestartTracker, RestartTrackerState, TabRestartSnapshot, DEFAULT_GRACE_SECS,
     RESTART_RATE_LIMIT_SECS, RESTART_READY_TIMEOUT_SECS,
 };
+#[cfg(test)]
+use parking_lot::Mutex;
 
 pub struct RestartClaim {
     tracker: RestartTracker,
@@ -544,7 +548,7 @@ impl AgentRestartExt for ServiceContext {
                 return Err(error);
             }
         };
-        timing::stage(
+        crate::service::agent_lifecycle::timing::stage(
             &snap.tab_id,
             ready.new_pty_id.as_deref().unwrap_or("-"),
             "ready",

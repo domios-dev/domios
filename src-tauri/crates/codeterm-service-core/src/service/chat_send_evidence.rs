@@ -166,7 +166,7 @@ fn jsonl_boundary(
 
 #[derive(Clone, Default)]
 pub struct CapturedSendEvidence {
-    pub(crate) anchor: Option<SendEvidenceAnchor>,
+    pub anchor: Option<SendEvidenceAnchor>,
     pub(crate) first_materialization: Option<FirstMaterialization>,
     pub(crate) live_binding: Option<SendLiveBinding>,
     pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,

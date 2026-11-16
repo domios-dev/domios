@@ -65,7 +65,7 @@ pub enum EvidenceWindow {
 pub struct SendEvidenceAnchor {
     pub(crate) provider_id: String,
     pub(crate) cwd: String,
-    pub(crate) session_id: String,
+    pub session_id: String,
     pub(crate) window: EvidenceWindow,
     pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
 }

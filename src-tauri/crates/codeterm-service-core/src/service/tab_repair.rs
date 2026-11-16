@@ -141,7 +141,7 @@ pub struct JournalRepairReport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TabRepairResponse {
     pub(crate) ok: bool,
-    pub(crate) tab_id: String,
+    pub tab_id: String,
     pub(crate) source: TabRepairSource,
     pub(crate) provider: RepairField<String>,
     pub(crate) session: RepairField<String>,

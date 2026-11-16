@@ -47,7 +47,7 @@ pub struct LaunchAttempt {
 impl LaunchAttempt {
     /// The attempt as the tab itself currently holds it, or `None` once the tab
     /// has moved on.
-    pub(crate) fn current(mux: &crate::MuxState, tab_id: &str, pty_id: &str) -> Option<Self> {
+    pub fn current(mux: &crate::MuxState, tab_id: &str, pty_id: &str) -> Option<Self> {
         let mux = mux.read();
         let tab = mux.get_tab(tab_id)?;
         if tab.pty_id.as_deref() != Some(pty_id) {

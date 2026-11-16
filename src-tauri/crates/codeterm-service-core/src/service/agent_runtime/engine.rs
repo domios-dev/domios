@@ -35,7 +35,7 @@ pub struct Session {
     pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
     pub context: Mutex<RuntimeContext>,
     pub(super) controls_confirmation: Mutex<Option<RuntimeSettings>>,
-    pub(crate) control_changes: tokio::sync::watch::Sender<()>,
+    pub control_changes: tokio::sync::watch::Sender<()>,
     pub(super) reverted_thread: Mutex<Option<String>>,
     pub(super) completions: Mutex<super::completions::Completions>,
     pub state: Mutex<RuntimeState>,

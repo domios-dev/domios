@@ -966,7 +966,7 @@ pub fn resolve_refs(
     }
 }
 
-pub(crate) mod context_bundle;
+pub mod context_bundle;
 pub mod tool_less_instructions;
 
 #[cfg(any(test, feature = "test-support"))]

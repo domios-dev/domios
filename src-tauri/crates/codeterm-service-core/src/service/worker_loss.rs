@@ -30,7 +30,7 @@ pub enum WorkerLossCause {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
-pub(crate) enum LaneState {
+pub enum LaneState {
     NoLane,
     Missing,
     Clean,
