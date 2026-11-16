@@ -6,6 +6,7 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
+use rand::RngCore;
 use serde_json::{json, Value};
 
 pub const PROJECT: &str = "demo-local";
@@ -23,8 +24,10 @@ pub struct LocalSigner {
 
 impl LocalSigner {
     pub fn new() -> Self {
+        let mut seed = [0u8; 32];
+        OsRng.fill_bytes(&mut seed);
         Self {
-            key: SigningKey::generate(&mut OsRng),
+            key: SigningKey::from_bytes(&seed),
         }
     }
 

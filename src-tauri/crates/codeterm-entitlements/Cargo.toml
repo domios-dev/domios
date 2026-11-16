@@ -13,7 +13,7 @@ sha2 = "0.10"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 rand = "0.8.6"
 
 [lints]
