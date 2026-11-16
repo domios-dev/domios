@@ -72,7 +72,7 @@ jobs:
             const path = require('node:path');
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -202,7 +202,7 @@ jobs:
             const path = require('node:path');
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -651,7 +651,7 @@ jobs:
             const path = require('node:path');
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -860,7 +860,7 @@ jobs:
             const path = require('node:path');
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -1251,7 +1251,7 @@ jobs:
             const path = require('node:path');
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -1379,7 +1379,7 @@ jobs:
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
       - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -1846,7 +1846,7 @@ jobs:
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
       - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -2437,7 +2437,7 @@ jobs:
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
       - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -3467,7 +3467,7 @@ jobs:
             const path = require('node:path');
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
