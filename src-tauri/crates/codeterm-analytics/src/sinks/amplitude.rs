@@ -66,22 +66,7 @@ impl AnalyticsSink for Http {
         };
         let events: Result<Vec<_>, _> = batch
             .iter()
-            .map(|event| {
-                let mut value = serde_json::to_value(&event.event)?;
-                value["insert_id"] = serde_json::json!(event.insert_id);
-                value["device_id"] = serde_json::json!(event.device_id);
-                value["time"] = serde_json::json!(event.time);
-                value["ip"] = serde_json::json!("$remote");
-                if let serde_json::Value::Object(context) = serde_json::to_value(&self.context)? {
-                    for (key, field) in context {
-                        value[key] = field;
-                    }
-                }
-                if let Some(uid) = &event.user_id {
-                    value["user_id"] = serde_json::json!(uid);
-                }
-                Ok::<_, serde_json::Error>(value)
-            })
+            .map(|event| build_event(event, &self.context))
             .collect();
         let Ok(events) = events else {
             return DeliveryResult::InvalidPayload;
@@ -99,6 +84,26 @@ impl AnalyticsSink for Http {
             _ => DeliveryResult::Retry,
         }
     }
+}
+
+fn build_event(
+    event: &DeliveryEvent,
+    context: &crate::Context,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let mut value = serde_json::to_value(&event.event)?;
+    value["insert_id"] = serde_json::json!(event.insert_id);
+    value["device_id"] = serde_json::json!(event.device_id);
+    value["time"] = serde_json::json!(event.time);
+    value["ip"] = serde_json::json!("$remote");
+    if let serde_json::Value::Object(context) = serde_json::to_value(context)? {
+        for (key, field) in context {
+            value[key] = field;
+        }
+    }
+    if let Some(uid) = &event.user_id {
+        value["user_id"] = serde_json::json!(uid);
+    }
+    Ok(value)
 }
 
 pub(crate) fn resolve_key(
