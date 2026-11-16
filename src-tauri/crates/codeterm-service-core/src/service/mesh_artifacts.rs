@@ -28,7 +28,7 @@ fn preview_error(error: String) -> ArtifactError {
 }
 
 use codeterm_local_preview::artifact_directive::{
-    scan_artifacts as scan_author_text, serialize_artifact, FileCard,
+    scan_artifacts as scan_author_text, serialize_file_card, FileCard,
 };
 
 #[cfg(test)]
@@ -67,7 +67,7 @@ fn rewrite(
                     .ok_or("Artifact transfer did not return a target path")
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let replacement = serialize_artifact(&card.kind, &targets)
+        let replacement = serialize_file_card(&card.kind, &targets, card.view.as_deref())
             .ok_or("Artifact transfer returned an invalid target path")?;
         output.push_str(&text[offset..card.start]);
         output.push_str(&replacement);

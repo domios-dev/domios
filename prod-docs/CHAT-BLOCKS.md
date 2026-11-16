@@ -47,6 +47,7 @@ say a plugin is installed when its card shows otherwise.
 | `<ds-checklist id="getting-started" />` | Show a setup checklist whose steps tick themselves; `getting-started` for a new user. |
 | `<ds-tasks plan="pl_example" />` | Show plan tasks grouped by status, live from the plan. |
 | `<ds-canvas>{"items":[…]}</ds-canvas>` | Lay out images, HTML mocks, files and notes side by side in one zoomable board. |
+| `<ds-canvas src="ABSOLUTE_PATH.canvas.json" />` | Show a board kept in a file that agents and the owner both edit. |
 
 ## `ds-guide`
 
@@ -189,6 +190,47 @@ Markdown only, so ds tags inside them stay text. Mesh delivery does not
 transfer canvas files, so a canvas sent to another machine shows those items
 as unavailable.
 
+### Canvas files
+
+A board that should last, and that you and the owner keep changing, belongs
+in a file:
+
+```text
+<ds-canvas src="/absolute/board.canvas.json" view="compare" />
+```
+
+Name the file `NAME.canvas.json`. Don't use a bare `.canvas`, which is another
+format. The file's first field is `"format": "domios.canvas/1"`, followed by
+exactly the fields of an inline body, up to 200,000 bytes in all:
+
+```json
+{
+  "format": "domios.canvas/1",
+  "title": "Header options",
+  "items": [
+    {"id": "a", "kind": "image", "src": "/absolute/a.png", "x": 0, "y": 0, "w": 640, "h": 400},
+    {"id": "n", "kind": "note", "markdown": "**A** is calmer.", "x": 0, "y": 440, "w": 640, "h": 120}
+  ]
+}
+```
+
+A file without the header first, or with another major version, shows one
+sentence with the reason under Details. An inline body takes no header.
+`view` is optional and opens the board on that named view. The file follows the same rules as `ds-document`: the tab
+must reference it, private paths stay refused, and mesh delivery copies the
+file itself but not its items. Its items need no reference of their own, but
+private paths still apply to them. The file also appears in the tab's file
+list.
+
+Edit the file in place, for example with `jq` or by rewriting it whole. Open
+boards update as soon as the file changes, without moving the view. The owner
+can move, resize, delete and add notes, and edit note text, in the opened
+canvas. Each change is written back into the file at once, keeping the header
+and the field order. Ids you omit are written into the file, so give items an
+`id` and keep it. Owner edits never
+add file items. Read the file again before you rewrite it, because a change
+that lands while you rewrite it is lost.
+
 ## File previews and HTML
 
 Use `<ds-image src="ABSOLUTE_PATH" />`, `<ds-page src="ABSOLUTE_PATH" />` or
@@ -224,4 +266,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 8 -->
+<!-- revision: 10 -->

@@ -7,6 +7,7 @@ export interface DsTaskSnapshot { title: string; items: DsTaskItem[] }
 export type DsBlock =
   | { kind: "html"; html: string }
   | { kind: "canvas"; body: string }
+  | { kind: "canvas"; src: string; view?: string }
   | { kind: "page" | "document"; src: string }
   | { kind: "image"; sources: string[] }
   | { kind: "guide"; section: string }
@@ -69,14 +70,19 @@ function stringArray(value: string | undefined): string[] | null {
 }
 
 const ALLOWED: Record<DsKind, readonly string[]> = {
-  html: [], canvas: [], page: ["src"], document: ["src"], image: ["src", "sources"], guide: ["section"], plugin: ["id"],
+  html: [], canvas: ["src", "view"], page: ["src"], document: ["src"], image: ["src", "sources"], guide: ["section"], plugin: ["id"],
   connect: ["bridge"], setting: ["key"], agent: ["tab"], job: ["ref"], checklist: ["id"], choice: ["options"], tasks: ["plan", "refs", "statuses"],
 };
 export function validateDsBlock(opening: DsOpening, body?: string): DsBlock | null {
   const { kind, attributes: a, selfClosing } = opening;
   if (Object.keys(a).some((key) => !ALLOWED[kind].includes(key))) return null;
   if (kind === "html") return !selfClosing && body !== undefined && new TextEncoder().encode(body).length <= 200_000 ? { kind, html: body } : null;
-  if (kind === "canvas") return !selfClosing && body !== undefined ? { kind, body } : null;
+  if (kind === "canvas") {
+    if (!selfClosing) return body !== undefined && Object.keys(a).length === 0 ? { kind, body } : null;
+    if (body !== undefined || !a.src || !isDsAbsolutePath(a.src)) return null;
+    if (a.view === undefined) return { kind, src: a.src };
+    return a.view && new TextEncoder().encode(a.view).length <= 80 ? { kind, src: a.src, view: a.view } : null;
+  }
   if (kind !== "tasks" && (!selfClosing || body !== undefined)) return null;
   const id = a.id ?? "";
   switch (kind) {
@@ -128,7 +134,11 @@ export function serializeDsBlock(block: DsBlock): string {
   const attributes: Record<string, string> = {};
   switch (block.kind) {
     case "html": return `<ds-html>${block.html}</ds-html>`;
-    case "canvas": return `<ds-canvas>${block.body}</ds-canvas>`;
+    case "canvas":
+      if ("body" in block) return `<ds-canvas>${block.body}</ds-canvas>`;
+      attributes.src = block.src;
+      if (block.view !== undefined) attributes.view = block.view;
+      break;
     case "page": case "document": attributes.src = block.src; break;
     case "image": if (block.sources.length === 1) attributes.src = block.sources[0]; else attributes.sources = JSON.stringify(block.sources); break;
     case "guide": attributes.section = block.section; break;

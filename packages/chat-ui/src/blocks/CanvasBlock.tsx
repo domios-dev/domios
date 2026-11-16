@@ -1,10 +1,12 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CanvasNotice } from "./CanvasNotice";
 import { parseDsCanvas, type DsCanvas } from "@codeterm/chat-core";
 import { readThemeVars } from "../HtmlPreviewBlock";
 import { CanvasItemView } from "./canvasItems";
 import { CanvasViewer } from "./CanvasViewer";
+import type { CanvasEditor } from "./canvasEditing";
 import { useVisibleIds } from "./useVisibleIds";
-import { CANVAS_INLINE_HEIGHT, chooseLiveFrames, fitPreview, isLiveFrameItem, layoutCanvas } from "./canvasBlockModel";
+import { CANVAS_INLINE_HEIGHT, canvasViewTarget, chooseLiveFrames, fitPreview, isLiveFrameItem, layoutCanvas } from "./canvasBlockModel";
 
 const DOTTED_GROUND = {
   backgroundColor: "var(--ct-bg)",
@@ -15,16 +17,10 @@ const DOTTED_GROUND = {
 /** A `<ds-canvas>` body: a static preview in the chat that opens the full canvas. */
 export function CanvasBlock({ body }: { body: string }) {
   const parsed = useMemo(() => parseDsCanvas(body), [body]);
-  if (!parsed.ok) {
-    return (
-      <div role="note" data-testid="chat-ds-canvas" data-canvas-invalid="" className="ct-card ct-card--quiet my-2 w-fit max-w-[34rem] px-3 py-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
-        <p className="m-0">This canvas could not be shown because its description is not valid.</p>
-        <details className="mt-1 text-[11px] opacity-80"><summary className="cursor-pointer select-none">Details</summary><p className="m-0 mt-1 break-words">{parsed.reason}</p></details>
-      </div>
-    );
-  }
+  if (!parsed.ok) return <CanvasNotice text="This canvas could not be shown because its description is not valid." reason={parsed.reason} />;
   return <CanvasPreview canvas={parsed.canvas} />;
 }
+
 
 function usePreviewWidth() {
   const ref = useRef<HTMLDivElement>(null);
@@ -42,15 +38,17 @@ function usePreviewWidth() {
   return { ref, width };
 }
 
-function CanvasPreview({ canvas }: { canvas: DsCanvas }) {
+/** The static preview; a file canvas adds its source path, a named view and, for its owner, an editor. */
+export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0 }: { canvas: DsCanvas; view?: string; editor?: CanvasEditor; fullscreenRequest?: number }) {
   const layout = useMemo(() => layoutCanvas(canvas), [canvas]);
   const theme = useMemo(() => readThemeVars(), []);
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (fullscreenRequest) setOpen(true); }, [fullscreenRequest]);
   const { ref, width } = usePreviewWidth();
   const { observe, isVisible } = useVisibleIds();
   const observePreview = observe("preview");
   const previewRef = useCallback((element: HTMLDivElement | null) => { ref.current = element; observePreview(element); }, [ref, observePreview]);
-  const fit = fitPreview(layout.bounds, width, CANVAS_INLINE_HEIGHT);
+  const fit = fitPreview(canvasViewTarget(canvas, view)?.bounds ?? layout.bounds, width, CANVAS_INLINE_HEIGHT);
   const onScreen = !open && width > 0 && isVisible("preview");
   const live = chooseLiveFrames(layout.items.filter((placed) => isLiveFrameItem(placed.item)).map((placed) => ({ id: placed.item.id, visible: onScreen })), null);
   const title = canvas.title || "Canvas";
@@ -71,7 +69,7 @@ function CanvasPreview({ canvas }: { canvas: DsCanvas }) {
         <span aria-hidden>·</span>
         <span className="shrink-0">{count}</span>
       </figcaption>
-      {open && <CanvasViewer canvas={canvas} layout={layout} title={title} anchorRef={ref} onClose={() => setOpen(false)} />}
+      {open && <CanvasViewer canvas={canvas} layout={layout} title={title} view={view} editor={editor} anchorRef={ref} onClose={() => setOpen(false)} />}
     </figure>
   );
 }

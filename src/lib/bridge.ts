@@ -173,7 +173,7 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
       throw new Error(`Invalid remote tab id "${target.value}"; local fallback is forbidden`);
     }
     if (invokeForTest) return await invokeForTest<T>(cmd, args);
-    if (["read_local_preview_file", "read_html_preview_file", "check_local_preview_files"].includes(cmd)
+    if (["read_local_preview_file", "read_html_preview_file", "check_local_preview_files", "write_local_canvas_file", "watch_local_canvas_file"].includes(cmd)
       && !(cmd === "check_local_preview_files" && Array.isArray(args?.paths) && args.paths.length === 0)) {
       const tabId = String(args?.tabId ?? "");
       if (!tabId) throw new Error("Local previews require a tab identity");

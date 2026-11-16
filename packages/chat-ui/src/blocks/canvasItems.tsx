@@ -7,6 +7,8 @@ import { loadHtmlFile } from "../htmlFileLoader";
 import { useLocalArtifactTabId } from "../LocalArtifactScope";
 import { RichMarkdown } from "../MarkdownBody";
 import { canvasItemLabel, isLiveFrameItem, type PlacedCanvasItem } from "./canvasBlockModel";
+import { CanvasSourceContext } from "./canvasFilePort";
+import type { CanvasItemEdit } from "./canvasEditing";
 
 type FileContent = { kind: "image"; src: string } | { kind: "text"; text: string; markdown: boolean } | { kind: "html"; html: string };
 type FileState = { status: "loading" } | { status: "ready"; content: FileContent } | { status: "error"; reason: string };
@@ -20,32 +22,34 @@ const FAILURE_TEXT: Record<DsCanvasItem["kind"], string> = {
   note: "This note is not available.",
 };
 
-async function readItemFile(item: Extract<DsCanvasItem, { src: string }>, tabId: string | undefined): Promise<FileContent> {
-  if (item.kind === "image") {
-    const file = await loadLocalArtifact(item.src, "image", tabId);
+async function readItemFile(kind: DsCanvasItem["kind"], src: string, tabId: string | undefined, canvas: string | undefined): Promise<FileContent> {
+  if (kind === "image") {
+    const file = await loadLocalArtifact(src, "image", tabId, canvas);
     if (!file.data.startsWith("data:image/")) throw new Error("The file is not an image.");
     return { kind: "image", src: file.data };
   }
-  if (item.kind === "page" && !isMarkdownPath(item.src)) return { kind: "html", html: sanitizeLocalHtml(await loadHtmlFile(item.src, tabId)).html };
-  const file = await loadLocalArtifact(item.src, "document", tabId);
+  if (kind === "page" && !isMarkdownPath(src)) return { kind: "html", html: sanitizeLocalHtml(await loadHtmlFile(src, tabId, canvas)).html };
+  const file = await loadLocalArtifact(src, "document", tabId, canvas);
   return { kind: "text", text: file.data, markdown: file.media_type === "text/markdown" };
 }
 
+/** Keyed by the file, not the item object, so moving or resizing an item never reloads it. */
 function useItemFile(item: DsCanvasItem): FileState | null {
   const tabId = useLocalArtifactTabId();
+  const canvas = useContext(CanvasSourceContext);
   const src = "src" in item ? item.src : null;
+  const kind = item.kind;
   const [state, setState] = useState<{ key: string; value: FileState } | null>(null);
-  const key = `${item.kind}:${src}:${tabId ?? ""}`;
+  const key = `${kind}:${src}:${tabId ?? ""}:${canvas ?? ""}`;
   useEffect(() => {
-    if (!("src" in item)) return;
+    if (src === null) return;
     let current = true;
-    const read = `${item.kind}:${item.src}:${tabId ?? ""}`;
-    readItemFile(item, tabId).then(
-      (content) => { if (current) setState({ key: read, value: { status: "ready", content } }); },
-      (error: unknown) => { if (current) setState({ key: read, value: { status: "error", reason: error instanceof Error ? error.message : String(error) } }); },
+    readItemFile(kind, src, tabId, canvas).then(
+      (content) => { if (current) setState({ key, value: { status: "ready", content } }); },
+      (error: unknown) => { if (current) setState({ key, value: { status: "error", reason: error instanceof Error ? error.message : String(error) } }); },
     );
     return () => { current = false; };
-  }, [item, tabId]);
+  }, [key, kind, src, tabId, canvas]);
   if (src === null) return null;
   return state?.key === key ? state.value : { status: "loading" };
 }
@@ -110,7 +114,8 @@ function TextBox({ children, scrolls, fill }: { children: ReactNode; scrolls: bo
 function ItemContent({ item, live, active, theme }: { item: DsCanvasItem; live: boolean; active: boolean; theme: ThemeVars }) {
   const file = useItemFile(item);
   const label = canvasItemLabel(item);
-  const inlineDoc = useMemo(() => item.kind === "html" ? buildHtmlPreviewDocument(item.html, theme) : null, [item, theme]);
+  const html = item.kind === "html" ? item.html : null;
+  const inlineDoc = useMemo(() => html === null ? null : buildHtmlPreviewDocument(html, theme), [html, theme]);
   const pageDoc = useMemo(() => file?.status === "ready" && file.content.kind === "html" ? buildHtmlPreviewDocument(file.content.html, theme) : null, [file, theme]);
   if (item.kind === "note") return <TextBox scrolls={active} fill><Markdown text={item.markdown} /></TextBox>;
   if (file?.status === "error") return <CanvasItemFailure text={FAILURE_TEXT[item.kind]} reason={file.reason} />;
@@ -132,7 +137,49 @@ function ImageContent({ src, label }: { src: string; label: string }) {
 const ITEM_RING = "outline-offset-[3px]";
 
 /** One placed item; the viewer adds hover and selection, the inline preview never takes input. */
-export function CanvasItemView({ placed, live, selected = false, interactive, theme, onSelect, itemRef }: {
+/** A note in edit mode: its Markdown source on the same soft surface, with no extra border. */
+function NoteEditor({ text, edit }: { text: string; edit: CanvasItemEdit }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { ref.current?.focus({ preventScroll: true }); }, []);
+  const stop = (event: { stopPropagation(): void }) => event.stopPropagation();
+  return (
+    <textarea ref={ref} value={text} aria-label="Note text" data-canvas-note-editor=""
+      className="block h-full w-full resize-none rounded-md border-0 p-3 text-xs outline-none"
+      style={{ background: "var(--ct-surface)", color: "var(--ct-fg)", fontFamily: "inherit", letterSpacing: "inherit", margin: 0 }}
+      onChange={(event) => edit.onDraft(event.target.value)}
+      onBlur={() => edit.onDraftDone(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); edit.onDraftDone(true); }
+      }}
+      onPointerDown={stop} onMouseDown={stop} onDoubleClick={stop} onWheel={stop} />
+  );
+}
+
+/** World distance from the item edge to the centre line of its selection ring (3px offset + half of 2px). */
+const RING_CENTRE = 4;
+const coarsePointer = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+
+/**
+ * One 8px square centred on the selection ring's bottom-right corner, with a 16px hit area (24px
+ * for coarse pointers); counter-scaled so it keeps its screen size at every zoom.
+ */
+function ResizeHandle({ edit }: { edit: CanvasItemEdit }) {
+  const rest = useContext(CameraRestContext);
+  const lastScale = useRef(1);
+  if (rest !== null && rest > 0) lastScale.current = rest;
+  const inverse = 1 / lastScale.current;
+  const hit = (coarsePointer() ? 24 : 16) * inverse;
+  const square = 8 * inverse;
+  const offset = -(RING_CENTRE + hit / 2);
+  return (
+    <div aria-hidden data-canvas-resize="" onPointerDown={edit.onResizePointerDown} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}
+      className="absolute flex items-center justify-center" style={{ right: offset, bottom: offset, width: hit, height: hit, cursor: "nwse-resize", touchAction: "none" }}>
+      <span className="block" style={{ width: square, height: square, background: "var(--ct-accent)" }} />
+    </div>
+  );
+}
+
+export function CanvasItemView({ placed, live, selected = false, interactive, theme, onSelect, itemRef, edit }: {
   itemRef?: (element: HTMLDivElement | null) => void;
   placed: PlacedCanvasItem;
   live: boolean;
@@ -140,19 +187,27 @@ export function CanvasItemView({ placed, live, selected = false, interactive, th
   interactive: boolean;
   theme: ThemeVars;
   onSelect?: (id: string) => void;
+  /** Owner editing; html and page frames then stay non-interactive so a drag always moves. */
+  edit?: CanvasItemEdit;
 }) {
   const { item } = placed;
   const label = canvasItemLabel(item);
-  const takesInput = interactive && selected;
+  const takesInput = interactive && selected && !(edit && isLiveFrameItem(item));
   const outline = selected ? { outline: "2px solid var(--ct-accent)" } : {};
+  const editing = edit?.draft !== null && edit?.draft !== undefined;
+  const editStyle: CSSProperties = edit ? { cursor: edit.dragging ? "grabbing" : "grab", userSelect: "none", touchAction: "none" } : {};
   return (
     <div ref={itemRef} data-canvas-item={item.id} data-zoom-target={interactive ? placed.index : undefined} data-selected={selected || undefined}
       role={interactive ? "group" : undefined} aria-label={interactive ? label : undefined}
       className={`${ITEM_RING} ${interactive && !selected ? "hover:outline hover:outline-1 hover:outline-[var(--ct-border)]" : ""}`}
-      style={{ position: "absolute", left: placed.x, top: placed.y, width: placed.w, height: placed.h, ...outline }}
+      style={{ position: "absolute", left: placed.x, top: placed.y, width: placed.w, height: placed.h, ...outline, ...editStyle }}
+      onPointerDown={edit && !editing ? edit.onBodyPointerDown : undefined}
+      onMouseDown={edit ? (event) => event.stopPropagation() : undefined}
+      onDoubleClick={edit && item.kind === "note" ? (event) => { event.stopPropagation(); edit.onOpenNote(); } : undefined}
       onClick={interactive ? (event) => { event.stopPropagation(); onSelect?.(item.id); } : undefined}>
-      <ItemContent item={item} live={live && isLiveFrameItem(item)} active={takesInput} theme={theme} />
+      {editing ? <NoteEditor text={edit!.draft!} edit={edit!} /> : <ItemContent item={item} live={live && isLiveFrameItem(item)} active={takesInput} theme={theme} />}
       {interactive && !selected && <button type="button" aria-label={`Select ${label}`} data-canvas-select="" className="absolute inset-0 border-0 bg-transparent p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]" style={{ cursor: "inherit" }} />}
+      {edit && selected && !editing && <ResizeHandle edit={edit} />}
     </div>
   );
 }

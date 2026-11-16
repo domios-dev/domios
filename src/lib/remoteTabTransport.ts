@@ -92,8 +92,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "agent_runtime_host_approvals": return call("POST", "/agent/runtime/host-approvals", args.request);
     case "agent_runtime_login": return call("POST", "/agent/runtime/login", args.request);
     case "agent_runtime_retry": return call("POST", "/agent/runtime/retry");
-    case "read_local_preview_file": return call("POST", "/preview/read", { path: args.path, kind: args.kind });
-    case "read_html_preview_file": return call("POST", "/preview/read", { path: args.path, kind: "page" }, (value) => (value as { data: string }).data);
+    case "read_local_preview_file": return call("POST", "/preview/read", { path: args.path, kind: args.kind, ...(typeof args.canvas === "string" ? { canvas: args.canvas } : {}) });
+    case "read_html_preview_file": return call("POST", "/preview/read", { path: args.path, kind: "page", ...(typeof args.canvas === "string" ? { canvas: args.canvas } : {}) }, (value) => (value as { data: string }).data);
     case "check_local_preview_files": return call("POST", "/preview/check", { paths: args.paths });
     case "tab_todo_list": return call("GET", "/todos");
     case "tab_todo_review": return call("POST", "/todos/review", args.request);

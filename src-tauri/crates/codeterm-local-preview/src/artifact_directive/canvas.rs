@@ -90,8 +90,7 @@ fn valid_view(value: &Value, names: &mut HashSet<String>) -> bool {
         return false;
     };
     only(record, &["name", "x", "y", "w", "h"])
-        && !name.is_empty()
-        && name.len() <= VIEW_NAME_BYTES
+        && valid_view_name(name)
         && names.insert(name.to_string())
         && position(record.get("x"))
         && position(record.get("y"))
@@ -99,12 +98,66 @@ fn valid_view(value: &Value, names: &mut HashSet<String>) -> bool {
         && extent(record.get("h"))
 }
 
+/// A `view` name in a canvas body or in a `<ds-canvas src view>` tag.
+pub fn valid_view_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= VIEW_NAME_BYTES
+}
+
+/// An owner edit may move, resize, rewrite or remove items and add notes, but never adds a file:
+/// the files a canvas previews stay those its author referenced.
+pub fn canvas_write_permitted(current: &str, next: &str) -> Result<(), &'static str> {
+    let next = canvas_file_paths(next).ok_or("Canvas edit is not a valid canvas")?;
+    let current: HashSet<String> = canvas_file_paths(current)
+        .ok_or("Canvas file is not a valid canvas")?
+        .into_iter()
+        .collect();
+    if next.iter().all(|path| current.contains(path)) {
+        Ok(())
+    } else {
+        Err("Canvas edits cannot add files")
+    }
+}
+
 /// Mirrors `parseDsCanvas` in chat-core: the file paths of a canvas body that renders.
-pub(super) fn canvas_paths(body: &str) -> Option<Vec<String>> {
+pub fn canvas_paths(body: &str) -> Option<Vec<String>> {
     if body.len() > BODY_LIMIT {
         return None;
     }
-    let document: Value = serde_json::from_str(body).ok()?;
+    canvas_value_paths(&serde_json::from_str(body).ok()?)
+}
+
+/// The header that opens every canvas file.
+pub const CANVAS_FILE_FORMAT: &str = "domios.canvas/1";
+
+fn format_first(text: &str) -> bool {
+    let space = |c: char| matches!(c, ' ' | '\t' | '\n' | '\r');
+    text.trim_start_matches(space)
+        .strip_prefix('{')
+        .is_some_and(|rest| rest.trim_start_matches(space).starts_with("\"format\""))
+}
+
+fn supported_format(format: &str) -> bool {
+    let Some(version) = format.strip_prefix("domios.canvas/") else {
+        return false;
+    };
+    let (major, minor) = version.split_once('.').unwrap_or((version, "0"));
+    major == "1" && !minor.is_empty() && minor.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Mirrors `parseDsCanvasFile` in chat-core: a `.canvas.json` opens with `"format"` as its first
+/// field, names major version 1, and otherwise holds exactly an inline body's fields.
+pub fn canvas_file_paths(text: &str) -> Option<Vec<String>> {
+    if text.len() > BODY_LIMIT || !format_first(text) {
+        return None;
+    }
+    let mut document: Value = serde_json::from_str(text).ok()?;
+    let format = document.as_object_mut()?.remove("format")?;
+    supported_format(format.as_str()?)
+        .then(|| canvas_value_paths(&document))
+        .flatten()
+}
+
+fn canvas_value_paths(document: &Value) -> Option<Vec<String>> {
     let record = document.as_object()?;
     if !only(record, &["title", "items", "views"])
         || !record.get("title").is_none_or(Value::is_string)

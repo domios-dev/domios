@@ -27,7 +27,7 @@ fn canonical_file_recognition_matches_shared_corpus_and_exact_source_spans() {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|span| span["block"]["kind"] == "canvas")
+            .filter(|span| span["block"]["kind"] == "canvas" && span["block"]["body"].is_string())
             .flat_map(|span| serde_json::from_value::<Vec<String>>(span["paths"].clone()).unwrap())
             .collect();
         let expected: Vec<_> = fixture["expectedBlocks"]
@@ -39,9 +39,13 @@ fn canonical_file_recognition_matches_shared_corpus_and_exact_source_spans() {
                 let kind = block["kind"].as_str().unwrap();
                 let paths = match kind {
                     "page" | "document" => vec![block["src"].as_str().unwrap().into()],
+                    "canvas" if block["src"].is_string() => {
+                        vec![block["src"].as_str().unwrap().into()]
+                    }
                     "image" => serde_json::from_value(block["sources"].clone()).unwrap(),
                     _ => return None,
                 };
+                let view = block["view"].as_str().map(String::from);
                 let start = span["byteStart"].as_u64().unwrap() as usize;
                 let end = span["byteEnd"].as_u64().unwrap() as usize;
                 assert_eq!(
@@ -57,6 +61,7 @@ fn canonical_file_recognition_matches_shared_corpus_and_exact_source_spans() {
                     start,
                     end,
                     paths,
+                    view,
                 })
             })
             .collect();
@@ -285,4 +290,105 @@ fn routed_body_authority_requires_matching_host_provenance_while_direct_sources_
         );
     }
     assert_eq!(scan_artifacts(tag, true).cards.len(), 1);
+}
+
+#[test]
+fn canvas_src_tags_are_file_cards_that_keep_their_view_through_mesh_rewrites() {
+    let tag = r#"<ds-canvas src="/work/board.canvas.json" view="compare" />"#;
+    let scan = scan_artifacts(tag, true);
+    assert!(scan.canvas_paths.is_empty());
+    assert_eq!(
+        scan.cards,
+        [FileCard {
+            start: 0,
+            end: tag.len(),
+            kind: "canvas".into(),
+            paths: vec!["/work/board.canvas.json".into()],
+            view: Some("compare".into()),
+        }]
+    );
+    assert_eq!(
+        serialize_file_card(
+            "canvas",
+            &[r"C:\in box\board.canvas.json".into()],
+            Some("a \"b\"")
+        ),
+        Some(r#"<ds-canvas src="C:\in box\board.canvas.json" view="a &quot;b&quot;" />"#.into())
+    );
+    assert_eq!(
+        serialize_artifact("canvas", &["/work/board.canvas.json".into()]),
+        Some(r#"<ds-canvas src="/work/board.canvas.json" />"#.into())
+    );
+    assert_eq!(
+        serialize_file_card("page", &["/work/a.html".into()], Some("x")),
+        None
+    );
+    for refused in [
+        r#"<ds-canvas src="board.canvas.json" />"#,
+        r#"<ds-canvas src="/work/board.canvas.json" view="" />"#,
+        r#"<ds-canvas src="/work/board.canvas.json" title="x" />"#,
+        r#"<ds-canvas view="compare" />"#,
+        r#"<ds-canvas src="/work/board.canvas.json">{"items":[{"kind":"note","markdown":"x"}]}</ds-canvas>"#,
+    ] {
+        let scan = scan_artifacts(refused, true);
+        assert!(
+            scan.cards.is_empty() && scan.canvas_paths.is_empty(),
+            "{refused}"
+        );
+    }
+    assert!(scan_artifacts(&format!("```text\n{tag}\n```"), true)
+        .cards
+        .is_empty());
+    assert!(scan_artifacts(tag, false).cards.is_empty());
+}
+
+#[test]
+fn canvas_write_back_never_adds_a_file_the_author_did_not_reference() {
+    let current = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"n","kind":"note","markdown":"x"}]}"#;
+    let moved = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png","x":10,"y":20},{"id":"n","kind":"note","markdown":"y"},{"id":"m","kind":"note","markdown":""}]}"#;
+    assert_eq!(canvas_write_permitted(current, moved), Ok(()));
+    let removed =
+        r#"{"format":"domios.canvas/1","items":[{"id":"n","kind":"note","markdown":"x"}]}"#;
+    assert_eq!(canvas_write_permitted(current, removed), Ok(()));
+    let added = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"b","kind":"document","src":"/home/me/.ssh/config"}]}"#;
+    assert_eq!(
+        canvas_write_permitted(current, added),
+        Err("Canvas edits cannot add files")
+    );
+    assert_eq!(
+        canvas_write_permitted(current, r#"{"items":[]}"#),
+        Err("Canvas edit is not a valid canvas")
+    );
+    assert_eq!(
+        canvas_write_permitted("{", moved),
+        Err("Canvas file is not a valid canvas")
+    );
+}
+
+#[test]
+fn canvas_files_need_the_format_header_first_and_a_known_major_version() {
+    let items = r#""items":[{"kind":"image","src":"/work/a.png"}]"#;
+    assert_eq!(
+        canvas_file_paths(&format!(
+            "\n {{ \"format\": \"{CANVAS_FILE_FORMAT}\", {items} }}"
+        )),
+        Some(vec!["/work/a.png".to_string()])
+    );
+    assert!(canvas_file_paths(&format!(r#"{{"format":"domios.canvas/1.4",{items}}}"#)).is_some());
+    for refused in [
+        format!("{{{items}}}"),
+        format!(r#"{{{items},"format":"domios.canvas/1"}}"#),
+        format!(r#"{{"format":"domios.canvas/2",{items}}}"#),
+        format!(r#"{{"format":"domios.canvas/1.",{items}}}"#),
+        format!(r#"{{"format":"canvas/1",{items}}}"#),
+        format!(r#"{{"format":1,{items}}}"#),
+        format!(r#"{{"format":"domios.canvas/1","extra":true,{items}}}"#),
+    ] {
+        assert_eq!(canvas_file_paths(&refused), None, "{refused}");
+    }
+    assert_eq!(
+        canvas_paths(&format!("{{{items}}}")).map(|paths| paths.len()),
+        Some(1),
+        "inline bodies need no header"
+    );
 }

@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_local_preview::artifact_directive::serialize_artifact;
 
 fn card(kind: &str, paths: &[&str]) -> String {
     serialize_artifact(
@@ -30,6 +31,25 @@ fn gallery_paths_rewrite_individually_on_one_line() {
     assert_eq!(
         directives(&rewritten)[0].paths,
         ["/target/a & \"one\".png", r"C:\target\b.png"]
+    );
+}
+
+#[test]
+fn canvas_file_cards_rewrite_their_path_and_keep_the_view() {
+    let source = "See\n<ds-canvas view='side by side' src=\"/origin/board.canvas.json\" />\n";
+    let paths = HashMap::from([(
+        "/origin/board.canvas.json".into(),
+        r"C:\inbox\board.canvas.json".into(),
+    )]);
+    let rewritten = rewrite(source, &directives(source), &paths).unwrap();
+    assert_eq!(
+        rewritten,
+        "See\n<ds-canvas src=\"C:\\inbox\\board.canvas.json\" view=\"side by side\" />\n"
+    );
+    let card = &directives(&rewritten)[0];
+    assert_eq!(
+        (card.kind.as_str(), card.view.as_deref()),
+        ("canvas", Some("side by side"))
     );
 }
 

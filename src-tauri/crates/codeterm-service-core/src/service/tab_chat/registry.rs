@@ -468,6 +468,7 @@ impl ChatRegistry {
 
     pub fn shutdown_tab(&self, tab_id: &str) {
         self.preview_references.drop_tab(tab_id);
+        crate::service::local_preview::canvas_watch::drop_tab(tab_id);
         self.row_cache.drop_tab(tab_id);
         super::structured_sink::clear_tab(tab_id);
         self.sources.lock().remove(tab_id);
