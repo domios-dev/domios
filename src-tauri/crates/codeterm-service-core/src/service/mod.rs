@@ -29,7 +29,6 @@ pub(crate) mod ai_helper_spawn;
 mod image_attachments;
 pub mod lazy_restore;
 pub mod tab_mutation_authority;
-pub mod tab_sleep_policy;
 pub mod tab_todos;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;

@@ -3111,6 +3111,7 @@ EOF
   test-one)
     test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
+    export TEST_REQUIRE_EXECUTION=1
     case "$test_scope" in
       cli|codeterm-cli)
         SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope cli "package(=codeterm-cli) & test(~$test_filter)"

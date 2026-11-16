@@ -23,7 +23,6 @@ import { AboutPage } from "./AboutPage";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { ShellProfilesCard } from "./ShellProfilesCard";
-import { TabSleepCard } from "./TabSleepCard";
 import { BrowserUploadFolders } from "./BrowserUploadFolders";
 import { EmbedderCard } from "./embedder/EmbedderCard";
 import { GeneralAgentCard } from "./GeneralAgentCard";
@@ -345,7 +344,6 @@ export function SettingsPanel({
                 </SettingsCardAnchor>
 
                 <ShellProfilesCard config={localConfig} onUpdate={update} />
-                <TabSleepCard config={localConfig} onUpdate={update} />
                 <BrowserUploadFolders config={localConfig} onSave={async next => {
                   await onUpdateConfig(next);
                   const updated = { config: next, save: onUpdateConfig };
