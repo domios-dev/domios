@@ -86,6 +86,18 @@ pub(super) fn startup_error(message: &str) -> Error {
         Error::Locked,
         Error::PermissionDenied,
         Error::Revoked,
+        Error::LocalFence {
+            phase: "account_session",
+        },
+        Error::LocalFence {
+            phase: "update_generation",
+        },
+        Error::LocalFence {
+            phase: "callable_retired",
+        },
+        Error::LocalFence {
+            phase: "activation_pending",
+        },
         Error::Disabled,
         Error::SessionRevoked,
         Error::NotReceiver,

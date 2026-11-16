@@ -149,7 +149,9 @@ impl Session {
             .load(Ordering::Acquire)
             != self.generation
         {
-            return Err(Error::Revoked);
+            return Err(Error::LocalFence {
+                phase: "update_generation",
+            });
         }
         Ok(())
     }
@@ -181,11 +183,34 @@ impl Session {
     async fn project(
         &self,
         snapshot: codeterm_neighbors::state::Snapshot,
+        seen: &mut notifications::Seen,
+    ) -> Result<()> {
+        match self.project_owned(snapshot, seen).await {
+            Err(Error::Revoked) => {
+                self.current()?;
+                if !same_session(self.account.session().await.as_ref(), &self.expected) {
+                    return Err(Error::LocalFence {
+                        phase: "account_session",
+                    });
+                }
+                Err(Error::LocalFence {
+                    phase: "activation_pending",
+                })
+            }
+            result => result,
+        }
+    }
+
+    async fn project_owned(
+        &self,
+        snapshot: codeterm_neighbors::state::Snapshot,
         _seen: &mut notifications::Seen,
     ) -> Result<()> {
         self.current()?;
         if !same_session(self.account.session().await.as_ref(), &self.expected) {
-            return Err(Error::Revoked);
+            return Err(Error::LocalFence {
+                phase: "account_session",
+            });
         }
         let previous = self.service.peek_neighbor_projection(
             &self.transport.uid,
@@ -218,10 +243,13 @@ impl Session {
             )
             .await?;
         if !applied
-            && self
+            && (!self.service.neighbor_projection_authoritative(
+                &self.transport.uid,
+                self.expected.login_generation,
+            ) || self
                 .service
                 .neighbor_projection_version(&self.transport.uid, self.expected.login_generation)
-                != Some(version)
+                != Some(version))
         {
             return Ok(());
         }
@@ -268,20 +296,32 @@ impl Session {
 
     async fn require_activation(&self, version: u64) -> Result<()> {
         self.current()?;
-        self.service.neighbor_reconciliation().require_readable()?;
-        if !same_session(self.account.session().await.as_ref(), &self.expected)
-            || self
-                .service
-                .neighbor_projection_version(&self.transport.uid, self.expected.login_generation)
-                != Some(version)
+        if !same_session(self.account.session().await.as_ref(), &self.expected) {
+            return Err(Error::LocalFence {
+                phase: "account_session",
+            });
+        }
+        self.service
+            .neighbor_reconciliation()
+            .require_readable()
+            .map_err(activation_failure)?;
+        if self
+            .service
+            .neighbor_projection_version(&self.transport.uid, self.expected.login_generation)
+            != Some(version)
         {
-            return Err(Error::Revoked);
+            return Err(Error::LocalFence {
+                phase: "activation_pending",
+            });
         }
         let (_, list) = self
             .service
-            .neighbor_activation_ticket(&self.transport.uid, self.expected.login_generation)?;
+            .neighbor_activation_ticket(&self.transport.uid, self.expected.login_generation)
+            .map_err(activation_failure)?;
         if list["version"] != version {
-            return Err(Error::Revoked);
+            return Err(Error::LocalFence {
+                phase: "activation_pending",
+            });
         }
         self.current()?;
         self.service.require_neighbors_enabled()
@@ -295,7 +335,9 @@ impl Session {
     ) -> Result<()> {
         self.current()?;
         if !same_session(self.account.session().await.as_ref(), &self.expected) {
-            return Err(Error::Revoked);
+            return Err(Error::LocalFence {
+                phase: "account_session",
+            });
         }
         let history_generation = self.service.neighbor_history_generation();
         let pause_versions = self.service.neighbor_cell().pauses.snapshot();
@@ -331,7 +373,9 @@ impl Session {
         )?;
         self.current()?;
         if !same_session(self.account.session().await.as_ref(), &self.expected) {
-            return Err(Error::Revoked);
+            return Err(Error::LocalFence {
+                phase: "account_session",
+            });
         }
         self.service.publish_neighbor_projection_list(
             &self.transport.uid,
@@ -351,6 +395,16 @@ impl Session {
             );
         }
         Ok(())
+    }
+}
+
+fn activation_failure(error: Error) -> Error {
+    if error == Error::Revoked {
+        Error::LocalFence {
+            phase: "activation_pending",
+        }
+    } else {
+        error
     }
 }
 

@@ -22,10 +22,16 @@ impl Calls {
             .0
             .get()
             .cloned()
-            .ok_or(Error::Revoked)?;
-        let session = account.session().await.ok_or(Error::Revoked)?;
+            .ok_or(Error::LocalFence {
+                phase: "account_session",
+            })?;
+        let session = account.session().await.ok_or(Error::LocalFence {
+            phase: "account_session",
+        })?;
         if session.identity.uid != self.uid || session.login_generation != self.generation {
-            return Err(Error::Revoked);
+            return Err(Error::LocalFence {
+                phase: "account_session",
+            });
         }
         Ok(session)
     }
@@ -38,9 +44,13 @@ impl Calls {
                 log::debug!("[neighbor-listen] operation=auth.session kind={error:?}");
                 Error::Transport
             })?
-            .ok_or(Error::Revoked)?;
+            .ok_or(Error::LocalFence {
+                phase: "account_session",
+            })?;
         if session.identity.uid != self.uid || session.login_generation != self.generation {
-            return Err(Error::Revoked);
+            return Err(Error::LocalFence {
+                phase: "account_session",
+            });
         }
         Ok(session)
     }
@@ -50,7 +60,9 @@ impl Calls {
         if super::super::same_session(Some(&current), expected) {
             Ok(())
         } else {
-            Err(Error::Revoked)
+            Err(Error::LocalFence {
+                phase: "account_session",
+            })
         }
     }
 }
@@ -179,7 +191,9 @@ impl Calls {
                 .service
                 .neighbor_key_inventory_pending(&self.uid, self.generation)
         {
-            return Err(Error::KeyInventoryPending);
+            self.service
+                .recover_neighbor_key_inventory(&self.uid, self.generation)
+                .await?;
         }
         let mut session = self
             .session()
@@ -245,7 +259,14 @@ impl Calls {
                     retry_after_seconds,
                 ));
             }
-            Err(CallableFailure::Retired) => return Err(key_mutation_error(route, Error::Revoked)),
+            Err(CallableFailure::Retired) => {
+                return Err(key_mutation_error(
+                    route,
+                    Error::LocalFence {
+                        phase: "callable_retired",
+                    },
+                ))
+            }
             Err(_) => return Err(Error::Transport),
         };
         let key_mutation = route == "friendsEnrollVerifierKey";
@@ -264,10 +285,6 @@ impl Calls {
                 .ok_or(Error::KeyInventoryPending)?;
             self.service
                 .fence_neighbor_key_inventory(&self.uid, self.generation, key)?;
-            self.service
-                .invalidate_neighbor_list()
-                .await
-                .map_err(|_| Error::KeyInventoryPending)?;
             if self.service.neighbor_registry_activation_active()
                 && self
                     .service
@@ -309,7 +326,7 @@ fn key_mutation_error(route: &str, error: Error) -> Error {
     if route == "friendsEnrollVerifierKey"
         && matches!(
             error,
-            Error::Revoked | Error::SessionRevoked | Error::Disabled
+            Error::Revoked | Error::LocalFence { .. } | Error::SessionRevoked | Error::Disabled
         )
     {
         Error::KeyInventoryPending

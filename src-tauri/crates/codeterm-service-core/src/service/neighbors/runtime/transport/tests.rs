@@ -184,10 +184,17 @@ async fn changed_target_refuses_before_account_or_callable_use() {
 #[tokio::test]
 async fn selected_transport_keeps_the_existing_account_guard() {
     let calls = bound(Selection::resolve(true, PRODUCTION).unwrap(), || PRODUCTION);
+    let error = calls
+        .invoke("friendsSetFriendReceiver", json!({}))
+        .await
+        .unwrap_err();
     assert_eq!(
-        calls.invoke("friendsSetFriendReceiver", json!({})).await,
-        Err(Error::Revoked)
+        error,
+        Error::LocalFence {
+            phase: "account_session"
+        }
     );
+    assert!(!codeterm_neighbors::supervisor::retryable(error));
 }
 
 #[test]

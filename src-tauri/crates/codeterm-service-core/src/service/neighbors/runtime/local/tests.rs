@@ -84,6 +84,9 @@ async fn local_reads_bypass_blocked_network_owner_and_return_metadata() {
                 );
                 assert!(result.get("receiving_here").is_none());
                 assert_eq!(result["friend_receivers"], json!({}));
+                assert!(result["installation_id"].as_str().is_some());
+                assert_eq!(result["projection"]["pending_verifier_ids"], json!([]));
+                assert_eq!(result["projection"]["snapshot_version"], Value::Null);
             }
         }
     }

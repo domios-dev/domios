@@ -5,6 +5,8 @@ use codeterm_neighbors::{
 };
 use serde_json::Value;
 
+pub(super) mod inventory;
+
 #[derive(Default)]
 struct State {
     snapshots: AccountSnapshot,
@@ -17,6 +19,8 @@ struct State {
     authoritative: bool,
     list_dirty: bool,
     key_inventory_pending: Vec<String>,
+    inventory_epoch: std::sync::Arc<()>,
+    last_watch_failure: Option<codeterm_neighbors::responses::ListenerFailure>,
 }
 #[derive(Default)]
 struct Cell {
@@ -65,9 +69,18 @@ impl ServiceContext {
         if state.selected.as_ref() != Some(&(uid.to_owned(), generation)) {
             return Err(Error::KeyInventoryPending);
         }
-        state.key_inventory_pending.retain(|id| id != key);
         if !state.key_inventory_matches(uid, generation, key) {
-            state.key_inventory_pending.push(key.to_owned());
+            if !state.key_inventory_pending.iter().any(|id| id == key) {
+                state.key_inventory_pending.push(key.to_owned());
+                state.inventory_epoch = std::sync::Arc::new(());
+            }
+            state.list_dirty = true;
+            state.activated = None;
+            state.fallback_started = false;
+            self.retire_neighbor_list_reads();
+            self.forget_neighbor_registry();
+        } else {
+            state.key_inventory_pending.retain(|id| id != key);
         }
         log::debug!(
             "[neighbor-keys] phase=acknowledged key={key} version={:?} pending={}",
@@ -353,6 +366,7 @@ impl ServiceContext {
         let cell = self.extensions.get_or_init(Cell::default);
         let mut state = cell.state.lock();
         state.list_dirty = true;
+        state.inventory_epoch = std::sync::Arc::new(());
         state.activated = None;
         state.fallback_started = false;
         self.retire_neighbor_list_reads();
@@ -504,7 +518,12 @@ impl ServiceContext {
     }
     pub(super) fn neighbor_projection_unavailable(&self) {
         let cell = self.extensions.get_or_init(Cell::default);
-        cell.state.lock().unavailable = true;
+        let mut state = cell.state.lock();
+        if !state.unavailable {
+            state.inventory_epoch = std::sync::Arc::new(());
+        }
+        state.unavailable = true;
+        drop(state);
         cell.changed.notify_waiters();
     }
     pub(super) async fn neighbor_projection_missing(&self) -> Result<()> {
@@ -524,9 +543,14 @@ impl ServiceContext {
     fn neighbor_projection_missing_owned(&self) {
         let cell = self.extensions.get_or_init(Cell::default);
         let mut state = cell.state.lock();
+        if let Some((uid, generation)) = state.selected.clone() {
+            state.snapshots.withdraw(&uid, generation);
+        }
         state.unavailable = true;
         state.reconciled = None;
+        state.activated = None;
         state.authoritative = false;
+        state.inventory_epoch = std::sync::Arc::new(());
         drop(state);
         cell.changed.notify_waiters();
     }
@@ -545,6 +569,9 @@ impl ServiceContext {
         match self.neighbor_reconciliation().submit(
             super::reconciliation::Kind::Projection,
             move || async move {
+                service
+                    .require_neighbor_reconciliation_account(&uid, generation)
+                    .await?;
                 Ok(service.apply_neighbor_projection_owned(&uid, generation, snapshot))
             },
         ) {
@@ -562,8 +589,16 @@ impl ServiceContext {
         let cell = self.extensions.get_or_init(Cell::default);
         let applied = {
             let mut state = cell.state.lock();
-            let applied = state.snapshots.apply(uid, generation, snapshot);
+            let reconnect = state.selected.as_ref() == Some(&(uid.to_owned(), generation))
+                && state.authoritative
+                && state.unavailable
+                && state.snapshots.version(uid, generation) == Some(snapshot.version);
+            let applied = state.snapshots.apply(uid, generation, snapshot) || reconnect;
             if applied {
+                if reconnect {
+                    state.reconciled = None;
+                    state.activated = None;
+                }
                 state.unavailable = false;
                 state.authoritative = true;
                 state.list_dirty = false;
@@ -679,6 +714,10 @@ impl ServiceContext {
             .snapshots
             .version(uid, generation)
     }
+    pub(super) fn neighbor_projection_authoritative(&self, uid: &str, generation: u64) -> bool {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        state.selected.as_ref() == Some(&(uid.to_owned(), generation)) && state.authoritative
+    }
     pub(super) async fn neighbor_projection_read(
         &self,
         uid: &str,
@@ -693,7 +732,7 @@ impl ServiceContext {
         }
         self.require_neighbors_enabled()?;
         if route == "friendsOwnKeys" && self.neighbor_key_inventory_pending(uid, generation) {
-            return Err(Error::KeyInventoryPending);
+            self.recover_neighbor_key_inventory(uid, generation).await?;
         }
         self.restore_neighbor_updates_once();
         let installation = self
