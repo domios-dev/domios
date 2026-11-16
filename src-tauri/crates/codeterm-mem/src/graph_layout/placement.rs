@@ -76,21 +76,25 @@ pub fn normalize(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
     if points.is_empty() {
         return Vec::new();
     }
-    let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
-    let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
-    for &(x, y) in points {
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
+    let mut xs: Vec<f32> = points.iter().map(|p| p.0).collect();
+    let mut ys: Vec<f32> = points.iter().map(|p| p.1).collect();
+    xs.sort_unstable_by(f32::total_cmp);
+    ys.sort_unstable_by(f32::total_cmp);
+    let trim = points.len() / 50;
+    let (min_x, max_x) = (xs[trim], xs[points.len() - 1 - trim]);
+    let (min_y, max_y) = (ys[trim], ys[points.len() - 1 - trim]);
     let span = ((max_x - min_x).max(max_y - min_y)).max(1e-6);
     let scale = (2.0 * COORD_RANGE) / span;
     let cx = (min_x + max_x) / 2.0;
     let cy = (min_y + max_y) / 2.0;
     points
         .iter()
-        .map(|&(x, y)| ((x - cx) * scale, (y - cy) * scale))
+        .map(|&(x, y)| {
+            (
+                (x.clamp(min_x, max_x) - cx) * scale,
+                (y.clamp(min_y, max_y) - cy) * scale,
+            )
+        })
         .collect()
 }
 
@@ -233,76 +237,4 @@ pub fn place_incremental(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decode_encode_round_trip() {
-        let v = vec![1.5f32, -2.0, 3.25];
-        assert_eq!(decode_vector(&encode_vector(&v)), v);
-    }
-
-    #[test]
-    fn strip_chunk_suffix_works() {
-        assert_eq!(strip_chunk_suffix("fact_abc_chunk_3"), "fact_abc");
-        assert_eq!(strip_chunk_suffix("fact_abc"), "fact_abc");
-    }
-
-    #[test]
-    fn normalize_centers_and_scales() {
-        let pts = vec![(0.0, 0.0), (10.0, 10.0), (-10.0, -10.0)];
-        let out = normalize(&pts);
-        assert!(out
-            .iter()
-            .all(|&(x, y)| x.abs() <= COORD_RANGE + 1.0 && y.abs() <= COORD_RANGE + 1.0));
-        // Center point maps near origin.
-        assert!(out[0].0.abs() < 1.0 && out[0].1.abs() < 1.0);
-    }
-
-    #[test]
-    fn grid_cluster_separates_two_far_blobs() {
-        let mut pts = Vec::new();
-        for i in 0..50 {
-            let f = i as f32 * 0.1;
-            pts.push((-800.0 + f, -800.0 + f));
-        }
-        for i in 0..50 {
-            let f = i as f32 * 0.1;
-            pts.push((800.0 + f, 800.0 + f));
-        }
-        let clusters = grid_cluster(&pts);
-        let left: std::collections::HashSet<u32> = clusters[..50].iter().copied().collect();
-        let right: std::collections::HashSet<u32> = clusters[50..].iter().copied().collect();
-        assert!(
-            left.is_disjoint(&right),
-            "far blobs must land in different clusters"
-        );
-    }
-
-    #[test]
-    fn weighted_average_lands_near_closest_neighbor() {
-        let neighbors = vec![
-            (
-                Position {
-                    x: 100.0,
-                    y: 100.0,
-                    cluster_id: 5,
-                },
-                0.01,
-            ),
-            (
-                Position {
-                    x: -500.0,
-                    y: -500.0,
-                    cluster_id: 9,
-                },
-                2.0,
-            ),
-        ];
-        let p = weighted_average(&neighbors).unwrap();
-        // Closest neighbor dominates → near (100,100) and inherits its cluster.
-        assert!((p.x - 100.0).abs() < 60.0, "x={}", p.x);
-        assert!((p.y - 100.0).abs() < 60.0, "y={}", p.y);
-        assert_eq!(p.cluster_id, 5);
-    }
-}
+mod tests;
