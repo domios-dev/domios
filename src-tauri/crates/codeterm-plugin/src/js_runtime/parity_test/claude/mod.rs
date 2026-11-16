@@ -13,6 +13,7 @@ mod core;
 mod external_imports;
 mod filled_composer;
 mod folder_trust;
+mod input_attach;
 mod launch_permissions;
 mod launch_session;
 mod onboarding;

@@ -3569,36 +3569,15 @@
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
-      "token": "agent_claude",
-      "count": 1,
-      "justification": "Native/JS parity test for the declared input attach signal; provider-named fixtures are the test subject.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
-      "token": "claude",
-      "count": 1,
-      "justification": "Native/JS parity test for the declared input attach signal; provider-named fixtures are the test subject.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
-      "token": "ClaudeProvider",
-      "count": 1,
-      "justification": "Native/JS parity test for the declared input attach signal; provider-named fixtures are the test subject.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
       "token": "codex",
-      "count": 2,
+      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/resume_first_turn.rs",
       "token": "opencode",
-      "count": 2,
+      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -10695,6 +10674,10 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/external_imports.rs",
       "reason": "Provider-owned native/JavaScript parity proof on captured external instruction import fixtures."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/input_attach.rs",
+      "reason": "Provider-owned native/JavaScript parity proof that the provider declares bracketed-paste input attach."
     }
   ]
 }
