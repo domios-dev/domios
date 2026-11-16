@@ -107,7 +107,6 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::neighbor_account::AccountDataRoot>();
         self.insert::<crate::service::neighbor_state::State>(Default::default());
         self.insert::<Arc<crate::service::neighbor_state::LaunchState>>(Default::default());
-        self.insert_late::<crate::service::agent_restart::ProviderSwitchOperations>();
         self.insert_late::<crate::CronState>();
         self.insert_late::<crate::CronWake>();
         self.insert_late::<crate::service::curator_runtime::CuratorTabs>();
@@ -121,6 +120,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::cron::OwnerPromptRequests>();
         self.insert_late::<crate::service::session_persist::SessionPersistenceWorker>();
         self.insert_late::<Arc<crate::service::turn_resume::Wave>>();
+        self.insert_late::<crate::service::launch_input_attach::SessionStartHooks>();
         self.insert_late::<crate::agent::live_state::RestoreReportWorker>();
         self.insert_late::<crate::service::lane_git_queue::LaneGitQueue>();
         self.insert_late::<crate::service::durable_delivery::DurableDeliveryRuntime>();
@@ -162,6 +162,7 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<BillingCell>(),
         key::<AnalyticsCell>(),
         key::<crate::ports::orchestration::InstalledOrchestration>(),
+        key::<crate::ports::lifecycle::InstalledLifecycle>(),
         key::<crate::ShellCapabilityState>(),
         key::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(),
         key::<Arc<crate::mem::supervisor::Supervisor>>(),
@@ -171,7 +172,7 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<BridgeOutboundRx>(),
         key::<Arc<crate::bridge::supervisor::BridgeSupervisor>>(),
         key::<Arc<codeterm_bridge::bridge::threads::ThreadService>>(),
-        key::<crate::service::agent_restart::RestartTracker>(),
+        key::<crate::service::agent_lifecycle::RestartTracker>(),
         key::<crate::delayed_send::DelayedSendQueue>(),
         key::<Arc<crate::secrets::SecretRegistry>>(),
         key::<Arc<crate::transcribe::TranscribeRegistry>>(),

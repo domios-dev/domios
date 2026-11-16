@@ -771,7 +771,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
+    pub fn apply_prompt_decision(&self, decision: &PromptDecision) {
         self.apply_prompt_decision_with_screen(decision, None, false, false);
     }
 

@@ -17,6 +17,7 @@ codeterm-api = { path = "../codeterm-api", default-features = false }
 codeterm-socket = { path = "../codeterm-socket", default-features = false }
 codeterm-commands = { path = "../codeterm-commands", default-features = false }
 codeterm-orchestration = { path = "../codeterm-orchestration", default-features = false }
+codeterm-agent-lifecycle = { path = "../codeterm-agent-lifecycle" }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host", default-features = false }
 codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-plan = { path = "../codeterm-plan" }

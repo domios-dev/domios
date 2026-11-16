@@ -11,7 +11,7 @@ pub(crate) mod agent_deliveries;
 pub mod user_sends;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PayloadStoreError {
+pub enum PayloadStoreError {
     InvalidDigest,
     DigestMismatch { digest: String },
     Missing { digest: String },

@@ -39,11 +39,7 @@ fn finished_marker_has_explicit_exit_evidence(event: &CommandLifecycle) -> bool 
 }
 
 impl super::super::ServiceContext {
-    pub(crate) fn provider_tree_key_for_tab(
-        &self,
-        tab_id: &str,
-        pty_id: &str,
-    ) -> Option<ProviderTreeKey> {
+    pub fn provider_tree_key_for_tab(&self, tab_id: &str, pty_id: &str) -> Option<ProviderTreeKey> {
         if self.tab_chat_backing(tab_id).is_some() {
             return None;
         }
@@ -66,7 +62,7 @@ impl super::super::ServiceContext {
         })
     }
 
-    pub(crate) fn observe_provider_process_tree(
+    pub fn observe_provider_process_tree(
         &self,
         tab_id: &str,
         pty_id: &str,

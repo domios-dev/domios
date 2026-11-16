@@ -16,6 +16,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-commands = { path = "../codeterm-commands" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-orchestration = { path = "../codeterm-orchestration" }
+codeterm-agent-lifecycle = { path = "../codeterm-agent-lifecycle" }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host" }
 codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-account = { path = "../codeterm-account" }
@@ -58,7 +59,7 @@ async-stream = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
 http-body = "1"
-cron = "0.13"
+cron = "0.17"
 chrono = { version = "0.4", features = ["serde"] }
 url = "2"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
@@ -73,6 +74,7 @@ codeterm-neighbors-service = { path = "../codeterm-neighbors-service", features 
 tokio = { version = "1", features = ["test-util"] }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-orchestration = { path = "../codeterm-orchestration", features = ["test-support"] }
+codeterm-agent-lifecycle = { path = "../codeterm-agent-lifecycle", features = ["test-support"] }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host", features = ["test-support"] }
 mockito = "1"
 codeterm-entitlements = { path = "../codeterm-entitlements" }

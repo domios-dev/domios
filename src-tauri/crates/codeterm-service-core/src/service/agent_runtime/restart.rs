@@ -6,12 +6,12 @@ use crate::service::MuxEmitCause;
 use crate::{multiplexer::types::TabBacking, service::ServiceContext};
 use std::sync::{atomic::Ordering, Arc};
 
-pub(in crate::service) async fn restart(
+pub async fn restart(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,
     old_nonce: &str,
-    fresh_restart: Option<(&crate::service::agent_restart::TabRestartSnapshot, bool)>,
+    fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
     retry_refused_start: bool,
 ) -> Result<Arc<Session>, RuntimeFailure> {
     let trigger = if retry_refused_start {
@@ -37,7 +37,7 @@ pub(in crate::service) async fn restart(
     result
 }
 
-pub(crate) async fn restart_idle(
+pub async fn restart_idle(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,
@@ -61,7 +61,7 @@ async fn restart_inner(
     tab: &str,
     provider: &str,
     old_nonce: &str,
-    fresh_restart: Option<(&crate::service::agent_restart::TabRestartSnapshot, bool)>,
+    fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
     trigger: Trigger,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
     let idle_only = trigger == Trigger::IdleUpdate;
@@ -77,7 +77,8 @@ async fn restart_inner(
     };
     let fresh = fresh_restart.is_some();
     if let Some((snapshot, force)) = fresh_restart {
-        svc.require_fresh_restart_allowed(snapshot, force)
+        svc.lifecycle_port()
+            .require_fresh_restart_allowed(snapshot, force)
             .map_err(|_| {
                 RuntimeFailure::Refused(
                     "Fresh restart is no longer allowed for the current session".into(),

@@ -150,7 +150,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn wake_agent_deliveries_on_state_change(&self, tab_id: &str) {
+    pub fn wake_agent_deliveries_on_state_change(&self, tab_id: &str) {
         self.pending_delivery_payloads
             .agent_deliveries
             .state_changed(tab_id);

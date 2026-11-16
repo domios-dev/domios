@@ -46,11 +46,7 @@ fn normalized(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-pub(crate) fn persist_launch_identity(
-    tab: &mut Tab,
-    planned: Option<&str>,
-    requested: Option<&str>,
-) {
+pub fn persist_launch_identity(tab: &mut Tab, planned: Option<&str>, requested: Option<&str>) {
     let requested = normalized(requested);
     let planned = normalized(planned);
     let has_effort = planned.is_some() || requested.is_some();

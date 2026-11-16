@@ -16,6 +16,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-orchestration = { path = "../codeterm-orchestration" }
+codeterm-agent-lifecycle = { path = "../codeterm-agent-lifecycle" }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-bridge = { path = "../codeterm-bridge" }

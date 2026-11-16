@@ -49,7 +49,7 @@ pub use codeterm_types::agent::delivery::{ChatSendState, ChatSendStatus};
 /// Capability-based append-window boundary captured at send start.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum EvidenceWindow {
+pub enum EvidenceWindow {
     /// Append-only transcript file: the window is bytes at/after this offset.
     Jsonl { transcript_offset: u64 },
     /// Structured store (`uses_structured_chat` capability): the window is
@@ -62,12 +62,12 @@ pub(crate) enum EvidenceWindow {
 /// send may only come from THIS session, inside its append window — never from
 /// another/latest session and never from pre-send history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct SendEvidenceAnchor {
-    pub(crate) provider_id: String,
-    pub(crate) cwd: String,
-    pub(crate) session_id: String,
-    pub(crate) window: EvidenceWindow,
-    pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
+pub struct SendEvidenceAnchor {
+    pub provider_id: String,
+    pub cwd: String,
+    pub session_id: String,
+    pub window: EvidenceWindow,
+    pub turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -263,8 +263,8 @@ impl ChatSendLedger {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn try_start(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn try_start(
         &self,
         tab_id: &str,
         text: &str,
@@ -277,7 +277,7 @@ impl ChatSendLedger {
         self.try_start_scoped(tab_id, text, anchor, live_binding)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn try_start_scoped(
         &self,
         tab_id: &str,

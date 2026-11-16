@@ -19,5 +19,7 @@ pub fn validate_general_agent_provider(
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 #[cfg(test)]
 mod tests;

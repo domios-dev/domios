@@ -202,7 +202,7 @@ pub(crate) fn window_user_turns(
         .unwrap_or_default()
 }
 
-pub(crate) fn window_has_foreign_user_turn(
+pub fn window_has_foreign_user_turn(
     registry: &AgentRegistry,
     anchor: &SendEvidenceAnchor,
     source: &crate::agent::provider::ModelSwitchTranscript,

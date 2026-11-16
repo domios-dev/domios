@@ -28,7 +28,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn report_runtime_worker_session_finalization(
+    pub fn report_runtime_worker_session_finalization(
         &self,
         tab_id: &str,
         thread: &str,

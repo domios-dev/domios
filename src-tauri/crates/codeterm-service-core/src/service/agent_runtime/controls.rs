@@ -1,6 +1,6 @@
 use super::{engine, model::RuntimeFailure};
 use crate::multiplexer::types::TabBacking;
-use crate::service::agent_restart::{
+use crate::service::agent_lifecycle::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };
 use crate::service::MuxEmitCause;
@@ -23,7 +23,7 @@ fn switch_route(runtime_capability: bool, backing: &TabBacking) -> SwitchRoute {
     }
 }
 
-pub(crate) fn routed_tab(svc: &ServiceContext, tab: &str) -> Option<String> {
+pub fn routed_tab(svc: &ServiceContext, tab: &str) -> Option<String> {
     let (tab, provider, backing) = {
         let mux = svc.mux.read();
         let id = mux.resolve_tab_id(tab)?;
@@ -61,7 +61,7 @@ impl ServiceContext {
                 .into(),
             ));
         }
-        self.agent_switch_model_with_fallback(
+        self.lifecycle_port().agent_switch_model_with_fallback(
             tab,
             model,
             effort,
@@ -71,7 +71,7 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn switch(
+pub fn switch(
     svc: &ServiceContext,
     tab: &str,
     model: &str,
@@ -391,7 +391,7 @@ fn declared_value(settings: &RuntimeSettings, category: &str) -> Option<String> 
 pub(super) fn control_changes(
     before: &RuntimeSettings,
     after: &RuntimeSettings,
-) -> Vec<crate::service::agent_restart::ControlChange> {
+) -> Vec<crate::service::agent_lifecycle::ControlChange> {
     let effort = |settings: &RuntimeSettings| {
         declared_value(settings, "thought_level").or_else(|| settings.effort.clone())
     };
@@ -430,7 +430,7 @@ pub(super) fn control_changes(
     .map(|(control, current, previous)| (control, previous, current))
     .filter(|(_, previous, current)| previous != current)
     .map(
-        |(control, previous, current)| crate::service::agent_restart::ControlChange {
+        |(control, previous, current)| crate::service::agent_lifecycle::ControlChange {
             control,
             previous,
             current,
@@ -531,6 +531,8 @@ pub(crate) async fn refresh_service_tiers(
 mod tests;
 
 mod interrupt;
+#[cfg(any(test, feature = "test-support"))]
+pub mod runtime_test_fixture;
 pub(crate) use interrupt::{before_first_turn_pending, InterruptDropped, InterruptOutcome};
 
 /// How long a control or Stop waits for a running runtime operation to release the gate.

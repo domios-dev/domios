@@ -24,7 +24,7 @@ impl ServiceContext {
     }
     /// Open a lifecycle operation and bind the tab to it. Later transitions
     /// key off the returned lineage.
-    pub(crate) fn open_lifecycle_epoch(&self, tab_id: &str) -> Option<LifecycleKey> {
+    pub fn open_lifecycle_epoch(&self, tab_id: &str) -> Option<LifecycleKey> {
         // Only the PTY transport commits lifecycle transitions, so only it may
         // carry lineage. A chatBackend tab stays pre-journal by construction.
         if self
@@ -52,7 +52,7 @@ impl ServiceContext {
 
     /// Journal a transition against the tab's current operation. No open
     /// operation records nothing, so nothing unearned becomes authority.
-    pub(crate) fn record_lifecycle(&self, tab_id: &str, transition: LifecycleTransition) {
+    pub fn record_lifecycle(&self, tab_id: &str, transition: LifecycleTransition) {
         let open_operation = self.mux.read().lifecycle_key(tab_id);
         let Some(key) = open_operation else {
             log::debug!(
@@ -161,7 +161,7 @@ impl ServiceContext {
 }
 
 /// Journal a diagnostic for a tab with no open operation under a fresh key.
-pub(crate) fn append_minted(
+pub fn append_minted(
     journal: &TabLifecycleJournal,
     tab_id: &str,
     operation_prefix: &str,

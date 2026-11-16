@@ -17,14 +17,14 @@ pub(crate) mod capability_hints;
 mod first_run;
 mod fresh_session;
 pub mod identity;
-pub(crate) mod instructions;
+pub mod instructions;
 mod launch_files;
-pub(crate) mod launch_lock;
+pub mod launch_lock;
 mod lifecycle;
-mod provider_choice;
+pub mod provider_choice;
 pub(crate) mod recovery;
 mod recovery_episode;
-pub(crate) mod session_contract;
+pub mod session_contract;
 mod state;
 pub mod team_membership;
 mod watchdog;
@@ -32,8 +32,8 @@ mod workspace;
 
 use std::path::PathBuf;
 
-pub(crate) use lifecycle::restart_general_agent_fresh_after_exit;
-pub(crate) fn persist_switched_session(provider: &str, session: &str) {
+pub use lifecycle::restart_general_agent_fresh_after_exit;
+pub fn persist_switched_session(provider: &str, session: &str) {
     state::persist_session_id(provider, session);
 }
 
@@ -101,7 +101,7 @@ pub fn ensure_directories() {
     }
 }
 
-pub(crate) use lifecycle::restart_general_agent_with_force;
+pub use lifecycle::restart_general_agent_with_force;
 
 mod restart_guard;
 

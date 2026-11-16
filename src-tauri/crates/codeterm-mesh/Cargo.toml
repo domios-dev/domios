@@ -12,7 +12,7 @@ codeterm-paths = { path = "../codeterm-paths" }
 codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-util = { path = "../codeterm-util" }
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 log = "0.4"
 parking_lot = "0.12"
 rand = "0.8.6"

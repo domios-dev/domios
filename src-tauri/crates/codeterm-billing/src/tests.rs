@@ -969,7 +969,10 @@ fn signed_paid_revisions_at(
         Engine,
     };
     use ed25519_dalek::{Signer, SigningKey};
-    let key = SigningKey::generate(&mut rand::rngs::OsRng);
+    use rand::RngCore;
+    let mut seed = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut seed);
+    let key = SigningKey::from_bytes(&seed);
     let mut spki = vec![
         0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
     ];

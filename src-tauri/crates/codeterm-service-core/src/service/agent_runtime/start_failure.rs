@@ -44,7 +44,7 @@ pub(crate) fn matches(tab: &Tab, state: &Value) -> bool {
         && !session.thread_loaded.load(Ordering::Acquire)
 }
 
-pub(crate) fn for_tab(tab: &Tab) -> bool {
+pub fn for_tab(tab: &Tab) -> bool {
     tab.agent_runtime_state
         .as_ref()
         .is_some_and(|state| matches(tab, state))

@@ -4,7 +4,7 @@ pub(crate) fn build(provider: &dyn AgentProvider, params: &AgentLaunchParams) ->
     build_prepared(provider, params, false).shell_command
 }
 
-pub(crate) fn build_prepared(
+pub fn build_prepared(
     provider: &dyn AgentProvider,
     params: &AgentLaunchParams,
     direct: bool,

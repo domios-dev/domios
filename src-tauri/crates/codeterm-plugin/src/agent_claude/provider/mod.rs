@@ -278,9 +278,10 @@ impl AgentProvider for ClaudeProvider {
     }
 
     /// The CLI buffers stdin as draft text until its REPL enables raw mode, which
-    /// is also when it enables bracketed paste.
+    /// is also when it enables bracketed paste; a resumed REPL then ignores Enter
+    /// until its SessionStart hook has run.
     fn input_attach_signal(&self) -> crate::provider::InputAttachSignal {
-        crate::provider::InputAttachSignal::BracketedPaste
+        crate::provider::InputAttachSignal::SessionStartAndBracketedPaste
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {

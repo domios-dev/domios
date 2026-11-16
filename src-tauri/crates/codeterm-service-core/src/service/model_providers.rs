@@ -584,7 +584,7 @@ impl ServiceContext {
         Ok(result)
     }
 
-    pub(crate) fn link_provider_launch_pty(
+    pub fn link_provider_launch_pty(
         &self,
         claim: &super::pty_ownership::TabPtyClaim,
         tab_id: &str,
@@ -599,7 +599,7 @@ impl ServiceContext {
         }
         self.link_pty_with_claim(claim, tab_id, candidate, true)
     }
-    pub(crate) fn model_provider_requires_fresh_pty(&self, provider_id: &str) -> bool {
+    pub fn model_provider_requires_fresh_pty(&self, provider_id: &str) -> bool {
         self.agent_registry
             .provider_arc(provider_id)
             .is_some_and(|provider| requires_fresh_pty(&*provider))

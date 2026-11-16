@@ -759,7 +759,7 @@ pub fn tab_chat_snapshot(
     if !archives.iter().any(|archive| {
         archive.boundary == crate::multiplexer::types::ContextEpochBoundary::ProviderHandoff
     }) {
-        if let Some(notice) = svc.provider_switch_notice(tab_id) {
+        if let Some(notice) = svc.lifecycle_port().provider_switch_notice(tab_id) {
             messages.insert(0, notice);
         }
     }

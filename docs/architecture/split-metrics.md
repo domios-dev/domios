@@ -8,6 +8,8 @@ One row per merged split, regenerated with `python3 scripts/split-metrics.py` (c
 | 2026-10-14 | 0e24a11da (M0: root-aware scripts, hot-path table) | 36 | 136 | 119 | 142 / 239,051 | 486,456 |
 | 2026-10-15 | 1d086a7d4 (Wave 0: P1 core crate, P2a-P5 ports, ServiceContext 100 -> 40 fields) | 37 | 136 | 127 | 123 / 208,918 | 485,494 (core) |
 | 2026-10-15 | 86e78908a (Wave A: codeterm-api, codeterm-socket, codeterm-commands; B1 phase 1 port) | 39 | 134 | 176 | 121 / 188,594 | 383,595 (core) |
+| 2026-11-16 | 7bfee0e565 (1.20.1 wave 1 baseline) | 64 | 203 | 356 | 150 / 207,845 | 452,273 (core) |
+| 2026-11-16 | addd254a0e (1.20.1 wave 1: CS1 neighbors-service, CS2 agent-lifecycle, CS3 orchestration fold) | 66 | 195 | 393 | 142 / 169,333 | 374,212 (core) |
 
 M0: the core is still the whole app crate (`codeterm`, `src-tauri/src`); no hot area lives in its own crate yet. Both scripts take `--root PATH` and default to `src-tauri/crates/codeterm-service-core/src` when it exists, else `src-tauri/src`.
 
@@ -102,3 +104,9 @@ Warm `check-queue` after a one-line edit, same machine (eight, macOS), BEFORE bd
 No-op floors stay at 2-4 s. Verdict: continue (the stop rule needs a 10% gain). Source coupling at the same SHAs: service/hierarchy caller units 135 -> 20, service/supporter 53 -> 15, service/pty_io unchanged at 34 (C1 was then stopped as a two-way hub, see the C1 record).
 
 Wave B order from the method map: all five candidates form one cycle (B1 -> B2,B3,B4,B5; B2 <-> B3; B4 -> B1). Next is B4 surfaces (13 ServiceContext methods, 6 caller units) once B1 lands, with core -> B4 through SurfacesPort and B4 -> B1 direct. B3 needs a GeneralAgentPort cut before B2; B2 stays parked at 23 methods.
+
+## 1.20.1 wave 1 (CS1-CS3)
+
+Interval changes between 7bfee0e565 and addd254a0e include non-extraction work, so they are not attributed to moved code alone. `cargo hakari verify` keeps the known excluded-feature residue (70 entries; dispatch2 0.3.1 is new from fsevent-sys 5.2 and is already a final-exclude).
+
+Release build-step times per target, compared with qualification run 43819153742: pending the first release/1.20.1 qualification run.

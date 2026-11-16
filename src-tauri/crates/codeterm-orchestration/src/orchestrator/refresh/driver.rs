@@ -381,7 +381,7 @@ fn send_compact(svc: &ServiceContext, _req: &RefreshRequest, ctx: &TabCtx) {
             "[refresh] tab={} compact mode=B (restart+resume)",
             short(&ctx.tab_id)
         );
-        if let Err(e) = svc.agent_restart(&ctx.tab_id, false, 3) {
+        if let Err(e) = svc.lifecycle_port().agent_restart(&ctx.tab_id, false, 3) {
             log::warn!(
                 "[refresh] tab={} mode-B restart failed: {:?} — proceeding to re-orient",
                 short(&ctx.tab_id),

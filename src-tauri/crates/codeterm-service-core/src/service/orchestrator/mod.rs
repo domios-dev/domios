@@ -37,7 +37,7 @@ pub(crate) use prompt_compose::role_launch_task;
 pub(crate) use prompt_compose::role_onboarding_task;
 #[cfg(any(test, feature = "test-support"))]
 pub use prompt_compose::spawn_onboarding_task;
-pub(crate) use prompt_compose::{provider_launch_task, restorable_identity_task};
+pub use prompt_compose::{provider_launch_task, restorable_identity_task};
 pub use spawn::{
     compose_runtime_system_prompt, ensure_tab_runtime_prompt,
     move_chatbackend_task_to_system_prompt, remote_task_binding_matches_authority, ROLE_AUTHORITY,

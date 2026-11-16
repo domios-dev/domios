@@ -8,7 +8,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::routes::AppState;
-use codeterm_service_core::service::agent_restart::{
+use codeterm_agent_lifecycle::prelude::*;
+use codeterm_service_core::service::agent_lifecycle::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };
 

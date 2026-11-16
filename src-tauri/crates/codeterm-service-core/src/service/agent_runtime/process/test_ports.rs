@@ -15,7 +15,7 @@ pub(super) fn record_spawn(tab: &str, env: &HashMap<String, String>, cwd: &str) 
 }
 
 /// The environment the host composed for the tab's latest fixture process spawn.
-pub(crate) fn spawned_env(tab: &str) -> HashMap<String, String> {
+pub fn spawned_env(tab: &str) -> HashMap<String, String> {
     SPAWNED
         .lock()
         .get(tab)
@@ -24,13 +24,13 @@ pub(crate) fn spawned_env(tab: &str) -> HashMap<String, String> {
 }
 
 /// The working directory of the tab's latest fixture process spawn.
-pub(crate) fn spawned_cwd(tab: &str) -> Option<String> {
+pub fn spawned_cwd(tab: &str) -> Option<String> {
     SPAWNED.lock().get(tab).map(|(_, cwd)| cwd.clone())
 }
 
-pub(crate) struct Registration(String);
+pub struct Registration(String);
 
-pub(crate) fn connected() -> (Process, tokio::io::DuplexStream) {
+pub fn connected() -> (Process, tokio::io::DuplexStream) {
     let (host, peer) = tokio::io::duplex(16384);
     let (reader, writer) = tokio::io::split(host);
     (
@@ -39,10 +39,7 @@ pub(crate) fn connected() -> (Process, tokio::io::DuplexStream) {
     )
 }
 
-pub(crate) fn register(
-    tab: &str,
-    factory: impl Fn() -> Process + Send + Sync + 'static,
-) -> Registration {
+pub fn register(tab: &str, factory: impl Fn() -> Process + Send + Sync + 'static) -> Registration {
     assert!(FACTORIES
         .lock()
         .insert(tab.into(), Arc::new(factory))

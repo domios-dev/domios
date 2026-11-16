@@ -7,6 +7,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::AppState;
+use codeterm_agent_lifecycle::prelude::*;
 use codeterm_service_core::api_support::OptionalJson;
 
 #[derive(Deserialize)]
@@ -24,11 +25,11 @@ pub(crate) struct AgentRestartBody {
 }
 
 fn default_grace_secs() -> u64 {
-    codeterm_service_core::service::agent_restart::DEFAULT_GRACE_SECS
+    codeterm_service_core::service::agent_lifecycle::DEFAULT_GRACE_SECS
 }
 
 pub(crate) fn agent_restart_response(
-    outcome: &codeterm_service_core::service::agent_restart::RestartOutcome,
+    outcome: &codeterm_service_core::service::agent_lifecycle::RestartOutcome,
 ) -> serde_json::Value {
     serde_json::json!({
         "restart_accepted": outcome.restart_accepted,
@@ -48,7 +49,7 @@ pub(crate) fn agent_restart_response(
 }
 
 pub(crate) fn agent_restart_failure_response(
-    outcome: &codeterm_service_core::service::agent_restart::RestartOutcome,
+    outcome: &codeterm_service_core::service::agent_lifecycle::RestartOutcome,
     reason: &str,
 ) -> serde_json::Value {
     let mut response = agent_restart_response(outcome);
@@ -77,7 +78,7 @@ pub(crate) async fn agent_restart_handler(
     let attempt = tokio::task::spawn_blocking(move || {
         svc.agent_restart_observed_with_options(
             &tab_id,
-            codeterm_service_core::service::agent_restart::RestartOptions {
+            codeterm_service_core::service::agent_lifecycle::RestartOptions {
                 force: body.force,
                 grace_secs: body.grace_secs,
                 target_provider: body.provider,
@@ -107,7 +108,7 @@ pub(crate) async fn agent_restart_handler(
         Ok(outcome) => {
             (StatusCode::ACCEPTED, Json(agent_restart_response(&outcome))).into_response()
         }
-        Err(codeterm_service_core::service::agent_restart::RestartAttemptError::Failed {
+        Err(codeterm_service_core::service::agent_lifecycle::RestartAttemptError::Failed {
             outcome,
             reason,
             timed_out,
@@ -120,21 +121,21 @@ pub(crate) async fn agent_restart_handler(
             Json(agent_restart_failure_response(&outcome, &reason)),
         )
             .into_response(),
-        Err(codeterm_service_core::service::agent_restart::RestartAttemptError::Request(
-            codeterm_service_core::service::agent_restart::AgentRestartError::NotFound(message),
+        Err(codeterm_service_core::service::agent_lifecycle::RestartAttemptError::Request(
+            codeterm_service_core::service::agent_lifecycle::AgentRestartError::NotFound(message),
         )) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": message})),
         )
             .into_response(),
-        Err(codeterm_service_core::service::agent_restart::RestartAttemptError::Request(
-            codeterm_service_core::service::agent_restart::AgentRestartError::BackgroundWork { items },
+        Err(codeterm_service_core::service::agent_lifecycle::RestartAttemptError::Request(
+            codeterm_service_core::service::agent_lifecycle::AgentRestartError::BackgroundWork { items },
         )) => (
             StatusCode::CONFLICT,
             Json(serde_json::json!({"reason":"background_work_running","running_items":items,"error":"restart refused while background work is running"})),
         ).into_response(),
-        Err(codeterm_service_core::service::agent_restart::RestartAttemptError::Request(
-            codeterm_service_core::service::agent_restart::AgentRestartError::RuntimeProviderHandoffUnsupported,
+        Err(codeterm_service_core::service::agent_lifecycle::RestartAttemptError::Request(
+            codeterm_service_core::service::agent_lifecycle::AgentRestartError::RuntimeProviderHandoffUnsupported,
         )) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -142,15 +143,15 @@ pub(crate) async fn agent_restart_handler(
                 "error": "Provider handoff into or out of an agent runtime is not supported; restart with the same provider",
             })),
         ).into_response(),
-        Err(codeterm_service_core::service::agent_restart::RestartAttemptError::Request(
-            codeterm_service_core::service::agent_restart::AgentRestartError::BadRequest(message),
+        Err(codeterm_service_core::service::agent_lifecycle::RestartAttemptError::Request(
+            codeterm_service_core::service::agent_lifecycle::AgentRestartError::BadRequest(message),
         )) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": message})),
         )
             .into_response(),
-        Err(codeterm_service_core::service::agent_restart::RestartAttemptError::Request(
-            codeterm_service_core::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs },
+        Err(codeterm_service_core::service::agent_lifecycle::RestartAttemptError::Request(
+            codeterm_service_core::service::agent_lifecycle::AgentRestartError::RateLimited { retry_after_secs },
         )) => {
             let mut headers = HeaderMap::new();
             headers.insert("Retry-After", retry_after_secs.to_string().parse().unwrap());
@@ -164,8 +165,8 @@ pub(crate) async fn agent_restart_handler(
             )
                 .into_response()
         }
-        Err(codeterm_service_core::service::agent_restart::RestartAttemptError::Request(
-            codeterm_service_core::service::agent_restart::AgentRestartError::Internal(message),
+        Err(codeterm_service_core::service::agent_lifecycle::RestartAttemptError::Request(
+            codeterm_service_core::service::agent_lifecycle::AgentRestartError::Internal(message),
         )) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": message})),

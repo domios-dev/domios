@@ -1,62 +1,12 @@
 //! Service consumers that used to scan every plan now ask the store for the plans
 //! they match; each test proves a non-matching plan is never loaded.
 
-use crate::multiplexer::state::MultiplexerState;
+use super::consumer_load_fixture::{fixture, project};
 use crate::plan::{PlanStatus, TaskStatus};
 use crate::service::plan::load_audit::{
     assert_never_loaded, attempt, execution_plan, planner, seed, start, task,
 };
-use crate::service::test_fixture::ServiceFixture;
-use crate::service::worker_interruption::WorkerInterruptionEvent;
 use std::collections::HashSet;
-
-fn fixture() -> (ServiceFixture, String) {
-    let (mux, orchestrator) = MultiplexerState::new();
-    (ServiceFixture::new(mux), orchestrator)
-}
-
-fn project(fx: &ServiceFixture) -> std::path::PathBuf {
-    fx.temp.path().to_path_buf()
-}
-
-#[test]
-fn system_entry_views_for_tab_never_loads_unmatched_plans() {
-    let (fx, orchestrator) = fixture();
-    let store = &fx.service.plan_store;
-    let mut owned_plan = execution_plan(
-        &project(&fx),
-        "owned",
-        &orchestrator,
-        vec![task("task_o", TaskStatus::InProgress, None)],
-    );
-    owned_plan.control_loop.mode = crate::plan::ControlLoopMode::Heartbeat;
-    let owned = seed(store, owned_plan);
-    let other = seed(
-        store,
-        execution_plan(
-            &project(&fx),
-            "other",
-            "other-owner",
-            vec![task("task_x", TaskStatus::InProgress, None)],
-        ),
-    );
-    start(store);
-
-    let views = crate::delayed_send::system_heartbeat_views(&fx.service, &orchestrator).unwrap();
-    assert_eq!(views.len(), 1);
-    assert_eq!(
-        views[0].message.id,
-        format!("system:heartbeat:{owned}:{orchestrator}")
-    );
-    assert_eq!(views[0].message.tab_id, orchestrator);
-    assert_eq!(
-        views[0].message.origin,
-        crate::delayed_send::MessageOrigin::System
-    );
-    assert!(!views[0].message.text.is_empty());
-    assert!(store.plan_loads_for_test().is_empty());
-    assert_never_loaded(store, &[&other]);
-}
 
 #[test]
 fn in_progress_assignments_for_tab_never_loads_unmatched_plans() {
@@ -285,121 +235,6 @@ fn settle_lanes_held_by_closed_tab_never_loads_unmatched_plans() {
 }
 
 #[test]
-fn signal_provider_exhaustion_never_loads_unmatched_plans() {
-    let (fx, _) = fixture();
-    let store = &fx.service.plan_store;
-    let mut exhausted = task("task_c", TaskStatus::InProgress, Some("worker-a"));
-    let mut provider_a = attempt("att_c", "worker-a");
-    provider_a.provider = Some("fixture-provider-a".into());
-    exhausted.execution_attempts.push(provider_a);
-    let exhausted = seed(
-        store,
-        execution_plan(
-            &project(&fx),
-            "fixture-provider-a",
-            "owner",
-            vec![exhausted],
-        ),
-    );
-    let mut fine = task("task_x", TaskStatus::InProgress, Some("worker-b"));
-    let mut provider_b = attempt("att_x", "worker-b");
-    provider_b.provider = Some("fixture-provider-b".into());
-    fine.execution_attempts.push(provider_b);
-    let fine = seed(
-        store,
-        execution_plan(&project(&fx), "fixture-provider-b", "owner", vec![fine]),
-    );
-    start(store);
-
-    assert_eq!(
-        fx.service
-            .signal_provider_exhaustion("fixture-provider-a")
-            .unwrap(),
-        0,
-        "no task names an interruption owner"
-    );
-    assert!(
-        store.plan_loads_for_test().is_empty(),
-        "exhaustion must select {exhausted} without loading a Plan"
-    );
-    assert_never_loaded(store, &[&fine]);
-}
-
-#[test]
-fn signal_provider_recovery_never_loads_unmatched_plans() {
-    let (fx, _) = fixture();
-    let store = &fx.service.plan_store;
-    let mut paused = task("task_p", TaskStatus::Paused, None);
-    paused.status_label = Some(crate::service::plan::interruption::PROVIDER_EXHAUSTED_LABEL.into());
-    paused.interruption.owner_tab_id = Some("worker-a".into());
-    let mut provider_b = attempt("att_p", "worker-a");
-    provider_b.provider = Some("fixture-provider-b".into());
-    paused.execution_attempts.push(provider_b);
-    let paused = seed(
-        store,
-        execution_plan(&project(&fx), "paused", "owner", vec![paused]),
-    );
-    let running = seed(
-        store,
-        execution_plan(
-            &project(&fx),
-            "running",
-            "owner",
-            vec![task("task_r", TaskStatus::InProgress, Some("worker-b"))],
-        ),
-    );
-    start(store);
-
-    assert_eq!(
-        fx.service
-            .signal_provider_recovery("fixture-provider-a")
-            .unwrap(),
-        0,
-        "another provider paused it"
-    );
-    assert!(
-        store.plan_loads_for_test().is_empty(),
-        "recovery must select {paused} without loading a Plan"
-    );
-    assert_never_loaded(store, &[&running]);
-}
-
-#[test]
-fn signal_worker_interruption_never_loads_unmatched_plans() {
-    let (fx, _) = fixture();
-    let store = &fx.service.plan_store;
-    let mut owned = task("task_o", TaskStatus::InProgress, Some("worker-a"));
-    owned.interruption.owner_tab_id = Some("worker-a".into());
-    owned.interruption.execution_intent = crate::plan::ExecutionIntent::Mutating;
-    owned.execution_attempts.push(attempt("att_o", "worker-a"));
-    let owned = seed(
-        store,
-        execution_plan(&project(&fx), "owned", "owner", vec![owned]),
-    );
-    let mut other = task("task_x", TaskStatus::InProgress, Some("worker-b"));
-    other.interruption.owner_tab_id = Some("worker-b".into());
-    other.interruption.execution_intent = crate::plan::ExecutionIntent::Mutating;
-    other.execution_attempts.push(attempt("att_x", "worker-b"));
-    let other = seed(
-        store,
-        execution_plan(&project(&fx), "other", "owner", vec![other]),
-    );
-    start(store);
-
-    assert!(
-        !fx.service
-            .signal_worker_interruption("worker-a", WorkerInterruptionEvent::ProviderExhausted)
-            .unwrap(),
-        "an owner without a session cannot be checkpointed"
-    );
-    assert!(
-        store.plan_loads_for_test().is_empty(),
-        "interruption must select {owned} without loading a Plan"
-    );
-    assert_never_loaded(store, &[&other]);
-}
-
-#[test]
 fn clear_planner_bindings_for_lifecycle_exit_never_loads_unmatched_plans() {
     let (fx, _) = fixture();
     let store = &fx.service.plan_store;
@@ -540,41 +375,6 @@ fn curator_bootstrap_ids_never_loads_unmatched_plans() {
         store.plan_loads_for_test().is_empty(),
         "bootstrap names plans from SQL"
     );
-}
-
-#[test]
-fn reconcile_notification_questions_never_loads_unmatched_plans() {
-    let (fx, _) = fixture();
-    let clock = crate::cron::clock::MockClock::starting_at(1_700_000_000_000);
-    let cron = std::sync::Arc::new(parking_lot::Mutex::new(
-        crate::cron::store::CronStore::new_with_path_and_clock(
-            fx.temp.path().join("crons.json"),
-            clock,
-        ),
-    ));
-    assert!(fx.service.set_ext(cron).is_ok());
-    let store = &fx.service.plan_store;
-    let active = seed(
-        store,
-        execution_plan(&project(&fx), "active", "owner", vec![]),
-    );
-    let mut scheduled = execution_plan(&project(&fx), "scheduled", "owner", vec![]);
-    scheduled.status = PlanStatus::Archived;
-    scheduled.control_loop.next_at = Some(10);
-    let scheduled = seed(store, scheduled);
-    let mut quiet = execution_plan(&project(&fx), "quiet", "owner", vec![]);
-    quiet.status = PlanStatus::Archived;
-    let quiet = seed(store, quiet);
-    start(store);
-
-    fx.service.reconcile_notification_questions();
-
-    let mut projected = store.curator_schedule_reads_for_test();
-    projected.sort();
-    let mut matched = vec![active, scheduled];
-    matched.sort();
-    assert_eq!(projected, matched);
-    assert_never_loaded(store, &[&quiet]);
 }
 
 #[test]

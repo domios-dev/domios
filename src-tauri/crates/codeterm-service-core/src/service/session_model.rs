@@ -377,7 +377,7 @@ impl ServiceContext {
 
     /// The provider named the model this binding runs at session start. That
     /// report outranks a transcript whose tail still predates the launch.
-    pub(crate) fn record_launch_reported_model(
+    pub fn record_launch_reported_model(
         &self,
         tab_id: &str,
         agent_id: &str,
@@ -523,7 +523,7 @@ impl ServiceContext {
         true
     }
 
-    pub(crate) fn observe_post_launch_turn_after_stop(&self, tab_id: &str) -> bool {
+    pub fn observe_post_launch_turn_after_stop(&self, tab_id: &str) -> bool {
         let (observation, binding_nonce) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
@@ -560,7 +560,7 @@ impl ServiceContext {
         true
     }
 
-    pub(crate) fn apply_session_model(
+    pub fn apply_session_model(
         &self,
         tab_id: &str,
         agent_id: &str,
@@ -765,7 +765,7 @@ fn models_match(requested: &str, actual: &str) -> bool {
 }
 
 /// One equivalence for every "is the tab running the model it asked for" check.
-pub(crate) fn session_model_matches(
+pub fn session_model_matches(
     registry: &crate::agent::registry::AgentRegistry,
     agent_id: &str,
     requested: &str,
@@ -798,7 +798,7 @@ fn session_model_evidence(
 
 /// This binding's launch report, only while the tab still holds the exact
 /// session and verified nonce the report was recorded under.
-pub(crate) fn current_launch_report(
+pub fn current_launch_report(
     tab: &crate::multiplexer::types::Tab,
     session_id: &str,
 ) -> Option<crate::multiplexer::types::LaunchModelReport> {
@@ -920,10 +920,7 @@ fn session_model_identity(
     )
 }
 
-pub(crate) fn has_current_session_model(
-    tab: &crate::multiplexer::types::Tab,
-    session_id: &str,
-) -> bool {
+pub fn has_current_session_model(tab: &crate::multiplexer::types::Tab, session_id: &str) -> bool {
     session_model_identity(tab, session_id, None, false).is_some()
         && tab.agent_session_model.is_some()
 }

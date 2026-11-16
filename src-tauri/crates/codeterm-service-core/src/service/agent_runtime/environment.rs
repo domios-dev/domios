@@ -76,7 +76,7 @@ fn compose_owned_environment(
 }
 
 impl ServiceContext {
-    pub(crate) fn prepare_agent_runtime_launch_env(
+    pub fn prepare_agent_runtime_launch_env(
         &self,
         tab: &str,
         extra_env: &HashMap<String, String>,

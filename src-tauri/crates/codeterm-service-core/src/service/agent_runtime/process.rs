@@ -126,7 +126,7 @@ pub(super) fn spawn(
 ) -> Result<Process, RuntimeFailure> {
     let (binary, cap) = (launch.binary.as_path(), &launch.capability);
     let cwd = launch.process_cwd(tab_cwd);
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     if let Some(factory) = test_ports::factory(_tab) {
         test_ports::record_spawn(_tab, &env, cwd);
         return Ok(factory());
@@ -398,8 +398,8 @@ fn append_stderr_tail(output: &mut Vec<u8>, bytes: &[u8]) {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-pub(crate) mod test_ports;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_ports;
 
 fn signal_stop(stop: &watch::Sender<Option<bool>>, requested: bool) {
     stop.send_if_modified(|intent| {
