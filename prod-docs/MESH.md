@@ -127,7 +127,9 @@ Keep `--role worker`: it selects Worker doctrine and exactly one `domios agent r
 
 ## Peer API compatibility
 
-Remote CLI refusals (`ok:false`) and RPC errors exit nonzero and print the peer's reason, including with `--json`.
+Remote CLI refusals (`ok:false`) and RPC errors exit nonzero and print the peer's reason, including with `--json`. HTTP refusals preserve plain-text and JSON reasons through the relay.
+
+`domios update install --auto --mesh PEER` installs on a peer with Full access (or Custom Admin), subject to the target's updater capability and installation method. ReadOnly and AgentIsolated cannot install. Local installer files and caller continuation options stay local; remote installation does not continue the originating tab. Run continuation-bearing updates in a tab on the target machine.
 
 Utility shell deadlines require an agent running locally on the target peer to own expiry reporting and cleanup. Remote `tab new --timeout`, `tab timeout`, and `tab restart --timeout` are refused. Ask an agent running on that peer to create or manage the shell with `--timeout`; do not omit a required QA/build deadline to bypass the refusal.
 
@@ -156,4 +158,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 77 -->
+<!-- revision: 78 -->

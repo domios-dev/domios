@@ -1,5 +1,44 @@
 use super::*;
 
+#[test]
+fn shell_update_caller_needs_no_continuation() {
+    let (mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    assert_eq!(
+        register_update_continuation(&fixture.service, Some(&tab_id)),
+        Ok(())
+    );
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .turn_resume
+        .is_none());
+    assert_eq!(register_update_continuation(&fixture.service, None), Ok(()));
+}
+
+#[test]
+fn agent_update_caller_still_requires_its_own_session() {
+    let (mut mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("opaque-provider".into());
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    assert_eq!(
+        register_update_continuation(&fixture.service, Some(&tab_id)),
+        Err("no_agent_session".into())
+    );
+    assert!(register_update_continuation(&fixture.service, Some("missing-tab")).is_err());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .turn_resume
+        .is_none());
+}
+
 #[tokio::test]
 async fn missing_native_attachment_refuses_before_registering_continuation() {
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
