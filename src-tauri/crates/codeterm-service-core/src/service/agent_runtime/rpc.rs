@@ -120,7 +120,7 @@ struct Inner {
 pub struct Client(Arc<Inner>);
 
 impl Client {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn attach<R, W>(reader: R, writer: W) -> Self
     where
         R: AsyncRead + Unpin + Send + 'static,

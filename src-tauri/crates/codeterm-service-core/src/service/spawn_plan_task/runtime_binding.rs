@@ -52,10 +52,7 @@ impl ServiceContext {
     ) -> Result<(), PlanBindingFailure> {
         self.restore_runtime_attempt_binding(tab_id)?;
         self.bind_planner_session(tab_id)?;
-        if self
-            .lifecycle_port()
-            .carry_authorized_runtime_restart_binding(tab_id, thread, nonce)?
-        {
+        if self.carry_authorized_runtime_restart_binding(tab_id, thread, nonce)? {
             return Ok(());
         }
         let (binding, restored, remote) = self

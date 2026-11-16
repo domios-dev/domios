@@ -58,7 +58,7 @@ fn claim(tab: &str, thread: &str) -> bool {
     true
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 static LAUNCHES: LazyLock<Mutex<std::collections::HashMap<String, tokio::task::JoinHandle<()>>>> =
     LazyLock::new(Default::default);
 
@@ -104,7 +104,7 @@ pub(super) fn schedule(svc: &ServiceContext, session: &Arc<Session>, reason: &Ru
         let tab = tab.clone();
         move || launch(&svc, &session, &tab, &thread)
     });
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     LAUNCHES.lock().insert(tab, _launch);
 }
 

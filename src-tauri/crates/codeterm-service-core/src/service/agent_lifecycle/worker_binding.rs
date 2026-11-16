@@ -17,7 +17,7 @@ type Mux = crate::lock_hold::TimedRwLock<crate::multiplexer::state::MultiplexerS
 pub struct RestartBindingAuthority {
     owner: Weak<Mux>,
     request: RuntimeRestartBinding,
-    carried: bool,
+    pub carried: bool,
     completed_task: Option<TaskContinuityRead>,
     completed_source: Option<CurrentSession>,
     completed_binding: Option<TaskBinding>,

@@ -277,7 +277,7 @@ impl ChatSendLedger {
         self.try_start_scoped(tab_id, text, anchor, live_binding)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn try_start_scoped(
         &self,
         tab_id: &str,
