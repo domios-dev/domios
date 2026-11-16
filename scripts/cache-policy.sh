@@ -305,7 +305,7 @@ ct_sccache_verify_locked() {
     ct_sccache_server_live || return 2
     ct_sccache_storage_matches "$(sccache --show-stats | sed -n 's/^Cache location[[:space:]]*//p')" || return 2
     export CODETERM_SCCACHE_CI_PREPARED=1
-    printf '%s\n' CODETERM_SCCACHE_CI_PREPARED=1 >> "$GITHUB_ENV"
+    printf '%s\n' "SCCACHE_BASEDIRS=$SCCACHE_BASEDIRS" CODETERM_SCCACHE_CI_PREPARED=1 >> "$GITHUB_ENV"
     return 0
   fi
   ct_sccache_start_shared_if_absent
