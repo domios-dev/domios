@@ -83,7 +83,8 @@ jobs:
               return;
             }
             if (context.ref !== 'refs/heads/master') throw new Error('Publication requires master merge push');
-            const prs = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {...context.repo,commit_sha:context.sha,per_page:100});
+            // The commit-to-PR association index can stay empty after a merge; the PR's own merge_commit_sha is authoritative.
+            const prs = (await github.rest.pulls.list({...context.repo,state:'closed',base:'master',sort:'updated',direction:'desc',per_page:100})).data;
             const pr = prs.find(pr => pr.merged_at && pr.merge_commit_sha === context.sha && pr.base.ref === 'master' && pr.user.login === 'rollacode' &&
               pr.head.repo.full_name === context.repo.owner + '/' + context.repo.repo && /^release\/\d+\.\d+\.\d+$/.test(pr.head.ref));
             if (!pr) {core.notice('No merged release PR for this master push');return;}

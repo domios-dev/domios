@@ -259,6 +259,11 @@ fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
         .err()
         .unwrap()
         .contains("opaque-index-failure"));
+    // The handoff thread frees the bootstrap payload after Enqueued; await its completion, not a delay.
+    fixture
+        .service
+        .ready_user_send_tasks
+        .wait(&tab, TEST_DEADLINE);
     assert!(store.tab(&tab).failed.load(Ordering::Acquire));
     assert_eq!(writes.load(Ordering::Acquire), 1);
     assert!(fixture
