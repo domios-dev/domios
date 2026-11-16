@@ -1,5 +1,6 @@
 import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence, qualificationAttemptNumbers, selectReleasePushRun} from './ci-qualification.mjs';
 import {readQualificationArchive} from './ci-qualification-archive.mjs';
+import {parseTestWaiver, testWaiverEvidence} from './release-test-waiver.mjs';
 export {readQualificationArchive} from './ci-qualification-archive.mjs';
 
 export async function verifyIssueReferences(github, selection) {
@@ -17,9 +18,31 @@ export async function listFailureJobs(github, context) {
 export async function cancelWorkflow(github, context) {
   await github.rest.actions.cancelWorkflowRun({...context.repo,run_id:context.runId});
 }
-export async function requireQualificationWithGithub(github, context, sha, {runId, readArchive=readQualificationArchive, retain=retainQualificationEvidence} = {}) {
+export async function requireQualificationWithGithub(github, context, sha, {runId,
+  waiver = process.env.RELEASE_TEST_WAIVER ? JSON.parse(process.env.RELEASE_TEST_WAIVER) : undefined,
+  readArchive=readQualificationArchive, retain=retainQualificationEvidence} = {}) {
   if(!/^[a-f0-9]{40}$/.test(sha))throw new Error('Invalid qualification SHA');
   if(runId !== undefined && !/^[1-9]\d*$/.test(String(runId)))throw new Error('Invalid qualification run ID');
+  if (waiver) {
+    if (String(runId) !== waiver.run_id) throw new Error('Waiver belongs to a different run');
+    const publicationRecovery = context.eventName === 'push' && context.ref === 'refs/heads/master' &&
+      context.actor === 'rollacode' && process.env.GITHUB_TRIGGERING_ACTOR === 'rollacode';
+    const reader = testWaiverEvidence(sha, waiver, context.repo.owner+'/'+context.repo.repo, publicationRecovery);
+    let next = reader.next();
+    while (!next.done) {
+      const {route, raw, optional} = next.value;
+      let value;
+      try {
+        value = (await github.request('GET /'+route, raw ? {headers:{accept:'application/octet-stream'}} : {})).data;
+        if (raw) value = typeof value === 'string' ? value : Buffer.from(value).toString('utf8');
+      } catch (error) {
+        if (!optional || error.status !== 404) throw error;
+        value = null;
+      }
+      next = reader.next(value);
+    }
+    return retain(next.value);
+  }
   const name='qualification-'+sha;
   const artifacts=(await (runId === undefined
     ? github.rest.actions.listArtifactsForRepo({...context.repo,name,per_page:100})
@@ -56,6 +79,7 @@ export async function requireReleasePrQualification(github, context, verify = re
     throw new Error('Superseded release PR head');
   const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {...context.repo,
     workflow_id: 'tests.yml', event: 'push', head_sha: pr.head.sha, branch: pr.head.ref, per_page: 100});
-  const run = selectReleasePushRun(runs, pr.head.sha, pr.head.ref, repository);
-  return verify(github, context, pr.head.sha, {runId: run.id});
+  const waiver = parseTestWaiver(current.body ?? '');
+  const run = selectReleasePushRun(runs, pr.head.sha, pr.head.ref, repository, waiver);
+  return verify(github, context, pr.head.sha, {runId: run.id, ...(waiver ? {waiver} : {})});
 }

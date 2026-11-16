@@ -105,3 +105,22 @@ test('trusted version comment signatures are still cryptographically verified', 
   receipt.manifests['domios-latest.json'].platforms[PLATFORMS[0]].signature = Buffer.from(text).toString('base64');
   await assert.rejects(verifyServedMetadata(options(receipt)), /trusted comment signature does not verify/);
 });
+
+test('served and issue closure evidence retain the exact owner test waiver', async () => {
+  const input = options();
+  input.waiver = { run_id: runId, jobs: ['Fast checks / ts unit (1/4)'] };
+  const records = await verifyServedMetadata(input);
+  assert.deepEqual(records[0].qualification.test_waiver, input.waiver);
+  assert.doesNotThrow(() => authorizeClosure(...records, '1.20.1'));
+  const stripped = structuredClone(records[1]);
+  delete stripped.qualification.test_waiver;
+  assert.throws(() => authorizeClosure(records[0], stripped, '1.20.1'));
+  const { closeVerifiedIssues } = await import('./check-release-closure.mjs');
+  const closed = [];
+  await closeVerifiedIssues([{ number: 42, comment: 'Released in v1.20.1\nVerified publication.' }],
+    ...records, '1.20.1', async action => closed.push(action));
+  assert.ok(closed[0].comment.includes('qualification run 123'));
+  assert.ok(closed[0].comment.includes(input.waiver.jobs[0]));
+  input.waiver = { ...input.waiver, run_id: '124' };
+  await assert.rejects(verifyServedMetadata(input), /Foreign served metadata waiver/);
+});
