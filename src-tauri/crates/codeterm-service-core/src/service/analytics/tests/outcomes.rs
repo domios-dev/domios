@@ -448,6 +448,9 @@ async fn product_feature_boundary_uses_fake_sink_and_consent_gate() {
                     feature: codeterm_analytics::Feature::MemorySaved,
                 },
                 Event::FeatureUsed {
+                    feature: codeterm_analytics::Feature::MemorySaved,
+                },
+                Event::FeatureUsed {
                     feature: codeterm_analytics::Feature::ThemeChanged,
                 },
             ]

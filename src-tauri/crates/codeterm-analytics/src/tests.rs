@@ -438,7 +438,7 @@ fn daily_active_day_survives_restart_and_emits_again_next_day() {
     );
 }
 #[test]
-fn daily_feature_used_deduplicates_each_feature_and_persists() {
+fn feature_used_preserves_action_frequency_across_restart() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("analytics-settings.json");
     let recording = std::sync::Arc::new(std::sync::Mutex::new(sinks::fake::Recording::default()));
@@ -452,7 +452,7 @@ fn daily_feature_used_deduplicates_each_feature_and_persists() {
         feature: Feature::MemorySaved,
     };
     assert!(engine.enqueue_on_day(feature.clone(), 0, day).unwrap());
-    assert!(!engine.enqueue_on_day(feature.clone(), 0, day).unwrap());
+    assert!(engine.enqueue_on_day(feature.clone(), 0, day).unwrap());
     assert!(engine
         .enqueue_on_day(
             Event::FeatureUsed {
@@ -468,14 +468,14 @@ fn daily_feature_used_deduplicates_each_feature_and_persists() {
     engine.sink = Box::new(sinks::fake::Fake {
         recording: recording.clone(),
     });
-    assert!(!engine.enqueue_on_day(feature.clone(), 0, day).unwrap());
+    assert!(engine.enqueue_on_day(feature.clone(), 0, day).unwrap());
     assert!(engine
         .enqueue_on_day(feature, 0, day.succ_opt().unwrap())
         .unwrap());
     engine.deliver(0).unwrap();
     assert_eq!(
         recording.lock().unwrap().batches.iter().flatten().count(),
-        3
+        5
     );
 }
 #[test]
@@ -502,7 +502,6 @@ fn daily_events_with_consent_off_never_emit_or_save_days() {
     engine.deliver(0).unwrap();
     assert!(recording.lock().unwrap().batches.is_empty());
     assert!(engine.state.last_active_day.is_none());
-    assert!(engine.state.feature_days.is_empty());
 }
 #[test]
 fn account_linkage_is_exact_then_cleared_on_sign_out() {

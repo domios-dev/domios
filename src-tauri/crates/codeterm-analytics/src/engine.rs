@@ -117,22 +117,12 @@ impl Engine {
         if self.state.consent != Consent::On || !self.sink.enabled() {
             return Ok(false);
         }
-        match &event {
-            Event::ActiveDay { .. } if self.state.last_active_day == Some(day) => return Ok(false),
-            Event::FeatureUsed { feature }
-                if self.state.feature_days.get(feature) == Some(&day) =>
-            {
-                return Ok(false)
-            }
-            _ => {}
+        if matches!(event, Event::ActiveDay { .. }) && self.state.last_active_day == Some(day) {
+            return Ok(false);
         }
         let mut next = self.state.clone();
-        match &event {
-            Event::ActiveDay { .. } => next.last_active_day = Some(day),
-            Event::FeatureUsed { feature } => {
-                next.feature_days.insert(*feature, day);
-            }
-            _ => {}
+        if matches!(event, Event::ActiveDay { .. }) {
+            next.last_active_day = Some(day);
         }
         let mut events = Vec::with_capacity(3);
         if let Event::AppStarted {

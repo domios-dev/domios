@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from "react";
+import { recordProductEvent } from "../../lib/productAnalytics";
 import { invoke, listen } from "../../lib/bridge";
 import type { MultiplexerState, TabBootStageEvent } from "../../lib/types";
 import { firstRunGeneralTarget } from "./firstRunNavigation";
@@ -29,6 +30,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void,
         setProgress(event.stage === "agent_ready" ? "Ready" : null);
         transition(event.stage === "agent_ready" ? "ready" : "failure");
         setError(event.stage === "agent_ready" ? null : event.reason || "Failed to start General agent");
+        if (event.stage === "agent_ready") void recordProductEvent({ event_type: "onboarding_completed", event_properties: {} });
         current.stop?.();
         attempt.current = null;
       }

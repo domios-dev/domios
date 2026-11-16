@@ -394,4 +394,8 @@ pub enum Event {
     SettingsViewed {
         section: SettingsSection,
     },
+    ChatMessageSubmitted {},
+    MemorySearched {},
+    CanvasOpened {},
+    OnboardingCompleted {},
 }
