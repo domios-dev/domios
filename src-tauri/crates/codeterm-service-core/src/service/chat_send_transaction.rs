@@ -63,11 +63,11 @@ pub enum EvidenceWindow {
 /// another/latest session and never from pre-send history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SendEvidenceAnchor {
-    pub(crate) provider_id: String,
-    pub(crate) cwd: String,
+    pub provider_id: String,
+    pub cwd: String,
     pub session_id: String,
-    pub(crate) window: EvidenceWindow,
-    pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
+    pub window: EvidenceWindow,
+    pub turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
