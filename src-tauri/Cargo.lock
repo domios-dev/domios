@@ -1526,7 +1526,6 @@ dependencies = [
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-mesh",
- "codeterm-orchestration",
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-service-core",
@@ -1965,9 +1964,14 @@ dependencies = [
 name = "codeterm-orchestration"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "codeterm-analytics",
+ "codeterm-blueprint-types",
  "codeterm-events",
+ "codeterm-mem",
+ "codeterm-notification-core",
  "codeterm-paths",
+ "codeterm-plan",
  "codeterm-sentinel",
  "codeterm-service-core",
  "codeterm-team-package",
@@ -1975,10 +1979,12 @@ dependencies = [
  "codeterm-wire",
  "log",
  "parking_lot 0.12.5",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "uuid",
  "workspace-hack",
 ]
 
