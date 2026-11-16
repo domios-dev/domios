@@ -234,6 +234,7 @@ pub mod blocking;
 pub use blocking::run as blocking_run;
 pub mod launch_credentials;
 pub mod restored_launch;
+pub mod role_sync;
 pub mod store;
 pub(crate) mod structured_endpoint;
 pub mod structured_prompt;

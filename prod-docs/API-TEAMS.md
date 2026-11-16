@@ -16,6 +16,18 @@ Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). 
 
 `POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts the sealed checkpoint for the nonce-authenticated Worker named by the Domios identity headers. The equivalent CLI command is `domios plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates a fresh `awaiting_worker_ack` attempt, and fences prior owner sessions.
 
+## Role instruction sync
+
+The local socket and `POST /api/cli/rpc` expose `role.sync`:
+
+- Preview params: `{team_id, role, preview:true}`. Returns `team_id`, `role`, `current_hash`, `replacement_hash`, `source:{name,version}`, `diff` and `takes_effect`. Hashes are SHA-256 encoded as unpadded base64url. Preview creates no approval question.
+- Apply-request params: `{team_id, role, preview:false, current_hash, replacement_hash}`. Returns `{state:"awaiting_owner", notification_id, preview}`; if already current, returns `{state:"unchanged", preview}`. It never grants its own approval.
+- Only an existing built-in manager registration from the shipped default package on a live local Team is eligible. Custom packages and workers are refused. Supplied hashes are checked when the question is issued and against current storage and shipped content when the owner chooses Sync.
+
+Approval uses the host daemon-question mechanism: `POST /api/notifications/{notification_id}/answer` with `{label:"Sync"}` or `{label:"Cancel"}` requires authenticated local-owner identity. Tab, peer and service credentials cannot approve. Agent answers, resolving the card and caller-supplied approval fields do not authorize a write. Trusted push-channel choices use their existing authenticated owner path.
+
+The Sync choice atomically replaces only instructions through StateFile, then updates the role cache. It returns `state:"synced"` or `state:"unchanged"`; Cancel returns `state:"cancelled"`. A repeated accepted choice does not write again. A stale or failed write leaves the question unanswered. A bounded per-manager decision record under the Team directory records approval, source package and both hashes before the instruction save; it is an approval record, not a success receipt. Other registration fields and roles are preserved. New instructions take effect on the next fresh launch, never by changing a running session. No background sync runs.
+
 ## Team-bound plan creation
 
 An orchestrator's first plan creation is atomic: its response includes `plan.team_id`, top-level `team_id`, and `team_minted`. When `team_minted` is true, `_hints` includes `domios team rename <team_id> <name>` and `domios docs ORCHESTRATION`. The `mux-state-changed` snapshot includes the Team registry in `teams` and each tab's `team_id`; committed plan mutations also emit `plan-changed`. A Team with an active plan refuses a second plan with the unchanged `team_already_has_active_plan` error.
@@ -145,4 +157,4 @@ Team staffing and closing use the authority and confirmation rules above.
 
 Exchange errors are HTTP 400 (bad request), 404 (unknown template) or 422 (refused package) with `{code, message, diagnostics?}`.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
