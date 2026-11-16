@@ -176,7 +176,22 @@ The canvas adds no `postMessage` verbs and no shared state between items. Each i
 Two canvas-specific rules:
 
 - **Pointer isolation.** Non-selected HTML items get `pointer-events: none`, so dragging or wheeling over them pans the canvas. A selected item receives input and Escape returns it to the canvas. Without this rule an iframe would capture the wheel.
-- **A live-frame budget.** Each frame inlines the 287 KB Tailwind runtime (`@tailwindcss/browser` 4.3.5 `index.global.js`). Load frames lazily when visible and cap live frames at 8 (*estimate*, to be measured). HTML items beyond the cap show their title until they are focused.
+- **A live-frame budget.** Each frame inlines the 287 KB Tailwind runtime (`@tailwindcss/browser` 4.3.5 `index.global.js`). Load frames lazily when visible and cap live frames at **4** (measured in phase 1, below; the earlier estimate was 8). HTML items beyond the cap show their title until they are selected, and a selected item always runs.
+
+**Measured budget (phase 1).** Edge 157 headless (the WebView2 engine) on Windows 11, through Playwright. Each frame was the real `buildHtmlPreviewDocument` output (297 KB with the Tailwind runtime) in a `sandbox="allow-scripts"` iframe of 480×360, loaded together into a page holding 1,500 chat-like paragraphs. Medians of 3 fresh browser runs per count:
+
+| Live frames | All loaded (ms) | Longest parent frame gap during load (ms) | Memory over the empty page (MB) |
+|---|---|---|---|
+| 1 | 1,131 | 100 | 45 |
+| 2 | 1,163 | 100 | 61 |
+| 4 | 1,117 | 100 | 76 |
+| 6 | 1,161 | 950 | 76 |
+| 8 | 2,793 | 2,525 | 99 |
+| 12 | 1,228 | 1,033 | 136 |
+| 16 | 1,337 | 1,042 | 156 |
+| 20 | 2,743 | 2,350 | 208 |
+
+Up to 4 frames the parent page never stalls longer than 100 ms. From 6 frames on it freezes for about a second or more while frames load, which a user feels as a frozen chat or canvas. Memory grows by roughly 6 to 10 MB per frame after the first. Panning cost could not be separated headless (every count panned at the 8.4 ms frame rate), and macOS WKWebView and Linux WebKitGTK were not measured.
 
 ## 3. What it simplifies
 
@@ -213,7 +228,7 @@ Two canvas-specific rules:
 
 ### 4.2 Risks
 
-- **iframe cost and scroll capture.** This is the main technical risk, and it is handled by pointer isolation, lazy loading and the live-frame budget in §2.7. The budget number has to be measured in phase 1 with 20 HTML items under a realistic tab load. Until then it is a guess.
+- **iframe cost and scroll capture.** This is the main technical risk, and it is handled by pointer isolation, lazy loading and the live-frame budget in §2.7. Phase 1 measured the budget at 4 live frames (§2.7). Sandboxed frame text also blurs while the canvas is scaled, because the engine scales the frame's rendered output.
 - **A canvas nobody reads.** Without a habit of use, stored boards turn into stale clutter. That is why phase 3 is gated on phase-1 use.
 - **Scope creep toward a whiteboard**: editing in chat, drawing and connectors. Iris and this study both refuse these.
 - **Daemon surface.** Phase 3 adds a store, routes and mesh transfer. It must follow the hot-path rules: per-canvas files, no large synchronous serialization, and asset copies off the async runtime.

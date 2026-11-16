@@ -93,13 +93,13 @@ function inlineScript(source: string): string {
   return `<script>${source.replace(/<\/script/gi, "<\\/script")}<\/script>`;
 }
 
-type ThemeVars = { bg: string; fg: string; accent: string; muted: string; border: string };
+export type ThemeVars = { bg: string; fg: string; accent: string; muted: string; border: string };
 type FileSourceState =
   | { status: "idle" | "loading"; source: ""; error: "" }
   | { status: "ready"; source: string; error: "" }
   | { status: "error"; source: ""; error: string };
 
-function readThemeVars(): ThemeVars {
+export function readThemeVars(): ThemeVars {
   const fallback = { bg: "#0d1117", fg: "#c9d1d9", accent: "#58a6ff", muted: "#8b949e", border: "#30363d" };
   if (typeof window === "undefined") {
     return fallback;
@@ -158,18 +158,19 @@ function PreviewFrame({
     return () => window.removeEventListener("message", onMessage);
   }, [onHeight]);
 
-  return (
-    <iframe
-      ref={frameRef}
-      title="HTML preview"
-      data-testid="chat-html-preview-frame"
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-      srcDoc={doc}
-      className="block w-full border-0"
-      style={{ height: fill ? "100%" : `${height}px`, background: "var(--ct-bg)" }}
-    />
-  );
+  return <SandboxedHtmlFrame ref={frameRef} doc={doc} title="HTML preview" testId="chat-html-preview-frame" className="block w-full border-0" style={{ height: fill ? "100%" : `${height}px`, background: "var(--ct-bg)" }} />;
+}
+
+/** The one ds-html sandbox: scripts only, an opaque origin, and the CSP carried by `doc`. */
+export function SandboxedHtmlFrame({ ref, doc, title, testId, className, style }: {
+  ref?: React.Ref<HTMLIFrameElement>;
+  doc: string;
+  title: string;
+  testId: string;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  return <iframe ref={ref} title={title} data-testid={testId} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={doc} className={className} style={style} />;
 }
 
 type HtmlPreviewProps = ({ text: string; filePath?: never } | { filePath: string; text?: never }) & {
