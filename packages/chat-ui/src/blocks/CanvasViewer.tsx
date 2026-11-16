@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { LayoutDashboard, StickyNote, X } from "lucide-react";
 import type { DsCanvas } from "@codeterm/chat-core";
 import { CanvasHeader } from "../CanvasHeader";
@@ -61,15 +61,15 @@ function CanvasStageItems({ layout, selected, onSelect, release, root, itemEdit 
 }
 
 /** Overlays the top of the stage on the header's surface, so the board and camera never shift. */
-function SaveFailure({ reason, onRetry }: { reason: string; onRetry: () => void }) {
+function HeaderStrip({ text, reason, action, kind }: { text: string; reason?: string; action?: ReactNode; kind: "save-failure" | "notice" }) {
   return (
-    <div role="status" data-canvas-save-failure="" className="absolute inset-x-0 top-full z-10 border-b border-[var(--ct-border)] px-3 py-1 text-xs" style={{ color: "var(--ct-muted-fg)", background: "var(--ct-bg)" }}>
-      <CanvasNoticeBody text="Couldn't save this canvas." reason={reason} action={<button type="button" className={CANVAS_GHOST_BUTTON} onClick={onRetry}>Try again</button>} />
+    <div role="status" data-canvas-strip={kind} className="absolute inset-x-0 top-full z-10 border-b border-[var(--ct-border)] px-3 py-1 text-xs" style={{ color: "var(--ct-muted-fg)", background: "var(--ct-bg)" }}>
+      <CanvasNoticeBody text={text} reason={reason} action={action} />
     </div>
   );
 }
 
-export function CanvasViewer({ canvas, layout, title, view, editor, anchorRef, onClose }: {
+export function CanvasViewer({ canvas, layout, title, view, editor, notice, anchorRef, onClose }: {
   canvas: DsCanvas;
   layout: CanvasLayout;
   title: string;
@@ -77,6 +77,8 @@ export function CanvasViewer({ canvas, layout, title, view, editor, anchorRef, o
   view?: string;
   /** Present only for the owner of a local canvas file. */
   editor?: CanvasEditor;
+  /** Explains a board shown without its edit controls, such as a file error over the last good version. */
+  notice?: { text: string; reason?: string };
   anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
 }) {
@@ -129,7 +131,9 @@ export function CanvasViewer({ canvas, layout, title, view, editor, anchorRef, o
               </>}
               close={<button type="button" className={CANVAS_GHOST_BUTTON} onClick={onClose} aria-label="Close canvas"><X size={13} aria-hidden /></button>}
             />
-            {editor?.failure && <SaveFailure reason={editor.failure} onRetry={editor.retry} />}
+            {editor?.failure
+              ? <HeaderStrip kind="save-failure" text="Couldn't save this canvas." reason={editor.failure} action={<button type="button" className={CANVAS_GHOST_BUTTON} onClick={editor.retry}>Try again</button>} />
+              : notice && <HeaderStrip kind="notice" text={notice.text} reason={notice.reason} />}
           </div>}>
           <CanvasStageItems layout={editing.displayLayout} selected={selected} onSelect={setSelected} release={release} root={stageRef} itemEdit={editing.itemEdit} />
         </ZoomCanvas>

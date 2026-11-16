@@ -18,6 +18,8 @@ export function CanvasFileBlock(props: { src: string; view?: string; fullscreenR
   return <LoadedCanvasFile {...props} />;
 }
 
+const LAST_GOOD = "This canvas file has an error, so this is its last good version.";
+
 function LoadedCanvasFile({ src, view, fullscreenRequest = 0, onLoaded }: { src: string; view?: string; fullscreenRequest?: number; onLoaded?: (file: LocalPreviewFile | null) => void }) {
   const tabId = useLocalArtifactTabId();
   const scope = useContext(DsRenderContext);
@@ -38,11 +40,12 @@ function LoadedCanvasFile({ src, view, fullscreenRequest = 0, onLoaded }: { src:
     if (file.read.status === "error") return <CanvasNotice text="This canvas file is not available." reason={file.read.reason} />;
     return <div role="status" aria-label="Loading canvas" data-testid="chat-ds-canvas" className="my-2" style={{ height: 320 }} />;
   }
-  const notice = invalid !== null && <CanvasNotice text="This canvas could not be shown because its description is not valid." reason={invalid} />;
+  // Over the last good board the sentence says what is shown; with no good version it says nothing can be.
+  const stale = invalid !== null && file.canvas ? { text: LAST_GOOD, reason: invalid } : undefined;
   return <>
-    {notice}
+    {invalid !== null && <CanvasNotice text={file.canvas ? LAST_GOOD : "This canvas could not be shown because its description is not valid."} reason={invalid} />}
     {file.canvas && <CanvasSourceContext value={src}>
-      <CanvasPreview canvas={file.canvas} view={view} editor={editor} fullscreenRequest={fullscreenRequest} details={file.unwatched ?? undefined} />
+      <CanvasPreview canvas={file.canvas} view={view} editor={editor} fullscreenRequest={fullscreenRequest} details={file.unwatched ?? undefined} notice={stale} />
     </CanvasSourceContext>}
   </>;
 }

@@ -52,7 +52,19 @@ fn item_id(value: Option<&Value>, index: usize) -> Option<String> {
 }
 
 /// `None` rejects the canvas; `Some(None)` is a valid item without a file.
-fn item_path(value: &Value, index: usize, ids: &mut HashSet<String>) -> Option<Option<String>> {
+/// A file item of a canvas, as the board shows it: its shown id, its kind and its path.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CanvasFileItem {
+    pub id: String,
+    pub kind: String,
+    pub src: String,
+}
+
+fn item_path(
+    value: &Value,
+    index: usize,
+    ids: &mut HashSet<String>,
+) -> Option<Option<CanvasFileItem>> {
     let record = value.as_object()?;
     let kind = record.get("kind")?.as_str()?;
     let content = content_field(kind)?;
@@ -62,7 +74,8 @@ fn item_path(value: &Value, index: usize, ids: &mut HashSet<String>) -> Option<O
     {
         return None;
     }
-    if !ids.insert(item_id(record.get("id"), index)?) {
+    let id = item_id(record.get("id"), index)?;
+    if !ids.insert(id.clone()) {
         return None;
     }
     let frame_valid = ["x", "y"]
@@ -79,7 +92,13 @@ fn item_path(value: &Value, index: usize, ids: &mut HashSet<String>) -> Option<O
     if content != "src" {
         return Some(None);
     }
-    absolute(body).then(|| Some(body.to_string()))
+    absolute(body).then(|| {
+        Some(CanvasFileItem {
+            id,
+            kind: kind.to_string(),
+            src: body.to_string(),
+        })
+    })
 }
 
 fn valid_view(value: &Value, names: &mut HashSet<String>) -> bool {
@@ -105,13 +124,23 @@ pub fn valid_view_name(name: &str) -> bool {
 
 /// An owner edit may move, resize, rewrite or remove items and add notes, but never adds a file:
 /// the files a canvas previews stay those its author referenced.
-pub fn canvas_write_permitted(current: &str, next: &str) -> Result<(), &'static str> {
-    let next = canvas_file_paths(next).ok_or("Canvas edit is not a valid canvas")?;
-    let current: HashSet<String> = canvas_file_paths(current)
+/// `restorable` holds file items that owner edits removed from this file; undo may put back
+/// exactly those, with the same id, kind and path, and nothing else.
+pub fn canvas_write_permitted(
+    current: &str,
+    next: &str,
+    restorable: &HashSet<CanvasFileItem>,
+) -> Result<(), &'static str> {
+    let next = canvas_file_items(next).ok_or("Canvas edit is not a valid canvas")?;
+    let current: HashSet<String> = canvas_file_items(current)
         .ok_or("Canvas file is not a valid canvas")?
         .into_iter()
+        .map(|item| item.src)
         .collect();
-    if next.iter().all(|path| current.contains(path)) {
+    if next
+        .iter()
+        .all(|item| current.contains(&item.src) || restorable.contains(item))
+    {
         Ok(())
     } else {
         Err("Canvas edits cannot add files")
@@ -123,7 +152,11 @@ pub fn canvas_paths(body: &str) -> Option<Vec<String>> {
     if body.len() > BODY_LIMIT {
         return None;
     }
-    canvas_value_paths(&serde_json::from_str(body).ok()?)
+    canvas_value_items(&serde_json::from_str(body).ok()?).map(sources)
+}
+
+fn sources(items: Vec<CanvasFileItem>) -> Vec<String> {
+    items.into_iter().map(|item| item.src).collect()
 }
 
 /// The header that opens every canvas file.
@@ -147,17 +180,22 @@ fn supported_format(format: &str) -> bool {
 /// Mirrors `parseDsCanvasFile` in chat-core: a `.canvas.json` opens with `"format"` as its first
 /// field, names major version 1, and otherwise holds exactly an inline body's fields.
 pub fn canvas_file_paths(text: &str) -> Option<Vec<String>> {
+    canvas_file_items(text).map(sources)
+}
+
+/// The file items of a canvas file that renders, in item order.
+pub fn canvas_file_items(text: &str) -> Option<Vec<CanvasFileItem>> {
     if text.len() > BODY_LIMIT || !format_first(text) {
         return None;
     }
     let mut document: Value = serde_json::from_str(text).ok()?;
     let format = document.as_object_mut()?.remove("format")?;
     supported_format(format.as_str()?)
-        .then(|| canvas_value_paths(&document))
+        .then(|| canvas_value_items(&document))
         .flatten()
 }
 
-fn canvas_value_paths(document: &Value) -> Option<Vec<String>> {
+fn canvas_value_items(document: &Value) -> Option<Vec<CanvasFileItem>> {
     let record = document.as_object()?;
     if !only(record, &["title", "items", "views"])
         || !record.get("title").is_none_or(Value::is_string)
@@ -174,13 +212,13 @@ fn canvas_value_paths(document: &Value) -> Option<Vec<String>> {
         Some(_) => return None,
     };
     let mut ids = HashSet::new();
-    let mut paths = Vec::new();
+    let mut files = Vec::new();
     for (index, item) in items.iter().enumerate() {
-        if let Some(path) = item_path(item, index, &mut ids)? {
-            paths.push(path);
+        if let Some(file) = item_path(item, index, &mut ids)? {
+            files.push(file);
         }
     }
     let mut names = HashSet::new();
-    (paths.len() <= FILE_LIMIT && views.iter().all(|view| valid_view(view, &mut names)))
-        .then_some(paths)
+    (files.len() <= FILE_LIMIT && views.iter().all(|view| valid_view(view, &mut names)))
+        .then_some(files)
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseDsCanvas, type DsCanvas } from "@codeterm/chat-core";
-import { CANVAS_LIVE_FRAME_BUDGET, canvasPagerLabel, canvasPagerTargets, canvasViewTarget, chooseLiveFrames, fitPreview, layoutCanvas, noteSpot, reconcilePager, resizeFrame, sentenceCase, stepCanvasPager } from "./canvasBlockModel";
+import { CANVAS_LIVE_FRAME_BUDGET, canvasPagerLabel, canvasPagerTargets, canvasViewTarget, chooseLiveFrames, fitPreview, layoutCanvas, noteLabel, noteSpot, reconcilePager, resizeFrame, sentenceCase, stepCanvasPager } from "./canvasBlockModel";
 import { gestureEdit } from "./canvasEditing";
 
 function canvas(document: unknown): DsCanvas {
@@ -87,6 +87,13 @@ test("a released gesture commits its frame from its own start; a press below the
   assert.deepEqual(gestureEdit(gesture, 300, 50), { kind: "frame", id: "a", frame: { x: 110, y: -5 } });
   assert.deepEqual(gestureEdit({ ...gesture, mode: "resize", keepAspect: true }, 300, 100), { kind: "frame", id: "a", frame: { w: 500, h: 250 } });
   assert.equal(gestureEdit({ ...gesture, moved: false }, 300, 50), null);
+});
+
+test("a note is named by its first line of text", () => {
+  assert.equal(noteLabel("\n## **Ship** the `calm` rows\nmore"), "Ship the calm rows");
+  assert.equal(noteLabel("- first point\n- second"), "first point");
+  assert.equal(noteLabel("   \n"), "Note");
+  assert.equal(noteLabel("x".repeat(60)), `${"x".repeat(39)}…`);
 });
 
 test("a named view resolves to its pager index and rectangle", () => {

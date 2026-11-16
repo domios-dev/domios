@@ -39,7 +39,11 @@ function usePreviewWidth() {
 }
 
 /** The static preview; a file canvas adds its source path, a named view and, for its owner, an editor. */
-export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0, details }: { canvas: DsCanvas; view?: string; editor?: CanvasEditor; fullscreenRequest?: number; details?: string }) {
+export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0, details, notice }: {
+  canvas: DsCanvas; view?: string; editor?: CanvasEditor; fullscreenRequest?: number; details?: string;
+  /** A quiet sentence the opened canvas shows under its header, such as a file error over the last good board. */
+  notice?: { text: string; reason?: string };
+}) {
   const layout = useMemo(() => layoutCanvas(canvas), [canvas]);
   const theme = useMemo(() => readThemeVars(), []);
   const [open, setOpen] = useState(false);
@@ -48,9 +52,11 @@ export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0, det
   const { observe, isVisible } = useVisibleIds();
   const observePreview = observe("preview");
   const previewRef = useCallback((element: HTMLDivElement | null) => { ref.current = element; observePreview(element); }, [ref, observePreview]);
-  const fit = fitPreview(canvasViewTarget(canvas, view)?.bounds ?? layout.bounds, width, CANVAS_INLINE_HEIGHT);
+  const viewBounds = canvasViewTarget(canvas, view)?.bounds;
+  const fit = fitPreview(viewBounds ?? layout.bounds, width, CANVAS_INLINE_HEIGHT);
   const onScreen = !open && width > 0 && isVisible("preview");
   const live = chooseLiveFrames(layout.items.filter((placed) => isLiveFrameItem(placed.item)).map((placed) => ({ id: placed.item.id, visible: onScreen })), null);
+  const items = layout.items.map((placed) => <CanvasItemView key={placed.item.id} placed={placed} live={live.has(placed.item.id)} interactive={false} theme={theme} />);
   const title = canvas.title || "Canvas";
   const count = `${layout.items.length} ${layout.items.length === 1 ? "item" : "items"}`;
   return (
@@ -61,7 +67,11 @@ export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0, det
         onClick={() => setOpen(true)}
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(true); } }}>
         {fit.scale > 0 && <div aria-hidden data-canvas-preview-layer="" style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})`, pointerEvents: "none" }}>
-          {layout.items.map((placed) => <CanvasItemView key={placed.item.id} placed={placed} live={live.has(placed.item.id)} interactive={false} theme={theme} />)}
+          {viewBounds
+            ? <div data-canvas-view-clip="" style={{ position: "absolute", left: viewBounds.x, top: viewBounds.y, width: viewBounds.width, height: viewBounds.height, overflow: "hidden" }}>
+              <div style={{ position: "absolute", left: -viewBounds.x, top: -viewBounds.y }}>{items}</div>
+            </div>
+            : items}
         </div>}
       </div>
       <figcaption className="mt-1 flex min-w-0 gap-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
@@ -70,7 +80,7 @@ export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0, det
         <span className="shrink-0">{count}</span>
         {details && <details data-canvas-details="" className="min-w-0 opacity-80"><summary className="cursor-pointer select-none">Details</summary><p className="m-0 mt-1 break-words">{details}</p></details>}
       </figcaption>
-      {open && <CanvasViewer canvas={canvas} layout={layout} title={title} view={view} editor={editor} anchorRef={ref} onClose={() => setOpen(false)} />}
+      {open && <CanvasViewer canvas={canvas} layout={layout} title={title} view={view} editor={editor} notice={notice} anchorRef={ref} onClose={() => setOpen(false)} />}
     </figure>
   );
 }

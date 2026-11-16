@@ -344,23 +344,24 @@ fn canvas_src_tags_are_file_cards_that_keep_their_view_through_mesh_rewrites() {
 
 #[test]
 fn canvas_write_back_never_adds_a_file_the_author_did_not_reference() {
+    let none = std::collections::HashSet::new();
     let current = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"n","kind":"note","markdown":"x"}]}"#;
     let moved = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png","x":10,"y":20},{"id":"n","kind":"note","markdown":"y"},{"id":"m","kind":"note","markdown":""}]}"#;
-    assert_eq!(canvas_write_permitted(current, moved), Ok(()));
+    assert_eq!(canvas_write_permitted(current, moved, &none), Ok(()));
     let removed =
         r#"{"format":"domios.canvas/1","items":[{"id":"n","kind":"note","markdown":"x"}]}"#;
-    assert_eq!(canvas_write_permitted(current, removed), Ok(()));
+    assert_eq!(canvas_write_permitted(current, removed, &none), Ok(()));
     let added = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"b","kind":"document","src":"/home/me/.ssh/config"}]}"#;
     assert_eq!(
-        canvas_write_permitted(current, added),
+        canvas_write_permitted(current, added, &none),
         Err("Canvas edits cannot add files")
     );
     assert_eq!(
-        canvas_write_permitted(current, r#"{"items":[]}"#),
+        canvas_write_permitted(current, r#"{"items":[]}"#, &none),
         Err("Canvas edit is not a valid canvas")
     );
     assert_eq!(
-        canvas_write_permitted("{", moved),
+        canvas_write_permitted("{", moved, &none),
         Err("Canvas file is not a valid canvas")
     );
 }
