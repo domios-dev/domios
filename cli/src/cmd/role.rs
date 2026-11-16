@@ -9,6 +9,23 @@ pub fn handle(
     action: RoleAction,
 ) -> Result<Option<Value>, String> {
     match action {
+        RoleAction::Sync {
+            role,
+            team,
+            preview,
+            apply: _,
+            current_hash,
+            replacement_hash,
+        } => {
+            let params = json!({"role":role,"team_id":team,"preview":preview,
+                "current_hash":current_hash,"replacement_hash":replacement_hash});
+            let result = client.call("role.sync", Some(params))?;
+            if json_output {
+                return Ok(Some(result));
+            }
+            println!("{}", render_sync(&result));
+            Ok(None)
+        }
         RoleAction::List { team } => registry(client, json_output, "role.list", team),
         RoleAction::Reload { team } => registry(client, json_output, "role.reload", team),
         RoleAction::Show {
@@ -36,6 +53,24 @@ pub fn handle(
         }
     }
 }
+
+fn render_sync(result: &Value) -> String {
+    let preview = result.get("preview").unwrap_or(result);
+    let mut text = format!("team: {}\nrole: {}\nsource: {}@{}\ncurrent SHA-256 (base64url): {}\nreplacement SHA-256 (base64url): {}\neffect: {}\n{}",
+        field(preview,"team_id"), field(preview,"role"), field(&preview["source"],"name"), field(&preview["source"],"version"),
+        field(preview,"current_hash"), field(preview,"replacement_hash"), field(preview,"takes_effect"), field(preview,"diff"));
+    if let Some(state) = result.get("state").and_then(Value::as_str) {
+        text.push_str(&format!("\nstate: {state}\n"));
+    }
+    if let Some(id) = result.get("notification_id").and_then(Value::as_str) {
+        text.push_str(&format!("Owner choice: {id}\n"));
+    }
+    text
+}
+
+#[cfg(test)]
+#[path = "role/sync_tests.rs"]
+mod sync_tests;
 
 fn registry(
     client: &mut SocketClient,

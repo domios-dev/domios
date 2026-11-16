@@ -20,6 +20,7 @@ pub fn is_activity_section(section: &str) -> bool {
     !matches!(
         section,
         "actionable"
+            | "recent decisions"
             | "owner questions"
             | "waits"
             | "review backlog"
