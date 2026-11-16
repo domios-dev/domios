@@ -25,6 +25,14 @@ export function authorizeClosure(record, debRecord, version) {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid closure version');
   verifyRecord(record, version, PLATFORMS, false);
   verifyRecord(debRecord, version, ['linux-x86_64', 'linux-aarch64'], true);
+  if (record.mode === 'qualified_metadata' || debRecord.mode === 'qualified_metadata') {
+    if (record.mode !== 'qualified_metadata' || debRecord.mode !== 'qualified_metadata' ||
+        !/^[a-f0-9]{40}$/.test(record.qualification?.source_sha ?? '') ||
+        !/^[1-9]\d*$/.test(record.qualification?.run_id ?? '') ||
+        JSON.stringify(record.qualification) !== JSON.stringify(debRecord.qualification)) {
+      throw new Error('Closure requires the same qualified source and run for both manifests');
+    }
+  }
 }
 
 export async function closeVerifiedIssues(plan, record, debRecord, version, close) {

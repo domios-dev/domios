@@ -28,7 +28,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
@@ -86,7 +86,14 @@ jobs:
           if [ "$(jq -r .retained_via "$work/output/manifest-local-verification.json")" = ci-artifact ]; then
             echo '::warning::Some evidence was retained as run artifacts while the private store was unreachable; manifest-local-verification.json names each location'
           fi
+          node -e 'const fs=require("fs");const p=process.argv[1];const r=JSON.parse(fs.readFileSync(p));r.run_id=process.argv[2];fs.writeFileSync(p,JSON.stringify(r))' "$work/output/manifest-local-verification.json" "$ARTIFACT_RUN_ID"
           bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/manifest-dry-run/manifest-local-verification.json" "$work/output/manifest-local-verification.json"
+      - name: Seal completed hidden qualification drafts
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        run: node scripts/release-qualification-draft.mjs seal "${{ inputs.tag }}" "${{ inputs.source_ref }}" "${{ inputs.artifact_run_id }}"
       - name: Upload artifacts spooled while the private store was unreachable
         if: always()
         uses: ./.github/actions/ci-artifact-spool

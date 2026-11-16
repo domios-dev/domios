@@ -199,6 +199,14 @@ jobs:
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs packaging
 
+      - name: Reset this platform in the run qualification draft
+        if: inputs.dry_run && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        shell: bash
+        run: node scripts/release-qualification-draft.mjs reset "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID" "linux-x86_64"
+
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
@@ -310,6 +318,9 @@ jobs:
           done
 
       - name: Retain private dry-run updater evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         if: ${{ inputs.dry_run }}
         run: >-
           node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID" linux-x86_64 "src-tauri/target/$TARGET/release/bundle" release-artifacts "$RUNNER_TEMP/dry-run-linux-x86_64"

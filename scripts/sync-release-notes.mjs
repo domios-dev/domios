@@ -12,7 +12,7 @@ import { pathToFileURL } from "node:url";
 const DEFAULT_SOURCE = sourceRepository();
 
 export function isPlaceholderBody(body, tag) {
-  const text = body.trim();
+  const text = body.replace(/<!-- qualification(?::.*?|\-complete) -->/g, '').trim();
   const version = tag.replace(/^v/, "");
   const exact = new Set([tag, `Domios ${tag}`, `Domios v${version}`]);
   return (
@@ -141,7 +141,9 @@ function prepareTag(sourceRepo, mirrorRepo, tag) {
     replacement = pullRequestNotes(sourceRepo, tag);
     if (!replacement) replacement = canonicalGeneratedBody(tag, generate(sourceRepo, tag));
   }
-  const body = chooseCanonicalBody(tag, existing, replacement);
+  const marker = existing.match(/<!-- qualification(?::.*?|\-complete) -->/g)?.join('\n');
+  const canonical = chooseCanonicalBody(tag, existing.replace(/<!-- qualification(?::.*?|\-complete) -->/g, ''), replacement);
+  const body = marker ? `${canonical}\n\n${marker}` : canonical;
   return { tag, body };
 }
 
