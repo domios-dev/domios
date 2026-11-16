@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
+import * as ts from "typescript/unstable/ast";
+import { parseTypeScriptSource, parseTypeScriptSources } from "./typescript-sources.mjs";
 
 const allowed = new Set([
   "src/components/Notifications/NotificationToast.tsx",
@@ -11,8 +12,8 @@ const allowed = new Set([
   "src/components/Canvas/missionControl/MissionControlPlanLifecycleDialog.tsx",
 ]);
 
-export function floatingLiveRegions(source, filename = "fixture.tsx", fixedClasses = new Set()) {
-  const file = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+export function floatingLiveRegions(source, filename = "fixture.tsx", fixedClasses = new Set(), parsed) {
+  const file = parsed ?? parseTypeScriptSource(filename, source);
   const failures = [];
   function visit(node, floating = false) {
     const opening = ts.isJsxElement(node) ? node.openingElement : ts.isJsxSelfClosingElement(node) ? node : null;
@@ -27,7 +28,7 @@ export function floatingLiveRegions(source, filename = "fixture.tsx", fixedClass
         failures.push(file.getLineAndCharacterOfPosition(opening.getStart(file)).line + 1);
       }
     }
-    ts.forEachChild(node, (child) => visit(child, floating));
+    node.forEachChild((child) => visit(child, floating));
   }
   visit(file);
   return failures;
@@ -51,9 +52,10 @@ export function checkFloatingNotices() {
     }
   }
   const failures = [];
-  for (const filename of files.filter((name) => /\.[jt]sx$/.test(name) && !/\.(?:test|testdata|testkit)\./.test(name))) {
+  const sources = new Map(files.filter((name) => /\.[jt]sx$/.test(name) && !/\.(?:test|testdata|testkit)\./.test(name)).map(name => [name, fs.readFileSync(name, "utf8")]));
+  for (const [filename, tree] of parseTypeScriptSources(sources)) {
     if (allowed.has(filename)) continue;
-    for (const line of floatingLiveRegions(fs.readFileSync(filename, "utf8"), filename, fixedClasses)) failures.push(`${filename}:${line}`);
+    for (const line of floatingLiveRegions(sources.get(filename), filename, fixedClasses, tree)) failures.push(`${filename}:${line}`);
   }
   return failures;
 }

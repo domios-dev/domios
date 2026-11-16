@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
 import Sigma from "sigma";
 import Graph from "graphology";
-import EdgeCurveProgram from "@sigma/edge-curve";
+import { pathCurved } from "sigma/rendering";
 import type { ApiConfig } from "../../lib/types";
 import { MemoryNodeDetail } from "./MemoryNodeDetail";
 import { colorForKind, KIND_COLORS } from "./nodeKind";
@@ -134,19 +134,33 @@ export function MemorySnapshotCanvas({
     const palette = paletteRef.current;
 
     const sigma = new Sigma(graph, containerRef.current, {
-      renderLabels: true,
-      renderEdgeLabels: false,
-      labelColor: { color: palette.labelColor },
-      labelWeight: "400",
-      labelSize: 11,
-      labelDensity: 0.6,
-      labelGridCellSize: 80,
-      labelRenderedSizeThreshold: 5,
-      minCameraRatio: 0.05,
-      maxCameraRatio: 20,
-      defaultEdgeType: "curve",
-      edgeProgramClasses: { curve: EdgeCurveProgram },
-      nodeReducer: (node, data) => {
+      settings: {
+        renderLabels: true,
+        renderEdgeLabels: false,
+        labelDensity: 0.6,
+        labelGridCellSize: 80,
+        labelRenderedSizeThreshold: 5,
+        minCameraRatio: 0.05,
+        maxCameraRatio: 20,
+      },
+      primitives: { edges: { paths: [pathCurved({ curvature: 0.25 })] } },
+      styles: {
+        nodes: {
+          x: { attribute: "x" },
+          y: { attribute: "y" },
+          size: { attribute: "size" },
+          color: { attribute: "color" },
+          label: { attribute: "label" },
+          labelColor: palette.labelColor,
+          labelSize: 11,
+        },
+        edges: {
+          path: "curved",
+          size: { attribute: "size" },
+          color: { attribute: "color" },
+        },
+      },
+      nodeReducer: (node, data, attrs) => {
         const isActive =
           selectedIdRef.current === node || hoveredIdRef.current === node;
         if (isActive) {
@@ -168,14 +182,14 @@ export function MemorySnapshotCanvas({
           return { ...data, label: labelsRef.current.get(node) ?? label, zIndex: 1 };
         }
         // Cluster aggregates keep their label; item labels appear only when fetched.
-        return { ...data, label: data.isCluster ? label : "" };
+        return { ...data, label: attrs.isCluster ? label : "" };
       },
       edgeReducer: (edge, data) => {
         const sel = selectedIdRef.current;
         if (!sel || !egoSetRef.current) return data;
         const g = graphRef.current;
         if (!g) return data;
-        if (!g.extremities(edge).includes(sel)) return { ...data, hidden: true };
+        if (!g.extremities(edge).includes(sel)) return { ...data, visibility: "hidden" };
         const palette = paletteRef.current;
         if (!palette) return { ...data, zIndex: 1 };
         const size = Math.max(data.size ?? 0, 0.4);
@@ -514,7 +528,7 @@ export function MemorySnapshotCanvas({
     <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
       <div ref={containerRef} className="absolute inset-0" />
       <canvas ref={provenanceCanvasRef} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" />
-      <CanvasToolbar label="Memory graph controls" view={toolbarView} onFit={doFit} onZoomOut={() => { void sigmaRef.current?.getCamera().animatedUnzoom(); }} onZoomIn={() => { void sigmaRef.current?.getCamera().animatedZoom(); }} onRefresh={onRefresh} refreshTestId="memory-graph-refresh" />
+      <CanvasToolbar label="Memory graph controls" view={toolbarView} onFit={doFit} onZoomOut={() => { void sigmaRef.current?.getCamera().zoomOut(); }} onZoomIn={() => { void sigmaRef.current?.getCamera().zoomIn(); }} onRefresh={onRefresh} refreshTestId="memory-graph-refresh" />
 
       {chipStyle && (
         <div

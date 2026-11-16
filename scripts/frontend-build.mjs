@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { capture, renderReport } from './collect-rust-warnings.mjs';
 import { frontendWarningCollection } from './frontend-warnings.mjs';
@@ -15,7 +16,11 @@ export async function buildFrontend({ root = process.cwd(), platform = process.p
   let exit = 1;
   let staging;
   try {
-    exit = await run(process.execPath, [path.join(root, 'node_modules/typescript/bin/tsc'), '--incremental', '--tsBuildInfoFile', path.join(cache, 'codeterm-types.tsbuildinfo')], log);
+    const require = createRequire(path.join(root, 'package.json'));
+    const compilerPackage = require.resolve('typescript/package.json');
+    const compiler = JSON.parse(fs.readFileSync(compilerPackage, 'utf8'));
+    const compilerLauncher = path.resolve(path.dirname(compilerPackage), compiler.bin.tsc);
+    exit = await run(process.execPath, [compilerLauncher, '--project', root, '--incremental', '--tsBuildInfoFile', path.join(cache, 'codeterm-types.tsbuildinfo')], log);
     if (!exit) {
       staging = fs.mkdtempSync(path.join(cache, 'codeterm-frontend-'));
       exit = await run(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), 'build', '--emptyOutDir', '--outDir', staging], log);

@@ -57,13 +57,13 @@ jobs:
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
       - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
         if: runner.environment == 'github-hosted'
       - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
         if: runner.environment == 'github-hosted'
