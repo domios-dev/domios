@@ -1,6 +1,6 @@
 use super::model::RuntimeFailure;
 use codeterm_plugin::{
-    agent_runtime::{AgentRuntimeCapability, LaunchAuthority},
+    agent_runtime::{AgentRuntimeCapability, AgentRuntimeCommand, LaunchAuthority},
     provider::AgentProvider,
 };
 use serde_json::Value;
@@ -132,6 +132,13 @@ fn select(
     })
 }
 
+fn command_from_receipt(mut command: AgentRuntimeCommand) -> AgentRuntimeCommand {
+    if let Some(script) = command.args.first_mut() {
+        *script = codeterm_paths::strip_verbatim_prefix(script);
+    }
+    command
+}
+
 pub(super) fn resolve(
     svc: &crate::service::ServiceContext,
     tab: &str,
@@ -172,7 +179,7 @@ pub(super) fn resolve(
                             .into(),
                     )
                 })?;
-            selected.capability.command = receipt.command.clone();
+            selected.capability.command = command_from_receipt(receipt.command.clone());
             PathBuf::from(receipt.command.binary)
         } else {
             adapter

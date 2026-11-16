@@ -157,6 +157,14 @@ async fn install_using(
         .next()
         .ok_or("Package binary unavailable")?;
     let binary = target.join("node_modules").join(package).join(relative);
+    Ok((installed_command(&node, &binary, target)?, sha256))
+}
+
+fn installed_command(
+    node: &Path,
+    binary: &Path,
+    target: &Path,
+) -> Result<codeterm_plugin::agent_runtime::AgentRuntimeCommand, String> {
     if !binary.is_file() {
         return Err("Installed package binary unavailable".into());
     }
@@ -170,13 +178,16 @@ async fn install_using(
     ) {
         return Err("Package binary escapes install directory".into());
     }
-    Ok((
-        codeterm_plugin::agent_runtime::AgentRuntimeCommand {
-            binary: node.to_string_lossy().into_owned(),
-            args: vec![binary.to_string_lossy().into_owned()],
-        },
-        sha256,
-    ))
+    Ok(node_command(node, &binary))
+}
+
+fn node_command(node: &Path, script: &Path) -> codeterm_plugin::agent_runtime::AgentRuntimeCommand {
+    codeterm_plugin::agent_runtime::AgentRuntimeCommand {
+        binary: node.to_string_lossy().into_owned(),
+        args: vec![codeterm_paths::simplified_path(script)
+            .to_string_lossy()
+            .into_owned()],
+    }
 }
 
 async fn package_manager(target: &Path, archive: &Path) -> Result<PathBuf, String> {
@@ -194,9 +205,10 @@ async fn package_manager(target: &Path, archive: &Path) -> Result<PathBuf, Strin
         return Err("A native npm CLI entry point is required".into());
     }
     let node = super::resolve_binary("node")?.ok_or("Node.js is not installed")?;
-    let mut command = tokio::process::Command::new(&node);
+    let invocation = node_command(&node, &cli);
+    let mut command = tokio::process::Command::new(&invocation.binary);
     crate::process_util::no_window_tokio(&mut command);
-    command.arg(cli);
+    command.args(&invocation.args);
     command.env_clear();
     for name in [
         "PATH",
