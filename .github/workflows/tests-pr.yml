@@ -82,7 +82,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-12
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         with:
           version: 10.32.1
           run_install: false
@@ -154,7 +154,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         id: ci-3
         with:
           version: 10.32.1
@@ -190,7 +190,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-3
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         with:
           version: 10.32.1
           run_install: false
@@ -234,7 +234,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         id: ci-3
         with:
           version: 10.32.1
@@ -269,7 +269,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-4
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         with:
           version: 10.32.1
           run_install: false
@@ -321,7 +321,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-3
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         with:
           version: 10.32.1
           run_install: false
@@ -355,7 +355,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-3
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         with:
           version: 10.32.1
           run_install: false
@@ -389,7 +389,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-3
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         with:
           version: 10.32.1
           run_install: false
