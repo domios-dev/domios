@@ -47,7 +47,7 @@ importers:
         version: 0.1.8(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@sigma/edge-curve':
         specifier: ^3.1.0
-        version: 3.1.0(sigma@3.0.2(graphology-types@0.24.8))
+        version: 3.1.0(sigma@4.0.6(graphology-types@0.24.8))
       '@tauri-apps/api':
         specifier: ^2.12.4
         version: 2.12.4
@@ -121,8 +121,8 @@ importers:
         specifier: ^11.0.0
         version: 11.0.0
       sigma:
-        specifier: ^3.0.0
-        version: 3.0.2(graphology-types@0.24.8)
+        specifier: ^4.0.6
+        version: 4.0.6(graphology-types@0.24.8)
       unified:
         specifier: ^11.0.5
         version: 11.0.5
@@ -3351,8 +3351,8 @@ packages:
     resolution: {integrity: sha512-6x6dK6zJdpTzF4sQeNYxwtvBzf6Eg4GtlesS94HOvTudUeyK2WXAaIfmDgsyslYrRBeFIlsi54AYsFGUuhmvrQ==}
     engines: {node: '>= 0.4'}
 
-  sigma@3.0.2:
-    resolution: {integrity: sha512-/BUbeOwPGruiBOm0YQQ6ZMcLIZ6tf/W+Jcm7dxZyAX0tK3WP9/sq7/NAWBxPIxVahdGjCJoGwej0Gdrv0DxlQQ==}
+  sigma@4.0.6:
+    resolution: {integrity: sha512-3yD7On7NLHGMkBcG2fyhIECxkliqZ+lVcTBS1Lfm/qnndQVGMB+Xp2qL1A/co1qUJAM5bKank3cSrNO5L6J9Zw==}
 
   smob@1.6.2:
     resolution: {integrity: sha512-RQsvleCbF8cVHEv+xuDGaA4pOizFqJ0GgjtMSRo6oP8pnN7WsigHgVGey6aILRBKv4W2YOMHLqbKdnB6hpB9fw==}
@@ -4998,9 +4998,9 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.68.3':
     optional: true
 
-  '@sigma/edge-curve@3.1.0(sigma@3.0.2(graphology-types@0.24.8))':
+  '@sigma/edge-curve@3.1.0(sigma@4.0.6(graphology-types@0.24.8))':
     dependencies:
-      sigma: 3.0.2(graphology-types@0.24.8)
+      sigma: 4.0.6(graphology-types@0.24.8)
 
   '@tailwindcss/browser@4.3.5': {}
 
@@ -7005,7 +7005,7 @@ snapshots:
       side-channel-map: 1.0.1
       side-channel-weakmap: 1.0.2
 
-  sigma@3.0.2(graphology-types@0.24.8):
+  sigma@4.0.6(graphology-types@0.24.8):
     dependencies:
       events: 3.3.0
       graphology-utils: 2.5.2(graphology-types@0.24.8)
