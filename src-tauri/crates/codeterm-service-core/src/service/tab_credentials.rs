@@ -381,7 +381,29 @@ impl super::ServiceContext {
                     }
                 }
                 for field in ["from", "owner"] {
-                    if field == "owner" && method != "plan.create" {
+                    let actor_field = match field {
+                        "owner" => method == "plan.create",
+                        "from" => matches!(
+                            method,
+                            "plan.milestone.add"
+                                | "plan.stride.add"
+                                | "plan.handoff.create"
+                                | "plan.pause"
+                                | "plan.retrospective"
+                                | "plan.groups.close"
+                                | "plan.qa.queue"
+                                | "plan.qa.next"
+                                | "plan.qa.override"
+                                | "plan.qa.pass"
+                                | "plan.qa.fail"
+                                | "plan.review.override"
+                                | "plan.review.accept"
+                                | "plan.review.bounce"
+                                | "plan.review.hold"
+                        ),
+                        _ => false,
+                    };
+                    if !actor_field {
                         continue;
                     }
                     let selected = body.get(field).filter(|value| !value.is_null());
