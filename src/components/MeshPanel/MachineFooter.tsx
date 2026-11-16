@@ -24,9 +24,9 @@ export function MachineVersion({ version, build, localVersion = appVersion(), sh
   </span>;
 }
 
-export function MachineFooter({ label, secondary, tone = "muted", connecting, version, build, children, statusIcon, showBuild, inset = true }: {
+export function MachineFooter({ label, secondary, tone = "muted", connecting, version, build, children, menu, statusIcon, showBuild, inset = true }: {
   label: string; secondary?: string | null; tone?: MachineTone; connecting?: boolean;
-  version?: string | null; build?: string | null; children?: ReactNode;
+  version?: string | null; build?: string | null; children?: ReactNode; menu?: ReactNode;
   statusIcon?: ReactNode; showBuild?: boolean; inset?: boolean;
 }) {
   return <div className={`flex min-h-10 min-w-0 items-center gap-2 border-t text-[11px] text-[var(--ct-muted-fg)] ${inset ? "px-3.5" : ""}`} style={{ borderColor: "color-mix(in srgb, var(--ct-border) 55%, transparent)" }}>
@@ -34,14 +34,13 @@ export function MachineFooter({ label, secondary, tone = "muted", connecting, ve
       {connecting ? <BusyState inline hideLabel label={label} phase="work" dotSize="micro" /> : statusIcon ?? <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: TONE_COLOR[tone] }} />}
       <span className="truncate whitespace-nowrap text-[var(--ct-fg)]">{label}{secondary && <span className="text-[var(--ct-muted-fg)]"> · {secondary}</span>}</span>
     </div>
-    <MachineVersion version={version} build={build} showBuild={showBuild} />
     {children}
+    <MachineVersion version={version} build={build} showBuild={showBuild} />
+    {inset && <div className="flex w-[26px] shrink-0 items-center justify-end">{menu}</div>}
   </div>;
 }
 
 export function LocalMachineFooter({ networkOn }: { networkOn: boolean }) {
   return <MachineFooter label={networkOn ? "Private network on" : "Private network off"} tone={networkOn ? "ok" : "muted"} version={appVersion()} build={buildHash()}
-    statusIcon={<ShieldCheck size={13} className={`shrink-0 ${networkOn ? "text-[var(--ct-green)]" : "text-[var(--ct-muted-fg)]"}`} aria-hidden="true" />}>
-    <span aria-hidden="true" className="w-[26px] shrink-0" />
-  </MachineFooter>;
+    statusIcon={<ShieldCheck size={13} className={`shrink-0 ${networkOn ? "text-[var(--ct-green)]" : "text-[var(--ct-muted-fg)]"}`} aria-hidden="true" />} />;
 }
