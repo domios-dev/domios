@@ -101,7 +101,8 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
             online: true,
             is_primary: false,
             access_level: AccessLevel::ReadOnly,
-            version: None,
+            domios_version: None,
+            domios_build: None,
             web_ui: None,
             relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
             consecutive_misses: 0,
@@ -449,7 +450,8 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
         online: true,
         is_primary: false,
         access_level: AccessLevel::Full,
-        version: None,
+        domios_version: None,
+        domios_build: None,
         web_ui: None,
         relay_protocol_version: 1,
         consecutive_misses: 0,
@@ -459,6 +461,8 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
         mesh.paired_peers["air"].relay_protocol_version
     };
     let announce = |relay_protocol_version| PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: "air".into(),
         instance_name: "air".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.7")],
@@ -729,7 +733,8 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
             online: true,
             is_primary: false,
             access_level: AccessLevel::Full,
-            version: None,
+            domios_version: None,
+            domios_build: None,
             web_ui: None,
             relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
             consecutive_misses: 0,

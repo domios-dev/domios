@@ -40,8 +40,6 @@ async function render(props: Parameters<typeof PeerTerminal>[0]): Promise<{ host
 const base = {
   name: "rollacode-bot",
   ip: "100.64.0.2",
-  isPaired: true,
-  accessLevel: "full" as const,
 };
 
 test("machine cards select the peer without a duplicate web action", async () => {
@@ -77,12 +75,9 @@ test("stale map capsules expose names and state without error announcements", as
 test("a discovered-not-paired peer never renders as paired (codeterm#440)", async () => {
   const { host, root } = await render({
     ...base,
-    isPaired: false,
-    pending: true,
-    accessLevel: "full",
   });
   assert(!host.textContent?.includes("paired ·"), "must not render the paired status line");
-  assert(host.textContent?.includes("pending · auto-pairs when online") === true, "shows the pending affordance instead");
+  assert(!host.textContent?.includes("auto-pairs when online"), "pending state belongs to the footer");
   await act(async () => root.unmount());
 });
 

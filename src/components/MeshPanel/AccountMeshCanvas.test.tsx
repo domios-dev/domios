@@ -1,3 +1,9 @@
+import { __setInvokeForTest } from "../../lib/bridge";
+import { ServiceDrawer } from "./ServiceDrawer";
+import { PeerAccountFooterView } from "./AccountCanvasNodes";
+import { MachineVersion } from "./MachineFooter";
+import { accountCanvas } from "./accountCanvas";
+import { myMachinesView } from "./accountMachines";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -117,7 +123,8 @@ describe("Mesh canvas wiring", () => {
   it("confirms a named machine sign-out on the canvas without removing its pairing", async () => {
     const client = new FakeAccountMeshClient(snapshot());
     await mount(client);
-    await click(button("Sign out MacBook"));
+    await act(async () => button("More for MacBook")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    await click([...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((entry) => entry.textContent === "Sign out this machine") ?? null);
     expect(client.sessionRevokeCalls).toEqual([]);
     const confirmation = node("MacBook")!.querySelector('[role="group"][aria-label="Sign out MacBook"]');
     expect(confirmation).not.toBeNull();
@@ -386,6 +393,89 @@ describe("Mesh canvas wiring", () => {
     expect(selected).toBe(1);
   });
 
+
+  it("shows one version and replaces the footer with confirmation, then restores it on Cancel", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("mesh-mac", "MacBook", { installation_id: macRow.installation_id })] }));
+    await mount(client, [peer("mesh-mac", "MacBook", { domios_version: "1.19.2", domios_build: "66576d9" })]);
+    const card = host.querySelector('[role="group"][aria-label="MacBook"]')!;
+    expect(card.textContent?.match(/Connected/g)).toHaveLength(1);
+    expect(card.textContent?.match(/Domios 1.19.2/g)).toHaveLength(1);
+    const more = button("More for MacBook")!;
+    more.focus();
+    await act(async () => more.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(document.activeElement?.textContent).toBe("Sign out this machine");
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(document.activeElement?.textContent).toBe("Remove from mesh");
+    expect(document.activeElement?.getAttribute("data-danger")).toBe("true");
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(document.activeElement).toBe(more);
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => more.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    await click(document.activeElement as HTMLElement);
+    expect(card.querySelector('button[aria-label="More for MacBook"]')).toBeNull();
+    expect(card.textContent).not.toContain("Domios 1.19.2");
+    await click([...card.querySelectorAll<HTMLButtonElement>("button")].find(entry => entry.textContent === "Cancel") ?? null);
+    expect(button("More for MacBook")).not.toBeNull();
+    expect(card.textContent).toContain("Domios 1.19.2");
+    expect(client.revokeCalls).toEqual([]);
+  });
+
+  it.each([
+    [false, false, "Unreachable", "last seen 2 h ago"],
+    [true, false, "Waiting to pair", "pairs when online"],
+    [false, true, "Connected", "Its own agents only"],
+  ])("presents one state for pending=%s online=%s", async (pending, online, label, secondary) => {
+    const remote = peer("mesh-mac", "MacBook", { pending, online, access_level: "agent_isolated", domios_version: "1.20.0" });
+    const state = snapshot({ pairs: [pair("mesh-mac", "MacBook", { installation_id: macRow.installation_id, online })] });
+    const canvas = accountCanvas({ view: myMachinesView({ account: "signed_in", snapshot: state, now: NOW }), peers: [remote], failures: new Map(), listFailed: false, loadFailed: false });
+    await act(async () => root.render(<PeerAccountFooterView footer={canvas.peerFooters.get("mesh-mac")!} peer={remote} name="MacBook" lastSeen={online ? null : "2h ago"} busy={false} actions={{ onPlans: () => {}, onDismiss: () => {} }} />));
+    expect(host.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(host.querySelector('[role="status"]')?.textContent).toBe(`${label} · ${secondary}`);
+    expect(button("More for MacBook")).toBeNull();
+  });
+
+  it("exposes the local version only on a mismatch dot and keeps build in the native title", async () => {
+    await act(async () => root.render(<MachineVersion version="1.19.2" build="66576d9" localVersion="1.20.0" />));
+    expect(host.querySelector('[role="img"]')?.getAttribute("aria-label")).toBe("This machine runs 1.20.0");
+    expect(host.firstElementChild?.getAttribute("title")).toBe("Build 66576d9");
+    expect(host.textContent).toBe("Domios 1.19.2");
+    await act(async () => root.render(<MachineVersion version="1.21.0" localVersion="1.20.0" />));
+    expect(host.querySelector('[role="img"]')?.getAttribute("title")).toBe("This machine runs 1.20.0");
+    await act(async () => root.render(<MachineVersion version="1.20.0" localVersion="1.20.0" />));
+    expect(host.querySelector('[role="img"]')).toBeNull();
+    await act(async () => root.render(<MachineVersion localVersion="1.20.0" />));
+    expect(host.textContent).toBe("");
+  });
+
+  it("changes peer access here using human labels and collapses raw failure details", async () => {
+    const requests: unknown[] = [];
+    let fail = false;
+    __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+      expect(command).toBe("mesh_set_access");
+      requests.push(args);
+      if (fail) throw new Error("opaque backend diagnostic");
+      return undefined as T;
+    });
+    try {
+      await act(async () => root.render(<ServiceDrawer state={{ kind: "peer", id: "MacBook" }} services={[]} peers={[peer("mesh-mac", "MacBook")]}
+        thisMachineName="Local" onClose={() => {}} onActionDone={() => {}} />));
+      const select = host.querySelector<HTMLSelectElement>('select[aria-label="Access for MacBook here"]')!;
+      expect([...select.options].map(option => option.textContent)).toEqual(["Full access", "Read only", "Its own agents only"]);
+      await act(async () => { select.value = "read_only"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+      expect(requests).toEqual([{ instanceId: "mesh-mac", accessLevel: "read_only" }]);
+      expect(host.textContent).toContain("MacBook now has Read only here.");
+      expect(select.value).toBe("read_only");
+      fail = true;
+      await act(async () => { select.value = "agent_isolated"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+      expect(host.textContent).toContain("Couldn't change MacBook's access. Try again.");
+      expect(host.querySelector<HTMLDetailsElement>("details")?.open).toBe(false);
+      expect(host.querySelector("details pre")?.textContent).toContain("opaque backend diagnostic");
+      expect(host.querySelector('[data-testid="mesh-peer-announcement"]')?.textContent).not.toContain("opaque");
+      expect(select.value).toBe("read_only");
+    } finally {
+      __setInvokeForTest(null);
+    }
+  });
 
   it("explains an empty account on the canvas", async () => {
     await mount(new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [selfRow] } })));

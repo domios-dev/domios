@@ -5,7 +5,7 @@ const CAPSULE = "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-[
 
 export function PeerCapsuleSections({ inventory }: { inventory: PeerInventory }) {
   return <div className="flex min-w-0 flex-col gap-2">
-    {([["Services", inventory.services], ["Crons", inventory.crons]] as const).map(([label, resources]) => {
+    {([["Services", inventory.services], ["Crons", inventory.crons]] as const).filter(([, resources]) => resources.length > 0).map(([label, resources]) => {
       const model = peerCapsuleModel(resources, inventory.state);
       return <section key={label} aria-label={label}>
         <h3 className="mb-1 text-[10px] text-[var(--ct-muted)]">{label}</h3>

@@ -12,7 +12,8 @@ pub(super) fn paired_peer(id: &str) -> PairedPeer {
         online: true,
         is_primary: false,
         access_level: types::AccessLevel::Full,
-        version: None,
+        domios_version: None,
+        domios_build: None,
         web_ui: None,
         relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         consecutive_misses: 0,
@@ -67,6 +68,8 @@ fn apply_offline_announce_clears_addresses_and_marks_peer_offline() {
         .apply_announce(
             "peer-1",
             &types::PeerAnnounce {
+                domios_version: None,
+                domios_build: None,
                 instance_id: "peer-1".into(),
                 instance_name: "peer".into(),
                 addresses: Vec::new(),
@@ -97,6 +100,8 @@ fn apply_online_empty_announce_keeps_existing_addresses() {
         .apply_announce(
             "peer-1",
             &types::PeerAnnounce {
+                domios_version: None,
+                domios_build: None,
                 instance_id: "peer-1".into(),
                 instance_name: "peer".into(),
                 addresses: Vec::new(),
@@ -126,6 +131,8 @@ fn apply_offline_announce_reports_change_when_addresses_already_empty() {
         .apply_announce(
             "peer-1",
             &types::PeerAnnounce {
+                domios_version: None,
+                domios_build: None,
                 instance_id: "peer-1".into(),
                 instance_name: "peer".into(),
                 addresses: Vec::new(),

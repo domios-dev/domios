@@ -172,7 +172,7 @@ pub(super) fn resolve_relay_peer(
         ));
     }
     let name = peer.instance_name.clone();
-    let version = peer.version.clone();
+    let version = peer.domios_version.clone();
     let instance_id = peer.instance_id.clone();
     let client = mesh
         .client_for(&instance_id)
