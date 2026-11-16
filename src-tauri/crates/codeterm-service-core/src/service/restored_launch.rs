@@ -369,7 +369,7 @@ impl RestoredFreshLaunchInput {
             ),
         })
     }
-    pub(crate) fn prepared_command(
+    pub fn prepared_command(
         &self,
         service: &crate::service::ServiceContext,
         tab_id: &str,

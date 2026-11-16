@@ -40,7 +40,7 @@ impl ListenerPublication {
         self.state.lock().remote_bind
     }
 
-    pub(crate) fn primary_ready(&self) -> Vec<SocketAddr> {
+    pub fn primary_ready(&self) -> Vec<SocketAddr> {
         self.state.lock().ready.clone()
     }
 
@@ -49,7 +49,7 @@ impl ListenerPublication {
         combined_ready(&state)
     }
 
-    pub(crate) fn publish_tailnet(&self, ready: Vec<SocketAddr>) {
+    pub fn publish_tailnet(&self, ready: Vec<SocketAddr>) {
         self.update_ready(move |state| state.tailnet = ready);
     }
 

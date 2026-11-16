@@ -13,7 +13,7 @@ pub(crate) fn skip_local_worker_role(
 
 pub use super::launch_env::PreparedAgentCommand;
 pub(crate) use crate::agent::registry::AgentRegistry;
-pub(crate) use command::prepare_agent_command_for_service;
+pub use command::prepare_agent_command_for_service;
 mod credentials;
 mod generation_registry;
 use generation_registry::LaunchRegistry;

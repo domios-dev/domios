@@ -659,7 +659,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn reconcile_authenticated_agent_input(&self, tab_id: &str) {
+    pub fn reconcile_authenticated_agent_input(&self, tab_id: &str) {
         if let Err(error) = self.bind_authenticated_durable_deliveries(tab_id) {
             log::error!(
                 "[agent-delivery] authenticated launch binding failed tab={tab_id}: {error}"

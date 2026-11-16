@@ -126,7 +126,7 @@ pub(super) fn spawn(
 ) -> Result<Process, RuntimeFailure> {
     let (binary, cap) = (launch.binary.as_path(), &launch.capability);
     let cwd = launch.process_cwd(tab_cwd);
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(test)]
     if let Some(factory) = test_ports::factory(_tab) {
         test_ports::record_spawn(_tab, &env, cwd);
         return Ok(factory());

@@ -1,5 +1,8 @@
 use crate::prelude::*;
-use codeterm_service_core::service::agent_runtime::engine::{self, sync_fixture as sync_send, *};
+use codeterm_plugin::agent_runtime::RuntimeSettings;
+use codeterm_service_core::service::agent_runtime::engine::{sync_fixture as sync_send, *};
+use codeterm_service_core::service::agent_runtime::model::RuntimePhase;
+use serde_json::Value;
 use std::{sync::Arc, time::Duration};
 
 #[test]
@@ -104,7 +107,9 @@ module.exports = {
             options.binding_nonce,
             saved.session_binding_nonce.clone().unwrap()
         );
-        let restored = super::super::launch_options::restore(svc, &tab_id).unwrap();
+        let restored =
+            codeterm_service_core::service::agent_runtime::launch_options::restore(svc, &tab_id)
+                .unwrap();
         crate::service::execution_sandbox::validate_runtime_settings(&policy, &restored, &cwd)
             .unwrap();
         session

@@ -533,7 +533,7 @@ async fn ensure_with_fork(
     Ok(session)
 }
 
-async fn ensure_locked(
+pub async fn ensure_locked(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,

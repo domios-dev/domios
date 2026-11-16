@@ -6,7 +6,7 @@ use crate::service::{
 use codeterm_plugin::agent_runtime::{validate_runtime_settings, RuntimeSettings};
 use std::path::PathBuf;
 
-fn validate_host_directories(roots: Vec<PathBuf>) -> Result<Vec<String>, String> {
+pub fn validate_host_directories(roots: Vec<PathBuf>) -> Result<Vec<String>, String> {
     let mut directories = Vec::new();
     for root in roots {
         if !root.is_absolute() || !root.is_dir() {
@@ -300,7 +300,7 @@ fn runtime_settings(options: &RestorableRuntimeLaunchOptions) -> RuntimeSettings
     }
 }
 
-pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSettings, String> {
+pub fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSettings, String> {
     let (provider, nonce, requested, settings, structured_runtime_mode) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(tab_id).ok_or("Runtime tab unavailable")?;

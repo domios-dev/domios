@@ -3,7 +3,7 @@ mod daemon;
 mod resolution;
 
 mod in_app;
-pub(in crate::service) use in_app::InAppNotice;
+pub use in_app::InAppNotice;
 
 #[cfg(test)]
 use codeterm_notification_core::contract::NotificationAction;

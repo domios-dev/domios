@@ -1,6 +1,8 @@
 use crate::prelude::*;
 use codeterm_service_core::service::agent_runtime::launch_options::test_support::register_neighbor_runtime;
 use codeterm_service_core::service::agent_runtime::launch_options::*;
+use codeterm_service_core::service::SpawnAgentParams;
+use std::path::PathBuf;
 
 #[test]
 fn concierge_runtime_restart_carries_only_the_current_root_grant() {
@@ -55,8 +57,15 @@ fn concierge_runtime_restart_carries_only_the_current_root_grant() {
             .unwrap();
         svc.prepare_agent_runtime_launch_options(&id, &params)
             .unwrap();
-        super::super::authority::record_spawn_for_test(svc, &id, "pad-runtime", "old-nonce");
-        let expected = super::restore(svc, &id).unwrap();
+        codeterm_service_core::service::agent_runtime::authority::record_spawn_for_test(
+            svc,
+            &id,
+            "pad-runtime",
+            "old-nonce",
+        );
+        let expected =
+            codeterm_service_core::service::agent_runtime::launch_options::restore(svc, &id)
+                .unwrap();
         let policy = svc
             .mux
             .read()
@@ -67,10 +76,19 @@ fn concierge_runtime_restart_carries_only_the_current_root_grant() {
             .clone();
         let mut nonce = "old-nonce".to_owned();
         for _ in 0..2 {
-            let next =
-                super::super::authority::rotate_restart(svc, &id, "pad-runtime", &nonce).unwrap();
+            let next = codeterm_service_core::service::agent_runtime::authority::rotate_restart(
+                svc,
+                &id,
+                "pad-runtime",
+                &nonce,
+            )
+            .unwrap();
             assert_ne!(next, nonce);
-            assert_eq!(super::restore(svc, &id).unwrap(), expected);
+            assert_eq!(
+                codeterm_service_core::service::agent_runtime::launch_options::restore(svc, &id)
+                    .unwrap(),
+                expected
+            );
             let mux = svc.mux.read();
             let tab = mux.get_tab(&id).unwrap();
             assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
@@ -94,15 +112,29 @@ fn concierge_runtime_restart_carries_only_the_current_root_grant() {
             .neighbors()
             .carry_neighbor_restore_grant(&id, "foreign-nonce", "foreign-nonce")
             .is_err());
-        assert!(super::restore(svc, &id).is_err());
+        assert!(
+            codeterm_service_core::service::agent_runtime::launch_options::restore(svc, &id)
+                .is_err()
+        );
         svc.mux
             .write()
             .get_tab_mut(&id)
             .unwrap()
             .session_binding_nonce = Some(nonce.clone());
         svc.neighbor_identity_changed();
-        assert!(super::super::authority::rotate_restart(svc, &id, "pad-runtime", &nonce).is_err());
-        assert!(super::restore(svc, &id).is_err());
+        assert!(
+            codeterm_service_core::service::agent_runtime::authority::rotate_restart(
+                svc,
+                &id,
+                "pad-runtime",
+                &nonce
+            )
+            .is_err()
+        );
+        assert!(
+            codeterm_service_core::service::agent_runtime::launch_options::restore(svc, &id)
+                .is_err()
+        );
     }
 }
 
@@ -242,7 +274,11 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
                     1,
                 );
                 assert_eq!(
-                    super::restore(&fixture.service, &tab_id).unwrap_err(),
+                    codeterm_service_core::service::agent_runtime::launch_options::restore(
+                        &fixture.service,
+                        &tab_id
+                    )
+                    .unwrap_err(),
                     codeterm_neighbors::Error::RestoreGrantRequired.to_string()
                 );
                 fixture.load_neighbor_restore_settings("owner").await;
@@ -257,7 +293,11 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
                     .unwrap()
                     .session_binding_nonce = Some("restored-nonce".into());
                 assert_eq!(
-                    super::restore(&fixture.service, &tab_id).unwrap_err(),
+                    codeterm_service_core::service::agent_runtime::launch_options::restore(
+                        &fixture.service,
+                        &tab_id
+                    )
+                    .unwrap_err(),
                     codeterm_neighbors::Error::RestoreGrantRequired.to_string()
                 );
                 fixture
@@ -268,7 +308,10 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
                 fixture
             };
             let svc = &fixture.service;
-            let options = super::restore(svc, &tab_id).unwrap();
+            let options = codeterm_service_core::service::agent_runtime::launch_options::restore(
+                svc, &tab_id,
+            )
+            .unwrap();
             assert_eq!(options.mode.as_deref(), Some(mode));
             let pad = svc.ensure_agent_pad(&tab_id).unwrap();
             assert_eq!(
@@ -366,7 +409,8 @@ fn contradictory_neighbor_bypass_records_require_current_root_grant_for_both_res
                     codeterm_neighbors::Error::RestoreGrantRequired.to_string()
                 );
                 assert_eq!(
-                    super::restore(svc, id).unwrap_err(),
+                    codeterm_service_core::service::agent_runtime::launch_options::restore(svc, id)
+                        .unwrap_err(),
                     codeterm_neighbors::Error::RestoreGrantRequired.to_string()
                 );
                 assert!(svc
