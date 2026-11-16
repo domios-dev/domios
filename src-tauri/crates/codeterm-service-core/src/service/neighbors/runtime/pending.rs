@@ -41,6 +41,10 @@ impl ServiceContext {
             "receiving_elsewhere"
         } else if paused {
             "paused"
+        } else if settings.dormant_concierges.contains_key(friendship)
+            && !settings.permissions.contains_key(friendship)
+        {
+            "concierge_access_needed"
         } else {
             self.neighbor_concierge_lifecycle(
                 settings.bindings.get(friendship).map(String::as_str),
@@ -122,6 +126,9 @@ impl ServiceContext {
         {
             return "concierge_auth_needed";
         }
+        if tab.boot_stage == Some(BootStage::SpawnFailed) {
+            return "concierge_provider_refused";
+        }
         if matches!(phase, Some("degraded" | "unloaded")) {
             return if code == Some("provider_refused") {
                 "concierge_provider_refused"
@@ -130,9 +137,6 @@ impl ServiceContext {
             } else {
                 "concierge_crashed"
             };
-        }
-        if tab.boot_stage == Some(BootStage::SpawnFailed) {
-            return "concierge_provider_refused";
         }
         if tab.agent_type.is_none()
             || tab.exit_suspected_at.is_some()

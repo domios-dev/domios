@@ -87,7 +87,7 @@ impl ServiceContext {
             .await
             .map_err(|error| error.to_string())?;
         let receiver = ConciergeReceiver {
-            binding,
+            binding: binding.clone(),
             revision: receiver_revision,
         };
         if settings.concierge_receivers.get(friendship) != Some(&receiver) {
@@ -100,12 +100,47 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
         }
         if receiving_here {
-            match restore().await {
-                Ok(()) => {}
-                Err(error) if launch_error(error.clone()) == Error::RestoreGrantRequired => {
+            if let Err(error) = restore().await {
+                self.require_neighbor_generation(generation)?;
+                self.require_neighbor_concierge_receiver(friendship)
+                    .map_err(|error| error.to_string())?;
+                if launch_error(error.clone()) == Error::RestoreGrantRequired {
                     self.clear_neighbor_friend_restore_grants(uid, friendship);
                 }
-                Err(error) => return Err(error),
+                let settings = metadata
+                    .settings()
+                    .await
+                    .map_err(|error| error.to_string())?;
+                self.require_neighbor_generation(generation)?;
+                if self.neighbor_friend_receiver_binding(friendship).as_deref()
+                    != Some(binding.as_str())
+                {
+                    return Err(
+                        "neighbor_receiver_changed: Effective receiving changed during restoration"
+                            .into(),
+                    );
+                }
+                if let Some(tab) = settings.bindings.get(friendship).filter(|tab| {
+                    self.validate_neighbor_gateway(tab).is_ok()
+                        && self.mux.read().get_tab(tab).is_some_and(|tab| {
+                            tab.neighbor_authority.as_ref().is_some_and(|authority| {
+                                authority.uid == uid && authority.friendship_id == friendship
+                            })
+                        })
+                }) {
+                    self.emit_boot_stage(
+                        tab,
+                        codeterm_types::pty::BootStage::SpawnFailed,
+                        Some(&error),
+                    );
+                }
+                log::debug!(
+                    "[neighbors] concierge restore failed friendship={friendship}: {error}"
+                );
+                self.ui.emit(
+                    "neighbor-agent-changed",
+                    json!({"friendship_id":friendship,"gateway_tab":settings.bindings.get(friendship)}),
+                );
             }
         }
         Ok(())

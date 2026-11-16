@@ -49,6 +49,11 @@ async fn missing_saved_permission_never_fabricates_a_bound_or_dormant_restore_gr
             )
             .await;
         assert_eq!(result.unwrap_err(), Error::RestoreGrantRequired.to_string());
+        let receiver = service.neighbor_friend_receiver(&friend).unwrap();
+        assert_eq!(
+            service.neighbor_concierge_view(&friend, &settings, &receiver)["state"],
+            "concierge_access_needed"
+        );
         assert!(service.require_neighbor_restore_grant(&root, true).is_err());
         assert!(service
             .require_neighbor_restore_grant(&root, false)
