@@ -94,7 +94,10 @@ pub fn write_canvas_file(
             "Local preview source exceeds {CANVAS_FILE_LIMIT} bytes"
         ));
     }
-    let (identity, _) = read_canvas(raw, &guard)?;
+    // Resolving the identity keeps no handle open, so it never blocks another writer's rename.
+    let identity = super::checked_path(raw)?
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve preview file: {error}"))?;
     let file_lock = FileLock::new(&identity);
     let _held = file_lock
         .lock
