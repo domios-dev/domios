@@ -19,7 +19,6 @@ impl OrchestrationPort for RecordingOrchestration {
     fn schedule_planner_replay(&self, tab_id: &str) {
         let _ = (tab_id,);
         self.calls.lock().push("schedule_planner_replay");
-        ()
     }
     fn bind_planner_session(&self, tab_id: &str) -> Result<(), String> {
         let _ = (tab_id,);
@@ -43,7 +42,6 @@ impl OrchestrationPort for RecordingOrchestration {
         self.calls
             .lock()
             .push("reconcile_time_reminder_eligibility");
-        ()
     }
     fn expect_spawn_parent_link(&self, tab_id: &str, expected_parent: &str) -> Result<(), String> {
         let _ = (tab_id, expected_parent);
@@ -53,7 +51,6 @@ impl OrchestrationPort for RecordingOrchestration {
     fn clear_dead_planner_binding(&self, tab_id: &str) {
         let _ = (tab_id,);
         self.calls.lock().push("clear_dead_planner_binding");
-        ()
     }
     fn curator_suspended_reason_for_fields(
         &self,
@@ -81,7 +78,6 @@ impl OrchestrationPort for RecordingOrchestration {
     fn curator_turn_settled(&self, tab_id: &str) {
         let _ = (tab_id,);
         self.calls.lock().push("curator_turn_settled");
-        ()
     }
     fn reconcile_curator_id(
         &self,
@@ -97,7 +93,6 @@ impl OrchestrationPort for RecordingOrchestration {
         self.calls
             .lock()
             .push("complete_worker_turn_without_report");
-        ()
     }
     fn send_refused_report_diagnostic(
         &self,
@@ -110,7 +105,6 @@ impl OrchestrationPort for RecordingOrchestration {
     }
     fn start_plan_reminder_scheduler(&self) {
         self.calls.lock().push("start_plan_reminder_scheduler");
-        ()
     }
     fn deliver_tab_todo_recitation(&self, tab_id: &str, text: &str) -> Result<bool, String> {
         let _ = (tab_id, text);
