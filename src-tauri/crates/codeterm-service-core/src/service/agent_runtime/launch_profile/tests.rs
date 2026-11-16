@@ -139,3 +139,21 @@ fn profile_client_capabilities_only_restrict_selected_bridges() {
     .unwrap();
     assert_eq!(selected.capability.client_bridges, None);
 }
+
+#[test]
+fn earlier_receipt_script_paths_are_simplified_at_launch() {
+    for (script, expected) in [
+        (r"\\?\C:\profile\agent.js", r"C:\profile\agent.js"),
+        (r"\\?\UNC\server\share\agent.js", r"\\server\share\agent.js"),
+        ("/profile/agent.js", "/profile/agent.js"),
+    ] {
+        let stored = AgentRuntimeCommand {
+            binary: "node".into(),
+            args: vec![script.into(), "--stdio".into(), r"\\?\C:\literal".into()],
+        };
+        let launched = command_from_receipt(stored.clone());
+        assert_eq!(stored.args[0], script);
+        assert_eq!(launched.binary, stored.binary);
+        assert_eq!(launched.args, [expected, "--stdio", r"\\?\C:\literal"]);
+    }
+}

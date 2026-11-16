@@ -5,6 +5,7 @@ async fn planner_pty_session_claim_finalization_records_only_verified_registered
     use codeterm_service_core::plan::{OrchestratorRef, Plan, PlannerRef};
     use codeterm_service_core::service::test_fixture::ServiceFixture;
     let (mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    codeterm_orchestration::register_orchestration();
     let fx = ServiceFixture::new(mux);
     let mut plan = Plan::new(
         "spawned planner".into(),
