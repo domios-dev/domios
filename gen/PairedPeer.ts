@@ -11,7 +11,7 @@ public_key: string,
 /**
  * ISO 8601 timestamp.
  */
-paired_at: string, last_seen: string | null, online: boolean, is_primary: boolean, access_level: AccessLevel, version: string | null, web_ui: WebUiAnnouncement | null, relay_protocol_version: number, 
+paired_at: string, last_seen: string | null, online: boolean, is_primary: boolean, access_level: AccessLevel, domios_version?: string | null, domios_build?: string | null, web_ui: WebUiAnnouncement | null, relay_protocol_version: number, 
 /**
  * Learned from signed mesh gossip; not persisted to disk.
  */
