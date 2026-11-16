@@ -4,32 +4,41 @@ use codeterm_neighbors::{
 };
 use tokio::sync::{mpsc, watch};
 
+pub(super) enum Event {
+    PaidChanged,
+    Registry(Option<RegistrySignal>),
+}
+
 pub(super) fn guard(
     mut listener: Box<dyn RegistryListener>,
     mut changes: watch::Receiver<u64>,
-) -> Box<dyn RegistryListener> {
+) -> Signals {
     let (sender, receiver) = mpsc::channel(1);
     let task = tokio::spawn(async move {
-        tokio::select! {
+        let changed = tokio::select! {
             biased;
-            _ = changes.changed() => {},
-            _ = async move {
+            _ = changes.changed() => true,
+            _ = async {
                 loop {
                     let event = listener.next().await;
                     let ended = !matches!(&event, Ok(Some(_)));
-                    if sender.send(event).await.is_err() || ended {
+                    if sender.send(event.map(Event::Registry)).await.is_err() || ended {
                         return;
                     }
                 }
-            } => {},
+            } => false,
+        };
+        drop(listener);
+        if changed {
+            let _ = sender.send(Ok(Event::PaidChanged)).await;
         }
     });
-    Box::new(Signals { task, receiver })
+    Signals { task, receiver }
 }
 
-struct Signals {
+pub(super) struct Signals {
     task: tokio::task::JoinHandle<()>,
-    receiver: mpsc::Receiver<Result<Option<RegistrySignal>>>,
+    receiver: mpsc::Receiver<Result<Event>>,
 }
 
 impl Drop for Signals {
@@ -38,10 +47,12 @@ impl Drop for Signals {
     }
 }
 
-#[async_trait::async_trait]
-impl RegistryListener for Signals {
-    async fn next(&mut self) -> Result<Option<RegistrySignal>> {
-        self.receiver.recv().await.unwrap_or(Ok(None))
+impl Signals {
+    pub(super) async fn next(&mut self) -> Result<Event> {
+        self.receiver
+            .recv()
+            .await
+            .unwrap_or(Ok(Event::Registry(None)))
     }
 }
 
