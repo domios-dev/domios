@@ -8,8 +8,7 @@ use axum::{
 };
 use codeterm_account::{Account, Browser, CredentialStore, Identity, IdentityObserver, Secret};
 use codeterm_service_core::{
-    multiplexer::state::MultiplexerState,
-    service::{account::AccountCell, test_fixture::ServiceFixture},
+    multiplexer::state::MultiplexerState, service::neighbor_account::AccountCell,
 };
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
@@ -52,7 +51,7 @@ impl IdentityObserver for HeldIdentity {
 
 #[tokio::test]
 async fn held_identity_observer_keeps_account_status_and_real_health_responsive() {
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::test_support::app_state(&fixture);
     let observer = Arc::new(HeldIdentity::default());
     let account = Arc::new(

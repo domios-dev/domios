@@ -22,7 +22,7 @@ mod tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum WorkerLossCause {
+pub enum WorkerLossCause {
     TabGone,
     ProcessExited,
     AgentUnavailable,
@@ -30,7 +30,7 @@ pub(crate) enum WorkerLossCause {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
-pub(crate) enum LaneState {
+pub enum LaneState {
     NoLane,
     Missing,
     Clean,
@@ -39,7 +39,7 @@ pub(crate) enum LaneState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct WorkerLoss {
+pub struct WorkerLoss {
     pub plan_id: String,
     pub task_id: String,
     pub task_name: String,
@@ -356,7 +356,7 @@ impl ServiceContext {
             })
     }
 
-    pub(crate) fn worker_losses_for_tab(
+    pub fn worker_losses_for_tab(
         &self,
         tab_id: &str,
         cause: WorkerLossCause,
@@ -388,7 +388,7 @@ impl ServiceContext {
 
     /// Pushes each loss once: an Orchestrator notice (withheld until its agent is ready)
     /// and a `worker-lost` bus event carrying the structured record and its outcome.
-    pub(crate) fn report_worker_losses(&self, losses: Vec<WorkerLoss>) {
+    pub fn report_worker_losses(&self, losses: Vec<WorkerLoss>) {
         let mut routed = Vec::new();
         for loss in losses {
             let loss = match self.refresh_worker_loss_recovery(&loss) {

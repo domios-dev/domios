@@ -15,6 +15,8 @@ struct ShellTrace {
     cancel_after_key: Option<usize>,
     finish_after_start: bool,
     replacement: RefCell<Option<SubmitCycleClaim>>,
+    submit_keys: ShellSubmitKeys,
+    start_while_waiting: bool,
 }
 
 impl ShellTrace {
@@ -37,6 +39,8 @@ impl ShellTrace {
             cancel_after_key: None,
             finish_after_start: true,
             replacement: RefCell::new(None),
+            submit_keys: ShellSubmitKeys::Send,
+            start_while_waiting: false,
         }
     }
     fn start(&self, pty: &str, command: &str, nonce: &str) {
@@ -72,10 +76,17 @@ impl SubmitTransport for ShellTrace {
             .is_some_and(ExecWaiter::started)
     }
     fn max_submit_keys(&self) -> usize {
-        4
+        self.submit_keys.limit()
     }
     fn retry_active(&self) -> bool {
         self.claim.is_current()
+    }
+    fn wait_for_deferred_submit_ready(&self, _: Instant) -> DeferredSubmitWait {
+        if !self.start_while_waiting || self.exact_user_turn_present("opaque") {
+            return DeferredSubmitWait::Deadline;
+        }
+        self.start(&self.pty, "opaque", "nonce");
+        DeferredSubmitWait::Woken
     }
     fn prewrite_guard(&self) -> Result<(), InjectionError> {
         let (wake_tx, wake_rx) = mpsc::sync_channel(1);
@@ -89,6 +100,7 @@ impl SubmitTransport for ShellTrace {
             wake_rx,
             waiter: RefCell::new(None),
             queued: None,
+            submit_keys: self.submit_keys,
         }
         .prewrite_guard()
     }
@@ -162,6 +174,26 @@ fn leftover_input_foreign_and_stale_marks_never_confirm_the_shell_send() {
         result.require_submission(true, elapsed, String::new()),
         Err(InjectionError::SubmitNeverConfirmed { .. })
     ));
+}
+
+#[test]
+fn utility_command_writes_one_enter_whether_its_start_is_late_or_absent() {
+    for (pty, start_while_waiting) in [("utility-late-start", true), ("utility-no-start", false)] {
+        let mut trace = ShellTrace::new(pty, None);
+        trace.submit_keys = ShellSubmitKeys::UtilityCommand;
+        trace.start_while_waiting = start_while_waiting;
+        let result = run_shell(&trace, "opaque").unwrap();
+        assert_eq!(*trace.writes.borrow(), ["opaque", "enter"]);
+        assert_eq!(result.submit_key_writes, 1);
+        assert_eq!(result.submit_observed, start_while_waiting);
+        let elapsed = result.elapsed;
+        assert_eq!(
+            result
+                .require_submission(true, elapsed, String::new())
+                .is_ok(),
+            start_while_waiting
+        );
+    }
 }
 
 #[test]

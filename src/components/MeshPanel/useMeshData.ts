@@ -27,6 +27,8 @@ export interface PeerStatus {
   api_port: number;
   online: boolean;
   access_level: string;
+  domios_version?: string | null;
+  domios_build?: string | null;
   last_seen: string | null;
   /** Vouched-but-not-yet-paired. UI shows in Paired section with "auto-pairs when online". */
   pending?: boolean;
@@ -230,6 +232,8 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           online: p.online,
           access_level: typeof p.access_level === "string" ? p.access_level : "custom",
           last_seen: p.last_seen,
+          domios_version: p.domios_version || dataRef.current.peers.find((peer) => peer.instance_id === p.instance_id)?.domios_version,
+          domios_build: p.domios_build || dataRef.current.peers.find((peer) => peer.instance_id === p.instance_id)?.domios_build,
           relay_protocol_version: p.relay_protocol_version,
         }),
       );

@@ -135,7 +135,7 @@ pub trait RolePolicy: Send + Sync {
 
 pub fn resolve(value: Option<&str>) -> Option<&'static dyn RolePolicy> {
     match value.and_then(RoleProfile::parse) {
-        Some(RoleProfile::Curator) => Some(&super::curator::policy::POLICY),
+        Some(RoleProfile::Curator) => Some(&super::curator_policy::POLICY),
         None => None,
     }
 }

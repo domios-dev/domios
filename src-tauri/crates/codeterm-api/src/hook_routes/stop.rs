@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_orchestration::traits::HierarchyWorkerHandoffExt;
 use codeterm_service_core::service::MuxEmitCause;
 
 /// Hook endpoint: agent stopped (task complete). Called by the Stop hook of

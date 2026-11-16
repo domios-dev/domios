@@ -44,19 +44,19 @@ impl ServiceContext {
         self.apply_limit_gate(self.limit_gate());
     }
 
-    pub(crate) fn apply_limit_gate(&self, gate: LimitGate) {
+    pub fn apply_limit_gate(&self, gate: LimitGate) {
         self.project_limit_gate(gate, false);
     }
 
     /// Deadline ticks always announce, so a UI deferring lock presentation learns checking ended.
-    pub(crate) fn announce_limit_gate(&self) {
+    pub fn announce_limit_gate(&self) {
         self.project_limit_gate(self.limit_gate(), true);
     }
 
     fn project_limit_gate(&self, gate: LimitGate, announce: bool) {
         let summary = gate.summary();
         let change = self.mux.write().set_limit_gate(gate);
-        self.neighbor_entitlements_changed(change.gate);
+        self.neighbors().neighbor_entitlements_changed(change.gate);
         if !change.gate && !announce {
             return;
         }
@@ -71,4 +71,7 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

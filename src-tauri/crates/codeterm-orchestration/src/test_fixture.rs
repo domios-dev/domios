@@ -69,3 +69,15 @@ pub(crate) fn install_team_close_ports(
     ));
     crate::team::tests::sentinel_fixture::manage(&instance.fixture.service, &sentinels);
 }
+
+pub(crate) fn plan_authority_fixture() -> (
+    ServiceFixture,
+    String,
+    codeterm_service_core::service::AuthenticatedPlanCaller,
+    codeterm_service_core::service::AuthenticatedPlanCaller,
+) {
+    crate::register_orchestration();
+    let (fixture, id, owner, planner) =
+        codeterm_service_core::service::plan_authority::test_fixture::fixture();
+    (ServiceFixture(fixture), id, owner, planner)
+}

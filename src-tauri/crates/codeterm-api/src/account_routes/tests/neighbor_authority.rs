@@ -24,7 +24,7 @@ fn fixture() -> (ServiceFixture, AppState, String, String, String, String) {
         Some(codeterm_service_core::multiplexer::types::AgentRole::Manager);
     mux.get_tab_mut(&general).unwrap().role_profile =
         Some(codeterm_service_core::service::general_agent::GENERAL_AGENT_KIND.into());
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     state.config.lock().account = json!({"provider":"local"});
     let token = |id: &str| {
@@ -169,7 +169,7 @@ async fn general_credentials_reach_neighbor_service_and_other_tabs_cannot_author
 
 #[tokio::test]
 async fn unrelated_tabs_are_refused_all_runtime_surfaces_and_lifecycle_is_owner_only() {
-    use codeterm_service_core::service::neighbors::NeighborRuntimeCommand;
+    use codeterm_neighbors_service::service::neighbors::NeighborRuntimeCommand;
 
     let (_fixture, state, _, _, general, other) = fixture();
     let router = crate::routes::create_router(state);

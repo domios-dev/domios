@@ -130,6 +130,48 @@ it("an obsolete surface never retries after consent", async () => {
   expect(action).toHaveBeenCalledTimes(1);
 });
 
+it.each(["same", "revoked", "dropped"])("update with %s permissions keeps prior decisions silent", async (change) => {
+  const current = snapshot();
+  current.plugins[0].version = "2.0.0";
+  current.plugins[0].sensitive_permissions = change === "dropped" ? [] : [{ ...permission, allowed: change === "same", decided: true }];
+  vi.mocked(invoke).mockResolvedValue(current);
+  await mount();
+  await act(async () => { await runPluginSnapshotAction({ kind: "update", pluginId: "fixture" }); });
+  expect(getPluginConsent()).toBeNull();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(invoke).toHaveBeenCalledExactlyOnceWith("plugin_manager_action", { action: { kind: "update", pluginId: "fixture" } });
+});
+
+it("update asks once for only the added permission and keeps grants and revocations", async () => {
+  const current = snapshot();
+  const retained = [
+    { ...permission, allowed: true, decided: true },
+    { key: "spawn_agents", label: "Start agents", allowed: false, decided: true },
+  ];
+  current.plugins[0].version = "2.0.0";
+  current.plugins[0].sensitive_permissions = [...retained, { key: "project_write", label: "Write project files", allowed: false, decided: false }];
+  vi.mocked(invoke).mockImplementation(async (_command, args) => {
+    const action = args?.action as { kind: string; permission?: string; allowed?: boolean };
+    if (action.kind === "permission") {
+      expect(action.permission).toBe("project_write");
+      current.plugins[0].sensitive_permissions = [...retained, { key: "project_write", label: "Write project files", allowed: action.allowed!, decided: true }];
+    }
+    return current;
+  });
+  await mount();
+  let result: Promise<PluginSnapshot>;
+  await act(async () => { result = runPluginSnapshotAction({ kind: "update", pluginId: "fixture" }); });
+  expect(getPluginConsent()?.permission).toBe("project_write");
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  await act(async () => button("Allow").click());
+  await result!;
+  expect(getPluginConsent()).toBeNull();
+  expect(current.plugins[0].sensitive_permissions).toEqual([...retained, { key: "project_write", label: "Write project files", allowed: true, decided: true }]);
+  await act(async () => { await runPluginSnapshotAction({ kind: "update", pluginId: "fixture" }); });
+  expect(getPluginConsent()).toBeNull();
+  expect(invoke).toHaveBeenCalledTimes(3);
+});
+
 it("iframe consent preserves the host-stamped plugin, call ID and reply channel", async () => {
   let attempts = 0;
   vi.mocked(invoke).mockImplementation(async (command) => {

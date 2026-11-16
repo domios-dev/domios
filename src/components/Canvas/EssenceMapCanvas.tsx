@@ -1,6 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { List, Network, X } from "lucide-react";
+import { useCanvasStage, CANVAS_ZOOM_STEP } from "@codeterm/chat-ui/useCanvasStage";
 import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { BusyState } from "../shared/BusyState";
@@ -17,7 +18,7 @@ import { fetchEssenceSource, fetchWorkspaceEssenceMaps } from "./essenceMapApi";
 import { extractEssenceSection } from "./essenceSourceSection";
 import { EssenceMapProjectView, projectName } from "./EssenceMapProjectView";
 import { layoutEssenceMapWorld, parseEssenceMapProject, projectPathsForWorkspace, type EssenceMapFile, type EssenceMapNode, type EssenceMapProject } from "./essenceMapModel";
-import { AUTO_FIT_MAX_SCALE, formatLayerTransform, useCanvasViewport } from "@codeterm/canvas-camera";
+import { AUTO_FIT_MAX_SCALE, formatLayerTransform } from "@codeterm/canvas-camera";
 import { EssenceDocumentTree, type EssenceDocumentEntry } from "./essenceDocumentTree";
 import { EssenceMapEmptyState } from "./EssenceMapEmptyState";
 import { askOrchestratorToBuildMap, findWorkspaceOrchestrator, type MapOrchestrator } from "./essenceMapOrchestrator";
@@ -26,7 +27,6 @@ interface EssenceMapCanvasProps { workspaceId: string; onClose: () => void; }
 interface EssenceMapCanvasInnerProps { workspace: Workspace; mapFiles: EssenceMapFile[]; loading?: boolean; error?: string | null; onRetry?: () => void; sourceReader?: (projectPath: string, sourcePath: string) => Promise<string>; visible?: boolean; documentSelection?: { project: EssenceMapProject; entry: EssenceDocumentEntry } | null; orchestrator?: MapOrchestrator | null; onAskOrchestrator?: (orchestrator: MapOrchestrator) => Promise<void>; providers?: ProviderDescriptor[]; providersLoading?: boolean; providersError?: string | null; onStartCartographer?: (draft: CartographerMapDraft) => Promise<void>; onOpenCartographer?: (mode: CartographerMapMode) => void; toolbarView?: ReactNode; }
 interface SourcePanelState { node: EssenceMapNode; projectPath: string; state: "loading" | "ready" | "error"; content?: string; error?: string; }
 const DEFAULT_WIDTH = 720;
-const ZOOM_STEP = 0.25;
 
 /** Windows extended-length paths carry a \\?\ prefix that must never reach the UI. */
 function displayPath(path: string): string { return path.replace(/^\\\\\?\\/, ""); }
@@ -39,28 +39,20 @@ function EssenceSourcePanel({ source, onClose }: { source: SourcePanelState; onC
 
 
 function EssenceMapCanvasInnerBase({ workspace, mapFiles, loading = false, error = null, onRetry, sourceReader = fetchEssenceSource, visible = true, documentSelection = null, orchestrator = null, onAskOrchestrator, onOpenCartographer, toolbarView }: EssenceMapCanvasInnerProps) {
-  const [size, setSize] = useState({ width: DEFAULT_WIDTH, height: 600 });
   const [source, setSource] = useState<SourcePanelState | null>(null);
   const requestRef = useRef(0);
   const projects = useMemo(() => mapFiles.map(parseEssenceMapProject), [mapFiles]);
-  const world = useMemo(() => layoutEssenceMapWorld(projects, size.width), [projects, size.width]);
   const hasContent = projects.some((project) => project.status === "valid" && project.nodes.length > 0);
-  const viewport = useCanvasViewport({ width: size.width, height: size.height, minScale: 0.2, maxScale: 2.5, fitPadding: 48, ignoreSelector: "[data-graph-toolbar], [data-essence-map-control]", wheelBehavior: "zoom" });
-  const { fitToView, animateToView, zoomBy } = viewport;
-  const fitAll = useCallback(() => fitToView({ x: 0, y: 0, width: world.width, height: world.height }), [fitToView, world.width, world.height]);
-  useLayoutEffect(() => { const element = viewport.containerRef.current; if (!element) return; const update = () => { if (element.clientWidth > 0 && element.clientHeight > 0) setSize({ width: element.clientWidth, height: element.clientHeight }); }; update(); if (typeof ResizeObserver === "undefined") return; const observer = new ResizeObserver(update); observer.observe(element); return () => observer.disconnect(); }, [viewport.containerRef]);
-  // Fit once per map and viewport size. Keying the effect on fitAll re-fit on every
-  // render, which reset the camera a frame after each zoom or pan.
-  const fittedKey = useRef<string | null>(null);
-  useEffect(() => {
-    if (world.projects.length === 0 || size.width <= 0 || size.height <= 0) return;
-    // Keyed on the maps alone, never the size: the view mounts at a default width,
-    // so a size-keyed fit would re-fire after the viewer already zoomed or panned.
-    const key = world.projects.map((project) => project.file.project_path).join("|");
-    if (fittedKey.current === key) return;
-    fittedKey.current = key;
-    fitToView({ x: 0, y: 0, width: world.width, height: world.height }, { maxScale: AUTO_FIT_MAX_SCALE });
-  }, [fitToView, size.height, size.width, world.projects, world.width, world.height]);
+  const stage = useCanvasStage({ initialSize: { width: DEFAULT_WIDTH, height: 600 }, measureKey: String(visible), minScale: 0.2, maxScale: 2.5, fitPadding: 48,
+    ignoreSelector: "[data-graph-toolbar], [data-essence-map-control]", wheelBehavior: "zoom",
+    contextKey: projects.map(project => project.file.project_path).join("|"), ready: hasContent,
+    fit: camera => camera.fitToView({ x: 0, y: 0, width: world.width, height: world.height }, { maxScale: AUTO_FIT_MAX_SCALE }),
+  });
+  const { camera: viewport, size } = stage;
+  const world = useMemo(() => layoutEssenceMapWorld(projects, size.width), [projects, size.width]);
+  const { fitToView, animateToView } = viewport;
+  const zoomBy = stage.zoom;
+  const fitAll = () => { stage.takeControl(); fitToView({ x: 0, y: 0, width: world.width, height: world.height }); };
   useEffect(() => {
     if (!source) return;
     const mapNodeStillExists = projects.some((project) => project.nodes.some((node) => node.id === source.node.id));
@@ -72,7 +64,7 @@ function EssenceMapCanvasInnerBase({ workspace, mapFiles, loading = false, error
   useEffect(() => { if (!visible && documentSelection) activateNode(documentSelection.project, documentSelection.entry.node); }, [activateNode, documentSelection, visible]);
   const selector = <><div className="w-36 min-w-0"><DropdownSelect aria-label="Fly to project map" value="" placeholder="Maps" className="ct-bar-pill" options={world.projects.map((project) => ({ value: project.file.project_path, label: projectName(project.file.project_path) }))} onChange={flyTo} /></div>{toolbarView}</>;
   if (!visible) return <div className="absolute inset-0 min-w-0 overflow-hidden bg-[var(--ct-bg)]" data-testid="essence-map-document-surface">{source && <EssenceSourcePanel source={source} onClose={() => setSource(null)} />}</div>;
-  return <div className="absolute inset-0 flex min-w-0 flex-col overflow-hidden bg-[var(--ct-bg)]" data-testid="essence-map-canvas" role="region" aria-label={`Workspace essence map for ${workspace.name}`}><div ref={viewport.containerRef} className="relative min-h-0 min-w-0 flex-1 overflow-hidden" data-testid="essence-map-projects" aria-label="Essence map projects" onMouseDown={viewport.handlers.onMouseDown} style={{ cursor: viewport.isDragging ? "grabbing" : "grab", touchAction: "none", background: "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)" }}><CanvasToolbar label="Essence map controls" view={!loading && !error && hasContent ? selector : toolbarView} onFit={!loading && !error && hasContent ? fitAll : undefined} onZoomIn={!loading && !error && hasContent ? () => zoomBy(ZOOM_STEP) : undefined} onZoomOut={!loading && !error && hasContent ? () => zoomBy(-ZOOM_STEP) : undefined} onRefresh={!loading && !error && hasContent ? (onOpenCartographer ? () => onOpenCartographer("refresh") : onRetry) : undefined} refreshTestId="essence-map-refresh" />{loading && <div className="flex h-full items-center justify-center p-6 text-xs text-[var(--ct-muted-fg)]" role="status">Reading project essence maps…</div>}{!loading && error && <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-xs text-[var(--ct-fg)]"><InlineErrorNotice error={error} operation="using essence map canvas" />{onRetry && <button type="button" className={UI_PANEL.drawerClose} onClick={onRetry}>Try again</button>}</div>}{!loading && !error && projects.length === 0 && <div className="flex h-full items-center justify-center p-6 text-center text-xs text-[var(--ct-muted-fg)]" data-testid="essence-map-empty">No project trees are attached to this workspace.</div>}{!loading && !error && projects.length > 0 && !hasContent && <EssenceMapEmptyState projects={projects} orchestrator={orchestrator} onAskOrchestrator={onAskOrchestrator} onRetry={onRetry} onCreateMap={onOpenCartographer ? () => onOpenCartographer("create") : undefined} />}{!loading && !error && hasContent && <><div ref={viewport.layerRef} data-testid="essence-map-transform-layer" className="absolute left-0 top-0" style={{ width: world.width, height: world.height, transform: formatLayerTransform(viewport.transform), transformOrigin: "0 0" }}>{world.projects.map((project) => <EssenceMapProjectView key={project.file.project_path} project={project} onActivate={activateNode} />)}</div></>}{source && <EssenceSourcePanel source={source} onClose={() => setSource(null)} />}</div></div>;
+  return <div className="absolute inset-0 flex min-w-0 flex-col overflow-hidden bg-[var(--ct-bg)]" data-testid="essence-map-canvas" role="region" aria-label={`Workspace essence map for ${workspace.name}`}><div ref={viewport.containerRef} {...stage.interactions} tabIndex={0} className="relative min-h-0 min-w-0 flex-1 overflow-hidden" data-testid="essence-map-projects" aria-label="Essence map projects" onMouseDown={viewport.handlers.onMouseDown} style={{ cursor: viewport.isDragging ? "grabbing" : "grab", touchAction: "none", background: "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)" }}><CanvasToolbar label="Essence map controls" view={!loading && !error && hasContent ? selector : toolbarView} onFit={!loading && !error && hasContent ? fitAll : undefined} onZoomIn={!loading && !error && hasContent ? () => zoomBy(CANVAS_ZOOM_STEP) : undefined} onZoomOut={!loading && !error && hasContent ? () => zoomBy(-CANVAS_ZOOM_STEP) : undefined} onRefresh={!loading && !error && hasContent ? (onOpenCartographer ? () => onOpenCartographer("refresh") : onRetry) : undefined} refreshTestId="essence-map-refresh" />{loading && <div className="flex h-full items-center justify-center p-6 text-xs text-[var(--ct-muted-fg)]" role="status">Reading project essence maps…</div>}{!loading && error && <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-xs text-[var(--ct-fg)]"><InlineErrorNotice error={error} operation="using essence map canvas" />{onRetry && <button type="button" className={UI_PANEL.drawerClose} onClick={onRetry}>Try again</button>}</div>}{!loading && !error && projects.length === 0 && <div className="flex h-full items-center justify-center p-6 text-center text-xs text-[var(--ct-muted-fg)]" data-testid="essence-map-empty">No project trees are attached to this workspace.</div>}{!loading && !error && projects.length > 0 && !hasContent && <EssenceMapEmptyState projects={projects} orchestrator={orchestrator} onAskOrchestrator={onAskOrchestrator} onRetry={onRetry} onCreateMap={onOpenCartographer ? () => onOpenCartographer("create") : undefined} />}{!loading && !error && hasContent && <><div ref={viewport.layerRef} data-testid="essence-map-transform-layer" className="absolute left-0 top-0" style={{ width: world.width, height: world.height, transform: formatLayerTransform(viewport.transform), transformOrigin: "0 0" }}>{world.projects.map((project) => <EssenceMapProjectView key={project.file.project_path} project={project} onActivate={activateNode} />)}</div></>}{source && <EssenceSourcePanel source={source} onClose={() => setSource(null)} />}</div></div>;
 }
 
 export function EssenceMapCanvasInner(props: EssenceMapCanvasInnerProps) {

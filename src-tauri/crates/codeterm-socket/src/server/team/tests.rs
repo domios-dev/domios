@@ -10,7 +10,7 @@ fn team_show_keeps_the_team_object_and_includes_durable_remote_members() {
         .unwrap()
         .team_id;
     let workspace = mux.find_workspace_for_tab(&orchestrator).unwrap();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let member = codeterm_service_core::service::remote_team::RemoteTeamMember {
         peer_id: "peer".into(),
         tab_id: "worker".into(),
@@ -149,7 +149,7 @@ fn active_team_plans_never_loads_unmatched_plans() {
         assert_never_loaded, execution_plan, seed, start,
     };
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let service = std::sync::Arc::new(fixture.service.clone());
     let store = &service.plan_store;
     let mut listed = execution_plan(fixture.temp.path(), "listed", "owner", vec![]);

@@ -4,6 +4,7 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     Extension, Json,
 };
+use codeterm_neighbors_service::prelude::*;
 
 pub(super) fn router() -> axum::Router<AppState> {
     axum::Router::new()

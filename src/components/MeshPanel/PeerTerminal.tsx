@@ -3,18 +3,11 @@ import type { PeerInventory } from "./peerInventoryModel";
 import { memo, type ReactNode } from "react";
 import { MachineName } from "./MachineName";
 
-type AccessLevel = "full" | "read_only" | "agent_isolated";
-
 interface Props {
   inventory?: PeerInventory;
   name: string;
   ip: string;
   isThisMachine?: boolean;
-  isPaired?: boolean;
-  /** Vouched-by-a-paired-peer but not yet paired itself — must never render as "paired". */
-  pending?: boolean;
-  accessLevel?: AccessLevel;
-  pairedDuration?: string;
   onClick?: () => void;
   offline?: boolean;
   disabled?: boolean;
@@ -29,10 +22,6 @@ function PeerTerminalComponent({
   name,
   ip,
   isThisMachine,
-  isPaired,
-  pending,
-  accessLevel,
-  pairedDuration,
   onClick,
   offline = false,
   disabled = false,
@@ -41,6 +30,7 @@ function PeerTerminalComponent({
   onRename,
   renameDisabledReason,
 }: Props) {
+  const hasResources = inventory && (inventory.services.length > 0 || inventory.crons.length > 0);
   const dim = offline ? "opacity-55 grayscale" : "";
   return (
     <div
@@ -81,25 +71,14 @@ function PeerTerminalComponent({
           Go online
         </button>
       )}
-      <div
+      {hasResources && <div
         className={`px-3.5 py-2 text-[12px] ${dim}`}
         style={{
           color: "var(--ct-muted-fg)",
         }}
       >
         {inventory && <PeerCapsuleSections inventory={inventory} />}
-        {isPaired && accessLevel && (
-          <div className="mt-2 text-[10px] text-[var(--ct-muted)]">
-            paired · access: {accessLevel}
-            {pairedDuration ? ` · ${pairedDuration}` : ""}
-          </div>
-        )}
-        {!isPaired && pending && (
-          <div className="mt-2 text-[10px] text-[var(--ct-muted)]">
-            pending · auto-pairs when online
-          </div>
-        )}
-      </div>
+      </div>}
       {footer}
     </div>
   );

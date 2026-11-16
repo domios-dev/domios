@@ -438,6 +438,9 @@ impl ServiceContext {
         reason: Option<&str>,
         transition: impl FnOnce(&mut Tab) -> bool,
     ) -> bool {
+        if stage == BootStage::AgentReady && self.agent_ready_awaits_input_attach(tab_id) {
+            return false;
+        }
         let reason = stage.carries_reason().then_some(reason).flatten();
         commit_boot_stage_transition(&self.mux, tab_id, transition, |tab| {
             self.publish_boot_stage_transition(tab_id, tab, stage, reason);
@@ -517,7 +520,7 @@ impl ServiceContext {
                 crate::session::lifecycle::LifecycleTransition::LaunchReady,
             );
             crate::startup::boot_timing::mark(tab_id, None, "finish_journal_done");
-            self.schedule_planner_replay(tab_id);
+            self.orchestration().schedule_planner_replay(tab_id);
             crate::startup::boot_timing::mark(tab_id, None, "finish_planner_done");
             self.schedule_parked_user_send(tab_id);
             crate::startup::boot_timing::mark(tab_id, None, "finish_user_wake_done");
@@ -565,7 +568,7 @@ impl ServiceContext {
     /// The output deadline elapsed: provisional evidence about one PTY and one
     /// launch attempt, never a verdict. The reason rides along so the deadline
     /// stays diagnosable whichever way recovery goes.
-    pub(crate) fn record_launch_output_deadline(
+    pub fn record_launch_output_deadline(
         &self,
         attempt: &crate::service::launch_readiness::LaunchAttempt,
         reason: &str,
@@ -798,9 +801,8 @@ mod in_tab_launch_tests;
 
 #[cfg(test)]
 mod first_turn_tests;
-#[cfg(test)]
-mod late_binding_tests;
+
 #[cfg(test)]
 mod publish_tests;
 #[cfg(test)]
-mod tests;
+pub mod tests;

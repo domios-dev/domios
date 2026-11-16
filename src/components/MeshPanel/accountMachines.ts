@@ -94,7 +94,7 @@ function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, now: num
   if (!usable) return { ...base, status: "blocked", detail: "Mesh is blocked on this machine" };
   if (row.membership_expires_at !== null && row.membership_expires_at <= now) return { ...base, status: "expired", detail: `Membership expired — open Domios on ${name} to renew`, online: false };
   if (phase === "auth_refused" || phase === "membership_expired" || phase === "peer_needs_update") return { ...base, status: phase, detail: connectionPresentation(phase).label, online: false };
-  if (pair?.online) return { ...base, status: "linked", detail: "Connected over your account mesh" };
+  if (pair?.online) return { ...base, status: "linked", detail: "Connected" };
   const progress = connectionPresentation(phase);
   if (progress.connecting) return { ...base, status: "linking", detail: progress.label, online: false, connecting: true };
   if (phase === "failed" || phase === "retrying") return { ...base, status: "unreachable", detail: progress.label, online: false };

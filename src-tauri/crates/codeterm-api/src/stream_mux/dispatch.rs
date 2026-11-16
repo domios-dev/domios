@@ -25,7 +25,7 @@ pub(crate) fn install(
 #[derive(Clone, Default)]
 pub(crate) struct Context {
     peer: Option<ConnectInfo<SocketAddr>>,
-    tailnet: Option<codeterm_service_core::service::account_mesh::tailnet::TailnetListener>,
+    tailnet: Option<codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener>,
 }
 
 impl Context {

@@ -4,6 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
+use codeterm_neighbors_service::prelude::*;
 use serde::Deserialize;
 
 use codeterm_service_core::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin};

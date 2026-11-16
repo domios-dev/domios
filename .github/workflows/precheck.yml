@@ -53,13 +53,13 @@ jobs:
           fetch-depth: 1
       - name: Hosted Node
         if: runner.environment == 'github-hosted'
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 22.22.0
           package-manager-cache: false
       - name: Hosted pnpm
         if: runner.environment == 'github-hosted'
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         with:
           version: 10.32.1
           run_install: false

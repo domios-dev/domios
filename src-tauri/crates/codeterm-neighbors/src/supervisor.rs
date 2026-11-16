@@ -169,6 +169,9 @@ pub fn retryable(error: Error) -> bool {
     matches!(
         error,
         Error::Transport
+            | Error::LocalFence {
+                phase: "activation_pending"
+            }
             | Error::Http {
                 status: 401 | 429 | 500..=599,
                 ..

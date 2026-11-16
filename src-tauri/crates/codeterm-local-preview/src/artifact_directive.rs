@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+mod canvas;
 mod html;
 mod scanner;
 use codeterm_wire::envelope::{parse_envelope_spans, FrameKind, MessageSegment};
@@ -10,6 +11,7 @@ const KINDS: &[&str] = &[
     "page",
     "image",
     "document",
+    "canvas",
     "guide",
     "plugin",
     "connect",
@@ -33,6 +35,8 @@ pub struct FileCard {
 #[derive(Debug, Default)]
 pub struct ArtifactScan {
     pub cards: Vec<FileCard>,
+    /// Files previewed by `<ds-canvas>` items; mesh delivery does not rewrite them.
+    pub canvas_paths: Vec<String>,
     pub attachment_paths: Vec<String>,
     pub overflow: bool,
 }

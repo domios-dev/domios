@@ -78,6 +78,8 @@ pub struct SpawnConfig {
     pub restores_conversation_history_on_resume: bool,
     #[serde(default)]
     pub public_send_waits_for_startup_turn_completion: bool,
+    #[serde(default)]
+    pub input_attach: crate::provider::InputAttachSignal,
     /// Declared hook event roster (event name → core ingestion route).
     /// Absent ⇒ default roster: native fallback's declaration, else SessionStart-only when hooked.
     #[serde(default)]

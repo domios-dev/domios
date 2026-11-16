@@ -189,7 +189,7 @@ Native auto-install uses stable, requires an attached application-host updater, 
 3. The native client durably records the verified target, stops the exact attached server, installs and relaunches the pair.
 4. The replacement records `verified` only after enrollment with the expected instance, target version and matching client/server build. Interrupted operations never replay automatically.
 
-After restart, valid recorded provider sessions resume; stale or missing sessions launch fresh. `continue_tab` must match the authenticated caller and uses its continuation owner. `after_update` persists the requester's message and identity for the General Agent continuation; failure to persist refuses installation.
+After restart, valid recorded provider sessions resume; stale or missing sessions launch fresh. `continue_tab` must match the authenticated local caller and uses its continuation owner. A plain shell caller has no agent session to continue and needs no `--no-continue`; agents still require their own resumable session. Full-access peers (or Custom Admin) may install remotely without a local caller continuation, subject to the same updater capability and installation method. `after_update` persists the requester's message and identity for the General Agent continuation; failure to persist refuses installation.
 
 **Debian:** `auto` downloads, verifies and privately stages the package, returning `elevation_required` with a `sudo dpkg -i` command on that file. In a terminal outside Domios, quit Domios, confirm it stopped, run that command and relaunch. `uitting inside a Domios tab terminates its shell, so quit is a separate step. Stop if quitting fails. The daemon never runs sudo. `after_update` is rejected for this manual flow.
 
@@ -210,4 +210,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->

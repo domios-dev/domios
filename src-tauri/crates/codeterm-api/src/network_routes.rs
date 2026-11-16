@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_neighbors_service::NeighborsNeighborsRuntime1Ext;
 use codeterm_service_core::service::web_access::local_ip_address;
 use serde::Deserialize;
 

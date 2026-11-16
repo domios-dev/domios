@@ -389,9 +389,13 @@ pub fn import(svc: &ServiceContext, params: Option<&Value>) -> Outcome {
     let request: ImportParams = parse(params)?;
     let received_from = match request.from_friend.as_deref().map(str::trim) {
         None | Some("") => None,
-        Some(friendship) => Some(svc.neighbor_friend_display_name(friendship).ok_or_else(
-            || ExchangeError::invalid(format!("`{friendship}` names no current friend")),
-        )?),
+        Some(friendship) => Some(
+            svc.neighbors()
+                .neighbor_friend_display_name(friendship)
+                .ok_or_else(|| {
+                    ExchangeError::invalid(format!("`{friendship}` names no current friend"))
+                })?,
+        ),
     };
     let path = PathBuf::from(&request.path);
     let (package, check) = check_import_report(&path)?;
@@ -452,4 +456,4 @@ pub fn share_card(params: Option<&Value>) -> Outcome {
 
 #[cfg(test)]
 #[path = "team_exchange/tests.rs"]
-mod tests;
+pub mod tests;

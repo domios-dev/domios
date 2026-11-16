@@ -23,7 +23,7 @@ pub(crate) fn enabled() -> bool {
     SENDER.get().is_some()
 }
 
-pub(crate) fn tab_flow(
+pub fn tab_flow(
     service: &crate::service::ServiceContext,
     tab: &str,
 ) -> Result<Option<String>, crate::service::plan::PlanError> {
@@ -69,7 +69,7 @@ pub(crate) fn envelope_flow(
     Ok(tab_flow(service, &envelope.from_tab)?.or_else(|| envelope.id.clone()))
 }
 
-pub(crate) fn diagnostic_flow(
+pub fn diagnostic_flow(
     result: Result<Option<String>, crate::service::plan::PlanError>,
 ) -> Option<String> {
     match result {
@@ -179,7 +179,7 @@ pub(crate) mod test_capture {
     }
 }
 
-pub(crate) fn record_flow(
+pub fn record_flow(
     id: &str,
     stage: &str,
     tab: &str,

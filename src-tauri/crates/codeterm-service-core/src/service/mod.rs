@@ -16,10 +16,8 @@ pub mod cli_local_admission;
 mod construct;
 mod provider_refresh;
 pub use construct::build_service_context;
-pub mod account;
-pub mod account_mesh;
 pub mod activity;
-pub(crate) mod agent_delivery_outbox;
+pub mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
@@ -29,7 +27,6 @@ pub(crate) mod ai_helper_spawn;
 mod image_attachments;
 pub mod lazy_restore;
 pub mod tab_mutation_authority;
-pub mod tab_sleep_policy;
 pub mod tab_todos;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
@@ -41,12 +38,10 @@ pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
 pub(crate) mod bridge_threads;
-pub mod gift_redemption;
-pub mod neighbors;
 pub use codeterm_browser as browser;
 pub(crate) mod capability_probe;
 pub use capability_probe::refresh as capability_probe_refresh;
-pub(crate) mod cartographer;
+pub mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod client_selection;
@@ -55,12 +50,12 @@ pub use close_history::close_inventory_error_data;
 mod command_port_impl;
 pub mod context_feed;
 pub mod cron;
-pub mod curator;
+
 pub mod delivery_error;
 pub mod diagnostics;
 pub mod general_agent;
 pub mod health;
-pub mod hierarchy;
+
 pub mod hook_session_binding;
 pub mod inject_verify;
 pub mod input_parser;
@@ -78,13 +73,14 @@ mod pty_memory;
 mod shared_history;
 pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_input;
 pub(crate) mod launch_diagnostics;
+pub(crate) mod launch_input_attach;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::launch_test_support;
 pub mod launch_session_detection;
 pub mod local_preview;
-pub(crate) mod mesh_artifacts;
+pub mod mesh_artifacts;
 pub use mesh_artifacts::transfer as mesh_artifacts_transfer;
 pub mod mesh_attachment;
 pub mod message_gateway;
@@ -100,7 +96,7 @@ mod plan_projects;
 pub mod role_policy;
 mod tab_input_policy;
 pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
-pub(crate) mod orchestrator;
+pub mod orchestrator;
 pub mod ordered_actions;
 pub mod parked_user_delivery;
 pub mod post_update;
@@ -119,7 +115,7 @@ pub use provider_cli::provider_cli_status as provider_cli_provider_cli_status;
 pub(crate) use published_mux_state::PublishedMuxState;
 pub mod provider_cli_actions;
 pub mod provider_hooks;
-pub(crate) mod provider_signals;
+pub mod provider_signals;
 pub use provider_signals::apply_structured as provider_signals_apply_structured;
 pub(crate) mod provider_runtime_update;
 mod provider_signals_probe;
@@ -137,13 +133,13 @@ pub(crate) use orchestrator::role_onboarding_task;
 pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
-pub(crate) mod execution_sandbox;
+pub mod execution_sandbox;
 pub use execution_sandbox::{
     enforce_delegation_ceiling as execution_sandbox_enforce_delegation_ceiling,
     refuse_confined_mesh_delegation as execution_sandbox_refuse_confined_mesh_delegation,
 };
 mod folder_trust_carryover;
-pub mod orchestrator_digests;
+
 mod output;
 mod output_feed;
 pub mod output_stream_activity;
@@ -189,7 +185,7 @@ mod restored_binding;
 pub mod role_identity;
 pub mod role_preset;
 pub mod role_profile;
-mod role_target;
+pub mod role_target;
 mod session_backup;
 pub mod session_binding_deferral;
 mod session_binding_state;
@@ -223,9 +219,9 @@ mod spawn_shell;
 pub(crate) mod spawn_title;
 pub use spawn_title::validate_agent_tab_title as spawn_title_validate_agent_tab_title;
 pub mod startup_lease;
-pub(crate) mod startup_nudge;
+pub mod startup_nudge;
 mod status_reconciliation;
-pub(crate) mod stop_execution;
+pub mod stop_execution;
 pub use stop_execution::stop_agent_turn as stop_execution_stop_agent_turn;
 mod tab_status_events;
 pub(crate) mod tab_stop;
@@ -238,7 +234,7 @@ pub use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod blocking;
 pub use blocking::run as blocking_run;
 pub mod launch_credentials;
-pub(crate) mod restored_launch;
+pub mod restored_launch;
 pub mod store;
 pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
@@ -286,7 +282,7 @@ mod persistence_roundtrip_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
 #[cfg(test)]
-mod tests;
+pub mod tests;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
@@ -297,7 +293,7 @@ pub mod worker_ack;
 pub mod worker_identity;
 pub(crate) mod worker_interruption;
 pub mod worker_lane;
-pub(crate) mod worker_loss;
+pub mod worker_loss;
 #[cfg(any(test, feature = "test-support"))]
 pub use worker_lane::provision_lane_for_test;
 pub use worker_lane::{
@@ -337,12 +333,12 @@ pub use agent_transition::AgentPlacement;
 pub use agent_transition::AgentTransitionRequest;
 #[cfg(any(test, feature = "test-support"))]
 pub use agent_transition::{execute_transition_at, TransitionFailurePoint};
-pub use hierarchy::TabStatusInfo;
-pub use hierarchy::{TeamPlanCaller, TeamPlanCreationError, WorkerTurnSignal};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
 };
+pub use orchestration_data::TabStatusInfo;
+pub use orchestration_data::{TeamPlanCaller, TeamPlanCreationError, WorkerTurnSignal};
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::arm_provider_session_for_test;
 #[cfg(any(test, feature = "test-support"))]
@@ -379,7 +375,7 @@ pub(crate) use worker_persona::{WorkerIdentityAllocator, WorkerPersonaReservatio
 mod configuration;
 pub(crate) mod extensions;
 mod host_extensions;
-pub(crate) use extensions::Extensions;
+pub use extensions::Extensions;
 pub use extensions::ExtensionsBuilder;
 
 /// Shared service context — all state needed for multiplexer operations.
@@ -447,14 +443,14 @@ pub struct ServiceContext {
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub gateway: Arc<crate::service::message_gateway::MessageGateway>,
-    pub(crate) extensions: Arc<Extensions>,
+    pub extensions: Arc<Extensions>,
     host_extensions: Arc<host_extensions::HostExtensions>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
 
 impl ServiceContext {
-    pub(crate) fn weak_self(&self) -> std::sync::Weak<Self> {
+    pub fn weak_self(&self) -> std::sync::Weak<Self> {
         self.try_ext::<std::sync::Weak<Self>>()
             .cloned()
             .unwrap_or_default()
@@ -466,6 +462,10 @@ impl ServiceContext {
 
     pub fn try_ext<T: std::any::Any + Send + Sync>(&self) -> Option<&T> {
         self.extensions.try_get::<T>()
+    }
+
+    pub fn ext_or_init<T: std::any::Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> &T {
+        self.extensions.get_or_init(init)
     }
 
     pub fn set_ext<T: std::any::Any + Send + Sync>(&self, value: T) -> Result<(), T> {
@@ -523,7 +523,7 @@ fn wall_now_ms() -> u64 {
 }
 
 pub fn start_plan_reminder_scheduler(svc: ServiceState) {
-    hierarchy::start_plan_reminder_scheduler(svc);
+    svc.orchestration().start_plan_reminder_scheduler();
 }
 
 impl ServiceContext {
@@ -882,9 +882,9 @@ pub struct ReportSubmissionError {
     pub data: Option<serde_json::Value>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl ReportSubmissionError {
-    pub(crate) fn contains(&self, needle: &str) -> bool {
+    pub fn contains(&self, needle: &str) -> bool {
         self.message.contains(needle)
     }
 }
@@ -1019,3 +1019,42 @@ pub use skill_mirror::{mirror_skills_to_providers, seed_bundled_skills};
 pub use utility_deadline::restore as restore_utility_deadlines;
 
 pub use supporter_notify::record_launch as supporter_record_launch;
+
+pub mod orchestration_data;
+
+pub mod curator_runtime;
+
+pub mod curator_reconciliations;
+
+pub mod curator_policy;
+
+pub mod heartbeat_gate;
+
+pub mod planner_replay;
+
+pub mod planner_binding;
+
+pub mod report_target;
+
+pub mod report_plan_ctx;
+
+pub mod report_delivery;
+
+pub mod plan_reminder_model;
+
+pub mod plan_reminder_projection;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod plan_reminder_fixture;
+
+pub mod tab_status_info;
+
+pub mod curator_save;
+pub mod neighbor_account;
+pub mod neighbor_state;
+
+impl ServiceContext {
+    pub fn neighbors(&self) -> &Arc<dyn crate::ports::neighbors::NeighborsPort> {
+        crate::ports::neighbors::installed(&self.extensions)
+    }
+}

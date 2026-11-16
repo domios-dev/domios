@@ -352,6 +352,42 @@ fn restored_pty_boot_claim_excludes_lazy_materialization() {
     .is_none());
 }
 
+#[test]
+fn client_restore_claim_ends_lazy_sleep_but_keeps_a_neighbors_pause() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::NeighborAuthority;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::Arc;
+    let (mut state, agent) = MultiplexerState::new();
+    let workspace = state.find_workspace_for_tab(&agent).unwrap();
+    let shell = state.create_tab(&workspace).unwrap();
+    let paused = state.create_tab(&workspace).unwrap();
+    for id in [&agent, &paused] {
+        let tab = state.get_tab_mut(id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.agent_session_id = Some("session".into());
+        tab.restored_from_snapshot = true;
+    }
+    state.get_tab_mut(&paused).unwrap().neighbor_authority = Some(NeighborAuthority {
+        uid: "neighbor".into(),
+        friendship_id: "friendship".into(),
+        root_tab_id: None,
+    });
+    for id in [&agent, &shell, &paused] {
+        state.get_tab_mut(id).unwrap().frozen = true;
+    }
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-sleep-claim-test", state));
+
+    assert!(claim_restored_pty_boot(&mux, &agent).unwrap().is_some());
+    assert!(claim_restored_pty_boot(&mux, &shell).unwrap().is_none());
+    assert!(claim_restored_pty_boot(&mux, &paused).unwrap().is_some());
+    let mux = mux.read();
+    assert!(!mux.get_tab(&agent).unwrap().frozen);
+    assert!(!mux.get_tab(&shell).unwrap().frozen);
+    assert!(mux.get_tab(&paused).unwrap().frozen);
+}
+
 /// Script-exec path must not contain bracketed-paste markers on Unix, else bare
 /// shells (before DECSET ?2004 arms) render the markers as literal text.
 #[cfg(unix)]

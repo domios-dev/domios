@@ -1,4 +1,4 @@
-pub(crate) fn deliver_exact_role_target(
+pub fn deliver_exact_role_target(
     role: &str,
     plan_id: &str,
     intended_target: &str,

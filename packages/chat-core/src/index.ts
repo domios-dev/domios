@@ -232,5 +232,6 @@ export { emptyQuestionSelection, questionOptionValue, selectQuestionOption, sele
 export { placedAttachmentSegments, type PlacedAttachmentSegment } from "./userAttachments";
 export { envelopeRows, envelopeText, type MessageSegment, type EnvelopeRow } from "./envelope";
 
+export { parseDsCanvas, dsCanvasFilePaths, DS_CANVAS_ITEM_KINDS, type DsCanvas, type DsCanvasItem, type DsCanvasItemKind, type DsCanvasView, type DsCanvasParse } from "./dsCanvas";
 export { DsBlockScanner, parseDsBlocks, serializeDsBlock, DS_KINDS, DS_TASK_STATUSES, decodeDsEntities, isDsAbsolutePath, isDsTaskRef, type DsBlock, type DsKind, type DsTaskStatus, type DsTaskItem, type DsTaskSnapshot, type DsLifecycle, type DsAuthority, type DsSegment, type DsFenceSpan } from "./dsBlocks";
 export { pendingSendPosition } from "./sendPlacement";

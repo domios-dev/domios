@@ -470,7 +470,7 @@ async fn product_consent_is_local_and_never_initializes_the_account() {
         .set(sink.worker.clone())
         .is_ok());
     assert!(service
-        .ext::<crate::service::account::AccountCell>()
+        .ext::<crate::service::neighbor_account::AccountCell>()
         .0
         .get()
         .is_none());
@@ -491,7 +491,7 @@ async fn product_consent_is_local_and_never_initializes_the_account() {
         vec![Event::AnalyticsOptedIn {}, Event::PlanViewed {}]
     );
     assert!(service
-        .ext::<crate::service::account::AccountCell>()
+        .ext::<crate::service::neighbor_account::AccountCell>()
         .0
         .get()
         .is_none());

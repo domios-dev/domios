@@ -1,4 +1,5 @@
 use axum::{body::Body, extract::State as AxumState, http::StatusCode, response::Response, Json};
+use codeterm_neighbors_service::prelude::*;
 use futures_util::StreamExt;
 
 use super::connection::refusal_status;

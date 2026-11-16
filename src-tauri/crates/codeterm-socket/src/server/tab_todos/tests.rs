@@ -59,7 +59,7 @@ fn proposal_fixture() -> (
     mux.set_orchestrator_role(&parent).unwrap();
     mux.set_tab_role_kind(&worker, AgentRole::Worker, None, Some(&parent))
         .unwrap();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     fixture.install_seeded_storage_desk();
     (fixture, parent, worker)
 }

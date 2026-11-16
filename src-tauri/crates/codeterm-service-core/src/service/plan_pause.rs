@@ -250,7 +250,7 @@ impl ServiceContext {
         )
         .map_err(TeamPlanError::Plan)?;
         self.emit_plan_changed(plan_id);
-        self.reconcile_time_reminder_eligibility();
+        self.orchestration().reconcile_time_reminder_eligibility();
         Ok(outcome)
     }
 
@@ -271,7 +271,7 @@ impl ServiceContext {
         )
         .map_err(TeamPlanError::Plan)?;
         self.emit_plan_changed(plan_id);
-        self.reconcile_time_reminder_eligibility();
+        self.orchestration().reconcile_time_reminder_eligibility();
         Ok(outcome)
     }
 }

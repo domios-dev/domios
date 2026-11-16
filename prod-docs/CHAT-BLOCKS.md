@@ -46,6 +46,7 @@ say a plugin is installed when its card shows otherwise.
 | `<ds-job ref="JOB_ID_OR_NAME" />` | Show a Cron or Blueprint with its schedule and last result, and Run now, Pause or Resume. |
 | `<ds-checklist id="getting-started" />` | Show a setup checklist whose steps tick themselves; `getting-started` for a new user. |
 | `<ds-tasks plan="pl_example" />` | Show plan tasks grouped by status, live from the plan. |
+| `<ds-canvas>{"items":[…]}</ds-canvas>` | Lay out images, HTML mocks, files and notes side by side in one zoomable board. |
 
 ## `ds-guide`
 
@@ -152,6 +153,42 @@ a paired snapshot with strict JSON and keeps detached rows if a task disappears:
 <ds-tasks plan="pl_example">{"title":"Example","items":[{"id":"task_example","key":"COD-1","status":"pending","name":"A task"}]}</ds-tasks>
 ```
 
+## `ds-canvas`
+
+A canvas puts several visuals in one frame: before and after screenshots, an
+HTML mock beside a note, or design options under named views. It carries its
+items in a strict JSON body and lives only in its message:
+
+```text
+<ds-canvas>{"title":"Header options","items":[
+  {"kind":"image","src":"/absolute/a.png","x":0,"y":0,"w":640,"h":400},
+  {"kind":"html","html":"<div class='p-4'>Option B</div>","x":680,"y":0,"w":480,"h":400},
+  {"kind":"note","markdown":"**A** is calmer, **B** is denser.","x":0,"y":440,"w":640,"h":120}],
+ "views":[{"name":"compare","x":0,"y":0,"w":1160,"h":400}]}</ds-canvas>
+```
+
+A canvas has 1 to 64 items. `kind` is `image`, `page` or `document` with an
+absolute `src`; `html` with an `html` body that runs in the same sandbox as
+`ds-html`; or `note` with `markdown`. Every item may add an `id` (letters,
+digits, `_` and `-`), a `title`, and `x`, `y`, `w` and `h` in canvas pixels.
+Give `x` and `y` together; items without both flow into rows below the placed
+ones at a default size. Up to 16 `views` name rectangles. Unknown fields,
+relative paths and duplicate ids or view names make the canvas invalid. The
+body is limited to 200,000 bytes, and its file items count toward the message's
+32 file previews.
+
+In the chat the canvas shows a static preview about 320px high that never pans
+or zooms; click it or press Enter to open the full canvas with Fit, zoom, pan
+and a pager that steps through the views, or through the items when there are
+none. Click an item to select it: a selected HTML item or document takes the
+pointer and wheel, and Escape returns to the canvas. HTML items load only while
+visible, and at most 4 run at once; the rest show their title until selected.
+An item that cannot load shows one quiet sentence with its cause under Details.
+Invalid JSON shows one sentence and the reason under Details. Notes are
+Markdown only, so ds tags inside them stay text. Mesh delivery does not
+transfer canvas files, so a canvas sent to another machine shows those items
+as unavailable.
+
 ## File previews and HTML
 
 Use `<ds-image src="ABSOLUTE_PATH" />`, `<ds-page src="ABSOLUTE_PATH" />` or
@@ -187,4 +224,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

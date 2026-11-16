@@ -14,6 +14,25 @@ pub(crate) fn shell_dispatch(bytes: &[u8]) -> (Vec<u8>, String) {
     (bytes.to_vec(), expected)
 }
 
+/// Enter keys a shell submission may write after its one payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShellSubmitKeys {
+    /// An idle prompt reads the payload and its Enter in order. A later key reaches the
+    /// started command instead; on Windows it returns to the next prompt as a literal `m`.
+    UtilityCommand,
+    /// Text typed into a shell tab, possibly into a running program.
+    Send,
+}
+
+impl ShellSubmitKeys {
+    pub(crate) fn limit(self) -> usize {
+        match self {
+            Self::UtilityCommand => 1,
+            Self::Send => 4,
+        }
+    }
+}
+
 struct ShellTransport<'a> {
     svc: &'a ServiceContext,
     pty_id: &'a str,
@@ -24,6 +43,7 @@ struct ShellTransport<'a> {
     wake_rx: Receiver<SubmitCycleSignal>,
     waiter: RefCell<Option<ExecWaiter>>,
     queued: Option<&'a dyn Fn(usize)>,
+    submit_keys: ShellSubmitKeys,
 }
 
 impl SubmitTransport for ShellTransport<'_> {
@@ -55,7 +75,7 @@ impl SubmitTransport for ShellTransport<'_> {
         self.claim.is_current()
     }
     fn max_submit_keys(&self) -> usize {
-        4
+        self.submit_keys.limit()
     }
     fn prewrite_guard(&self) -> Result<(), InjectionError> {
         pty_owner_guard(self.svc, self.pty_id)?;
@@ -167,6 +187,7 @@ pub(crate) fn submit_shell_dispatch(
     expected: &str,
     claim: SubmitCycleClaim,
     queued: Option<&dyn Fn(usize)>,
+    submit_keys: ShellSubmitKeys,
 ) -> Result<(InjectionResult, ExecWaiter), InjectionError> {
     let (wake_tx, wake_rx) = mpsc::sync_channel(1);
     let transport = ShellTransport {
@@ -179,6 +200,7 @@ pub(crate) fn submit_shell_dispatch(
         wake_rx,
         waiter: RefCell::new(None),
         queued,
+        submit_keys,
     };
     let result = run_shell(&transport, expected)?;
     let elapsed = result.elapsed;
