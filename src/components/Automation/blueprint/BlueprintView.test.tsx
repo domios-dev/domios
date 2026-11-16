@@ -1,3 +1,4 @@
+import { measureCanvas, checkStageGestures } from "../../../../packages/chat-ui/src/canvasStage.testdata";
 import assert from "node:assert/strict";
 import { act, Profiler } from "react";
 import { createRoot } from "react-dom/client";
@@ -31,6 +32,7 @@ async function main() {
   const host = document.createElement("div"); document.body.append(host);
   Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 960 });
   Object.defineProperty(window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 440 });
+  const measurement = measureCanvas();
   const root = createRoot(host);
   const button = (name: string) => {
     const element = [...host.querySelectorAll("button")].find((element) => (element.getAttribute("aria-label") ?? element.textContent) === name);
@@ -82,6 +84,9 @@ async function main() {
     await act(async () => button("Zoom in").click());
     await act(async () => button("Fit all").click());
     assert.equal(layer()!.style.transform, whole, "Fit all frames the whole graph again");
+    try {
+      await checkStageGestures(host.querySelector<HTMLElement>(".bp-canvas")!, layer()!, measurement.resize);
+    } finally { measurement.restore(); }
     const callout = host.querySelector('[role="status"][aria-label="Recorded stop"]');
     assert(callout?.closest(".bp-canvas"), "the recorded stop is drawn on the canvas");
     assert(callout?.textContent?.includes("contract_violation"));

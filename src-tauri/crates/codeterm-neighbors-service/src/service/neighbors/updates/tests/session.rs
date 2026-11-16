@@ -1,4 +1,5 @@
 pub mod paid;
+pub mod reconnect;
 pub mod selection;
 
 use super::super::ports::SessionPorts;

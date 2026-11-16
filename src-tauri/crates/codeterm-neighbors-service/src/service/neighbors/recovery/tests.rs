@@ -9,12 +9,26 @@ fn startup_string_boundary_keeps_permanent_refusals_and_retries_setup_outages() 
         Error::SessionRevoked,
         Error::Disabled,
         Error::Revoked,
+        Error::LocalFence {
+            phase: "account_session",
+        },
+        Error::LocalFence {
+            phase: "update_generation",
+        },
+        Error::LocalFence {
+            phase: "callable_retired",
+        },
         Error::ReceiverNotChosen,
         Error::ReceiverStatusUnknown,
     ] {
         assert_eq!(startup_error(&error.to_string()), error);
         assert!(!retryable(startup_error(&error.to_string())));
     }
+    let pending = Error::LocalFence {
+        phase: "activation_pending",
+    };
+    assert_eq!(startup_error(&pending.to_string()), pending);
+    assert!(retryable(startup_error(&pending.to_string())));
     for error in [
         "installation temporarily unavailable",
         "metadata temporarily unavailable",

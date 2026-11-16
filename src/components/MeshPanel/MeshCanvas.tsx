@@ -1,3 +1,5 @@
+import { useCanvasStage, CANVAS_ZOOM_STEP } from "@codeterm/chat-ui/useCanvasStage";
+import { LocalMachineFooter, MachineFooter, ACCESS_LABELS } from "./MachineFooter";
 import { REMOVED_COPY } from "./accountMachines";
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
@@ -10,17 +12,17 @@ import { formatAge } from "../../lib/timeLabels";
 import { meshEdgeModel } from "./meshEdgeModel";
 import type { PeerStatus } from "./useMeshData";
 import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
-import { useCanvasViewport, formatLayerTransform, AUTO_FIT_MAX_SCALE } from "@codeterm/canvas-camera";
+import { formatLayerTransform, AUTO_FIT_MAX_SCALE } from "@codeterm/canvas-camera";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
-import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH } from "./webGraphLayout";
+import { webGraphLayout, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import { webGatewayGraph } from "./meshProjection";
 import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
 import { differentNetwork } from "./networkTransport";
 import { offersTailscaleSetup, suggestsRemoteTailscale } from "./tailscaleSetup";
 import { MachineLimitPaywall } from "./MachineLimitPaywall";
 import type { MyMachines } from "./useMyMachines";
-import { inventoryView, listCardScale, meshZoomStep, offersInventoryList, type InventoryView } from "./meshViewportModel";
+import { inventoryView, listCardScale, offersInventoryList, type InventoryView } from "./meshViewportModel";
 
 export interface RecentPush {
   source_id: string;
@@ -86,7 +88,6 @@ interface Props {
   onOpenPeerWebUi?: (url: string) => void;
   webUiBaseUrl?: string | null;
   webUiToken?: string | null;
-  /** A touch screen: pinch and pan the graph, bigger +/- steps, and on a phone the stacked list first. */
   touch?: boolean;
 }
 
@@ -123,7 +124,7 @@ export const MeshCanvas = memo(function MeshCanvas({
   const [chosenView, setChosenView] = useState<InventoryView | null>(null);
   const listOffered = offersInventoryList(width, touch);
   const shown = inventoryView(width, touch, chosenView);
-  const zoomStep = meshZoomStep(touch);
+  const zoomStep = CANVAS_ZOOM_STEP;
   const webCardRef = useRef<HTMLDivElement>(null);
   const [webHeight, setWebHeight] = useState(800);
   const [machineHeights, setMachineHeights] = useState<number[]>([]);
@@ -203,18 +204,22 @@ export const MeshCanvas = memo(function MeshCanvas({
 
   const gateway = { x: width / 2, y: height / 2 };
   const gatewayGraph = webGatewayGraph(peers, meshEnabled);
-  const { transform, handlers, fitToView, zoomBy, isDragging, containerRef, layerRef } = useCanvasViewport({
-    width,
-    height,
+  const stage = useCanvasStage({
+    initialSize: { width, height }, measureKey: shown,
+    followFit: true,
+    fitRevision: contentBoundsKey(),
+    fit: camera => { if (!contentBounds) return false; camera.fitToView(contentBounds, { maxScale: AUTO_FIT_MAX_SCALE }); },
     minScale: MIN_SCALE,
     maxScale: MAX_SCALE,
     fitPadding: FIT_PADDING,
     ignoreSelector: "[data-peer-card]",
-    wheelBehavior: "zoom",
+    wheelBehavior: shown === "graph" ? "zoom" : "pan",
     touch: touch && shown === "graph",
   });
-  const userAdjustedRef = useRef(false);
-  const fittedBoundsRef = useRef("");
+  const { camera } = stage;
+  const { transform, handlers, fitToView, isDragging, containerRef, layerRef } = camera;
+  const zoomBy = stage.zoom;
+  function contentBoundsKey() { return [width, height, webHeight, ...machineHeights].join(":"); }
 
   const contentBounds = useMemo(() => {
     if (!layout.length) return null;
@@ -227,15 +232,6 @@ export const MeshCanvas = memo(function MeshCanvas({
     return { x: gateway.x - halfWidth, y: gateway.y - halfHeight, width: halfWidth * 2, height: halfHeight * 2 };
   }, [layout, gateway.x, gateway.y, geometry.web.width, webHeight, webCard, geometry.web, geometry.qrSize]);
 
-  useLayoutEffect(() => {
-    if (!contentBounds) return;
-    const key = [width, height, contentBounds.x, contentBounds.y, contentBounds.width, contentBounds.height].join(":");
-    const initial = webGraphInitialView(width, height, contentBounds, userAdjustedRef.current);
-    if (!initial || fittedBoundsRef.current === key) return;
-    fittedBoundsRef.current = key;
-    fitToView(initial.bounds, { maxScale: AUTO_FIT_MAX_SCALE });
-  }, [fitToView, contentBounds, width, height]);
-
   const reset = () => {
     if (contentBounds) fitToView(contentBounds);
   };
@@ -246,11 +242,16 @@ export const MeshCanvas = memo(function MeshCanvas({
 
   const peerFooter = (id: string) => {
     const footer = account?.canvas.peerFooters.get(id);
-    if (!account || !footer) return undefined;
+    if (!account || !footer) {
+      const peer = peers.find((candidate) => candidate.instance_id === id);
+      return peer ? <MachineFooter label={peer.pending ? "Waiting to pair" : peer.online ? "Connected" : "Unreachable"}
+        secondary={peer.pending ? "pairs when online" : peer.online ? ACCESS_LABELS[peer.access_level] : undefined}
+        tone={peer.online ? "ok" : "warning"} version={peer.domios_version} build={peer.domios_build} /> : undefined;
+    }
     const peer = peers.find((candidate) => candidate.instance_id === id);
     const name = footer.row.name;
     const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
-    return <PeerAccountFooterView footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
+    return <PeerAccountFooterView peer={peer} footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
       busy={account.busy === footer.key} actions={account.actions} hint={!offersTailscaleSetup(footer.row.status) ? undefined : tailscaleHint(name, peer?.online ?? false, footer.row.transport)} />;
   };
 
@@ -276,15 +277,13 @@ export const MeshCanvas = memo(function MeshCanvas({
               <button type="button" disabled={!!account.busy || account.signingIn} onClick={account.onRejoin}>Sign in and rejoin</button>
             </div>}
             {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
-            {tailscale && <TailscaleFooter tailscale={tailscale} />}
+            <LocalMachineFooter networkOn={tailscale?.state.kind === "connected"} />
+            {tailscale && tailscale.state.kind !== "connected" && <TailscaleFooter tailscale={tailscale} />}
           </> : peerFooter(p.id)}
           inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
           name={p.name}
           ip={p.ip}
           isThisMachine={p.isThisMachine}
-          isPaired={p.isPaired}
-          pending={p.pending}
-          accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
           disabled={row?.status === "signed_out"}
           onClick={() => onPeerClick(p.isThisMachine ? thisMachine.name : peers.find((peer) => peer.instance_id === p.id)?.name ?? p.name)}
           offline={p.isThisMachine ? !meshEnabled : row?.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online}
@@ -342,10 +341,10 @@ export const MeshCanvas = memo(function MeshCanvas({
   return (
     <div
       ref={containerRef}
+      {...stage.interactions}
+      tabIndex={0}
       className="relative w-full h-full overflow-hidden"
-      onMouseDown={(event) => { userAdjustedRef.current = true; handlers.onMouseDown(event); }}
-      onWheelCapture={() => { userAdjustedRef.current = true; }}
-      onTouchStartCapture={() => { userAdjustedRef.current = true; }}
+      onMouseDown={handlers.onMouseDown}
       style={{
         minHeight: height,
         background: "var(--ct-bg)",
@@ -356,7 +355,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     >
       {account && <AccountNotes notes={account.canvas.notes} />}
       {accountActions}
-      <CanvasToolbar label="Mesh graph controls" view={viewToggle} onRefresh={onRefresh} onFit={() => { userAdjustedRef.current = true; reset(); }} onZoomOut={() => { userAdjustedRef.current = true; zoomBy(-zoomStep); }} onZoomIn={() => { userAdjustedRef.current = true; zoomBy(zoomStep); }} />
+      <CanvasToolbar label="Mesh graph controls" view={viewToggle} onRefresh={onRefresh} onFit={() => { stage.takeControl(); reset(); }} onZoomOut={() => zoomBy(-zoomStep)} onZoomIn={() => zoomBy(zoomStep)} />
       <div
         ref={(element) => { layerRef.current = element; machineLayerRef.current = element; }}
         style={{

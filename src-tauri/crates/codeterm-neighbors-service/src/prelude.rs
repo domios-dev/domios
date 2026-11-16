@@ -25,6 +25,7 @@ pub use crate::service::neighbors::launch_fence::NeighborsExt as NeighborsNeighb
 pub use crate::service::neighbors::local_counts::NeighborsExt as NeighborsNeighborsLocalCounts1Ext;
 pub use crate::service::neighbors::notifications::NeighborsExt as NeighborsNeighborsNotifications1Ext;
 pub use crate::service::neighbors::pause::NeighborsExt as NeighborsNeighborsPause1Ext;
+pub use crate::service::neighbors::projection::inventory::NeighborsExt as NeighborsNeighborsProjectionInventory1Ext;
 pub use crate::service::neighbors::projection::NeighborsAdditionalExt as NeighborsNeighborsProjection2Ext;
 pub use crate::service::neighbors::projection::NeighborsExt as NeighborsNeighborsProjection1Ext;
 pub use crate::service::neighbors::reception::NeighborsExt as NeighborsNeighborsReception1Ext;

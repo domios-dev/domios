@@ -8,6 +8,120 @@ use std::sync::Arc;
 pub struct NoCalls;
 
 #[tokio::test]
+async fn restore_failure_after_generation_or_receiver_change_still_refuses_activation() {
+    for change_generation in [false, true] {
+        let data = tempfile::tempdir().unwrap();
+        let (fixture, metadata, friend, root, _, _) = fixture(data.path()).await;
+        let service = &fixture.service;
+        let result = service
+            .reconcile_neighbor_concierge_receiver_with(
+                &metadata,
+                "owner",
+                &friend,
+                true,
+                1,
+                service.neighbor_history_generation(),
+                || async {
+                    if change_generation {
+                        service
+                            .neighbor_cell()
+                            .generation
+                            .fetch_add(1, Ordering::AcqRel);
+                    } else {
+                        service.set_neighbor_friend_receiver_for_test(&friend, Some(false), 2);
+                    }
+                    Err("opaque stale restore failure".into())
+                },
+            )
+            .await;
+        assert!(result.is_err());
+        assert_ne!(
+            service.mux.read().get_tab(&root).unwrap().boot_stage,
+            Some(codeterm_types::pty::BootStage::SpawnFailed)
+        );
+    }
+}
+
+#[tokio::test]
+async fn failed_concierge_restore_keeps_healthy_friends_and_publishes_its_own_recovery_state() {
+    let data = tempfile::tempdir().unwrap();
+    let (fixture, metadata, friend, root, _, other_root) = fixture(data.path()).await;
+    let service = &fixture.service;
+    let other = "c".repeat(64);
+    let failure = "opaque concierge launch failure";
+    {
+        let mut mux = service.mux.write();
+        let tab = mux.get_tab_mut(&root).unwrap();
+        tab.frozen = true;
+        tab.agent_runtime_state = Some(json!({"state":"unloaded"}));
+        mux.get_tab_mut(&other_root).unwrap().boot_stage =
+            Some(codeterm_types::pty::BootStage::AgentReady);
+    }
+    let mut restored = Vec::new();
+    for id in [&other, &friend, &other] {
+        service
+            .reconcile_neighbor_concierge_receiver_with(
+                &metadata,
+                "owner",
+                id,
+                true,
+                1,
+                service.neighbor_history_generation(),
+                || {
+                    restored.push(id.clone());
+                    async {
+                        if id == &friend {
+                            service
+                                .restore_neighbor_concierge_with(
+                                    &metadata,
+                                    "owner",
+                                    id,
+                                    |_, _, _, _, _, _| async { Err(failure.into()) },
+                                )
+                                .await
+                        } else {
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .await
+            .unwrap();
+    }
+    assert_eq!(restored, [other.clone(), friend.clone(), other.clone()]);
+    let saved = metadata.settings().await.unwrap();
+    for (id, expected) in [(&friend, "concierge_provider_refused"), (&other, "ready")] {
+        let receiver = service.neighbor_friend_receiver(id).unwrap();
+        assert_eq!(
+            service.neighbor_concierge_view(id, &saved, &receiver)["state"],
+            expected
+        );
+        assert!(service.neighbor_friend_receiving_here(id));
+    }
+    let mux = service.mux.read();
+    let failed = mux.get_tab(&root).unwrap();
+    assert_eq!(
+        failed.boot_stage,
+        Some(codeterm_types::pty::BootStage::SpawnFailed)
+    );
+    assert_eq!(failed.boot_failure_reason.as_deref(), Some(failure));
+    assert_eq!(
+        mux.get_tab(&other_root).unwrap().boot_stage,
+        Some(codeterm_types::pty::BootStage::AgentReady)
+    );
+    drop(mux);
+    assert!(service
+        .require_neighbor_restore_grant(&other_root, false)
+        .is_ok());
+    assert!(!fixture.ui.0.lock().iter().any(|(name, data)| {
+        name == "neighbor-runtime-status" && data["receiver_unavailable"] == true
+    }));
+    assert!(fixture.ui.0.lock().iter().any(|(name, data)| {
+        name == "neighbor-agent-changed" && data["friendship_id"] == friend
+    }));
+}
+
+#[tokio::test]
 async fn missing_permission_is_local_to_one_friend_during_receiver_reconciliation() {
     let data = tempfile::tempdir().unwrap();
     let (fixture, metadata, friend, root, child, other_root) = fixture(data.path()).await;

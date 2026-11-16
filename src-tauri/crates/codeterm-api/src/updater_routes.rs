@@ -145,7 +145,7 @@ fn validate_initiating_tab(
 
 pub async fn install_update(
     state: AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: crate::auth::AgentHeaders,
     query: Query<InstallUpdateQuery>,
     installed: Option<axum::Extension<InstalledExecutable>>,
 ) -> axum::response::Response {
@@ -203,14 +203,14 @@ pub async fn install_update(
 
 async fn install_update_inner(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: crate::auth::AgentHeaders,
     Query(q): Query<InstallUpdateQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     if q.after_update.is_some() {
         validate_after_update_enabled(true, state.svc.configuration().agent.continue_after_restart)
             .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
     }
-    let caller_tab_id = crate::tab_routes::caller_tab_header(&headers);
+    let caller_tab_id = headers.local_tab_id();
     if q.method.as_deref() == Some("auto") {
         validate_initiating_tab(caller_tab_id.as_deref(), q.continue_tab.as_deref())
             .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;

@@ -36,10 +36,3 @@ export function webGraphLayout(width: number, height: number, machineCount: numb
     machines: positions.map((point, index) => ({ x: center.x + point.x, y: center.y + point.y, height: heights[index] })),
   };
 }
-type Bounds = { x: number; y: number; width: number; height: number };
-
-export function webGraphInitialView(width: number, height: number, bounds: Bounds, userAdjusted = false) {
-  if (userAdjusted || width <= 0 || height <= 0 || bounds.width <= 0 || bounds.height <= 0) return null;
-  const scale = Math.min(width / bounds.width, height / bounds.height, 1);
-  return { scale, bounds };
-}

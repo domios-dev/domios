@@ -16,6 +16,8 @@ import type { MachineRowView } from "./accountMachines";
 import { REAUTH_REQUIRED_COPY } from "./accountMachines";
 import { MachineSessionControls } from "./MachineSessionControls";
 import { MachineName } from "./MachineName";
+import { MachineFooter, ACCESS_LABELS } from "./MachineFooter";
+import type { PeerStatus } from "./useMeshData";
 
 const PILL_TONE: Record<MachineTone, "green" | "accent" | "muted" | "amber" | "red"> = {
   ok: "green",
@@ -103,35 +105,35 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
 }
 
 /** Account state and actions under a paired machine's card. */
-export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, hint }: {
+export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, hint, peer }: {
   footer: PeerAccountFooter;
   name: string;
-  /** Shown only while the machine is offline. */
   lastSeen: string | null;
   busy: boolean;
   actions: MachineNodeActions;
   hint?: ReactNode;
+  peer?: PeerStatus;
 }) {
-  const lock = meshMachineLockedView(footer.row);
-  return (
-    <div className="flex flex-col gap-2 px-3.5 py-2.5" onClick={(event) => event.stopPropagation()}>
+  const row = footer.row;
+  const pending = peer?.pending;
+  const label = pending ? "Waiting to pair" : row.connecting ? row.detail : ["endpoint_missing", "endpoint_stale", "waiting"].includes(row.status) ? "Unreachable" : footer.status;
+  const secondary = pending ? "pairs when online" : row.status === "linked" ? ACCESS_LABELS[peer?.access_level ?? ""] : lastSeen ? `last seen ${lastSeen.replace(/(\d)([a-z]+)/g, "$1 $2")}` : null;
+  const helper = !pending && ["endpoint_missing", "endpoint_stale", "expired", "signed_out", "blocked"].includes(row.status) ? row.detail : null;
+  const target = row.controls.revoke;
+  return <div onClick={(event) => event.stopPropagation()}>
+    <MachineSessionControls name={name} busy={busy}
+      onSignOut={row.canSignOut && actions.onSignOut ? () => actions.onSignOut!(row) : undefined}
+      onRemove={target && actions.onRemove ? (alsoSignOut) => actions.onRemove!(row, target, alsoSignOut) : undefined}
+      renderRow={(menu) => <MachineFooter label={label} secondary={secondary} tone={footer.tone} connecting={row.connecting}
+        version={peer?.domios_version} build={peer?.domios_build} menu={menu}>
+        {footer.plans && <button type="button" onClick={() => actions.onPlans(footer.key)} aria-label={`${plansAction("See plans")} for ${name}`} className={COMPACT_ACCENT}>{plansAction("See plans")}</button>}
+      </MachineFooter>} />
+    {helper && <p className="m-0 px-3.5 pb-2 text-[11px] text-[var(--ct-muted-fg)]">{helper}</p>}
+    {(footer.callout || hint) && <div className="flex flex-col gap-2 px-3.5 pb-2.5">
       {footer.callout && <Callout callout={footer.callout} onDismiss={() => actions.onDismiss(footer.key)} />}
-      <div className="flex items-center gap-2">
-        <LockBadge view={lock} />
-        <SettingsPill tone={PILL_TONE[footer.tone]}>{footer.status}</SettingsPill>
-        {lastSeen && <span className={UI_TEXT.metaMuted}>Last seen {lastSeen}</span>}
-        <div className="ml-auto flex items-center gap-1.5">
-          {footer.plans && (
-            <button type="button" onClick={() => actions.onPlans(footer.key)} aria-label={`${plansAction("See plans")} for ${name}`} className={COMPACT_ACCENT}>{plansAction("See plans")}</button>
-          )}
-
-        </div>
-      </div>
-      <div role="status" aria-busy={footer.row.connecting || undefined} className={UI_TEXT.metaMuted}>{footer.row.connecting ? <BusyState inline label={footer.row.detail} phase="work" /> : footer.row.detail}</div>
       {hint}
-      <SessionControls row={footer.row} busy={busy} actions={actions} />
-    </div>
-  );
+    </div>}
+  </div>;
 }
 
 /** Stands in for the machines when there are none to draw: signed out, empty account, loading or unavailable. */

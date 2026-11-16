@@ -184,6 +184,7 @@ impl Snapshot {
 pub struct AccountSnapshot {
     account: Option<(String, u64)>,
     snapshot: Option<Snapshot>,
+    version: Option<u64>,
 }
 
 impl AccountSnapshot {
@@ -192,19 +193,25 @@ impl AccountSnapshot {
         if self.account.as_ref() != Some(&account) {
             self.account = Some(account);
             self.snapshot = None;
+            self.version = None;
         }
     }
     pub fn apply(&mut self, uid: &str, generation: u64, snapshot: Snapshot) -> bool {
         if self.account.as_ref() != Some(&(uid.to_owned(), generation))
             || self
-                .snapshot
-                .as_ref()
-                .is_some_and(|old| snapshot.version <= old.version)
+                .version
+                .is_some_and(|version| snapshot.version <= version)
         {
             return false;
         }
+        self.version = Some(snapshot.version);
         self.snapshot = Some(snapshot);
         true
+    }
+    pub fn withdraw(&mut self, uid: &str, generation: u64) {
+        if self.account.as_ref() == Some(&(uid.to_owned(), generation)) {
+            self.snapshot = None;
+        }
     }
     pub fn read(
         &self,
@@ -223,7 +230,7 @@ impl AccountSnapshot {
         if self.account.as_ref() != Some(&(uid.to_owned(), generation)) {
             return None;
         }
-        self.snapshot.as_ref().map(|snapshot| snapshot.version)
+        self.version
     }
 }
 

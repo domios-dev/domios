@@ -154,7 +154,7 @@ impl NeighborsExt for ServiceContext {
                         .map(|value| (friendship.clone(), value))
                     })
                     .collect::<codeterm_neighbors::Result<_>>()?;
-                Ok(json!(codeterm_neighbors::responses::ChannelStatus {
+                let mut status = json!(codeterm_neighbors::responses::ChannelStatus {
                     watches: self.neighbor_cell().watch_states.lock().clone(),
                     incoming_handling: self.neighbor_handling_status(),
                     enabled: self.configuration().neighbors.enabled,
@@ -168,7 +168,10 @@ impl NeighborsExt for ServiceContext {
                     notification_preferences,
                     listeners: states.into_iter().collect(),
                     listener_errors: failures.into_iter().collect(),
-                }))
+                });
+                status["projection"] = self.neighbor_projection_diagnostics().await;
+                status["installation_id"] = installation.as_str().into();
+                Ok(status)
             }
             _ => Err(Error::InvalidEnvelope),
         }

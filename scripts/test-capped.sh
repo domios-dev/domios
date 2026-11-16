@@ -7,6 +7,7 @@
 # filterset, a successful run must show a passed test in a libtest or nextest
 # summary; otherwise it exits 97. An explicit --no-tests=pass|warn opts out, and
 # a run with no filter is never subject to that check.
+# TEST_REQUIRE_EXECUTION=1 makes test-one reject empty runs without an opt-out.
 #
 # Usage:
 #   scripts/test-capped.sh [<cargo-test-args>...]
@@ -46,7 +47,9 @@ else
     CARGO_TEST_CMD_DEFAULT=1
 fi
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
+[ "$SCRIPT_DIR" != "${BASH_SOURCE[0]}" ] || SCRIPT_DIR=.
+ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 # No awk `exit`: it closes the pipe, SIGPIPEs rustc, and pipefail then aborts the
 # whole script at exit 141 with zero output.
 HOST_TRIPLE=""
@@ -175,30 +178,6 @@ detect_requested_filter() {
     done
 }
 
-# Sums passed tests across libtest result lines and nextest summaries; an
-# all-ignored or unmatched selection sums to zero.
-passed_test_count() {
-    awk '
-        { gsub(/\033\[[0-9;]*m/, "") }
-        /^[[:space:]]*test result: [A-Za-z]+\. [0-9]+ passed;/ {
-            line = $0; sub(/.*test result: [A-Za-z]+\. /, "", line); total += line + 0
-        }
-        /^[[:space:]]*(Summary \[[^]]*\][[:space:]]+|Stress test \[[^]]*\] iteration [^:]+: )[0-9]+ tests? run: [0-9]+ passed/ {
-            if ($0 ~ /Stress test/) stress_details = 1
-            line = $0; sub(/.* tests? run: /, "", line); total += line + 0
-        }
-        /^[[:space:]]*Summary \[[^]]*\][[:space:]]+[0-9]+(\/[0-9]+)? stress run iterations?: [0-9]+ passed/ {
-            line = $0; sub(/.* stress run iterations?: /, "", line); stress_passes += line + 0
-        }
-        END { print total + (stress_details ? 0 : stress_passes) }
-    ' "$1"
-}
-
-filtered_run_ran_nothing() {
-    case "$NO_TESTS_MODE" in pass|warn) return 1 ;; esac
-    [ "$(passed_test_count "$1")" -eq 0 ]
-}
-
 report_zero_match() {
     local context="${FILTER_PACKAGE:-${FILTER_MANIFEST:-unspecified crate}}"
     printf '\n'
@@ -248,7 +227,7 @@ if [ "$EXEC_MODE" -eq 0 ]; then
 fi
 
 TEST_RAW_OUTPUT="${TEST_RAW_OUTPUT:-0}"
-if [ "$EXEC_MODE" = 0 ] && [ "$TEST_RAW_OUTPUT" != 1 ] && [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then
+if [ "$EXEC_MODE" = 0 ] && [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then
     TEST_LOG=$(mktemp "$CT_BUILD_ARTIFACT_DIR/test.XXXXXX.log")
 else
     TEST_LOG=$(mktemp)
@@ -260,15 +239,18 @@ capture_test() {
     else
         local status=0
         run_test "$@" > "$TEST_LOG" 2>&1 || status=$?
-        node "$(dirname "${BASH_SOURCE[0]}")/build-gateway-output.mjs" test-summary "$TEST_LOG" "$status" || true
+        node "$ROOT/scripts/build-gateway-output.mjs" test-summary "$TEST_LOG" "$status" || true
         return "$status"
     fi
 }
 if capture_test "$@"; then
-    if [ "$EXEC_MODE" -eq 0 ] && [ -n "$REQUESTED_FILTER" ]; then
-        if filtered_run_ran_nothing "$TEST_LOG"; then
-            report_zero_match
-            exit "$ZERO_MATCH_EXIT"
+    if [ "$EXEC_MODE" -eq 0 ] && { [ "${TEST_REQUIRE_EXECUTION:-0}" = 1 ] || [ -n "$REQUESTED_FILTER" ]; }; then
+        if node "$ROOT/scripts/build-gateway-output.mjs" test-proof "$TEST_LOG" "$REQUESTED_FILTER" "$NO_TESTS_MODE"; then
+            :
+        else
+            proof_exit=$?
+            [ "$proof_exit" != "$ZERO_MATCH_EXIT" ] || report_zero_match
+            exit "$proof_exit"
         fi
     fi
     exit 0

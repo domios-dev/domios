@@ -24,6 +24,11 @@ pub fn failure_detail(error: Error, previous: Option<ListenerFailure>) -> Listen
             operation: Some(operation.into()),
             ..Default::default()
         },
+        Error::LocalFence { phase } => ListenerFailure {
+            kind: "local_fence".into(),
+            operation: Some(phase.into()),
+            ..Default::default()
+        },
         error => ListenerFailure {
             kind: format!("{error:?}"),
             message: Some(error.to_string()),
@@ -39,6 +44,9 @@ pub trait NeighborsExt {
 
 impl NeighborsExt for ServiceContext {
     fn neighbor_watch_failure(&self, watch: &str, error: Error) {
+        if watch == "account" {
+            self.remember_neighbor_watch_failure(failure_detail(error, None));
+        }
         let version = self.forget_neighbor_friend_receivers();
         self.ui.emit(
             "neighbor-runtime-status",

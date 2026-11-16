@@ -14,7 +14,7 @@ const fakes = vi.hoisted(() => ({ fit: vi.fn(), zoom: vi.fn(), fly: vi.fn(), ani
 vi.mock("@codeterm/canvas-camera", async (original) => ({
   ...await original<typeof import("@codeterm/canvas-camera")>(),
   formatLayerTransform: () => "",
-  useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: fakes.fit, animateToView: fakes.fly, zoomBy: fakes.zoom }),
+  useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, transformRef: { current: { x: 0, y: 0, scale: 1 } }, setTransform: () => {}, fitToView: fakes.fit, animateToView: fakes.fly, zoomBy: fakes.zoom }),
 }));
 vi.mock("../Automation/blueprint/viewport", async (original) => ({
   ...await original<typeof import("../Automation/blueprint/viewport")>(),
@@ -60,8 +60,8 @@ it("Blueprint wires the shared toolbar once", async () => {
   while (!built.done) built = graph.next();
   await mount(<BlueprintCanvas layout={layoutBlueprint(built.value)} label="Blueprint graph" selected={null} camera={createAutomationCamera()} onSelect={() => {}} lit={new Set()} />);
   await click("Fit all"); expect(fakes.fit).toHaveBeenCalledTimes(1);
-  await click("Zoom out"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(-0.2); fakes.zoom.mockClear();
-  await click("Zoom in"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(0.2);
+  await click("Zoom out"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(-0.25); fakes.zoom.mockClear();
+  await click("Zoom in"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(0.25);
   expect(host.querySelector('[role="toolbar"] button[aria-label="Refresh"]')).toBeNull();
 });
 it("memory wires the shared toolbar to its camera and refresh once", async () => {
@@ -76,7 +76,7 @@ it("mesh wires the shared toolbar once", async () => {
   const refresh = vi.fn();
   await mount(<MeshCanvas onRefresh={refresh} thisMachine={{ name: "Fixture", ip: "127.0.0.1" }} peers={[]} recentPushes={[]} onPeerClick={() => {}} width={600} height={400} />);
   await click("Fit all"); expect(fakes.fit).toHaveBeenCalledTimes(1);
-  await click("Zoom out"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(-0.06); fakes.zoom.mockClear();
-  await click("Zoom in"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(0.06);
+  await click("Zoom out"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(-0.25); fakes.zoom.mockClear();
+  await click("Zoom in"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(0.25);
   await click("Refresh"); expect(refresh).toHaveBeenCalledTimes(1);
 });

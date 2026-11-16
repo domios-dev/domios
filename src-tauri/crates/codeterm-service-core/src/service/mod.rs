@@ -27,7 +27,6 @@ pub(crate) mod ai_helper_spawn;
 mod image_attachments;
 pub mod lazy_restore;
 pub mod tab_mutation_authority;
-pub mod tab_sleep_policy;
 pub mod tab_todos;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
@@ -74,6 +73,7 @@ mod pty_memory;
 mod shared_history;
 pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_input;
 pub(crate) mod launch_diagnostics;
+pub(crate) mod launch_input_attach;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
 #[cfg(any(test, feature = "test-support"))]

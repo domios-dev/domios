@@ -101,6 +101,7 @@ pub fn render_tab_tree_with_current(
         team_id: String,
         creator_tab_id: String,
         is_current: bool,
+        asleep: bool,
     }
     // HashMap-unordered).
     let mut groups: std::collections::BTreeMap<(String, String, String), Vec<Row>> =
@@ -130,6 +131,7 @@ pub fn render_tab_tree_with_current(
             .or_default()
             .push(Row {
                 is_current: current_tab_id == Some(id.as_str()),
+                asleep: p.get("asleep").is_some_and(|value| !value.is_null()),
                 id,
                 label,
                 model,
@@ -207,7 +209,12 @@ pub fn render_tab_tree_with_current(
         while let Some((i, depth)) = stack.pop() {
             let r = &rows[i];
             let indent = "  ".repeat(depth + 1);
-            let current_suffix = if r.is_current { " (self)" } else { "" };
+            let current_suffix = match (r.asleep, r.is_current) {
+                (true, true) => " (asleep) (self)",
+                (true, false) => " (asleep)",
+                (false, true) => " (self)",
+                (false, false) => "",
+            };
             let utility_suffix = if !r.team_id.is_empty() && r.role.is_empty() {
                 let creator = labels_by_id
                     .get(r.creator_tab_id.as_str())
@@ -274,8 +281,16 @@ pub fn render_tab_tree_with_current(
             }
         }
     }
+    if tabs
+        .iter()
+        .any(|tab| tab.get("asleep").is_some_and(|value| !value.is_null()))
+    {
+        out.push_str(ASLEEP_HINT);
+    }
     out
 }
+
+const ASLEEP_HINT: &str = "\n(asleep) lazily restored, no terminal yet: open it, send to it, or run `domios agent restart --tab ID` to wake it\n";
 
 fn format_description_suffix(description: &str) -> String {
     if description.is_empty() {

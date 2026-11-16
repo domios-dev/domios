@@ -141,6 +141,10 @@ pub struct WebUiAnnouncement {
 /// sender's instance_id wholesale — stale entries must die.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerAnnounce {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domios_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domios_build: Option<String>,
     pub instance_id: String,
     pub instance_name: String,
     pub addresses: Vec<PeerAddress>,
@@ -172,7 +176,10 @@ pub struct PairedPeer {
     pub is_primary: bool,
     #[serde(default)]
     pub access_level: AccessLevel,
-    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domios_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domios_build: Option<String>,
     #[serde(default)]
     pub web_ui: Option<WebUiAnnouncement>,
     #[serde(default)]

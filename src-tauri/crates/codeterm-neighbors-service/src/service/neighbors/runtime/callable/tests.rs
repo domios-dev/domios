@@ -155,9 +155,19 @@ async fn post_call_validation_never_refreshes_and_rejects_logout_or_new_login() 
     };
     calls.validate_session(&captured).await.unwrap();
     account.logout().await.unwrap();
-    assert_eq!(calls.validate_session(&captured).await, Err(Error::Revoked));
+    assert_eq!(
+        calls.validate_session(&captured).await,
+        Err(Error::LocalFence {
+            phase: "account_session"
+        })
+    );
     account.login(Arc::new(NoBrowser)).await.unwrap();
-    assert_eq!(calls.validate_session(&captured).await, Err(Error::Revoked));
+    assert_eq!(
+        calls.validate_session(&captured).await,
+        Err(Error::LocalFence {
+            phase: "account_session"
+        })
+    );
 }
 
 #[test]
@@ -183,11 +193,15 @@ async fn cached_own_inventory_and_receiver_reads_still_require_the_current_accou
     };
     assert_eq!(
         calls.invoke("friendsOwnKeys", json!({})).await,
-        Err(Error::Revoked)
+        Err(Error::LocalFence {
+            phase: "account_session"
+        })
     );
     assert_eq!(
         calls.invoke("friendsReceiverStatus", json!({})).await,
-        Err(Error::Revoked)
+        Err(Error::LocalFence {
+            phase: "account_session"
+        })
     );
 }
 
