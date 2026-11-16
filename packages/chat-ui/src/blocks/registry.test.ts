@@ -4,10 +4,10 @@ import { parseChatBlock, parseChatBlocks, CHAT_BLOCKS } from "./registry";
 import { parsePluginId } from "./pluginBlockModel";
 import { parseDsBlocks } from "@codeterm/chat-core";
 
-test("all nine typed live cards use the shared grammar", () => {
-  const tags = ['<ds-guide section="phone" />', '<ds-plugin id="git" />', '<ds-connect bridge="telegram" />', '<ds-setting key="plugins.git.enabled" />', '<ds-agent tab="e3ec9ee9" />', '<ds-job ref="nightly" />', '<ds-checklist id="getting-started" />', '<ds-choice options=\'["Yes","No"]\' />', '<ds-tasks plan="pl_alpha" />'];
-  assert.equal(CHAT_BLOCKS.length, 9);
-  assert.equal(parseChatBlocks(tags.join("\r\n"))?.length, 9);
+test("every catalogued chat block uses the shared grammar", () => {
+  const tags = ['<ds-guide section="phone" />', '<ds-plugin id="git" />', '<ds-connect bridge="telegram" />', '<ds-setting key="plugins.git.enabled" />', '<ds-agent tab="e3ec9ee9" />', '<ds-job ref="nightly" />', '<ds-checklist id="getting-started" />', '<ds-choice options=\'["Yes","No"]\' />', '<ds-tasks plan="pl_alpha" />', '<ds-canvas>{"items":[{"kind":"note","markdown":"A"}]}</ds-canvas>'];
+  assert.equal(CHAT_BLOCKS.length, tags.length);
+  assert.equal(parseChatBlocks(tags.join("\r\n"))?.length, tags.length);
   for (const tag of tags) assert.ok(parseChatBlock(tag));
   assert.equal(parseChatBlocks(tags[0] + "\nprose"), null);
 });
