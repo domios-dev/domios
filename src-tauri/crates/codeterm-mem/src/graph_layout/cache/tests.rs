@@ -144,7 +144,7 @@ fn positions_filtered_drops_stale_ids() {
 fn previous_layout_is_discarded_for_full_projection() {
     let path = tmp_path();
     let old = serde_json::json!({
-        "format_version": 1,
+        "format_version": 2,
         "layout_version": 7,
         "computed_at": "old",
         "positions": { "a": [1000.0, 1000.0, 0.0] }

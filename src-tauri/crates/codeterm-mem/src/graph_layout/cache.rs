@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 
-pub const LAYOUT_FORMAT_VERSION: u64 = 2;
+pub const LAYOUT_FORMAT_VERSION: u64 = 3;
 const FLUSH_DEBOUNCE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
