@@ -4,6 +4,7 @@ import type { ViewportBox } from "@codeterm/canvas-camera";
 /** Live sandboxed frames one canvas keeps at once; measured in docs/design/ds-canvas-study.md §2.7. */
 export const CANVAS_LIVE_FRAME_BUDGET = 4;
 export const CANVAS_INLINE_HEIGHT = 320;
+export const CANVAS_INLINE_PADDING = 16;
 export const CANVAS_DEFAULT_SIZE: Record<DsCanvasItemKind, { w: number; h: number }> = {
   image: { w: 480, h: 320 },
   html: { w: 480, h: 360 },
@@ -81,9 +82,10 @@ export function chooseLiveFrames(frames: readonly { id: string; visible: boolean
   return live;
 }
 
-/** Scale and offset that fit the whole canvas, centred, into a static preview box. */
-export function fitPreview(bounds: ViewportBox, width: number, height: number): { scale: number; x: number; y: number } {
-  if (width <= 0 || height <= 0) return { scale: 0, x: 0, y: 0 };
-  const scale = Math.min(width / bounds.width, height / bounds.height, 1);
+/** Scale and offset that fit the whole canvas, centred, inside the padding of a static preview box. */
+export function fitPreview(bounds: ViewportBox, width: number, height: number, padding = CANVAS_INLINE_PADDING): { scale: number; x: number; y: number } {
+  const innerWidth = width - 2 * padding, innerHeight = height - 2 * padding;
+  if (innerWidth <= 0 || innerHeight <= 0) return { scale: 0, x: 0, y: 0 };
+  const scale = Math.min(innerWidth / bounds.width, innerHeight / bounds.height, 1);
   return { scale, x: (width - bounds.width * scale) / 2 - bounds.x * scale, y: (height - bounds.height * scale) / 2 - bounds.y * scale };
 }

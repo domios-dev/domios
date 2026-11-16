@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { DsCanvasItem } from "@codeterm/chat-core";
-import { buildHtmlPreviewDocument, sanitizeLocalHtml, SandboxedHtmlFrame, type ThemeVars } from "../HtmlPreviewBlock";
+import { buildHtmlPreviewDocument, HTML_PREVIEW_MESSAGE_SOURCE, sanitizeLocalHtml, SandboxedHtmlFrame, type ThemeVars } from "../HtmlPreviewBlock";
+import { CameraRestContext, sharpFrameZoom } from "../canvasRest";
 import { loadLocalArtifact } from "../localArtifactLoader";
 import { loadHtmlFile } from "../htmlFileLoader";
 import { useLocalArtifactTabId } from "../LocalArtifactScope";
@@ -75,6 +76,23 @@ function FramePlaceholder({ label }: { label: string }) {
   return <div data-canvas-frame-idle="" className="flex h-full w-full items-center justify-center border border-[var(--ct-border)] p-4 text-xs" style={{ color: "var(--ct-muted-fg)", background: "var(--ct-bg)" }}><span className="truncate">{label}</span></div>;
 }
 
+/** At rest the frame is counter-scaled and its content zoomed, so the engine rasterizes it at screen size instead of stretching it. */
+function CanvasFrame({ doc, label, active }: { doc: string; label: string; active: boolean }) {
+  const zoom = sharpFrameZoom(useContext(CameraRestContext));
+  const ref = useRef<HTMLIFrameElement>(null);
+  useEffect(() => {
+    const frame = ref.current;
+    if (!frame) return;
+    const send = () => frame.contentWindow?.postMessage({ source: HTML_PREVIEW_MESSAGE_SOURCE, zoom }, "*");
+    send();
+    frame.addEventListener("load", send);
+    return () => frame.removeEventListener("load", send);
+  }, [zoom, doc]);
+  const sharp: CSSProperties = zoom === 1 ? {} : { width: `${zoom * 100}%`, height: `${zoom * 100}%`, transform: `scale(${1 / zoom})`, transformOrigin: "0 0" };
+  const style: CSSProperties = { display: "block", width: "100%", height: "100%", border: "1px solid var(--ct-border)", boxSizing: "border-box", background: "var(--ct-bg)", pointerEvents: active ? "auto" : "none", ...sharp };
+  return <SandboxedHtmlFrame ref={ref} doc={doc} title={label} testId="chat-canvas-frame" style={style} />;
+}
+
 function Markdown({ text }: { text: string }) {
   return <RichMarkdown text={text} localArtifacts={false} interactivePreviews={false} />;
 }
@@ -98,11 +116,7 @@ function ItemContent({ item, live, active, theme }: { item: DsCanvasItem; live: 
   if (file?.status === "error") return <CanvasItemFailure text={FAILURE_TEXT[item.kind]} reason={file.reason} />;
   if (file?.status === "loading") return <div role="status" aria-label={`Loading ${label}`} className="h-full w-full" />;
   const doc = inlineDoc ?? pageDoc;
-  if (doc !== null) {
-    if (!live) return <FramePlaceholder label={label} />;
-    const style: CSSProperties = { display: "block", width: "100%", height: "100%", border: "1px solid var(--ct-border)", boxSizing: "border-box", background: "var(--ct-bg)", pointerEvents: active ? "auto" : "none" };
-    return <SandboxedHtmlFrame doc={doc} title={label} testId="chat-canvas-frame" style={style} />;
-  }
+  if (doc !== null) return live ? <CanvasFrame doc={doc} label={label} active={active} /> : <FramePlaceholder label={label} />;
   const content = file?.status === "ready" ? file.content : null;
   if (content?.kind === "image") return <ImageContent src={content.src} label={label} />;
   if (content?.kind === "text") return <TextBox scrolls={active} fill={false}>{content.markdown ? <Markdown text={content.text} /> : <pre className="m-0 whitespace-pre-wrap break-words">{content.text}</pre>}</TextBox>;
