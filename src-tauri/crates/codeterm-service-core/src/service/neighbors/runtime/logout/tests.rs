@@ -280,7 +280,14 @@ async fn logout(
         uid: "owner".into(),
         generation: 0,
     };
-    assert!(matches!(calls.id_token().await, Err(Error::Revoked)));
+    let error = calls.id_token().await.unwrap_err();
+    assert_eq!(
+        error,
+        Error::LocalFence {
+            phase: "account_session"
+        }
+    );
+    assert!(!codeterm_neighbors::supervisor::retryable(error));
     assert_eq!(*evidence.events.lock(), ["delete_credential"]);
     if local {
         return;

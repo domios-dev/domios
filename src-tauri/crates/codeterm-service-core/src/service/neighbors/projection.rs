@@ -543,9 +543,14 @@ impl ServiceContext {
     fn neighbor_projection_missing_owned(&self) {
         let cell = self.extensions.get_or_init(Cell::default);
         let mut state = cell.state.lock();
+        if let Some((uid, generation)) = state.selected.clone() {
+            state.snapshots.withdraw(&uid, generation);
+        }
         state.unavailable = true;
         state.reconciled = None;
+        state.activated = None;
         state.authoritative = false;
+        state.inventory_epoch = std::sync::Arc::new(());
         drop(state);
         cell.changed.notify_waiters();
     }
@@ -585,6 +590,7 @@ impl ServiceContext {
         let applied = {
             let mut state = cell.state.lock();
             let reconnect = state.selected.as_ref() == Some(&(uid.to_owned(), generation))
+                && state.authoritative
                 && state.unavailable
                 && state.snapshots.version(uid, generation) == Some(snapshot.version);
             let applied = state.snapshots.apply(uid, generation, snapshot) || reconnect;
@@ -707,6 +713,10 @@ impl ServiceContext {
             .lock()
             .snapshots
             .version(uid, generation)
+    }
+    pub(super) fn neighbor_projection_authoritative(&self, uid: &str, generation: u64) -> bool {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        state.selected.as_ref() == Some(&(uid.to_owned(), generation)) && state.authoritative
     }
     pub(super) async fn neighbor_projection_read(
         &self,

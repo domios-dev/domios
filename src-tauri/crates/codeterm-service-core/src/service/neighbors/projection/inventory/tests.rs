@@ -77,6 +77,14 @@ async fn confirmed_idempotent_acknowledgment_does_not_invalidate_the_list() {
         false
     );
     assert!(f.service.neighbor_activation_ticket("owner", 1).is_ok());
+    f.service.invalidate_neighbor_list().await.unwrap();
+    f.service
+        .fence_neighbor_key_inventory("owner", 1, "vk_confirmed")
+        .unwrap();
+    assert_eq!(
+        f.service.neighbor_projection_diagnostics().await["dirty"],
+        true
+    );
 }
 
 #[tokio::test]

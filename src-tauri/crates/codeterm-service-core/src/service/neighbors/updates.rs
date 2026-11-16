@@ -243,10 +243,13 @@ impl Session {
             )
             .await?;
         if !applied
-            && self
+            && (!self.service.neighbor_projection_authoritative(
+                &self.transport.uid,
+                self.expected.login_generation,
+            ) || self
                 .service
                 .neighbor_projection_version(&self.transport.uid, self.expected.login_generation)
-                != Some(version)
+                != Some(version))
         {
             return Ok(());
         }
