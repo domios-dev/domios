@@ -10,7 +10,7 @@ import { HISTORY_CHUNK_BYTES, serializedBytes, sanitizeHistory, historyItem } fr
 import { json } from "./runtimeMessages";
 import { pagedHistoryPlan, pagedHistoryResponse } from "./runtimeHistoryPager";
 import { projectHistoryItem } from "./runtimeStoredHistory";
-import { loginPlan, loginResponse } from "./runtimeLogin";
+import { loginFailureReason, loginPlan, loginResponse } from "./runtimeLogin";
 import { rateLimitEvents } from "./runtimeUsage";
 import {resetCredits, resetOutcome} from "./resetCredits";
 import { accountAuth } from "./runtimeAuth";
@@ -228,7 +228,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       return historyItems(op,{...state,historyItemLimit:smaller},text(state.cursor));
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"}};
     if (op.kind === "initialize" && state.stage === "initializeLimits") return {kind:"complete",result:initializedResult(state),events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent]};
-    if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
+    if (op.kind === "control" && op.action === "login") return refused(loginFailureReason(reply.error.message,"Sign-in failed. Try again."));
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
     if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
       return historyComplete(op,{items:[],openItems:[]});

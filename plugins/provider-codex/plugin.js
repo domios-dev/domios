@@ -2446,9 +2446,14 @@ function loginResponse(state, value) {
   if (method === "device" && !userCode) throw { code: "invalid_schema", message: "Missing device code" };
   return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "pending", method, loginId, url, ...userCode ? { userCode } : {} } }] };
 }
+function loginFailureReason(message, fallback) {
+  const reason = typeof message === "string" ? message.replace(/\bhttps?:\/\/\S+/gi, "<link>").replace(/\s+/g, " ").trim() : "";
+  if (!reason) return fallback;
+  return `${fallback.replace(/\. Try again\.$/, "")}: ${reason.length > 240 ? `${reason.slice(0, 239)}\u2026` : reason}`;
+}
 function loginCompleted(value) {
   const loginId = text2(value.loginId);
-  return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
+  return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: loginFailureReason(value.error, "Sign-in did not complete. Try again.") } } };
 }
 
 // plugins/provider-codex/src/resetCredits.ts
@@ -2516,7 +2521,7 @@ function accountAuth(value) {
 function notificationAuth(value) {
   const params = object2(value);
   if (params.authMode === null) return { kind: "auth", state: "signedOut" };
-  if (text2(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
+  if (text2(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apikey" || params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 
@@ -3825,7 +3830,7 @@ function respondOperation(ctx, op, raw, reply) {
       return historyItems(op, { ...state, historyItemLimit: smaller }, text2(state.cursor));
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" } };
     if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: initializedResult(state), events: [state.auth] };
-    if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
+    if (op.kind === "control" && op.action === "login") return refused(loginFailureReason(reply.error.message, "Sign-in failed. Try again."));
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
     if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
       return historyComplete(op, { items: [], openItems: [] });

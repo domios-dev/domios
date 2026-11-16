@@ -58,19 +58,85 @@ pub fn forget(session: &Arc<Session>) {
         owners.remove(&session.provider);
     }
 }
-fn claim(session: &Arc<Session>) -> Result<(), String> {
+/// One provider sign-in may be pending across tabs; a finished or expired claim no longer blocks a new one.
+fn claim_refusal(
+    owner_tab: Option<&str>,
+    owner_login: Option<&RuntimeLoginState>,
+    tab: &str,
+    now: u64,
+) -> Option<String> {
+    let owner_tab = owner_tab?;
+    let live = owner_login.is_some_and(|login| {
+        login.status == RuntimeLoginStatus::Pending
+            && login.expires_at_ms.is_none_or(|expiry| expiry > now)
+    });
+    if !live {
+        return None;
+    }
+    Some(if owner_tab == tab {
+        "A sign-in is already pending in this tab. Finish or cancel it before trying again.".into()
+    } else {
+        format!("A sign-in for this provider is already pending in tab {owner_tab}. Finish or cancel it there before trying again.")
+    })
+}
+fn claim(session: &Arc<Session>, tab: &str) -> Result<(), String> {
     let mut owners = OWNERS.lock();
-    if owners
-        .get(&session.provider)
-        .and_then(Weak::upgrade)
-        .is_some()
-    {
-        return Err(
-            "A sign-in is already pending for this provider. Cancel it before trying again.".into(),
-        );
+    if let Some(owner) = owners.get(&session.provider).and_then(Weak::upgrade) {
+        let owner_tab = owner.context.lock().tab_id.clone();
+        let owner_login = owner.login.lock().login.clone();
+        if let Some(refusal) = claim_refusal(Some(&owner_tab), owner_login.as_ref(), tab, now_ms())
+        {
+            return Err(refusal);
+        }
     }
     owners.insert(session.provider.clone(), Arc::downgrade(session));
     Ok(())
+}
+/// Login failures reach the card and the log; a submitted key never does, and provider text stays bounded.
+fn safe_reason(reason: &str, secret: Option<&str>) -> String {
+    let mut reason = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+    if let Some(secret) = secret.map(str::trim).filter(|secret| !secret.is_empty()) {
+        reason = reason.replace(secret, "<redacted>");
+    }
+    if reason.chars().count() > 300 {
+        reason = reason.chars().take(299).chain(['…']).collect();
+    }
+    if reason.is_empty() {
+        "Sign-in failed. Try again.".into()
+    } else {
+        reason
+    }
+}
+fn run_failure_reason(failure: &RuntimeFailure) -> String {
+    let RuntimeFailure::Refused(reason) = failure else {
+        return format!("Sign-in failed: {failure}");
+    };
+    let tag = format!("{:?}: ", RuntimeFailureCode::ProviderRefused);
+    let reason = reason.strip_prefix(&tag).unwrap_or(reason);
+    if reason.starts_with("Sign-in") {
+        reason.to_owned()
+    } else {
+        format!("Sign-in failed: {reason}")
+    }
+}
+fn request_label(request: &LoginRequest) -> String {
+    let method = request
+        .method_id
+        .clone()
+        .or_else(|| {
+            request.method.as_ref().map(|method| {
+                serde_json::to_value(method)
+                    .ok()
+                    .and_then(|value| value.as_str().map(str::to_owned))
+                    .unwrap_or_default()
+            })
+        })
+        .unwrap_or_default();
+    format!(
+        "{}{}{method}",
+        request.action.as_deref().unwrap_or("start"),
+        if method.is_empty() { "" } else { ":" }
+    )
 }
 fn matching_completion(pending: Option<&RuntimeLoginState>, event: &RuntimeLoginState) -> bool {
     pending.is_some_and(|pending| {
@@ -84,6 +150,20 @@ fn matching_completion(pending: Option<&RuntimeLoginState>, event: &RuntimeLogin
 }
 
 pub async fn operate(
+    svc: &ServiceContext,
+    tab: &str,
+    request: LoginRequest,
+) -> Result<Value, String> {
+    let label = request_label(&request);
+    let secret = request.api_key.clone();
+    operate_unlogged(svc, tab, request).await.map_err(|reason| {
+        let reason = safe_reason(&reason, secret.as_deref());
+        log::warn!("[agent_runtime.login] tab={tab} request={label} refused: {reason}");
+        reason
+    })
+}
+
+async fn operate_unlogged(
     svc: &ServiceContext,
     tab: &str,
     request: LoginRequest,
@@ -182,7 +262,7 @@ pub async fn operate(
         {
             return Err("API key required (maximum 16 KiB)".into());
         }
-        claim(&session)?;
+        claim(&session, tab)?;
         session.login.lock().phone_notification = None;
         session.login.lock().login = Some(RuntimeLoginState {
             status: RuntimeLoginStatus::Pending,
@@ -208,11 +288,12 @@ pub async fn operate(
         },
     )
     .await;
-    if result.is_err() {
+    if let Err(failure) = result {
         if cancel {
-            return Err("Cancel failed. Try Cancel again.".into());
+            return Err(format!("Cancel failed: {failure}. Try Cancel again."));
         }
         forget(&session);
+        let reason = safe_reason(&run_failure_reason(&failure), request.api_key.as_deref());
         session.login.lock().login = Some(RuntimeLoginState {
             status: RuntimeLoginStatus::Failed,
             method: None,
@@ -220,10 +301,10 @@ pub async fn operate(
             url: None,
             user_code: None,
             expires_at_ms: None,
-            error: Some("Sign-in failed. Try again.".into()),
+            error: Some(reason.clone()),
         });
         engine::publish(svc, tab, &session);
-        return Err("Sign-in failed. Try again.".into());
+        return Err(reason);
     }
     show(svc, tab)
 }
