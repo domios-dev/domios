@@ -2,6 +2,7 @@ use super::ServiceContext;
 use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Worker};
 use std::sync::Arc;
 
+mod context;
 pub(crate) mod update_confirm;
 
 pub(crate) struct AnalyticsCell(pub(crate) Arc<tokio::sync::OnceCell<Worker>>);
@@ -114,6 +115,7 @@ impl ServiceContext {
                         crate::paths::data_dir().join("analytics-settings.json"),
                         Config::from_env()?,
                         reader,
+                        context::current(),
                     )?;
                     worker.set_mesh_machines(mesh_machines);
                     if let Some(event) = startup {
