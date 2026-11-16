@@ -8,7 +8,12 @@ license = "AGPL-3.0-only"
 workspace = true
 
 [features]
-test-support = ["codeterm-service-core/test-support"]
+test-support = [
+    "codeterm-service-core/test-support",
+    "codeterm-billing/test-support",
+    "codeterm-util/test-support",
+    "codeterm-mesh/test-support",
+]
 
 [dependencies]
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
@@ -50,6 +55,9 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 codeterm-paths = { path = "../codeterm-paths" }
 
 [dev-dependencies]
+codeterm-billing = { path = "../codeterm-billing", features = ["test-support"] }
+codeterm-util = { path = "../codeterm-util", features = ["test-support"] }
+codeterm-mesh = { path = "../codeterm-mesh", features = ["test-support"] }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 
 [target.'cfg(windows)'.dependencies]

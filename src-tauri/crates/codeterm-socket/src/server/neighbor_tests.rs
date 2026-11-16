@@ -1,5 +1,4 @@
 use super::*;
-use codeterm_neighbors_service::prelude::*;
 use codeterm_service_core::{
     multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
 };

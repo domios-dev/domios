@@ -756,7 +756,6 @@ mod tests {
         use codeterm_service_core::cron::store::{
             CronCreateParams, CronRunInfo, CronRunStatus, CronStore,
         };
-        use codeterm_service_core::service::test_fixture::ServiceFixture;
         use std::sync::Arc;
 
         let (mut mux, initial_tab) =
