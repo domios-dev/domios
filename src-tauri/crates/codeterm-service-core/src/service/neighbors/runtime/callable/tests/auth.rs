@@ -218,7 +218,12 @@ async fn selected_native_transport_uses_only_its_own_current_account_token() {
         .unwrap();
         let token = selected.id_token().await;
         if mismatch.is_some() {
-            assert!(matches!(token, Err(Error::Revoked)));
+            assert!(matches!(
+                token,
+                Err(Error::LocalFence {
+                    phase: "account_session"
+                })
+            ));
         } else {
             assert_eq!(token.unwrap().as_str(), expected.id_token.expose());
         }

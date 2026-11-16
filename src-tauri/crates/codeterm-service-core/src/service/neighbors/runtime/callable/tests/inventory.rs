@@ -175,6 +175,11 @@ async fn fixture(snapshot_before_response: bool) -> InventoryFixture {
             .await
     );
     let store = fixture.service.fixture_neighbor_key_store();
+    fixture.service.extensions.get_or_init(|| {
+        crate::service::neighbors::projection::inventory::InventoryLoader(Arc::new(|| {
+            Err(Error::KeyInventoryPending)
+        }))
+    });
     let port = Arc::new(InventoryTransport {
         service: fixture.service.clone(),
         uid: calls.uid.clone(),
@@ -308,6 +313,9 @@ async fn snapshot_before_wait_and_idempotent_same_key_need_no_new_version() {
         Some(2)
     );
     assert_eq!(f.port.enrollment.load(Ordering::SeqCst), 2);
+    let diagnostics = f.fixture.service.neighbor_projection_diagnostics().await;
+    assert_eq!(diagnostics["dirty"], false);
+    assert_eq!(diagnostics["pending_verifier_ids"], json!([]));
 }
 
 #[tokio::test(start_paused = true)]
