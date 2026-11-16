@@ -2,12 +2,9 @@
 //! the replacement takes the plan over through the tab-gone recovery rebind.
 
 use super::*;
-use crate::traits::*;
 
+use crate::hierarchy::plan_reminder_nudge::{timed_plan_reminder_targets, PlanReminderTarget};
 use codeterm_events::EventBroadcaster;
-use codeterm_orchestration::hierarchy::plan_reminder_nudge::{
-    timed_plan_reminder_targets, PlanReminderTarget,
-};
 use codeterm_service_core::plan::{OrchestratorRef, Plan, PlannerRef};
 use codeterm_service_core::service::plan::PlanStore;
 

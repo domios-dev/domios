@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 #[test]
 fn manual_close_settles_a_partial_round_once_without_triggering_failure_fallback() {

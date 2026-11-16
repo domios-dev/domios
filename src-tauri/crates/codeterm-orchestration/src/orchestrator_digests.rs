@@ -1,5 +1,3 @@
-use crate::curator::CuratorExt;
-use crate::hierarchy::HierarchyExt;
 mod inventory;
 #[cfg(test)]
 mod preparation_tests;

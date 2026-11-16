@@ -1,4 +1,3 @@
-use crate::traits::*;
 use std::collections::HashSet;
 
 use codeterm_plan::service_plan::{ReminderAdmissionRead as Plan, ReminderCandidateRead};

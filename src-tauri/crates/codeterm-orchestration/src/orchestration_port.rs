@@ -5,7 +5,7 @@ use codeterm_service_core::cron::store::CronJob;
 use codeterm_service_core::plan::{PlanMode, PlanStatus};
 use codeterm_service_core::service::message_gateway::{DeliveryError, DeliveryReceipt};
 use codeterm_service_core::service::messenger::Delivery;
-use codeterm_service_core::service::plan::PlanError;
+use codeterm_service_core::service::orchestration_data::CuratorIdentity;
 use codeterm_service_core::service::role_policy::{BlueprintAction, CronLaunch, CronSettlement};
 use codeterm_service_core::service::AuthenticatedPlanCaller;
 use codeterm_service_core::service::{ReportResult, ReportSubmissionError, WorkerTurnSignal};
@@ -52,6 +52,12 @@ fn register_extensions(extensions: &mut ExtensionsBuilder) {
 }
 
 impl OrchestrationPort for OrchestrationPortImpl {
+    fn curator_identity(
+        &self,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<CuratorIdentity, String> {
+        self.svc().curator_identity(caller)
+    }
     fn schedule_planner_replay(&self, tab_id: &str) {
         self.svc().schedule_planner_replay(tab_id)
     }

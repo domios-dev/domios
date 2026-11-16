@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 use codeterm_plan::service_plan::{ReminderPlanRead as LegacyPlan, ReminderTaskRead as Task};
 use codeterm_service_core::service::plan::state::TaskPresentation;
 mod reference_projection;

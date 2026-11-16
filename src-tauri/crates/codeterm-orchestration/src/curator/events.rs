@@ -1,7 +1,5 @@
 use super::*;
-use crate::traits::*;
 use codeterm_events::SystemEvent;
-use std::collections::BTreeSet;
 
 /// Active plans, and any plan whose control loop still holds a run, cron job or
 /// wake time to settle; other plans have no curator state to reconcile.
@@ -117,8 +115,7 @@ impl CuratorEventsExt for ServiceContext {
     /// its snapshot, so every writer of that index and the round claim runs under this gate.
     fn with_curator_plan_gate<T>(&self, id: &str, run: impl FnOnce() -> T) -> T {
         let gate = self
-            .extensions
-            .get_or_init(CuratorReconciliations::default)
+            .ext_or_init(CuratorReconciliations::default)
             .for_plan(id);
         let _guard = match gate.try_lock() {
             Some(guard) => guard,
@@ -144,10 +141,7 @@ impl CuratorEventsExt for ServiceContext {
         id: &str,
         now: u64,
     ) -> Result<(), codeterm_service_core::service::plan::PlanError> {
-        let Some(cron) = self
-            .extensions
-            .try_get::<codeterm_service_core::CronState>()
-        else {
+        let Some(cron) = self.try_ext::<codeterm_service_core::CronState>() else {
             return Ok(());
         };
         let read = match self.plan_store.curator_schedule_projection(id) {
@@ -158,7 +152,7 @@ impl CuratorEventsExt for ServiceContext {
         let plan = read.metadata();
         #[cfg(test)]
         super::reconciliation::test_boundary::observe(self, id, true);
-        if let Some(index) = self.extensions.try_get::<CuratorTabs>() {
+        if let Some(index) = self.try_ext::<CuratorTabs>() {
             let mut tabs = index.0.write();
             tabs.retain(|_, plan| plan != id);
             if let Some(tab) = plan

@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 impl CuratorManualExt for ServiceContext {
     fn control_loop_run(
@@ -9,8 +8,7 @@ impl CuratorManualExt for ServiceContext {
         now: u64,
     ) -> Result<ControlLoop, String> {
         self.authorize_plan_orchestrator(plan_id, caller)?;
-        self.extensions
-            .try_get::<super::CuratorTabs>()
+        self.try_ext::<CuratorTabs>()
             .ok_or("Curator runtime is unavailable")?;
         let read = self
             .plan_store

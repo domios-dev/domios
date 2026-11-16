@@ -1,26 +1,10 @@
 use super::*;
-use crate::traits::*;
-
-#[derive(Debug, Clone)]
-pub struct CuratorIdentity {
-    pub plan_id: String,
-    pub number: u64,
-    pub tab_id: String,
-    pub session_id: String,
-    pub binding_nonce: String,
-}
-
-pub fn grant_matches(grant: &CuratorGrant, identity: &CuratorIdentity) -> bool {
-    grant.round == identity.number
-        && grant.tab_id == identity.tab_id
-        && grant.session_id == identity.session_id
-        && grant.binding_nonce == identity.binding_nonce
-}
+pub use codeterm_service_core::service::orchestration_data::{grant_matches, CuratorIdentity};
 
 impl CuratorAuthorityExt for ServiceContext {
     fn bind_curator_session(&self, tab_id: &str) -> Result<(), String> {
         let index = self
-            .try_ext::<super::CuratorTabs>()
+            .try_ext::<CuratorTabs>()
             .ok_or("Curator runtime is unavailable")?;
         let Some(plan_id) = index.0.read().get(tab_id).cloned() else {
             return Ok(());
@@ -119,8 +103,7 @@ impl CuratorAuthorityExt for ServiceContext {
     ) -> Result<(), String> {
         use codeterm_service_core::service::message_gateway::DeliveryError;
         let Some(plan_id) = self
-            .extensions
-            .try_get::<super::events::CuratorTabs>()
+            .try_ext::<CuratorTabs>()
             .and_then(|index| index.0.read().get(sender).cloned())
         else {
             return Ok(());
@@ -148,12 +131,6 @@ impl CuratorAuthorityExt for ServiceContext {
                 Ok(())
             })
             .map_err(|error| error.to_string())
-    }
-
-    fn is_curator_tab(&self, tab: &str) -> bool {
-        self.role_policy_for_tab(tab).is_some_and(|policy| {
-            policy.profile() == codeterm_service_core::service::role_policy::RoleProfile::Curator
-        })
     }
 
     fn authorize_curator_operation(
@@ -228,8 +205,7 @@ impl CuratorAuthorityExt for ServiceContext {
             return Err("Curator session binding changed".into());
         }
         let plan_id = self
-            .extensions
-            .try_get::<super::events::CuratorTabs>()
+            .try_ext::<CuratorTabs>()
             .and_then(|index| index.0.read().get(tab_id).cloned())
             .ok_or("no active Curator round for this tab")?;
         let plan = self
@@ -464,7 +440,6 @@ pub trait CuratorAuthorityExt {
             codeterm_service_core::service::message_gateway::DeliveryError,
         >,
     ) -> Result<(), String>;
-    fn is_curator_tab(&self, tab: &str) -> bool;
     fn authorize_curator_operation(
         &self,
         tab_id: &str,

@@ -1,7 +1,6 @@
 use super::approval::{admit, scope_key, scope_keys, ReminderOutcome};
 use super::tests::{plan, task};
 use super::*;
-use crate::traits::*;
 use codeterm_plan::service_plan::ReminderAdmissionRead;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::plan::{Plan, TaskExecutionAttempt};

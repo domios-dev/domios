@@ -1,5 +1,3 @@
-use crate::curator::CuratorExt;
-use crate::hierarchy::HierarchyExt;
 use std::collections::HashSet;
 
 use codeterm_service_core::multiplexer::types::{AgentRole, ShellActivity};

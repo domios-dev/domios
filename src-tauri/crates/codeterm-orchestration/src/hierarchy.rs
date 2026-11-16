@@ -84,21 +84,6 @@ impl HierarchyExt for ServiceContext {
         self.replay_pending_reports_with_delivery(tab_id, self);
     }
 
-    fn replay_pending_reports_with_delivery(
-        &self,
-        tab_id: &str,
-        delivery: &impl HierarchyReportDelivery,
-    ) {
-        let pending = self.report_store.lock().pending_for(tab_id);
-        if pending.is_empty() {
-            return;
-        }
-        let gate = self.hierarchy_report_recipient_gate(tab_id);
-        for report in pending {
-            self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
-        }
-    }
-
     fn clear_dead_planner_binding(&self, tab_id: &str) {
         if let Err(error) =
             clear_planner_bindings_for_lifecycle_exit(&self.plan_store, tab_id, epoch_ms())
@@ -1185,3 +1170,10 @@ mod utility_shell_tests;
 
 mod ledger;
 use ledger::{epoch_seconds, ledger_with_live_children};
+
+#[cfg(test)]
+mod report_plan_ctx_tests;
+use codeterm_service_core::service::report_plan_ctx;
+
+#[cfg(test)]
+mod persistence_tests;

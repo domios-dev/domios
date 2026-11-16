@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 #[derive(Clone, Copy)]
 pub enum RunEnd {
@@ -34,7 +33,7 @@ impl CuratorCompletionExt for ServiceContext {
     }
 
     fn settle_closed_curator_tab(&self, tab: &str) -> Result<(), String> {
-        let Some(index) = self.try_ext::<super::CuratorTabs>() else {
+        let Some(index) = self.try_ext::<CuratorTabs>() else {
             return Ok(());
         };
         let indexed = index.0.read().get(tab).cloned();

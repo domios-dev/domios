@@ -25,7 +25,7 @@ pub use snapshot::{
     actionable_pending, binding_digest, binding_digest_fields, collect, collect_owner_messages,
     collect_worker_scope, scrubbed,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use state::Telemetry;
 pub use state::{Claim, Gate, Observation};
 

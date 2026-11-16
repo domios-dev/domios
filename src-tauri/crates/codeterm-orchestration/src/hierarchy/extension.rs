@@ -3,11 +3,6 @@ use super::*;
 pub trait HierarchyExt {
     fn schedule_planner_replay(&self, tab_id: &str);
     fn replay_pending_reports_if_routable(&self, tab_id: &str);
-    fn replay_pending_reports_with_delivery(
-        &self,
-        tab_id: &str,
-        delivery: &impl HierarchyReportDelivery,
-    );
     fn clear_dead_planner_binding(&self, tab_id: &str);
     fn replay_planner_requests_if_routable(&self, tab_id: &str);
     fn deliver_to_routable_planner(
@@ -76,6 +71,3 @@ pub trait HierarchyExt {
     fn get_and_clear_reports(&self, tab_id: &str) -> Vec<serde_json::Value>;
     fn get_ledger(&self, orchestrator_tab_id: &str) -> Vec<LedgerRow>;
 }
-
-#[cfg(test)]
-mod report_plan_ctx_tests;

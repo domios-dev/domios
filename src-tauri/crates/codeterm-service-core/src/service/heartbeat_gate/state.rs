@@ -187,7 +187,7 @@ impl Gate {
         entry.baseline.pending_hard = observation.pending_hard;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn decide(&self, key: &str, snapshot: &Snapshot, now: u64) -> Result<Decision, String> {
         self.decide_with_interval(key, snapshot, now, IDLE_NO_REPORT_SECS)
     }
@@ -316,12 +316,12 @@ impl Gate {
             .collect()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn unlocked(&self) -> bool {
         self.entries.try_lock().is_some()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn scopes(&self) -> usize {
         self.entries.lock().len()
     }

@@ -15,3 +15,11 @@ impl ServiceContext {
             .ok_or_else(|| "Curator clock is unavailable".into())
     }
 }
+
+impl ServiceContext {
+    pub fn is_curator_tab(&self, tab: &str) -> bool {
+        self.role_policy_for_tab(tab).is_some_and(|policy| {
+            policy.profile() == crate::service::role_policy::RoleProfile::Curator
+        })
+    }
+}

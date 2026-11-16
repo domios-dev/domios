@@ -8,6 +8,14 @@ pub struct RecordingOrchestration {
 
 #[cfg(any(test, feature = "test-support"))]
 impl OrchestrationPort for RecordingOrchestration {
+    fn curator_identity(
+        &self,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<CuratorIdentity, String> {
+        let _ = caller;
+        self.calls.lock().push("curator_identity");
+        Err("recording orchestration port".into())
+    }
     fn schedule_planner_replay(&self, tab_id: &str) {
         let _ = (tab_id,);
         self.calls.lock().push("schedule_planner_replay");

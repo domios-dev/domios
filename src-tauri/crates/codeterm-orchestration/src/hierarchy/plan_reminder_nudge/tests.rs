@@ -7,7 +7,7 @@ use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::plan::{
     ElementCanvas, OrchestratorRef, Plan, Task, TaskLaneMetadata, TaskPriority,
 };
-use codeterm_service_core::service::plan_reminder_fixture::{popup_reads, read, reads};
+pub(crate) use codeterm_service_core::service::plan_reminder_fixture::{popup_reads, read, reads};
 use codeterm_types::pty::BootStage;
 use std::cell::RefCell;
 
@@ -867,7 +867,7 @@ fn project_for_tab_reads_the_scheduler_targets() {
     let worker_tick = delivery_tick("worker-tab", "", 52, TickFact::NotDue);
     let ticks = [owner_tick, other_plan_tick, worker_tick];
 
-    let owners = super::projection::project_for_tab(
+    let owners = codeterm_service_core::service::plan_reminder_projection::project_for_tab(
         &crate::hierarchy::plan_reminder_nudge::tests::popup_reads(
             &[owner_plan.clone()],
             "owner-tab",
@@ -893,7 +893,7 @@ fn project_for_tab_reads_the_scheduler_targets() {
     assert_eq!(owners[0].ticks[0].spinal_verdict, "processed");
     assert_eq!(owners[0].ticks[0].spinal_reason, "delivered");
 
-    let workers = super::projection::project_for_tab(
+    let workers = codeterm_service_core::service::plan_reminder_projection::project_for_tab(
         &crate::hierarchy::plan_reminder_nudge::tests::popup_reads(
             &[owner_plan.clone()],
             "worker-tab",
@@ -917,39 +917,45 @@ fn project_for_tab_reads_the_scheduler_targets() {
     assert_eq!(workers[0].ticks[0].outcome, "skipped");
     assert_eq!(workers[0].ticks[0].spinal_reason, "not_due");
 
-    assert!(super::projection::project_for_tab(
-        &crate::hierarchy::plan_reminder_nudge::tests::popup_reads(
-            &[owner_plan.clone()],
-            "owner-tab"
-        ),
-        "owner-tab",
-        60,
-        100,
-        None,
-        &ticks,
-        false,
-    )
-    .is_empty());
-    assert!(super::projection::project_for_tab(
-        &crate::hierarchy::plan_reminder_nudge::tests::popup_reads(&[owner_plan], "owner-tab"),
-        "owner-tab",
-        0,
-        100,
-        None,
-        &[],
-        true
-    )
-    .is_empty());
-    assert!(super::projection::project_for_tab(
-        &crate::hierarchy::plan_reminder_nudge::tests::popup_reads(&[], ""),
-        "",
-        60,
-        100,
-        None,
-        &[],
-        true
-    )
-    .is_empty());
+    assert!(
+        codeterm_service_core::service::plan_reminder_projection::project_for_tab(
+            &crate::hierarchy::plan_reminder_nudge::tests::popup_reads(
+                &[owner_plan.clone()],
+                "owner-tab"
+            ),
+            "owner-tab",
+            60,
+            100,
+            None,
+            &ticks,
+            false,
+        )
+        .is_empty()
+    );
+    assert!(
+        codeterm_service_core::service::plan_reminder_projection::project_for_tab(
+            &crate::hierarchy::plan_reminder_nudge::tests::popup_reads(&[owner_plan], "owner-tab"),
+            "owner-tab",
+            0,
+            100,
+            None,
+            &[],
+            true
+        )
+        .is_empty()
+    );
+    assert!(
+        codeterm_service_core::service::plan_reminder_projection::project_for_tab(
+            &crate::hierarchy::plan_reminder_nudge::tests::popup_reads(&[], ""),
+            "",
+            60,
+            100,
+            None,
+            &[],
+            true
+        )
+        .is_empty()
+    );
 }
 
 struct FakePorts<L, D> {

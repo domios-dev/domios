@@ -257,8 +257,8 @@ pub(super) fn forget(root: &Path, id: &str) -> Result<(), String> {
     super::launch_profile_install::remove_file_if_present(&path)
 }
 
-#[cfg(test)]
-pub(crate) fn seed_catalogue_for_test(
+#[cfg(any(test, feature = "test-support"))]
+pub fn seed_catalogue_for_test(
     svc: &crate::service::ServiceContext,
     provider: &str,
     id: &str,

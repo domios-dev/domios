@@ -1,6 +1,4 @@
 use super::*;
-use crate::curator::CuratorExt;
-use crate::hierarchy::HierarchyExt;
 use codeterm_service_core::plan::Plan;
 
 #[test]

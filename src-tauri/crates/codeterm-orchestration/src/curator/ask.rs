@@ -6,7 +6,7 @@ pub(super) fn command(owner: &str) -> String {
 
 pub(crate) fn notification_refusal(service: &ServiceContext, tab: &str) -> String {
     let plan = service
-        .try_ext::<super::CuratorTabs>()
+        .try_ext::<CuratorTabs>()
         .and_then(|index| index.0.read().get(tab).cloned());
     let owner = match plan
         .map(|id| service.plan_store.plan_identity_projection(&id))

@@ -36,6 +36,9 @@ parking_lot = "0.12"
 tempfile = "3"
 
 [dev-dependencies]
+codeterm-prompts = { path = "../codeterm-prompts" }
+codeterm-provider-signals = { path = "../codeterm-provider-signals" }
+codeterm-plugin = { path = "../codeterm-plugin" }
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
 codeterm-plan = { path = "../codeterm-plan", features = ["test-support"] }
 tokio = { version = "1", features = ["test-util"] }

@@ -64,3 +64,19 @@ pub fn epoch_ms() -> u64 {
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
 }
+
+use crate::plan::CuratorGrant;
+#[derive(Debug, Clone)]
+pub struct CuratorIdentity {
+    pub plan_id: String,
+    pub number: u64,
+    pub tab_id: String,
+    pub session_id: String,
+    pub binding_nonce: String,
+}
+pub fn grant_matches(grant: &CuratorGrant, identity: &CuratorIdentity) -> bool {
+    grant.round == identity.number
+        && grant.tab_id == identity.tab_id
+        && grant.session_id == identity.session_id
+        && grant.binding_nonce == identity.binding_nonce
+}

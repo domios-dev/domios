@@ -19,7 +19,7 @@ pub use construct::build_service_context;
 pub mod account;
 pub mod account_mesh;
 pub mod activity;
-pub(crate) mod agent_delivery_outbox;
+pub mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
@@ -46,7 +46,7 @@ pub mod neighbors;
 pub use codeterm_browser as browser;
 pub(crate) mod capability_probe;
 pub use capability_probe::refresh as capability_probe_refresh;
-pub(crate) mod cartographer;
+pub mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod client_selection;
@@ -84,7 +84,7 @@ pub mod launch_readiness;
 pub use orchestrator::launch_test_support;
 pub mod launch_session_detection;
 pub mod local_preview;
-pub(crate) mod mesh_artifacts;
+pub mod mesh_artifacts;
 pub use mesh_artifacts::transfer as mesh_artifacts_transfer;
 pub mod mesh_attachment;
 pub mod message_gateway;
@@ -119,7 +119,7 @@ pub use provider_cli::provider_cli_status as provider_cli_provider_cli_status;
 pub(crate) use published_mux_state::PublishedMuxState;
 pub mod provider_cli_actions;
 pub mod provider_hooks;
-pub(crate) mod provider_signals;
+pub mod provider_signals;
 pub use provider_signals::apply_structured as provider_signals_apply_structured;
 pub(crate) mod provider_runtime_update;
 mod provider_signals_probe;
@@ -189,7 +189,7 @@ mod restored_binding;
 pub mod role_identity;
 pub mod role_preset;
 pub mod role_profile;
-mod role_target;
+pub mod role_target;
 mod session_backup;
 pub mod session_binding_deferral;
 mod session_binding_state;
@@ -223,7 +223,7 @@ mod spawn_shell;
 pub(crate) mod spawn_title;
 pub use spawn_title::validate_agent_tab_title as spawn_title_validate_agent_tab_title;
 pub mod startup_lease;
-pub(crate) mod startup_nudge;
+pub mod startup_nudge;
 mod status_reconciliation;
 pub(crate) mod stop_execution;
 pub use stop_execution::stop_agent_turn as stop_execution_stop_agent_turn;
@@ -297,7 +297,7 @@ pub mod worker_ack;
 pub mod worker_identity;
 pub(crate) mod worker_interruption;
 pub mod worker_lane;
-pub(crate) mod worker_loss;
+pub mod worker_loss;
 #[cfg(any(test, feature = "test-support"))]
 pub use worker_lane::provision_lane_for_test;
 pub use worker_lane::{
@@ -466,6 +466,10 @@ impl ServiceContext {
 
     pub fn try_ext<T: std::any::Any + Send + Sync>(&self) -> Option<&T> {
         self.extensions.try_get::<T>()
+    }
+
+    pub fn ext_or_init<T: std::any::Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> &T {
+        self.extensions.get_or_init(init)
     }
 
     pub fn set_ext<T: std::any::Any + Send + Sync>(&self, value: T) -> Result<(), T> {
@@ -1048,3 +1052,5 @@ pub mod plan_reminder_projection;
 pub mod plan_reminder_fixture;
 
 pub mod tab_status_info;
+
+pub mod curator_save;

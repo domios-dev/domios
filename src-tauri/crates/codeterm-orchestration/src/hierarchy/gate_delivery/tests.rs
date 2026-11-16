@@ -1,4 +1,3 @@
-use crate::traits::*;
 use codeterm_service_core::plan::{OrchestratorRef, PlannerRef};
 use codeterm_service_core::service::plan::PlannerGateRead;
 

@@ -1,6 +1,5 @@
 use super::*;
 use crate::test_fixture::ServiceFixture;
-use crate::traits::*;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::plan::{OrchestratorRef, Plan};
 use codeterm_service_core::service::plan::NewTask;

@@ -14,9 +14,9 @@ use crate::service::plan::{heartbeat, milestone_gates};
 /// `map_requested` when it dispatches the run; the run records
 /// `map_generated`. Either is enough, so a dispatched Cartographer is never
 /// offered a second time while it works.
-pub(crate) const MAP_REQUESTED_KIND: &str = "map_requested";
+pub const MAP_REQUESTED_KIND: &str = "map_requested";
 #[cfg(test)]
-pub(crate) const MAP_GENERATED_KIND: &str = "map_generated";
+pub const MAP_GENERATED_KIND: &str = "map_generated";
 
 /// Source essences the map is generated from. A workspace without them has no
 /// map to author, whatever the config says.
@@ -24,29 +24,29 @@ const SOURCE_ESSENCES: [&str; 2] = ["essences/capabilities.md", "essences/core.m
 
 /// Stable lead of the heartbeat line, so a caller can find the offer without
 /// matching its prose.
-pub(crate) const CARTOGRAPHY_DIGEST_PREFIX: &str = "Essence map boundary";
+pub const CARTOGRAPHY_DIGEST_PREFIX: &str = "Essence map boundary";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MapAvailability {
+pub enum MapAvailability {
     Enabled,
     DisabledByConfig,
     SourcesAbsent,
 }
 
 impl MapAvailability {
-    pub(crate) fn is_enabled(self) -> bool {
+    pub fn is_enabled(self) -> bool {
         matches!(self, Self::Enabled)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Boundary {
+pub enum Boundary {
     WaveClose { key: String, label: String },
     Release,
 }
 
 impl Boundary {
-    pub(crate) fn label(&self) -> String {
+    pub fn label(&self) -> String {
         match self {
             Self::WaveClose { label, .. } => format!("wave {label} closed"),
             Self::Release => "release preparation".to_string(),
@@ -56,7 +56,7 @@ impl Boundary {
 
 /// Both halves of the gate: the owner opted in, and this root actually carries
 /// the essences a map is generated from.
-pub(crate) fn availability(enabled: bool, root: &Path) -> MapAvailability {
+pub fn availability(enabled: bool, root: &Path) -> MapAvailability {
     if !enabled {
         return MapAvailability::DisabledByConfig;
     }
@@ -119,7 +119,7 @@ fn group_label(plan: &Plan, key: &str) -> String {
 /// The one boundary this plan currently offers, or none. At most one: a
 /// boundary is a place to run the Cartographer once, not a recurring cadence.
 #[cfg(test)]
-pub(crate) fn pending_boundary(plan: &Plan, availability: MapAvailability) -> Option<Boundary> {
+pub fn pending_boundary(plan: &Plan, availability: MapAvailability) -> Option<Boundary> {
     if !availability.is_enabled() {
         return None;
     }
@@ -127,7 +127,7 @@ pub(crate) fn pending_boundary(plan: &Plan, availability: MapAvailability) -> Op
 }
 
 #[cfg(test)]
-pub(crate) fn cartography_facts(plan: &Plan) -> codeterm_plan::service_plan::NoticeCartographyRead {
+pub fn cartography_facts(plan: &Plan) -> codeterm_plan::service_plan::NoticeCartographyRead {
     let closed_group = group_keys(plan)
         .into_iter()
         .filter_map(|key| milestone_gates::group_completion(plan, &key).map(|at| (at, key)))
@@ -185,7 +185,7 @@ fn boundary_line(plan_id: &str, boundary: &Boundary) -> String {
 /// The heartbeat contribution: one line when a boundary is open, nothing
 /// otherwise.
 #[cfg(test)]
-pub(crate) fn boundary_digest_lines(plan: &Plan, availability: MapAvailability) -> Vec<String> {
+pub fn boundary_digest_lines(plan: &Plan, availability: MapAvailability) -> Vec<String> {
     pending_boundary(plan, availability)
         .map(|boundary| vec![boundary_line(&plan.id, &boundary)])
         .into_iter()
@@ -205,7 +205,7 @@ pub fn digest_lines_from_input(
     boundary_digest_lines_from_input(input, available)
 }
 
-pub(crate) fn boundary_digest_lines_from_input(
+pub fn boundary_digest_lines_from_input(
     input: &codeterm_plan::service_plan::NoticeDigestInput,
     available: MapAvailability,
 ) -> Vec<String> {

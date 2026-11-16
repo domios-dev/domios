@@ -6,7 +6,6 @@ use codeterm_service_core::multiplexer::commands::MuxState;
 use codeterm_service_core::multiplexer::types::AgentRole;
 use codeterm_service_core::plan::{MilestoneKind, OrchestratorRef, Plan};
 use codeterm_service_core::service::billing::LimitGate;
-use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::plan::PlanStore;
 use codeterm_service_core::service::ServiceContext;
 

@@ -113,3 +113,20 @@ impl ServiceContext {
         }
     }
 }
+
+impl ServiceContext {
+    pub fn replay_pending_reports_with_delivery(
+        &self,
+        tab_id: &str,
+        delivery: &impl HierarchyReportDelivery,
+    ) {
+        let pending = self.report_store.lock().pending_for(tab_id);
+        if pending.is_empty() {
+            return;
+        }
+        let gate = self.hierarchy_report_recipient_gate(tab_id);
+        for report in pending {
+            self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
+        }
+    }
+}

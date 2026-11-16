@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 use codeterm_notification_core::contract::{NotificationAction, NotifyLevel};
 use codeterm_service_core::notification::store::{
     Ask, NotificationProvenance, NotificationSeverity,
@@ -16,8 +15,7 @@ fn owner_chat_keeps_questions_open_until_explicit_resolution_resumes_curator() {
         ("clear", true),
         ("tap", true),
     ] {
-        let (fixture, id, _, owner) =
-            codeterm_service_core::service::plan_authority::test_fixture::fixture();
+        let (fixture, id, _, owner) = crate::test_fixture::plan_authority_fixture();
         let service = &fixture.service;
         let owner = owner.tab_id.unwrap();
         let now = 1_700_000_000_000;

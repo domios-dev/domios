@@ -1,6 +1,5 @@
 use crate::service::orchestration_data::TabStatusInfo;
 
-use crate::multiplexer::types::AgentRole;
 use crate::service::ServiceContext;
 
 /// Why a tab's agent is not running: a failed boot or a degraded runtime, with a one-line reason.
@@ -128,7 +127,7 @@ mod tests {
                 .into(),
             );
         }
-        let fixture = crate::test_fixture::ServiceFixture::new(mux);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let service = &fixture.service;
         let agree = |expected: TabStatus| {
             let status = service.get_tab_status(&tab_id).unwrap().status;
@@ -180,7 +179,7 @@ mod tests {
             tab.agent_type = Some("opaque-provider".into());
             tab.boot_stage = Some(BootStage::AgentReady);
         }
-        let fixture = crate::test_fixture::ServiceFixture::new(mux);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let service = &fixture.service;
         service
             .agent_tracker
@@ -201,7 +200,7 @@ mod tests {
             tab.agent_type = Some("opaque-provider".into());
             tab.boot_stage = Some(BootStage::AgentReady);
         }
-        let fixture = crate::test_fixture::ServiceFixture::new(mux);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let service = &fixture.service;
         service
             .agent_tracker
@@ -227,7 +226,7 @@ mod tests {
                 "reason": "opaque-runtime-reason"
             }));
         }
-        let fixture = crate::test_fixture::ServiceFixture::new(mux);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let service = &fixture.service;
         let json = serde_json::to_value(service.get_tab_status(&tab_id).unwrap()).unwrap();
         assert_eq!(
@@ -283,7 +282,7 @@ mod tests {
         });
         mux.get_tab_mut(&tab_id).unwrap().pending_prompt_kind =
             Some(codeterm_types::pty::PromptKind::Provider);
-        let fixture = crate::test_fixture::ServiceFixture::new(mux);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
 
         let status = fixture.service.get_tab_status(&tab_id).unwrap();
 

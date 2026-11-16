@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mirror {
@@ -15,7 +14,7 @@ const MAX_MIRROR_CAUSE_CHARS: usize = 480;
 #[derive(Debug)]
 pub struct MirrorRefusal {
     pub(super) reason: CuratorFailure,
-    pub(super) cause: Option<String>,
+    pub(crate) cause: Option<String>,
 }
 impl MirrorRefusal {
     fn profile(cause: impl std::fmt::Display) -> Self {
@@ -47,8 +46,8 @@ impl From<MirrorRefusal> for String {
 
 pub struct CuratorFireError {
     pub reason: CuratorFailure,
-    pub(super) read_failure: bool,
-    pub(super) cause: Option<String>,
+    pub(crate) read_failure: bool,
+    pub(crate) cause: Option<String>,
     detail: String,
 }
 impl From<CuratorFailure> for CuratorFireError {
@@ -196,10 +195,7 @@ mod tests;
 
 impl CuratorSchedulingExt for ServiceContext {
     fn wake_curator_schedule(&self) {
-        if let Some(wake) = self
-            .extensions
-            .try_get::<codeterm_service_core::cron::scheduler::CronWake>()
-        {
+        if let Some(wake) = self.try_ext::<codeterm_service_core::cron::scheduler::CronWake>() {
             wake.notify_all();
         }
     }
@@ -565,8 +561,7 @@ impl CuratorSchedulingExt for ServiceContext {
         job: &CronJob,
         now: u64,
     ) -> Result<Option<(Mirror, String)>, CuratorFireError> {
-        self.extensions
-            .try_get::<super::CuratorTabs>()
+        self.try_ext::<CuratorTabs>()
             .ok_or("Curator runtime is unavailable")?;
         let read = self
             .plan_store
@@ -781,8 +776,7 @@ impl CuratorSchedulingExt for ServiceContext {
         now: u64,
     ) -> Result<(), String> {
         let index = self
-            .extensions
-            .try_get::<super::events::CuratorTabs>()
+            .try_ext::<CuratorTabs>()
             .ok_or("Curator runtime is unavailable")?;
         let number = self.with_curator_plan_gate(plan_id, || {
             index.0.write().insert(tab_id.into(), plan_id.into());

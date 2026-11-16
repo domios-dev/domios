@@ -1,7 +1,5 @@
-use crate::traits::*;
 use codeterm_plan::service_plan::{
     ReminderAdmissionRead as Plan, ReminderCandidateRead, ReminderCompositionRead,
-    ReminderTargetRead,
 };
 use codeterm_service_core::plan::PlanMode;
 #[cfg(test)]

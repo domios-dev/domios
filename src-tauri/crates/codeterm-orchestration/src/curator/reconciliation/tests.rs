@@ -7,7 +7,9 @@ use codeterm_service_core::cron::store::{
 use codeterm_service_core::plan::{CuratorFailure, CuratorWindow, PlanMode};
 use codeterm_service_core::service::curator_runtime::CuratorTabs;
 use codeterm_service_core::service::AuthenticatedPlanCaller;
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::{mpsc, Barrier};
 use std::time::Duration;
 
@@ -231,8 +233,7 @@ fn restored_orchestrator_recovers_unbound_fallback_only_while_runtime_is_live() 
 }
 
 fn fixture(running_cron: bool) -> (ServiceFixture, String, codeterm_service_core::CronState) {
-    let (fixture, id, _, owner) =
-        codeterm_service_core::service::plan_authority::test_fixture::fixture();
+    let (fixture, id, _, owner) = crate::test_fixture::plan_authority_fixture();
     let service = &fixture.service;
     let owner = owner.tab_id.unwrap();
     let clock = codeterm_service_core::cron::clock::MockClock::starting_at(NOW);
@@ -309,9 +310,7 @@ fn concurrent_repairs(second: Repair, running_cron: bool) {
     let (release_tx, release_rx) = mpsc::channel();
     let release_rx = Mutex::new(release_rx);
     let first = AtomicBool::new(true);
-    let boundary = service
-        .extensions
-        .get_or_init(test_boundary::Boundary::default);
+    let boundary = service.ext_or_init(test_boundary::Boundary::default);
     *boundary.0.lock() = Some(Arc::new(test_boundary::Probe {
         plan_id: id.clone(),
         snapshot: Arc::new(move || {
@@ -449,9 +448,7 @@ fn curator_spawn_keeps_its_tab_index_against_a_reconcile_on_an_older_snapshot() 
     let (progress_tx, progress_rx) = mpsc::channel();
     let contended_tx = progress_tx.clone();
     let first = AtomicBool::new(true);
-    let boundary = service
-        .extensions
-        .get_or_init(test_boundary::Boundary::default);
+    let boundary = service.ext_or_init(test_boundary::Boundary::default);
     *boundary.0.lock() = Some(Arc::new(test_boundary::Probe {
         plan_id: id.clone(),
         snapshot: Arc::new(move || {
@@ -486,7 +483,6 @@ fn curator_spawn_keeps_its_tab_index_against_a_reconcile_on_an_older_snapshot() 
 
 #[test]
 fn curator_prepare_failure_keeps_fallback_and_rearms_protected_job() {
-    use codeterm_service_core::service::role_policy::RolePolicy;
     let (fixture, id, cron) = fixture(false);
     let service = &fixture.service;
     service
@@ -501,10 +497,13 @@ fn curator_prepare_failure_keeps_fallback_and_rearms_protected_job() {
         .get_tab_mut(&owner)
         .unwrap()
         .agent_session_model = None;
-    assert!(super::super::policy::POLICY
-        .prepare_cron(service, &job, NOW)
-        .unwrap()
-        .is_none());
+    assert!(
+        codeterm_service_core::service::role_policy::resolve(Some("curator"))
+            .unwrap()
+            .prepare_cron(service, &job, NOW)
+            .unwrap()
+            .is_none()
+    );
     let state = service.plan_store.get(&id).unwrap().control_loop;
     assert_eq!(
         state.fallback_reason,
@@ -618,7 +617,6 @@ fn assert_named_profile_fallback(state: &codeterm_service_core::plan::ControlLoo
 
 #[test]
 fn curator_fire_on_an_unavailable_profile_falls_back_and_names_the_cause() {
-    use codeterm_service_core::service::role_policy::RolePolicy;
     let (fixture, id, cron) = fixture(false);
     let service = &fixture.service;
     assert!(service.set_ext(CuratorTabs::default()).is_ok());
@@ -626,10 +624,13 @@ fn curator_fire_on_an_unavailable_profile_falls_back_and_names_the_cause() {
     let job = cron.lock().get(&state.cron_id.unwrap()).unwrap().clone();
     let provider = register_profile_provider(service, "domios-absent-profile-binary");
     start_owner_on_profile(service, &id, &provider);
-    assert!(super::super::policy::POLICY
-        .prepare_cron(service, &job, NOW)
-        .unwrap()
-        .is_none());
+    assert!(
+        codeterm_service_core::service::role_policy::resolve(Some("curator"))
+            .unwrap()
+            .prepare_cron(service, &job, NOW)
+            .unwrap()
+            .is_none()
+    );
     let state = service.plan_store.get(&id).unwrap().control_loop;
     assert_named_profile_fallback(&state, "launch_profile_not_installed");
     assert_eq!(

@@ -39,9 +39,9 @@ pub struct PendingCompletion {
     session: String,
     nonce: String,
     pub _watcher: Option<RecommendedWatcher>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub events: std::sync::Arc<parking_lot::Mutex<Vec<String>>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub source_path: Option<std::path::PathBuf>,
 }
 
@@ -90,23 +90,23 @@ impl RunWatcherRegistry {
             .agent_registry
             .with_provider(&provider, |p| p.session_file_path(&cwd, &session))
             .flatten();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let source_path = path.clone();
         let mut watcher = None;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let events = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
         if let Some(path) = path {
             let observed = path.clone();
             let service = svc.clone();
             let tab = tab_id.to_string();
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             let recorded_events = events.clone();
             let mut source_watcher =
                 notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                     log::debug!(
                         "[cron] transcript event tab={tab} path={observed:?} event={event:?}"
                     );
-                    #[cfg(test)]
+                    #[cfg(any(test, feature = "test-support"))]
                     {
                         let mut events = recorded_events.lock();
                         if events.len() < 16 {
@@ -146,9 +146,9 @@ impl RunWatcherRegistry {
             session,
             nonce,
             _watcher: watcher,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             events,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             source_path,
         });
         log::info!("[cron] completion requested; awaiting completed turn and durable answer: tab={tab_id} run={run_id}");

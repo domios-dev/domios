@@ -64,8 +64,7 @@ impl CuratorExt for ServiceContext {
         drop(codeterm_service_core::async_runtime::spawn_blocking(
             move || {
                 let plan_id = service
-                    .extensions
-                    .try_get::<events::CuratorTabs>()
+                    .try_ext::<CuratorTabs>()
                     .and_then(|index| index.0.read().get(&tab_id).cloned());
                 let Some(plan_id) = plan_id else {
                     return;
@@ -274,10 +273,7 @@ impl CuratorExt for ServiceContext {
                 .deliver_cron_report(&owner, curator_envelope(), &body)
                 .err();
         }
-        if let Some(cron) = self
-            .extensions
-            .try_get::<codeterm_service_core::CronState>()
-        {
+        if let Some(cron) = self.try_ext::<codeterm_service_core::CronState>() {
             let run = cron
                 .lock()
                 .get_tab_owner(&identity.tab_id)

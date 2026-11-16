@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 #[test]
 fn curator_mirrors_only_the_orchestrators_confirmed_session() {
@@ -145,8 +144,7 @@ fn curator_runtime_registration_binds_the_launched_round() {
 
 #[test]
 fn curator_manual_run_refuses_without_its_runtime() {
-    let (fixture, plan, _, owner) =
-        codeterm_service_core::service::plan_authority::test_fixture::fixture();
+    let (fixture, plan, _, owner) = crate::test_fixture::plan_authority_fixture();
     let before = fixture.service.plan_store.get(&plan).unwrap().control_loop;
     let error = fixture
         .service
@@ -161,8 +159,7 @@ fn curator_manual_run_refuses_without_its_runtime() {
 
 #[test]
 fn curator_launch_failure_clears_the_unbound_round() {
-    let (fixture, id, _, _) =
-        codeterm_service_core::service::plan_authority::test_fixture::fixture();
+    let (fixture, id, _, _) = crate::test_fixture::plan_authority_fixture();
     fixture
         .service
         .plan_store

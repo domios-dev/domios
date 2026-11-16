@@ -115,9 +115,9 @@ mod launch;
 mod resume;
 use launch::{require_launch_authority, validate_loaded_settings};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "engine/test_support.rs"]
-pub(crate) mod test_support;
+pub mod test_support;
 
 pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     stop_blocking_with(svc, tab, None)

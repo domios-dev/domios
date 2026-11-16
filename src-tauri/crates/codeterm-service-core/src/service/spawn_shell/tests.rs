@@ -1,10 +1,6 @@
-use crate::agent::reports::ReportDetails;
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::{AgentRole, ShellPurpose};
-use crate::plan::{OrchestratorRef, Plan};
-use crate::service::plan::NewTask;
+use crate::multiplexer::types::ShellPurpose;
 use crate::service::pty_ownership::OwnershipEvent;
-use crate::service::spawn::SpawnTabSpec;
 use crate::service::test_fixture::ServiceFixture;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;

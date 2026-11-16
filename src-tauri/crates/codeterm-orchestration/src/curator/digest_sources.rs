@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn memory(

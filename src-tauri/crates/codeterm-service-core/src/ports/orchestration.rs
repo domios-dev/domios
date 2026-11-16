@@ -3,7 +3,7 @@ use crate::cron::store::CronJob;
 use crate::plan::{PlanMode, PlanStatus};
 use crate::service::message_gateway::{DeliveryError, DeliveryReceipt};
 use crate::service::messenger::Delivery;
-use crate::service::plan::PlanError;
+use crate::service::orchestration_data::CuratorIdentity;
 use crate::service::role_policy::{BlueprintAction, CronLaunch, CronSettlement};
 use crate::service::AuthenticatedPlanCaller;
 use crate::service::{ReportResult, ReportSubmissionError, WorkerTurnSignal};
@@ -20,6 +20,8 @@ pub type TeamCloseFuture = Pin<Box<dyn Future<Output = Result<(), String>> + Sen
 
 /// Calls the core makes up into Team and orchestration logic.
 pub trait OrchestrationPort: Send + Sync {
+    fn curator_identity(&self, caller: &AuthenticatedPlanCaller)
+        -> Result<CuratorIdentity, String>;
     fn schedule_planner_replay(&self, tab_id: &str);
     fn bind_planner_session(&self, tab_id: &str) -> Result<(), String>;
     fn submit_report(

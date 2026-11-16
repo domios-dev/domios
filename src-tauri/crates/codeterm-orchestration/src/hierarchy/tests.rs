@@ -5,7 +5,6 @@ use super::{
     resolve_report_target, worker_death_report, ReportTarget,
 };
 use crate::hierarchy::team_plan_creation::create_team_plan_for_orchestrator;
-use crate::traits::*;
 use codeterm_service_core::agent::ledger::LedgerRow;
 use codeterm_service_core::agent::reports::{ReportStatus, ReportStore};
 use codeterm_service_core::multiplexer::state::MultiplexerState;
