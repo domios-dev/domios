@@ -10674,6 +10674,10 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/external_imports.rs",
       "reason": "Provider-owned native/JavaScript parity proof on captured external instruction import fixtures."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/input_attach.rs",
+      "reason": "Provider-owned native/JavaScript parity proof that the provider declares bracketed-paste input attach."
     }
   ]
 }

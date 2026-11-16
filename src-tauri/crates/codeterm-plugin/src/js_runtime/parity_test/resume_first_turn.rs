@@ -131,25 +131,6 @@ fn input_attach_capability_native_js_parity() {
         load(r#","inputAttach":"bracketed_paste""#).input_attach_signal(),
         InputAttachSignal::BracketedPaste
     );
-
-    if require_plugins().is_some() {
-        let native = crate::agent_claude::provider::ClaudeProvider::new();
-        assert_eq!(
-            native.input_attach_signal(),
-            InputAttachSignal::BracketedPaste
-        );
-        assert_eq!(
-            load_js("claude").input_attach_signal(),
-            native.input_attach_signal()
-        );
-        for id in ["codex", "cursor", "opencode"] {
-            assert_eq!(
-                load_js(id).input_attach_signal(),
-                InputAttachSignal::None,
-                "{id} keeps launch readiness unchanged"
-            );
-        }
-    }
 }
 
 #[test]
