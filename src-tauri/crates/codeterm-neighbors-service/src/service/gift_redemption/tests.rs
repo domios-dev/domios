@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 #[test]
 fn gift_receipts_require_all_five_fields_and_exact_duration_expiry() {

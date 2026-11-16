@@ -375,3 +375,7 @@ pub(super) fn restore_ctx(
 #[cfg(test)]
 #[path = "launch_options/tests.rs"]
 pub mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+#[path = "launch_options/test_support.rs"]
+pub mod test_support;

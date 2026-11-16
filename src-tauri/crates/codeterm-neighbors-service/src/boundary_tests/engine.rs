@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use crate::service::ServiceContext;
 use codeterm_service_core::service::agent_runtime::engine::{self, sync_fixture as sync_send, *};
 use std::{sync::Arc, time::Duration};
 

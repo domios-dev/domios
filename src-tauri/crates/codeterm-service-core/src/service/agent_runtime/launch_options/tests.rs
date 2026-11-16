@@ -1,3 +1,4 @@
+use super::test_support::register_neighbor_runtime;
 use super::*;
 
 #[test]

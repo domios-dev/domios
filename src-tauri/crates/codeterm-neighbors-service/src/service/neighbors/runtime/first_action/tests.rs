@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 fn list(installation: Option<&str>) -> Value {
     json!({"friends":[{"friendship_id":"friend", "my_receiver":{

@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use parking_lot::Mutex;
 
 #[tokio::test]

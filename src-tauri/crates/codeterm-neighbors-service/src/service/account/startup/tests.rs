@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 #[test]
 fn local_identity_needs_persisted_credentials_and_invalidation_reaches_clones() {

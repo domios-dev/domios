@@ -395,10 +395,10 @@ fn append_stderr_tail(output: &mut Vec<u8>, bytes: &[u8]) {
     output.extend_from_slice(bytes);
 }
 
-#[cfg(any(test, feature = "test-support"))]
-pub mod tests;
+#[cfg(test)]
+mod tests;
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(test)]
 pub(crate) mod test_ports;
 
 fn signal_stop(stop: &watch::Sender<Option<bool>>, requested: bool) {

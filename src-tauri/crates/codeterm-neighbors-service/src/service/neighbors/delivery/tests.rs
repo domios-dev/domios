@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 #[test]
 fn definite_rejections_preserve_metadata_and_uncertain_sends_stay_pending() {

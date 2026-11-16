@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use serde_json::json;
 
 fn fixture_history(direction: &str) -> History {

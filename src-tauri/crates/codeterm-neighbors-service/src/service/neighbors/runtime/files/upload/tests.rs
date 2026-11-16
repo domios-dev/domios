@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 use codeterm_neighbors::{adapter::AuthenticatedCall, wire::SignedEnvelope};
 use std::sync::Mutex;
 

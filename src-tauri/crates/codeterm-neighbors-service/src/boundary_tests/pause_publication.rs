@@ -34,5 +34,9 @@ fn runtime_publication_does_not_refreeze_after_unpause() {
     assert!(!fixture.service.mux.read().get_tab(&tab).unwrap().frozen);
     release.send(()).unwrap();
     publication.join().unwrap();
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&tab).unwrap().boot_stage,
+        Some(codeterm_types::pty::BootStage::AgentReady)
+    );
     assert!(!fixture.service.mux.read().get_tab(&tab).unwrap().frozen);
 }

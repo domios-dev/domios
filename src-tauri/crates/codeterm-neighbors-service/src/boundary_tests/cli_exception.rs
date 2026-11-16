@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use crate::service::ServiceContext;
 use codeterm_service_core::service::agent_runtime::cli_exception::tests::fixture;
 use codeterm_service_core::service::agent_runtime::cli_exception::*;
 use std::path::Path;

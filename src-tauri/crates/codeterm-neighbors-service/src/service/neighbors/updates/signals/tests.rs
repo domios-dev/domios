@@ -1,5 +1,4 @@
 use super::*;
-use crate::prelude::*;
 
 pub struct Held {
     ready: Option<tokio::sync::oneshot::Sender<()>>,

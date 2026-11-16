@@ -1,5 +1,6 @@
 pub use super::super::sync_fixture::*;
 use super::super::*;
+use crate::service::chat_send_transaction::ChatSendState;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[test]

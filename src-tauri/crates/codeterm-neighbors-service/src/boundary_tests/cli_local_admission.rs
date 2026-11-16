@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use crate::service::ServiceContext;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 use codeterm_service_core::service::cli_local_admission::*;
 

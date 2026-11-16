@@ -1,7 +1,6 @@
 use crate::prelude::*;
 use crate::service::launch_readiness::LaunchAttempt;
 use crate::service::test_fixture::ServiceFixture;
-use crate::service::ServiceContext;
 use codeterm_service_core::service::boot_stage::*;
 
 fn restored_general() -> (ServiceFixture, LaunchAttempt) {
