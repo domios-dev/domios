@@ -243,9 +243,13 @@ fn cartographer_map_role_contract_is_a_standalone_manager() {
     use crate::service::persona::{self, Occasion};
     use codeterm_types::agent::role_kind::builtins;
 
-    let preset =
-        persona::resolve_ambient(Some(AgentRole::Manager), Some(builtins::CARTOGRAPHER), None)
-            .expect("the Cartographer Manager resolves a preset");
+    let preset = persona::resolve(
+        &[],
+        Some(AgentRole::Manager),
+        Some(builtins::CARTOGRAPHER),
+        None,
+    )
+    .expect("the Cartographer Manager resolves a preset");
     assert_eq!(preset.kind_id, builtins::CARTOGRAPHER);
     assert_eq!(preset.label, "Cartographer");
     assert_eq!(
@@ -254,31 +258,38 @@ fn cartographer_map_role_contract_is_a_standalone_manager() {
             .iter()
             .map(|fragment| fragment.source.label())
             .collect::<Vec<_>>(),
-        vec!["builtin"],
+        vec!["builtin", "host"],
         "a Manager kind composes its own contract, never an inherited Worker base"
     );
+    let prose = crate::service::builtin_roles::builtin_prose(builtins::CARTOGRAPHER)
+        .expect("cartographer prose")
+        .trim();
+    let worker = crate::service::builtin_roles::builtin_prose(builtins::WORKER)
+        .expect("worker prose")
+        .trim();
+    let planner = crate::service::builtin_roles::builtin_prose(builtins::PLANNER)
+        .expect("planner prose")
+        .trim();
 
     let contract = persona::guidance_for(
         Occasion::LaunchAssignment,
+        &[],
         Some(AgentRole::Manager),
         Some(builtins::CARTOGRAPHER),
         None,
     );
-    assert_eq!(
-        contract
-            .matches(crate::prompts::CARTOGRAPHER_SUFFIX.trim())
-            .count(),
-        1
-    );
-    assert!(!contract.contains(crate::prompts::WORKER_SUFFIX.trim()));
-    assert!(!contract.contains(crate::prompts::planner_suffix().trim()));
+    assert_eq!(contract.matches(prose).count(), 1);
+    assert!(!contract.contains(worker));
+    assert!(!contract.contains(planner));
     let bootstrap = persona::guidance_for(
         Occasion::ManagerBootstrap,
+        &[],
         Some(AgentRole::Manager),
         Some(builtins::CARTOGRAPHER),
         None,
     );
-    assert_eq!(bootstrap.trim(), crate::prompts::CARTOGRAPHER_SUFFIX.trim());
+    assert!(bootstrap.trim().starts_with(prose));
+    assert_eq!(bootstrap.trim(), contract.trim());
 }
 
 /// Preserve the existing byte budget while replacing Worker boilerplate with
@@ -287,7 +298,9 @@ const CARTOGRAPHER_CONTRACT_MAX_BYTES: usize = 7_650;
 
 #[test]
 fn cartographer_map_contract_stays_within_its_measured_ceiling() {
-    let rendered = crate::prompts::CARTOGRAPHER_SUFFIX.replace("\r\n", "\n");
+    let rendered = crate::service::role_preset::builtin_guidance("cartographer")
+        .expect("cartographer contract")
+        .replace("\r\n", "\n");
     assert!(
         rendered.len() <= CARTOGRAPHER_CONTRACT_MAX_BYTES,
         "the cartographer contract is {} bytes, over its {CARTOGRAPHER_CONTRACT_MAX_BYTES}-byte ceiling",
@@ -323,21 +336,29 @@ fn slot_residue(text: &str) -> bool {
 fn cartographer_map_manager_launch_delivers_request_once() {
     use crate::service::role_onboarding_task;
     const REQUEST: &str = "OPAQUE-CARTOGRAPHER-REQUEST-3d90c";
-    let contract = crate::prompts::CARTOGRAPHER_SUFFIX.trim();
+    let contract = crate::service::builtin_roles::builtin_prose("cartographer")
+        .expect("cartographer prose")
+        .trim();
+    let worker = crate::service::builtin_roles::builtin_prose("worker")
+        .expect("worker prose")
+        .trim();
+    let planner = crate::service::builtin_roles::builtin_prose("planner")
+        .expect("planner prose")
+        .trim();
     for request in [None, Some(REQUEST)] {
-        let launched = role_onboarding_task(request, Some("Manager"), Some("cartographer"))
+        let launched = role_onboarding_task(request, Some("Manager"), Some("cartographer"), None)
             .expect("a Cartographer Manager launch composes");
         assert_eq!(launched.matches(contract).count(), 1);
         assert_eq!(
             launched.matches(REQUEST).count(),
             usize::from(request.is_some())
         );
-        assert!(!launched.contains(crate::prompts::WORKER_SUFFIX.trim()));
-        assert!(!launched.contains(crate::prompts::planner_suffix().trim()));
+        assert!(!launched.contains(worker));
+        assert!(!launched.contains(planner));
         assert!(launched.len() <= crate::prompts::COMPOSED_ROLE_PROMPT_MAX_BYTES);
     }
-    let plain = role_onboarding_task(Some(REQUEST), Some("Worker"), None)
+    let plain = role_onboarding_task(Some(REQUEST), Some("Worker"), None, None)
         .expect("a plain Worker launch composes");
     assert!(!plain.contains(contract));
-    assert!(plain.contains(crate::prompts::WORKER_SUFFIX.trim()));
+    assert!(plain.contains(worker));
 }

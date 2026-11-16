@@ -30,6 +30,37 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/usageRecord.ts
+var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var count = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : void 0;
+function timestamp(value, now) {
+  const seconds = count(value.timestamp);
+  if (seconds !== void 0) return seconds;
+  if (typeof value.timestamp === "string" && value.timestamp.endsWith("Z")) {
+    const ms = Date.parse(value.timestamp);
+    if (Number.isFinite(ms) && ms >= 0) return Math.floor(ms / 1e3);
+  }
+  const created = count(object(value.time).created);
+  return created === void 0 ? now : Math.floor(created / 1e3);
+}
+
+// plugins/provider-codex/src/usageRecord.ts
+function tokens(raw) {
+  const usage3 = object(raw), input = count(usage3.input_tokens);
+  if (input === void 0) return null;
+  return { input, uncached_input: Math.max(0, input - (count(usage3.cached_input_tokens) ?? 0)), output: count(usage3.output_tokens) ?? 0 };
+}
+function parseUsageRecord(raw, now) {
+  const value = object(raw), at = timestamp(value, now);
+  if (value.type === "compacted") return { kind: "compaction", timestamp: at };
+  const info = object(object(value.payload).info), cumulative = object(info.total_token_usage), input = count(cumulative.input_tokens), last = tokens(info.last_token_usage);
+  if (input !== void 0) {
+    const output = count(cumulative.output_tokens) ?? 0;
+    return { kind: "cumulative", timestamp: at, total: { input, cached_input: count(cumulative.cached_input_tokens) ?? 0, output, total: count(cumulative.total_tokens) ?? input + output }, last };
+  }
+  return last ? { kind: "response", timestamp: at, response_id: null, tokens: last } : null;
+}
+
 // packages/plugin-sdk/src/fileDiffs.ts
 function recordedPatchDiff(path, patch, kind) {
   if (!path.trim()) return [];
@@ -244,7 +275,7 @@ function unquoteWhole(value) {
   }
 }
 function tokenize(source) {
-  const tokens = [];
+  const tokens2 = [];
   const starts = [];
   let current = "";
   let open = false;
@@ -263,7 +294,7 @@ function tokenize(source) {
       quote = char;
     } else if (/\s/.test(char)) {
       if (open) {
-        tokens.push(current);
+        tokens2.push(current);
         current = "";
         open = false;
       }
@@ -275,8 +306,8 @@ function tokenize(source) {
       current += char;
     }
   }
-  if (open) tokens.push(current);
-  return { tokens, rest: (index) => index < starts.length ? source.slice(starts[index]) : "" };
+  if (open) tokens2.push(current);
+  return { tokens: tokens2, rest: (index) => index < starts.length ? source.slice(starts[index]) : "" };
 }
 function argvParsed(argv) {
   const display2 = argv.map((argument) => argument === "" || /[\s"']/.test(argument) ? JSON.stringify(argument) : argument);
@@ -356,28 +387,28 @@ function activityLabel(tool) {
   if (!command) return clip(compact(tool.toolTitle || name || "Working"));
   const unwrapped = unwrapCommand(command);
   const parsed = tokenize(unwrapped);
-  let tokens = parsed.tokens;
-  if (POSIX_SHELLS.has(executableName(tokens[0] ?? "")) && /build\.(?:sh|ps1)$/i.test(tokens[1] ?? "")) tokens = tokens.slice(1);
-  if (["npx", "pnpm", "npm", "yarn", "bun"].includes(executableName(tokens[0] ?? "").toLowerCase())) {
-    tokens = tokens.slice(1);
-    if (["exec", "run", "x"].includes(tokens[0])) tokens = tokens.slice(1);
+  let tokens2 = parsed.tokens;
+  if (POSIX_SHELLS.has(executableName(tokens2[0] ?? "")) && /build\.(?:sh|ps1)$/i.test(tokens2[1] ?? "")) tokens2 = tokens2.slice(1);
+  if (["npx", "pnpm", "npm", "yarn", "bun"].includes(executableName(tokens2[0] ?? "").toLowerCase())) {
+    tokens2 = tokens2.slice(1);
+    if (["exec", "run", "x"].includes(tokens2[0])) tokens2 = tokens2.slice(1);
   }
-  const exe = executableName(tokens[0] ?? "").toLowerCase();
+  const exe = executableName(tokens2[0] ?? "").toLowerCase();
   if (exe === "tsc") return "Checking types";
-  if (["vitest", "jest", "test"].includes(exe) || exe === "node" && tokens.includes("--test")) return "Running tests";
-  if (exe === "build.sh" || exe === "build.ps1") return clip(`Build: ${tokens[1] || "build"}`);
+  if (["vitest", "jest", "test"].includes(exe) || exe === "node" && tokens2.includes("--test")) return "Running tests";
+  if (exe === "build.sh" || exe === "build.ps1") return clip(`Build: ${tokens2[1] || "build"}`);
   if (exe === "git") {
     let index = 1;
-    while (tokens[index]?.startsWith("-")) index += ["-C", "-c", "--git-dir", "--work-tree"].includes(tokens[index]) ? 2 : 1;
-    return clip(`git ${tokens[index] || ""}`.trim());
+    while (tokens2[index]?.startsWith("-")) index += ["-C", "-c", "--git-dir", "--work-tree"].includes(tokens2[index]) ? 2 : 1;
+    return clip(`git ${tokens2[index] || ""}`.trim());
   }
   if (exe === "apply_patch") {
     const path = command.match(/\*\*\* (?:Update|Add|Delete) File: ([^\r\n]+)/)?.[1];
     return path ? clip(`Editing ${basename(path)}`) : "Editing files";
   }
   if (exe === "rg" || exe === "grep") return "Searching";
-  if (["cat", "get-content"].includes(exe) || exe === "sed" && tokens[1] === "-n") {
-    const args = tokens.slice(exe === "sed" ? 3 : 1);
+  if (["cat", "get-content"].includes(exe) || exe === "sed" && tokens2[1] === "-n") {
+    const args = tokens2.slice(exe === "sed" ? 3 : 1);
     const path = args.find((token) => !token.startsWith("-"));
     return path ? clip(`Reading ${basename(path)}`) : "Reading files";
   }
@@ -386,12 +417,12 @@ function activityLabel(tool) {
 
 // plugins/provider-shared/runPromptStep.ts
 function bytes(text7) {
-  let count = 0;
+  let count2 = 0;
   for (const point of text7) {
     const code = point.codePointAt(0);
-    count += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+    count2 += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
   }
-  return count;
+  return count2;
 }
 function bounded(text7) {
   if (bytes(JSON.stringify(text7)) <= 60 * 1024) return text7;
@@ -1262,7 +1293,7 @@ ${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
 }
 
 // plugins/provider-codex/src/runtimeProtocol.ts
-function object(value) {
+function object2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function text2(value) {
@@ -1272,9 +1303,9 @@ function list(value) {
   return Array.isArray(value) ? value : [];
 }
 function userThread(value, expected) {
-  const thread = object(object(value).thread);
+  const thread = object2(object2(value).thread);
   const id = text2(thread.id);
-  if (!id || expected && expected !== id || thread.parentThreadId != null || object(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
+  if (!id || expected && expected !== id || thread.parentThreadId != null || object2(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
   return id;
 }
 function steerRefused(error, turn) {
@@ -1391,9 +1422,9 @@ function diffEdits(diffs) {
 // plugins/provider-codex/src/runtimeDiffs.ts
 function runtimeFileDiffs(changes) {
   if (changes && typeof changes === "object" && !Array.isArray(changes)) return codexFileDiffs(changes);
-  return list(changes).map(object).flatMap((change) => {
+  return list(changes).map(object2).flatMap((change) => {
     const path = text2(change.path);
-    const kind = object(change.kind);
+    const kind = object2(change.kind);
     const diff = text2(change.diff);
     if (!path || diff === void 0) return [];
     const selected = kind.type === "update" ? "modify" : kind.type === "add" ? "add" : kind.type === "delete" ? "delete" : void 0;
@@ -1419,13 +1450,13 @@ function runtimeFileDiffs(changes) {
 // plugins/provider-codex/src/runtimeQuestions.ts
 function nativeOption(value) {
   if (typeof value === "string") return { value, label: value };
-  const option = object(value);
+  const option = object2(value);
   const label = text2(option.label) ?? text2(option.title);
   const id = text2(option.value) ?? text2(option.id) ?? label;
   return label && id ? { value: id, label } : void 0;
 }
 function runtimeQuestions(value) {
-  return list(value).map(object).map((question, index) => ({
+  return list(value).map(object2).map((question, index) => ({
     id: text2(question.id) ?? String(index),
     text: text2(question.title) ?? text2(question.question) ?? "Choose an answer",
     options: list(question.options).flatMap((option) => {
@@ -1440,7 +1471,7 @@ function questionAnswerInput(itemId, answers) {
   return { text: canonicalJson({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
 }
 function answersMatch(questions, raw) {
-  const answers = list(raw).map(object);
+  const answers = list(raw).map(object2);
   if (answers.length !== questions.length || new Set(answers.map((answer) => answer.questionId)).size !== answers.length) return false;
   return questions.every((question) => {
     const answer = answers.find((answer2) => answer2.questionId === question.id);
@@ -1454,7 +1485,7 @@ function answersMatch(questions, raw) {
   });
 }
 function reconcileHistoryQuestions(threadId, raw, previous) {
-  const item = object(raw);
+  const item = object2(raw);
   const itemId = text2(item.id);
   if (item.type === "agentMessage" && item.delivery === "async" && itemId && list(item.questions).length) {
     const old = previous.find((question2) => question2.itemId === itemId);
@@ -1462,10 +1493,10 @@ function reconcileHistoryQuestions(threadId, raw, previous) {
     return [...previous.filter((existing) => existing.itemId !== itemId), question];
   }
   if (item.type !== "userMessage") return [...previous];
-  const content = list(item.content).map(object).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+  const content = list(item.content).map(object2).filter((part) => part.type === "text").map((part) => part.text).join("\n");
   let answer;
   try {
-    answer = object(JSON.parse(content));
+    answer = object2(JSON.parse(content));
   } catch {
     return [...previous];
   }
@@ -1478,20 +1509,20 @@ function json(value) {
 }
 function toolOutput(value) {
   const result = json(value);
-  const parts = Array.isArray(result) ? result : list(object(result).content);
+  const parts = Array.isArray(result) ? result : list(object2(result).content);
   const mapped = parts.map((part) => {
-    const item = object(part);
+    const item = object2(part);
     if (item.type === "image") return typeof item.data === "string" && item.data.startsWith("[image omitted:") ? { type: "text", text: item.data } : { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
     if (item.type === "inputImage") return { type: "image_url", image_url: { url: item.imageUrl } };
     return part;
   });
-  return display(Array.isArray(result) ? mapped : parts.length ? { ...object(result), content: mapped } : result);
+  return display(Array.isArray(result) ? mapped : parts.length ? { ...object2(result), content: mapped } : result);
 }
 function display(value) {
   return typeof value === "string" ? value : canonicalJson(value, 2);
 }
 function runtimeItem(raw, seq, previous) {
-  const item = object(raw);
+  const item = object2(raw);
   const id = text2(item.id);
   if (!id) return void 0;
   const row3 = { id, seq: previous?.seq ?? seq, type: "tool_call", content: "" };
@@ -1499,8 +1530,8 @@ function runtimeItem(raw, seq, previous) {
   switch (item.type) {
     case "userMessage": {
       row3.type = "user";
-      row3.content = list(item.content).map(object).filter((p) => p.type === "text").map((p) => p.text).join("\n");
-      const attachments = list(item.content).map(object).flatMap((p, index) => {
+      row3.content = list(item.content).map(object2).filter((p) => p.type === "text").map((p) => p.text).join("\n");
+      const attachments = list(item.content).map(object2).flatMap((p, index) => {
         if (p.type !== "image" && p.type !== "localImage") return [];
         const url = text2(p.url);
         const data = url?.match(/^data:([^;]+);base64,(.*)$/);
@@ -1542,7 +1573,7 @@ function runtimeItem(raw, seq, previous) {
     case "hookPrompt":
     case "enteredReviewMode":
     case "exitedReviewMode":
-      return { ...row3, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
+      return { ...row3, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object2).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
     case "commandExecution":
       row3.toolKind = "command";
       row3.toolDetail = activityCommand({ toolInput: item });
@@ -1574,7 +1605,7 @@ function runtimeItem(raw, seq, previous) {
         row3.toolResult = display(item.error);
         row3.toolError = true;
       }
-      if (item.success === false || object(item.result).isError === true) row3.toolError = true;
+      if (item.success === false || object2(item.result).isError === true) row3.toolError = true;
       break;
     }
     case "functionCallOutput":
@@ -1585,9 +1616,9 @@ function runtimeItem(raw, seq, previous) {
       row3.toolRichResult = json({
         kind: "web",
         query: item.query,
-        action: object(item.action).type,
-        url: object(item.action).url,
-        pattern: object(item.action).pattern,
+        action: object2(item.action).type,
+        url: object2(item.action).url,
+        pattern: object2(item.action).pattern,
         resultCount: Array.isArray(item.results) ? item.results.length : void 0
       });
       if (item.results != null) row3.toolResult = display(item.results);
@@ -1608,7 +1639,7 @@ function runtimeItem(raw, seq, previous) {
         break;
       }
       const agent = String(item.agentThreadId ?? list(item.receiverThreadIds)[0] ?? id);
-      const status = String(item.kind ?? object(object(item.agentsStates)[agent]).status ?? "");
+      const status = String(item.kind ?? object2(object2(item.agentsStates)[agent]).status ?? "");
       row3.toolKind = "agent";
       row3.toolName = "agent_activity";
       row3.toolSummary = agent;
@@ -1621,7 +1652,7 @@ function runtimeItem(raw, seq, previous) {
         agent_model: item.model,
         agent_reasoning_effort: item.reasoningEffort,
         agent_ordinal: item.ordinal,
-        agent_result: object(object(item.agentsStates)[agent]).message
+        agent_result: object2(object2(item.agentsStates)[agent]).message
       });
       break;
     }
@@ -1647,7 +1678,7 @@ function runtimeItem(raw, seq, previous) {
   return row3;
 }
 function runtimeItems(raw, seq) {
-  const item = object(raw);
+  const item = object2(raw);
   const receivers = list(item.receiverThreadIds);
   if (item.type === "collabAgentToolCall" && receivers.length) return receivers.flatMap((receiver, index) => {
     const row4 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver], ...item.tool === "spawnAgent" ? { ordinal: index + 1 } : {} }, seq + index);
@@ -1672,9 +1703,9 @@ function baseName(path) {
   return trimmed.split(/[\\/]/).pop() || trimmed;
 }
 function commandHead(command) {
-  const tokens = command.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
-  const width = tokens.length > 1 && tokens[1].charAt(0) !== "-" && tokens[1].charAt(0) !== '"' ? 2 : 1;
-  return tokens.slice(0, width).join(" ");
+  const tokens2 = command.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const width = tokens2.length > 1 && tokens2[1].charAt(0) !== "-" && tokens2[1].charAt(0) !== '"' ? 2 : 1;
+  return tokens2.slice(0, width).join(" ");
 }
 function actionTitle(fields) {
   const summary = text3(fields.tool_summary);
@@ -1710,9 +1741,9 @@ function text4(value) {
 function record3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
-function row2(uuid, blocks, ts, timestamp) {
+function row2(uuid, blocks, ts, timestamp2) {
   if (blocks.length === 0) return null;
-  return { role: "assistant", ...uuid ? { uuid } : {}, blocks, ts, timestamp };
+  return { role: "assistant", ...uuid ? { uuid } : {}, blocks, ts, timestamp: timestamp2 };
 }
 function agentBlock(fields, summary, turnId) {
   const input = {};
@@ -1727,30 +1758,30 @@ function agentBlock(fields, summary, turnId) {
     ...flowId ? { tool_flow_id: flowId } : {}
   } };
 }
-function thoughtRow(id, summaries, ts, timestamp) {
+function thoughtRow(id, summaries, ts, timestamp2) {
   const blocks = summaries.filter((summary) => typeof summary === "string" && summary.trim() !== "").map((summary) => ({ kind: "thinking", data: { text: summary } }));
-  return row2(text4(id) ? `reasoning-${text4(id)}` : "", blocks, ts, timestamp);
+  return row2(text4(id) ? `reasoning-${text4(id)}` : "", blocks, ts, timestamp2);
 }
-function reasoningItemRow(item, ts, timestamp) {
-  return thoughtRow(item.id, Array.isArray(item.summary_text) ? item.summary_text : [], ts, timestamp);
+function reasoningItemRow(item, ts, timestamp2) {
+  return thoughtRow(item.id, Array.isArray(item.summary_text) ? item.summary_text : [], ts, timestamp2);
 }
-function reasoningResponseRow(payload, ts, timestamp) {
+function reasoningResponseRow(payload, ts, timestamp2) {
   const parts = Array.isArray(payload.summary) ? payload.summary : [];
   const summaries = parts.map((part) => {
     const entry = record3(part);
     return entry && entry.type === "summary_text" ? entry.text : void 0;
   });
-  return thoughtRow(payload.id, summaries, ts, timestamp);
+  return thoughtRow(payload.id, summaries, ts, timestamp2);
 }
-function subAgentRow(item, id, turnId, ts, timestamp) {
+function subAgentRow(item, id, turnId, ts, timestamp2) {
   const agentId = text4(item.agent_thread_id);
   const agentPath = text4(item.agent_path);
   if (!agentId && !agentPath) return null;
   const state = AGENT_STATES[text4(item.kind)] ?? "unknown";
   const block = agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId);
-  return row2(text4(id) ? `agent-${text4(id)}` : "", [block], ts, timestamp);
+  return row2(text4(id) ? `agent-${text4(id)}` : "", [block], ts, timestamp2);
 }
-function collabCallRow(item, turnId, ts, timestamp) {
+function collabCallRow(item, turnId, ts, timestamp2) {
   const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
   const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record3) : [];
   const states = record3(item.agents_states);
@@ -1764,15 +1795,15 @@ function collabCallRow(item, turnId, ts, timestamp) {
     const state = AGENT_STATES[text4(record3(states?.[agentId])?.status)] ?? "unknown";
     blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
   }
-  return row2(text4(item.id) ? `collab-${text4(item.id)}` : "", blocks, ts, timestamp);
+  return row2(text4(item.id) ? `collab-${text4(item.id)}` : "", blocks, ts, timestamp2);
 }
-function agentMessageRow(payload, ts, timestamp) {
+function agentMessageRow(payload, ts, timestamp2) {
   const from = text4(payload.author);
   const to = text4(payload.recipient);
   if (!from || !to || from === to) return null;
   const turnId = record3(payload.internal_chat_message_metadata_passthrough)?.turn_id;
   const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
-  return row2(text4(payload.id) ? `agent-message-${text4(payload.id)}` : "", [block], ts, timestamp);
+  return row2(text4(payload.id) ? `agent-message-${text4(payload.id)}` : "", [block], ts, timestamp2);
 }
 
 // plugins/provider-codex/src/execWrapper.ts
@@ -1960,12 +1991,12 @@ function webFields(source) {
   if (Array.isArray(source.results)) rich.resultCount = source.results.length;
   return rich;
 }
-function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts, timestamp) {
+function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts, timestamp2) {
   return {
     role: "assistant",
     uuid,
     ts,
-    timestamp,
+    timestamp: timestamp2,
     blocks: [{ kind: "tool_use", data: {
       id,
       name,
@@ -1979,16 +2010,16 @@ function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts
     } }]
   };
 }
-function webSearchEndResult(payload, ts, timestamp) {
+function webSearchEndResult(payload, ts, timestamp2) {
   const source = record4(payload);
   const id = text5(source?.call_id);
   if (!source || !id) return null;
   const rich = webFields(source);
   const summary = rich.query || rich.url || "";
   if (!summary) return null;
-  return resultMessage(`result-${id}`, id, "web_search", rich, summary, summary, false, source.turn_id, ts, timestamp);
+  return resultMessage(`result-${id}`, id, "web_search", rich, summary, summary, false, source.turn_id, ts, timestamp2);
 }
-function imageGenerationEndResult(payload, ts, timestamp) {
+function imageGenerationEndResult(payload, ts, timestamp2) {
   const source = record4(payload);
   const id = text5(source?.call_id);
   if (!source || !id) return null;
@@ -2000,22 +2031,22 @@ function imageGenerationEndResult(payload, ts, timestamp) {
   if (path) rich.path = path;
   if (prompt) rich.prompt = prompt;
   const summary = path && baseName(path) || prompt || status || "image generation";
-  return resultMessage(`result-${id}`, id, "image_generation", rich, summary, path || prompt, status === "failed" || status === "error", source.turn_id, ts, timestamp);
+  return resultMessage(`result-${id}`, id, "image_generation", rich, summary, path || prompt, status === "failed" || status === "error", source.turn_id, ts, timestamp2);
 }
-function imageViewResult(item, ts, timestamp, turnId) {
+function imageViewResult(item, ts, timestamp2, turnId) {
   const id = text5(item.id);
   const path = text5(item.path);
   if (!id || !path) return null;
   const rich = { kind: "image", origin: "viewed", path };
-  return resultMessage(`activity-${id}`, id, "image_view", rich, baseName(path) || path, path, false, turnId, ts, timestamp);
+  return resultMessage(`activity-${id}`, id, "image_view", rich, baseName(path) || path, path, false, turnId, ts, timestamp2);
 }
-function extensionResult(item, ts, timestamp, turnId) {
+function extensionResult(item, ts, timestamp2, turnId) {
   const id = text5(item.id);
   if (!id || !text5(item.kind).startsWith("web.")) return null;
   const rich = webFields(item);
   const summary = rich.query || rich.url || rich.action || "";
   if (!summary) return null;
-  return resultMessage(`activity-${id}`, id, "extension", rich, summary, summary, false, turnId, ts, timestamp);
+  return resultMessage(`activity-${id}`, id, "extension", rich, summary, summary, false, turnId, ts, timestamp2);
 }
 
 // plugins/provider-codex/src/activity.ts
@@ -2057,13 +2088,13 @@ function commandOutcome(item) {
   if (durationMs !== void 0) outcome2.tool_duration_ms = durationMs;
   return outcome2;
 }
-function completedActivity(value, ts, timestamp, turnId) {
+function completedActivity(value, ts, timestamp2, turnId) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value;
   const id = text6(item.id);
   if (!id) return null;
   const flow = text6(turnId) ? { tool_flow_id: text6(turnId) } : {};
-  const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
+  const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp: timestamp2 };
   if (item.type === "CommandExecution") {
     const command = commandText(item.command);
     if (!command || item.status !== "completed" && item.status !== "failed") return null;
@@ -2114,12 +2145,12 @@ function completedActivity(value, ts, timestamp, turnId) {
     ];
     return message;
   }
-  if (item.type === "ImageView") return imageViewResult(value, ts, timestamp, turnId);
-  if (item.type === "Extension") return extensionResult(value, ts, timestamp, turnId);
+  if (item.type === "ImageView") return imageViewResult(value, ts, timestamp2, turnId);
+  if (item.type === "Extension") return extensionResult(value, ts, timestamp2, turnId);
   const fields = value;
-  if (item.type === "SubAgentActivity") return subAgentRow(fields, id, turnId, ts, timestamp);
-  if (item.type === "CollabAgentToolCall") return collabCallRow(fields, turnId, ts, timestamp);
-  if (item.type === "Reasoning") return reasoningItemRow(fields, ts, timestamp);
+  if (item.type === "SubAgentActivity") return subAgentRow(fields, id, turnId, ts, timestamp2);
+  if (item.type === "CollabAgentToolCall") return collabCallRow(fields, turnId, ts, timestamp2);
+  if (item.type === "Reasoning") return reasoningItemRow(fields, ts, timestamp2);
   return null;
 }
 
@@ -2127,30 +2158,30 @@ function completedActivity(value, ts, timestamp, turnId) {
 function storedHistoryAvailable(sessionId, head) {
   if (!sessionId || !head) return false;
   try {
-    const record6 = object(JSON.parse(head.split("\n", 1)[0]));
-    const payload = object(record6.payload);
+    const record6 = object2(JSON.parse(head.split("\n", 1)[0]));
+    const payload = object2(record6.payload);
     return record6.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
   } catch {
     return false;
   }
 }
-function projectHistoryItem(raw, seq, turn, timestamp, parent) {
-  const source = object(raw);
+function projectHistoryItem(raw, seq, turn, timestamp2, parent) {
+  const source = object2(raw);
   const rows2 = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
   for (const row3 of rows2) {
     const spawn = source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && source.senderThreadId === parent;
     const started = source.type === "subAgentActivity" && source.kind === "started" && (source.senderThreadId == null || source.senderThreadId === parent);
     if (parent && (spawn || started) && row3.toolKind === "agent") {
-      const input = object(row3.toolInput);
+      const input = object2(row3.toolInput);
       row3.toolInput = json({ ...input, agent_parent_thread_id: parent, agent_ordinal: input.agent_ordinal ?? 1 });
     }
     row3.toolFlowId = turn;
-    if (typeof timestamp === "number" && Number.isFinite(timestamp)) row3.timestamp = new Date(timestamp).toISOString();
+    if (typeof timestamp2 === "number" && Number.isFinite(timestamp2)) row3.timestamp = new Date(timestamp2).toISOString();
   }
   return rows2;
 }
 function recordedItem(raw) {
-  const item = Object.fromEntries(Object.entries(object(raw)).map(([key, value]) => [
+  const item = Object.fromEntries(Object.entries(object2(raw)).map(([key, value]) => [
     key.replace(/_([a-z])/g, (_match, letter) => letter.toUpperCase()),
     value
   ]));
@@ -2161,23 +2192,23 @@ function recordedItem(raw) {
     item.durationMs ?? (item.durationMs = durationMilliseconds({ duration: item.duration, duration_ms: item.durationMs }));
   }
   if (Array.isArray(item.changes)) item.changes = item.changes.map((change) => {
-    const value = object(change), kind = object(value.kind);
+    const value = object2(change), kind = object2(value.kind);
     return { ...value, kind: { ...kind, ...typeof kind.type === "string" ? { type: kind.type.toLowerCase() } : {} } };
   });
   if (Array.isArray(item.content)) item.content = item.content.map((part) => {
-    const value = object(part);
+    const value = object2(part);
     return { ...value, ...typeof value.type === "string" ? { type: value.type.replace(/^./, (letter) => letter.toLowerCase()) } : {} };
   });
   if (item.type === "agentMessage" && typeof item.text !== "string" && Array.isArray(item.content)) {
-    item.text = item.content.map(object).filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n");
+    item.text = item.content.map(object2).filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n");
   }
   return item;
 }
 function storedRecordType(line) {
-  const tokens = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
-  const opening = tokens.exec(line);
+  const tokens2 = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
+  const opening = tokens2.exec(line);
   if (opening?.[0] !== "{") return void 0;
-  for (let token = tokens.exec(line); token; token = tokens.exec(line)) {
+  for (let token = tokens2.exec(line); token; token = tokens2.exec(line)) {
     if (token[1] !== void 0) return token[1];
     if (token[0] === "{" || token[0] === "[") return void 0;
   }
@@ -2197,19 +2228,19 @@ function* textRecords(records) {
 function runtimeStoredRecords(sessionId, records) {
   return projectStoredRecords(sessionId, records.map((record6) => {
     if (!record6.oversized) return record6.value;
-    const value = object(record6.value), payload = object(value.payload);
-    return { ...value, payload: { ...payload, item: { ...object(payload.item), historyTruncated: true } } };
+    const value = object2(record6.value), payload = object2(value.payload);
+    return { ...value, payload: { ...payload, item: { ...object2(payload.item), historyTruncated: true } } };
   }));
 }
 function projectStoredRecords(sessionId, records) {
   const rows2 = /* @__PURE__ */ new Map();
   for (const raw of records) {
-    const record6 = object(raw);
-    const payload = object(record6.payload);
+    const record6 = object2(raw);
+    const payload = object2(record6.payload);
     if (record6.type === "session_meta" && text2(payload.id) !== sessionId) throw new Error("Stored session identity differs");
     if (record6.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
     const turn = text2(payload.turn_id);
-    if (!turn || !text2(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
+    if (!turn || !text2(object2(payload.item).id)) throw new Error("Stored runtime item identity missing");
     const projected = projectHistoryItem(recordedItem(payload.item), rows2.size, turn, payload.started_at_ms ?? payload.completed_at_ms, sessionId);
     for (const row3 of projected) {
       row3.seq = rows2.get(row3.id)?.seq ?? rows2.size;
@@ -2273,7 +2304,7 @@ function outputLimit(value) {
 
 // plugins/provider-codex/src/runtimeTurnStatus.ts
 function threadStatus(raw) {
-  const status = object(raw);
+  const status = object2(raw);
   const type = typeof raw === "string" ? raw : status.type;
   if (type === "idle") return { state: "idle" };
   if (type === "systemError") return { state: "needs_input", detail: "systemError" };
@@ -2285,7 +2316,7 @@ function threadStatus(raw) {
 }
 function turnOutcome(turn) {
   if (outputLimit(turn)) return "failed";
-  const status = object(turn).status;
+  const status = object2(turn).status;
   return status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : void 0;
 }
 function requestDetail(method) {
@@ -2307,7 +2338,7 @@ function decode(op) {
   if (!op.cursor) return { pager: 1, thread: op.threadId, stage: "turns", cursor: null, historyItemLimit: 16 };
   if (!op.cursor.startsWith(PREFIX) || op.cursor.length > 128 * 1024) failure("Invalid history checkpoint");
   const position = JSON.parse(op.cursor.slice(PREFIX.length));
-  if (position.pager !== 1 || position.thread !== op.threadId || !["turns", "items", "goal"].includes(position.stage) || position.cursor !== null && typeof position.cursor !== "string" || position.stage === "items" && !text2(object(position.turn).id)) failure("History checkpoint differs from bound thread");
+  if (position.pager !== 1 || position.thread !== op.threadId || !["turns", "items", "goal"].includes(position.stage) || position.cursor !== null && typeof position.cursor !== "string" || position.stage === "items" && !text2(object2(position.turn).id)) failure("History checkpoint differs from bound thread");
   position.historyItemLimit ?? (position.historyItemLimit = 16);
   if (!Number.isSafeInteger(position.historyItemLimit) || position.historyItemLimit < 1 || position.historyItemLimit > 16) failure("Invalid history item limit");
   return position;
@@ -2338,23 +2369,23 @@ function pagedHistoryResponse(op, raw, reply) {
   const state = raw;
   if (state.thread !== op.threadId) failure("History checkpoint differs from bound thread");
   if (reply.kind === "error") {
-    const smaller = object(reply.error.data).historyPageLimit;
+    const smaller = object2(reply.error.data).historyPageLimit;
     if (state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < (state.historyItemLimit ?? 16)) {
       return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode({ ...state, historyItemLimit: smaller }) }) };
     }
     if (state.stage === "goal") return finish(op, [], [], []);
     failure(`History ${state.stage} read failed (${reply.error.code}): ${reply.error.message}`);
   }
-  const value = object(reply.value);
+  const value = object2(reply.value);
   if (state.stage === "goal") {
-    const goal = text2(object(value.goal).objective);
+    const goal = text2(object2(value.goal).objective);
     return finish(op, goal ? [{ id: "thread:goal", seq: 0, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal } }] : [], [], []);
   }
   if (!Array.isArray(value.data)) failure("History page has no data array");
   const next = nextCursor(value, state.cursor);
   if (state.stage === "turns") {
     if (value.data.length > 1) failure("History turn page exceeds requested limit");
-    const turn = object(value.data[0]);
+    const turn = object2(value.data[0]);
     if (!value.data.length) return finish(op, [], [], [], next ? { ...state, cursor: next } : { ...state, stage: "goal", cursor: null });
     if (!text2(turn.id) || String(turn.id).length > 4096) failure("History turn identity missing or oversized");
     const position2 = {
@@ -2373,10 +2404,10 @@ function pagedHistoryResponse(op, raw, reply) {
   const offset = state.offset ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
   for (let index = offset; index < value.data.length; index++) {
-    const record6 = object(value.data[index]), item = record6.item ?? record6;
+    const record6 = object2(value.data[index]), item = record6.item ?? record6;
     const rows2 = projectHistoryItem(item, 0, state.turn.id, record6.startedAtMs ?? record6.completedAtMs, op.threadId);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, item, questions);
-    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
+    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object2(item).status));
     const opened = active ? rows2.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
     const used = serializedBytes({ rows: rows2, opened, questions: nextQuestions });
     if (bytes2 + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
@@ -2391,7 +2422,7 @@ function pagedHistoryResponse(op, raw, reply) {
 
 // plugins/provider-codex/src/runtimeLogin.ts
 function loginPlan(raw) {
-  const value = object(raw);
+  const value = object2(raw);
   if (value.action === "cancel" && text2(value.loginId)) return {
     action: { kind: "request", call: { method: "account/login/cancel", params: { loginId: String(value.loginId) } } },
     state: { stage: "loginCancel", loginId: String(value.loginId) }
@@ -2425,11 +2456,11 @@ function expiry(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 864e10 ? value * 1e3 : null;
 }
 function resetCredits(raw) {
-  const summary = object(raw);
-  const count = summary.availableCount;
-  if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return void 0;
+  const summary = object2(raw);
+  const count2 = summary.availableCount;
+  if (typeof count2 !== "number" || !Number.isSafeInteger(count2) || count2 < 0) return void 0;
   const credits = Array.isArray(summary.credits) ? summary.credits.flatMap((rawCredit) => {
-    const credit = object(rawCredit);
+    const credit = object2(rawCredit);
     const id = text2(credit.id);
     if (!id) return [];
     const status = credit.status === "available" || credit.status === "redeeming" || credit.status === "redeemed" ? credit.status : "unknown";
@@ -2442,19 +2473,19 @@ function resetCredits(raw) {
     }];
   }) : null;
   const expiries = credits?.filter((credit) => credit.status === "available" && credit.expiresAt !== null).map((credit) => credit.expiresAt) ?? [];
-  return { availableCount: count, nextExpiry: expiries.length ? Math.min(...expiries) : null, credits };
+  return { availableCount: count2, nextExpiry: expiries.length ? Math.min(...expiries) : null, credits };
 }
 function resetOutcome(raw) {
-  const outcome2 = object(raw).outcome;
+  const outcome2 = object2(raw).outcome;
   return outcome2 === "reset" || outcome2 === "nothingToReset" || outcome2 === "noCredit" || outcome2 === "alreadyRedeemed" ? outcome2 : void 0;
 }
 
 // plugins/provider-codex/src/runtimeUsage.ts
 function rateLimitEvents(raw, rawResets) {
-  const limits = object(raw);
+  const limits = object2(raw);
   if (limits.limitId && limits.limitId !== "codex") return [];
   const windows = ["primary", "secondary"].flatMap((window) => {
-    const value = object(limits[window]);
+    const value = object2(limits[window]);
     if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
     return [{
       window,
@@ -2468,7 +2499,7 @@ function rateLimitEvents(raw, rawResets) {
   return windows.length || resets || accountCredits ? [{ kind: "rateLimits", rateLimits: windows, ...resets ? { resets } : {}, ...accountCredits ? { accountCredits } : {} }] : [];
 }
 function parseAccountCredits(raw) {
-  const value = object(raw);
+  const value = object2(raw);
   if (typeof value.hasCredits !== "boolean" || typeof value.unlimited !== "boolean") return void 0;
   if (value.unlimited) return { kind: "unlimited" };
   return typeof value.balance === "string" && /^\d+(?:\.\d+)?$/.test(value.balance) ? { kind: "balance", balance: value.balance } : void 0;
@@ -2476,14 +2507,14 @@ function parseAccountCredits(raw) {
 
 // plugins/provider-codex/src/runtimeAuth.ts
 function accountAuth(value) {
-  const response = object(value);
+  const response = object2(value);
   if (response.account === null && response.requiresOpenaiAuth === true) return { kind: "auth", state: "signedOut" };
-  const account = object(response.account);
+  const account = object2(response.account);
   if (text2(account.type)) return { kind: "auth", state: "signedIn", billingMode: account.type === "apiKey" ? "api" : account.type === "chatgpt" || account.type === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 function notificationAuth(value) {
-  const params = object(value);
+  const params = object2(value);
   if (params.authMode === null) return { kind: "auth", state: "signedOut" };
   if (text2(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
@@ -2524,7 +2555,7 @@ function backgroundResponse(op, reply) {
     return { kind: "complete", result: { kind: "done" } };
   }
   if (reply.kind === "error") return { kind: "refused", reason: { code: "provider_refused", message: reply.error.message }, beforeAcceptance: false };
-  const value = object(reply.value);
+  const value = object2(reply.value);
   if (op.action.kind === "clean") return { kind: "complete", result: { kind: "done" } };
   if (op.action.kind === "terminate") {
     if (typeof value.terminated !== "boolean") invalid("Missing termination acknowledgement");
@@ -2535,7 +2566,7 @@ function backgroundResponse(op, reply) {
   if (value.nextCursor !== null && value.nextCursor === op.action.cursor) invalid("Repeated background cursor");
   const seen = /* @__PURE__ */ new Set();
   const processes = value.data.map((raw) => {
-    const entry = object(raw);
+    const entry = object2(raw);
     if (!identifier(entry.processId) || !identifier(entry.itemId) || !identifier(entry.cwd) || typeof entry.command !== "string" || entry.command.length > 65536 || entry.command.includes("\0") || entry.osPid !== null && (!Number.isInteger(entry.osPid) || Number(entry.osPid) < 1 || Number(entry.osPid) > 4294967295) || seen.has(entry.processId)) invalid("Invalid background process entry");
     seen.add(entry.processId);
     return { processId: entry.processId, itemId: entry.itemId, command: entry.command, cwd: entry.cwd, osPid: entry.osPid };
@@ -2548,7 +2579,7 @@ function interruptTargets(ctx, root) {
   const turns = [...ctx.activeTurns];
   const depth = (thread) => {
     let current = thread;
-    let count = 0;
+    let count2 = 0;
     const seen = /* @__PURE__ */ new Set();
     while (current !== root) {
       if (seen.has(current)) return -1;
@@ -2556,9 +2587,9 @@ function interruptTargets(ctx, root) {
       const parent = ctx.threadParents.find((parent2) => parent2.threadId === current)?.parentThreadId;
       if (!parent) return -1;
       current = parent;
-      count++;
+      count2++;
     }
-    return count;
+    return count2;
   };
   return turns.map((turn) => ({ turn, depth: depth(turn.threadId) })).filter((entry) => entry.depth >= 0).sort((a, b) => b.depth - a.depth || a.turn.threadId.localeCompare(b.turn.threadId)).map((entry) => entry.turn);
 }
@@ -2580,11 +2611,11 @@ function descendantThread(ctx, threadId) {
 function historyThread(ctx, value, expected) {
   if (expected === ctx.threadId) return userThread(value, expected) !== void 0;
   if (!descendantThread(ctx, expected)) return false;
-  const thread = object(object(value).thread);
+  const thread = object2(object2(value).thread);
   if (text2(thread.id) !== expected) return false;
   const parent = ctx.threadParents.find((entry) => entry.threadId === expected)?.parentThreadId;
   const declared = text2(thread.parentThreadId);
-  const source = text2(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+  const source = text2(object2(object2(object2(thread.source).subAgent).thread_spawn).parent_thread_id);
   return (declared !== void 0 || source !== void 0) && (declared === void 0 || declared === parent) && (source === void 0 || source === parent);
 }
 
@@ -2600,9 +2631,9 @@ function decisionOptions(data) {
   return supported.map((value) => ({ label: typeof value === "string" ? labels[value] ?? value : "Approve with the proposed rule", value: typeof value === "string" ? value : canonicalJson(value) }));
 }
 function runtimePrompt(method, params, _id) {
-  const data = object(params);
+  const data = object2(params);
   if (method === "item/tool/requestUserInput") {
-    const questions = list(data.questions).map(object);
+    const questions = list(data.questions).map(object2);
     if (!questions.length) return void 0;
     return {
       question: questions.map((q) => String(q.question ?? "")).join("\n"),
@@ -2621,7 +2652,7 @@ function runtimePrompt(method, params, _id) {
     case "item/permissions/requestApproval":
       return { question: `Grant permissions: ${canonicalJson(data.permissions)}`, options: [{ label: "Grant for turn", value: "turn" }, { label: "Grant for session", value: "session" }, { label: "Deny", value: "deny" }] };
     case "mcpServer/elicitation/request":
-      if (data.mode !== "form" || list(object(data.requestedSchema).required).length)
+      if (data.mode !== "form" || list(object2(data.requestedSchema).required).length)
         return { question: String(data.message ?? "Unsupported tool request"), options: [{ label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
       return { question: String(data.message ?? "Respond to the tool request"), options: [{ label: "Accept", value: "accept" }, { label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
     default:
@@ -2629,13 +2660,13 @@ function runtimePrompt(method, params, _id) {
   }
 }
 function runtimeAnswer(method, params, id, answer) {
-  const data = object(params);
+  const data = object2(params);
   const values = answer.kind === "choice" ? answer.values : [];
   const prompt = runtimePrompt(method, params, id);
   if (!prompt) fail("Unsupported server request");
   if (values.some((value2) => !prompt.options.some((o) => o.value === value2))) fail("Invalid native option value");
   if (method === "item/tool/requestUserInput") {
-    const questions = list(data.questions).map(object);
+    const questions = list(data.questions).map(object2);
     const answers = {};
     if (answer.kind === "cancel") fail("Questions cannot be cancelled without an answer");
     for (const q of questions) {
@@ -2672,7 +2703,7 @@ function invalid2(message) {
 }
 function exactObject(raw, keys) {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) invalid2("Invalid restoreContext object");
-  const value = object(raw);
+  const value = object2(raw);
   if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) invalid2("Invalid restoreContext fields");
   return value;
 }
@@ -2709,31 +2740,31 @@ function codexRestrictedCliConfig(ctx) {
 function codexValidateCliTrust(ctx, raw) {
   if (!ctx.restrictedCli) return;
   codexRestrictedCliConfig(ctx);
-  const root = object(raw);
+  const root = object2(raw);
   if (!root.config || typeof root.config !== "object" || Array.isArray(root.config))
     throw { code: "invalid_schema", message: "Restricted CLI project trust was not reported" };
-  const config = object(root.config);
+  const config = object2(root.config);
   if (config.projects === void 0 || config.projects === null) return;
   if (typeof config.projects !== "object" || Array.isArray(config.projects))
     throw { code: "invalid_schema", message: "Invalid configured project trust" };
   const normalize = (path) => path.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
   const cwd = normalize(ctx.cwd);
-  for (const [path, value] of Object.entries(object(config.projects))) {
+  for (const [path, value] of Object.entries(object2(config.projects))) {
     if (cwd !== normalize(path) && !cwd.startsWith(normalize(path) + "/")) continue;
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw { code: "invalid_schema", message: "Invalid configured project trust" };
-    const project = object(value);
+    const project = object2(value);
     const trust = project.trust_level ?? project.trustLevel;
     if (trust !== void 0 && trust !== null && trust !== "trusted")
       throw { code: "provider_refused", message: "Configured project trust refuses the restricted CLI exception" };
   }
 }
 function codexNeedsWindowsSandboxSelection(raw) {
-  const root = object(raw);
+  const root = object2(raw);
   if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
     throw { code: "invalid_schema", message: "Windows sandbox configuration was not reported" };
-  const config = object(root.config);
-  const windows = object(config.windows);
+  const config = object2(root.config);
+  const windows = object2(config.windows);
   if (config.windows != null && (typeof config.windows !== "object" || Array.isArray(config.windows)))
     throw { code: "invalid_schema", message: "Invalid Windows sandbox configuration" };
   if (windows.sandbox != null) {
@@ -2747,7 +2778,7 @@ function codexNeedsWindowsSandboxSelection(raw) {
   }
   if (config.features != null && (typeof config.features !== "object" || Array.isArray(config.features)))
     throw { code: "invalid_schema", message: "Invalid Windows sandbox features" };
-  const features = object(config.features);
+  const features = object2(config.features);
   for (const key of windowsSandboxFeatures) {
     if (features[key] !== void 0) {
       if (typeof features[key] !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows sandbox feature selection" };
@@ -2757,11 +2788,11 @@ function codexNeedsWindowsSandboxSelection(raw) {
   return true;
 }
 function codexWindowsSandboxOverride(raw) {
-  const root = object(raw);
+  const root = object2(raw);
   if (root.requirements === null) return "mxc";
   if (typeof root.requirements !== "object" || Array.isArray(root.requirements))
     throw { code: "invalid_schema", message: "Windows sandbox requirements were not reported" };
-  const requirements = object(root.requirements);
+  const requirements = object2(root.requirements);
   const allowed = requirements.allowedWindowsSandboxImplementations;
   if (allowed !== null && (!Array.isArray(allowed) || allowed.some((mode) => !["mxc", "elevated", "unelevated"].includes(String(mode)))))
     throw { code: "invalid_schema", message: "Windows sandbox implementation requirements are unknown" };
@@ -2773,7 +2804,7 @@ function codexWindowsSandboxOverride(raw) {
   if (requirements.defaultPermissions != null || requirements.allowedPermissionProfiles != null) return void 0;
   if (requirements.featureRequirements != null && (typeof requirements.featureRequirements !== "object" || Array.isArray(requirements.featureRequirements)))
     throw { code: "invalid_schema", message: "Windows sandbox feature requirements are unknown" };
-  const features = object(requirements.featureRequirements);
+  const features = object2(requirements.featureRequirements);
   if (windowsSandboxFeatures.some((key) => features[key] !== void 0)) return void 0;
   return "mxc";
 }
@@ -2819,14 +2850,14 @@ function codexThreadConfig(settings, hostOwned) {
   };
 }
 function codexReportedSettings(raw, requested) {
-  const root = object(raw);
-  const settings = root.threadSettings ? object(root.threadSettings) : root;
-  const thread = object(settings.thread);
+  const root = object2(raw);
+  const settings = root.threadSettings ? object2(root.threadSettings) : root;
+  const thread = object2(settings.thread);
   const tier = settings.serviceTier !== void 0 ? settings.serviceTier : thread.serviceTier;
   const serviceTier = tier === void 0 ? void 0 : tier === null || typeof tier === "string" ? { id: tier === "default" ? null : tier === "fast" ? "priority" : tier } : void 0;
   const model = text2(settings.model) ?? text2(thread.model);
   const effort = text2(settings.reasoningEffort) ?? text2(settings.effort) ?? text2(thread.reasoningEffort) ?? text2(thread.effort);
-  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
+  const sandbox = object2(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
   const approval = settings.approvalPolicy ?? thread.approvalPolicy;
   const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
   const mode = text2(settings.mode) ?? text2(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
@@ -2838,18 +2869,18 @@ function codexEffectiveSettings(requested, reply) {
   return { ...other, ...codexReportedSettings(reply, requested) };
 }
 function codexWorkspaceWriteConfirmed(raw) {
-  const root = object(raw);
-  const settings = root.threadSettings ? object(root.threadSettings) : root;
-  const thread = object(settings.thread);
-  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox);
+  const root = object2(raw);
+  const settings = root.threadSettings ? object2(root.threadSettings) : root;
+  const thread = object2(settings.thread);
+  const sandbox = object2(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox);
   return codexReportedSettings(raw).mode === "workspace-write" && sandbox.type === "workspaceWrite" && (settings.approvalPolicy ?? thread.approvalPolicy) === "never" && sandbox.networkAccess === false;
 }
 function codexWritableRootsConfirmed(settings, reply) {
   if (settings.mode !== "read-only-with-writable-roots") return true;
-  const root = object(reply);
-  const reported = root.threadSettings ? object(root.threadSettings) : root;
+  const root = object2(reply);
+  const reported = root.threadSettings ? object2(root.threadSettings) : root;
   const roots = reported.runtimeWorkspaceRoots;
-  const sandbox = object(reported.sandboxPolicy ?? reported.sandbox);
+  const sandbox = object2(reported.sandboxPolicy ?? reported.sandbox);
   const expected = settings.additionalDirectories ?? [];
   const same = (value) => Array.isArray(value) && value.length === expected.length && value.every((path) => typeof path === "string" && expected.includes(path));
   return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
@@ -2867,21 +2898,21 @@ var codexServiceTiers = [
   { id: "ultrafast", name: "Ultrafast", description: "", unavailableReason: "Not available on your plan" }
 ];
 function serviceTierSelection(value) {
-  const selection = object(value);
+  const selection = object2(value);
   return value !== null && (selection.id === null || typeof selection.id === "string" && selection.id.length > 0 && selection.id.length <= 128);
 }
 function modelServiceTiers(models, requirements) {
-  const response = object(requirements);
-  const features = object(object(response.requirements).featureRequirements);
+  const response = object2(requirements);
+  const features = object2(object2(response.requirements).featureRequirements);
   const fast = features.fast_mode !== false;
   const ultra = features.ultrafast_mode !== false && (response.supportsIndependentSpeedModes === true || fast);
   const knownRequirements = requirements !== void 0;
   const result = /* @__PURE__ */ Object.create(null);
   for (const raw of list(models)) {
-    const model = object(raw);
+    const model = object2(raw);
     const id = text2(model.model) ?? text2(model.id);
     if (!id) continue;
-    const advertised = list(model.serviceTiers).map(object).flatMap((tier) => {
+    const advertised = list(model.serviceTiers).map(object2).flatMap((tier) => {
       const tierId = text2(tier.id), name = text2(tier.name), description = text2(tier.description);
       if (!tierId || !name || typeof tier.description !== "string") return [];
       const allowed = knownRequirements && (tierId === "flex" || (tierId === "ultrafast" ? ultra : fast));
@@ -2907,7 +2938,7 @@ function statusCode(value) {
 }
 function nestedStatus(info) {
   for (const value of Object.values(info)) {
-    const code = statusCode(object(value).httpStatusCode);
+    const code = statusCode(object2(value).httpStatusCode);
     if (code != null) return code;
   }
   return null;
@@ -2922,9 +2953,9 @@ function runtimeClass(code, status) {
   return "provider_error";
 }
 function runtimeError(value, willRetry = false, limits) {
-  const error = typeof value === "string" ? { message: value } : object(value);
+  const error = typeof value === "string" ? { message: value } : object2(value);
   const info = error.codexErrorInfo;
-  const infoObject = object(info);
+  const infoObject = object2(info);
   const keys = Object.keys(infoObject);
   const code = typeof info === "string" ? info : keys.length === 1 ? keys[0] : void 0;
   const diagnostic = text2(error.additionalDetails) ?? text2(error.message);
@@ -2939,9 +2970,9 @@ function retrySignal(code, status, limits) {
   const transport = code === "httpConnectionFailed" || code === "responseStreamConnectionFailed" || code === "responseStreamDisconnected" || code === "responseTooManyFailedAttempts";
   const transient = code === "serverOverloaded" || code === "flexUnavailable" || code === "internalServerError";
   if (rate2 || (transport || transient) && status === 429) {
-    const snapshot = object(limits);
+    const snapshot = object2(limits);
     if (snapshot.limitId && snapshot.limitId !== "codex") return {};
-    const blocked = [snapshot.primary, snapshot.secondary].map(object).filter((window) => typeof window.usedPercent === "number" && Number.isFinite(window.usedPercent) && window.usedPercent >= 100);
+    const blocked = [snapshot.primary, snapshot.secondary].map(object2).filter((window) => typeof window.usedPercent === "number" && Number.isFinite(window.usedPercent) && window.usedPercent >= 100);
     if (!blocked.length || blocked.some((window) => typeof window.resetsAt !== "number" || !Number.isSafeInteger(window.resetsAt) || window.resetsAt <= 0 || !Number.isSafeInteger(window.resetsAt * 1e3))) return {};
     return { retryableKind: "rate_limited_until", retryAtMs: Math.max(...blocked.map((window) => Number(window.resetsAt) * 1e3)) };
   }
@@ -3003,21 +3034,21 @@ function interruptPendingCalls(state, threadId, turnId) {
 // plugins/provider-codex/src/runtimeAgents.ts
 var TERMINAL_STATES = ["completed", "failed", "interrupted", "closed"];
 function update(previous, activity) {
-  const input = object(previous.toolInput);
-  const patch = Object.fromEntries(Object.entries(object(activity.toolInput)).filter(([, value]) => value != null));
+  const input = object2(previous.toolInput);
+  const patch = Object.fromEntries(Object.entries(object2(activity.toolInput)).filter(([, value]) => value != null));
   delete patch.agent_call_id;
   if (!text2(patch.agent_state)) delete patch.agent_state;
   if (TERMINAL_STATES.includes(String(input.agent_state)) && !TERMINAL_STATES.includes(String(patch.agent_state))) delete patch.agent_state;
   return { ...previous, toolInput: { ...input, ...patch } };
 }
 function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
-  const item = object(raw);
+  const item = object2(raw);
   if (item.type !== "collabAgentToolCall" && item.type !== "subAgentActivity") return void 0;
   const spawn = item.type === "collabAgentToolCall" && item.tool === "spawnAgent";
   if (spawn && !list(item.receiverThreadIds).length) return [];
   const rows2 = runtimeItems(item, seq);
   return rows2.flatMap((row3) => {
-    const agent = text2(object(row3.toolInput).agent_id);
+    const agent = text2(object2(row3.toolInput).agent_id);
     if (!agent) return [row3];
     const existing = state.rows[agent];
     const previous = existing ? items[existing] : void 0;
@@ -3027,7 +3058,7 @@ function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
     state.rows[agent] = row3.id;
     parents[agent] = parent;
     state.ordinal += 1;
-    row3.toolInput = { ...object(row3.toolInput), agent_parent_thread_id: parent, agent_ordinal: state.ordinal };
+    row3.toolInput = { ...object2(row3.toolInput), agent_parent_thread_id: parent, agent_ordinal: state.ordinal };
     return [row3];
   });
 }
@@ -3217,22 +3248,22 @@ function copyReducerState(state) {
   return copy;
 }
 function initial(ctx, raw) {
-  const state = object(raw);
+  const state = object2(raw);
   if (state.epoch === ctx.epoch && state.bindingNonce === ctx.bindingNonce && state.threadId === ctx.threadId) {
     return copyReducerState(state);
   }
   return { epoch: ctx.epoch, bindingNonce: ctx.bindingNonce, threadId: ctx.threadId, seq: 0, items: /* @__PURE__ */ Object.create(null), completed: [], compacted: [], evidenced: [], activeTurnId: ctx.activeTurnId };
 }
 function timing(params) {
-  const turn = object(params.turn);
+  const turn = object2(params.turn);
   return {
     ...typeof turn.startedAt === "number" && turn.startedAt >= 0 ? { startedAt: turn.startedAt * 1e3 } : {},
     ...typeof turn.completedAt === "number" && turn.completedAt >= 0 ? { completedAt: turn.completedAt * 1e3 } : {}
   };
 }
 function usage(params) {
-  const token = object(params.tokenUsage);
-  const total = object(token.total);
+  const token = object2(params.tokenUsage);
+  const total = object2(token.total);
   if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return void 0;
   return {
     ...typeof total.costUsd === "number" && Number.isFinite(total.costUsd) && total.costUsd >= 0 ? { cost_micros: Math.round(total.costUsd * 1e6) } : {},
@@ -3240,7 +3271,7 @@ function usage(params) {
     output_tokens: total.outputTokens,
     ...typeof total.cacheWriteInputTokens === "number" ? { cache_write_tokens: total.cacheWriteInputTokens } : {},
     ...typeof total.cachedInputTokens === "number" ? { cache_read_tokens: total.cachedInputTokens } : {},
-    ...typeof object(token.last).totalTokens === "number" ? { used_tokens: Number(object(token.last).totalTokens) } : {},
+    ...typeof object2(token.last).totalTokens === "number" ? { used_tokens: Number(object2(token.last).totalTokens) } : {},
     ...typeof token.modelContextWindow === "number" ? { window_tokens: token.modelContextWindow } : {}
   };
 }
@@ -3249,7 +3280,7 @@ function sendEvidence(ctx, item, turnId) {
   const sendId = text2(item.clientId);
   const claim = ctx.claimedSends.find((c) => c.sendId === sendId && c.threadId === ctx.threadId);
   if (!claim) return void 0;
-  const parts = list(item.content).map(object);
+  const parts = list(item.content).map(object2);
   const content = parts.filter((p) => p.type === "text").map((p) => p.text).join("\n");
   if (content !== claim.input.text) return void 0;
   const images = parts.filter((p) => p.type === "image" || p.type === "localImage");
@@ -3268,16 +3299,16 @@ function stamp(state, row3, params) {
   const ms = params.startedAtMs ?? params.completedAtMs;
   if (previous?.timestamp) row3.timestamp = previous.timestamp;
   else if (typeof ms === "number" && Number.isFinite(ms)) row3.timestamp = new Date(ms).toISOString();
-  const turnId = text2(params.turnId) ?? text2(object(params.turn).id);
+  const turnId = text2(params.turnId) ?? text2(object2(params.turn).id);
   if (turnId && !row3.toolFlowId) row3.toolFlowId = turnId;
   if (row3.toolKind === "agent" && row3.toolName === "agent_activity") {
-    row3.toolInput = json({ ...object(row3.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch });
+    row3.toolInput = json({ ...object2(row3.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch });
   }
   state.items[row3.id] = row3;
   return row3;
 }
 function mapItem(state, method, params) {
-  const raw = object(params.item);
+  const raw = object2(params.item);
   const id = text2(raw.id) ?? text2(params.itemId);
   if (!id) return void 0;
   const retired = isRetired(state, id);
@@ -3327,7 +3358,7 @@ function runtimeReduce(ctx, raw, frames) {
   const state = initial(ctx, raw);
   const events = [];
   for (const frame of frames) {
-    const params = object(frame.params);
+    const params = object2(frame.params);
     if (frame.kind === "notification" && frame.method === "account/login/completed") {
       delete state.rateLimitSnapshot;
       events.push(loginCompleted(params));
@@ -3345,9 +3376,9 @@ function runtimeReduce(ctx, raw, frames) {
     }
     state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
     if (frame.kind === "notification" && frame.method === "thread/started") {
-      const thread = object(params.thread);
+      const thread = object2(params.thread);
       const id = text2(thread.id);
-      const parent = text2(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+      const parent = text2(object2(object2(object2(thread.source).subAgent).thread_spawn).parent_thread_id);
       if (id && parent && (parent === ctx.threadId || Object.prototype.hasOwnProperty.call(state.parents, parent))) state.parents[id] = parent;
       continue;
     }
@@ -3358,7 +3389,7 @@ function runtimeReduce(ctx, raw, frames) {
         if (agents) for (const activity of agents) events.push({ kind: "chatItem", threadId: ctx.threadId, item: stamp(state, activity, params) });
       }
       const threadId2 = params.threadId;
-      const turnId2 = text2(object(params.turn).id) ?? text2(params.turnId);
+      const turnId2 = text2(object2(params.turn).id) ?? text2(params.turnId);
       if (!turnId2) continue;
       state.childActive ?? (state.childActive = {});
       state.childCompleted ?? (state.childCompleted = []);
@@ -3374,7 +3405,7 @@ function runtimeReduce(ctx, raw, frames) {
       continue;
     }
     if (frame.kind === "notification" && frame.method === "account/rateLimits/updated") {
-      const limits = object(params.rateLimits);
+      const limits = object2(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
       events.push(...rateLimitEvents(state.rateLimitSnapshot, params.rateLimitResetCredits));
@@ -3394,7 +3425,7 @@ function runtimeReduce(ctx, raw, frames) {
     }
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
-    const turnId = text2(params.turnId) ?? text2(object(params.turn).id);
+    const turnId = text2(params.turnId) ?? text2(object2(params.turn).id);
     if (turnId && state.abandoned?.includes(turnId)) continue;
     switch (frame.method) {
       case "turn/started": {
@@ -3402,7 +3433,7 @@ function runtimeReduce(ctx, raw, frames) {
         events.push(...abandonOpenTurn(state, threadId, turnId));
         state.activeTurnId = turnId;
         delete state.compacting;
-        const settings = codexReportedSettings({ ...params, ...object(params.turn) }, ctx.settings);
+        const settings = codexReportedSettings({ ...params, ...object2(params.turn) }, ctx.settings);
         if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
         events.push({ kind: "turnState", threadId, turnId, state: "working", ...timing(params) });
         break;
@@ -3414,7 +3445,7 @@ function runtimeReduce(ctx, raw, frames) {
         events.push(...interruptPendingCalls(state, threadId, turnId));
         delete state.activeTurnId;
         delete state.compacting;
-        const failure2 = outputLimit(params.turn) ? object(params.turn) : object(object(params.turn).error);
+        const failure2 = outputLimit(params.turn) ? object2(params.turn) : object2(object2(params.turn).error);
         if (Object.keys(failure2).length) {
           const error = runtimeError(failure2, false, state.rateLimitSnapshot);
           events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
@@ -3473,7 +3504,7 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       }
       case "thread/goal/updated": {
-        const goal = text2(object(params.goal).objective);
+        const goal = text2(object2(params.goal).objective);
         if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: goalIntent(params.goal) ?? { goal } }, params) });
         break;
       }
@@ -3489,7 +3520,7 @@ function runtimeReduce(ctx, raw, frames) {
       }
       default: {
         let row3;
-        const rawItem = object(params.item);
+        const rawItem = object2(params.item);
         if (frame.method === "item/started" || frame.method === "item/completed") {
           state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
           const agents = reduceRuntimeAgents(state.agents, state.items, state.parents, threadId, rawItem, state.seq + 1);
@@ -3545,12 +3576,12 @@ function runtimeReduce(ctx, raw, frames) {
           if (row3.type === "tool_call" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) events.push({ kind: "turnState", threadId, ...state.activeTurnId ? { turnId: state.activeTurnId } : {}, state: "working", ...{ statusLine: runningCallStatus(state) ?? "" } });
         }
         if (frame.method === "item/started" || frame.method === "item/completed") {
-          const evidence = sendEvidence(ctx, object(params.item), turnId);
+          const evidence = sendEvidence(ctx, object2(params.item), turnId);
           if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
             state.evidenced.push(evidence.sendId);
             events.push(evidence);
           }
-          const item = object(params.item);
+          const item = object2(params.item);
           const id = text2(item.id);
           if (frame.method === "item/completed" && item.type === "contextCompaction" && id && !state.compacted.includes(id)) {
             state.compacted.push(id);
@@ -3573,13 +3604,13 @@ function fail2(code, message) {
   throw { code, message };
 }
 function request(method, params, state = { stage: method }) {
-  const target = method === "turn/interrupt" ? { threadId: String(object(params).threadId), turnId: String(object(params).turnId) } : void 0;
+  const target = method === "turn/interrupt" ? { threadId: String(object2(params).threadId), turnId: String(object2(params).turnId) } : void 0;
   return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
 }
 function settingsParams(ctx, settings, instructions, windowsSandbox) {
   instructions = codexRestrictedCliInstructions(ctx, instructions);
   const policies = codexRuntimePolicy(settings);
-  const sandbox = object(policies.sandboxPolicy).type;
+  const sandbox = object2(policies.sandboxPolicy).type;
   return {
     cwd: ctx.cwd,
     model: settings.model,
@@ -3617,8 +3648,8 @@ function turnParams(ctx, op) {
   };
 }
 function threadHistoryPlan(ctx, thread, value) {
-  const action = text2(object(value).action);
-  const turnId = text2(object(value).turnId);
+  const action = text2(object2(value).action);
+  const turnId = text2(object2(value).turnId);
   if (action !== "fork" && action !== "revert" || !turnId || turnId.length > 4096) fail2("invalid_schema", "Invalid thread history action");
   if (ctx.activeTurnId) fail2("provider_refused", "Thread history cannot change during an active turn");
   return request(
@@ -3639,7 +3670,7 @@ function threadHistoryTurns(ctx, op, state, value) {
   if (!thread || !action || !turnId || !Array.isArray(value.data) || value.data.length > 8) return refused("Invalid thread history page");
   let targetFound = state.targetFound === true;
   for (const raw of value.data) {
-    const turn = object(raw);
+    const turn = object2(raw);
     const id = text2(turn.id);
     if (!id || id.length > 4096) return refused("Thread history turn identity missing");
     if (targetFound) {
@@ -3721,11 +3752,11 @@ function planOperation(ctx, op) {
       return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(pending.method, pending.params, op.requestId, op.answer) } }, state: null };
     }
     case "control": {
-      if (op.action === "readResetCredits") return request("account/rateLimits/read", { excludeResetCreditDetails: object(op.value).details !== true });
+      if (op.action === "readResetCredits") return request("account/rateLimits/read", { excludeResetCreditDetails: object2(op.value).details !== true });
       if (op.action === "redeemResetCredit") {
-        const key = text2(object(op.value).idempotencyKey);
+        const key = text2(object2(op.value).idempotencyKey);
         if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail2("invalid_schema", "A confirmation UUID is required");
-        const creditId = object(op.value).creditId;
+        const creditId = object2(op.value).creditId;
         if (creditId != null && (typeof creditId !== "string" || !creditId.trim())) fail2("invalid_schema", "Reset credit identifier is invalid");
         return request("account/rateLimitResetCredit/consume", { idempotencyKey: key, ...creditId ? { creditId } : {} });
       }
@@ -3739,7 +3770,7 @@ function planOperation(ctx, op) {
       if (op.action === "serviceTiers") return request("model/list", { includeHidden: true, limit: 100 }, { stage: "serviceTiers", models: [], cursors: [] });
       if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
-      const settings = op.action === "settings" ? { ...ctx.settings, ...object(op.value) } : { ...ctx.settings, [op.action]: op.value };
+      const settings = op.action === "settings" ? { ...ctx.settings, ...object2(op.value) } : { ...ctx.settings, [op.action]: op.value };
       for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
       if (settings.serviceTier !== void 0 && !serviceTierSelection(settings.serviceTier)) fail2("invalid_schema", "Invalid service tier");
       const parsed = settings;
@@ -3766,16 +3797,16 @@ function runtimeResponse(ctx, op, raw, reply) {
 function respondOperation(ctx, op, raw, reply) {
   validateBinding(ctx, op);
   if (op.kind === "backgroundProcesses") return backgroundResponse(op, reply);
-  const state = object(raw);
+  const state = object2(raw);
   if (op.kind === "control" && op.action === "goal") return goalResponse(op.threadId ?? ctx.threadId, state, reply);
   if ((op.kind === "forkThread" || op.kind === "control" && op.action === "threadHistory") && state.stage === "threadHistoryTurns") {
     if (reply.kind === "error") return refused(reply.error.message);
-    return threadHistoryTurns(ctx, op, state, object(reply.value));
+    return threadHistoryTurns(ctx, op, state, object2(reply.value));
   }
   if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns" && !op.cursor && reply.error.code === -32600 && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
     return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "unmaterialized" }));
   if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
-    const thread = object(object(reply.value).thread);
+    const thread = object2(object2(reply.value).thread);
     if (!historyThread(ctx, reply.value, op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
       return refused("Empty thread identity unverified");
     return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: [], openItems: [], ...op.order ? { order: op.order } : {} } };
@@ -3789,7 +3820,7 @@ function respondOperation(ctx, op, raw, reply) {
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && missingRollout(reply.error, op.threadId))
       return { kind: "refused", reason: { code: "thread_not_found", message: "The provider's saved conversation rollout is unavailable." }, beforeAcceptance: true };
     if (op.kind === "control" && op.action === "serviceTiers") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: {} } }] };
-    const smaller = object(reply.error.data).historyPageLimit;
+    const smaller = object2(reply.error.data).historyPageLimit;
     if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
       return historyItems(op, { ...state, historyItemLimit: smaller }, text2(state.cursor));
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" } };
@@ -3804,7 +3835,7 @@ function respondOperation(ctx, op, raw, reply) {
       return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive", ...state.windowsSandbox === "mxc" ? { windowsSandbox: "mxc" } : {} }));
     return refused(reply.error.message, op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error, op.activeTurnId));
   }
-  const value = object(reply.value);
+  const value = object2(reply.value);
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (state.stage === "windowsSandboxConfig") {
       codexValidateCliTrust(ctx, value);
@@ -3835,7 +3866,7 @@ function respondOperation(ctx, op, raw, reply) {
       if (state.stage !== "verify" && op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
       if (state.stage !== "verify" && !codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
       if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
-      const idle = threadStatus(object(value.thread).status)?.state === "idle";
+      const idle = threadStatus(object2(value.thread).status)?.state === "idle";
       return {
         kind: "complete",
         result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings },
@@ -3845,11 +3876,11 @@ function respondOperation(ctx, op, raw, reply) {
     case "readHistory":
       return historyResponse(op, state, value);
     case "submitTurn": {
-      const turnId = text2(object(value.turn).id) ?? text2(value.turnId);
+      const turnId = text2(object2(value.turn).id) ?? text2(value.turnId);
       return { kind: "complete", result: { kind: "turnAccepted", threadId: op.threadId, sendId: op.sendId, ...turnId ? { turnId } : {} } };
     }
     case "interrupt": {
-      const turns = list(state.remaining).map(object);
+      const turns = list(state.remaining).map(object2);
       if (turns.length) return continuation(request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) }));
       return { kind: "complete", result: { kind: "done" } };
     }
@@ -3885,7 +3916,7 @@ function respondOperation(ctx, op, raw, reply) {
       if (op.action === "login") return loginResponse(state, value);
       if (op.action === "threadHistory" && state.stage === "thread/revert") return { kind: "complete", result: { kind: "done" } };
       if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
-      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).serviceTier !== void 0;
+      const awaitingTier = state.stage === "thread/settings/update" && object2(state.settings).serviceTier !== void 0;
       return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" && !awaitingTier ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
     }
     case "answer":
@@ -3895,13 +3926,13 @@ function respondOperation(ctx, op, raw, reply) {
 }
 function historyResponse(op, state, value) {
   if (state.stage === "goal") {
-    const objective = text2(object(sanitizeHistory(object(value.goal))).objective);
+    const objective = text2(object2(sanitizeHistory(object2(value.goal))).objective);
     if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal: objective } }];
     return historyComplete(op, state);
   }
   if (!Array.isArray(value.data)) return refused("Missing history page data");
   if (state.stage === "turns") {
-    const source = list(value.data).map(object);
+    const source = list(value.data).map(object2);
     if (source.length > 8 || source.some((turn2) => typeof turn2.id !== "string" || !turn2.id || turn2.id.length > 4096)) return refused("Invalid history turn page");
     const turns2 = (op.order === "desc" ? [...source].reverse() : source).map((turn2) => ({
       id: turn2.id,
@@ -3915,7 +3946,7 @@ function historyResponse(op, state, value) {
     return historyItems(op, collected2);
   }
   if (state.stage !== "items") return refused("Invalid history state");
-  const turns = list(state.turns).map(object);
+  const turns = list(state.turns).map(object2);
   const turn = turns[Number(state.index)];
   if (!turn || !text2(turn.id)) return refused("Missing history turn id");
   const mapped = collectHistoryItems(op, { ...state, items: [], openItems: [], questions: [] }, turn, value.data);
@@ -3935,12 +3966,12 @@ function collectHistoryItems(op, state, turn, entries) {
   let questions = list(state.questions);
   let bytes2 = serializedBytes({ items, openItems, questions });
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
-    const record6 = object(entries[index]);
+    const record6 = object2(entries[index]);
     const rawItem = historyItem(record6.item ?? record6);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const timestamp = record6.startedAtMs ?? record6.completedAtMs;
-    const rows2 = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp, op.threadId);
-    const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const timestamp2 = record6.startedAtMs ?? record6.completedAtMs;
+    const rows2 = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp2, op.threadId);
+    const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object2(rawItem).status));
     const opened = active ? rows2.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows2) + serializedBytes(opened) + serializedBytes(nextQuestions);
     if (bytes2 + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
@@ -3953,7 +3984,7 @@ function collectHistoryItems(op, state, turn, entries) {
   return { ...state, items, openItems, seq, questions, offset: null };
 }
 function historyItems(op, state, cursor) {
-  const turn = object(list(state.turns)[Number(state.index)]);
+  const turn = object2(list(state.turns)[Number(state.index)]);
   if (!text2(turn.id)) return refused("Missing history turn id");
   return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: Number(state.historyItemLimit ?? 100), cursor }, { ...state, historyItemLimit: Number(state.historyItemLimit ?? 100), cursor: cursor ?? null }));
 }
@@ -3974,14 +4005,14 @@ function historyComplete(op, state) {
 }
 function streamHistory(op, step, state) {
   if (step.kind !== "continue") return step;
-  const { items, openItems, questions, ...cursor } = object(step.plan.state);
+  const { items, openItems, questions, ...cursor } = object2(step.plan.state);
   const complete = historyComplete(op, { ...state, nextCursor: void 0 });
   if (complete.kind !== "complete" || complete.result.kind !== "historyPage") return step;
   return { ...step, plan: { ...step.plan, state: json(cursor) }, history: complete.result };
 }
 
 // plugins/provider-shared/accessError.ts
-function object2(value) {
+function object3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 var authExpiry = ["token_expired", "refresh_token_expired", "auth_expired", "auth_expiry"];
@@ -4014,9 +4045,9 @@ function statusCode2(value) {
   return null;
 }
 function classifyAccessError(error, record6) {
-  const detail = object2(error);
+  const detail = object3(error);
   const info = detail?.codexErrorInfo;
-  const infoObject = object2(info);
+  const infoObject = object3(info);
   const fields = [
     typeof error === "string" ? error : null,
     detail?.type,
@@ -4027,7 +4058,7 @@ function classifyAccessError(error, record6) {
     detail?.httpStatusCode,
     typeof info === "string" ? info : null,
     ...Object.keys(infoObject ?? {}),
-    ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
+    ...Object.values(infoObject ?? {}).map((value) => object3(value)?.httpStatusCode),
     record6.status,
     record6.statusCode,
     record6.status_code,
@@ -4057,14 +4088,14 @@ function readRetry(value) {
   return null;
 }
 function retryAfterSecs(error, record6) {
-  return readRetry(object2(error)) ?? readRetry(record6);
+  return readRetry(object3(error)) ?? readRetry(record6);
 }
 function observationTurnId(record6) {
   for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
     const value = record6[key];
     if (typeof value === "string" && value) return value;
   }
-  const payload = object2(record6.payload);
+  const payload = object3(record6.payload);
   if (!payload) return null;
   for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
     const value = payload[key];
@@ -4073,7 +4104,7 @@ function observationTurnId(record6) {
   return null;
 }
 function observationRetrying(error, record6) {
-  return record6.willRetry === true || object2(error)?.willRetry === true;
+  return record6.willRetry === true || object3(error)?.willRetry === true;
 }
 function observationExtras(error, record6) {
   const extras = {};
@@ -6825,6 +6856,8 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  usageAccounting: () => "transcript",
+  parseUsageRecord,
   ...runPromptSteps(() => host.agentRun, { sandbox: "read-only" }),
   ...cloudExports(() => host),
   sessionResume: () => ({ exact: true }),

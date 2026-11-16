@@ -2,6 +2,7 @@
 //! refcounted watcher per identity; the shared ref store refcounts separately.
 
 mod backend;
+mod coverage;
 mod events;
 mod filter;
 mod handles;

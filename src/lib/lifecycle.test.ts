@@ -1,4 +1,3 @@
-import { mock } from "node:test";
 
 function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -102,11 +101,7 @@ function installBrowser(hidden = false): {
 
 void (async () => {
   installBrowser(false);
-  const { mountWebLifecycle, setWakeResyncForTests } = await import("./lifecycle");
-  setWakeResyncForTests(() => {
-    window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
-  });
-  mock.timers.enable({ apis: ["setTimeout"] });
+  const { mountWebLifecycle } = await import("./lifecycle");
   let passed = 0;
   let failed = 0;
 
@@ -121,17 +116,15 @@ void (async () => {
     }
   }
 
-  await runCase("hidden→visible schedules debounced mux refresh", async () => {
+  await runCase("hidden→visible does not resync a healthy connection", async () => {
     const env = installBrowser(false);
     const stop = mountWebLifecycle();
     try {
       env.setHidden(true);
       env.setHidden(false);
-      check(env.muxRefreshCount() === 0, "resync should be debounced immediately");
-      mock.timers.tick(249);
-      check(env.muxRefreshCount() === 0, "resync waits for the debounce boundary");
-      mock.timers.tick(1);
-      check(env.muxRefreshCount() === 1, "wake resync dispatches mux refresh once");
+      check(env.muxRefreshCount() === 0, "resync should be queued after the wake event");
+      await Promise.resolve();
+      check(env.muxRefreshCount() === 0, "wake alone must not resync");
     } finally {
       stop();
     }
@@ -142,52 +135,54 @@ void (async () => {
     const stop = mountWebLifecycle();
     try {
       env.setHidden(false);
-      mock.timers.tick(300);
+      await Promise.resolve();
       check(env.muxRefreshCount() === 0, "no resync without a hidden period");
     } finally {
       stop();
     }
   });
 
-  await runCase("pageshow persisted schedules debounced resync", async () => {
+  await runCase("pageshow persisted does not imply lost state", async () => {
     const env = installBrowser(false);
     const stop = mountWebLifecycle();
     try {
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
-      mock.timers.tick(300);
-      check(env.muxRefreshCount() === 1, "bfcache pageshow triggers resync");
+      await Promise.resolve();
+      check(env.muxRefreshCount() === 0, "bfcache wake alone must not resync");
     } finally {
       stop();
     }
   });
 
-  await runCase("online schedules debounced resync", async () => {
+  await runCase("online does not imply lost state", async () => {
     const env = installBrowser(false);
     const stop = mountWebLifecycle();
     try {
       window.dispatchEvent(new Event("online"));
-      mock.timers.tick(300);
-      check(env.muxRefreshCount() === 1, "online triggers resync");
+      await Promise.resolve();
+      check(env.muxRefreshCount() === 0, "online alone must not resync");
     } finally {
       stop();
     }
   });
 
-  await runCase("rapid wake signals coalesce to one resync", async () => {
+  await runCase("wake signals in separate tasks do not cause resync bursts", async () => {
     const env = installBrowser(false);
     const stop = mountWebLifecycle();
     try {
       window.dispatchEvent(new Event("online"));
+      await Promise.resolve();
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
-      mock.timers.tick(300);
-      check(env.muxRefreshCount() === 1, "debounce coalesces multiple wake signals");
+      await Promise.resolve();
+      env.setHidden(true);
+      env.setHidden(false);
+      await Promise.resolve();
+      check(env.muxRefreshCount() === 0, "independent healthy wakes must not resync");
     } finally {
       stop();
     }
   });
 
-  mock.timers.reset();
-  setWakeResyncForTests(null);
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) throw new Error(`${failed} test(s) failed`);
 })();

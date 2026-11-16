@@ -1,4 +1,4 @@
-import type { AnalyticsSnapshot, HostAnalytics, PluginModule } from "@codeterm/plugin-sdk";
+import { defineProviderIo, ioValue, type HostIoSteps, type IoExports, type AnalyticsQuery, type AnalyticsSnapshot, type PluginModule } from "@codeterm/plugin-sdk";
 
 /** What the view receives: a snapshot, the host's refusal, or no answer at all. Never a synthesized figure. */
 export type QueryOutcome =
@@ -6,21 +6,19 @@ export type QueryOutcome =
   | { kind: "refused"; message: string }
   | { kind: "unavailable" };
 
-function hostAnalytics(): HostAnalytics | undefined {
-  return typeof host === "object" && host ? host.analytics : undefined;
-}
+type AnalyticsPort = { query(query: unknown): unknown };
 
 function isSnapshot(value: object): value is AnalyticsSnapshot {
   const candidate = value as Partial<AnalyticsSnapshot>;
   return typeof candidate.scope === "object" && typeof candidate.recording === "object" && typeof candidate.tokens === "object";
 }
 
-export function runQuery(query: unknown, analytics: HostAnalytics | undefined = hostAnalytics()): QueryOutcome {
+export function runQuery(query: unknown, analytics?: AnalyticsPort): QueryOutcome {
   if (!analytics) return { kind: "unavailable" };
   if (!query || typeof query !== "object" || Array.isArray(query)) {
     return { kind: "refused", message: "query must be an object" };
   }
-  const answer = analytics.query(query as Parameters<HostAnalytics["query"]>[0]) as unknown;
+  const answer = analytics.query(query);
   if (!answer || typeof answer !== "object") return { kind: "unavailable" };
   const refusal = answer as { error?: unknown; message?: unknown };
   if (typeof refusal.error === "string") {
@@ -29,13 +27,16 @@ export function runQuery(query: unknown, analytics: HostAnalytics | undefined = 
   return isSnapshot(answer) ? { kind: "snapshot", snapshot: answer } : { kind: "unavailable" };
 }
 
-function viewCall(method: string, args: unknown): QueryOutcome {
+function* viewCall(method: string, args: unknown): HostIoSteps<QueryOutcome> {
   if (method !== "query") return { kind: "refused", message: `unknown method: ${method}` };
-  return runQuery((args as { query?: unknown } | null)?.query);
+  const query = (args as { query?: unknown } | null)?.query;
+  if (!query || typeof query !== "object" || Array.isArray(query)) return { kind: "refused", message: "query must be an object" };
+  const answer = yield* ioValue<unknown>({op: "analyticsQuery", query: query as AnalyticsQuery});
+  return runQuery(query, {query: () => answer});
 }
 
-const plugin: PluginModule = {
-  viewCall: viewCall as PluginModule["viewCall"],
+const plugin: IoExports<PluginModule> = {
+  viewCall,
 };
 
-export default plugin;
+export default defineProviderIo(plugin, () => host.io);

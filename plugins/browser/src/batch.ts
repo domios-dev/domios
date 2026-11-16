@@ -1,4 +1,4 @@
-import type { AgentCommandCtx } from "@codeterm/plugin-sdk";
+import { ioResolve, type HostIoSteps, type AgentCommandCtx } from "@codeterm/plugin-sdk";
 import type { AgentCommandReply } from "./plugin";
 
 type Step = { name: string; input: { args: string[] } };
@@ -20,14 +20,14 @@ function parse(body: string | undefined): Step[] {
   });
 }
 
-export function runBatch(ctx: AgentCommandCtx, execute: (ctx: AgentCommandCtx) => AgentCommandReply): AgentCommandReply {
+export function* runBatch(ctx: AgentCommandCtx, execute: (ctx: AgentCommandCtx) => AgentCommandReply | HostIoSteps<AgentCommandReply>): HostIoSteps<AgentCommandReply> {
   let steps: Step[];
   try { steps = parse(ctx.body); } catch { return { error: "invalid batch: expected 1 to 32 {name, input: {args: string[]}} steps, at most 64 KiB; no nesting or secret verbs" }; }
   if (ctx.args?.length) return { error: "batch takes no positional arguments; put --of in each step's args" };
   const results: { name: string; result?: string; error?: string }[] = [];
   for (const step of steps) {
     let reply: AgentCommandReply;
-    try { reply = execute({ ...ctx, verb: step.name, args: step.input.args, body: undefined }); }
+    try { reply = yield* ioResolve(execute({ ...ctx, verb: step.name, args: step.input.args, body: undefined })); }
     catch { reply = { error: "action_unconfirmed: runtime interrupted; inspect before continuing; never replay" }; }
     results.push({ name: step.name, ...reply });
     if ("error" in reply || ("result" in reply && /\b(?:action|upload|state)_unconfirmed\b/.test(reply.result))) return { result: JSON.stringify({ completed: false, stoppedAt: results.length - 1, results }) };

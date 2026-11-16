@@ -171,7 +171,7 @@ it.each([
     const send = readChatSends(tabId)[0];
     expect(deliveryState(send)).toBe("failed");
     expect(deliveryError(send)).toContain(reason);
-    expect(view.host.querySelector('[role="status"][data-state="failed"]')?.textContent).toContain(reason);
+    expect(view.host.querySelector('[role="status"][data-state="failed"]')?.getAttribute("aria-label")).toContain(reason);
     if (["upload", "resolution", "handoff"].includes(stage)) expect(send.draft).toBeDefined();
   } finally { await view.dispose(); }
 });

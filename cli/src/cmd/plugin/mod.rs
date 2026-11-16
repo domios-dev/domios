@@ -1,30 +1,17 @@
-//! CLI front-end for plugin management. The filesystem-level logic lives in the
-//! shared `codeterm-plugins` crate (called in-process by both this CLI and the
-//! daemon); this module only converts the clap action, prints the result, and
-//! handles the one path the crate can't — the `plugin <id> <verb>` passthrough,
-//! which routes over the daemon socket.
-
 mod body_source;
 pub(crate) mod cli_status;
+mod context;
 mod receiver_target;
 mod update;
 mod validate;
 
 use crate::args::plugin::{PluginAction, PluginChannelAction};
-use codeterm_plugins::{PluginAction as Action, PluginChannelAction as ChannelAction, PluginCtx};
+use codeterm_plugins::{PluginAction as Action, PluginChannelAction as ChannelAction};
 use std::io::IsTerminal;
 
-fn plugin_ctx() -> PluginCtx {
-    PluginCtx {
-        data_root: crate::data_root(),
-        version: std::env::var("CODETERM_VERSION")
-            .ok()
-            .filter(|s| !s.trim().is_empty()),
-    }
-}
-
 pub fn handle_plugin(json: bool, action: PluginAction) {
-    let ctx = plugin_ctx();
+    let (ctx, daemon) =
+        context::resolve(&action).unwrap_or_else(|error| crate::cmd::print::fail(1, error));
     let report_cli = matches!(
         &action,
         PluginAction::Install { .. }
@@ -51,22 +38,13 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
         PluginAction::ReceiverTarget { id, set, clear } => {
             receiver_target::run_over_socket(&id, set.as_deref(), clear)
         }
-        other => {
-            let routed = match &other {
-                PluginAction::Update { id } => update::routed_update("update", id.as_deref()),
-                PluginAction::UpdateSystem { id } => {
-                    update::routed_update("update-system", id.as_deref())
-                }
-                _ => None,
-            };
-            match routed {
-                Some(result) => result,
-                None => match convert_action(other) {
-                    Ok(action) => codeterm_plugins::run(ctx, action),
-                    Err(error) => Err(error),
-                },
-            }
-        }
+        other => match update::routed_action(&other, daemon) {
+            Some(result) => result,
+            None => match convert_action(other) {
+                Ok(action) => codeterm_plugins::run(ctx, action),
+                Err(error) => Err(error),
+            },
+        },
     };
 
     match result {

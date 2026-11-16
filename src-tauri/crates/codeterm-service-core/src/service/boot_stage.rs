@@ -451,6 +451,15 @@ impl ServiceContext {
         stage: BootStage,
         reason: Option<&str>,
     ) {
+        if stage != BootStage::AgentReady {
+            if let Some(flow) = tab
+                .pty_id
+                .as_deref()
+                .and_then(|pty_id| self.screen_state.output_flow(pty_id))
+            {
+                flow.revoke();
+            }
+        }
         crate::startup::boot_timing::mark(tab_id, tab.pty_id.as_deref(), stage);
         self.ui.emit(
             "tab-boot-stage",
@@ -516,6 +525,7 @@ impl ServiceContext {
             crate::startup::boot_timing::mark(tab_id, None, "finish_recovery_done");
             self.retire_superseded_process_conditions(tab_id);
             crate::startup::boot_timing::mark(tab_id, None, "finish_conditions_done");
+            crate::service::team_template_payload::settle_automation_for_tab(self, tab_id);
         }
         if stage == BootStage::SpawnFailed {
             self.wake_agent_deliveries_on_state_change(tab_id);

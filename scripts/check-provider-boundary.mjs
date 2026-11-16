@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Caller: build.sh release-preflight/verify; CI file-sizes.yml; scripts qa-gates.lib.sh, tests/check-provider-boundary.test.mjs; skill gates
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,9 +37,25 @@ function key(entry) {
 }
 
 export function validateAllowlist(document) {
-  const fields = document ? Object.keys(document).sort().join(',') : '';
-  if (!document || !['entries,version', 'entries,splits,version'].includes(fields) || document.version !== 1 || !Array.isArray(document.entries)) {
-    throw new Error('allowlist must contain only version: 1, optional splits and entries');
+  const fields = document ? Object.keys(document) : [];
+  if (!document || fields.some(field => !['version', 'entries', 'splits', 'providerOwned'].includes(field)) || document.version !== 1 || !Array.isArray(document.entries)) {
+    throw new Error('allowlist must contain only version: 1, optional splits, optional providerOwned and entries');
+  }
+  if (document.providerOwned !== undefined && !Array.isArray(document.providerOwned)) throw new Error('providerOwned must be an array');
+  const providerOwned = new Set();
+  for (const owner of document.providerOwned ?? []) {
+    if (!owner || Object.keys(owner).sort().join(',') !== 'file,reason' || !isExactCorePath(owner.file)) {
+      throw new Error('providerOwned requires an exact core-scope file and a one-line reason');
+    }
+    if (typeof owner.reason !== 'string' || !owner.reason.trim() || /[\r\n]/.test(owner.reason)) {
+      throw new Error('providerOwned requires a non-empty one-line reason');
+    }
+    const file = resolve(fileURLToPath(new URL('../', import.meta.url)), owner.file);
+    let exists = false;
+    try { exists = statSync(file).isFile(); } catch {}
+    if (!exists) throw new Error(`providerOwned file does not exist: ${owner.file}`);
+    if (providerOwned.has(owner.file)) throw new Error(`duplicate providerOwned file: ${owner.file}`);
+    providerOwned.add(owner.file);
   }
   if (document.splits !== undefined && !Array.isArray(document.splits)) throw new Error('splits must be an array');
   const splitSources = new Set();
@@ -93,15 +109,18 @@ export function countOccurrences(occurrences) {
 
 export function checkBoundary(occurrences, document, baseline) {
   const entries = validateAllowlist(document);
+  const providerOwned = new Set((document.providerOwned ?? []).map(owner => owner.file));
   const allowed = new Map(entries.map(entry => [key(entry), entry]));
   const original = new Map(baseline.map(entry => [key(entry), entry]));
   const actual = new Map(countOccurrences(occurrences).map(entry => [key(entry), entry]));
   const errors = [];
   for (const occurrence of actual.values()) {
+    if (providerOwned.has(occurrence.file)) continue;
     const allowance = allowed.get(key(occurrence))?.count ?? 0;
     if (occurrence.count > allowance) errors.push(`added occurrence: ${occurrence.file} ${occurrence.token}: ${occurrence.count} > ${allowance}`);
   }
   for (const entry of entries) {
+    if (providerOwned.has(entry.file)) continue;
     const count = actual.get(key(entry))?.count ?? 0;
     if (count === 0) errors.push(`unused entry: ${entry.file} ${entry.token} (remove it in the same commit)`);
     else if (count < entry.count) errors.push(`stale entry: ${entry.file} ${entry.token}: ${count} < ${entry.count} (lower it in the same commit)`);

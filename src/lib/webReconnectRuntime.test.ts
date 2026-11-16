@@ -1,5 +1,5 @@
-import { muxMockFetch } from "./muxMockFetch.testdata";
-import { RECONNECT_FIRST_MS, RECONNECT_HIDDEN_FIRST_MS } from "./webReconnectModel";
+import { muxMockFetch, settleDaemon } from "./muxMockFetch.testdata";
+import { LOCAL_EVENT_RETRY_MS, LOCAL_EVENT_RETRY_CAP_MS } from "./webEventRecovery";
 import assert from "node:assert/strict";
 
 class MemoryStorage {
@@ -21,7 +21,6 @@ async function main(): Promise<void> {
   });
   const documentTarget = Object.assign(new EventTarget(), { hidden: false });
   Object.assign(globalThis, { window: browser, document: documentTarget, localStorage: storage, sessionStorage: storage });
-  storage.setItem("codeterm-capability:web-reconnect-probe", "true");
   let nextTimer = 0;
   const deadlines = new Map<number, { callback: () => void; delay: number }>();
   let pendingWait: (() => void) | undefined;
@@ -38,7 +37,9 @@ async function main(): Promise<void> {
   const requested = () => new Promise<void>((resolve) => { requestArrived = resolve; });
   browser.addEventListener("codeterm-event-stream-disconnected", () => pendingWait?.());
   let refusal = false;
-  globalThis.fetch = muxMockFetch(async (_input, options) => {
+  globalThis.fetch = muxMockFetch(async (input, options) => {
+    // A wake first proves the open carrier with a health read; it is not an event stream.
+    if (new URL(String(input)).pathname === "/api/health") return Response.json({ status: "ok" });
     assert.notEqual(options?.method, "HEAD");
     assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer fixture-token");
     if (refusal) { requestArrived?.(); return new Response(null, { status: 503 }); }
@@ -51,10 +52,6 @@ async function main(): Promise<void> {
   const api = await import("./webApi");
   api.setTokenFor(api.apiHost(), "fixture-token");
   const events = await import("./webEvents");
-  storage.removeItem("codeterm-capability:web-reconnect-probe");
-  assert.equal(events.webReconnectEnabled(), false);
-  storage.setItem("codeterm-capability:web-reconnect-probe", "true");
-  assert.equal(events.webReconnectEnabled(), true);
   const lifecycle = await import("./lifecycle");
   const { TERMINAL_VIEWER_RECONNECTED_EVENT } = await import("./terminalViewerEvents");
   let reconnects = 0;
@@ -83,7 +80,7 @@ async function main(): Promise<void> {
     browser.dispatchEvent(new Event("online"));
     await connection;
     await reconnectedCatalogue;
-    assert.equal(reconnects, 0, "opening HTTP is not readiness");
+    assert.equal(reconnects, 1, "authenticated event-stream readiness restores a quiet connection");
     assert.equal(catalogueReadySignals, 2, "quiet reconnect makes the catalogue ready before terminal frames");
     delivery = received();
     streams[1].enqueue(frame);
@@ -98,12 +95,15 @@ async function main(): Promise<void> {
     streams[1].error(new Error("server restarted"));
     await secondFailure;
     const visibleConnection = requested();
+    const visibleReady = new Promise<void>((resolve) => { catalogueReady = resolve; });
     documentTarget.hidden = true;
     documentTarget.dispatchEvent(new Event("visibilitychange"));
     documentTarget.hidden = false;
     documentTarget.dispatchEvent(new Event("visibilitychange"));
     await visibleConnection;
-    assert.equal(reconnects, 1);
+    await visibleReady;
+    assert.equal(reconnects, 2);
+    assert.equal(streams.length, 3, "wake resync preserves the healthy event subscription");
     delivery = received();
     streams[2].enqueue(frame);
     await delivery;
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     while (deadlines.size > 1) await new Promise<void>((resolve) => { deadlineCleared = resolve; });
     assert.equal(deadlines.size, 1, "a disconnected stream owns one failure deadline");
     const retry = [...deadlines.values()][0];
-    assert.ok(retry.delay >= RECONNECT_FIRST_MS / 2 && retry.delay <= RECONNECT_FIRST_MS);
+    assert.ok(retry.delay >= LOCAL_EVENT_RETRY_MS / 2 && retry.delay <= LOCAL_EVENT_RETRY_MS);
     refusal = true;
     const rejected = waiting();
     retry.callback();
@@ -132,14 +132,16 @@ async function main(): Promise<void> {
     assert.equal(deadlines.size, 1, "clean EOF uses the shared bounded retry timer");
     documentTarget.hidden = true;
     documentTarget.dispatchEvent(new Event("visibilitychange"));
-    assert.ok([...deadlines.values()][0].delay >= RECONNECT_HIDDEN_FIRST_MS / 2 - 100, "hidden page uses the longer retry floor");
+    assert.ok([...deadlines.values()][0].delay <= LOCAL_EVENT_RETRY_CAP_MS, "hidden loopback pages keep sub-second retry bounds");
     const wakeVisibleConnection = requested();
     documentTarget.hidden = false;
     documentTarget.dispatchEvent(new Event("visibilitychange"));
     await wakeVisibleConnection;
     assert.equal(streams.length, 5, "becoming visible wakes the scheduled retry");
+    await settleDaemon();
     events.__resetWebEventsForTest();
-    assert.equal(deadlines.size, 0);
+    await settleDaemon();
+    assert.equal(deadlines.size, 0, "teardown clears subscription and transport cancellation deadlines");
     browser.dispatchEvent(new Event("online"));
     assert.equal(streams.length, 5);
     console.log("Reconnect runtime event barriers passed");

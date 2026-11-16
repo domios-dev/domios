@@ -14,6 +14,8 @@ pub struct TaskReadinessScope {
     pub canonical_continuation_path: Option<PathBuf>,
     pub files: codeterm_types::plan::TaskFiles,
     pub base: Option<String>,
+    /// HEAD of a recorded checkout when it was bound: that attempt's own base.
+    pub start_sha: Option<String>,
     pub requires_repository: bool,
 }
 
@@ -140,6 +142,10 @@ fn task_readiness_scope_from_task_with_canonical_path(
             .and_then(|files| serde_json::from_value(files).ok())
             .unwrap_or_default(),
         base: record.and_then(|record| nonempty(record.get("base"))),
+        start_sha: checkout
+            .as_ref()
+            .and(attempt)
+            .and_then(|attempt| nonempty(attempt.get("shared_start_sha"))),
         requires_repository: task.get("execution_intent").and_then(Value::as_str)
             != Some("non_repository")
             && attempt
@@ -160,6 +166,7 @@ impl Default for TaskReadinessScope {
             canonical_continuation_path: None,
             files: Default::default(),
             base: None,
+            start_sha: None,
             requires_repository: true,
         }
     }

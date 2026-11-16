@@ -27,6 +27,9 @@ struct ShellTransport<'a> {
 }
 
 impl SubmitTransport for ShellTransport<'_> {
+    fn suspend_output(&self) -> Option<crate::pty::output_flow::ReadPermit> {
+        self.svc.screen_state.suspend_output(self.pty_id)
+    }
     fn observe(&self) -> Option<Observation> {
         None
     }

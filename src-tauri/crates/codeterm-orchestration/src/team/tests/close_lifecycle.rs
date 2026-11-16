@@ -552,6 +552,11 @@ struct FakeTeamLaneCleanup {
 }
 
 impl super::super::close::TeamLaneCleanupIo for FakeTeamLaneCleanup {
+    fn not_managed(&mut self, lane: &super::super::close::TeamCloseLane) -> Option<String> {
+        (lane.ownership == Some(codeterm_service_core::plan::LaneOwnership::ForeignCheckout))
+            .then(|| "foreign checkout, not managed".into())
+    }
+
     fn worktree_exists(&mut self, path: &str) -> bool {
         self.worktrees.contains(path)
     }
@@ -908,7 +913,7 @@ async fn human_team_close_with_busy_member_preserves_dirty_lane() {
     git(&repo, &["commit", "-m", "base"]);
     git(&repo, &["branch", "-M", "main"]);
     let base = git(&repo, &["rev-parse", "HEAD"]);
-    let worktree = dir.path().join("untracked-lane");
+    let worktree = dir.path().join("repo-worktrees").join("untracked");
     git(
         &repo,
         &[

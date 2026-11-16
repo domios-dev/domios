@@ -65,6 +65,14 @@ pub fn new_restart_tracker() -> RestartTracker {
 }
 
 impl ServiceContext {
+    pub(super) fn claim_provider_switch(
+        &self,
+        tab_id: &str,
+    ) -> Result<RestartClaim, AgentRestartError> {
+        // An explicit handoff shares the lifecycle lock without throttling the owner's choice.
+        self.claim_restart(tab_id, true)
+    }
+
     pub(crate) fn model_command_owns_prompt(&self, tab_id: &str) -> bool {
         let owner = self
             .ext::<crate::service::agent_restart::RestartTracker>()

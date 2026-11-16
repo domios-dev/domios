@@ -34,14 +34,17 @@ async fn render_ctx_cwd_becomes_sandbox_read_root() {
         PluginVm::from_source_sandboxed(
             "confined-glance",
             r#"module.exports.default = {
-                renderGlance(ctx) {
-                    var names = host.listChildDirs(ctx.cwd);
-                    return { title: names === null ? "denied" : names.join(","), nodes: [] };
-                }
-            }"#
+    renderGlance(ctx) {
+        return host.io.run((function* () {
+            var names = (yield { op: "listChildDirs", path: ctx.cwd });
+            return { title: names === null ? "denied" : names.join(","), nodes: [] };
+        }).call(this));
+    }
+};
+"#
             .to_string(),
             None,
-            Arc::new(PluginSandbox::restricted(vec![], vec![])),
+            Arc::new(PluginSandbox::restricted(vec![], vec![]).with_identity("confined-glance")),
         )
         .expect("vm"),
     );

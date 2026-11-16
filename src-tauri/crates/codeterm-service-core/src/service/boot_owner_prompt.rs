@@ -21,6 +21,10 @@ pub(crate) fn released_stage(held: bool, current: Option<BootStage>) -> Option<B
 }
 
 impl ServiceContext {
+    pub(crate) fn boot_held_for_owner_prompt(&self, tab_id: &str) -> bool {
+        HELD.lock().contains(tab_id)
+    }
+
     fn current_boot_stage(&self, tab_id: &str) -> Option<BootStage> {
         self.mux
             .read()

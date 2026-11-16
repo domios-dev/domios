@@ -3,7 +3,7 @@
 // ORACLE: The evidence validator rejects missing or substituted selections and identities.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { fixtureResults, fixtureRestart, writeFixtureRun } from "./fixture-run.m
 import { emptyResults, recorder } from "./results.mjs";
 import { modelEvidenceErrors } from "./model-evidence.mjs";
 import { profileSelection } from "./profile-policy.mjs";
+import { emptyFlags, loadAreas, resolveSelection } from "./selection.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const scratch = () => mkdtempSync(join(tmpdir(), "cj-contract-"));
@@ -172,6 +173,66 @@ test("requested, resolved and actual model identities and restart proof must all
   assert.match(errorsOf(run((results) => { results.state.model_policy.restored_identities.tab1.session = "foreign"; })), /restored policy session changed/);
 });
 
+
+const select = (extra) => resolveSelection(loadAreas(), { ...emptyFlags(), ...extra, exclude_providers: extra.exclude_providers ?? [] });
+
+function withoutControlFixture(results) {
+  const control = results.state.j3.orchestrator;
+  results.state.tabs = results.state.tabs.filter((tab) => tab.id !== control);
+  if (results.state.before_restart) results.state.before_restart.tabs = results.state.before_restart.tabs.filter((tab) => tab.id !== control);
+  delete results.state.j3;
+}
+
+function j4Only(results) {
+  results.selection = select({ journeys: "J4" });
+  results.checks = results.checks.filter((check) => !["J1", "J2", "J3"].includes(check.journey));
+  results.checks.splice(1, 0, ...["restore_fixture_ready", "restore_fixture_reply"].map((name) => ({ ...results.checks[0], journey: "J4", name, subject: "claude" })));
+  withoutControlFixture(results);
+  for (const tab of results.state.tabs) tab.journey = "J4";
+  results.state.model_policy.launches = [{ ...results.state.model_policy.launches[0], path: "J4-spawn" }];
+}
+
+function j1Only(results) {
+  results.selection = select({ journeys: "J1" });
+  results.phases = results.phases.filter((phase) => phase.name !== "verify");
+  results.checks = results.checks.filter((check) => !["J2", "J3", "J4"].includes(check.journey) && check.subject !== "verify");
+  withoutControlFixture(results);
+  delete results.state.before_restart;
+  results.state.screenshots = results.state.screenshots.filter((shot) => shot.phase === "setup");
+  results.state.model_policy.launches = results.state.model_policy.launches.filter((launch) => launch.path === "J1-spawn");
+}
+
+test("a J4-only run with its own restore fixtures is complete evidence; checks of unselected journeys are not", () => {
+  assert.deepEqual(errorsOf(run(j4Only)), "");
+  assert.match(errorsOf(run((results) => { j4Only(results); results.checks.push({ ...results.checks[0], journey: "J1", name: "spawn_ready" }); })),
+    /J1 is recorded as not run or waived but has checks/);
+  assert.match(errorsOf(run((results) => { j4Only(results); results.state.tabs[0].journey = "J1"; })), /claude J4 roster coverage absent/);
+});
+
+test("a run without J4 needs no restart or verify phase and refuses one that ran", () => {
+  assert.deepEqual(errorsOf(run(j1Only, { restart: null })), "");
+  assert.match(errorsOf(run((results) => { j1Only(results); results.phases.push({ ...results.phases[0], name: "verify" }); }, { restart: null })),
+    /phase verify ran although J4 is not selected/);
+});
+
+test("an explicitly waived provider exclusion is valid and rendered verbatim; a silent or tampered one is not", () => {
+  const waiver = "owner: opencode | provider outage";
+  const exclude = (results) => {
+    results.selection = select({ exclude_providers: ["opencode"], waiver });
+    const policy = results.state.model_policy;
+    policy.roster = ["claude", "codex"];
+    for (const map of [policy.selections, policy.catalogues]) delete map.opencode;
+    for (const map of [policy.identities, policy.restored_identities]) delete map.tab3;
+    results.state.tabs = results.state.tabs.filter((tab) => tab.id !== "tab3");
+    results.state.before_restart.tabs = results.state.before_restart.tabs.filter((tab) => tab.id !== "tab3");
+  };
+  const dir = run(exclude);
+  assert.deepEqual(errorsOf(dir), "");
+  assert.ok(readFileSync(join(dir, "results.md"), "utf8").includes(`--waiver ${waiver}\n`));
+  assert.match(errorsOf(run((results) => { exclude(results); results.selection = select({}); })), /required provider roster narrowed/);
+  assert.match(errorsOf(run((results) => { exclude(results); results.selection.excluded_providers[0].waiver = "edited"; })), /selection differs/);
+  assert.match(errorsOf(run((results) => { results.selection.journeys.J2 = { status: "not_run", reasons: ["area untouched"] }; })), /selection differs/);
+});
 
 function qualifyCachedVerify(results) {
   const policy = results.state.model_policy, provider = "opencode";

@@ -3,14 +3,18 @@ import { fireResync, onResync } from "./resync";
 import { createDelayedMessageFeed } from "../components/Terminal/delayedMessageFeed";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { useSurfaceDecl } from "../components/Surface/useSurfaceDecl";
+import { blueprintSolutionsApi } from "../components/Jobs/blueprintSolutions";
+import type { SurfaceDeclLookup } from "../components/Surface/surfaceRenderPlan";
+import { configureDaemonTransport } from "./daemonBootstrap";
 import { __setInvokeForTest, __setListenForTest } from "./bridge";
 import { useChatSession } from "../components/Terminal/useChatSession";
 import { chatBodyView } from "../components/Terminal/chatBodyVisibility";
 import { ChatSetupState } from "../components/Terminal/ChatSetupState";
 import { clearTranscriptWindows } from "../components/Terminal/transcriptStore";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { __resetStreamMuxesForTest, OutcomeUnknown, RetryableMuxError, withStreamMux } from "./streamMux";
-import { MUX_REQUEST_TIMEOUT, readWhenMuxCapacityAvailable, type MuxRequestInit } from "./streamMuxRequestModel";
+import { __resetStreamMuxesForTest, MuxDeadlineError, OutcomeUnknown, RetryableMuxError, streamMuxDiagnostics, withStreamMux } from "./streamMux";
+import { MUX_CAPACITY_WAIT, MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
 import type { TransportOptions } from "./transportClient";
 
 interface Posted { id: string; session: string; path: string; method: string; init: RequestInit }
@@ -48,7 +52,7 @@ function fixture(onGatewayState?: (available: boolean) => void, origin = "http:/
   const client = withStreamMux({ origin, token: "fixture-token", fetch, onGatewayState });
   const push = (value: unknown) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`));
   return {
-    client, posted, deleted, sessions, credits, push,
+    client, posted, deleted, sessions, credits, push, fetch,
     refuse(status: number) { refuseMux = status; },
     failCredits(count: number) { failCredits = count; },
     head(post: Posted, status = 200, headers: [string, string][] = [["content-type", "application/json"]]) { push({ channel: post.id, open: true, status, headers }); },
@@ -61,7 +65,7 @@ function fixture(onGatewayState?: (available: boolean) => void, origin = "http:/
   };
 }
 
-afterEach(() => { __resetStreamMuxesForTest(); vi.useRealTimers(); });
+afterEach(() => { __resetStreamMuxesForTest(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("RPC responses over one mux", () => {
   it("registers before posting and delivers a complete response that arrived before its ack", async () => {
@@ -328,11 +332,19 @@ it("does not declare the healthy browser gateway unavailable for a local admissi
   const gateway = vi.fn(); const f = fixture(gateway);
   for (let index = 0; index < 64; index++) void f.client.localJson("GET", `/api/read-${index}`).catch(() => {});
   await f.next();
-  await expect(f.client.localJson("GET", "/api/one-more-read")).rejects.toBeInstanceOf(RetryableMuxError);
+  const controller = new AbortController();
+  let capacityWait!: () => void;
+  const waitObserved = new Promise<void>(resolve => { capacityWait = resolve; });
+  const init: MuxRequestInit = { signal: controller.signal, [MUX_CAPACITY_WAIT]: capacityWait };
+  const waiting = f.client.request!("/api/one-more-read", init).catch(error => error);
+  await waitObserved;
+  expect(streamMuxDiagnostics()[0].waitingReads).toBeGreaterThan(0);
+  controller.abort();
+  expect(await waiting).toMatchObject({name:"AbortError"});
   expect(gateway.mock.calls.some(([available]) => available === false)).toBe(false);
 });
 
-it.each([200, 503])("reissues an opted-in, never-dispatched read once on released capacity; dispatched HTTP %s settles", async (status) => {
+it.each([200, 503])("admits a read by default on released capacity; dispatched HTTP %s settles without replay", async (status) => {
   const f = fixture();
   const attempts = vi.fn(() => f.client.localJson("GET", "/api/mesh/peers"));
   f.reply(async post => {
@@ -343,15 +355,52 @@ it.each([200, 503])("reissues an opted-in, never-dispatched read once on release
   });
   for (let index = 0; index < 48; index++) void f.client.localJson("GET", `/api/read-${index}`).catch(() => {});
   const first = await f.next();
-  const result = readWhenMuxCapacityAvailable(attempts, new AbortController().signal).catch(error => error);
+  const result = attempts().catch(error => error);
   expect(attempts).toHaveBeenCalledTimes(1);
   expect(f.posted.some(post => post.path === "/api/mesh/peers")).toBe(false);
   f.head(first); f.text(first, '{}'); f.end(first);
   const settled = await result;
   if (status === 200) expect(settled).toEqual({paired:[]});
   else expect(settled).toMatchObject({status:503});
-  expect(attempts).toHaveBeenCalledTimes(2);
+  expect(attempts).toHaveBeenCalledTimes(1);
   expect(f.posted.filter(post => post.path === "/api/mesh/peers")).toHaveLength(1);
+});
+
+it("cancels catalogue reads and lets the Browser surface lookup recover released capacity", async () => {
+  const f = fixture(undefined, window.location.origin);
+  vi.stubGlobal("fetch", f.fetch);
+  configureDaemonTransport({ origin: window.location.origin, token: "fixture-token" });
+  for (const kind of ["list", "document"] as const) {
+    const controller = new AbortController();
+    const result = blueprintSolutionsApi[kind]("owned", controller.signal).catch(error => error);
+    const post = await f.next();
+    expect(post.path).toBe(kind === "list" ? "/api/automation/blueprints/solutions/list" : "/api/mem/items/owned");
+    expect(new Headers(post.init.headers).get("X-Domios-Mux-Cancellable")).toBe("1");
+    controller.abort();
+    expect(await result).toMatchObject({ name: "AbortError" });
+    expect(await f.cancelled()).toBe(post.id);
+  }
+  __setListenForTest(async () => () => {});
+  f.reply(async post => {
+    if (post.path === "/api/surfaces") {
+      f.head(post); f.text(post, JSON.stringify({declared:[{plugin_id:"browser",surface_id:"browser",renderer:"stream",runtime:"browser"}],open:[]})); f.end(post);
+    }
+    return Response.json({accepted:true},{status:202});
+  });
+  for (let index=0;index<48;index++) void f.client.localJson("GET",`/api/read-${index}`).catch(()=>{});
+  const first = await f.next();
+  let lookup: SurfaceDeclLookup = {status:"loading"};
+  function Probe() { lookup=useSurfaceDecl(undefined,"browser","browser",0,null); return null; }
+  const root=createRoot(document.createElement("div"));
+  try {
+    await act(async()=>root.render(createElement(Probe)));
+    expect(lookup.status).toBe("loading");
+    expect(streamMuxDiagnostics()[0]).toMatchObject({requests:48,waitingReads:1});
+    expect(f.posted.some(post=>post.path==="/api/surfaces")).toBe(false);
+    await act(async()=>{ f.head(first); f.text(first,'{}'); f.end(first); });
+    expect(lookup).toMatchObject({status:"ready",declared:{runtime:"browser"}});
+    expect(f.posted.filter(post=>post.path==="/api/surfaces")).toHaveLength(1);
+  } finally { await act(async()=>root.unmount()); __setListenForTest(null); }
 });
 
 it("expires an undispatched queued action as safe to retry without later sending it", async () => {
@@ -369,6 +418,80 @@ it("expires an undispatched queued action as safe to retry without later sending
   f.head(first); f.text(first, '{}'); f.end(first);
   await expect(f.client.localJson("POST", "/api/witness", {})).resolves.toEqual({});
   expect(f.posted.some(post => post.path.endsWith("/stop"))).toBe(false);
+});
+
+it("bounds a signal-less capacity wait without dispatching after its deadline", async () => {
+  vi.useFakeTimers(); const f = fixture();
+  for (let index = 0; index < 48; index++) void f.client.request!(`/api/held-${index}`, { [MUX_REQUEST_TIMEOUT]: null } as MuxRequestInit).catch(() => {});
+  const first = await f.next();
+  const result = f.client.request!("/api/bounded-wait").catch(error => error);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(await result).toBeInstanceOf(MuxDeadlineError);
+  expect(await result).toMatchObject({ dispatched: false, code: "request_timeout" });
+  expect(streamMuxDiagnostics()[0].waitingReads).toBe(0);
+  f.head(first); f.text(first, '{}'); f.end(first);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.posted.some(post => post.path === "/api/bounded-wait")).toBe(false);
+});
+
+it("keeps the same deadline budget when a waiting read is admitted", async () => {
+  vi.useFakeTimers(); const f = fixture();
+  for (let index = 0; index < 48; index++) void f.client.request!(`/api/held-${index}`, { [MUX_REQUEST_TIMEOUT]: null } as MuxRequestInit).catch(() => {});
+  const first = await f.next();
+  const result = f.client.request!("/api/budget", { [MUX_REQUEST_TIMEOUT]: 10 } as MuxRequestInit).catch(error => error);
+  await vi.advanceTimersByTimeAsync(9);
+  f.head(first); f.text(first, '{}'); f.end(first);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.posted.some(post => post.path === "/api/budget")).toBe(true);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(await result).toMatchObject({ name: "TimeoutError" });
+});
+
+it("closes an admission waiter as retryable without reporting the gateway down", async () => {
+  const f = fixture();
+  for (let index = 0; index < 48; index++) void f.client.request!(`/api/held-${index}`).catch(() => {});
+  await f.next();
+  const gateway = vi.fn();
+  const client = withStreamMux({ origin: "http://mux.fixture", token: "fixture-token", fetch: f.fetch, onGatewayState: gateway });
+  let waiting!: () => void;
+  const started = new Promise<void>(resolve => { waiting = resolve; });
+  const result = client.request!("/api/waiting", { [MUX_CAPACITY_WAIT]: waiting } as MuxRequestInit).catch(error => error);
+  await started;
+  __resetStreamMuxesForTest();
+  expect(await result).toBeInstanceOf(RetryableMuxError);
+  expect(await result).toMatchObject({ dispatched: false });
+  expect(gateway).not.toHaveBeenCalledWith(false);
+});
+
+it("admits queued reads in FIFO order while retaining the read bound", async () => {
+  const f = fixture();
+  for (let index = 0; index < 48; index++) void f.client.request!(`/api/held-${index}`).catch(() => {});
+  const held = [];
+  for (let index = 0; index < 48; index++) held.push(await f.next());
+  const complete = (post: Posted) => { f.head(post); f.text(post, '{}'); f.end(post); };
+  const results = Array.from({ length: 16 }, (_, index) => f.client.localJson("GET", `/api/fifo-${index}`));
+  for (let index = 0; index < 16; index++) {
+    complete(held[index]);
+    const next = await f.next();
+    expect(next.path).toBe(`/api/fifo-${index}`);
+    expect(streamMuxDiagnostics()[0].requests).toBeLessThanOrEqual(48);
+  }
+  f.posted.filter(post => post.path.startsWith("/api/fifo-")).forEach(complete);
+  await Promise.all(results);
+});
+
+it("a queued read deadline remains a timeout and never becomes a client capacity error", async () => {
+  vi.useFakeTimers(); const f = fixture();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  f.reply(async () => { await gate; return Response.json({accepted:true},{status:202}); });
+  for (let index=0;index<4;index++) void f.client.localJson("POST",`/api/held-write-${index}`,{}).catch(()=>{});
+  for (let index=0;index<4;index++) await f.next();
+  const result=f.client.localJson("GET","/api/surfaces",undefined,{timeoutMs:10}).catch(error=>error);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(await result).toMatchObject({name:"TimeoutError"});
+  expect(f.posted.some(post=>post.path==="/api/surfaces")).toBe(false);
+  release();
 });
 
 it("keeps a passive browser single-flight while another browser switches shared selection and causes resync", async () => {

@@ -1,5 +1,6 @@
 import { listen } from "../../lib/bridge";
-import { localFetch } from "../../lib/webApi";
+import { neighborFetch } from "./neighborFetch";
+import { relayTarget } from "../../lib/webApi";
 import { deliveryStatus, PERMISSION_WORKSPACES, runtimeCall, type NeighborPermissionDraft } from "./neighborRuntimeClient";
 
 export type HistoryAuthor = import("../../../gen/NeighborHistoryAuthor").NeighborHistoryAuthor;
@@ -98,7 +99,8 @@ export function parseHistory(value: unknown): HistoryPage {
 
 /** Tells the runtime you have seen their messages up to this one; only the open, visible conversation calls it, never a history read. */
 export async function markNeighborRead(friendship: string, throughMessageId: string): Promise<void> {
-  const response = await localFetch("/api/account/neighbors/read", {
+  if (relayTarget()) return;
+  const response = await neighborFetch("/api/account/neighbors/read", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ friendship_id: friendship, through_message_id: throughMessageId }),
   });
   if (!response.ok) throw new Error(`Read receipt failed (HTTP ${response.status})`);

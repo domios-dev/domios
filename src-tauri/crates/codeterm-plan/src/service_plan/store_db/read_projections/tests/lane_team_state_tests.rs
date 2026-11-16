@@ -63,6 +63,11 @@ fn bounded_state(consumer: &str) {
         ) {
             plan.tasks[0].status = crate::plan::TaskStatus::Done;
         }
+        if consumer == "find_lane_attempt" {
+            let attempt = &mut plan.tasks[0].execution_attempts[0];
+            attempt.branch = Some("feature".into());
+            attempt.lane_ownership = Some(crate::plan::LaneOwnership::ForeignCheckout);
+        }
         if consumer == "run_lane_watchdog" {
             plan.tasks[0].assigned_tab_id = Some("worker".into());
         }
@@ -87,6 +92,11 @@ fn bounded_state(consumer: &str) {
                 assert_eq!(read.worktree_path, "/lane");
                 assert_eq!(read.canonical_path, "/canonical");
                 assert_eq!(read.turn, 7);
+                assert_eq!(read.branch.as_deref(), Some("feature"));
+                assert_eq!(
+                    read.ownership,
+                    Some(crate::plan::LaneOwnership::ForeignCheckout)
+                );
                 serde_json::to_vec(&read).unwrap()
             }
             "active_team_plans" => {

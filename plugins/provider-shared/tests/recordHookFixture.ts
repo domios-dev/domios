@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { ioTestContext } from "./hostIo";
-import type { HostFs, JsonValue, ParsedSessionRecord, PluginModule, SessionRecordsMeta } from "@codeterm/plugin-sdk";
+import type { HostIoFs, HostIoSteps, JsonValue, ParsedSessionRecord, PluginModule, SessionRecordsMeta } from "@codeterm/plugin-sdk";
 
 export function recordInput(text: string, fromOffset = 0, sourceKey?: string): {records: ParsedSessionRecord[]; meta: SessionRecordsMeta} {
   const records: ParsedSessionRecord[] = [];
@@ -19,7 +19,9 @@ export function recordInput(text: string, fromOffset = 0, sourceKey?: string): {
     counts:{total:lines.length-(lines[lines.length-1]==="" ? 1 : 0),matched:records.length,invalid,oversized:0}}};
 }
 
-export function loadRecordPlugin(directory: string, fsOverrides: Partial<HostFs> = {}): PluginModule {
+type FsPorts = { [K in keyof HostIoFs]: HostIoFs[K] extends (...args: infer A) => HostIoSteps<infer R> ? (...args: A) => R : never };
+
+export function loadRecordPlugin(directory: string, fsOverrides: Partial<FsPorts> = {}): PluginModule {
   const context = {module:{exports:{} as {default:PluginModule}},exports:{},console,
     host:{platform:()=>"linux",unixNowMs:()=>0,manifestJson:()=>"null",envGet:()=>null,homeDir:()=>"/tmp",
       expandHome:(value:string)=>value,path:{equal:()=>true},shell:{quoteFor:String,quote:String},

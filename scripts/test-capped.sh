@@ -167,10 +167,10 @@ detect_requested_filter() {
             --filter-expr=*|--filterset=*) REQUESTED_FILTER="${1#*=}"; shift ;;
             --no-tests) NO_TESTS_MODE="${2:-}"; shift 2 || return 0 ;;
             --no-tests=*) NO_TESTS_MODE="${1#*=}"; shift ;;
-            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|--config-file|-Z|--color|--archive-file|--workspace-remap|--binaries-metadata|--cargo-metadata|--cargo-profile|-P|--test-threads|--status-level|--final-status-level|--run-ignored|--retries|--max-fail|--partition)
+            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|--config-file|-Z|--color|--archive-file|--workspace-remap|--binaries-metadata|--cargo-metadata|--cargo-profile|-P|--test-threads|--status-level|--final-status-level|--run-ignored|--retries|--max-fail|--partition|--stress-count|--stress-duration|--failure-output|--success-output|--show-progress|--max-progress-running|--reporter|--output-format|--input-handler|--target-runner|--store-dir|--debugger|--tracer)
                 shift 2 || return 0 ;;
             -*) shift ;;
-            *) REQUESTED_FILTER="$1"; return 0 ;;
+            *) [ -n "$REQUESTED_FILTER" ] || REQUESTED_FILTER="$1"; shift ;;
         esac
     done
 }
@@ -183,10 +183,14 @@ passed_test_count() {
         /^[[:space:]]*test result: [A-Za-z]+\. [0-9]+ passed;/ {
             line = $0; sub(/.*test result: [A-Za-z]+\. /, "", line); total += line + 0
         }
-        /^[[:space:]]*Summary \[[^]]*\][[:space:]]+[0-9]+ tests? run: [0-9]+ passed/ {
+        /^[[:space:]]*(Summary \[[^]]*\][[:space:]]+|Stress test \[[^]]*\] iteration [^:]+: )[0-9]+ tests? run: [0-9]+ passed/ {
+            if ($0 ~ /Stress test/) stress_details = 1
             line = $0; sub(/.* tests? run: /, "", line); total += line + 0
         }
-        END { print total + 0 }
+        /^[[:space:]]*Summary \[[^]]*\][[:space:]]+[0-9]+(\/[0-9]+)? stress run iterations?: [0-9]+ passed/ {
+            line = $0; sub(/.* stress run iterations?: /, "", line); stress_passes += line + 0
+        }
+        END { print total + (stress_details ? 0 : stress_passes) }
     ' "$1"
 }
 

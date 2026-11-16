@@ -78,7 +78,7 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
         .collect();
     let fixture: GenericFixture =
         serde_json::from_str(&std::fs::read_to_string(dir.join("shared.json")).unwrap()).unwrap();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"envelope":"jsonrpc2","launchProfiles":fixture.launch_profiles,"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine","npx"]}}}).to_string()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","hostIoJobs":true,"displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"envelope":"jsonrpc2","launchProfiles":fixture.launch_profiles,"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine","npx"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
@@ -780,7 +780,7 @@ fn runtime_client_bridges_native_quickjs_declaration_parity() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/runtime/client-bridges.json")).unwrap();
     let native: RuntimeClientBridges = serde_json::from_value(fixture.clone()).unwrap();
-    let mut raw = json!({"id":"bridge-fixture","version":"1.0.0","displayName":"Bridge fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}});
+    let mut raw = json!({"id":"bridge-fixture","version":"1.0.0","hostIoJobs":true,"displayName":"Bridge fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}});
     raw["capabilities"]["agentRuntime"]["clientBridges"] = fixture;
     let interrupt: Value =
         serde_json::from_str(include_str!("fixtures/runtime/interrupt.json")).unwrap();
@@ -804,7 +804,7 @@ fn turn_scoped_requests_native_quickjs_declaration_parity() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/runtime/turn-scoped-requests.json")).unwrap();
     let native = native::NativeRuntime(serde_json::from_value(fixture.clone()).unwrap());
-    let raw = json!({"id":"turn-fixture","version":"1.0.0","displayName":"Turn fixture",
+    let raw = json!({"id":"turn-fixture","version":"1.0.0","hostIoJobs":true,"displayName":"Turn fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":fixture},
         "permissions":{"subprocess":{"allow":["fixture-engine"]}}});
     let manifest = PluginManifest::from_json_str(&raw.to_string()).unwrap();

@@ -74,7 +74,7 @@ fn js_with_binary_name(id: &str, binary_name: Option<&str>) -> JsProvider {
         .map(|name| format!(r#""binaryName":"{name}","#))
         .unwrap_or_default();
     let manifest_json = format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"Availability Fixture",{binary}
+        r#"{{"id":"{id}","version":"0.1.0","hostIoJobs":true,"displayName":"Availability Fixture",{binary}
             "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                      "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
     );

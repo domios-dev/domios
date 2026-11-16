@@ -4,6 +4,11 @@ use axum::body::to_bytes;
 mod fixture;
 use fixture::{directory_link, Fixture};
 
+fn png() -> Vec<u8> {
+    use base64::Engine;
+    base64::prelude::BASE64_STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC").unwrap()
+}
+
 async fn json(response: Response) -> serde_json::Value {
     serde_json::from_slice(
         &to_bytes(response.into_body(), 12 * 1024 * 1024)
@@ -31,7 +36,15 @@ async fn owning_tab_previews_nested_pad_artifacts_but_not_foreign_or_secret_file
     for (name, kind) in [("hush/image.png", "image"), ("notes/report.md", "document")] {
         let path = fixture.pad(&fixture.owner).join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, b"artifact").unwrap();
+        std::fs::write(
+            &path,
+            if kind == "image" {
+                png()
+            } else {
+                b"artifact".to_vec()
+            },
+        )
+        .unwrap();
         fixture.reference(&fixture.owner, &path);
         fixture.reference(&fixture.sibling, &path);
         let response = fixture.read(&fixture.owner, &path, kind).await;
@@ -41,7 +54,7 @@ async fn owning_tab_previews_nested_pad_artifacts_but_not_foreign_or_secret_file
             .as_str()
             .unwrap()
             .contains(if kind == "image" {
-                "data:image/png;base64,"
+                "data:image/jpeg;base64,"
             } else {
                 "artifact"
             }));
@@ -175,15 +188,20 @@ async fn referenced_images_documents_and_pages_match_desktop_shape_and_headers()
         ("view.html", "<main>preview</main>", "page"),
     ] {
         let path = fixture.write(name, bytes);
+        if kind == "image" {
+            std::fs::write(&path, png()).unwrap();
+        }
         fixture.reference(&fixture.owner, &path);
         let response = fixture.read(&fixture.owner, &path, kind).await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_headers(&response);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
-        let desktop = codeterm_service_core::service::local_preview::html_preview::read_local_preview_file_guarded(
+        let desktop = codeterm_service_core::service::local_preview::read(
+            &fixture.state.svc,
+            &fixture.owner,
+            &[],
             path.to_str().unwrap(),
             kind,
-            |_, _| Ok(()),
         )
         .unwrap();
         assert_eq!(json(response).await, serde_json::to_value(desktop).unwrap());
@@ -576,7 +594,7 @@ async fn only_complete_live_canonical_tags_grant_exact_own_session_reads() {
 async fn gallery_json_entities_authorize_exact_paths_and_limit_at_thirty_two() {
     let fixture = Fixture::new();
     let paths: Vec<_> = (0..33)
-        .map(|n| fixture.write(&format!("gallery/{n} & image.png"), b"image"))
+        .map(|n| fixture.write(&format!("gallery/{n} & image.png"), png()))
         .collect();
     let encoded = serde_json::to_string(&paths[..32])
         .unwrap()

@@ -52,6 +52,9 @@ fn prune_inbox(inbox: &Path) -> Result<(), String> {
                 .is_ok_and(|modified| modified < cutoff)
         {
             fs::remove_file(entry.path()).map_err(|e| format!("prune AgentPad inbox file: {e}"))?;
+            if let Some(pad) = inbox.parent() {
+                super::local_preview::model_copies::retire(pad, &entry.path())?;
+            }
         }
     }
     Ok(())
@@ -143,7 +146,7 @@ impl AgentPad {
         }
     }
 
-    fn inbox_directory(&self) -> Result<PathBuf, String> {
+    pub(super) fn inbox_directory(&self) -> Result<PathBuf, String> {
         let inbox = self.path.join("inbox");
         fs::create_dir_all(&inbox).map_err(|e| format!("create AgentPad inbox: {e}"))?;
         let root = self
@@ -289,11 +292,32 @@ impl super::ServiceContext {
         text: String,
         run_stages: bool,
     ) -> Result<(String, Option<PathBuf>), String> {
+        self.prepare_chat_send_text_for_send(
+            tab_id,
+            text,
+            run_stages,
+            &uuid::Uuid::new_v4().to_string(),
+        )
+    }
+
+    pub(crate) fn prepare_chat_send_text_for_send(
+        &self,
+        tab_id: &str,
+        text: String,
+        run_stages: bool,
+        send_id: &str,
+    ) -> Result<(String, Option<PathBuf>), String> {
+        let authority = super::local_preview::model_copies::capture(self, tab_id, send_id)?;
         let text = if run_stages {
             self.run_outbound_stages(tab_id, text)
         } else {
             text
         };
+        let text = super::image_attachments::prepare(
+            text,
+            || self.ensure_agent_pad(tab_id)?.inbox_directory(),
+            |path| super::local_preview::model_copies::record(self, &authority, path),
+        )?;
         self.substitute_paste_limited_body(tab_id, text.clone(), text.len())
     }
 

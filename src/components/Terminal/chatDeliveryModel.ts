@@ -1,5 +1,5 @@
 import type { ChatSend, FrameKind, SendEcho, NormalizedChatMessage } from "@codeterm/chat-core";
-import { matchesMatchedRow, normalizeChatText, parseDomiosMessage, timestampMs } from "@codeterm/chat-core";
+import { matchesMatchedRow, normalizeChatText, outsideClaimedRecordSpace, parseDomiosMessage, timestampMs } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
@@ -56,14 +56,23 @@ export function awaitsTranscriptEcho(sends: readonly DeliverySend[]): boolean {
   });
 }
 
-export function deliveryPresentation(send: DeliverySend, _activity: TabActivity["kind"]): DeliveryState {
+/** Written input lands when the running turn ends, so missing evidence is uncertain only once that turn is over. */
+function writtenAwaitingTurn(send: DeliverySend, activity: TabActivity["kind"]): boolean {
+  const status = send.status;
+  return activity === "working" && !send.echo && !status?.error
+    && (status?.state === "written" || status?.state === "submit_unconfirmed");
+}
+
+export function deliveryPresentation(send: DeliverySend, activity: TabActivity["kind"]): DeliveryState {
+  if (writtenAwaitingTurn(send, activity)) return "queued";
   return deliveryState(send) === "sending" && send.status?.state === "written" ? "written" : deliveryState(send);
 }
 
-const ACTIVE_TURN_HOLD = "held_active_turn";
+export const ACTIVE_TURN_HOLD = "held_active_turn";
 
-/** A held send waits for the running turn when the host says so, or while the agent is mid-turn. */
+/** A send waits for the running turn when the host holds it for that turn, or while the agent is mid-turn. */
 export function queuedBehindTurn(send: DeliverySend, activity: TabActivity["kind"]): boolean {
+  if (writtenAwaitingTurn(send, activity)) return true;
   return deliveryState(send) === "queued" && activity !== "failed"
     && (send.status?.pending_reason === ACTIVE_TURN_HOLD || activity === "working");
 }
@@ -77,11 +86,6 @@ export function undeliveredSends(sends: readonly DeliverySend[]): readonly Deliv
 export function unownedHeldSends(sends: readonly DeliverySend[], statuses: readonly ChatSendStatus[]): number {
   return statuses.filter((status) => status.state === "held" && !status.system_send && status.correlationId != null
     && !sends.some((send) => send.correlationId === status.correlationId)).length;
-}
-
-export function waitsAfterTurn(send: DeliverySend): boolean {
-  const state = deliveryState(send);
-  return state === "queued" || (send.wasHeld === true && (state === "sending" || state === "written"));
 }
 
 export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus): DeliverySend {
@@ -131,12 +135,36 @@ export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly
   return send.status.state === "failed" ? { ...send, status: undefined } : send;
 }
 
+function ownsRowToken(send: DeliverySend, row: NormalizedChatMessage): boolean {
+  return row.correlationId != null && send.correlationId === row.correlationId
+    && (!send.matchedRow || matchesMatchedRow(row, send.matchedRow));
+}
+
+function claimsRowRecord(send: DeliverySend, row: NormalizedChatMessage): boolean {
+  return send.matchedRow != null && matchesMatchedRow(row, send.matchedRow);
+}
+
+/** A claim links by echo only to its session's rows whose record identity cannot contradict it. */
+function echoesRow(send: DeliverySend, row: NormalizedChatMessage): boolean {
+  return (!send.matchedRow || outsideClaimedRecordSpace(row, send.matchedRow)) && deliveryState(send) !== "failed"
+    && send.echo?.timestampMs === timestampMs(row.timestamp) && send.echo.content === normalizeChatText(row.content).toLowerCase();
+}
+
+/** Every send a row settles: one merged record can carry several, while a local bubble belongs to its send alone. */
+export function sendsForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend[] {
+  if (row.type !== "user" && row.type !== "local_command") return [];
+  const own = sends.find(send => send.id === row.id);
+  if (own) return [own];
+  return sends.filter(send => ownsRowToken(send, row) || claimsRowRecord(send, row) || echoesRow(send, row));
+}
+
+/** The send whose identity a row carries; a merged record prefers a send the owner kept. */
 export function sendForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend | undefined {
   if (row.type !== "user" && row.type !== "local_command") return;
-  return sends.find((send) => send.id === row.id || (row.correlationId != null && send.correlationId === row.correlationId))
-    ?? sends.find((send) => send.matchedRow != null && matchesMatchedRow(row, send.matchedRow))
-    ?? sends.find((send) => !send.matchedRow && deliveryState(send) !== "failed" && send.echo?.timestampMs === timestampMs(row.timestamp)
-      && send.echo.content === normalizeChatText(row.content).toLowerCase());
+  const own = sends.find(send => send.id === row.id);
+  if (own) return own;
+  const owners = [...sends.filter(send => ownsRowToken(send, row)), ...sends.filter(send => claimsRowRecord(send, row))];
+  return owners.find(send => !send.dismissed) ?? owners[0] ?? sends.find(send => echoesRow(send, row));
 }
 
 export function reconcileDeliveryStatusesModel(
@@ -154,7 +182,7 @@ export function reconcileDeliveryStatusesModel(
 }
 
 export function deliveryProjectionSends(
-  sends: readonly DeliverySend[], resetCutoffMs: number | null = null,
+  sends: readonly DeliverySend[], resetCutoffMs: number | null = null, queuedIds: ReadonlySet<string> = new Set(),
 ): readonly (DeliverySend & { echoEligible: boolean })[] {
   return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) !== "delivered" || send.sentAtMs >= resetCutoffMs)
     .map((send) => {
@@ -165,7 +193,7 @@ export function deliveryProjectionSends(
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",
         flowAtMs: send.sentAtMs,
-        held: waitsAfterTurn(send),
+        held: queuedIds.has(send.id) || (deliveryState(send) !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD),
       };
     });
 }
@@ -189,8 +217,29 @@ export function visibleDeliveryRows(
   rows: readonly NormalizedChatMessage[], sends: readonly DeliverySend[], echoes?: ReadonlyMap<string, SendEcho>,
 ): NormalizedChatMessage[] {
   const reconciled = echoes ? sends.map((send) => ({ ...send, echo: send.echo ?? echoes.get(send.id) })) : sends;
-  return rows.filter((row) => !sendForRow(reconciled, row)?.dismissed);
+  return rows.flatMap((row) => {
+    const settled = sendsForRow(reconciled, row);
+    if (!settled.some(send => send.dismissed)) return [row];
+    return settled.every(send => send.dismissed) ? [] : [withoutDismissedSegments(row, settled)];
+  });
 }
+
+/** A merged record keeps its live sends' text; it drops only segments that carry a dismissed send's token. */
+function withoutDismissedSegments(row: NormalizedChatMessage, settled: readonly DeliverySend[]): NormalizedChatMessage {
+  const dismissed = new Set(settled.flatMap(send => send.dismissed && send.correlationId ? [send.correlationId] : []));
+  const segments = row.segments?.filter(segment => !(segment.correlationId != null && dismissed.has(segment.correlationId)));
+  if (!segments || segments.length === row.segments!.length || !segments.some(segment => segment.correlationId != null)) return row;
+  const key = [...dismissed].sort().join("\n");
+  const cached = strippedRows.get(row);
+  if (cached?.key === key) return cached.row;
+  const content = segments.every(segment => segment.type === "text")
+    ? segments.map(segment => segment.type === "text" ? segment.text : "").join("").trim() : row.content;
+  const stripped = { ...row, content, segments };
+  strippedRows.set(row, { key, row: stripped });
+  return stripped;
+}
+
+const strippedRows = new WeakMap<NormalizedChatMessage, { key: string; row: NormalizedChatMessage }>();
 
 /** A routed send carries its sender's frame, which the composer cannot reissue, so the owner resends it with the CLI. */
 export function resendsWithCli(send: DeliverySend): boolean {

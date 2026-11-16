@@ -67,13 +67,13 @@ set +e; out="$(PATH="$FAKE:$PATH" bash "$RUN" 2>&1)"; rc=$?; set -e
 grep -q 'dev_post_as_tab' "$RUN"
 
 # --- role preset seam: one resolver, one table, no parallel Worker path ---
-PRESETS="$ROOT/src-tauri/crates/codeterm-service-core/src/service/role_preset.rs"
-OCCASIONS="$ROOT/src-tauri/crates/codeterm-service-core/src/service/persona/occasion.rs"
+PRESETS="$ROOT/src-tauri/crates/codeterm-prompts/src/role_preset.rs"
+OCCASIONS="$ROOT/src-tauri/crates/codeterm-prompts/src/persona/occasion.rs"
 LAUNCH="$ROOT/src-tauri/crates/codeterm-service-core/src/service/orchestrator/launch.rs"
 IDENTITY="$ROOT/src-tauri/crates/codeterm-service-core/src/service/role_identity.rs"
 
 # Exactly one resolver, and every injection surface routes through it.
-rg -Fq 'pub(crate) fn resolve_in(' "$PRESETS"
+rg -Fq 'pub fn resolve_in(' "$PRESETS"
 [ "$(rg -c 'fn resolve_in\(' "$PRESETS")" = 1 ]
 rg -Fq 'crate::service::persona::deliver(' "$ROOT/src-tauri/crates/codeterm-service-core/src/service/orchestrator/prompt_compose.rs"
 rg -Fq 'crate::service::persona::guidance_for(' "$ROOT/src-tauri/crates/codeterm-service-core/src/service/orchestrator/prompt_compose.rs"
@@ -89,13 +89,12 @@ rg -Fq 'static TABLE: &[OccasionRules]' "$OCCASIONS"
 [ "$(rg -c 'occasion: Occasion::' "$OCCASIONS")" = "$(rg -c 'fallback: Fallback::' "$OCCASIONS")" ]
 
 # No second persona registry: the resolver is defined in exactly one file.
-[ "$(rg -c --glob '*.rs' 'fn resolve_in\(' "$ROOT/src-tauri/crates/codeterm-service-core/src" | wc -l | tr -d ' ')" = 1 ]
+[ "$(rg -c --glob '*.rs' 'fn resolve_in\(' "$ROOT/src-tauri/crates/codeterm-prompts/src" "$ROOT/src-tauri/crates/codeterm-service-core/src" | wc -l | tr -d ' ')" = 1 ]
 
-# Overlay capability escalation is refused structurally, not by convention.
-OVERLAY="$ROOT/src-tauri/crates/codeterm-service-core/src/service/persona/overlay.rs"
-for reason in BuiltinOverride CapabilityEscalation TeamAuthorityClaim MissingCore; do
-  rg -Fq "RejectionReason::$reason" "$OVERLAY"
-done
+# Team registrations replace prose only; capability stays with the embedded kind table.
+REGISTRY="$ROOT/src-tauri/crates/codeterm-service-core/src/service/team_roles.rs"
+rg -Fq 'is reserved for a host or manager role' "$REGISTRY"
+[ ! -e "$ROOT/src-tauri/crates/codeterm-prompts/src/persona/overlay.rs" ]
 rg -Fq 'RoleKindCapability::LEAF' "$ROOT/src-tauri/crates/codeterm-types/src/agent/role_kind/mod.rs"
 assert_exported_tree
 echo "manager-bootstrap offline parser harness: PASS"

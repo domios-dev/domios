@@ -32,16 +32,17 @@ pub(super) fn save(
         team,
         index: mut index_row,
     } = prepared;
-    let resolver = team
-        .as_deref()
-        .map(|team| calls::ScopedResolver::new(tx, area, team));
-    let document = codeterm_mem::blueprint_library::call_revisions::freeze(
-        resolver
-            .as_ref()
-            .map(|r| r as &dyn codeterm_blueprint_types::blueprint_document::calls::MemoryResolver),
-        document,
-    )?;
-    drop(resolver);
+    let document = {
+        let resolver = team
+            .as_deref()
+            .map(|team| calls::ScopedResolver::new(tx, area, team));
+        codeterm_mem::blueprint_library::call_revisions::freeze(
+            resolver.as_ref().map(|r| {
+                r as &dyn codeterm_blueprint_types::blueprint_document::calls::MemoryResolver
+            }),
+            document,
+        )?
+    };
     if !model::safe_template(&document, &intents.join("; ")) {
         return Err("Unsafe callee closure cannot be saved".into());
     }

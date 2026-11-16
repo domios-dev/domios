@@ -83,6 +83,61 @@ const readyLaunch = { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "op
 const enabledComposer = (host: HTMLElement) => [...host.querySelectorAll<HTMLTextAreaElement>('[data-testid="chat-composer"]')]
   .find(editor => !editor.disabled && !editor.closest('[inert], [aria-hidden="true"]'));
 
+async function revealRestore(host: HTMLElement) {
+  const presence = host.querySelector('[role="progressbar"]')!.closest('[data-phase]')!;
+  const event = new Event("animationstart", { bubbles: true });
+  Object.defineProperty(event, "animationName", { value: "ct-presence-enter" });
+  await act(async () => { presence.dispatchEvent(event); });
+}
+
+it("opens the launch question terminal on one desktop click without a boot overlay", async () => {
+  const fixture = await mount(true);
+  try {
+    await fixture.patch({ frozen: false, pty_id: "own-pty", boot_stage: "awaiting_owner_prompt",
+      pending_prompt_kind: "provider", pending_prompt: { question: "Opaque owner decision", options: [
+        { label: "Opaque decline", value: "decline" }, { label: "Opaque allow", value: "allow" },
+      ] } });
+    const open = [...fixture.host.querySelectorAll("button")].find(button => button.textContent === "Open terminal")!;
+    expect(open).toBeDefined();
+    await act(async () => { open.focus(); open.dispatchEvent(new Event("pointerdown", { bubbles: true })); open.click(); });
+    expect(fixture.host.querySelector('[data-testid="terminal-fallback-header"]')).not.toBeNull();
+    const close = fixture.host.querySelector<HTMLButtonElement>('[aria-label="Close terminal"]')!;
+    expect(document.activeElement).toBe(close);
+    await act(async () => { close.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); });
+    expect(document.activeElement).toBe(close);
+    expect(fixture.host.querySelector('[data-testid="terminal-loading-overlay"]')).toBeNull();
+    await act(async () => { close.click(); });
+    expect(document.activeElement).toBe(open);
+    expect(fixture.host.querySelector('[data-testid="terminal-fallback-header"]')).toBeNull();
+    expect(fixture.commands).not.toContain("write_pty_string");
+  } finally { await fixture.dispose(); }
+});
+
+it("hands the visible restore surface to chat startup without a second loading surface", async () => {
+  const fixture = await mount(true);
+  try {
+    expect(fixture.host.querySelectorAll('[role="progressbar"]')).toHaveLength(1);
+    await revealRestore(fixture.host);
+    await fixture.patch({ frozen: false, pty_id: "own-pty", boot_stage: "agent_launching", agent_booting: true });
+    expect(fixture.host.querySelectorAll('[role="progressbar"]')).toHaveLength(1);
+    expect(fixture.host.querySelectorAll('[role="alert"]')).toHaveLength(0);
+  } finally { await fixture.dispose(); }
+});
+
+it.each([true, false])("removes the visible restore loader immediately on host launch failure with frozen=%s", async frozen => {
+  const fixture = await mount(true);
+  try {
+    await revealRestore(fixture.host);
+    await fixture.patch({ frozen, pty_id: "own-pty", boot_stage: "spawn_failed", agent_booting: false,
+      boot_failure_reason: "SessionBindingNotObserved: launch readiness deadline elapsed" });
+    expect(fixture.host.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
+    expect(fixture.host.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(fixture.host.textContent).not.toMatch(/taking longer|still pending|Starting terminal/i);
+    expect(fixture.host.querySelector('button[aria-label="Open terminal"]')).not.toBeNull();
+    expect(fixture.host.querySelector('button[aria-label="Restart the agent"]')).not.toBeNull();
+  } finally { await fixture.dispose(); }
+});
+
 it.each([
   [false, null], [true, null], [false, "own-session"], [true, "own-session"],
 ] as const)("reveals the real first-turn composer for General=%s session=%s without fabricating a snapshot", async (general, session) => {

@@ -20,6 +20,17 @@ impl std::error::Error for ModelProviderEnvUnavailable {}
 /// Implemented by `ServiceContext` (and test stubs). The VM holds a
 /// `Weak<dyn PluginHostCtx>` so teardown doesn't pin the context alive.
 pub trait PluginHostCtx: Send + Sync {
+    fn suspend_plugin_watches(
+        &self,
+        _destination: &std::path::Path,
+    ) -> Result<Box<dyn Send>, String> {
+        Ok(Box::new(()))
+    }
+
+    fn plugin_install_tabs(&self, _id: &str) -> Vec<String> {
+        Vec::new()
+    }
+
     fn surface_registration(&self, _plugin: &str, _runtime: &str) -> Option<String> {
         None
     }

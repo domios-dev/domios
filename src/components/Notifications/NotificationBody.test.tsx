@@ -141,7 +141,7 @@ test("capacity notices are accurate and an unknown chat error never uses its hea
   const host = document.createElement("div"); const root = createRoot(host);
   try {
     await act(async () => root.render(<NotificationBody text="/api/tabs/t/stop → HTTP 0: Mux client capacity reached before dispatch" tabId="t" failure operation="Chat error" />));
-    expect(host.textContent).toContain("The connection is busy");
+    expect(host.textContent).toContain("This action could not be sent yet.");
     expect(host.textContent).not.toContain("handling Chat error");
     await act(async () => root.render(<NotificationBody text="opaque failure" tabId="t" failure operation="Chat error" />));
     expect(host.textContent).not.toContain("handling Chat error");

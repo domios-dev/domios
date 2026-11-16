@@ -345,7 +345,7 @@ async fn session_revoked_from_entitlements_checkout_portal_and_sponsor_notifies_
     );
 }
 
-struct MissingProof;
+struct MissingProof(&'static str);
 #[async_trait]
 impl InstallationProofSource for MissingProof {
     async fn proof(
@@ -353,7 +353,26 @@ impl InstallationProofSource for MissingProof {
         _: &Session,
         _: &codeterm_account::InstallationId,
     ) -> Result<codeterm_account::account_mesh::wire::InstallationProof> {
-        Err("enrollment_budget".into())
+        Err(self.0.into())
+    }
+}
+
+#[tokio::test]
+async fn proof_refused_for_sign_in_marks_the_unsigned_reading() {
+    for (refusal, sign_in_required) in [
+        ("enrollment_budget", false),
+        (INSTALLATION_SIGN_IN_REQUIRED, true),
+    ] {
+        let transport = std::sync::Arc::new(EntitlementTransport {
+            requests: Default::default(),
+            refuse_signed: false,
+        });
+        let mut cloud = Cloud::fixture("https://fixture.test/", id())
+            .with_installation_proofs(std::sync::Arc::new(MissingProof(refusal)));
+        cloud.transport = transport;
+        let reading = cloud.entitlements(&local_session()).await.unwrap();
+        assert!(reading.grant.is_none());
+        assert_eq!(reading.installation_sign_in_required, sign_in_required);
     }
 }
 
@@ -386,7 +405,7 @@ async fn refused_enrollment_or_signed_fetch_uses_bare_installation_entitlement_e
         let source: std::sync::Arc<dyn InstallationProofSource> = if signed {
             std::sync::Arc::new(FixtureProof)
         } else {
-            std::sync::Arc::new(MissingProof)
+            std::sync::Arc::new(MissingProof("enrollment_budget"))
         };
         let transport = std::sync::Arc::new(EntitlementTransport {
             requests: Default::default(),

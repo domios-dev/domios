@@ -183,6 +183,73 @@ impl ServiceContext {
         ConditionRoute::Reported { to: target }
     }
 
+    pub(crate) fn notify_launch_provider_question(
+        &self,
+        tab_id: &str,
+        prompt: &PendingPrompt,
+        kind: codeterm_types::pty::PromptKind,
+    ) -> bool {
+        let launch_question = kind == codeterm_types::pty::PromptKind::Provider
+            && prompt.multi_select != Some(true)
+            && !prompt.options.is_empty()
+            && self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+                (is_user_facing(tab)
+                    || (!tab.hidden && tab.role == Some(codeterm_types::pty::AgentRole::Manager)))
+                    && tab.pending_prompt.as_ref() == Some(prompt)
+                    && tab.pending_prompt_kind == Some(kind)
+                    // Launch clears agent_booting before the readiness observer publishes its stage.
+                    && (super::unattended_launch::at_owned_launch_prompt(tab)
+                        || tab.agent_booting
+                        || (tab.boot_stage
+                            == Some(codeterm_types::pty::BootStage::AwaitingOwnerPrompt)
+                            && !self.boot_held_for_owner_prompt(tab_id)))
+            });
+        if launch_question {
+            if let Some(event_key) = self.claim_launch_provider_question_notice(tab_id, prompt) {
+                use codeterm_notification_core::contract::NotificationAction;
+                let identity = codeterm_types::pty::PromptIdentity::new(kind, prompt);
+                let actions = prompt
+                    .options
+                    .iter()
+                    .map(|option| NotificationAction::RespondPromptOption {
+                        label: option.label.clone(),
+                        value: option.value.clone(),
+                        identity: identity.clone(),
+                    })
+                    .collect();
+                let (notification_id, _) = self.create_notification_actions_reported(
+                    prompt.question.clone(),
+                    None,
+                    Some("warning"),
+                    crate::notification::store::Ask::about(
+                        TabCondition::PendingPrompt,
+                        Some(actions),
+                    ),
+                    Some(true),
+                    super::notification::NotificationOrigin::local_tab(tab_id.into()),
+                    super::notification::PushIntent {
+                        level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+                        event_key: Some(event_key),
+                    },
+                    None,
+                );
+                log::debug!(
+                    "[launch-provider-question] tab={tab_id} notification={notification_id} route=owner choices={}",
+                    prompt.options.len()
+                );
+                let current = self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .is_some_and(|tab| tab.prompt_identity().as_ref() == Some(&identity));
+                if !current {
+                    self.resolve_prompt_notifications(tab_id, &identity);
+                }
+            }
+        }
+        launch_question
+    }
+
     pub(crate) fn route_pending_prompt(
         &self,
         tab_id: &str,
@@ -200,6 +267,8 @@ impl ServiceContext {
         self.set_cron_owner_prompt_waiting(tab_id, true);
         self.handle_prompt_chain_blocker(tab_id, prompt);
 
+        let launch_question = self.notify_launch_provider_question(tab_id, prompt, kind);
+
         let (owner, parent) = {
             let mux = self.mux.read();
             (
@@ -208,7 +277,8 @@ impl ServiceContext {
             )
         };
 
-        if owner == Some(ConditionOwner::User)
+        if !launch_question
+            && owner == Some(ConditionOwner::User)
             && self
                 .claim_pending_prompt_notice_event_key(tab_id, prompt)
                 .is_some()
@@ -267,6 +337,17 @@ impl ServiceContext {
             ),
         });
         Some(target)
+    }
+
+    pub fn retire_closed_tab_notifications(&self, tab_id: &str) {
+        let resolved = {
+            let mut store = self.notif.lock();
+            let resolved = store.resolve_tab_conditions(tab_id);
+            store.close_push_scope(&crate::notification::push::tab_scope(tab_id));
+            store.forget_answer_tab(tab_id);
+            resolved
+        };
+        self.announce_resolved(&resolved);
     }
 
     /// A fresh agent process reached readiness: the previous process's exit is

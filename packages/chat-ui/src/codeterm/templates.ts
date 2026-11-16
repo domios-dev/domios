@@ -641,7 +641,7 @@ function sendBodyDescriptor(inv: CodetermInvocation): string {
 }
 
 /** The body the CLI actually delivered, echoed by every staged delivery path. */
-function resolvedReportText(result?: string): string | undefined {
+export function resolvedReportText(result?: string): string | undefined {
   const encoded = result?.match(/^CODETERM_RESOLVED_TEXT=(.+)$/m)?.[1];
   if (!encoded) return undefined;
   try {

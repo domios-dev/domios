@@ -18,6 +18,7 @@ fn dispatched_worker_launch_prompt_carries_ack_instruction_persona_and_brief() {
     let brief = super::super::canonical_writer::compose_dispatch_brief(
         build_brief_with_manifest((&t, &[][..]), "plan_dispatched_brief", &[], &[]),
         codeterm_service_core::plan::WorkerPlacement::IsolatedLane,
+        false,
     );
     let mut spawn_params = codeterm_service_core::service::SpawnAgentParams {
         role: Some("Worker".into()),
@@ -159,12 +160,12 @@ fn test_author_brief_carries_charter_reference_before_task() {
         "type": "test",
         "status": "pending",
         "executor_role": "test-author",
-        "role_guidance": codeterm_service_core::prompts::TEST_AUTHOR_GUIDANCE,
+        "role_guidance": "OPAQUE-TEST-AUTHOR-GUIDANCE-4e1a",
         "body": "Write the drill that catches a readiness race.",
     }));
     let brief = build_brief(&t, &[]);
     let guidance_pos = brief
-        .find(codeterm_service_core::prompts::TEST_AUTHOR_GUIDANCE)
+        .find("OPAQUE-TEST-AUTHOR-GUIDANCE-4e1a")
         .expect("canonical test-author guidance in brief");
     let title_pos = brief
         .find("# Author spawn-readiness drill")

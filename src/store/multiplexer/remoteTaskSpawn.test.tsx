@@ -17,6 +17,7 @@ test("remote environment reaches chat-backend config rather than local model-pre
   };
   const snapshot = {workspaces: [{id: "workspace", name: "Fixture", tabs: [], active_tab_id: null, cwd: "/repo"}], tabs: {}, teams: [], active_workspace_id: "workspace", focused_tab_id: null, generation: 1};
   const requests: unknown[] = [];
+  const selections: unknown[] = [];
   let actions!: MultiplexerActionsContextType;
   __setListenForTest(async () => () => {});
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
@@ -25,6 +26,7 @@ test("remote environment reaches chat-backend config rather than local model-pre
       requests.push(args);
       return {workspace_id: "workspace", tab_id: "remote-tab", snapshot} as T;
     }
+    if (command === "mux_set_active_tab_and_workspace") {selections.push(args); return undefined as T;}
     if (command === "get_config") return {api: {enabled: false}, agent: {}} as T;
     if (command === "get_mesh_peers") return {peers: []} as T;
     if (["list_notifications", "ordinary_tabs_list", "list_agent_providers"].includes(command)) return [] as T;
@@ -37,6 +39,8 @@ test("remote environment reaches chat-backend config rather than local model-pre
     setAgentDescriptors([provider], false);
     await act(async () => {await actions.spawnAgentTab("workspace", "remote-fixture", "/repo", undefined, undefined, "env-fixture", undefined, "cloud");});
     assert.deepEqual(requests, [{params: {agentId: "remote-fixture", workspaceId: "workspace", cwd: "/repo", model: undefined, reasoningEffort: undefined, config: {preset: "env-fixture", executionMode: "cloud"}}}]);
+    // The owner's own spawn moves only this client, recorded as its selection rather than a daemon-side activation.
+    assert.deepEqual(selections, [{workspaceId: "workspace", tabId: "remote-tab"}]);
   } finally {
     await act(async () => root.unmount());
     setAgentDescriptors([], false);

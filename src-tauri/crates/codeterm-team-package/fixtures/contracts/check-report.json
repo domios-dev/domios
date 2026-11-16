@@ -1,0 +1,22 @@
+{
+  "format": "yaml",
+  "valid": false,
+  "diagnostics": [
+    {
+      "code": "removed_field",
+      "severity": "error",
+      "file": "team.yaml",
+      "path": "roles.orchestrator.persona",
+      "line": 6,
+      "column": 5,
+      "message": "`persona` was removed from the Agentic Team Protocol: use `name` for a manager's display name"
+    },
+    {
+      "code": "unreferenced_entry",
+      "severity": "error",
+      "file": "notes.txt",
+      "path": "",
+      "message": "the package carries a file that team.yaml never references"
+    }
+  ]
+}

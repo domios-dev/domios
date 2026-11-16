@@ -225,20 +225,27 @@ fn preamble_exposes_host_fs_and_host_manifest() {
     // would be undefined and these calls would throw TypeError.
     let vm = PluginVm::from_source_with(
         "test",
-        r#"
-        module.exports.default = {
-            listNames(p) { return host.fs.readDir(p).map(e => e.name).sort(); },
-            getManifestId() {
-                var m = host.manifest();
-                return m ? m.id : null;
-            },
-            wrap(s) { return host.shell.quote(s); }
-        };
-        "#
+        r#"module.exports.default = {
+    listNames(p) {
+        return host.io.run((function* () { return (yield { op: "readDir", path: p }).map(e => e.name).sort(); }).call(this));
+    },
+    pureFs(p) { return {keys:Object.keys(host.fs),expanded:host.fs.expandHome(p),direct:host.expandHome(p)}; },
+    getManifestId() {
+        var m = host.manifest();
+        return m ? m.id : null;
+    },
+    wrap(s) { return host.shell.quote(s); }
+};
+"#
         .to_string(),
-        Some(r#"{"id":"test","version":"0","displayName":"X","spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}}"#.to_string()),
+        Some(r#"{"id":"test","version":"0","hostIoJobs":true,"displayName":"X","spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}}"#.to_string()),
     )
     .unwrap();
+    let pure: serde_json::Value = call_json(&vm, "pureFs", &[json!("opaque-path")]).unwrap();
+    assert_eq!(
+        pure,
+        json!({"keys":["expandHome"],"expanded":"opaque-path","direct":"opaque-path"})
+    );
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a"), "1").unwrap();
     std::fs::write(dir.path().join("b"), "2").unwrap();
@@ -277,45 +284,49 @@ fn preamble_exposes_host_toolcall_parse() {
 }
 
 #[test]
-fn preamble_compute_is_fully_synchronous() {
-    // All compute binds return their result directly, never a Promise (undrainable in a sync dispatch). Assert the shape.
+fn preamble_compute_jobs_return_plain_results() {
     let vm = fixture(
-        r#"
-        module.exports.default = {
-            shape() {
-                var mem = host.mem.search({ query: "q" });
-                var start = host.worker.start({ task: "t" });
-                var send = host.agent.send("s", "t");
-                return {
-                    memIsFn:       typeof host.mem.search === "function",
-                    wsEnsureIsFn:  typeof host.workspace.ensure === "function",
-                    wsTabsIsFn:   typeof host.workspace.tabs === "function",
-                    // every result is a plain object, NOT a thenable.
-                    memSync:       mem !== null && typeof mem === "object" && mem.then === undefined,
-                    memError:      typeof mem.error === "string",
-                    workerSync:    start !== null && typeof start === "object" && start.then === undefined,
-                    agentSync:     send !== null && typeof send === "object" && send.then === undefined,
-                };
-            }
-        };
-        "#,
+        r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
+module.exports.default = {
+    shape() {
+        return host.io.run((function* () {
+            var mem = (yield* attempt({ op: "memSearch", options: { query: "q" } }));
+            var start = (yield* attempt({ op: "workerStart", options: { task: "t" } }));
+            var send = (yield* attempt({ op: "agentSend", session: "s", text: "t" }));
+            return {
+                memIsFn: typeof host.mem === "undefined",
+                wsEnsureIsFn: typeof host.workspace === "undefined",
+                wsTabsIsFn: typeof host.io === "function",
+                // every result is a plain object, NOT a thenable.
+                memSync: mem !== null && typeof mem === "object" && mem.then === undefined,
+                memError: typeof mem.error === "string",
+                workerSync: start !== null && typeof start === "object" && start.then === undefined,
+                agentSync: send !== null && typeof send === "object" && send.then === undefined,
+            };
+        }).call(this));
+    }
+};
+"#,
     );
     let v: serde_json::Value = call_json(&vm, "shape", &[]).unwrap();
     assert_eq!(v["memIsFn"], true);
     assert_eq!(v["wsEnsureIsFn"], true);
     assert_eq!(v["wsTabsIsFn"], true);
-    assert_eq!(v["memSync"], true, "host.mem.search must be synchronous");
+    assert_eq!(
+        v["memSync"], true,
+        "host.io memory search returns a plain result"
+    );
     assert_eq!(
         v["memError"], true,
         "svc-absent must surface an error envelope"
     );
     assert_eq!(
         v["workerSync"], true,
-        "host.worker.start must be synchronous (no Promise wrapper)"
+        "host.io worker start returns a plain result"
     );
     assert_eq!(
         v["agentSync"], true,
-        "host.agent.send must be synchronous (no Promise wrapper)"
+        "host.io agent send returns a plain result"
     );
 }
 
@@ -327,8 +338,8 @@ fn host_compute_perms_gate_workspace_and_agent() {
     use std::sync::Arc;
     const SRC: &str = r#"
         module.exports.default = {
-            ws() { return host.workspaceEnsure("{}"); },
-            ag() { return host.agentSpawn("w", "{}"); }
+            ws() { return host.io({op:"workspaceEnsure",options:{}}, function(value){return JSON.stringify(value);}); },
+            ag() { return host.io({op:"agentSpawn",workspace:"w",options:{}}, function(value){return JSON.stringify(value);}); }
         };
     "#;
 
@@ -337,9 +348,9 @@ fn host_compute_perms_gate_workspace_and_agent() {
             .with_identity_and_perms("p", &PermissionsConfig::default()),
     );
     let vm = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, denied).unwrap();
-    let ws: String = call_json(&vm, "ws", &[]).unwrap();
+    let ws = call_json::<String>(&vm, "ws", &[]).unwrap_err().to_string();
     assert!(ws.contains("manage_workspaces permission required"), "{ws}");
-    let ag: String = call_json(&vm, "ag", &[]).unwrap();
+    let ag = call_json::<String>(&vm, "ag", &[]).unwrap_err().to_string();
     assert!(ag.contains("spawn_agents permission required"), "{ag}");
 
     let perms = PermissionsConfig {
@@ -350,12 +361,16 @@ fn host_compute_perms_gate_workspace_and_agent() {
     let granted =
         Arc::new(PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("p", &perms));
     let vm2 = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, granted).unwrap();
-    let ws2: String = call_json(&vm2, "ws", &[]).unwrap();
+    let ws2 = call_json::<String>(&vm2, "ws", &[])
+        .unwrap_err()
+        .to_string();
     assert!(
         ws2.contains("host service unavailable"),
         "granted ws: {ws2}"
     );
-    let ag2: String = call_json(&vm2, "ag", &[]).unwrap();
+    let ag2 = call_json::<String>(&vm2, "ag", &[])
+        .unwrap_err()
+        .to_string();
     assert!(
         ag2.contains("host service unavailable"),
         "granted ag: {ag2}"
@@ -363,25 +378,27 @@ fn host_compute_perms_gate_workspace_and_agent() {
 }
 
 #[test]
-fn fetch_stream_preamble_is_sync_and_uses_fetch_allowlist() {
+fn fetch_stream_jobs_preserve_the_fetch_allowlist() {
     use crate::js_runtime::host_api::PluginSandbox;
     use crate::js_runtime::manifest::PermissionsConfig;
     use std::sync::Arc;
 
-    const SRC: &str = r#"
-        module.exports.default = {
-            shape() {
-                var result = host.fetch.stream({ url: "http://blocked.example.test/stream" });
-                return {
-                    streamIsFn: typeof host.fetch.stream === "function",
-                    pollIsFn: typeof host.fetch.streamPoll === "function",
-                    closeIsFn: typeof host.fetch.streamClose === "function",
-                    sync: !(result && typeof result.then === "function"),
-                    error: result && result.error,
-                };
-            }
-        };
-    "#;
+    const SRC: &str = r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
+module.exports.default = {
+    shape() {
+        return host.io.run((function* () {
+            var result = (yield* attempt({ op: "fetchStreamStart", options: { url: "http://blocked.example.test/stream" } }));
+            return {
+                streamIsFn: typeof host.fetch.stream === "undefined",
+                pollIsFn: typeof host.fetch.streamPoll === "undefined",
+                closeIsFn: typeof host.fetch.streamClose === "undefined",
+                sync: !(result && typeof result.then === "function"),
+                error: result && result.error,
+            };
+        }).call(this));
+    }
+};
+"#;
 
     let sandbox = Arc::new(
         PluginSandbox::restricted(vec![], vec![])

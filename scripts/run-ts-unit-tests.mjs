@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { prepareHappyDomBundle } from "./ts-test-dependency-cache.mjs";
+import { monitorCompilerMemory, prepareHappyDomBundle } from "./ts-test-dependency-cache.mjs";
 import { prepareTestSources } from "./ts-test-source-cache.mjs";
 
 const root = realpathSync.native(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
@@ -465,8 +465,26 @@ export async function runTsUnitTests({
   const deadlineSignal = suiteTimeoutSeconds === undefined
     ? undefined
     : AbortSignal.timeout(suiteTimeoutSeconds * 1_000);
-  const happyDomBundle = await prepareHappyDomBundle(root, deadlineSignal);
-  const compiledTests = await prepareTestSources(root, tests, deadlineSignal, env);
+  const memory = await monitorCompilerMemory(env, output);
+  const compilationSignal = deadlineSignal
+    ? AbortSignal.any([deadlineSignal, memory.signal]) : memory.signal;
+  let happyDomBundle;
+  let compiledTests;
+  const previousMemoryLimit = process.env.GOMEMLIMIT;
+  process.env.GOMEMLIMIT = "512MiB";
+  try {
+    happyDomBundle = await prepareHappyDomBundle(root, compilationSignal);
+    compiledTests = await prepareTestSources(root, tests, compilationSignal, env);
+    compilationSignal.throwIfAborted();
+  } catch (error) {
+    memory.printSummary();
+    memory.signal.throwIfAborted();
+    throw error;
+  } finally {
+    if (previousMemoryLimit === undefined) delete process.env.GOMEMLIMIT;
+    else process.env.GOMEMLIMIT = previousMemoryLimit;
+    memory.stop();
+  }
   const logDirectory = mkdtempSync(path.join(tmpdir(), "codeterm-ts-unit-"));
   const states = tests.map((testFile, index) => ({
     index,
@@ -560,11 +578,13 @@ export async function runTsUnitTests({
         if (running.has(result.index)) finish(result);
       }
       printTimingSummary({ results, jobs, suiteStarted, output });
+      memory.printSummary();
       printDeadlineSummary(snapshot, event.reason, elapsedSeconds, output);
       return 1;
     }
 
     printTimingSummary({ results, jobs, suiteStarted, output });
+    memory.printSummary();
     const failures = states.filter((state) => state.kind === "failed").length;
     writeLine(output);
     if (failures === 0) {

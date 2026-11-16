@@ -1,6 +1,7 @@
-//! Paired creation (task_7e5f9354): spawn an Orchestrator + Planner together,
-//! linked from birth by tab hierarchy; the plan is created lazily on the
-//! Orchestrator's first goal/plan create. Builds entirely on the
+//! Paired creation (task_7e5f9354): spawn an Orchestrator and, when the package lists a
+//! with_team planner, a Planner together, linked from birth by tab hierarchy; the plan is
+//! created lazily on the Orchestrator's first goal/plan create. Without a Planner the
+//! Orchestrator drafts the plan itself. Builds entirely on the
 //! planner-attachment primitives already wired by the peer-foundation
 //! (`codeterm_service_core::plan::peer`) and Lane 1 (`codeterm_service_core::service::plan::peer_mandate`,
 //! Manager + planner binding in `Self::spawn_agent`) - this module
@@ -25,8 +26,7 @@ fn pair_retry_command(
     workspace_id: &str,
     orchestrator_agent: &str,
     orchestrator_model: Option<&str>,
-    planner_agent: &str,
-    planner_model: Option<&str>,
+    planner: Option<(&str, Option<&str>)>,
 ) -> String {
     let provider_spec = |provider: &str, model: Option<&str>| match model
         .map(str::trim)
@@ -35,16 +35,14 @@ fn pair_retry_command(
         Some(model) => format!("{provider}:{model}"),
         None => provider.to_string(),
     };
+    let planner = planner
+        .map(|(agent, model)| format!(" --planner {}", provider_spec(agent, model)))
+        .unwrap_or_default();
     format!(
-        "domios team pair --orchestrator {} --planner {} --workspace {}",
+        "domios team pair --orchestrator {}{planner} --workspace {}",
         provider_spec(orchestrator_agent, orchestrator_model),
-        provider_spec(planner_agent, planner_model),
         workspace_id
     )
-}
-
-fn explicit_pair_model(model: Option<String>) -> Option<String> {
-    model.filter(|model| !model.trim().is_empty())
 }
 
 fn derive_planner_name<'a>(
@@ -145,12 +143,7 @@ fn validate_pair_provider(
     if service.classify_spawn_target_for_params(provider, &spawn_params)? {
         return Ok(());
     }
-    codeterm_service_core::service::spawn::validate_agent_model(
-        &service.agent_registry,
-        provider,
-        model,
-    )
-    .map_err(|error| error.to_string())?;
+    // The model was decided by the shared decision service in the template rail.
     codeterm_service_core::service::spawn::validate_agent_reasoning_effort(
         &service.agent_registry,
         provider,
@@ -178,15 +171,20 @@ fn validate_pair_provider(
     )
 }
 
+/// The Planner tab a pair reserves when the package lists a with_team planner.
+#[derive(Debug)]
+struct ReservedPlanner {
+    tab_id: String,
+    name: String,
+}
+
 #[derive(Debug)]
 struct ReservedPairTabs {
     orchestrator_tab_id: String,
-    planner_tab_id: String,
+    planner: Option<ReservedPlanner>,
     orchestrator_tab_created: bool,
-    planner_tab_created: bool,
     claimed_orchestrator_before: Option<codeterm_service_core::multiplexer::types::Tab>,
     claimed_orchestrator_pad_existed: bool,
-    planner_name: String,
     team: codeterm_service_core::service::spawn_factory::TeamIdentity,
     team_minted: bool,
 }
@@ -229,39 +227,44 @@ fn apply_reserved_team_title(
 }
 
 fn reserved_member_tab_ids(reserved: &ReservedPairTabs) -> Vec<String> {
-    vec![
-        reserved.orchestrator_tab_id.clone(),
-        reserved.planner_tab_id.clone(),
-    ]
+    std::iter::once(reserved.orchestrator_tab_id.clone())
+        .chain(
+            reserved
+                .planner
+                .as_ref()
+                .map(|planner| planner.tab_id.clone()),
+        )
+        .collect()
 }
 
 fn created_member_tab_ids(reserved: &ReservedPairTabs) -> Vec<String> {
-    [
-        (
-            reserved.orchestrator_tab_created,
-            &reserved.orchestrator_tab_id,
-        ),
-        (reserved.planner_tab_created, &reserved.planner_tab_id),
-    ]
-    .into_iter()
-    .filter(|(created, _)| *created)
-    .map(|(_, tab_id)| tab_id.clone())
-    .collect()
+    reserved
+        .orchestrator_tab_created
+        .then(|| reserved.orchestrator_tab_id.clone())
+        .into_iter()
+        .chain(
+            reserved
+                .planner
+                .as_ref()
+                .map(|planner| planner.tab_id.clone()),
+        )
+        .collect()
 }
 
-/// A pair adds one or two tabs and, unless the claimed Orchestrator already has one, a Team.
+/// A pair adds its Orchestrator tab unless one is claimed, its Planner tab when the package
+/// lists one, and, unless the claimed Orchestrator already has one, a Team.
 fn admit_pair(
     gate: &codeterm_service_core::service::billing::LimitGate,
     mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
     existing_orchestrator: Option<&str>,
+    with_planner: bool,
 ) -> Result<(), String> {
     use codeterm_service_core::service::billing::LimitKey;
     let tabs = mux.all_tabs().count();
-    let new_tabs = if existing_orchestrator.is_some() {
-        1
-    } else {
-        2
-    };
+    let new_tabs = usize::from(existing_orchestrator.is_none()) + usize::from(with_planner);
+    if new_tabs == 0 {
+        return admit_new_pair_team(gate, mux, existing_orchestrator);
+    }
     gate.admit(LimitKey::AgentTabs, tabs + new_tabs - 1)
         .map_err(|refusal| {
             codeterm_service_core::service::billing::LimitRefusal {
@@ -270,6 +273,14 @@ fn admit_pair(
             }
             .to_string()
         })?;
+    admit_new_pair_team(gate, mux, existing_orchestrator)
+}
+
+fn admit_new_pair_team(
+    gate: &codeterm_service_core::service::billing::LimitGate,
+    mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
+    existing_orchestrator: Option<&str>,
+) -> Result<(), String> {
     let mints_team = existing_orchestrator
         .and_then(|tab_id| mux.get_tab(tab_id))
         .is_none_or(|tab| tab.team_id.is_none());
@@ -285,6 +296,7 @@ fn reserve_pair_tabs(
     existing_orchestrator_tab_id: Option<&str>,
     claimed_orchestrator_pad_existed: bool,
     shape: &CorrectiveShape,
+    with_planner: bool,
 ) -> Result<ReservedPairTabs, String> {
     // Membership door 1: claiming a Tab as the pair Orchestrator binds a Team
     // onto it. Guarded before the claim, so a refusal reserves nothing.
@@ -310,24 +322,32 @@ fn reserve_pair_tabs(
             }
         };
         let orchestrator_label = mux.display_label_for_tab(&orchestrator_tab_id);
-        let existing_titles: Vec<String> = mux
-            .get_workspace(workspace_id)
-            .into_iter()
-            .flat_map(|workspace| workspace.tabs.iter())
-            .filter_map(|tab_id| mux.get_tab(tab_id).map(|tab| tab.title.clone()))
+        let planner = if with_planner {
+            let existing_titles: Vec<String> = mux
+                .get_workspace(workspace_id)
+                .into_iter()
+                .flat_map(|workspace| workspace.tabs.iter())
+                .filter_map(|tab_id| mux.get_tab(tab_id).map(|tab| tab.title.clone()))
+                .collect();
+            let name = derive_planner_name(
+                existing_titles.iter().map(String::as_str),
+                &orchestrator_label,
+            );
+            let tab_id = mux.create_tab(workspace_id)?;
+            created_tab_ids.push(tab_id.clone());
+            mux.rename_tab_at_level(
+                &tab_id,
+                &name,
+                codeterm_service_core::multiplexer::types::TitleLevel::User,
+            )?;
+            Some(ReservedPlanner { tab_id, name })
+        } else {
+            None
+        };
+        let booting: Vec<String> = std::iter::once(orchestrator_tab_id.clone())
+            .chain(planner.as_ref().map(|planner| planner.tab_id.clone()))
             .collect();
-        let planner_name = derive_planner_name(
-            existing_titles.iter().map(String::as_str),
-            &orchestrator_label,
-        );
-        let planner_tab_id = mux.create_tab(workspace_id)?;
-        created_tab_ids.push(planner_tab_id.clone());
-        mux.rename_tab_at_level(
-            &planner_tab_id,
-            &planner_name,
-            codeterm_service_core::multiplexer::types::TitleLevel::User,
-        )?;
-        for tab_id in [&orchestrator_tab_id, &planner_tab_id] {
+        for tab_id in &booting {
             if let Some(tab) = mux.get_tab_mut(tab_id) {
                 tab.agent_booting = true;
                 codeterm_service_core::service::boot_stage::apply_boot_stage(
@@ -339,7 +359,10 @@ fn reserve_pair_tabs(
         }
         mux.set_orchestrator_role(&orchestrator_tab_id)?;
         let reservation = mux.resolve_or_mint_team_for_parent(&orchestrator_tab_id)?;
-        if let Some(tab) = mux.get_tab_mut(&planner_tab_id) {
+        if let Some(tab) = planner
+            .as_ref()
+            .and_then(|planner| mux.get_tab_mut(&planner.tab_id))
+        {
             tab.team_id = Some(reservation.team_id.clone());
         }
         let team_name = mux
@@ -347,12 +370,10 @@ fn reserve_pair_tabs(
             .and_then(|team| team.name.clone());
         Ok(ReservedPairTabs {
             orchestrator_tab_id,
-            planner_tab_id,
+            planner,
             orchestrator_tab_created,
-            planner_tab_created: true,
             claimed_orchestrator_before: claimed_orchestrator_before.clone(),
             claimed_orchestrator_pad_existed,
-            planner_name,
             team: codeterm_service_core::service::spawn_factory::TeamIdentity::new(
                 reservation.team_id,
                 team_name.as_deref(),
@@ -421,13 +442,15 @@ fn restore_claimed_pair_tab(
 
 fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> Vec<String> {
     let mut cleanup_errors = Vec::new();
-    for (tab_id, created) in [
-        (&reserved.planner_tab_id, reserved.planner_tab_created),
-        (
-            &reserved.orchestrator_tab_id,
-            reserved.orchestrator_tab_created,
-        ),
-    ] {
+    let planner = reserved
+        .planner
+        .as_ref()
+        .map(|planner| (&planner.tab_id, true));
+    let orchestrator = (
+        &reserved.orchestrator_tab_id,
+        reserved.orchestrator_tab_created,
+    );
+    for (tab_id, created) in planner.into_iter().chain([orchestrator]) {
         if !created {
             if let Some(previous) = reserved.claimed_orchestrator_before.as_ref() {
                 cleanup_errors.extend(restore_claimed_pair_tab(
@@ -453,6 +476,9 @@ fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> 
     {
         let mut mux = service.mux.write();
         release_minted_pair_team(&mut mux, reserved);
+    }
+    if reserved.team_minted {
+        crate::team::template_start::forget_minted(&reserved.team.id);
     }
     service.forget_pair_startup_lease(&reserved.team.id);
     let mux = service.mux.read();
@@ -501,13 +527,6 @@ impl OrchestrationPairExt for ServiceContext {
         &self,
         params: OrchestrationPairParams,
     ) -> Result<OrchestrationPairResult, String> {
-        if params.orchestrator_agent.trim().is_empty() {
-            return Err("orchestrator_agent is required".into());
-        }
-        if params.planner_agent.trim().is_empty() {
-            return Err("planner_agent is required".into());
-        }
-
         let startup_supervisor = params.spawned_by_tab_id.as_ref().and_then(|tab_id| {
             self.mux
                 .read()
@@ -522,6 +541,13 @@ impl OrchestrationPairExt for ServiceContext {
             params.spawned_by_tab_id.as_deref(),
             params.leaf_creation_acknowledged,
         )?;
+        if let Some(team_id) = params
+            .template
+            .as_ref()
+            .and_then(|template| template.team_id.clone())
+        {
+            return crate::team::template_start::rerun(self, &params, &team_id).await;
+        }
 
         let workspace_id = {
             let mux = self.mux.read();
@@ -547,26 +573,36 @@ impl OrchestrationPairExt for ServiceContext {
             .map(|workspace| workspace.name.clone())
             .unwrap_or_else(|| workspace_id.clone());
 
-        let orchestrator_model = explicit_pair_model(params.orchestrator_model.clone());
-        let planner_model = explicit_pair_model(params.planner_model.clone());
+        // The template rail: package, inputs, consent and manager models, before any creation.
+        let rail = crate::team::template_start::prepare(self, &params).await?;
+        let orchestrator_seat = rail.seat(ORCHESTRATOR)?.clone();
+        let planner_seat = if rail.starts_planner() {
+            Some(rail.seat(PLANNER)?.clone())
+        } else {
+            None
+        };
+        let orchestrator_model = orchestrator_seat.model.clone();
+        let planner_model = planner_seat.as_ref().and_then(|seat| seat.model.clone());
         validate_pair_provider(
             self,
-            &params.orchestrator_agent,
+            &orchestrator_seat.provider,
             "Orchestrator",
             None,
             orchestrator_model.as_deref(),
-            params.orchestrator_reasoning_effort.as_deref(),
+            orchestrator_seat.effort.as_deref(),
             params.orchestrator_launch_profile.as_deref(),
         )?;
-        validate_pair_provider(
-            self,
-            &params.planner_agent,
-            "Manager",
-            Some("planner"),
-            planner_model.as_deref(),
-            params.planner_reasoning_effort.as_deref(),
-            params.planner_launch_profile.as_deref(),
-        )?;
+        if let Some(planner_seat) = &planner_seat {
+            validate_pair_provider(
+                self,
+                &planner_seat.provider,
+                "Manager",
+                Some(PLANNER),
+                planner_model.as_deref(),
+                planner_seat.effort.as_deref(),
+                params.planner_launch_profile.as_deref(),
+            )?;
+        }
         let claimed_orchestrator_pad_existed = if let Some(tab_id) = params.existing_tab_id.clone()
         {
             tokio::task::spawn_blocking(move || {
@@ -583,26 +619,33 @@ impl OrchestrationPairExt for ServiceContext {
         };
         let pair_fix_command = pair_retry_command(
             &workspace_id,
-            &params.orchestrator_agent,
+            &orchestrator_seat.provider,
             orchestrator_model.as_deref(),
-            &params.planner_agent,
-            planner_model.as_deref(),
+            planner_seat
+                .as_ref()
+                .map(|seat| (seat.provider.as_str(), planner_model.as_deref())),
         );
 
         let membership_shape = CorrectiveShape::in_workspace(Some(&workspace_id)).with_agents(
-            Some(&params.orchestrator_agent),
-            Some(&params.planner_agent),
+            Some(&orchestrator_seat.provider),
+            planner_seat.as_ref().map(|seat| seat.provider.as_str()),
         );
         let gate = self.limit_gate();
         let reserved = {
             let mut mux = self.mux.write();
-            admit_pair(&gate, &mux, params.existing_tab_id.as_deref())?;
+            admit_pair(
+                &gate,
+                &mux,
+                params.existing_tab_id.as_deref(),
+                planner_seat.is_some(),
+            )?;
             let mut reserved = reserve_pair_tabs(
                 &mut mux,
                 &workspace_id,
                 params.existing_tab_id.as_deref(),
                 claimed_orchestrator_pad_existed,
                 &membership_shape,
+                planner_seat.is_some(),
             )?;
             if let Some(title) = params
                 .title
@@ -614,6 +657,30 @@ impl OrchestrationPairExt for ServiceContext {
             }
             reserved
         };
+        // Registered before the managers spawn, so their prompts compose from the package roles.
+        let registrations = match crate::team::template_start::register(
+            self,
+            &reserved.team.id,
+            &rail,
+        )
+        .await
+        {
+            Ok(registrations) => registrations,
+            Err(error) => {
+                let cleanup_errors = rollback_pair_tabs(self, &reserved);
+                let cleanup = if cleanup_errors.is_empty() {
+                    "Both reserved Tabs were rolled back.".to_string()
+                } else {
+                    format!(
+                        "Pair rollback was incomplete: {}.",
+                        cleanup_errors.join("; ")
+                    )
+                };
+                return Err(format!(
+                    "Failed to register the template roles ({error}). {cleanup} Retry with: {pair_fix_command}"
+                ));
+            }
+        };
         let orchestrator_label = self
             .mux
             .read()
@@ -621,42 +688,36 @@ impl OrchestrationPairExt for ServiceContext {
         let pair_lease = startup_supervisor
             .as_deref()
             .and_then(|creator_tab_id| pair_startup_lease(creator_tab_id, &reserved));
+        let supervised: Vec<(&str, &str)> = std::iter::once((
+            reserved.orchestrator_tab_id.as_str(),
+            orchestrator_label.as_str(),
+        ))
+        .chain(
+            reserved
+                .planner
+                .as_ref()
+                .map(|planner| (planner.tab_id.as_str(), planner.name.as_str())),
+        )
+        .collect();
         if let Some(lease) = pair_lease {
-            self.register_pair_startup_lease(
-                lease,
-                &[
-                    (
-                        reserved.orchestrator_tab_id.as_str(),
-                        orchestrator_label.as_str(),
-                    ),
-                    (
-                        reserved.planner_tab_id.as_str(),
-                        reserved.planner_name.as_str(),
-                    ),
-                ],
-            );
+            self.register_pair_startup_lease(lease, &supervised);
         } else if let Some(supervisor_tab_id) = startup_supervisor.as_deref() {
-            self.register_agent_startup_supervision(
-                supervisor_tab_id,
-                &reserved.orchestrator_tab_id,
-                &orchestrator_label,
-            );
-            self.register_agent_startup_supervision(
-                supervisor_tab_id,
-                &reserved.planner_tab_id,
-                &reserved.planner_name,
-            );
+            for (tab_id, label) in &supervised {
+                self.register_agent_startup_supervision(supervisor_tab_id, tab_id, label);
+            }
         }
         let orch_counterpart = codeterm_service_core::service::spawn_factory::Counterpart::new(
             "Orchestrator",
             &orchestrator_label,
             &reserved.orchestrator_tab_id,
         );
-        let planner_counterpart = codeterm_service_core::service::spawn_factory::Counterpart::new(
-            "Planner",
-            &reserved.planner_name,
-            &reserved.planner_tab_id,
-        );
+        let planner_counterpart = reserved.planner.as_ref().map(|planner| {
+            codeterm_service_core::service::spawn_factory::Counterpart::new(
+                "Planner",
+                &planner.name,
+                &planner.tab_id,
+            )
+        });
         let mut orchestrator_bootstrap =
             codeterm_service_core::service::spawn_factory::forming_identity_in_team(
                 "Orchestrator",
@@ -664,20 +725,18 @@ impl OrchestrationPairExt for ServiceContext {
                 project.clone(),
                 &reserved.team,
             );
-        orchestrator_bootstrap.coordination = Some(
-            codeterm_service_core::service::spawn_factory::introduction_body(
+        orchestrator_bootstrap.coordination = Some(rail.coordination(match &planner_counterpart {
+            Some(planner) => codeterm_service_core::service::spawn_factory::introduction_body(
                 &orch_counterpart,
-                &planner_counterpart,
+                planner,
             ),
-        );
+            None => crate::team::template_start::SOLE_ORCHESTRATOR_INTRODUCTION.to_string(),
+        }));
         let orch_params = SpawnAgentParams {
-            agent: Some(params.orchestrator_agent.clone()),
+            agent: Some(orchestrator_seat.provider.clone()),
             launch_profile: params.orchestrator_launch_profile.clone(),
             model: orchestrator_model.clone(),
-            reasoning_effort: params
-                .orchestrator_reasoning_effort
-                .clone()
-                .filter(|e| !e.trim().is_empty()),
+            reasoning_effort: orchestrator_seat.effort.clone(),
             role: Some("Orchestrator".into()),
             can_spawn: Some(true),
             workspace_id: Some(workspace_id.clone()),
@@ -708,95 +767,94 @@ impl OrchestrationPairExt for ServiceContext {
         };
         let orch_tab_id = orch_result.tab_id.clone();
 
-        let mut planner_bootstrap =
-            codeterm_service_core::service::spawn_factory::forming_identity_in_team(
-                "Planner",
-                PLANNER,
-                project,
-                &reserved.team,
-            );
-        planner_bootstrap.coordination = Some(
-            codeterm_service_core::service::spawn_factory::introduction_body(
-                &planner_counterpart,
-                &orch_counterpart,
-            ),
-        );
-        let planner_params = SpawnAgentParams {
-            agent: Some(params.planner_agent.clone()),
-            launch_profile: params.planner_launch_profile.clone(),
-            model: planner_model.clone(),
-            reasoning_effort: params
-                .planner_reasoning_effort
-                .clone()
-                .filter(|e| !e.trim().is_empty()),
-            title: Some(reserved.planner_name.clone()),
-            role: Some("Manager".into()),
-            role_profile: Some("planner".into()),
-            parent_tab_id: Some(orch_tab_id.clone()),
-            plan_id: None,
-            workspace_id: Some(workspace_id.clone()),
-            spawned_by_tab_id: Some(orch_tab_id.clone()),
-            task: None,
-            user_created: startup_supervisor.is_none(),
-            manager_bootstrap: Some(planner_bootstrap),
-            existing_tab_id: Some(reserved.planner_tab_id.clone()),
-            ..Default::default()
-        };
-
-        match self.spawn_agent(planner_params, None).await {
-            Ok(planner_result) => {
-                let planner_tab_id = planner_result.tab_id.clone();
-                if let Some(tab) = self.mux.write().get_tab_mut(&orch_tab_id) {
-                    tab.pending_paired_planner_tab_id = Some(planner_tab_id.clone());
-                }
-                // Activate server-side: the client continuation may be gone by
-                // the time the pair lands (page reload); the daemon owns focus.
-                {
-                    let mut mux = self.mux.write();
-                    let orch_tab = mux
-                        .get_workspace(&workspace_id)
-                        .and_then(|ws| ws.tabs.iter().find(|tab_id| *tab_id == &orch_tab_id))
-                        .cloned();
-                    let _ = mux.set_active_workspace(&workspace_id);
-                    if let Some(tab_id) = orch_tab {
-                        let _ = mux.set_active_tab(&workspace_id, &tab_id);
+        let planner_result = match (&reserved.planner, &planner_seat, &planner_counterpart) {
+            (Some(planner), Some(planner_seat), Some(planner_counterpart)) => {
+                let mut planner_bootstrap =
+                    codeterm_service_core::service::spawn_factory::forming_identity_in_team(
+                        "Planner",
+                        PLANNER,
+                        project,
+                        &reserved.team,
+                    );
+                planner_bootstrap.coordination = Some(rail.coordination(
+                    codeterm_service_core::service::spawn_factory::introduction_body(
+                        planner_counterpart,
+                        &orch_counterpart,
+                    ),
+                ));
+                let planner_params = SpawnAgentParams {
+                    agent: Some(planner_seat.provider.clone()),
+                    launch_profile: params.planner_launch_profile.clone(),
+                    model: planner_model.clone(),
+                    reasoning_effort: planner_seat.effort.clone(),
+                    title: Some(planner.name.clone()),
+                    role: Some("Manager".into()),
+                    role_profile: Some(PLANNER.into()),
+                    parent_tab_id: Some(orch_tab_id.clone()),
+                    plan_id: None,
+                    workspace_id: Some(workspace_id.clone()),
+                    spawned_by_tab_id: Some(orch_tab_id.clone()),
+                    task: None,
+                    user_created: startup_supervisor.is_none(),
+                    manager_bootstrap: Some(planner_bootstrap),
+                    existing_tab_id: Some(planner.tab_id.clone()),
+                    ..Default::default()
+                };
+                match self.spawn_agent(planner_params, None).await {
+                    Ok(result) => Some(result),
+                    Err(error) => {
+                        let cleanup_errors = rollback_pair_tabs(self, &reserved);
+                        let cleanup = if cleanup_errors.is_empty() {
+                            "Both reserved Tabs were rolled back.".to_string()
+                        } else {
+                            format!(
+                                "Pair rollback was incomplete: {}.",
+                                cleanup_errors.join("; ")
+                            )
+                        };
+                        return Err(format!(
+                            "Failed to spawn Planner ({error}). {cleanup} Retry with: {pair_fix_command}"
+                        ));
                     }
                 }
-                let _ = self.focus_tab(&orch_tab_id);
-                self.emit_state_changed(MuxEmitCause::Team);
-                // final count is the authoritative one for the nudge.
-                let budget_notice = self.workspace_tab_budget_notice(&workspace_id);
-                if reserved.team_minted {
-                    self.record_product_feature(codeterm_analytics::Feature::TeamCreated);
-                }
-                Ok(OrchestrationPairResult {
-                    plan_id: None,
-                    orchestrator_tab_id: orch_tab_id,
-                    orchestrator_model,
-                    planner_tab_id,
-                    planner_model,
-                    warning: codeterm_service_core::service::spawn::merge_spawn_warnings(
-                        orch_result.warning,
-                        planner_result.warning,
-                    ),
-                    budget_notice,
-                })
             }
-            Err(error) => {
-                let cleanup_errors = rollback_pair_tabs(self, &reserved);
-                let cleanup = if cleanup_errors.is_empty() {
-                    "Both reserved Tabs were rolled back.".to_string()
-                } else {
-                    format!(
-                        "Pair rollback was incomplete: {}.",
-                        cleanup_errors.join("; ")
-                    )
-                };
-                Err(format!(
-                    "Failed to spawn Planner ({error}). {cleanup} Retry with: {pair_fix_command}"
-                ))
+            _ => None,
+        };
+        let planner_tab_id = planner_result.as_ref().map(|result| result.tab_id.clone());
+        if let Some(planner_tab_id) = &planner_tab_id {
+            if let Some(tab) = self.mux.write().get_tab_mut(&orch_tab_id) {
+                tab.pending_paired_planner_tab_id = Some(planner_tab_id.clone());
             }
         }
+        // No client moves: the form that started the Team selects the Orchestrator itself.
+        let _ = self.request_tab_focus(&orch_tab_id);
+        self.emit_state_changed(MuxEmitCause::Team);
+        // final count is the authoritative one for the nudge.
+        let budget_notice = self.workspace_tab_budget_notice(&workspace_id);
+        if reserved.team_minted {
+            self.record_product_feature(codeterm_analytics::Feature::TeamCreated);
+        }
+        let template = crate::team::template_start::finish(
+            self,
+            &rail,
+            &reserved.team.id,
+            &orch_tab_id,
+            registrations,
+        )
+        .await;
+        Ok(OrchestrationPairResult {
+            plan_id: None,
+            orchestrator_tab_id: orch_tab_id,
+            orchestrator_model,
+            planner_tab_id,
+            planner_model,
+            warning: codeterm_service_core::service::spawn::merge_spawn_warnings(
+                orch_result.warning,
+                planner_result.and_then(|result| result.warning),
+            ),
+            budget_notice,
+            template: Some(template),
+        })
     }
 }
 

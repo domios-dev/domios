@@ -4,7 +4,7 @@ use super::*;
 fn an_invoked_effect_error_is_never_reported_as_an_absent_export() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("written-once.txt");
-    let manifest: PluginManifest = serde_json::from_value(json!({"id":"io-result-refusal","version":"0.0.0","displayName":"Fixture","hostIoJobs":true})).unwrap();
+    let manifest: PluginManifest = serde_json::from_value(json!({"id":"io-result-refusal","version":"0.0.0","hostIoJobs":true,"displayName":"Fixture"})).unwrap();
     let vm = Arc::new(PluginVm::from_source_with(
         &manifest.id,
         "module.exports={mutate(path){return host.io.run((function*(){yield* host.io.fs.writeFile(path,'own-effect');throw new Error('after effect');})());}};".into(),

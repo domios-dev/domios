@@ -283,6 +283,7 @@ export function ModelPickerPopover({
   currentRuntimeMode,
   serviceTierAvailability,
   showReasoning = true,
+  showAdvanced = true,
   runtimeControls,
   hostApprovals,
   hostAskScope,
@@ -302,6 +303,8 @@ export function ModelPickerPopover({
   currentRuntimeMode?: string;
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   showReasoning?: boolean;
+  /** Off where the caller keeps only model and effort, so speed, mode and runtime controls would be dropped. */
+  showAdvanced?: boolean;
   runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   hostApprovals?: HostApprovalsValue;
   hostAskScope?: RuntimeAskScope;
@@ -329,7 +332,7 @@ export function ModelPickerPopover({
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, currentModel);
   const sections = pickerSections({ descriptor, controls: runtimeControls, model: staged?.model ?? currentModel, effort: staged?.effort ?? currentEffort, runtimeMode: staged?.runtimeMode ?? currentRuntimeMode, serviceTier: staged?.serviceTier ?? currentServiceTier, serviceTierAvailability, hostApprovals, hostAskScope, hostFullAccess });
   const effortSetting = sections.find(section => section.category === "effort");
-  const extraSettings = sections.filter(section => section.category !== "model" && section.category !== "effort");
+  const extraSettings = showAdvanced ? sections.filter(section => section.category !== "model" && section.category !== "effort") : [];
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
 
@@ -355,16 +358,28 @@ export function ModelPickerPopover({
     setError(null);
   }
 
-  function commit() {
-    if (busy || !staged) return;
-    const plan = planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged);
+  function commit(selection = staged) {
+    if (busy || !selection) return;
+    const plan = planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, selection);
     if (plan.action === "confirm") setConfirming(plan.selection);
     if (plan.action === "apply") apply(plan.selection);
   }
 
+  function withModel(model: string): PickerSelection {
+    return { ...staged, model, serviceTier:tierAfterModelChange(staged?.serviceTier,serviceTierAvailability?.[model]), effort: effortAfterModelChange(descriptor, model, staged?.effort ?? currentEffort) };
+  }
+
   function chooseModel(model: string) {
-    choose({ ...staged, model, serviceTier:tierAfterModelChange(staged?.serviceTier,serviceTierAvailability?.[model]), effort: effortAfterModelChange(descriptor, model, staged?.effort ?? currentEffort) });
+    choose(withModel(model));
     closeSearch();
+  }
+
+  /** Enter on a focused row picks that row's model and commits it, rather than the selection staged before. */
+  function pickModel(model: string) {
+    const next = withModel(model);
+    choose(next);
+    closeSearch();
+    commit(next);
   }
 
   // Searching swaps the settings for results inside the same box, so the picker keeps the height it opened with.
@@ -498,6 +513,7 @@ export function ModelPickerPopover({
                 key={row.id}
                 role="option"
                 tabIndex={-1}
+                aria-label={[row.label, row.badge, isCurrent ? "current" : null].filter(Boolean).join(", ")}
                 aria-selected={row.current}
                 aria-disabled={row.unavailable || busy || undefined}
                 data-current={isCurrent || undefined}
@@ -505,15 +521,19 @@ export function ModelPickerPopover({
                 title={row.unavailable ? "Not available on this account" : row.id}
                 onClick={() => { if (!row.unavailable && !busy) chooseModel(row.id); }}
                 onKeyDown={(event) => {
-                  if (event.code !== "Space") return;
+                  const enter = event.code === "Enter" || event.code === "NumpadEnter";
+                  if (event.code !== "Space" && !enter) return;
                   event.preventDefault();
-                  if (!row.unavailable && !busy) chooseModel(row.id);
+                  event.stopPropagation();
+                  if (row.unavailable || busy) return;
+                  if (enter) pickModel(row.id);
+                  else chooseModel(row.id);
                 }}
               >
                 <span className="ct-model-picker__name">{row.label}</span>
                 {row.badge && <span className="ct-model-picker__badge">{row.badge}</span>}
                 {isCurrent && <span className="ct-model-picker__current">current</span>}
-                {row.current && <Check size={13} strokeWidth={2.5} aria-label="Selected model" className="ct-model-picker__check" />}
+                {row.current && <Check size={13} strokeWidth={2.5} aria-hidden="true" className="ct-model-picker__check" />}
               </div>
               );
             })}
@@ -583,7 +603,7 @@ export function ModelPickerPopover({
           {gate.timing !== "next_turn" && <p className="ct-model-picker__note">{gate.note}</p>}
           <div className="ct-model-picker__actions">
             <button type="button" className={FOOTER_BUTTON.ghost} onClick={onClose}>Cancel</button>
-            <button type="button" className={FOOTER_BUTTON.primary} disabled={busy || selectionPlan.action === "none"} onClick={commit}>Apply</button>
+            <button type="button" className={FOOTER_BUTTON.primary} disabled={busy || selectionPlan.action === "none"} onClick={() => commit()}>Apply</button>
           </div>
         </div>
       )}

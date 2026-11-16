@@ -43,6 +43,8 @@ pub(crate) fn invalidate_plugin_snapshot() {
 pub struct PluginManagerAction {
     pub kind: String,
     pub plugin_id: Option<String>,
+    pub from_dir: Option<String>,
+    pub id_override: Option<String>,
     pub channel: Option<String>,
     pub url: Option<String>,
     pub name: Option<String>,
@@ -287,9 +289,11 @@ fn plugin_action_activity(action: &PluginManagerAction) -> Result<PluginActionAc
     match action.kind.as_str() {
         "install" => {
             let id = action
-                .plugin_id
+                .id_override
                 .as_deref()
-                .ok_or("install requires pluginId")?;
+                .or(action.plugin_id.as_deref())
+                .or(action.from_dir.as_ref().map(|_| "local-plugin"))
+                .ok_or("install requires pluginId or fromDir")?;
             Ok(PluginActionActivity {
                 plugin_id: id.to_string(),
                 kind: "install",
@@ -436,11 +440,19 @@ fn plugin_action_args(action: &PluginManagerAction) -> Result<Vec<String>, Strin
             }
         }
         "install" => {
-            let plugin_id = action
-                .plugin_id
-                .clone()
-                .ok_or("install requires pluginId")?;
-            args.extend(["install".into(), plugin_id]);
+            if action.plugin_id.is_none() && action.from_dir.is_none() {
+                return Err("install requires pluginId or fromDir".into());
+            }
+            args.push("install".into());
+            if let Some(plugin_id) = &action.plugin_id {
+                args.push(plugin_id.clone());
+            }
+            if let Some(directory) = &action.from_dir {
+                args.extend(["--from-dir".into(), directory.clone()]);
+            }
+            if let Some(id) = &action.id_override {
+                args.extend(["--id-override".into(), id.clone()]);
+            }
             if let Some(channel) = &action.channel {
                 args.extend(["--channel".into(), channel.clone()]);
             }

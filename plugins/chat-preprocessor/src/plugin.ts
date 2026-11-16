@@ -1,3 +1,4 @@
+import { defineProviderIo, ioValue, type Host, type HostIoSteps } from "@codeterm/plugin-sdk";
 type MemHit = { id?: unknown; text?: unknown; score?: unknown };
 type PresetKind = "mem-recall" | "template";
 
@@ -20,12 +21,10 @@ type Settings = {
 
 type HostShape = {
   settingsJson?: () => string;
-  mem?: {
-    search?: (opts: { query: string; k?: number }) => { hits?: MemHit[]; error?: string };
-  };
+
 };
 
-declare const host: HostShape | undefined;
+declare const host: Host;
 
 const SYSTEM_MEM_RECALL_ID = "mem-recall";
 
@@ -64,10 +63,9 @@ function compactSnippet(text: string, maxChars: number): string {
   return `${oneLine.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
-function formatMemBlock(text: string, settings: Settings, overrides?: Record<string, unknown>): string {
+function formatMemBlock(text: string, settings: Settings, overrides?: Record<string, unknown>, hits: MemHit[] = []): string {
   const k = asNumber(overrides?.k ?? settings.memK, 3, 1, 8);
   const maxChars = asNumber(overrides?.maxChars ?? settings.memMaxChars, 140, 40, 500);
-  const hits = currentHost().mem?.search?.({ query: text, k })?.hits ?? [];
   const rows = hits
     .filter((hit) => typeof hit.id === "string" && typeof hit.text === "string")
     .slice(0, k)
@@ -101,16 +99,16 @@ function renderTemplate(template: string, text: string, memBlock: string): strin
   return template.replaceAll("{{text}}", text).replaceAll("{{mem}}", memBlock);
 }
 
-export function preprocessText(text: string, settings: Settings): string | null {
+export function preprocessText(text: string, settings: Settings, hits: MemHit[] = []): string | null {
   if (settings.enabled !== true) return null;
   const selected = findPreset(settings);
   if (!selected) return null;
   if (selected.kind === "mem-recall") {
-    const block = formatMemBlock(text, settings, selected.config);
+    const block = formatMemBlock(text, settings, selected.config, hits);
     return applyPosition(text, block, asPosition(selected.config.position ?? settings.insertPosition));
   }
   const template = asString(selected.preset?.template, "{{text}}");
-  const memBlock = template.includes("{{mem}}") ? formatMemBlock(text, settings, selected.config) : "";
+  const memBlock = template.includes("{{mem}}") ? formatMemBlock(text, settings, selected.config, hits) : "";
   return renderTemplate(template, text, memBlock);
 }
 
@@ -122,12 +120,21 @@ const plugin = {
 
   match: "text",
 
-  chatPreprocess(ctx: { text?: unknown }) {
+  *chatPreprocess(ctx: { text?: unknown }): HostIoSteps<{text: string} | null> {
     const text = asString(ctx?.text);
     if (!text.trim()) return null;
-    const next = preprocessText(text, readSettings());
+    const settings = readSettings();
+    const selected = settings.enabled === true ? findPreset(settings) : null;
+    const needsMem = selected && (selected.kind === "mem-recall" || asString(selected.preset?.template).includes("{{mem}}"));
+    let hits: MemHit[] = [];
+    if (needsMem) {
+      const k = asNumber(selected.config.k ?? settings.memK, 3, 1, 8);
+      try { hits = (yield* ioValue<{hits?: MemHit[]}>({op: "memSearch", options: {query: text, k}}))?.hits ?? []; }
+      catch { return null; }
+    }
+    const next = preprocessText(text, settings, hits);
     return next === null || next === text ? null : { text: next };
   },
 };
 
-export default plugin;
+export default defineProviderIo(plugin, () => host.io);

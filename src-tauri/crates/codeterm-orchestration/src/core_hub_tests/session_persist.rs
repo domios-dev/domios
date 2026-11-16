@@ -221,7 +221,7 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
 
     fixture
         .service
-        .focus_workspace(&moved_workspace.id)
+        .record_client_selection(Some(&moved_workspace.id), None)
         .expect("change workspace state through ServiceContext");
     flush_mutation();
     let committed = adapter.state().expect("all committed desk domains");

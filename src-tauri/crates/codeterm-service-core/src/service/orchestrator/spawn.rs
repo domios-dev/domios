@@ -87,11 +87,7 @@ impl ServiceContext {
                 .ok_or("Planner requires --plan <id>")?;
             params.parent_tab_id = Some(self.resolve_planner_parent_for_spawn(plan_id)?);
         }
-        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
-        crate::service::spawn_params::reject_team_with_binding(&params)?;
-        self.preflight_worker_plan_task_spawn(&params)?;
-        self.prepare_worker_plan_task_spawn(&mut params)?;
-        let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
+        let admission = self.admit_spawn_role(&mut params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
         let plan_id = params.plan_id.clone();
@@ -145,7 +141,7 @@ impl ServiceContext {
         let model_identity = self.tab_model_identity(&handle.tab_id);
         self.bind_worker_plan_task_or_rollback_tab(&bind_params, &handle.tab_id)?;
         self.bind_planner_spawn(plan_id.as_deref(), role_profile.as_deref(), &handle.tab_id);
-        if let Some(reservation) = worker_persona_reservation {
+        if let Some(reservation) = admission.worker_persona {
             reservation.commit_to_tab(&handle.tab_id);
         }
         let title = self.mux.read().display_label_for_tab(&handle.tab_id);
@@ -223,16 +219,12 @@ impl ServiceContext {
         params.description =
             crate::service::tab::normalize_optional_tab_description(params.description.take())?;
         params.normalize_role_profile()?;
-        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
-        crate::service::spawn_params::reject_team_with_binding(&params)?;
-        self.preflight_worker_plan_task_spawn(&params)?;
-        self.prepare_worker_plan_task_spawn(&mut params)?;
-        let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
+        let mut admission = self.admit_spawn_role(&mut params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
         if params.spawns_anchor() && params.workspace_id.is_none() && params.parent_tab_id.is_none()
         {
-            return Err("--workspace is required when spawning --role Orchestrator \
+            return Err("--workspace is required when spawning --role orchestrator \
                  (orchestrators must be pinned to a workspace)"
                 .into());
         }
@@ -319,7 +311,7 @@ impl ServiceContext {
                 role_profile.as_deref(),
                 &handle.tab_id,
             );
-            if let Some(reservation) = worker_persona_reservation {
+            if let Some(reservation) = admission.worker_persona.take() {
                 reservation.commit_to_tab(&handle.tab_id);
             }
             let title = self.mux.read().display_label_for_tab(&handle.tab_id);
@@ -456,7 +448,7 @@ impl ServiceContext {
                 tab.taskless_authorized_gates = params.authorized_gates.clone();
             }
             if params.activate.unwrap_or(false) {
-                let _ = mux.set_active_tab(&ws_id, &result);
+                mux.set_tab_focus_requested(&result, true);
             }
             if default_chat_view {
                 if let Some(tab) = mux.get_tab_mut(&result) {
@@ -857,7 +849,7 @@ impl ServiceContext {
 
         let title = self.mux.read().display_label_for_tab(&tab_id);
 
-        if let Some(reservation) = worker_persona_reservation {
+        if let Some(reservation) = admission.worker_persona.take() {
             reservation.commit_to_tab(&tab_id);
         }
         self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
@@ -919,6 +911,7 @@ impl ServiceContext {
                 .filter(|plan_id| !plan_id.is_empty())
                 .ok_or("Planner requires --plan <id> (or an explicit --parent)")?;
             self.place_planner_on_plan(tab_id, plan_id, None, false)?;
+            crate::service::team_roles::stamp_role_label(self, tab_id);
             return Ok(());
         }
         if emit_state_change {
@@ -938,6 +931,7 @@ impl ServiceContext {
             drop(mux);
             self.record_role_transition(tab_id);
         }
+        crate::service::team_roles::stamp_role_label(self, tab_id);
         if let Some(parent) = parent_tab_id {
             self.expect_spawn_parent_link(tab_id, parent)?;
         }

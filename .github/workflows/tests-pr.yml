@@ -1,4 +1,5 @@
 name: Pull request checks
+# No caller: kept as the hosted step template that scripts/ci-step-bootstrap.mjs binds; hosted labels only.
 on:
   workflow_call: null
 permissions:
@@ -9,7 +10,7 @@ env:
 jobs:
   changed:
     name: tree is new
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
@@ -62,7 +63,7 @@ jobs:
   guards:
     name: guards
     needs: changed
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
@@ -87,7 +88,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Install pinned nextest prerequisite
-        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
         with:
           tool: cargo-nextest@0.9.148
       - name: Install pinned Python test dependencies
@@ -136,7 +137,7 @@ jobs:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
     if: ${{ needs.changed.outputs.plugins != '[]' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -173,7 +174,7 @@ jobs:
     name: ts static checks
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Setup Node.js
@@ -220,7 +221,7 @@ jobs:
     name: frontend producer
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
@@ -252,7 +253,7 @@ jobs:
     name: ts generated types
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Setup Node.js
@@ -291,7 +292,7 @@ jobs:
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Check Rust generated TypeScript types
         id: ci-8
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-step.mjs ts-generated-types --ci
+        run: exec node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-step.mjs ts-generated-types --ci
       - name: Stop this job's local compile cache
         if: always()
         shell: bash
@@ -304,7 +305,7 @@ jobs:
     name: ts unit
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Setup Node.js
@@ -338,7 +339,7 @@ jobs:
     name: ts vitest
     needs: changed
     if: ${{ needs.changed.outputs.frontend == 'true' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Setup Node.js
@@ -372,7 +373,7 @@ jobs:
     name: plugin bundles + tests
     needs: changed
     if: ${{ needs.changed.outputs.rust == 'true' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Setup Node.js
@@ -410,7 +411,7 @@ jobs:
     name: cli contracts
     needs: changed
     if: ${{ needs.changed.outputs.rust == 'true' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444

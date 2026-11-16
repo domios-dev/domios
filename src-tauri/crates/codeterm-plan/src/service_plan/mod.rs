@@ -44,6 +44,7 @@ pub mod ingest;
 pub mod interruption;
 pub mod lane_cleanup;
 mod lane_metadata;
+pub mod lane_ownership;
 pub mod lifecycle;
 #[cfg(any(test, feature = "test-support"))]
 pub mod load_audit;

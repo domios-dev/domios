@@ -20,10 +20,10 @@ A mutating canonical Worker exists only through the explicit dispatch opt-in:
 
 ```bash
 domios plan task dispatch <plan> <task> --execution-intent mutating \
-  --canonical-writer --kind qa --authorized-gate "<exact focused command>"
+  --canonical-writer --role qa --authorized-gate "<exact focused command>"
 ```
 
-Use `--kind release_manager` for the same placement with the release-manager prompt. `--kind` preserves the built-in prompt profile without changing the task's saved `executor_role`; it grants no authority beyond the dispatch's explicit placement and authorized gates.
+Use `--role release_manager` for the same placement with the release-manager prompt. `--role` selects the worker type without changing the task's saved `executor_role`; it grants no authority beyond the dispatch's explicit placement and authorized gates.
 
 Use it for sequential work that benefits from fast iteration; parallel source work stays in isolated lanes. The writer holds canonical exclusively: occupancy refuses a second live canonical attempt, and `plan review accept` refuses lane tasks until the writer's own verdict. Authorize only focused tests, check and fmt; broad, release and integration gates stay with you. It commits on the integration branch and reports its commit ids with a clean tree; the CLI checks the SHA against canonical for this placement, and any dirty report is refused, even with `--acknowledge-dirty`; that is a bounce. Accept or bounce it before merging any lane.
 
@@ -34,7 +34,7 @@ Judge the report and the diff, accept on review, and real-merge. Then rerun the 
 A verification Worker is spawned read-only and owns no task:
 
 ```bash
-domios agent spawn <provider> --role Worker \
+domios agent spawn <provider> --role worker \
   --parent-tab <your tab> --report-to <your tab> \
   --cwd <canonical integration checkout> \
   --plan <plan_id> --execution-intent read_only \

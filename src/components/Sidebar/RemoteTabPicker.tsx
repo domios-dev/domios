@@ -6,6 +6,7 @@ import { invoke } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
 import type { MeshPeersResponse, PairedPeer, Tab } from "../../lib/types";
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
+import { groupRemoteTabs, peerTopologyOf, type PeerTopology } from "./remoteTabPickerModel";
 
 interface RemoteTabPickerProps {
   onAttach: (peer: RemotePeerTabs, tab: Tab) => void;
@@ -16,6 +17,7 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
   const [selectedPeer, setSelectedPeer] = useState<PairedPeer | null>(null);
   const [remote, setRemote] = useState<RemotePeerTabs | null>(null);
+  const [topology, setTopology] = useState<PeerTopology | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,18 +33,19 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  const visibleTabs = useMemo(
-    () => (remote?.tabs ?? []).filter((tab) => !tab.hidden && tab.show_in_tabbar !== false),
-    [remote],
-  );
+  const groups = useMemo(() => groupRemoteTabs(remote?.tabs ?? [], topology), [remote, topology]);
 
   const choosePeer = (peer: PairedPeer) => {
     setSelectedPeer(peer);
     setRemote(null);
+    setTopology(null);
     setError(null);
     setLoading(true);
-    void invoke<RemotePeerTabs>("mesh_peer_tabs_list", { peerId: peer.instance_id })
-      .then(setRemote)
+    // Names are a refinement: a peer that refuses its state still lists its tabs, grouped without names.
+    const names = invoke<unknown>("mesh_peer_mux_state", { peerId: peer.instance_id })
+      .then(peerTopologyOf, () => null);
+    void Promise.all([invoke<RemotePeerTabs>("mesh_peer_tabs_list", { peerId: peer.instance_id }), names])
+      .then(([tabs, named]) => { setRemote(tabs); setTopology(named); })
       .catch((cause) => setError(String(cause)))
       .finally(() => setLoading(false));
   };
@@ -81,14 +84,24 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
             </button>
           ))}
           {!loading && !error && !selectedPeer && peers.length === 0 && <div className="px-3 py-8 text-center text-[12px] text-[var(--ct-muted-fg)]">No online machines</div>}
-          {!loading && !error && selectedPeer && visibleTabs.map((tab) => (
-            <button key={tab.id} type="button" onClick={() => { if (remote) onAttach(remote, tab); onClose(); }} className="flex w-full min-w-0 items-center gap-3 rounded px-3 py-2 text-left hover:bg-[var(--ct-hover)]">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
-              <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ct-fg)]">{tab.title || tab.id}</span>
-              <span className="shrink-0 text-[10px] text-[var(--ct-muted-fg)]">{tab.backing?.kind ?? "pty"}</span>
-            </button>
+          {!loading && !error && selectedPeer && groups.map((workspace) => (
+            <section key={workspace.id ?? ""} aria-label={workspace.name} className="mb-1">
+              <h3 className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-[var(--ct-muted-fg)]">{workspace.name}</h3>
+              {workspace.teams.map((team) => (
+                <div key={team.id ?? ""} role="group" aria-label={team.name ?? `${workspace.name} Tabs`}>
+                  {team.name && <div className="truncate px-3 pb-0.5 pt-1 text-[11px] text-[var(--ct-muted-fg)]">{team.name}</div>}
+                  {team.rows.map((row) => (
+                    <button key={row.tab.id} type="button" onClick={() => { if (remote) onAttach(remote, row.tab); onClose(); }} className={`flex w-full min-w-0 items-center gap-3 rounded py-2 pr-3 text-left hover:bg-[var(--ct-hover)] ${team.name ? "pl-5" : "pl-3"}`}>
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ct-fg)]">{row.title}</span>
+                      <span className="max-w-[45%] shrink-0 truncate text-[11px] text-[var(--ct-muted-fg)]">{row.kind}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </section>
           ))}
-          {!loading && !error && selectedPeer && visibleTabs.length === 0 && <div className="px-3 py-8 text-center text-[12px] text-[var(--ct-muted-fg)]">No available Tabs</div>}
+          {!loading && !error && selectedPeer && groups.length === 0 && <div className="px-3 py-8 text-center text-[12px] text-[var(--ct-muted-fg)]">No available Tabs</div>}
         </div>
       </div>
     </div>,

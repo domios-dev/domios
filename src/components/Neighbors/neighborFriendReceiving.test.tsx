@@ -154,6 +154,7 @@ it("a friend the status does not know yet borrows nothing from the account: no l
     return client;
   };
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={unknown()} />);
+  expect(button("Open Ada").textContent).toContain("concierge location unknown");
   expect(document.body.textContent).not.toContain("receiving on");
   const sidebarItems = await openMenu("Actions for Ada");
   expect(sidebarItems).not.toContain("Receive this friend here");

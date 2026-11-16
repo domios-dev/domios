@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::routes::AppState;
 use codeterm_service_core::secrets::{
-    ListFilter, SaveRequest, SecretError, SecretRef, SecretString, UnlockCredentials,
+    ListFilter, SaveRequest, SecretError, SecretItem, SecretRef, SecretString, UnlockCredentials,
 };
 
 // ── Error mapping ───────────────────────────────────────────────────
@@ -201,9 +201,10 @@ pub struct ListQuery {
     pub limit: Option<usize>,
 }
 
+/// Every entry names its owner, so binding pickers offer only the owner's own entries.
 #[derive(Serialize)]
 pub struct ItemsResponse {
-    pub items: Vec<SecretRef>,
+    pub items: Vec<SecretItem>,
 }
 
 pub async fn list_items(
@@ -225,7 +226,9 @@ pub async fn list_items(
             .await
             .map_err(map_error)?
     };
-    Ok(Json(ItemsResponse { items }))
+    Ok(Json(ItemsResponse {
+        items: items.into_iter().map(SecretItem::from).collect(),
+    }))
 }
 
 pub async fn get_item_metadata(

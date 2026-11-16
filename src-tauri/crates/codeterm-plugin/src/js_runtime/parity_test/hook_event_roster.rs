@@ -14,7 +14,7 @@ fn load_roster_js(id: &str, roster_json: &str) -> JsProvider {
     use std::sync::Arc;
 
     let manifest_json = format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"Roster Fixture",
+        r#"{{"id":"{id}","version":"0.1.0","hostIoJobs":true,"displayName":"Roster Fixture",
                 "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                          "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}},
                          "hasHooks":true,

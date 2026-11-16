@@ -161,6 +161,23 @@ pub(crate) async fn frontend_view_root_ready(
 }
 
 #[tauri::command]
+pub(crate) async fn native_terminal_output_flow(
+    window: codeterm_client_shell::app_runtime::WebviewWindow,
+    update: codeterm_types::native_host::NativeOutputFlow,
+) -> Result<bool, String> {
+    if window.label() != "main" {
+        return Err("Primary native view required".into());
+    }
+    if cfg!(windows) {
+        return Ok(false);
+    }
+    let app = window.app_handle();
+    app.try_state::<native_client::NativeHostClientSlot>()
+        .ok_or("Native host unavailable")?
+        .report_output_flow(None, update)
+}
+
+#[tauri::command]
 pub(crate) fn native_webview_diagnostics_snapshot(
     window: codeterm_client_shell::app_runtime::WebviewWindow,
 ) -> Option<codeterm_types::native_host::NativeWebviewDiagnosticsSnapshot> {

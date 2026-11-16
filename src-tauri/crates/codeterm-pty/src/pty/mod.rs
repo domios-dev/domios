@@ -8,6 +8,7 @@ pub mod input_mode;
 pub mod login_shell;
 pub mod manager;
 mod output_buffer;
+pub mod output_flow;
 pub mod screen_state;
 pub mod scrollback_capture;
 pub mod shell_integration;

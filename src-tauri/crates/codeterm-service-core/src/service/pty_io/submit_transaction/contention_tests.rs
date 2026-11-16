@@ -3,6 +3,7 @@ use crate::service::chat_send_transaction::{ChatSendLedger, ChatSendState, SendL
 use std::cell::Cell;
 
 struct Contention {
+    flow: Option<Arc<crate::pty::output_flow::OutputFlow>>,
     claim: SubmitCycleClaim,
     writes: Cell<usize>,
     keys: Cell<usize>,
@@ -41,6 +42,9 @@ impl SubmitTransport for Refused {
 }
 
 impl SubmitTransport for Contention {
+    fn suspend_output(&self) -> Option<crate::pty::output_flow::ReadPermit> {
+        self.flow.as_ref().map(|flow| flow.suspend())
+    }
     fn observe(&self) -> Option<Observation> {
         None
     }
@@ -60,15 +64,24 @@ impl SubmitTransport for Contention {
         self.claim.is_current()
     }
     fn exact_user_turn_present(&self, text: &str) -> bool {
+        if let Some(flow) = &self.flow {
+            assert!(flow.pause_deadline(Instant::now()).is_none());
+        }
         text == "opaque-owner-message" && self.evidence.get()
     }
     fn write_paste(&self, text: &str, _: Instant) -> Result<usize, InjectionError> {
+        if let Some(flow) = &self.flow {
+            assert!(flow.pause_deadline(Instant::now()).is_none());
+        }
         self.writes.set(self.writes.get() + 1);
         let (sender, _) = mpsc::sync_channel(1);
         self.claim.payload_enqueued(sender);
         Ok(text.len())
     }
     fn write_submit_key(&self, key: &[u8], _: Instant) -> Result<(), InjectionError> {
+        if let Some(flow) = &self.flow {
+            assert!(flow.pause_deadline(Instant::now()).is_none());
+        }
         assert_eq!(key, b"\r");
         self.keys.set(self.keys.get() + 1);
         if self.keys.get() == 1 {
@@ -115,6 +128,7 @@ fn refused_concurrent_delivery_preserves_remaining_enters_and_exact_delivery_evi
         )
         .unwrap();
     let transport = Contention {
+        flow: None,
         claim: claim_submit_cycle("refused-concurrent-delivery"),
         writes: Cell::new(0),
         keys: Cell::new(0),
@@ -160,4 +174,56 @@ fn refused_concurrent_delivery_preserves_remaining_enters_and_exact_delivery_evi
         ledger.status(&send.send_id).unwrap().state,
         ChatSendState::Sent
     );
+}
+
+#[test]
+fn renderer_pause_cannot_hold_write_once_input_or_its_evidence_and_key_recovery() {
+    use crate::pty::output_flow::{OutputFlow, HIGH_WATERMARK};
+    let flow = Arc::new(OutputFlow::default());
+    flow.bind(1);
+    assert!(flow.attach(
+        1,
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4(),
+        0,
+        Instant::now()
+    ));
+    flow.produced(1, HIGH_WATERMARK);
+    for refuse_key in [false, true] {
+        assert!(flow.pause_deadline(Instant::now()).is_some());
+        let transport = Contention {
+            flow: Some(flow.clone()),
+            claim: claim_submit_cycle("flow-protected-send"),
+            writes: Cell::new(0),
+            keys: Cell::new(0),
+            evidence: Cell::new(false),
+        };
+        let result = run_with_submit_key(
+            &transport,
+            "opaque-owner-message",
+            true,
+            b"\r",
+            strategy(),
+            options(),
+            |_| {
+                assert!(flow.pause_deadline(Instant::now()).is_none());
+                if refuse_key {
+                    Err(InjectionError::SubmitNeverConfirmed {
+                        waited: Duration::ZERO,
+                        screen_tail: String::new(),
+                    })
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        assert_eq!(transport.writes.get(), 1);
+        if refuse_key {
+            assert!(result.is_err());
+        } else {
+            assert!(result.unwrap().submit_observed);
+            assert_eq!(transport.keys.get(), 3);
+        }
+        assert!(flow.pause_deadline(Instant::now()).is_some());
+    }
 }

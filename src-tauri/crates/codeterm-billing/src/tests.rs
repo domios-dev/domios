@@ -537,7 +537,7 @@ fn clock(
 }
 
 #[tokio::test]
-async fn malformed_grant_keeps_server_tier_verifying_without_authorizing_paid() {
+async fn malformed_grant_keeps_server_tier_unconfirmed_without_authorizing_paid() {
     let mut reading = paid_grant();
     reading.grant = Some(serde_json::json!({"arbitrary":"invalid"}));
     let provider = GrantReplies::new(vec![Ok(reading.clone())]);
@@ -554,7 +554,8 @@ async fn malformed_grant_keeps_server_tier_verifying_without_authorizing_paid() 
         )
         .await;
     assert_eq!(snapshot.entitlements.plan, Plan::Pro);
-    assert!(snapshot.checking);
+    assert!(!snapshot.checking);
+    assert_eq!(snapshot.verification, Some(Verification::Unconfirmed));
     assert_eq!(snapshot.access.unwrap().authority, Authority::Free);
     assert!(snapshot.grant.is_none());
     assert!(store.load().unwrap().is_none());
@@ -642,7 +643,7 @@ async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
 }
 
 #[tokio::test]
-async fn unsigned_paid_envelope_is_visible_verifying_without_paid_authorization() {
+async fn unsigned_paid_envelope_is_visible_unconfirmed_without_paid_authorization() {
     let (_, clock) = clock(1_700_000_060);
     let mut unsigned = paid_grant();
     unsigned.grant = None;
@@ -657,7 +658,8 @@ async fn unsigned_paid_envelope_is_visible_verifying_without_paid_authorization(
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
         .await;
     assert_eq!(snapshot.entitlements.plan, Plan::Pro);
-    assert!(snapshot.checking);
+    assert!(!snapshot.checking);
+    assert_eq!(snapshot.verification, Some(Verification::Unconfirmed));
     assert!(!billing.limit_gate().summary().enforcing);
     assert_eq!(snapshot.access.unwrap().max_workspaces, Some(2));
     assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));

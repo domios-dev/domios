@@ -8,6 +8,7 @@ use codeterm_service_core::service::MuxEmitCause;
 use codeterm_service_core::session::store::{SessionSnapshot, SplitNodeSnapshot};
 use serde_json::{json, Value};
 
+mod import_stream;
 mod sanitize;
 
 type Failure = (StatusCode, String);
@@ -262,7 +263,7 @@ pub async fn export(
 pub async fn import(
     State(state): State<AppState>,
     _headers: HeaderMap,
-    Json(document): Json<Value>,
+    body: axum::body::Body,
 ) -> Result<Json<Value>, Failure> {
     if !import_target_allowed(
         codeterm_paths::is_dev_instance(),
@@ -274,9 +275,9 @@ pub async fn import(
             "Fixture import requires a named upgrade-restore-* DEV instance".into(),
         ));
     }
+    let (mut snapshot, mut plans) = import_stream::receive(body).await.map_err(failure)?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let (mut snapshot, mut plans) = fixture_document(&document)?;
         let fixture_cwd = codeterm_paths::data_dir().join("upgrade-restore-project");
         let directory = fixture_cwd.to_string_lossy().into_owned();
         for workspace in &mut snapshot.workspaces {
@@ -317,18 +318,13 @@ pub async fn import(
     Ok(Json(result))
 }
 
+#[cfg(test)]
 fn fixture_document(
     document: &Value,
 ) -> Result<(SessionSnapshot, Vec<codeterm_types::plan::Plan>), String> {
-    if document["sanitized"] != true || document["format"] != FORMAT {
-        return Err(format!("Import requires an {FORMAT} sanitized document"));
-    }
-    let snapshot: SessionSnapshot =
-        serde_json::from_value(document["snapshot"].clone()).map_err(|error| error.to_string())?;
-    let plans =
-        serde_json::from_value(document["plans"].clone()).map_err(|error| error.to_string())?;
-    codeterm_service_core::service::session_persist::validate_fixture_snapshot(&snapshot)?;
-    Ok((snapshot, plans))
+    import_stream::decode(std::io::Cursor::new(
+        serde_json::to_vec(document).map_err(|error| error.to_string())?,
+    ))
 }
 
 #[cfg(test)]

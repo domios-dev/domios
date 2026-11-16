@@ -30,16 +30,19 @@ function fakeDaemon() {
     } else wire(frame);
   };
   let drop!: () => void;
+  // A stalled carrier stays open and its session keeps acknowledging posts, but nothing reaches the page.
+  let stalled = false;
   const fetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input));
     const method = init.method ?? "GET";
     if (url.pathname === "/api/stream-mux") {
       longLived.push({ path: url.pathname + url.search, signal: init.signal });
       if (url.pathname !== "/api/stream-mux") return new Response("unexpected stream", { status: 500 });
+      stalled = false;
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
           drop = () => controller.error(new Error("fixture mux loss"));
-          wire = (frame) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
+          wire = (frame) => { if (!stalled) controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`)); };
         },
       });
       return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
@@ -67,7 +70,7 @@ function fakeDaemon() {
     }
     return new Response("UI request bypassed the mux", { status: 500 });
   });
-  return { fetch, longLived, opened, released, rpcs, drop: () => drop(), push };
+  return { fetch, longLived, opened, released, rpcs, drop: () => drop(), stall: () => { stalled = true; }, resume: () => { stalled = false; }, push };
 }
 
 async function boot() {
@@ -160,6 +163,125 @@ describe("one multiplexed stream per origin", () => {
       abort.abort();
       stopSurface();
     }
+  });
+
+  it("a carrier that stops delivering after a resume is replaced and the shared event stream resumes from its cursor", async () => {
+    const { daemon } = await boot();
+    const webEvents = await import("./webEvents");
+    const { verifyStreamMuxes } = await import("./streamMux");
+    const { CARRIER_PROOF_MS } = await import("./streamMuxModel");
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { TERMINAL_VIEWER_DISCONNECTED_EVENT } = await import("./terminalViewerEvents");
+    const payloads: unknown[] = [];
+    const stopEvents = webEvents.webListen("fixture", ({ payload }) => payloads.push(payload));
+    // Another consumer of the shared event connection, as the frontend-update runtime is.
+    const stopShared = baseDaemonTransport().subscribe("/api/events/stream", () => {});
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(1));
+      const first = daemon.opened[0].channel;
+      daemon.push({ channel: first, open: true, content_type: "text/event-stream" });
+      daemon.push({ channel: first, data: { boot: "boot", seq: 1, prev_seq: null, event_type: "fixture", data: "before" } });
+      await vi.waitFor(() => expect(payloads).toEqual(["before"]));
+
+      const healthyProof = verifyStreamMuxes(ORIGIN);
+      await vi.waitFor(() => expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(1));
+      expect(await healthyProof).toBe(true);
+      expect(daemon.longLived).toHaveLength(1);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+
+      daemon.stall();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const disconnected = new Promise<void>(resolve => window.addEventListener(TERMINAL_VIEWER_DISCONNECTED_EVENT, () => resolve(), { once: true }));
+      const failedProof = verifyStreamMuxes(ORIGIN);
+      const sameCarrierProof = verifyStreamMuxes(ORIGIN);
+      expect(await verifyStreamMuxes("http://other-origin.invalid")).toBe(false);
+      await vi.advanceTimersByTimeAsync(CARRIER_PROOF_MS - 1);
+      expect(daemon.rpcs.filter(({ path }) => path === "/api/health")).toHaveLength(2);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await failedProof).toBe(false);
+      expect(await sameCarrierProof).toBe(false);
+      vi.useRealTimers();
+      await disconnected;
+      expect(daemon.longLived[0].signal?.aborted).toBe(true);
+
+      webEvents.wakeWebEvents();
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(2));
+      expect(daemon.longLived).toHaveLength(2);
+      const resumed = last(daemon.opened);
+      expect(new URL(resumed.path, ORIGIN).searchParams.get("since")).toBe("boot:1");
+      daemon.push({ channel: resumed.channel, open: true, content_type: "text/event-stream" });
+      daemon.push({ channel: resumed.channel, data: { boot: "boot", seq: 2, prev_seq: 1, event_type: "fixture", data: "after" } });
+      await vi.waitFor(() => expect(payloads).toEqual(["before", "after"]));
+    } finally {
+      vi.useRealTimers();
+      stopShared();
+      stopEvents();
+      webEvents.__resetWebEventsForTest();
+    }
+  });
+
+  it("closing an origin settles an outstanding carrier proof and cancels its health read", async () => {
+    const { daemon } = await boot();
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { verifyStreamMuxes, __resetStreamMuxesForTest } = await import("./streamMux");
+    const stop = baseDaemonTransport().subscribe("/api/events/stream", () => {});
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(1));
+      daemon.stall();
+      const proof = verifyStreamMuxes(ORIGIN);
+      await vi.waitFor(() => expect(daemon.rpcs).toHaveLength(1));
+      __resetStreamMuxesForTest();
+      expect(await proof).toBe(false);
+      expect(daemon.longLived[0].signal?.aborted).toBe(true);
+      expect(await verifyStreamMuxes(ORIGIN)).toBe(false);
+    } finally { stop(); }
+  });
+
+  it("buffered unrelated frames cannot prove a suspect carrier", async () => {
+    const { daemon } = await boot();
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { verifyStreamMuxes, streamMuxDiagnostics } = await import("./streamMux");
+    const received = vi.fn();
+    const stop = baseDaemonTransport().subscribe("/api/events/stream", received);
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(1));
+      daemon.stall();
+      const proof = verifyStreamMuxes(ORIGIN);
+      await vi.waitFor(() => expect(daemon.rpcs).toHaveLength(1));
+      daemon.resume();
+      daemon.push({ channel: daemon.opened[0].channel, data: { event_type: "fixture", data: "buffered" } });
+      await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(1));
+      expect(streamMuxDiagnostics()[0].carrier).toBe("proving");
+      daemon.push({ channel: daemon.rpcs[0].channel, open: true, content_type: "application/json" });
+      expect(await proof).toBe(true);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+    } finally { stop(); }
+  });
+
+  it("a late proof deadline gives queued probe delivery a task before replacing the carrier", async () => {
+    const { daemon } = await boot();
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { verifyStreamMuxes } = await import("./streamMux");
+    const { CARRIER_PROOF_MS } = await import("./streamMuxModel");
+    const stop = baseDaemonTransport().subscribe("/api/events/stream", () => {});
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(1));
+      daemon.stall();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const proof = verifyStreamMuxes(ORIGIN);
+      await vi.advanceTimersByTimeAsync(CARRIER_PROOF_MS - 1);
+      vi.setSystemTime(Date.now() + 2000);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+      daemon.resume();
+      daemon.push({ channel: daemon.rpcs[0].channel, open: true, content_type: "application/json" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await proof).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(daemon.longLived).toHaveLength(1);
+      expect(daemon.longLived[0].signal?.aborted).toBe(false);
+    } finally { vi.useRealTimers(); stop(); }
   });
 
   it("N peers x M remote tabs plus a local terminal hold exactly one long-lived connection", async () => {

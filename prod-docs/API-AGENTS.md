@@ -146,9 +146,9 @@ Run multiple operations sequentially in one HTTP request. Later commands referen
 ```json
 {
   "commands": [
-    {"method": "spawn", "id": "boss", "params": {"title": "Boss", "description": "Coordinates repository work", "role": "Orchestrator", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
-    {"method": "spawn", "params": {"title": "Worker-1", "description": "Analyzes the code", "role": "Worker", "parent_tab_id": "$boss", "agent": "claude", "task": "analyze code"}},
-    {"method": "spawn", "params": {"title": "Worker-2", "description": "Runs focused tests", "role": "Worker", "parent_tab_id": "$boss", "agent": "claude"}},
+    {"method": "spawn", "id": "boss", "params": {"title": "Boss", "description": "Coordinates repository work", "role": "orchestrator", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
+    {"method": "spawn", "params": {"title": "Worker-1", "description": "Analyzes the code", "role": "worker", "parent_tab_id": "$boss", "agent": "claude", "task": "analyze code"}},
+    {"method": "spawn", "params": {"title": "Worker-2", "description": "Runs focused tests", "role": "worker", "parent_tab_id": "$boss", "agent": "claude"}},
     {"method": "notify", "params": {"title": "All spawned", "body": "4 agents ready"}}
   ]
 }
@@ -251,4 +251,4 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
 | POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
 
-<!-- revision: 81 -->
+<!-- revision: 82 -->

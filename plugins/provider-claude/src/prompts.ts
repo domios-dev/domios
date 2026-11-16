@@ -1,5 +1,6 @@
 import type { ParsedPrompt } from "@codeterm/plugin-sdk";
 import { claudeFolderTrustHighlightedOptionIndex } from "./folderTrust";
+import { claudeExternalImportsPrompt } from "./externalImports";
 
 const WIZARD_SUBMIT_VALUE = 9000;
 const WIZARD_MULTI_MASK_BASE = 10000;
@@ -389,6 +390,8 @@ export function moveToOption(targetIndex: number, screen: string): string[] {
 }
 
 export function currentHighlightedOptionIndex(screen: string): number {
+  const imports = claudeExternalImportsPrompt(screen);
+  if (imports) return imports.focusedIndex;
   const trustIndex = claudeFolderTrustHighlightedOptionIndex(screen);
   if (trustIndex !== null) return trustIndex;
   const body = wizardBody(screen);

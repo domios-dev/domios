@@ -26,7 +26,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 parking_lot = "0.12"
 log = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
-tokio = { version = "1", features = ["sync", "rt"] }
+tokio = { version = "1", features = ["sync", "rt", "time"] }
 base64 = "0.23"
 sha2 = "0.10"
 rand = "0.8.6"
@@ -44,7 +44,7 @@ tempfile = "3"
 wait-timeout = "0.2"
 
 [target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_RemoteDesktop", "Win32_System_WindowsProgramming", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_RemoteDesktop", "Win32_System_WindowsProgramming", "Win32_Storage_FileSystem", "Win32_System_Console"] }
 
 [lints]
 workspace = true

@@ -5368,13 +5368,6 @@
     },
     {
       "file": "src-tauri/crates/codeterm-service-core/src/agent/kpi_ledger/rebuild_tests.rs",
-      "token": "CODEX_REPEATED",
-      "count": 4,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/agent/kpi_ledger/rebuild_tests.rs",
       "token": "codex-repeated-token-count",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
@@ -5677,41 +5670,6 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/agent/kpi/usage/dedupe_tests.rs",
       "token": "opencode-messages",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/agent/kpi/usage/records.rs",
-      "token": "Codex",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/agent/kpi/usage/records.rs",
-      "token": "codex-rs",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/agent/kpi/usage/records.rs",
-      "token": "is_codex_compaction",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/agent/kpi/usage/records.rs",
-      "token": "is_opencode_compaction",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/agent/kpi/usage/records.rs",
-      "token": "OpenCode",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
@@ -8097,27 +8055,6 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-orchestration/src/orchestration_pair/tests.rs",
-      "token": "claude",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-orchestration/src/orchestration_pair/tests.rs",
-      "token": "codex",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-orchestration/src/orchestration_pair/tests.rs",
-      "token": "opencode",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
       "file": "src-tauri/crates/codeterm-orchestration/src/orchestrator_onboard.rs",
       "token": "claude",
       "count": 5,
@@ -10311,7 +10248,7 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/tests.rs",
       "token": "claude",
-      "count": 13,
+      "count": 12,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -10727,6 +10664,16 @@
       "count": 1,
       "justification": "Existing next provider-specific test fixture; exact test-only allowance.",
       "removalSlice": "Remaining provider boundary extraction"
+    }
+  ],
+  "providerOwned": [
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/external_imports.rs",
+      "reason": "Native provider-owned external instruction import fingerprint and prompt projection."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/external_imports.rs",
+      "reason": "Provider-owned native/JavaScript parity proof on captured external instruction import fixtures."
     }
   ]
 }

@@ -102,7 +102,18 @@ export type TabStateClassification = Omit<import("./gen/TabStateClassification")
 /** One field of the declarative settings UI, tagged by `kind` (section, toggle, text, …). */
 export type SettingField = import("./gen/SettingField").SettingField;
 
+export interface UsageTokens { input: number; uncached_input: number; output: number }
+export interface CumulativeUsage { input: number; cached_input: number; output: number; total: number }
+export type ParsedUsage =
+  | {kind: "compaction"; timestamp: number}
+  | {kind: "response"; timestamp: number; response_id: string | null; tokens: UsageTokens}
+  | {kind: "cumulative"; timestamp: number; total: CumulativeUsage; last: UsageTokens | null};
+export type UsageAccounting = "transcript" | "runtime_turn" | "unreported";
+
 export interface AgentProvider {
+  usageAccounting?(): UsageAccounting;
+  usageSqlQuery?(scoped: boolean): string | null;
+  parseUsageRecord?(record: unknown, now: number): ParsedUsage | null;
   sessionResume?(): SessionResumeCapability;
   authStatusProbe?(): import("./gen/AuthStatusProbe").AuthStatusProbe | null;
   tracksBackgroundWork?(): boolean;

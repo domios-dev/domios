@@ -23,6 +23,7 @@ export interface AnchoredPopoverProps {
   onPointerEnter?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerLeave?: (event: React.PointerEvent<HTMLDivElement>) => void;
   floatingRef?: RefObject<HTMLDivElement | null>;
+  portalContainer?: Element | null;
 }
 
 function inAnyPopover(target: EventTarget | null): boolean {
@@ -45,6 +46,7 @@ export function AnchoredPopover({
   onPointerEnter,
   onPointerLeave,
   floatingRef,
+  portalContainer,
 }: AnchoredPopoverProps) {
   const viewer = useFullscreenViewer();
   const ownRef = useRef<HTMLDivElement>(null);
@@ -102,6 +104,6 @@ export function AnchoredPopover({
     >
       {children}
     </div>,
-    viewer?.current ?? document.fullscreenElement ?? document.body,
+    portalContainer ?? viewer?.current ?? document.fullscreenElement ?? document.body,
   );
 }

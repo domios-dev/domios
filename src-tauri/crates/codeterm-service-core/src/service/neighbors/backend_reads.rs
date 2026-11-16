@@ -102,6 +102,23 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// A paid account locked only because this installation lacks a verified grant hears why.
+    pub async fn explain_neighbor_refusal(&self, message: String) -> String {
+        if message != Error::Locked.to_string() {
+            return message;
+        }
+        let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() else {
+            return message;
+        };
+        let Some(account) = self.ext::<crate::service::account::AccountCell>().0.get() else {
+            return message;
+        };
+        let Some(session) = account.session().await else {
+            return message;
+        };
+        explained_lock(message, billing.verification(&session.identity.uid))
+    }
+
     pub(super) async fn neighbor_access_locked(&self) -> bool {
         let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() else {
             return true;
@@ -271,6 +288,19 @@ impl ServiceContext {
     pub(crate) fn rearm_neighbor_reads(&self) {
         self.rearm_neighbor_updates();
         self.rearm_neighbor_restoration();
+    }
+}
+
+fn explained_lock(message: String, verification: Option<codeterm_billing::Verification>) -> String {
+    match verification {
+        _ if message != Error::Locked.to_string() => message,
+        Some(codeterm_billing::Verification::SignInRequired) => {
+            Error::InstallationUnverified.to_string()
+        }
+        Some(codeterm_billing::Verification::Unconfirmed) => {
+            Error::EntitlementsUnavailable.to_string()
+        }
+        None => message,
     }
 }
 

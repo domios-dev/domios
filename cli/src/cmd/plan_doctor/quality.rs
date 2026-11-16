@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::cleanup;
 use super::{plan_id, Finding, PENDING_UNSTAFFED_STALE_MS, STALLED_LOOP_AFTER_MS};
 
-pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
+pub(super) fn inspect_quality(path: &Path, plan: &Value, planner_required: bool) -> Vec<Finding> {
     let mut findings = Vec::new();
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -37,7 +37,7 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
             "create/update the spec first, then use domios plan create --from-spec or spec link add",
         ));
     }
-    if let Some(finding) = inspect_planner_pairing(path, plan) {
+    if let Some(finding) = inspect_planner_pairing(path, plan).filter(|_| planner_required) {
         findings.push(finding);
     }
 

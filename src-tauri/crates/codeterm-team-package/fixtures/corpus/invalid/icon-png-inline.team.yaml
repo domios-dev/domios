@@ -1,0 +1,13 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+icon: assets/icon.png
+files:
+  - path: assets/icon.png
+    content: |
+      not really a png
+roles:
+  orchestrator:
+    kind: manager
+    instructions: |
+      Lead.

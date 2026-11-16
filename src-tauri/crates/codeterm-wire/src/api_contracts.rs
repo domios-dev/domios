@@ -32,6 +32,10 @@ pub struct TeamCloseInventory {
     pub removed: Vec<TeamCloseLaneRecord>,
     pub kept: Vec<TeamCloseLaneRecord>,
     pub orphan_branches: Vec<String>,
+    /// Checkouts Domios did not create; listed, never cleanup candidates.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<TeamCloseLaneRecord>>", optional)]
+    pub not_managed: Vec<TeamCloseLaneRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
@@ -221,7 +225,10 @@ pub struct OrchestrationPairResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub orchestrator_model: Option<String>,
-    pub planner_tab_id: String,
+    /// Absent when the package lists no with_team planner: the Team has no Planner.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub planner_tab_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub planner_model: Option<String>,
@@ -233,6 +240,10 @@ pub struct OrchestrationPairResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub budget_notice: Option<TabBudgetNotice>,
+    /// What the template start did: managers started, roles registered, start-time warnings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub template: Option<codeterm_team_package::contracts::TemplateStartResult>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, ts_rs::TS)]
@@ -367,6 +378,9 @@ pub struct OrchestrationPairParams {
     /// declaring tab itself.
     #[serde(default)]
     pub leaf_creation_acknowledged: bool,
+    /// Start from this team template; absent keeps the standard pair.
+    #[serde(default)]
+    pub template: Option<codeterm_team_package::contracts::TemplateStartRequest>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]

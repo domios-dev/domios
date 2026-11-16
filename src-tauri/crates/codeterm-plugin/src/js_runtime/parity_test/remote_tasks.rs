@@ -52,7 +52,7 @@ fn remote_task_capability_native_js_parity_and_manifest_round_trip() {
         "environments":[],"followUp":false,"cancel":false,"applyDiff":false
     });
     let manifest_json = serde_json::json!({
-        "id":"remote-fixture","version":"0.1.0","displayName":"Fixture",
+        "id":"remote-fixture","version":"0.1.0","hostIoJobs":true,"displayName":"Fixture",
         "capabilities":{"agentProvider":true,"remoteTask":capability,"chatBackend":{"spawnable":true}}
     })
     .to_string();
@@ -107,7 +107,7 @@ fn remote_task_runtime_discovery_native_js_parity() {
         "environments":[{"id":"env-fixture","label":"Fixture environment","accountRef":"fixture-auth"}]
     });
     let manifest_json = serde_json::json!({
-        "id":"remote-runtime-fixture","version":"0.1.0","displayName":"Fixture",
+        "id":"remote-runtime-fixture","version":"0.1.0","hostIoJobs":true,"displayName":"Fixture",
         "capabilities":{"agentProvider":true,"remoteTask":capability,"chatBackend":{"spawnable":true}}
     })
     .to_string();

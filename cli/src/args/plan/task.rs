@@ -393,16 +393,22 @@ pub enum PlanTaskAction {
         authorized_gates: Vec<String>,
         #[arg(
             long = "canonical-writer",
-            help = "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred"
+            help = "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred; needs a git repository with a commit"
         )]
         canonical_writer: bool,
-        #[arg(long, value_parser = ["shared", "lane"], conflicts_with = "canonical_writer")]
+        #[arg(
+            long,
+            value_parser = ["shared", "lane"],
+            conflicts_with = "canonical_writer",
+            help = "Mutating placement: shared (declared disjoint edit files; the only placement in a project folder without git) or lane (isolated worktree; needs git history)"
+        )]
         placement: Option<String>,
         #[arg(
-            long = "kind",
-            help = "Select a built-in Worker prompt kind without changing the task's executor_role"
+            long = "role",
+            value_parser = crate::args::agent::parse_role_name,
+            help = "Worker the Team registers to launch; a manager or unlisted name is refused with the Team's workers. Omitted uses `worker` only when the Team lists it. The task's executor_role is unchanged"
         )]
-        worker_kind: Option<String>,
+        role: Option<crate::args::agent::RoleName>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(

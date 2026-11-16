@@ -5,7 +5,7 @@ use super::super::canonical_writer::{
     compose_dispatch_brief, dispatch_worker_placement,
     refuse_lane_integration_while_canonical_held as refuse_projected_lane_integration,
     verify_canonical_writer_checkout, CANONICAL_WRITER_BRIEF, CANONICAL_WRITER_HOLDS_CHECKOUT_CODE,
-    REFUSAL_LANE_INTEGRATION_WHILE_CANONICAL_WRITER,
+    REFUSAL_LANE_INTEGRATION_WHILE_CANONICAL_WRITER, SHARED_WITHOUT_GIT_BRIEF,
 };
 use super::super::lane_safety::{
     refuse_unsafe_mutating_write, REFUSAL_MUTATING_WRITE_IN_CANONICAL,
@@ -459,13 +459,24 @@ fn canonical_writer_gate_claim_outside_authorization_is_refused() {
 #[test]
 fn canonical_writer_brief_section_rides_only_the_opt_in() {
     let base = "brief-body-token".to_string();
-    let isolated = compose_dispatch_brief(base.clone(), WorkerPlacement::IsolatedLane);
+    let isolated = compose_dispatch_brief(base.clone(), WorkerPlacement::IsolatedLane, false);
     assert!(isolated.starts_with(&base));
     assert_eq!(isolated.matches(CANONICAL_WRITER_BRIEF).count(), 0);
 
-    let canonical = compose_dispatch_brief(base.clone(), WorkerPlacement::CanonicalWriter);
+    let canonical = compose_dispatch_brief(base.clone(), WorkerPlacement::CanonicalWriter, false);
     assert!(canonical.starts_with(&base));
     assert_eq!(canonical.matches(CANONICAL_WRITER_BRIEF).count(), 1);
+}
+
+#[test]
+fn shared_brief_without_git_replaces_the_commit_contract_only_for_shared_placement() {
+    let base = "brief-body-token".to_string();
+    let without_git = compose_dispatch_brief(base.clone(), WorkerPlacement::Shared, true);
+    assert_eq!(without_git, format!("{base}{SHARED_WITHOUT_GIT_BRIEF}"));
+    let git = compose_dispatch_brief(base.clone(), WorkerPlacement::Shared, false);
+    assert_eq!(git.matches(SHARED_WITHOUT_GIT_BRIEF).count(), 0);
+    let read_only = compose_dispatch_brief(base.clone(), WorkerPlacement::ReadOnly, true);
+    assert_eq!(read_only, base);
 }
 
 #[test]
@@ -518,12 +529,9 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
 
     for kind in ["qa", "release_manager"] {
         for task_id in [None, Some(task.id.as_str())] {
-            let profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
-                task.executor_role.as_deref(),
-                Some(kind),
-            )
-            .unwrap()
-            .unwrap();
+            let profile = codeterm_types::agent::role_kind::RoleName::parse(kind)
+                .unwrap()
+                .to_string();
             let mut params = codeterm_service_core::service::SpawnAgentParams {
                 role: Some("Worker".into()),
                 role_profile: Some(profile),
@@ -545,11 +553,8 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
 
             assert_eq!(params.task_id.as_deref(), task_id);
             assert_eq!(preset.kind_id, kind);
-            assert!(preset.fragments.iter().any(|fragment| {
-                fragment.source
-                    == codeterm_service_core::service::role_preset::FragmentSource::Builtin
-                    && fragment.text == guidance
-            }));
+            assert_eq!(preset.fragments[0].source.label(), "builtin");
+            assert_eq!(preset.contract_guidance(), guidance);
         }
     }
 
@@ -608,4 +613,126 @@ fn nonrepository_dispatch_reports_nonrepository_placement() {
         &preflight_facts(&task)
     )
     .is_err());
+}
+
+#[test]
+fn placement_without_git_stays_shared_and_refuses_lanes_while_git_keeps_lanes() {
+    use super::super::canonical_writer::resolve_placement;
+    use codeterm_service_core::service::plan::shared_checkout::NO_GIT_HISTORY;
+    let project = tempfile::tempdir().unwrap();
+    let task = super::task(json!({
+        "id": "task_plain", "name": "plain", "type": "code", "status": "pending",
+        "files": {"edit": ["notes.md"]}
+    }));
+    let mut facts = preflight_facts(&task);
+    facts.project_path = project.path().to_string_lossy().into_owned();
+    let mutating = ExecutionIntent::Mutating;
+    let place = |params: Option<serde_json::Value>,
+                 facts: &codeterm_service_core::service::plan::TaskDispatchPreflightRead,
+                 without_git: bool| {
+        resolve_placement(params.as_ref(), &mutating, facts, &[], without_git)
+    };
+
+    assert_eq!(
+        place(None, &facts, true).unwrap().0,
+        WorkerPlacement::Shared
+    );
+    assert_eq!(
+        place(Some(json!({"cwd": facts.project_path})), &facts, true)
+            .unwrap()
+            .0,
+        WorkerPlacement::Shared
+    );
+    for params in [
+        json!({"placement": "lane"}),
+        json!({"placement": "isolated_lane"}),
+        json!({"placement": "canonical_writer"}),
+        json!({"cwd": "/outside-the-project-folder"}),
+    ] {
+        let refusal = place(Some(params.clone()), &facts, true).unwrap_err();
+        assert!(
+            refusal.message.contains(NO_GIT_HISTORY),
+            "{params}: {}",
+            refusal.message
+        );
+    }
+    let mut build_breaking = preflight_facts(&task);
+    build_breaking.project_path = facts.project_path.clone();
+    build_breaking.build_breaking = true;
+    assert!(place(None, &build_breaking, true)
+        .unwrap_err()
+        .message
+        .contains(NO_GIT_HISTORY));
+
+    assert_eq!(
+        place(Some(json!({"placement": "lane"})), &facts, false)
+            .unwrap()
+            .0,
+        WorkerPlacement::IsolatedLane
+    );
+    assert_eq!(
+        place(None, &build_breaking, false).unwrap().0,
+        WorkerPlacement::IsolatedLane
+    );
+    assert_eq!(
+        place(None, &facts, false).unwrap().0,
+        WorkerPlacement::Shared
+    );
+}
+
+#[test]
+fn default_intent_task_without_git_dispatches_shared_and_refuses_an_overlap() {
+    use super::super::canonical_writer::{dispatch_without_git, resolve_placement};
+    use codeterm_service_core::service::plan::shared_checkout::{
+        CheckoutAttemptRead, CheckoutPeerRead, CheckoutTaskRead, NO_GIT_HISTORY,
+    };
+    let project = tempfile::tempdir().unwrap();
+    let mut task = super::task(json!({
+        "id": "task_plain", "name": "plain", "type": "code", "status": "pending",
+        "files": {"edit": ["notes.md"]}, "execution_intent": "non_repository"
+    }));
+    task.execution_intent =
+        super::super::super::plan_fields::execution_intent_field(Some(&json!({}))).unwrap();
+    let mut facts = preflight_facts(&task);
+    facts.project_path = project.path().to_string_lossy().into_owned();
+    let mutating = ExecutionIntent::Mutating;
+
+    let without_git = dispatch_without_git(&mutating, &facts).unwrap();
+    assert!(without_git);
+    let (placement, reason) = resolve_placement(None, &mutating, &facts, &[], without_git).unwrap();
+    assert_eq!(placement, WorkerPlacement::Shared, "{reason}");
+
+    let live_peer = CheckoutPeerRead {
+        id: "plan_other".into(),
+        checkout: facts.project_path.clone(),
+        tasks: vec![CheckoutTaskRead {
+            id: "task_peer".into(),
+            files: task.files.clone(),
+            execution_attempts: vec![CheckoutAttemptRead {
+                id: "attempt_peer".into(),
+                placement: WorkerPlacement::Shared,
+            }],
+        }],
+    };
+    for requested in [None, Some(json!({"placement": "shared"}))] {
+        let refusal = resolve_placement(
+            requested.as_ref(),
+            &mutating,
+            &facts,
+            std::slice::from_ref(&live_peer),
+            without_git,
+        )
+        .unwrap_err();
+        assert!(
+            refusal.message.contains("overlaps task 'task_peer'"),
+            "{}",
+            refusal.message
+        );
+        assert_eq!(
+            refusal.message.contains(NO_GIT_HISTORY),
+            requested.is_none(),
+            "{}",
+            refusal.message
+        );
+    }
 }

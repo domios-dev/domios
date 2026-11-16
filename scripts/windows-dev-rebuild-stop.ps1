@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
 Add-Type -Path (Join-Path $PSScriptRoot 'windows-dev-rebuild-process.cs')
 . (Join-Path $PSScriptRoot 'windows-dev-listeners.ps1')
+. (Join-Path $PSScriptRoot 'windows-dev-stop-probe.ps1')
 
 function Snapshot {
   $listeners = @(Get-DevTcpListeners)
@@ -58,16 +59,17 @@ if ($Operation -eq 'StopTree') {
   $pinned = @()
   try {
     foreach ($row in $request.processes) {
-      $proc = [DevRebuildProcess]::Open([int]$row.pid)
+      $proc = Get-DevCleanupProcess $row { param($id) [DevRebuildProcess]::Open([int]$id) } {
+        param($process, $expected)
+        $image = [DevRebuildProcess]::PhysicalImage($process.Executable)
+        if ($process.Created -cne $expected.created -or
+            -not [string]::Equals($image, [string]$expected.executable, [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Selected-Image $image)) {
+          throw 'DEV instance image or creation identity changed; refusing cleanup'
+        }
+      }
       if ($null -eq $proc) { continue }
       $pinned += $proc
-      if ($proc.WaitForExit(0)) { continue }
-      $image = [DevRebuildProcess]::PhysicalImage($proc.Executable)
-      if ($proc.Created -cne $row.created -or
-          -not [string]::Equals($image, [string]$row.executable, [StringComparison]::OrdinalIgnoreCase) -or
-          -not (Selected-Image $image)) {
-        throw 'DEV instance image or creation identity changed; refusing cleanup'
-      }
     }
     $ids = @($pinned | ForEach-Object { $_.Id })
     $snapshot = Snapshot
@@ -92,10 +94,12 @@ if ($Operation -eq 'StopTree') {
 $pinned = @()
 try {
   foreach ($row in $request.processes) {
-    $proc = [DevRebuildProcess]::Open([int]$row.pid)
+    $proc = Get-DevCleanupProcess $row { param($id) [DevRebuildProcess]::Open([int]$id) } {
+      param($process, $expected)
+      Assert-ProcessIdentity $process $expected
+    }
     if ($null -eq $proc) { continue }
     $pinned += $proc
-    Assert-ProcessIdentity $proc $row
   }
   $snapshot = Snapshot
   $ids = @($pinned | ForEach-Object { $_.Id })

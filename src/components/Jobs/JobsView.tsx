@@ -97,12 +97,12 @@ interface SurfaceProps {
 }
 
 function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef, onExit, onReturn, onDetailChange, workspaceName }: SurfaceProps) {
-  const graphs = useWorkspaceGraphs(adapter, connectionId, sources);
+  const { selection, setSelection, openedSolution, setOpenedSolution } = useJobsNavigation(JSON.stringify(filter), initialBlueprintId ? { kind: "blueprint", id: initialBlueprintId } : initialScenarioId ? { kind: "scenario", id: initialScenarioId } : initialCronId ? { kind: "cron", id: initialCronId } : null, solutionsApi);
+  const graphs = useWorkspaceGraphs(adapter, connectionId, selection?.kind === "cron" ? [] : sources);
   const [saveScope, setSaveScope] = useState<SolutionScope | null>(null);
   const [solutionRevision, setSolutionRevision] = useState(0);
   const [solutionSaved, setSolutionSaved] = useState(false);
   const crons = useCronJobs(cronWorkspace);
-  const { selection, setSelection, openedSolution, setOpenedSolution } = useJobsNavigation(JSON.stringify(filter), initialBlueprintId ? { kind: "blueprint", id: initialBlueprintId } : initialScenarioId ? { kind: "scenario", id: initialScenarioId } : initialCronId ? { kind: "cron", id: initialCronId } : null, solutionsApi);
   useEffect(() => {
     onDetailChange(selection !== null || openedSolution !== null);
     return () => onDetailChange(false);

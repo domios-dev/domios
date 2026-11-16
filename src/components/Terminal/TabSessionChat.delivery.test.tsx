@@ -39,9 +39,18 @@ test("a local preparation failure exposes its retained reason under the original
       failChatSendRequest(tabId, "local-image", new Error("Image upload could not be read"));
     });
     const bubble = host.querySelector('[data-testid="user-bubble-row"]');
-    assert(bubble?.querySelector('[role="status"]')?.textContent?.includes("Image upload could not be read"), "local reason reaches the bubble footer");
+    assert(bubble?.querySelector('[role="status"]')?.getAttribute("aria-label")?.includes("Image upload could not be read"), "local reason reaches the dot");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+async function openDeliveryActions(bubble: Element) {
+  const status = bubble.querySelector('[role="status"]');
+  assert(status?.textContent === "", "recovery stays hidden beside the bubble");
+  const trigger = status.querySelector<HTMLButtonElement>("button");
+  assert(trigger && trigger.getAttribute("aria-label"), "the dot is an accessible button");
+  await act(async () => trigger.click());
+  assert(document.querySelector('[role="dialog"]'), "activating the dot opens recovery");
+}
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -148,11 +157,12 @@ function muxActions(): MultiplexerActionsContextType {
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
 async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string,
-  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[]; general?: boolean } = {}): Promise<{
+  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[]; general?: boolean; pty?: boolean } = {}): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
   calls: string[];
+  setWorking: (working: boolean) => void;
 }> {
   setAgentDescriptors([{ id: "lmstudio", agent_runtime: { goals: { actions: ["read"] } } }] as unknown as ProviderDescriptor[]);
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
@@ -191,7 +201,8 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const state = tabState(tabId, runtimeState, seed.working);
+  let state = tabState(tabId, runtimeState, seed.working);
+  if (seed.pty) state.tabs[tabId] = { ...state.tabs[tabId], backing: { kind: "pty" } };
   if (seed.general) {
     state.tabs.general = { ...state.tabs[tabId], id: "general", protected: true };
     state.workspaces = [{ id: "general-workspace", protected: true, tabs: ["general"] }] as ExtendedState["workspaces"];
@@ -201,7 +212,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
     root.render(
       <MuxStateStoreContext.Provider value={store}>
         <MultiplexerActionsContext.Provider value={muxActions()}>
-          <TabSessionChat tabId={tabId} chatBackend isVisible />
+          <TabSessionChat tabId={tabId} chatBackend={!seed.pty} isVisible />
         </MultiplexerActionsContext.Provider>
       </MuxStateStoreContext.Provider>,
     );
@@ -214,6 +225,11 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
     host,
     root,
     calls,
+    setWorking: working => {
+      state = { ...state, tabs: { ...state.tabs, [tabId]: { ...state.tabs[tabId], agent_state: { state: working ? "working" : "idle" } } },
+        tabStatuses: { ...state.tabStatuses, [tabId]: working ? "Working" : "Idle" } };
+      store.notify();
+    },
     dispatch: (event, payload) => {
       for (const handler of listeners.get(event) ?? []) handler({ payload });
     },
@@ -526,7 +542,7 @@ test("three optimistic sends reconcile to ordered parts of one provider turn", a
   assert(bubbles.length === bodies.length, "merged turn renders each supplied part once");
   bodies.forEach((body, index) => {
     assert(bubbles[index]?.textContent?.includes(body), "ordered parts retain their supplied payload");
-    assert(bubbles[index]?.getAttribute("data-message-id") !== `send-${index}`, "committed parts replace optimistic rows");
+    assert(bubbles[index]?.getAttribute("data-message-id") === `send-${index}`, "committed parts retain their own send row identity");
   });
 
   await act(async () => root.unmount());
@@ -571,7 +587,7 @@ test("runtime image capability refusal is visible inside its retained bubble", a
     await act(async () => dispatch("chat-send-status", { tab_id: tabId, send_id: "refused-image", correlationId: "refused-image",
       state: "failed", error: `tab_busy_refused: Tab ${tabId} refused delivery (nothing written): runtime_rejected_before_write: ${reason}`, sequence: 1, ledger_id: "ledger", retained_from: 1 }));
     const bubble = host.querySelector('[data-testid="chat-message"][data-message-role="user"]');
-    assert(bubble?.querySelector('[role="status"]')?.textContent?.includes(reason), "the refusal reason reaches the bubble status");
+    assert(bubble?.querySelector('[role="status"]')?.getAttribute("aria-label")?.includes(reason), "the refusal reason reaches the accessible status");
     assert(bubble?.querySelector('[aria-label="Open image image.png"]'), "refused input retains its attachment chip");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
@@ -588,61 +604,93 @@ test("a written prompt the agent refused while busy says so without offering Ret
     const bubble = host.querySelector('[data-testid="chat-message"][data-message-role="user"]');
     const status = bubble?.querySelector('[role="status"]');
     assert(status?.getAttribute("data-state") === "uncertain", "the refused written prompt stays unconfirmed");
-    assert(status?.textContent?.includes(reason), "the refusal reason reaches the bubble status");
+    assert(status?.getAttribute("aria-label")?.includes(reason), "the refusal reason reaches the accessible status");
+    assert(status?.textContent === "", "the refused send has no visible label");
     assert(![...(bubble?.querySelectorAll("button") ?? [])].some((button) => button.textContent === "Retry"),
       "written input never offers Retry");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-test("a held send waits after the running turn's live operation and becomes its one delivered bubble", async () => {
-  const tabId = "held-behind-live-tool";
-  const { __setInvokeForTest } = await import("../../lib/bridge");
-  const turn = [
-    { id: "turn-prompt", type: "user", content: "opaque-prompt" },
-    { id: "turn-text", type: "assistant", content: "opaque-preamble" },
-    { id: "turn-tool", type: "tool_call", content: "", toolId: "turn-tool", toolKind: "command", toolInput: { cmd: "opaque-command" },
-      toolStatus: "running", toolStartedAtMs: Date.now() - 1000 },
-  ];
-  const { host, root, dispatch } = await renderChat(tabId, undefined, undefined, undefined, { messages: turn, working: true });
-  const status = (state: "held" | "written" | "delivered", sequence: number) => ({
-    tab_id: tabId, send_id: "held-tx", correlationId: "held-send", state, sequence,
-    ledger_id: "ledger", retained_from: 1, error: null, pending_reason: state === "held" ? "held_active_turn" : undefined,
+for (const pty of [true, false]) {
+  test(`an own ${pty ? "queued" : "steered"} send keeps one row through delivery release and transcript handoff`, async () => {
+    const tabId = `turn-end-${pty}`;
+    const at = Date.now();
+    const record = (offset: number) => ({ kind: "jsonl" as const, incarnation: "own-file", record_start: offset, record_row: 0 });
+    const tool = { id: "turn-tool", type: "tool_call", content: "", toolId: "turn-tool", toolKind: "command",
+      sourceRecord: record(20),
+      toolInput: { cmd: "opaque-command" }, toolStatus: "running", toolStartedAtMs: at - 1000, timestamp: String(at - 1000) };
+    const turn = [
+      { id: "turn-prompt", type: "user", content: "opaque-prompt", timestamp: String(at - 2000) },
+      tool,
+      { id: "turn-answer", type: "assistant", content: "opaque-stream", sourceRecord: record(30), timestamp: String(pty ? at + 1 : at - 500) },
+    ];
+    const { host, root, dispatch, setWorking } = await renderChat(tabId, undefined, undefined, undefined, { messages: turn, working: true, pty });
+    const { __setInvokeForTest } = await import("../../lib/bridge");
+    const status = (state: "written" | "submit_unconfirmed" | "delivered", sequence: number) => ({
+      tab_id: tabId, send_id: "turn-tx", correlationId: "turn-send", state, sequence,
+      ledger_id: "ledger", retained_from: 1, error: null,
+      ...(state === "delivered" ? { matched_row: { source: { source_session_id: "session-1", record: record(40) }, ordinal: 1 } } : {}),
+    });
+    let latest = status("written", 1);
+    __setInvokeForTest(async <T,>(command: string) => (command === "chat_send_status" ? [latest] : []) as T);
+    const emit = (messages: unknown[]) => dispatch(`tab-chat-msg-${tabId}`, {
+      tab_id: tabId, source_session_id: "session-1", session_binding_nonce: "nonce-1", messages,
+    });
+    try {
+      await act(async () => addChatSend(tabId, { id: "turn-send", correlationId: "turn-send", content: "opaque-send", sentAtMs: at }));
+      const bubble = host.querySelector('[data-message-id="turn-send"]');
+      const toolRow = host.querySelector('[data-chat-window-row="turn-tool"]');
+      assert(bubble && toolRow, "send and running tool render");
+      const stable = () => {
+        assert(host.querySelector('[data-message-id="turn-send"]') === bubble, "the bubble node never unmounts");
+        assert(host.querySelector('[data-chat-window-row="turn-tool"]') === toolRow, "the tool keeps its source row");
+        assert(toolRow.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING, "the running and finished tool stay before the send");
+        const answer = host.querySelector('[data-message-id="turn-answer"]');
+        assert(answer, "the answer is rendered");
+        assert(answer.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING,
+          "delivery receipts preserve placement until the source echo owns its transcript slot");
+      };
+      stable();
+      for (const [state, sequence] of [["written", 2], ["submit_unconfirmed", 3]] as const) {
+        latest = status(state, sequence);
+        await act(async () => dispatch("chat-send-status", latest));
+        stable();
+      }
+      if (!pty) {
+        latest = status("delivered", 4);
+        await act(async () => dispatch("chat-send-status", latest));
+        stable();
+      }
+      await act(async () => emit([{ ...turn[2], content: "opaque-stream\n".repeat(600) }]));
+      stable();
+      await act(async () => {
+        emit([{ ...tool, toolStatus: "interrupted", toolDurationMs: 7000 }]);
+        setWorking(false);
+      });
+      stable();
+      latest = status("delivered", 5);
+      await act(async () => dispatch("chat-send-status", latest));
+      stable();
+      const position = () => [...host.querySelectorAll('[data-chat-window-row]')]
+        .findIndex(row => row.contains(bubble));
+      const handoffPositions = [position()];
+      const echo = { id: "source-send", type: "user", content: "opaque-send", sourceRecord: record(40), timestamp: String(at + 2000), correlationId: "turn-send",
+        segments: [{ type: "text", text: "opaque-send", correlationId: "turn-send" }] };
+      await act(async () => emit([echo]));
+      handoffPositions.push(position());
+      assert(host.querySelector('[data-message-id="turn-send"]') === bubble, "a segmented source echo takes over the same bubble node");
+      assert(host.querySelectorAll('[data-message-id="turn-send"]').length === 1, "handoff renders exactly one bubble");
+      assert(host.querySelector('[data-chat-window-row="turn-tool"]') === toolRow, "source handoff keeps the finished tool row");
+      const answer = host.querySelector('[data-message-id="turn-answer"]');
+      assert(answer && answer.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING,
+        "the committed source echo takes its transcript position after the answer");
+      await act(async () => dispatch("chat-send-status", latest));
+      handoffPositions.push(position());
+      assert(handoffPositions.every(index => index === handoffPositions[0]), "delivery and echo keep the same transcript slot without flicker");
+      assert(host.querySelector('[data-message-id="turn-send"]') === bubble, "settled delivery keeps the original DOM node");
+    } finally { await act(async () => root.unmount()); host.remove(); }
   });
-  let latest = status("held", 1);
-  __setInvokeForTest(async <T,>(command: string) => (command === "chat_send_status" ? [latest] : []) as T);
-  const bubbles = () => host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
-  try {
-    await act(async () => addChatSend(tabId, { id: "held-send", correlationId: "held-send", content: "opaque-held", sentAtMs: Date.now() }));
-    await act(async () => dispatch("chat-send-status", latest));
-    const live = host.querySelectorAll('[data-testid="chat-live-operation"]');
-    const held = host.querySelector('[data-message-id="held-send"]');
-    assert(live.length === 1 && held, "one live operation and the held bubble render");
-    assert(live[0].compareDocumentPosition(held) & Node.DOCUMENT_POSITION_FOLLOWING, "the held send follows the running tool");
-    const rows = Array.from(host.querySelectorAll("[data-chat-window-row]"));
-    assert(rows[rows.length - 1]?.contains(held), "the held send is the last transcript row");
-    assert(!host.querySelector('[role="separator"]'), "an untimestamped turn gains no day divider from the held send");
-    const queued = held.querySelector<HTMLElement>('[role="status"][data-state="queued"]');
-    assert(queued?.getAttribute("aria-label"), "queued state exposes its reason");
-    assert(queued?.textContent === "Queued", "held input shows only the short queued label");
-    assert(!queued.querySelector("button"), "held input has no delivery controls");
-
-    latest = status("written", 2);
-    await act(async () => dispatch("chat-send-status", latest));
-    const written = held.querySelector('[role="status"][aria-label="Awaiting confirmation"]');
-    assert(written?.textContent === "" && !written.querySelector("button"), "written input keeps a quiet accessible indicator");
-    assert(live[0].compareDocumentPosition(held) & Node.DOCUMENT_POSITION_FOLLOWING,
-      "a written send keeps its place after the turn it waited behind");
-    latest = status("delivered", 3);
-    await act(async () => dispatch("chat-send-status", latest));
-    const delivered = Array.from(bubbles()).filter((bubble) => bubble.textContent?.includes("opaque-held"));
-    assert(delivered.length === 1 && delivered[0].getAttribute("data-message-id") === "held-send", "delivery keeps the one bubble");
-    const stillLive = host.querySelector('[data-testid="chat-live-operation"]');
-    assert(stillLive && delivered[0].compareDocumentPosition(stillLive) & Node.DOCUMENT_POSITION_FOLLOWING,
-      "confirmed delivery resumes conversation placement");
-  } finally {
-    await act(async () => root.unmount()); host.remove();
-  }
-});
+}
 
 const degradedRuntime: AgentRuntimeState = { state: "degraded", epoch: 2, failureCode: "provider_refused",
   reason: "opaque deadline exceeded; runtime recovery required" };
@@ -700,7 +748,8 @@ test("a never-written send settled by a degrade offers Retry across a reload and
     await act(async () => { await ensureChatSendTabHydrated(tabId); });
     const bubble = heldBubble(host);
     assert(bubble?.querySelector('[role="status"][data-state="failed"]'), "the reloaded bubble says it was not delivered");
-    assert(Array.from(bubble!.querySelectorAll("button")).some((button) => button.textContent === "Retry"), "never-written input offers Retry");
+    await openDeliveryActions(bubble!);
+    assert(document.querySelector('[role="dialog"]')?.textContent?.includes("Retry"), "never-written input offers Retry");
     await act(async () => observeChatSendDismissal(tabId, { send_id: "held-tx", send: { id: "held-send", correlationId: "held-send", content: "йо", sentAtMs: 1 } }));
     assert(!heldBubble(host), "dismissal is what removes it");
   } finally {
@@ -775,7 +824,8 @@ test("one bubble follows event state and Retry reuses it", async () => {
       await act(async () => { dispatch("chat-send-status", latest); });
       assert(bubble().length === 1, "state changes never add a row");
     }
-    const retry = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+    await openDeliveryActions(bubble()[0]);
+    const retry = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Retry");
     assert(retry, "failed send offers Retry");
     await act(async () => { retry.click(); retry.click(); });
     assert(requests === 1, "Retry admits once");
@@ -843,7 +893,8 @@ for (const reducedMotion of [false, true]) {
         && (focused as { workspaceId: string })?.workspaceId === "general-workspace", "setup brings General forward");
       assert(readChatSends(tabId).find(send => send.id === "voice")?.requestFailed, "setup leaves original failure unreplayed");
       await act(async () => failChatSendRequest(tabId, "voice", "Transport unavailable"));
-      const transportControls = [...(bubble.querySelector('[role="status"]')?.querySelectorAll("button") ?? [])].map(button => button.textContent);
+      await openDeliveryActions(bubble);
+      const transportControls = [...document.querySelectorAll('[role="dialog"] button')].map(button => button.textContent);
       assert(transportControls.includes("Retry") && transportControls.includes("Remove")
         && !transportControls.includes("Set up transcriber"), "ordinary voice send failures retain delivery recovery");
     } finally {
@@ -871,7 +922,8 @@ test("hydrated tokenless input exposes recovery and stays removed after reload",
     await act(async () => { await ensureChatSendTabHydrated(tabId); });
     const bubble = host.querySelector('[data-message-id="tokenless"]');
     assert(bubble && bubble.querySelector('[role="status"][data-state="uncertain"]'), "restored input has a reason");
-    const buttons = [...bubble.querySelectorAll("button")];
+    await openDeliveryActions(bubble);
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')];
     assert(buttons.some(button => button.textContent === "Edit and resend"), "restored input is editable");
     assert(!buttons.some(button => button.textContent === "Retry"), "restored input never offers replay");
     const remove = buttons.find(button => button.textContent === "Remove");
@@ -903,7 +955,8 @@ test("failed image send with an early runtime row renders one bubble with visibl
       state: "failed", error: null, sequence: 1, ledger_id: "ledger", retained_from: 1 }));
     const bubbles = host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
     assert(bubbles.length === 1, "same identity stays one bubble after failure");
-    const controls = [...bubbles[0].querySelectorAll("button")].map(button => button.textContent);
+    await openDeliveryActions(bubbles[0]);
+    const controls = [...document.querySelectorAll('[role="dialog"] button')].map(button => button.textContent);
     assert(controls.includes("Retry") && controls.includes("Remove"), "failure offers both visible exits");
     assert(bubbles[0].querySelector('[aria-label="Open image first.png"]'), "first image remains");
     assert(bubbles[0].querySelector('[aria-label="Open image second.png"]'), "second image remains");
@@ -933,7 +986,8 @@ test("Edit and resend restores text and images without sending and submits a fre
       }
       return [] as T;
     });
-    const edit = [...host.querySelectorAll("button")].find(button => button.textContent === "Edit and resend");
+    await openDeliveryActions(host.querySelector('[data-message-id="original"]')!);
+    const edit = [...document.querySelectorAll("button")].find(button => button.textContent === "Edit and resend");
     assert(edit, "uncertain bubble exposes edit");
     assert(![...host.querySelectorAll("button")].some(button => button.textContent === "Retry"), "no replay control");
     await act(async () => edit.click());

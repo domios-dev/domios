@@ -35,6 +35,22 @@ macro_rules! agent_provider_session_usage {
             super::usage_sources_from_session_file(self, cwd, session_id)
         }
 
+        fn usage_sql_query(&self, _scoped: bool) -> Option<String> {
+            None
+        }
+
+        fn usage_accounting(&self) -> crate::token_usage::UsageAccounting {
+            crate::token_usage::UsageAccounting::Unreported
+        }
+
+        fn parse_usage_record(
+            &self,
+            _record: &serde_json::Value,
+            _now: u64,
+        ) -> Result<Option<crate::token_usage::ParsedUsage>, String> {
+            Ok(None)
+        }
+
         /// Detect the most recent session ID for the given working directory.
         fn detect_session_id(
             &self,

@@ -272,6 +272,7 @@ third-party = [
     { name = "webview2-com-sys" },
     { name = "window-vibrancy" },
     { name = "windows-link" },
+    { name = "windows-sys", version = "0.61.2" },
     { name = "windows-version" },
     { name = "winreg" },
     { name = "wry" },

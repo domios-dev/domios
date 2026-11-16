@@ -275,7 +275,10 @@ impl SecretStore for LocalStore {
                 reason: reason.clone(),
             };
         }
-        let endpoint = Some("file:~/.domios/.secrets".to_string());
+        let endpoint = self
+            .keychain
+            .path()
+            .map(|path| format!("file:{}", path.display()));
         match self.index.load() {
             Ok(_) => StoreStatus::Unlocked {
                 user: hostname_label(),

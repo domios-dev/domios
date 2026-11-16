@@ -8,6 +8,7 @@
 mod background_work;
 mod context;
 mod detection;
+mod external_imports;
 mod folder_trust;
 pub mod hook_ownership;
 pub mod integration;
@@ -324,6 +325,18 @@ impl AgentProvider for ClaudeProvider {
         sessions::session_file_path(cwd, session_id)
     }
 
+    fn usage_accounting(&self) -> crate::token_usage::UsageAccounting {
+        crate::token_usage::UsageAccounting::Transcript
+    }
+
+    fn parse_usage_record(
+        &self,
+        record: &serde_json::Value,
+        now: u64,
+    ) -> Result<Option<crate::token_usage::ParsedUsage>, String> {
+        Ok(crate::token_usage::nested::parse_record(record, now))
+    }
+
     fn additional_usage_sources(
         &self,
         session_file: &std::path::Path,
@@ -441,6 +454,9 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn parse_prompt(&self, text: &str) -> Option<codeterm_types::pty::PendingPrompt> {
+        if let Some((prompt, _)) = external_imports::parse(text) {
+            return Some(prompt);
+        }
         onboarding::parse(text)
             .map(|prompt| (prompt.question, prompt.options))
             .or_else(|| folder_trust::parse_prompt(text))
@@ -454,6 +470,28 @@ impl AgentProvider for ClaudeProvider {
 
     fn has_hooks(&self) -> bool {
         true
+    }
+
+    fn classify_tab_state(
+        &self,
+        snapshot: &crate::tab_state::TabStateSnapshot,
+    ) -> Option<crate::tab_state::TabStateClassification> {
+        let (prompt, _) = external_imports::parse(&snapshot.screen_text)?;
+        Some(crate::tab_state::TabStateClassification {
+            state: crate::tab_state::TabState::ClarifyingQuestion,
+            confidence: 1.0,
+            data: Some(crate::tab_state::TabStateData {
+                questions: Some(vec![prompt.question.clone()]),
+                ..Default::default()
+            }),
+            action: Some(crate::tab_state::TabStateAction {
+                surface: Some(crate::tab_state::Surface {
+                    kind: "clarifying_question".into(),
+                    payload: serde_json::json!({"questions": [prompt.question]}),
+                }),
+                ..Default::default()
+            }),
+        })
     }
 
     fn hook_event_roster(&self) -> Vec<crate::provider::HookEventBinding> {
@@ -694,6 +732,9 @@ impl AgentProvider for ClaudeProvider {
 }
 
 fn highlighted_option_index(screen: &str) -> Option<usize> {
+    if let Some((_, focused)) = external_imports::parse(screen) {
+        return Some(focused);
+    }
     if let Some(index) = folder_trust::current_option_index(screen) {
         return Some(index);
     }

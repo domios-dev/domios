@@ -116,7 +116,7 @@ export function TabTopBar({
   const [restarting, setRestarting] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
-  const { upsertToast } = useMultiplexer();
+  const { upsertToast, detachRemoteTab } = useMultiplexer();
   const menuTab = tabMenu?.tab ?? null;
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
@@ -232,7 +232,7 @@ export function TabTopBar({
       })();
       return;
     }
-    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose })
+    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose, detach: () => detachRemoteTab?.(tabId) })
       .catch((error) => reportFailure(error, "updating this tab"));
   };
 

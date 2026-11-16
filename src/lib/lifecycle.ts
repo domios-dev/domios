@@ -1,40 +1,13 @@
 import { IS_WEB } from "./webApi";
-import { resetWebEvents, wakeWebEvents, webReconnectEnabled } from "./webEvents";
-import { fireResync } from "./resync";
+import { wakeWebEvents } from "./webEvents";
+import { verifyStreamMuxes } from "./streamMux";
 
-const DEBOUNCE_MS = 250;
-const MUX_REFRESH = "codeterm-refresh-mux-state";
-
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let mountedStop: (() => void) | null = null;
 let sawHidden = false;
 
-function defaultWakeResync(): void {
-  resetWebEvents();
-  window.dispatchEvent(new Event(MUX_REFRESH));
-  fireResync("wake");
-}
-
-let wakeResync: () => void = defaultWakeResync;
-
-export function runWebWakeResync(): void {
-  wakeResync();
-}
-
-export function setWakeResyncForTests(fn: (() => void) | null): void {
-  wakeResync = fn ?? defaultWakeResync;
-}
-
-function scheduleWakeResync(): void {
-  if (webReconnectEnabled()) {
-    wakeWebEvents();
-    return;
-  }
-  if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => {
-    debounceTimer = null;
-    runWebWakeResync();
-  }, DEBOUNCE_MS);
+function wakeConnection(): void {
+  void verifyStreamMuxes();
+  wakeWebEvents();
 }
 
 function onVisibilityChange(): void {
@@ -44,16 +17,16 @@ function onVisibilityChange(): void {
   }
   if (sawHidden) {
     sawHidden = false;
-    scheduleWakeResync();
+    wakeConnection();
   }
 }
 
 function onPageShow(e: Event): void {
-  if ((e as PageTransitionEvent).persisted) scheduleWakeResync();
+  if ((e as PageTransitionEvent).persisted) wakeConnection();
 }
 
 function onOnline(): void {
-  scheduleWakeResync();
+  wakeConnection();
 }
 
 export function mountWebLifecycle(): () => void {
@@ -66,8 +39,6 @@ export function mountWebLifecycle(): () => void {
   window.addEventListener("online", onOnline);
 
   const stop = () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = null;
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.removeEventListener("pageshow", onPageShow);
     window.removeEventListener("online", onOnline);

@@ -99,6 +99,7 @@ impl PlanStore {
                 attempt.execution_intent = draft.source_attempt.execution_intent.clone();
                 attempt.checkout_path = draft.source_attempt.checkout_path.clone();
                 attempt.shared_start_sha = draft.source_attempt.shared_start_sha.clone();
+                attempt.shared_start_files = draft.source_attempt.shared_start_files.clone();
                 record_noncompetitive_replacement_attempt(
                     &mut task.execution_attempts,
                     attempt.clone(),

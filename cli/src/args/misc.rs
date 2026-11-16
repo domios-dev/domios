@@ -45,7 +45,7 @@ pub enum WorkspaceAction {
         #[arg(long, conflicts_with = "cwd")]
         provision: bool,
     },
-    /// Focus a workspace by ID
+    /// Highlight a workspace's last selected tab for the owner; no window switches to it
     Focus {
         /// Workspace ID
         id: String,
@@ -186,12 +186,12 @@ pub enum TabAction {
         #[arg(long)]
         last: bool,
     },
-    /// Focus a tab by ID
+    /// Highlight a tab for the owner; no window switches to it, the owner opens it
     Focus {
         /// Temporary positional alias for the tab id. Prefer --tab.
         #[arg(conflicts_with = "tab")]
         id: Option<String>,
-        /// Tab ID to focus.
+        /// Tab ID to highlight.
         #[arg(long = "tab", value_name = "ID")]
         tab: Option<String>,
     },

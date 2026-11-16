@@ -6,9 +6,12 @@ fn json_boolean_record_preserves_sandbox_read_and_write_boundaries() {
     let record = temp.path().join("record.json");
     std::fs::write(&record, "{}").unwrap();
     let source = r#"module.exports.default = {
-        record(path, grant) { return JSON.parse(host.jsonBooleanRecord(path, '["trusted"]', grant)); },
-        canonical(path) { return host.canonicalPath(path); }
-    };"#;
+    record(path, grant) { return host.io({op:"jsonBooleanRecord",path:path,keys:["trusted"],grant:grant}, function(value){return value;}); },
+    canonical(path) {
+        return host.io.run((function* () { return (yield { op: "canonicalPath", path: path }); }).call(this));
+    }
+};
+"#;
     for (reads, writes, can_read, can_write) in [
         (vec![], vec![], false, false),
         (vec![temp.path().to_path_buf()], vec![], true, false),
@@ -20,7 +23,8 @@ fn json_boolean_record_preserves_sandbox_read_and_write_boundaries() {
         ),
     ] {
         std::fs::write(&record, "{}").unwrap();
-        let sandbox = Arc::new(PluginSandbox::restricted(reads, writes));
+        let sandbox =
+            Arc::new(PluginSandbox::restricted(reads, writes).with_identity("record-test"));
         let vm = PluginVm::from_source_sandboxed("record-test", source.to_string(), None, sandbox)
             .unwrap();
         let path = record.to_str().unwrap();

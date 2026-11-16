@@ -104,6 +104,13 @@ impl SecretFile {
         self.available
     }
 
+    pub fn path(&self) -> Option<&Path> {
+        match &self.backend {
+            Backend::File { path, .. } => Some(path),
+            Backend::InMemory { .. } => None,
+        }
+    }
+
     pub fn availability_reason(&self) -> Option<&str> {
         match &self.backend {
             Backend::InMemory { reason } => Some(reason.as_str()),

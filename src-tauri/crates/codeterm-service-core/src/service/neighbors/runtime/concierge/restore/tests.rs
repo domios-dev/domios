@@ -6,6 +6,70 @@ use std::sync::{
 };
 
 #[tokio::test]
+async fn missing_saved_permission_never_fabricates_a_bound_or_dormant_restore_grant() {
+    for dormant in [false, true] {
+        let (mut mux, general) = MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&general).unwrap();
+        let root = mux.create_tab(&workspace).unwrap();
+        let tab = mux.get_tab_mut(&root).unwrap();
+        tab.agent_type = Some("opaque-provider".into());
+        tab.session_binding_nonce = Some("own-nonce".into());
+        let fixture = ServiceFixture::new(mux);
+        let service = &fixture.service;
+        let friend = "a".repeat(64);
+        service.set_neighbor_friend_receiver_for_test(&friend, Some(true), 1);
+        service.tag_neighbor_root("owner", &friend, &root).unwrap();
+        service.remember_neighbor_restore_grant(
+            &root,
+            codeterm_neighbors::permissions::MachineAccess::Full,
+        );
+        let mut settings = crate::service::neighbors::storage::Settings::default();
+        if dormant {
+            settings.dormant_concierges.insert(
+                friend.clone(),
+                crate::service::neighbors::storage::DormantConcierge {
+                    provider: Some("opaque-provider".into()),
+                    model: None,
+                    options: Default::default(),
+                },
+            );
+        } else {
+            settings.bindings.insert(friend.clone(), root.clone());
+        }
+        let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+        metadata.save_settings(settings.clone()).await.unwrap();
+        let result = service
+            .restore_neighbor_concierge_with(
+                &metadata,
+                "owner",
+                &friend,
+                |_, _, _, _, _, _| async {
+                    panic!("missing owner permission must not create a concierge")
+                },
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), Error::RestoreGrantRequired.to_string());
+        assert!(service.require_neighbor_restore_grant(&root, true).is_err());
+        assert!(service
+            .require_neighbor_restore_grant(&root, false)
+            .is_err());
+        service.remember_neighbor_restore_grant(
+            &root,
+            codeterm_neighbors::permissions::MachineAccess::Full,
+        );
+        service.remember_neighbor_concierge_accounts("owner", &settings);
+        assert!(service.require_neighbor_restore_grant(&root, true).is_err());
+        assert!(service
+            .require_neighbor_restore_grant(&root, false)
+            .is_err());
+        let saved = metadata.settings().await.unwrap();
+        assert!(!saved.permissions.contains_key(&friend));
+        assert_eq!(saved.bindings, settings.bindings);
+        assert_eq!(saved.dormant_concierges.contains_key(&friend), dormant);
+    }
+}
+
+#[tokio::test]
 async fn older_concierge_is_replaced_in_friend_folder_without_losing_permissions_or_model() {
     for tagged in [false, true] {
         let (mut mux, general) = MultiplexerState::new();
@@ -232,7 +296,7 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
             .iter()
             .filter(|tab| tab.tab_id == tabs[0])
             .count(),
-        1
+        0
     );
 }
 

@@ -24,6 +24,35 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/usageRecord.ts
+var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var count = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : void 0;
+function timestamp(value, now) {
+  const seconds = count(value.timestamp);
+  if (seconds !== void 0) return seconds;
+  if (typeof value.timestamp === "string" && value.timestamp.endsWith("Z")) {
+    const ms = Date.parse(value.timestamp);
+    if (Number.isFinite(ms) && ms >= 0) return Math.floor(ms / 1e3);
+  }
+  const created = count(object(value.time).created);
+  return created === void 0 ? now : Math.floor(created / 1e3);
+}
+
+// plugins/provider-claude/src/usageRecord.ts
+function parseUsageRecord(raw, now) {
+  const value = object(raw), at = timestamp(value, now);
+  if (value.compactMetadata !== null && typeof value.compactMetadata === "object" && !Array.isArray(value.compactMetadata)) return { kind: "compaction", timestamp: at };
+  const message = object(value.message), usage2 = object(message.usage), input = count(usage2.input_tokens);
+  if (input === void 0) return null;
+  const uncached = input + (count(usage2.cache_creation_input_tokens) ?? 0);
+  return {
+    kind: "response",
+    timestamp: at,
+    response_id: typeof message.id === "string" ? `${message.id}:${typeof value.requestId === "string" ? value.requestId : ""}` : null,
+    tokens: { input: uncached + (count(usage2.cache_read_input_tokens) ?? 0), uncached_input: uncached, output: count(usage2.output_tokens) ?? 0 }
+  };
+}
+
 // plugins/provider-claude/src/hookOwnership.ts
 var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
 var CODETERM_HOOK_TIMEOUT_SECONDS = 5;
@@ -159,12 +188,12 @@ function* ioFileTransaction(fs, paths, work) {
 
 // plugins/provider-shared/runPromptStep.ts
 function bytes(text2) {
-  let count3 = 0;
+  let count4 = 0;
   for (const point of text2) {
     const code = point.codePointAt(0);
-    count3 += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+    count4 += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
   }
-  return count3;
+  return count4;
 }
 function bounded(text2) {
   if (bytes(JSON.stringify(text2)) <= 60 * 1024) return text2;
@@ -301,13 +330,13 @@ function modelSettings(args) {
 
 // plugins/provider-claude/src/context.ts
 var LIMIT = 1e7;
-function count(value) {
+function count2(value) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= LIMIT ? value : null;
 }
 function parseContextUsage(record3) {
   if (!record3 || typeof record3 !== "object") return null;
   if (record3.type === "system" && record3.subtype === "compact_boundary") {
-    const tokens = count(record3.compactMetadata?.postTokens);
+    const tokens = count2(record3.compactMetadata?.postTokens);
     return tokens === null ? null : {
       used_tokens: tokens,
       window_tokens: 0,
@@ -319,11 +348,11 @@ function parseContextUsage(record3) {
   const hasStatusline = Object.prototype.hasOwnProperty.call(record3, "context_window");
   const usage2 = hasStatusline ? statusline?.current_usage : record3.type === "assistant" ? record3.message?.usage : null;
   if (!usage2 || typeof usage2 !== "object") return null;
-  const input = count(usage2.input_tokens);
-  const creation = usage2.cache_creation_input_tokens === void 0 ? 0 : count(usage2.cache_creation_input_tokens);
-  const read = usage2.cache_read_input_tokens === void 0 ? 0 : count(usage2.cache_read_input_tokens);
+  const input = count2(usage2.input_tokens);
+  const creation = usage2.cache_creation_input_tokens === void 0 ? 0 : count2(usage2.cache_creation_input_tokens);
+  const read = usage2.cache_read_input_tokens === void 0 ? 0 : count2(usage2.cache_read_input_tokens);
   if (input === null || creation === null || read === null || input + creation + read > LIMIT) return null;
-  const window = count(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage2.context_window_size !== void 0 ? usage2.context_window_size : 0);
+  const window = count2(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage2.context_window_size !== void 0 ? usage2.context_window_size : 0);
   if (window === null) return null;
   const rawCost = record3.cost?.total_cost_usd;
   const cost = typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0 && rawCost <= 1e6 ? rawCost : null;
@@ -347,7 +376,7 @@ function statuslineSettings(settings) {
       bytes2 += point > 65535 ? 4 : point > 2047 ? 3 : point > 127 ? 2 : 1;
     }
     if (bytes2 > 8192) return null;
-    if (line.padding !== void 0 && (count(line.padding) === null || line.padding > 1e3)) return null;
+    if (line.padding !== void 0 && (count2(line.padding) === null || line.padding > 1e3)) return null;
   }
   const command = STATUSLINE_FORWARD + (line ? `; printf '%s' "$payload" | ( ${line.command}
 )` : "; true");
@@ -669,6 +698,39 @@ function parseSwitchConfirmationPrompt(screen, selection) {
   return { question: before[questionIndex].trim(), options: [[first[3], "1"], [second[3], "2"]] };
 }
 
+// plugins/provider-claude/src/externalImports.ts
+function claudeExternalImportsPrompt(screen) {
+  const rows = String(screen || "").replace(/\r\n?/g, "\n").split("\n").map((row) => row.replace(/^[\s│┃║─━═]+|[\s│┃║─━═]+$/g, ""));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  const footer = rows.length - 1;
+  if (!/^Enter\s+to\s+confirm\s*[·•]\s*Esc\s+to\s+cancel$/i.test(rows[footer] || "")) return null;
+  const options = [];
+  for (let line = footer - 1; line >= 0; line--) {
+    const row = rows[line];
+    if (!row) continue;
+    const match = /^([❯>])?\s*((?:No|Yes),\s*(?:disable|allow)\s+external\s+imports)$/i.exec(row);
+    if (!match) break;
+    options.unshift({ label: match[2], focused: Boolean(match[1]), line });
+  }
+  if (options.length !== 2 || options.filter((option) => option.focused).length !== 1) return null;
+  if (!/^No,\s*disable/i.test(options[0].label) || !/^Yes,\s*allow/i.test(options[1].label)) return null;
+  const before = rows.slice(0, options[0].line);
+  let title = -1;
+  for (let index = 0; index < before.length; index++) {
+    if (/^Allow\s+external\s+CLAUDE\.md\s+file\s+imports\?$/i.test(before[index])) title = index;
+  }
+  if (title < 0) return null;
+  const context = before.slice(title + 1);
+  const imports = context.findIndex((row) => /^External\s+imports:$/i.test(row));
+  if (imports < 0 || !/^(?:[A-Za-z]:[\\/]|\/|~[\\/]|\\\\)/.test(context[imports + 1] || "")) return null;
+  if (context.some((row) => /^[❯>]/.test(row))) return null;
+  return {
+    question: "Claude is asking whether to allow external CLAUDE.md imports",
+    options: options.map((option, index) => [option.label, String(index + 1)]),
+    focusedIndex: options.findIndex((option) => option.focused)
+  };
+}
+
 // plugins/provider-claude/src/permissionHook.ts
 function permissionHookCapability() {
   return {
@@ -760,10 +822,10 @@ function* sessionModelTranscriptBoundary(cwd, sessionId) {
       };
     }
     if (entry.type === "user" || entry.type === "assistant") {
-      const timestamp = cleanMetadataValue(entry.timestamp);
-      return timestamp ? {
+      const timestamp2 = cleanMetadataValue(entry.timestamp);
+      return timestamp2 ? {
         lastEntryUuid: null,
-        lastEntryTimestamp: timestamp,
+        lastEntryTimestamp: timestamp2,
         lastEntryType: entry.type,
         boundaryFound: true
       } : null;
@@ -898,7 +960,7 @@ function capitalize(s) {
 }
 
 // plugins/provider-shared/accessError.ts
-function object(value) {
+function object2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 var authExpiry = ["token_expired", "refresh_token_expired", "auth_expired", "auth_expiry"];
@@ -931,9 +993,9 @@ function statusCode(value) {
   return null;
 }
 function classifyAccessError(error, record3) {
-  const detail = object(error);
+  const detail = object2(error);
   const info = detail?.codexErrorInfo;
-  const infoObject = object(info);
+  const infoObject = object2(info);
   const fields = [
     typeof error === "string" ? error : null,
     detail?.type,
@@ -944,7 +1006,7 @@ function classifyAccessError(error, record3) {
     detail?.httpStatusCode,
     typeof info === "string" ? info : null,
     ...Object.keys(infoObject ?? {}),
-    ...Object.values(infoObject ?? {}).map((value) => object(value)?.httpStatusCode),
+    ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
     record3.status,
     record3.statusCode,
     record3.status_code,
@@ -974,14 +1036,14 @@ function readRetry(value) {
   return null;
 }
 function retryAfterSecs(error, record3) {
-  return readRetry(object(error)) ?? readRetry(record3);
+  return readRetry(object2(error)) ?? readRetry(record3);
 }
 function observationTurnId(record3) {
   for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
     const value = record3[key];
     if (typeof value === "string" && value) return value;
   }
-  const payload = object(record3.payload);
+  const payload = object2(record3.payload);
   if (!payload) return null;
   for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
     const value = payload[key];
@@ -990,7 +1052,7 @@ function observationTurnId(record3) {
   return null;
 }
 function observationRetrying(error, record3) {
-  return record3.willRetry === true || object(error)?.willRetry === true;
+  return record3.willRetry === true || object2(error)?.willRetry === true;
 }
 function observationExtras(error, record3) {
   const extras = {};
@@ -1035,8 +1097,8 @@ function retryError(record3) {
   if (kind === "rate_limit") {
     const reset = record3.apiErrorResetAtMs ?? error.retryAtMs;
     const seconds = retryAfterSecs(record3.error, record3);
-    const timestamp = typeof record3.timestamp === "string" ? Date.parse(record3.timestamp) : NaN;
-    const due = reset ?? (seconds != null ? timestamp + seconds * 1e3 : NaN);
+    const timestamp2 = typeof record3.timestamp === "string" ? Date.parse(record3.timestamp) : NaN;
+    const due = reset ?? (seconds != null ? timestamp2 + seconds * 1e3 : NaN);
     if (typeof due !== "number" || !Number.isSafeInteger(due) || due < 0) return { retry_error: { retryable: observationRetrying(record3.error, record3) } };
     retryableKind = "rate_limited_until";
     retryAtMs = due;
@@ -1050,11 +1112,11 @@ function retryError(record3) {
 function authStatusProbe() {
   return { args: ["auth", "status"], timeoutMs: 15e3 };
 }
-function object2(value) {
+function object3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function parseAuthStatus(value) {
-  const record3 = object2(value);
+  const record3 = object3(value);
   if (!record3 || typeof record3.loggedIn !== "boolean") return null;
   const result = { loggedIn: record3.loggedIn };
   for (const key of ["authMethod", "subscriptionType", "configDirectory"]) {
@@ -1065,38 +1127,38 @@ function parseAuthStatus(value) {
   return result;
 }
 function parseSessionObservations(value) {
-  const record3 = object2(value);
+  const record3 = object3(value);
   if (!record3) return null;
   const modes = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
   const permission_mode = typeof record3.permissionMode === "string" && modes.includes(record3.permissionMode) ? record3.permissionMode : null;
   const retry = retryError(record3);
   const isError = record3.isApiErrorMessage === true || retry.retry_error?.retryableKind === "output_limit";
   const api_error = isError ? classifyAccessError(record3.error, record3) : null;
-  const clears_api_error = record3.type === "assistant" && !isError && !!object2(record3.message);
-  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3), ...retry, ...clears_api_error && record3.isSidechain !== true && ["end_turn", "stop_sequence"].includes(String(object2(record3.message)?.stop_reason)) ? { retry_succeeded: true } : {} } : null;
+  const clears_api_error = record3.type === "assistant" && !isError && !!object3(record3.message);
+  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3), ...retry, ...clears_api_error && record3.isSidechain !== true && ["end_turn", "stop_sequence"].includes(String(object3(record3.message)?.stop_reason)) ? { retry_succeeded: true } : {} } : null;
 }
 
 // plugins/provider-claude/src/backgroundWork.ts
-function object3(value) {
+function object4(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function parseBackgroundWork(value) {
-  const row = object3(value);
+  const row = object4(value);
   if (!row) return [];
   if (row.type === "summary" || row.isCompactSummary === true || row.type === "system" && ["compact_boundary", "init", "resume"].includes(String(row.subtype))) return [{ id: "", state: "session_boundary" }];
-  const result = object3(row.toolUseResult);
+  const result = object4(row.toolUseResult);
   const events = [];
   for (const [key, state] of [["backgroundTaskId", "running"], ["agentId", result?.status === "async_launched" || result?.status === "running" ? "running" : result?.status]]) {
     const id = result?.[key];
     if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id) && ["running", "completed", "failed", "killed"].includes(String(state))) events.push({ id, state });
   }
-  const content = object3(row.message)?.content;
-  if (row.type === "user" && result?.task_type === "local_bash" && typeof result.command === "string" && !(Array.isArray(content) && content.some((block) => object3(block)?.is_error === true))) {
+  const content = object4(row.message)?.content;
+  if (row.type === "user" && result?.task_type === "local_bash" && typeof result.command === "string" && !(Array.isArray(content) && content.some((block) => object4(block)?.is_error === true))) {
     const id = result.task_id;
     if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id)) events.push({ id, state: "killed" });
   }
-  const prompt = object3(row.attachment)?.prompt;
-  const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((block) => object3(block)?.text).filter((text2) => typeof text2 === "string") : [];
+  const prompt = object4(row.attachment)?.prompt;
+  const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((block) => object4(block)?.text).filter((text2) => typeof text2 === "string") : [];
   if (typeof prompt === "string") texts.push(prompt);
   for (const text2 of texts) {
     const notifications = text2.match(/<task-notification>[\s\S]*?<\/task-notification>/g) || [];
@@ -1147,6 +1209,36 @@ function* detectClaudeLaunchSession(evidence) {
   return null;
 }
 
+// plugins/provider-claude/src/credentials.ts
+function* readClaudeOAuthToken(host2) {
+  const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
+  const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
+  const fileCredentials = credentialsPath ? parseCredentials(yield* host2.io.fs.readFile(credentialsPath)) : null;
+  const credentials = (inheritedHome ? null : yield* readMacOsCredentials(host2)) ?? fileCredentials;
+  const oauth = credentials?.claudeAiOauth;
+  const token = oauth && typeof oauth === "object" ? oauth.accessToken : null;
+  return typeof token === "string" && token ? token : null;
+}
+function* readMacOsCredentials(host2) {
+  if (host2.platform() !== "macos") return null;
+  const user = host2.envGet("USER");
+  const args = ["find-generic-password"];
+  if (user) args.push("-a", user);
+  args.push("-w", "-s", "Claude Code-credentials");
+  const result = parseCredentials(yield* ioEncoded(host2.io.exec({ bin: "security", args, timeoutMs: 5e3 })));
+  if (result?.code !== 0) return null;
+  return parseCredentials(result.stdout);
+}
+function parseCredentials(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // plugins/provider-claude/src/usage.ts
 function usageNormalize(raw) {
   let out = "";
@@ -1163,12 +1255,7 @@ function usageNormalize(raw) {
 }
 var CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 function* fetchClaudeUsage(host2) {
-  const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
-  const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
-  const fileCredentials = credentialsPath ? safeJson(yield* host2.io.fs.readFile(credentialsPath)) : null;
-  const credentials = (inheritedHome ? null : yield* readMacOsCredentials(host2)) ?? fileCredentials;
-  const oauth = objectAt(credentials, "claudeAiOauth");
-  const accessToken = stringAt(oauth, "accessToken");
+  const accessToken = yield* readClaudeOAuthToken(host2);
   if (!accessToken) throw new Error("usage credentials unavailable");
   const response = safeJson(yield* ioEncoded(host2.io.fetch({
     url: "https://api.anthropic.com/api/oauth/usage",
@@ -1242,16 +1329,6 @@ function normalizeClaudeUsage(body) {
 }
 function objectAtValue(value, key) {
   return value && typeof value === "object" ? value[key] : void 0;
-}
-function* readMacOsCredentials(host2) {
-  if (host2.platform() !== "macos") return null;
-  const user = host2.envGet("USER");
-  const args = ["find-generic-password"];
-  if (user) args.push("-a", user);
-  args.push("-w", "-s", "Claude Code-credentials");
-  const result = safeJson(yield* ioEncoded(host2.io.exec({ bin: "security", args, timeoutMs: 5e3 })));
-  if (numberAt(result, "code") !== 0) return null;
-  return safeJson(stringAt(result, "stdout"));
 }
 function parseFetchedClaudeUsage(raw, nowMs) {
   const fetched = safeJson(raw);
@@ -1444,7 +1521,6 @@ function decideAvailability(probe, minimum, declared) {
 function* discoverAnthropicModels() {
   const installed = yield* probeInstalledCli();
   const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
-  if (!key) return applyInstalledCapabilities(manifestModels(), installed);
   const live = yield* fetchLiveModels(key);
   if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
@@ -1463,12 +1539,17 @@ function manifestModels() {
 function* fetchLiveModels(key) {
   let raw;
   try {
+    const token = key ? null : yield* readClaudeOAuthToken(host);
+    if (!key && !token) return null;
     raw = yield* ioEncoded(host.io.fetch({
-      url: "https://api.anthropic.com/v1/models",
+      url: "https://api.anthropic.com/v1/models?limit=1000",
       method: "GET",
       timeoutMs: 3e3,
       headers: {
-        "x-api-key": key,
+        ...key ? { "x-api-key": key } : {
+          Authorization: `Bearer ${token}`,
+          "anthropic-beta": "oauth-2025-04-20"
+        },
         "anthropic-version": "2023-06-01"
       }
     }));
@@ -1530,7 +1611,7 @@ function mapAliasesToLive(aliases, live) {
     const mapped = {
       ...alias,
       id: alias.id,
-      displayName: match && alias.primary && liveDisplay(match) ? liveDisplay(match) : match && !alias.id.endsWith("[1m]") ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
+      displayName: match && alias.primary && liveDisplay(match) ? liveDisplay(match) : match ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
     };
     if (alias.description) mapped.description = alias.description;
     mapped.available = !!match;
@@ -1589,8 +1670,10 @@ function versionKey(v) {
 }
 function withVersion(displayName, version) {
   if (!version) return displayName;
-  if (/\d+(?:\.\d+)?/.test(displayName)) return displayName.replace(/\d+(?:\.\d+)?/, version);
-  return displayName + " " + version;
+  const suffixIndex = displayName.indexOf(" (");
+  const label = suffixIndex === -1 ? displayName : displayName.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : displayName.slice(suffixIndex);
+  return (/\d+(?:\.\d+)?/.test(label) ? label.replace(/\d+(?:\.\d+)?/, version) : label + " " + version) + suffix;
 }
 function safeJson2(s) {
   try {
@@ -1734,7 +1817,7 @@ function record2(value) {
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
-function count2(value) {
+function count3(value) {
   if (value === null || !/^\d+$/.test(value)) return void 0;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : void 0;
@@ -1815,9 +1898,9 @@ function subAgentNotification(content) {
     state: NOTIFICATION_STATES[xmlTagBody(block, "status") ?? ""] ?? "unknown",
     ...result ? { result } : {},
     ...usage2 !== null ? {
-      tokens: count2(xmlTagBody(usage2, "subagent_tokens")),
-      toolUses: count2(xmlTagBody(usage2, "tool_uses")),
-      durationMs: count2(xmlTagBody(usage2, "duration_ms"))
+      tokens: count3(xmlTagBody(usage2, "subagent_tokens")),
+      toolUses: count3(xmlTagBody(usage2, "tool_uses")),
+      durationMs: count3(xmlTagBody(usage2, "duration_ms"))
     } : {}
   };
 }
@@ -2412,6 +2495,8 @@ function moveToOption(targetIndex, screen) {
   return steps;
 }
 function currentHighlightedOptionIndex(screen) {
+  const imports = claudeExternalImportsPrompt(screen);
+  if (imports) return imports.focusedIndex;
   const trustIndex = claudeFolderTrustHighlightedOptionIndex(screen);
   if (trustIndex !== null) return trustIndex;
   const body = wizardBody(screen);
@@ -2440,8 +2525,8 @@ function buildWizardSubmitResponse(screen) {
   const parsed = parseClaudeWizardPrompt(screen);
   const steps = [];
   const active = parsed?.sections?.findIndex((section) => section.active) ?? -1;
-  const count3 = parsed?.sections?.length ?? 0;
-  const moves = active >= 0 && count3 > active ? count3 - active : 1;
+  const count4 = parsed?.sections?.length ?? 0;
+  const moves = active >= 0 && count4 > active ? count4 - active : 1;
   for (let i = 0; i < moves; i++) steps.push("G1tD");
   steps.push("DQ==");
   return steps;
@@ -2453,6 +2538,15 @@ var RESUME_BUFFER_MS = 60 * 1e3;
 function classifyClaudeTabState(snapshot) {
   const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
   if (!screen.trim()) return null;
+  const imports = claudeExternalImportsPrompt(screen);
+  if (imports) {
+    return {
+      state: "clarifying_question",
+      confidence: 1,
+      data: { questions: [imports.question] },
+      action: { surface: { kind: "clarifying_question", payload: { questions: [imports.question] } } }
+    };
+  }
   if (looksBusy(screen)) return { state: "working", confidence: 0 };
   const activeChoice = activeTerminalChoiceBlock(screen);
   const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
@@ -2791,6 +2885,8 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
+  usageAccounting: () => "transcript",
+  parseUsageRecord,
   ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
@@ -2892,6 +2988,8 @@ var plugin = {
   updatePromptSafeChoice,
   parseSwitchConfirmationPrompt,
   parsePrompt(text2) {
+    const imports = claudeExternalImportsPrompt(text2);
+    if (imports) return { question: imports.question, options: imports.options };
     const onboarding = claudeOnboardingPrompt(text2);
     return onboarding && { question: onboarding.question, options: onboarding.options } || claudeFolderTrustPrompt(text2) || parseClaudeWizardPrompt(text2) || parseClaudeNumberedPrompt(text2) || parseClaudeLetteredPrompt(text2);
   },
@@ -3403,7 +3501,7 @@ function* parseSessionDelta(chunk) {
       const d = Date.parse(v.timestamp);
       if (!isNaN(d)) ts = Math.floor(d / 1e3);
     }
-    const timestamp = typeof v.timestamp === "string" ? v.timestamp : null;
+    const timestamp2 = typeof v.timestamp === "string" ? v.timestamp : null;
     if (t === "ai-title") {
       const title = aiTitleFromEntry(v);
       if (!title) continue;
@@ -3413,7 +3511,7 @@ function* parseSessionDelta(chunk) {
         ts,
         uuid: typeof v.uuid === "string" ? v.uuid : null,
         sessionIntent: { title },
-        timestamp
+        timestamp: timestamp2
       });
       continue;
     }
@@ -3426,7 +3524,7 @@ function* parseSessionDelta(chunk) {
         ts,
         uuid: typeof v.uuid === "string" ? v.uuid : null,
         timelineMarker: { kind: "external_edit", path },
-        timestamp
+        timestamp: timestamp2
       });
       continue;
     }
@@ -3568,7 +3666,7 @@ function* parseSessionDelta(chunk) {
       isCompactSummary: v.isCompactSummary === true ? true : null,
       isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
       timelineMarker,
-      timestamp
+      timestamp: timestamp2
     });
   }
   stampRows(previousRow);

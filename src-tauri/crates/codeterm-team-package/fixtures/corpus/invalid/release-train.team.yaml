@@ -1,0 +1,91 @@
+# release-train.team.yaml — Agentic Team Protocol (ATP)
+name: dev.domios/release-train
+version: 1.0.0
+title: Release train
+description: Qualifies a release candidate, runs CI and gates, publishes after owner GO.
+authors:
+  - name: Example Author
+license: Apache-2.0
+when:
+  - ship a release
+  - qualify and publish a version
+
+inputs:
+  version: Version to release, e.g. 1.19.2
+
+permissions:
+  network: true
+  repo_write: true
+  shell: true
+  browser: true
+secrets:
+  - name: GH_TOKEN
+    purpose: Push release branches and merge the release PR
+
+requires:
+  harnesses: [claude, codex]
+
+skills:
+  - path: skills/github-release
+  - path: skills/gates
+
+files:
+  - path: docs/release-checklist.md
+    description: Every gate a candidate must pass before publication
+
+automation:
+  - path: blueprints/watch-ci.yaml
+    description: Reports CI status changes on the release head to the conductor
+
+instructions: |
+  Conductor qualifies the candidate and owns integration. Build owner is the
+  only role that compiles. QA verifies live on the exact SHA. Release manager
+  runs CI, qualification and the release PR.
+  Never publish, tag or merge to master without the owner's explicit GO.
+  Real merges only: no cherry-pick, squash or history rewrite.
+
+roles:
+  conductor:
+    kind: coordinator
+    persona: Conductor
+    description: Coordinates the train; dispatches, reviews, integrates.
+    instructions: |
+      You coordinate; Workers write code. Integrate accepted lanes by real
+      merge and hand the exact SHA to QA immediately.
+
+  planner:
+    kind: planner
+    persona: Atlas
+    description: Shapes the release into tasks with gates as acceptance.
+    files:
+      - path: docs/release-checklist.md
+        description: Turn each gate into task acceptance
+
+  build_owner:
+    kind: worker
+    persona: Forge
+    description: The only role that compiles, refreshes DEV and runs gates.
+    model: [codex:gpt-6.1-sol, claude:opus]
+    reasoning: medium
+    skills: [gates]
+    instructions: |
+      Batch selectors into one compile per crate; never build while sources
+      change. Report the exact SHA you verified.
+
+  qa:
+    kind: worker
+    persona: Lens
+    description: Verifies the candidate live on DEV, then unit tests.
+    model: [claude:opus]
+    reasoning: high
+    instructions: |
+      Live checks on DEV first, unit tests after. Capture evidence before
+      closing any tab.
+
+  release_manager:
+    kind: worker
+    persona: Herald
+    description: Runs CI, qualification and the release PR to publication.
+    model: [codex:gpt-6.1-sol]
+    skills: [github-release]
+    instructions_file: manual/release-manager.md   # long instructions live in a file

@@ -11,6 +11,7 @@ struct ScreenEntry {
     state: TimedMutex<PtyScreen>,
     removed: AtomicBool,
     handles: AtomicUsize,
+    output_flow: Arc<crate::pty::output_flow::OutputFlow>,
 }
 
 pub struct ScreenHandle {
@@ -66,6 +67,27 @@ impl Default for ScreenState {
 }
 
 impl ScreenState {
+    pub fn output_flow(&self, pty_id: &str) -> Option<Arc<crate::pty::output_flow::OutputFlow>> {
+        self.existing(pty_id)
+            .map(|screen| screen.entry.output_flow.clone())
+    }
+
+    pub fn suspend_output(&self, pty_id: &str) -> Option<crate::pty::output_flow::ReadPermit> {
+        self.output_flow(pty_id).map(|flow| flow.suspend())
+    }
+
+    pub fn revoke_output_view(&self, view: uuid::Uuid) {
+        let flows: Vec<_> = self
+            .screens
+            .lock()
+            .values()
+            .map(|entry| entry.output_flow.clone())
+            .collect();
+        for flow in flows {
+            flow.detach(view, None);
+        }
+    }
+
     pub fn memory_stats(&self) -> serde_json::Value {
         let Some(screens) = self.screens.try_lock() else {
             return serde_json::json!({"busy": true});
@@ -137,6 +159,7 @@ impl ScreenState {
                     state: TimedMutex::new("screen_state_parser", PtyScreen::default()),
                     removed: AtomicBool::new(false),
                     handles: AtomicUsize::new(0),
+                    output_flow: Arc::default(),
                 })
             })
             .clone();
@@ -186,6 +209,7 @@ impl ScreenState {
     }
 
     pub fn bracketed_paste_mode(&self, pty_id: &str) -> Option<bool> {
+        let _read = self.suspend_output(pty_id);
         self.with_existing(pty_id, |screen| screen.bracketed_paste_mode())
             .flatten()
     }
@@ -277,7 +301,12 @@ impl ScreenState {
     }
 
     pub fn bind_pty_generation(&self, pty_id: &str, generation: u64) -> bool {
-        self.with_pty(pty_id, |screen| screen.bind_pty_generation(generation))
+        let screen = self.pty(pty_id);
+        let accepted = screen.lock_for_update().bind_pty_generation(generation);
+        if accepted {
+            screen.entry.output_flow.bind(generation);
+        }
+        accepted
     }
 
     pub fn subscribe_screen_changes(&self, pty_id: &str) -> Arc<ScreenChangeSignal> {
@@ -311,6 +340,7 @@ impl ScreenState {
     pub fn remove(&self, pty_id: &str) {
         if let Some(screen) = self.existing(pty_id) {
             let mut state = screen.entry.state.lock();
+            screen.entry.output_flow.revoke();
             state.remove();
             screen.entry.removed.store(true, Ordering::SeqCst);
         }
@@ -328,6 +358,7 @@ impl ScreenState {
         if state.pty_generation() != generation {
             return false;
         }
+        screen.entry.output_flow.revoke();
         state.remove();
         screen.entry.removed.store(true, Ordering::SeqCst);
         true

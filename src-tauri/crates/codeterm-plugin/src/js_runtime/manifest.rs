@@ -204,6 +204,10 @@ pub struct PluginManifest {
     #[serde(default)]
     pub agent_verbs: Vec<String>,
 
+    /// Agent command names whose external operations only read data.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_read_only_verbs: Vec<String>,
+
     /// Search keywords for the plugin's agent-verb skill item.
     #[serde(default)]
     pub agent_keywords: Vec<String>,

@@ -106,7 +106,9 @@ impl Reply {
     }
 
     pub(crate) fn dispatch(self, svc: ServiceContext, tab_id: String) {
-        let _ = crate::async_runtime::spawn_blocking(move || self.run(&svc, &tab_id));
+        drop(crate::async_runtime::spawn_blocking(move || {
+            self.run(&svc, &tab_id)
+        }));
     }
 
     fn run(self, svc: &ServiceContext, tab_id: &str) {

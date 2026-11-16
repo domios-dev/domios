@@ -1,3 +1,4 @@
+import { parseUsageRecord } from "./usageRecord";
 import { readIntegrationSettings } from "./integrationSettings";
 import { ioFileTransaction } from "@codeterm/plugin-sdk";
 import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
@@ -13,6 +14,7 @@ import { checkClaudeUpdate } from "./update";
 import { claudeTrustRecord } from "./preTrust";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
+import { claudeExternalImportsPrompt } from "./externalImports";
 import { permissionHookCapability } from "./permissionHook";
 import { reasoningEffortLaunchArgsForModel } from "./modelCapabilities";
 import { sessionModelTranscriptBoundary, detectSessionModelAfterBoundary } from "./session";
@@ -134,6 +136,8 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin = {
+  usageAccounting: () => "transcript" as const,
+  parseUsageRecord,
   ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
@@ -251,6 +255,8 @@ const plugin = {
   parseSwitchConfirmationPrompt,
 
   parsePrompt(text: string): ParsedPrompt | null {
+    const imports = claudeExternalImportsPrompt(text);
+    if (imports) return { question: imports.question, options: imports.options };
     const onboarding = claudeOnboardingPrompt(text);
     return (onboarding && { question: onboarding.question, options: onboarding.options })
       || claudeFolderTrustPrompt(text)

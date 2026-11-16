@@ -36,13 +36,17 @@ jq -n '{name:"trusted-branch-integrity",target:"branch",enforcement:"active",byp
   rules:[{type:"deletion"},{type:"non_fast_forward"}]}' > "$scratch/integrity.json"
 upsert_ruleset trusted-branch-integrity "$scratch/integrity.json"
 
-jq -n '{name:"master-release-pr",target:"branch",enforcement:"active",bypass_actors:[],
+# Only release-pr.yml emits Release qualification; pinning the GitHub Actions app refuses a status posted by anything else.
+actions_app_id=$(api apps/github-actions --jq .id)
+[[ "$actions_app_id" =~ ^[0-9]+$ ]] || { echo 'Cannot resolve the GitHub Actions app id' >&2; exit 2; }
+jq -n --argjson actions "$actions_app_id" '{name:"master-release-pr",target:"branch",enforcement:"active",bypass_actors:[],
   conditions:{ref_name:{include:["refs/heads/master"],exclude:[]}},
   rules:[{type:"pull_request",parameters:{required_approving_review_count:0,dismiss_stale_reviews_on_push:true,
     require_code_owner_review:false,require_last_push_approval:false,required_review_thread_resolution:true,
     allowed_merge_methods:["merge"]}},
     {type:"required_status_checks",parameters:{strict_required_status_checks_policy:true,
-      required_status_checks:[{context:"CI result"}]}}]}' > "$scratch/master.json"
+      required_status_checks:[{context:"Release qualification",integration_id:$actions},
+        {context:"PR result",integration_id:$actions}]}}]}' > "$scratch/master.json"
 upsert_ruleset master-release-pr "$scratch/master.json"
 
 jq -n --argjson owner "$owner_id" '{name:"owner-code-review",target:"branch",enforcement:"active",
@@ -53,16 +57,27 @@ jq -n --argjson owner "$owner_id" '{name:"owner-code-review",target:"branch",enf
     allowed_merge_methods:["merge"]}}]}' > "$scratch/review.json"
 upsert_ruleset owner-code-review "$scratch/review.json"
 
-jq -n '{name:"release-required-checks",target:"branch",enforcement:"active",bypass_actors:[],
-  conditions:{ref_name:{include:["refs/heads/release/**"],exclude:[]}},
-  rules:[{type:"required_status_checks",parameters:{strict_required_status_checks_policy:true,
-    required_status_checks:[{context:"CI result"}]}}]}' > "$scratch/release.json"
-upsert_ruleset release-required-checks "$scratch/release.json"
+# A required check on release/** rejects every direct release push: its checks only exist after the push.
+# Release heads are owner-only; qualification gates the master PR and publication instead.
+stale=$(api "repos/$repo/rulesets" --paginate --jq '.[] | select(.name == "release-required-checks") | .id')
+for id in $stale; do api --method DELETE "repos/$repo/rulesets/$id"; done
 
 jq -n --argjson owner "$owner_id" '{wait_timer:0,prevent_self_review:false,
   reviewers:[{type:"User",id:$owner}],deployment_branch_policy:{protected_branches:false,custom_branch_policies:true}}' > "$scratch/environment.json"
 api --method PUT "repos/$repo/environments/release" --input "$scratch/environment.json"
-api --method POST "repos/$repo/environments/release/deployment-branch-policies" -f name='release/*' -f type=branch
+# release/* serves the release push dry run and owner dispatches; master serves the one publication path,
+# the merge push of the release PR. Anything else is removed.
+policies=$(api "repos/$repo/environments/release/deployment-branch-policies" --paginate --jq '.branch_policies[] | "\(.id) \(.type // "branch") \(.name)"')
+while read -r id type name; do
+  [[ -n "$id" ]] || continue
+  [[ "$type" == branch && ( "$name" == 'release/*' || "$name" == master ) ]] || \
+    api --method DELETE "repos/$repo/environments/release/deployment-branch-policies/$id"
+done <<< "$policies"
+existing=$(cut -d' ' -f2- <<< "$policies")
+for name in 'release/*' master; do
+  grep -qxF "branch $name" <<< "$existing" || \
+    api --method POST "repos/$repo/environments/release/deployment-branch-policies" -f name="$name" -f type=branch
+done
 
 
 api --method PUT "repos/$repo/actions/permissions/fork-pr-contributor-approval" -f approval_policy=all_external_contributors

@@ -25,6 +25,28 @@ describe("outbound report placement", () => {
     expect(afterIndex.get(-1)).toEqual([0]);
   });
 
+  it("a report before a window with hidden older rows waits for that page instead of stacking at the top", () => {
+    const messages = [at(500), at(600)];
+    const bounds = { hiddenBefore: true, hiddenAfter: false };
+    expect(placeOutboundReports(messages, timeOf, [100], undefined, bounds).afterIndex.size).toBe(0);
+    const positions = { sourceMessageIds: ["old", "a", "b"], messageId: (m: { at: number | null }) => (m.at === 500 ? "a" : "b"),
+      reportMessageIds: ["old", "a"] };
+    const placed = placeOutboundReports(messages, timeOf, [100, 550], positions, bounds);
+    expect([...placed.afterIndex.entries()]).toEqual([[0, [1]]]);
+  });
+
+  it("a report after a window with newer rows below it waits for those rows instead of trailing", () => {
+    const messages = [at(100), at(200)];
+    const bounds = { hiddenBefore: false, hiddenAfter: true };
+    const timed = placeOutboundReports(messages, timeOf, [900, null], undefined, bounds);
+    expect(timed.trailing).toEqual([1]);
+    expect(timed.afterIndex.size).toBe(0);
+    const positions = { sourceMessageIds: ["a", "b", "newer"], messageId: (m: { at: number | null }) => (m.at === 100 ? "a" : "b"),
+      reportMessageIds: ["b", "newer"] };
+    const anchored = placeOutboundReports(messages, timeOf, [150, 900], positions, bounds);
+    expect([...anchored.afterIndex.entries()]).toEqual([[1, [0]]]);
+  });
+
   it("an untimed report never reorders anything", () => {
     const messages = [at(100), at(200)];
     const { afterIndex, trailing } = placeOutboundReports(messages, timeOf, [null]);

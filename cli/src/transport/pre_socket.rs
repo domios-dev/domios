@@ -111,6 +111,13 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
             None
         }
 
+        Commands::Team {
+            action: crate::TeamAction::Check { path },
+        } => {
+            cmd::team::check::handle(json, &path);
+            None
+        }
+
         _ => unreachable!("transport table declared a pre-socket command with no handler here"),
     }
 }

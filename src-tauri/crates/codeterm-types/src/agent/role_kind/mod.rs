@@ -4,17 +4,19 @@ use serde::Serialize;
 
 pub mod builtins;
 pub mod query;
+pub mod role_type;
 
 #[cfg(test)]
 mod tests;
 
 pub use builtins::all as builtin_kinds;
-pub use builtins::capability_for as capability_for_kind;
 pub use builtins::lookup as builtin_kind;
 pub use query::can_close_review;
 pub use query::{anchors_team, can_spawn, has_team_authority, manages, plan_approval, plan_edit};
 pub use query::{kind_capability, kind_descriptor, kind_id, kind_label, taskless_worker};
 pub use query::{read_only_by_default, release, requires_parent};
+pub use query::{registered_capability, registered_descriptor};
+pub use role_type::{RoleName, RoleType, RoleTypeError};
 
 /// Structural authority of a role kind. Fields are private and `LEAF` is the
 /// only public value, so capability cannot be named or forged off-crate.
@@ -138,7 +140,8 @@ impl Default for RoleKindCapability {
 #[serde(rename_all = "snake_case")]
 pub enum RoleKindOrigin {
     Builtin,
-    Overlay,
+    /// The host's one descriptor for manager names it attaches no authority to.
+    Generic,
 }
 
 /// Structural declaration of one role kind. Fields are private and the type is
@@ -160,6 +163,17 @@ impl RoleKindDescriptor {
             label: Cow::Borrowed(label),
             capability,
             origin: RoleKindOrigin::Builtin,
+            taskless_worker: false,
+            read_only_by_default: false,
+        }
+    }
+
+    const fn generic_manager(id: &'static str, label: &'static str) -> Self {
+        Self {
+            id: Cow::Borrowed(id),
+            label: Cow::Borrowed(label),
+            capability: RoleKindCapability::MANAGING_LEAF_WITHHELD,
+            origin: RoleKindOrigin::Generic,
             taskless_worker: false,
             read_only_by_default: false,
         }
@@ -206,19 +220,6 @@ impl RoleKindDescriptor {
             origin: RoleKindOrigin::Builtin,
             taskless_worker: true,
             read_only_by_default: true,
-        }
-    }
-
-    /// The only public constructor. Capability is hard-coded leaf and is not a
-    /// parameter, so a runtime-defined kind can never anchor a Team or spawn.
-    pub fn overlay(id: impl Into<String>, label: impl Into<String>) -> Self {
-        Self {
-            id: Cow::Owned(id.into()),
-            label: Cow::Owned(label.into()),
-            capability: RoleKindCapability::LEAF,
-            origin: RoleKindOrigin::Overlay,
-            taskless_worker: false,
-            read_only_by_default: false,
         }
     }
 

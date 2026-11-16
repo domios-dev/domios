@@ -125,7 +125,11 @@ impl ServiceContext {
                 .unwrap_or(0);
             let view = match status {
                 Some(status) => codeterm_neighbors::responses::NeighborListenerEvent::Receiver {
-                    receiver: Self::receiver_state(status, &self.neighbor_lapsed_installations()),
+                    receiver: Self::receiver_state(
+                        status,
+                        &self.neighbor_lapsed_installations(),
+                        &self.neighbor_receiver_installations(),
+                    ),
                     friendship_id: change.friendship_id.clone(),
                     friend_receivers_version: change.version,
                 },

@@ -1,5 +1,5 @@
 use super::*;
-use crate::plan::{AgentRef, ExecutionIntent, TaskStatus};
+use crate::plan::{AgentRef, ExecutionIntent, TaskExecutionIntent, TaskStatus};
 use crate::service_plan::{task_attempts::BoundWorkerReport, NewTask};
 use codeterm_types::agent::ReportStatus;
 use std::sync::{
@@ -162,4 +162,80 @@ fn dispatch_refuses_files_changed_while_reading_head_without_creating_an_attempt
         .task
         .execution_attempts
         .is_empty());
+}
+
+#[test]
+fn non_repository_report_outside_git_enters_review_without_sha_or_git() {
+    for placement in [WorkerPlacement::NonRepository, WorkerPlacement::Shared] {
+        let root = tempfile::tempdir().unwrap();
+        let store = Arc::new(PlanStore::new_for_test(root.path()));
+        let mut plan = super::plan(root.path().to_str().unwrap());
+        store.save(&mut plan, 1).unwrap();
+        let task = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "opaque".into(),
+                    acceptance_criteria: vec!["opaque-result".into()],
+                    test_plan: Some("opaque-verification".into()),
+                    execution_intent: TaskExecutionIntent::NonRepository,
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        *store.shared_git_observer.write() = Some(Arc::new(move |_, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+        }));
+        store
+            .begin_task_dispatch_with_reserved_attempt_and_gates(
+                &plan.id,
+                &task,
+                "worker",
+                "Fixture",
+                Default::default(),
+                ExecutionIntent::Mutating,
+                None,
+                None,
+                "opaque-attempt",
+                vec![],
+                WorkerPlacement::NonRepository,
+                3,
+            )
+            .unwrap();
+        store
+            .edit_plan_fixture(&plan.id, 4, |plan| {
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|candidate| candidate.id == task)
+                    .unwrap();
+                task.status = TaskStatus::InProgress;
+                task.interruption.owner_epoch = 0;
+                task.execution_attempts[0].placement = placement;
+                Ok(())
+            })
+            .unwrap();
+        store
+            .ingest_bound_worker_report(
+                &plan.id,
+                &task,
+                &AgentRef::from_tab("worker"),
+                BoundWorkerReport {
+                    message: "opaque-report".into(),
+                    status: Some(ReportStatus::InReview),
+                    ..Default::default()
+                },
+                5,
+            )
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "{placement:?}");
+        let current = store.inspect_task_for_test(&task).unwrap().task;
+        assert_eq!(current.status, TaskStatus::InReview, "{placement:?}");
+        let report = current.execution_attempts[0].report.as_ref().unwrap();
+        assert_eq!(report.sha, None);
+        assert!(report.changed_files.is_empty());
+    }
 }

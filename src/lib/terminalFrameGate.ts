@@ -24,6 +24,14 @@ export function terminalContentTopInset(layout: TerminalContentLayout): string |
   return 0;
 }
 
+/**
+ * The PTY a terminal's output frames must name. A remote tab is addressed here by its composite id, but its frames
+ * name the peer's own PTY, so the binding is that PTY once the peer has reported it.
+ */
+export function outputBindingPtyId(tabId: string, ptyId: string, remotePtyId: string | null | undefined): string | undefined {
+  return tabId.startsWith("mesh:") ? remotePtyId ?? undefined : ptyId;
+}
+
 export function acceptsTerminalOutput(tabId: string, ptyId: string | undefined, frameTabId?: string, framePtyId?: string): boolean {
   return tabId === frameTabId && (ptyId === undefined || ptyId === framePtyId);
 }

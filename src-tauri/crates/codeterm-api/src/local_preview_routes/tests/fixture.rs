@@ -117,7 +117,7 @@ pub(super) struct Fixture {
     pub sibling: String,
     pub root: PathBuf,
     rows: Arc<Mutex<HashMap<String, Vec<ChatMsg>>>>,
-    state: AppState,
+    pub(super) state: AppState,
 }
 
 impl Fixture {

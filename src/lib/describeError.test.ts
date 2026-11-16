@@ -17,8 +17,9 @@ test("reorder failures retain their reason through transport and notification se
 });
 
 const fixtures: { input: unknown; title: string; actions: ErrorAction[] }[] = [
-  {input:"ConversationMissing: opaque diagnostic",title:"The saved conversation is unavailable",actions:["start-new-conversation"]},
-  {input:{kind:"conversationMissing",detail:"opaque diagnostic"},title:"The saved conversation is unavailable",actions:["start-new-conversation"]},
+  {input:"ConversationMissing: opaque diagnostic",title:"The agent no longer has this conversation, so it can't continue.",actions:["start-new-conversation"]},
+  {input:"/api/tabs/opaque/chat-raw/start → HTTP 409: ConversationMissing: opaque diagnostic",title:"The agent no longer has this conversation, so it can't continue.",actions:["start-new-conversation"]},
+  {input:{kind:"conversationMissing",detail:"opaque diagnostic"},title:"The agent no longer has this conversation, so it can't continue.",actions:["start-new-conversation"]},
   { input: { code: "constructor", raw: "opaque" }, title: "Something went wrong while opening this file", actions: ["retry"] },
   { input: { code: "memory_run_incomplete", raw: "opaque" }, title: "The memory run needs attention", actions: ["retry"] },
   { input: { code: "frontend_version_mismatch", raw: "opaque" }, title: "The interface needs an update", actions: ["retry"] },
@@ -61,7 +62,9 @@ for (const [index, fixture] of fixtures.entries()) {
     const view = describeError(fixture.input, { operation: "opening this file" });
     assert.equal(view.title, fixture.title);
     assert.deepEqual(view.actions, fixture.actions);
-    assert.ok(view.cause);
+    // Starting a new conversation is the whole guidance, so its button is not repeated as a cause.
+    if (fixture.actions.includes("start-new-conversation")) assert.equal(view.cause, "");
+    else assert.ok(view.cause);
   });
 }
 
@@ -101,4 +104,22 @@ test("provider switch failures name auth deadlines and bound transport details",
   const failed = describeError("shell spawn failure " + "opaque".repeat(1000), { operation: "switching the harness" });
   assert.equal(failed.title, "The harness could not be switched");
   assert.ok(failed.raw.length <= 2048);
+});
+
+test("provider switch refusals distinguish cooldown, lifecycle contention and changed binding", () => {
+  const context = { operation: "switching the harness" };
+  for (const raw of ["provider_switch_rate_limited: 19", "Error: provider_switch_in_progress: RateLimited { retry_after_secs: 19 }"]) {
+    const view = describeError(raw, context);
+    assert.equal(view.retryAfterSeconds, 19);
+    assert.equal(view.title, "The tab just restarted");
+    assert.match(view.cause, /19 s/);
+    assert.ok(!view.raw.startsWith("Error:"));
+  }
+  assert.equal(describeError("provider_switch_in_progress: occupied", context).retryAfterSeconds, undefined);
+  for (const raw of ["Runtime transcript binding is not current", "provider_switch_binding_refused: opaque"]) {
+    const view = describeError(raw, context);
+    assert.equal(view.title, "The conversation changed before the switch");
+    assert.ok(!view.title.includes(raw));
+    assert.equal(view.raw, raw);
+  }
 });

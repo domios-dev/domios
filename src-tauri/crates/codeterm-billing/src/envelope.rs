@@ -147,6 +147,8 @@ pub struct Reading {
     pub grant: Option<serde_json::Value>,
     pub entitlements: Option<Entitlements>,
     pub access: Access,
+    /// The request went without installation proof because this installation must sign in again.
+    pub installation_sign_in_required: bool,
 }
 impl Reading {
     pub fn current(entitlements: Entitlements) -> Self {
@@ -154,6 +156,7 @@ impl Reading {
             grant: None,
             access: Access::for_entitlements(&entitlements),
             entitlements: Some(entitlements),
+            installation_sign_in_required: false,
         }
     }
 }
@@ -186,6 +189,7 @@ impl From<ApplicationEnvelope> for Reading {
             grant: envelope.grant,
             entitlements,
             access,
+            installation_sign_in_required: false,
         }
     }
 }

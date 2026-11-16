@@ -4,6 +4,7 @@ import { Circle, CircleAlert, CircleCheck, CircleDot, CircleMinus, ListChecks } 
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { BusyState } from "../shared/BusyState";
 import { ChecklistItemDetail } from "./ChecklistItemDetail";
+import { ChecklistReadFailure } from "./ChecklistReadFailure";
 import { useAgentChecklist } from "./useAgentChecklists";
 import {
   checklistStateLabel,
@@ -57,7 +58,7 @@ function AgentChecklistRegion({ id, tabId, title, plans }: { id: string; tabId: 
       {view.status === "loading" ? (
         <BusyState inline label="Loading checklist" phase="work" className="sidebar-agent-checklist__note" />
       ) : view.status === "error" ? (
-        <p className="sidebar-agent-checklist__note">Checklist unavailable</p>
+        <ChecklistReadFailure error={view.error} onRetry={view.retry} />
       ) : items.length === 0 ? (
         <p className="sidebar-agent-checklist__note">No checklist</p>
       ) : (

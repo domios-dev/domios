@@ -156,8 +156,45 @@ pub(crate) struct TeamSpendResponse {
     pub plans: Vec<TeamPlanSummary>,
     pub attribution: AttributionSummary,
     pub daily: Vec<TeamSpendDaily>,
+    pub usage_providers: Vec<TeamProviderUsage>,
     pub weekly_limit_points: Vec<WeeklyLimitPoint>,
     pub weekly_limit_days: Vec<WeeklyLimitDay>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(crate) struct TeamProviderUsage {
+    pub provider: String,
+    pub state: &'static str,
+}
+
+fn usage_providers(
+    activity: Vec<(Option<String>, String)>,
+    team_plans: &BTreeMap<String, TeamPlanRow>,
+    daily: &[TeamSpendDaily],
+) -> Vec<TeamProviderUsage> {
+    let mut providers = std::collections::BTreeSet::new();
+    for (plan, provider) in activity {
+        if plan.as_ref().is_some_and(|id| team_plans.contains_key(id)) {
+            providers.insert(provider);
+        }
+    }
+    providers.extend(daily.iter().filter_map(|row| row.provider.clone()));
+    providers
+        .into_iter()
+        .map(|provider| {
+            let reported = daily
+                .iter()
+                .any(|row| row.provider.as_deref() == Some(provider.as_str()));
+            TeamProviderUsage {
+                provider,
+                state: if reported {
+                    "reported"
+                } else {
+                    "no_usage_reported"
+                },
+            }
+        })
+        .collect()
 }
 
 /// Weekly allowance points one provider account used on one UTC day.
@@ -591,6 +628,7 @@ pub(crate) fn project_team_spend(
         plans: plans.clone(),
         attribution,
         daily: Vec::new(),
+        usage_providers: Vec::new(),
         weekly_limit_points: Vec::new(),
         weekly_limit_days: Vec::new(),
     };
@@ -642,6 +680,13 @@ pub(crate) fn project_team_spend(
                 }
             });
             let mut response = base(state, reason, projection.attribution);
+            response.usage_providers = usage_providers(
+                ledger
+                    .usage_providers_by_plan(from, to)
+                    .map_err(ProjectionError::Internal)?,
+                &team_plans,
+                &projection.daily,
+            );
             response.daily = projection.daily;
             Ok(response)
         }

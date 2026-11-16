@@ -45,21 +45,23 @@ pub(super) fn project(entry: &BlueprintJournalEntry) -> JournalPreview {
             .filter(|(key, _)| keys.contains(key.as_str()) && !native_keys.contains(key.as_str()))
             .map(|(key, value)| (key.clone(), bounded(value, 1)))
             .collect(),
-        entry_id: keys.contains("entry_id").then(|| entry.entry_id),
+        entry_id: keys.contains("entry_id").then_some(entry.entry_id),
         run_id: keys.contains("run_id").then(|| bounded_text(&entry.run_id)),
-        step_index: keys.contains("step_index").then(|| entry.step_index),
+        step_index: keys.contains("step_index").then_some(entry.step_index),
         step_name: keys
             .contains("step_name")
             .then(|| bounded_text(&entry.step_name)),
-        state: keys.contains("state").then(|| entry.state),
+        state: keys.contains("state").then_some(entry.state),
         outcome: keys.contains("outcome").then(|| {
             entry
                 .outcome
                 .as_ref()
                 .map(|value| bounded_text(value.as_str()))
         }),
-        started_at_ms: keys.contains("started_at_ms").then(|| entry.started_at_ms),
-        ended_at_ms: keys.contains("ended_at_ms").then(|| entry.ended_at_ms),
+        started_at_ms: keys
+            .contains("started_at_ms")
+            .then_some(entry.started_at_ms),
+        ended_at_ms: keys.contains("ended_at_ms").then_some(entry.ended_at_ms),
         result_summary: keys
             .contains("result_summary")
             .then(|| entry.result_summary.as_deref().map(bounded_text)),

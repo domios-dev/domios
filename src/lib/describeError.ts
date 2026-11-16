@@ -5,8 +5,9 @@ export interface ErrorDescription {
   actions: ErrorAction[];
   raw: string;
   pending?: boolean;
+  retryAfterSeconds?: number;
 }
-export interface ErrorContext { operation?: string; cwd?: string | null }
+export interface ErrorContext { operation?: string; cwd?: string | null; harnessName?: string }
 
 const AUTHORED_CAUSE = "authored_cause";
 
@@ -19,9 +20,12 @@ export function isAuthoredCause(input: unknown): boolean {
   return unpack(input).code === AUTHORED_CAUSE;
 }
 
+export const MISSING_CONVERSATION_TITLE = "The agent no longer has this conversation, so it can't continue.";
+
 export function isMissingRuntimeConversation(input: unknown): boolean {
   const {raw, code} = unpack(input);
-  return code === "conversationMissing" || raw.startsWith("ConversationMissing:");
+  // Transport errors prefix the daemon's message with the route and status, e.g. "... HTTP 409: ConversationMissing: ...".
+  return code === "conversationMissing" || /(?:^|:\s)ConversationMissing:/.test(raw);
 }
 
 const RUNTIME_RECOVERY_REQUIRED = /runtime recovery required/i;
@@ -93,7 +97,7 @@ export function describeRuntimeConnectionError(input: unknown): ErrorDescription
     authentication_required: "Sign in to continue.",
     binding_mismatch: "The conversation no longer matches this tab.",
     protocol_error: "The agent could not complete the connection.",
-    conversationMissing: "The saved conversation is unavailable.",
+    conversationMissing: MISSING_CONVERSATION_TITLE,
     deadline: "The agent did not respond in time.",
   };
   const summary = Object.prototype.hasOwnProperty.call(summaries, code) ? summaries[code] : "The connection to the agent could not be completed.";
@@ -115,27 +119,43 @@ export function isPendingRuntimeDeadline(input: unknown): boolean {
 export function describeError(input: unknown, context: ErrorContext = {}): ErrorDescription {
   const { raw, code, status, message } = unpack(input);
   const switching = context.operation === "switching the harness" || code.startsWith("provider_switch_") || /\bprovider_switch_\w+/.test(raw);
-  const details = switching ? message.slice(0, 2048) : raw;
+  const details = switching ? message.replace(/^Error:\s*/, "").slice(0, 2048) : raw;
   const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw: details, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
   if (kind === AUTHORED_CAUSE && message.trim()) return { title: message.trim(), cause: "", actions: [], raw: "" };
   if (kind === "client_capacity" || /client_capacity:|Mux client capacity reached before dispatch/.test(raw)) {
-    return result("The connection is busy", "This request was not sent because other requests are using the available connection capacity. Try again.", ["retry"], true);
+    return result("This action could not be sent yet.", "", ["retry"], true);
   }
   if (switching) {
+    const cooldown = raw.match(/provider_switch_rate_limited:\s*(\d+)|RateLimited\s*\{\s*retry_after_secs:\s*(\d+)/);
+    if (cooldown) {
+      const seconds = Number(cooldown[1] ?? cooldown[2]);
+      if (Number.isSafeInteger(seconds) && seconds > 0) return {
+        ...result("The tab just restarted", `You can switch in ${seconds} s.`, []), raw: `Restart cooldown: ${seconds} seconds`, retryAfterSeconds: seconds,
+      };
+    }
+    if (kind === "provider_switch_in_progress" || /\bprovider_switch_in_progress\b/.test(raw)) {
+      return result("The tab is restarting or switching harness", "Wait for it to finish, then try again.", ["retry"]);
+    }
+    if (/\bprovider_switch_(?:binding_refused|binding_missing|superseded)\b|runtime transcript binding (?:is not current|changed)/i.test(raw)) {
+      return result("The conversation changed before the switch", "Reopen this dialog and try again.", ["retry"]);
+    }
+    if (/\bprovider_switch_(?:busy|background_work)\b/.test(raw)) {
+      return result("The agent still has work running", "Wait for it to finish, or choose Stop and switch.", []);
+    }
     if (kind === "provider_switch_auth_timeout" || /\bprovider_switch_auth_timeout\b/.test(raw)) {
-      return result("The harness authentication check timed out", "The target CLI did not finish its authentication check in time. Retry the switch.", ["retry"]);
+      return result("The harness authentication check timed out", "Try switching again.", ["retry"]);
     }
     if (kind === "provider_switch_auth_required" || /\bprovider_switch_auth_required\b/.test(raw)) {
-      return result("Sign in to the target harness", "Sign in to the target harness, then retry the switch.", ["sign-in", "retry"]);
+      return result("Sign in to the target harness", "Then try switching again.", ["sign-in", "retry"]);
     }
     if (kind === "provider_switch_auth_unknown" || /\bprovider_switch_auth_unknown\b/.test(raw)) {
       return result("The target authentication could not be verified", "Check the target harness's sign-in status, then retry the switch.", ["retry"]);
     }
     if (kind === "provider_switch_unavailable" || /\bprovider_switch_unavailable\b|Provider not installed:/i.test(raw)) {
-      return result("The target harness is unavailable", "Install the target harness's CLI, then retry the switch.", ["check-executable", "retry"]);
+      return result(context.harnessName ? `${context.harnessName} isn't installed on this machine` : "The target harness is unavailable", "Install it, then switch again.", ["check-executable", "retry"]);
     }
-    return result("The harness could not be switched", "The switch could not finish. Review the details before trying again.", ["retry"]);
+    return result("The harness could not be switched", "Try again, or check the details if it keeps happening.", ["retry"]);
   }
   if (kind === "reorder_failed") return result("Could not save the new order", message || "Refresh the workspace and try again.", ["retry"]);
   if (kind === "tab_rename_failed") return result("Could not rename the tab", message || "The previous name was restored. Try again.", ["retry"]);
@@ -182,8 +202,8 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
     return result("The program could not be found", "The shell or agent program is unavailable. Check that it is installed and its path is correct.", ["check-executable", "retry"]);
   }
   const runtime = inferred ? runtimeFailures.find(([pattern]) => pattern.test(raw)) : undefined;
-  if (isMissingRuntimeConversation(input)) return result("The saved conversation is unavailable",
-    "The harness could not find this conversation's saved rollout. Its earlier messages cannot be resumed. Start a new conversation to continue.", ["start-new-conversation"]);
+  // The start-new-conversation action already says what to do, so no cause repeats it.
+  if (isMissingRuntimeConversation(input)) return result(MISSING_CONVERSATION_TITLE, "", ["start-new-conversation"]);
   if (runtime) return result(runtime[1], runtime[2], ["retry"]);
   if (kind === "spawn_failed" || inferred && spawn) {
     return result("The tab could not start", "Domios could not start the shell or agent. Check its program and starting folder, then try again.", ["retry"]);

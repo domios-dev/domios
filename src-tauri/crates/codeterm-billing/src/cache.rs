@@ -18,10 +18,21 @@ pub struct Snapshot {
     pub entitlements: Entitlements,
     pub stale: bool,
     pub access: Option<Access>,
-    /// No verified answer yet for an account last seen paid: the UI may defer showing locks.
+    /// Awaiting the first answer for an account last seen paid: the UI may defer showing locks.
     pub checking: bool,
+    /// The server answered paid, but this installation holds no grant it can verify.
+    pub verification: Option<Verification>,
     #[serde(skip)]
     pub grant: Option<Verdict>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Verification {
+    /// Installation proofs need a fresh sign-in on this machine before a grant can be issued.
+    SignInRequired,
+    /// The reply carried no grant this installation could verify.
+    Unconfirmed,
 }
 
 /// Failure bound for the checking state when the first refresh never answers.
@@ -70,6 +81,7 @@ struct Cache {
     checkout_event_pending: bool,
     observed: bool,
     neighbors_free: bool,
+    unverified: Option<Verification>,
     verified: Option<VerifiedGrant>,
     loaded: bool,
     checking_until: Option<u64>,
@@ -188,7 +200,13 @@ impl Billing {
         } else if cache.uid.is_some() && !cache.observed {
             snapshot.entitlements.plan = Plan::Paid("unavailable".into());
         }
-        snapshot.checking = cache.uid.is_some() && current.is_none() && !cache.neighbors_free
+        snapshot.verification = cache
+            .unverified
+            .filter(|_| cache.uid.is_some() && current.is_none());
+        snapshot.checking = cache.uid.is_some()
+            && current.is_none()
+            && !cache.neighbors_free
+            && snapshot.verification.is_none()
             || self.checking(cache);
         if snapshot.checking && snapshot.entitlements.plan == Plan::Free {
             snapshot.entitlements.plan = Plan::Paid("unavailable".into());
@@ -281,6 +299,7 @@ impl Billing {
             cache.checkout_event_pending = false;
             cache.observed = false;
             cache.neighbors_free = false;
+            cache.unverified = None;
             self.rearm.notify_one();
         }
         true
@@ -352,6 +371,15 @@ impl Billing {
                 grant.verdict(self.now()).effective().authority
                     != codeterm_entitlements::Authority::Free
             })
+    }
+
+    /// Why a paid answer for `uid` left this installation without a current grant, if it did.
+    pub fn verification(&self, uid: &str) -> Option<Verification> {
+        let cache = self.cache.lock();
+        if cache.uid.as_deref() != Some(uid) {
+            return None;
+        }
+        self.recompute(&cache).verification
     }
 
     pub fn entitlement_allows(
@@ -594,23 +622,34 @@ impl Billing {
                 Ok(Reading {
                     entitlements: Some(entitlements),
                     access,
+                    installation_sign_in_required,
                     ..
                 }) => {
                     refreshed = true;
                     cache.observed = true;
+                    let current = cache
+                        .verified
+                        .as_ref()
+                        .map(|grant| grant.verdict(self.now()))
+                        .filter(|verdict| verdict.state.retains_grant());
                     cache.neighbors_free = entitlements.plan == Plan::Free
                         && access.authority == Authority::Free
-                        && !cache.verified.as_ref().is_some_and(|grant| {
-                            let verdict = grant.verdict(self.now());
-                            verdict.state.retains_grant()
-                                && verdict.effective().authority
-                                    != codeterm_entitlements::Authority::Free
+                        && !current.as_ref().is_some_and(|verdict| {
+                            verdict.effective().authority != codeterm_entitlements::Authority::Free
                         });
+                    cache.unverified = (current.is_none() && !cache.neighbors_free).then_some(
+                        if installation_sign_in_required {
+                            Verification::SignInRequired
+                        } else {
+                            Verification::Unconfirmed
+                        },
+                    );
                     cache.snapshot = Snapshot {
                         entitlements,
                         stale: false,
                         access: Some(access),
                         checking: false,
+                        verification: None,
                         grant: None,
                     };
                 }

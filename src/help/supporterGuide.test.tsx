@@ -77,24 +77,31 @@ test("help_settings_link_opens_supporter_agent_card", async () => {
   assert(SETTINGS_SECTIONS.some((s) => s.id === route.section), "route section is not a settings section");
   await act(async () => root.unmount());
 
-  const scrolled: string[] = [];
-  const proto = window.HTMLElement.prototype as unknown as { scrollIntoView: () => void };
-  const original = proto.scrollIntoView;
-  proto.scrollIntoView = function (this: HTMLElement) {
-    scrolled.push(this.getAttribute("data-settings-card") ?? "");
+  // The card lands at the top of its own scroller and never scrolls an overflow-hidden ancestor.
+  const proto = window.HTMLElement.prototype as unknown as { getBoundingClientRect: () => DOMRect };
+  const original = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    return { top: this.hasAttribute("data-settings-card") ? 300 : 0 } as DOMRect;
   };
   try {
     const { host: cardHost } = await render(
-      <SettingsCardAnchor id={route.card} focused>
-        <span>card</span>
-      </SettingsCardAnchor>,
+      <div data-testid="outer" style={{ overflow: "hidden" }}>
+        <div data-testid="scroller" style={{ overflowY: "auto" }}>
+          <SettingsCardAnchor id={route.card} focused>
+            <span>card</span>
+          </SettingsCardAnchor>
+        </div>
+      </div>,
     );
     const anchor = cardHost.querySelector(`[data-settings-card="${route.card}"]`);
     assert(!!anchor, "card anchor did not render");
-    assert(JSON.stringify(scrolled) === JSON.stringify([route.card]), `expected one scroll to the card, got ${JSON.stringify(scrolled)}`);
+    const scroller = cardHost.querySelector<HTMLElement>('[data-testid="scroller"]')!;
+    const outer = cardHost.querySelector<HTMLElement>('[data-testid="outer"]')!;
+    assert(scroller.scrollTop === 284, `expected the scroller at the card, got ${scroller.scrollTop}`);
+    assert(outer.scrollTop === 0, "an overflow-hidden ancestor scrolled");
     assert(document.activeElement === anchor, "card anchor did not take focus");
   } finally {
-    proto.scrollIntoView = original;
+    proto.getBoundingClientRect = original;
   }
 });
 

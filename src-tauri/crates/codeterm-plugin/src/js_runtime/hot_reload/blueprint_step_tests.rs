@@ -4,7 +4,7 @@ use crate::blueprint_step::*;
 use serde_json::json;
 
 fn manifest() -> PluginManifest {
-    serde_json::from_value(json!({"id":"fixture","version":"0","displayName":"Fixture","hostApi":crate::js_runtime::host_api::HOST_API_VERSION,"entry":"plugin.js",
+    serde_json::from_value(json!({"id":"fixture","version":"0","hostIoJobs":true,"displayName":"Fixture","hostApi":crate::js_runtime::host_api::HOST_API_VERSION,"entry":"plugin.js",
         "capabilities":{"graphNodes":{"steps":[{"contractVersion":1,"revision":1,"id":"fixture.generate","title":"Generate","description":"Fixture",
             "params":{"type":"object","properties":{}},"inputs":{},"outputs":{},"outcomes":["done","failed"],
             "effects":{"sideEffects":true},"lifecycle":{"reconcile":true,"cancel":true}}]}}})).unwrap()

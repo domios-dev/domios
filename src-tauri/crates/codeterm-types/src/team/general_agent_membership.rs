@@ -101,7 +101,7 @@ impl CorrectiveShape {
     /// The two-step form, for when the Orchestrator is spawned first.
     pub fn spawn_orchestrator_command(&self) -> String {
         format!(
-            "domios agent spawn {} --role Orchestrator --workspace {} --task \"<objective>\"",
+            "domios agent spawn {} --role orchestrator --workspace {} --task \"<objective>\"",
             self.orchestrator(),
             self.workspace()
         )

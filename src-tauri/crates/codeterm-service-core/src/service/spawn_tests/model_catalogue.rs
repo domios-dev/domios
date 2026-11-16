@@ -602,7 +602,7 @@ fn unknown_model_on_authoritative_catalogue_is_refused_before_spawn() {
         .filter_map(serde_json::Value::as_str)
         .map(str::to_string)
         .collect::<Vec<_>>();
-    assert_eq!(valid, ["gpt-6-astra", "gpt-6-sol"]);
+    assert_eq!(valid, ["gpt-6-sol", "gpt-6-astra"]);
     let refused = validation.map_err(|error| error.to_string()).and_then(|_| {
         let clearance = provider_launch_preflight(&registry, "codex-like", false)
             .map_err(|error| error.to_string())?;
@@ -758,8 +758,10 @@ fn validate_agent_model_passes_through_non_enumerable_provider() {
 }
 
 #[test]
-fn invalid_model_error_lists_every_valid_id_in_a_stable_order() {
-    let ids = ["model-a", "model-b", "model-c", "model-d", "model-e"];
+fn invalid_model_error_ranks_close_ids_deterministically() {
+    let ids = [
+        "alpha-1", "model-b", "model-a", "model-c", "model-d", "model-e", "zeta",
+    ];
     let registry = registry_with(
         ModelProvider::new("full-list-fixture", &ids).with_model_catalogue(
             crate::agent::provider::ModelCatalogueCapability::authoritative(),
@@ -772,10 +774,18 @@ fn invalid_model_error_lists_every_valid_id_in_a_stable_order() {
             .valid_model_ids
     };
 
-    let near = listed("model-z");
-    let far = listed("qqqqqqqqqqqqqqqq");
-    assert_eq!(near, ids);
-    assert_eq!(far, near);
+    assert_eq!(
+        listed("model-z"),
+        ["model-b", "model-a", "model-c", "model-d", "model-e"]
+    );
+    assert_eq!(
+        listed("model-ab"),
+        ["model-a", "model-b", "model-c", "model-d", "model-e"]
+    );
+    assert_eq!(
+        listed("qqqqqqqqqqqqqqqq"),
+        ["alpha-1", "model-b", "model-a", "model-c", "model-d"]
+    );
 }
 
 #[test]

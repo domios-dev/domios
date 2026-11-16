@@ -37,7 +37,11 @@ export type Tab = { frozen: boolean,
 /**
  * Mirrors the service checklist store: this tab's current checklist holds live items.
  */
-has_checklist: boolean, slept_at_ms?: number, sleep_reason?: SleepReason, last_active_at_ms: number | null, last_opened_at_ms: number | null, provider_signals: ProviderSignals, fork_source_session_id: string | null, context?: TurnContext, id: string, 
+has_checklist: boolean, 
+/**
+ * Someone other than a client asked to show this tab: clients highlight it until one opens it.
+ */
+focus_requested: boolean, slept_at_ms?: number, sleep_reason?: SleepReason, last_active_at_ms: number | null, last_opened_at_ms: number | null, provider_signals: ProviderSignals, fork_source_session_id: string | null, context?: TurnContext, id: string, 
 /**
  * Sibling ordinal within a workspace or orchestration group.
  */
@@ -155,6 +159,10 @@ role?: AgentRole,
  * `general_agent`, `planner`, `watcher`, or a Worker subtype).
  */
 role_profile?: string, 
+/**
+ * The registered role type's display name, stamped at launch from the Team's registration.
+ */
+role_label?: string, 
 /**
  * Team membership. Roleless members are Team utility terminals; their
  * creator is recorded in `spawned_by_tab_id`.

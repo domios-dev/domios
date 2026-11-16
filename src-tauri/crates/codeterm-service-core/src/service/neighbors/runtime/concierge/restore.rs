@@ -47,6 +47,10 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         let Some(tab_id) = settings.bindings.get(friendship) else {
             if let Some(saved) = settings.dormant_concierges.get(friendship) {
+                if !settings.permissions.contains_key(friendship) {
+                    self.clear_neighbor_friend_restore_grants(uid, friendship);
+                    return Err(Error::RestoreGrantRequired.to_string());
+                }
                 let options = saved.options.clone();
                 self.replace_neighbor_concierge_with(
                     metadata,
@@ -73,16 +77,20 @@ impl ServiceContext {
             }
             return Ok(());
         };
+        // A closed or reassigned root stays an owner recovery choice, not a channel failure.
+        if self.validate_neighbor_gateway(tab_id).is_err() {
+            self.clear_neighbor_friend_restore_grants(uid, friendship);
+            return Ok(());
+        }
         self.retire_superseded_neighbor_concierges(metadata, uid, friendship, tab_id)
             .await?;
         self.validate_neighbor_gateway(tab_id)?;
         self.tag_neighbor_root(uid, friendship, tab_id)
             .map_err(|error| error.to_string())?;
-        let permission = settings
-            .permissions
-            .get(friendship)
-            .cloned()
-            .unwrap_or_default();
+        let Some(permission) = settings.permissions.get(friendship).cloned() else {
+            self.clear_neighbor_friend_restore_grants(uid, friendship);
+            return Err(Error::RestoreGrantRequired.to_string());
+        };
         self.remember_neighbor_restore_grant(tab_id, permission.machine_access);
         let cwd = crate::service::neighbors::confinement::prepare_folder(
             metadata,
@@ -154,8 +162,8 @@ impl ServiceContext {
         let retired: Vec<_> = snapshot
             .tabs
             .iter()
-            .filter_map(|(id, tab)| {
-                (id.as_str() != current
+            .filter(|(id, tab)| {
+                id.as_str() != current
                     && tab.neighbor_authority.as_ref().is_some_and(|authority| {
                         authority.uid == uid
                             && authority.friendship_id == friendship
@@ -163,9 +171,9 @@ impl ServiceContext {
                                 .root_tab_id
                                 .as_deref()
                                 .is_none_or(|root| root != current || !current_exists)
-                    }))
-                .then(|| id.clone())
+                    })
             })
+            .map(|(id, _)| id.clone())
             .collect();
         for tab in retired {
             self.require_neighbor_history_generation(generation)

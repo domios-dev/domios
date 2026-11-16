@@ -157,7 +157,7 @@ impl Session {
     async fn open_signals(
         &self,
         paid_changes: &watch::Receiver<u64>,
-    ) -> Result<Option<Box<dyn codeterm_neighbors::registry::RegistryListener>>> {
+    ) -> Result<Option<signals::Signals>> {
         if !self.ports.paid(self) {
             return Ok(None);
         }
@@ -454,7 +454,7 @@ impl DocumentSession for Session {
             }
         };
         let mut paid_changes = self.service.neighbor_updates().paid_changes.subscribe();
-        let mut signals: Option<Box<dyn codeterm_neighbors::registry::RegistryListener>> = None;
+        let mut signals: Option<signals::Signals> = None;
         let mut revisions = delivery::Revisions::default();
         let mut health = codeterm_neighbors::supervisor::StreamHealth::default();
         let mut received_snapshot = false;
@@ -462,7 +462,7 @@ impl DocumentSession for Session {
             enum Event {
                 PaidChanged,
                 State(Option<codeterm_neighbors::state::StateEvent>),
-                Signal(Option<RegistrySignal>),
+                Signal(signals::Event),
             }
             let next = tokio::select! {
                 biased;
@@ -538,7 +538,11 @@ impl DocumentSession for Session {
                     received_snapshot = false;
                     self.fallback().await;
                 }
-                Ok(Event::Signal(Some(signal))) => {
+                Ok(Event::Signal(signals::Event::PaidChanged)) => {
+                    signals = None;
+                    revisions = delivery::Revisions::default();
+                }
+                Ok(Event::Signal(signals::Event::Registry(Some(signal)))) => {
                     if !self.ports.paid(self) {
                         signals = None;
                         continue;
@@ -550,7 +554,7 @@ impl DocumentSession for Session {
                         self.delivery(&signal, catch_up).await?;
                     }
                 }
-                Ok(Event::State(None) | Event::Signal(None)) => {
+                Ok(Event::State(None) | Event::Signal(signals::Event::Registry(None))) => {
                     self.fallback().await;
                     return Err(Error::Transport);
                 }

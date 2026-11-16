@@ -6,13 +6,17 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { describeError } from "../../lib/describeError";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
-import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, ClipboardList, LogOut, PackagePlus, Pencil, UserPlus } from "lucide-react";
+import { SaveTemplateDialog } from "../TeamTemplates/SaveTemplateDialog";
+import { TemplateExportDialog } from "../TeamTemplates/TemplateExportDialog";
+import { templateTitle, type TemplateSummary } from "../../lib/teamTemplates/startModel";
 import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
+import { mergeGroupAttention, type GroupAttention } from "./tabAttention";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
@@ -83,6 +87,7 @@ interface TeamMenuProps {
   addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: () => void;
+  teamName?: string;
 }
 
 function TeamMenu({
@@ -95,8 +100,11 @@ function TeamMenu({
   addableRoles,
   onAddMember,
   onCloseTeam,
+  teamName,
 }: TeamMenuProps) {
   const [open, setOpen] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [exportingTemplate, setExportingTemplate] = useState<TemplateSummary | null>(null);
   const [providerRole, setProviderRole] = useState<TeamMemberRole | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   // Derive from `providers` (not a captured object) so a catalog refresh — e.g.
@@ -351,6 +359,7 @@ function TeamMenu({
             <>
               {onOpenPlan && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onOpenPlan)}><span className="ct-menu-row__icon"><ClipboardList size={14} /></span> Open Plan</button>}
               {onRename && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onRename)}><span className="ct-menu-row__icon"><Pencil size={14} /></span> Rename</button>}
+              {teamName && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(() => setSavingTemplate(true))}><span className="ct-menu-row__icon"><PackagePlus size={14} /></span> Save as template…</button>}
               {onAddMember && (addableRoles ?? (["orchestrator", "planner", "worker"] as const)).map((role) => (
                 <button className="ct-menu-row" type="button" role="menuitem" aria-haspopup="menu" key={role} onClick={() => setProviderRole(role)}>
                   <span className="ct-menu-row__icon"><UserPlus size={14} /></span> Add {role} <ChevronRight size={14} className="ct-menu-row__chevron ml-auto" />
@@ -366,6 +375,11 @@ function TeamMenu({
           )}
         </div>
       </AnchoredPopover>
+      {savingTemplate && teamName && <SaveTemplateDialog teamId={teamId} teamName={teamName} onClose={() => setSavingTemplate(false)}
+        onSaved={(saved) => actions && createNoticePublisher(actions)({ kind: "toast", id: `team-template-saved-${teamId}`,
+          title: `Saved ${templateTitle(saved)} to My templates`, severity: "Info", tabId: null, workspaceId: null,
+          actions: [{ label: "Export…", run: () => setExportingTemplate(saved) }] })} />}
+      {exportingTemplate && <TemplateExportDialog summary={exportingTemplate} onClose={() => setExportingTemplate(null)} />}
     </div>
   );
 }
@@ -398,7 +412,11 @@ export interface TeamUnitProps {
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
   closing?: boolean;
+  /** Member attention per section, surfaced on a header while its list is collapsed. */
+  attention?: Partial<Record<TeamMemberSection, GroupAttention | null>>;
 }
+
+export type TeamMemberSection = "managers" | "workers" | "agents" | "utilities";
 
 export interface TeamEffortTarget {
   teamId: string;
@@ -435,6 +453,7 @@ export function TeamUnit({
   onAddMember,
   onCloseTeam,
   closing = false,
+  attention = {},
 }: TeamUnitProps) {
   const lock = lockedView("teams", team);
   const onOpenEffort = (target: TeamEffortTarget) => {
@@ -453,6 +472,8 @@ export function TeamUnit({
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const teamTabCount = managerCount + workerCount + agentCount + terminalCount;
+  const teamAttention = expanded ? null
+    : mergeGroupAttention([attention.managers, attention.workers, attention.agents, attention.utilities]);
   const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
   const buckets = useMemo(
     () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
@@ -675,6 +696,7 @@ export function TeamUnit({
               addableRoles={addableRoles}
               onAddMember={onAddMember}
               onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
+              teamName={displayTitle}
             />
         </span>
       </div>
@@ -691,7 +713,7 @@ export function TeamUnit({
               data-testid="managers-section"
               className="sidebar-team-section"
             >
-              <SidebarSectionHeader kind="managers" count={managerCount} working={workingManagerCount} expanded={managersExpanded} onClick={() => { const next = !managersExpanded; setManagersExpanded(next); persistTeamDisclosureState(team.id, { managersExpanded: next }); }} />
+              <SidebarSectionHeader kind="managers" count={managerCount} working={workingManagerCount} expanded={managersExpanded} attention={attention.managers} onClick={() => { const next = !managersExpanded; setManagersExpanded(next); persistTeamDisclosureState(team.id, { managersExpanded: next }); }} />
               {managersExpanded && <div className="sidebar-team-member-list">{managers}</div>}
             </div>
           )}
@@ -702,7 +724,7 @@ export function TeamUnit({
               data-testid="workers-section"
               className="sidebar-team-section"
             >
-              <SidebarSectionHeader kind="workers" count={workerCount} working={workingWorkerCount} expanded={workersExpanded} data-testid="workers-collapse-toggle" onClick={toggleWorkersExpanded} />
+              <SidebarSectionHeader kind="workers" count={workerCount} working={workingWorkerCount} expanded={workersExpanded} attention={attention.workers} data-testid="workers-collapse-toggle" onClick={toggleWorkersExpanded} />
               {workersExpanded ? (
                 <div className="sidebar-team-member-list">{workers}</div>
               ) : closing ? (
@@ -714,7 +736,7 @@ export function TeamUnit({
           )}
           {agentCount > 0 && (
             <div role="group" aria-label={`${displayTitle} agents`} className="sidebar-team-section">
-              <SidebarSectionHeader kind="agents" count={agentCount} working={workingAgentCount} expanded={agentsExpanded} onClick={() => { const next = !agentsExpanded; setAgentsExpanded(next); persistTeamDisclosureState(team.id, { agentsExpanded: next }); }} />
+              <SidebarSectionHeader kind="agents" count={agentCount} working={workingAgentCount} expanded={agentsExpanded} attention={attention.agents} onClick={() => { const next = !agentsExpanded; setAgentsExpanded(next); persistTeamDisclosureState(team.id, { agentsExpanded: next }); }} />
               {agentsExpanded && <div className="sidebar-team-member-list">{agents}</div>}
             </div>
           )}
@@ -725,7 +747,7 @@ export function TeamUnit({
               data-testid="terminals-section"
               className="sidebar-team-section"
             >
-              <SidebarSectionHeader kind="utilities" count={terminalCount} working={workingTerminalCount} expanded={terminalsExpanded} data-testid="terminals-collapse-toggle" onClick={toggleTerminalsExpanded} />
+              <SidebarSectionHeader kind="utilities" count={terminalCount} working={workingTerminalCount} expanded={terminalsExpanded} attention={attention.utilities} data-testid="terminals-collapse-toggle" onClick={toggleTerminalsExpanded} />
               {terminalsExpanded && (
                 <div className="sidebar-team-member-list">{terminals}</div>
               )}
@@ -752,10 +774,11 @@ export function TeamUnit({
         className="sidebar-team-disclosure-bar"
         aria-label={expanded
           ? "Hide Team tabs"
-          : `Show Team tabs, ${teamTabCount} ${teamTabCount === 1 ? "tab" : "tabs"}`}
+          : `Show Team tabs, ${teamTabCount} ${teamTabCount === 1 ? "tab" : "tabs"}${teamAttention ? `, ${teamAttention.count} needs attention` : ""}`}
         aria-expanded={expanded}
         onClick={toggleExpanded}
       >
+        {teamAttention && <span className="tab-attention-mark" data-kind={teamAttention.level} aria-hidden />}
         <svg className="sidebar-team-disclosure-glyph" viewBox="0 0 26 8" aria-hidden="true">
           <path d="M1 4 L13 4 L25 4" />
         </svg>

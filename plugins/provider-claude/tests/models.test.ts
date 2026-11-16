@@ -99,6 +99,89 @@ console.log("\n--- discoverModels: shipped manifest has no static veto over the 
 console.log("\n--- discoverModels: genuine discovery only ---\n");
 
 {
+  let credentialReads = 0;
+  let requests = 0;
+  const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.323 (Claude Code)" }),
+    envGet: (name: string) => name === "CLAUDE_CONFIG_DIR" ? "/subscription" : null,
+    fs: {
+      readFile: (file: string) => {
+        credentialReads++;
+        eq(file, "/subscription/.credentials.json", "OAuth discovery respects the inherited account home");
+        return JSON.stringify({ claudeAiOauth: { accessToken: "fixture-oauth" } });
+      },
+    },
+    fetch: (raw: string) => {
+      const request = JSON.parse(raw);
+      requests++;
+      eq(request.url, "https://api.anthropic.com/v1/models?limit=1000", "OAuth discovery requests the live catalogue");
+      eq(request.headers.Authorization === "Bearer fixture-oauth", true, "OAuth discovery uses Bearer authentication");
+      eq(request.headers["anthropic-beta"], "oauth-2025-04-20", "OAuth discovery includes the subscription beta");
+      eq(request.headers["x-api-key"], undefined, "OAuth discovery sends no API key");
+      return JSON.stringify({ status: 200, body: JSON.stringify({ data: [
+        { id: "claude-fable-5-2", display_name: "Claude Fable 5.2" },
+        { id: "claude-fable-5-1", display_name: "Claude Fable 5.1" },
+      ] }) });
+    },
+  }));
+  const models = p.discoverModels() as ModelInfo[];
+  eq(models.find(model => model.id === "fable")?.displayName, "Claude Fable 5.2", "subscription catalogue selects the newest family version regardless of order");
+  eq(models.find(model => model.id === "fable[1m]")?.displayName, "Claude Fable 5.2 (1M context)", "subscription long-context alias follows the live version");
+  eq(credentialReads, 1, "subscription discovery reads the credential once");
+  eq(requests, 1, "subscription discovery performs one catalogue request");
+}
+
+for (const keyName of ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]) {
+  let credentialReads = 0;
+  const p = loadClaudeWithHost(baseHost({
+    envGet: (name: string) => name === keyName ? "fixture-key" : null,
+    fs: { readFile: () => { credentialReads++; throw new Error("OAuth must not be read for API-key discovery"); } },
+    fetch: (raw: string) => {
+      const request = JSON.parse(raw);
+      eq(request.headers["x-api-key"] === "fixture-key", true, `${keyName} authenticates the catalogue request`);
+      eq(request.headers.Authorization, undefined, `${keyName} does not send OAuth`);
+      return JSON.stringify({ status: 200, body: JSON.stringify({ data: [{ id: "claude-fable-5-2", display_name: "Claude Fable 5.2" }] }) });
+    },
+  }));
+  eq((p.discoverModels() as ModelInfo[]).find(model => model.id === "fable")?.displayName, "Claude Fable 5.2", `${keyName} maps the catalogue onto aliases`);
+  eq(credentialReads, 0, `${keyName} takes precedence over subscription credentials`);
+}
+
+{
+  let keychainReads = 0;
+  const p = loadClaudeWithHost(baseHost({
+    platform: () => "macos",
+    providerVersionJson: () => JSON.stringify({ status: "detected", version: "2.1.323" }),
+    fs: { readFile: () => JSON.stringify({ claudeAiOauth: { accessToken: "stale-file-fixture" } }) },
+    exec: (raw: string) => {
+      const request = JSON.parse(raw);
+      eq(request.bin, "security", "subscription discovery uses the existing macOS keychain source");
+      keychainReads++;
+      return JSON.stringify({ code: 0, stdout: JSON.stringify({ claudeAiOauth: { accessToken: "keychain-fixture" } }) });
+    },
+    fetch: (raw: string) => {
+      eq(JSON.parse(raw).headers.Authorization === "Bearer keychain-fixture", true, "macOS keychain credentials take precedence over the default file");
+      return JSON.stringify({ status: 200, body: JSON.stringify({ data: [{ id: "claude-fable-5-2", display_name: "Claude Fable 5.2" }] }) });
+    },
+  }));
+  eq((p.discoverModels() as ModelInfo[]).find(model => model.id === "fable")?.displayName, "Claude Fable 5.2", "macOS subscription discovery maps the live catalogue");
+  eq(keychainReads, 1, "macOS discovery reads the shared keychain credential once");
+}
+
+for (const [label, credentials, fetchImpl] of [
+  ["credential read failure", () => { throw new Error("unreadable"); }, () => { throw new Error("no credentials"); }],
+  ["missing OAuth", () => "{}", () => { throw new Error("no credentials"); }],
+  ["expired OAuth", () => JSON.stringify({ claudeAiOauth: { accessToken: "fixture-oauth" } }), () => JSON.stringify({ status: 401, body: "unauthorized" })],
+  ["OAuth fetch failure", () => JSON.stringify({ claudeAiOauth: { accessToken: "fixture-oauth" } }), () => { throw new Error("offline"); }],
+  ["OAuth malformed response", () => JSON.stringify({ claudeAiOauth: { accessToken: "fixture-oauth" } }), () => JSON.stringify({ status: 200, body: "invalid" })],
+] as Array<[string, () => string, () => string]>) {
+  const p = loadClaudeWithHost(baseHost({ fs: { readFile: credentials }, fetch: fetchImpl }));
+  const fable = (p.discoverModels() as ModelInfo[]).find(model => model.id === "fable");
+  eq(fable?.displayName, "Fable 5.2", `${label} retains the current offline label`);
+  eq(fable?.availability, "unknown", `${label} preserves unknown CLI availability`);
+}
+
+{
   const p = loadClaudeWithHost(baseHost({
     exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
     envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
@@ -109,7 +192,7 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
           { id: "claude-opus-5", display_name: "Claude Opus 5" },
           { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
           { id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5" },
-          { id: "claude-fable-5-1", display_name: "Claude Fable 5.1" },
+          { id: "claude-fable-5-2", display_name: "Claude Fable 5.2" },
         ],
       }),
     }),
@@ -123,11 +206,11 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
       { id: "opus", displayName: "Claude Opus 5", description: "Best for everyday, complex tasks.", available: true },
       { id: "sonnet", displayName: "Claude Sonnet 5", description: "Efficient for routine tasks.", available: true },
       { id: "haiku", displayName: "Claude Haiku 4.5", description: "Fastest for quick answers.", available: true },
-      { id: "fable", displayName: "Claude Fable 5.1", description: "Most capable for your hardest and longest-running tasks.", available: true, availability: "available" },
-      { id: "best", displayName: "Claude Best 5.1", description: "Claude Code's dynamic best-model alias.", available: true },
-      { id: "sonnet[1m]", displayName: "Claude Sonnet (1M context)", description: "Claude Code's Sonnet long-context alias.", available: true },
-      { id: "opus[1m]", displayName: "Claude Opus (1M context)", description: "Claude Code's Opus long-context alias.", available: true },
-      { id: "fable[1m]", displayName: "Claude Fable (1M context)", description: "Claude Code's Fable long-context alias.", available: true },
+      { id: "fable", displayName: "Claude Fable 5.2", description: "Most capable for your hardest and longest-running tasks.", available: true, availability: "available" },
+      { id: "best", displayName: "Claude Best 5.2", description: "Claude Code's dynamic best-model alias.", available: true },
+      { id: "sonnet[1m]", displayName: "Claude Sonnet 5 (1M context)", description: "Claude Code's Sonnet long-context alias.", available: true },
+      { id: "opus[1m]", displayName: "Claude Opus 5 (1M context)", description: "Claude Code's Opus long-context alias.", available: true },
+      { id: "fable[1m]", displayName: "Claude Fable 5.2 (1M context)", description: "Claude Code's Fable long-context alias.", available: true },
       { id: "opusplan", displayName: "Claude Opus Plan 5", description: "Claude Code's Opus planning alias.", available: true },
     ],
     "genuine /v1/models discovery maps concrete ids onto the same stable aliases with live availability",
@@ -150,7 +233,7 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
     envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
     fetch: () => JSON.stringify({
       status: 200,
-      body: JSON.stringify({ data: [{ id: "claude-fable-5-1", display_name: "Claude Fable 5.1" }] }),
+      body: JSON.stringify({ data: [{ id: "claude-fable-5-2", display_name: "Claude Fable 5.2" }] }),
     }),
   }));
   const partial = p.discoverModels() as Array<{ id: string; displayName: string; available: boolean }>;
@@ -170,11 +253,11 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
       "Opus 5.5",
       "Sonnet 5.5",
       "Haiku 5.5",
-      "Claude Fable 5.1",
-      "Claude Best 5.1",
+      "Claude Fable 5.2",
+      "Claude Best 5.2",
       "Claude Sonnet (1M context)",
       "Claude Opus (1M context)",
-      "Claude Fable (1M context)",
+      "Claude Fable 5.2 (1M context)",
       "Claude Opus Plan",
     ],
     "family aliases receive their concrete version without rewriting context labels",

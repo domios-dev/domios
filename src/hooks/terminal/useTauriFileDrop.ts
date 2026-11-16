@@ -3,7 +3,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 
 export interface UseTauriFileDropOptions {
   containerRef: React.RefObject<HTMLElement | null>;
-  onPaths: (paths: string[]) => void;
+  onPaths: (paths: string[], originalPaths: string[]) => void;
   enabled?: boolean;
   onError?: (message: string) => void;
 }
@@ -47,7 +47,7 @@ export function useTauriFileDrop({
         const paths = payload.paths || [];
         if (paths.length > 0) {
           void materializeDroppedPaths(paths).then((materialized) => {
-            onPathsRef.current(materialized);
+            onPathsRef.current(materialized, paths);
           }).catch((error: unknown) => onErrorRef.current?.(error instanceof Error ? error.message : String(error)));
         }
         return;
@@ -85,5 +85,10 @@ function isDropInside(
 ): boolean {
   const dpr = window.devicePixelRatio || 1;
   const target = document.elementFromPoint(position.x / dpr, position.y / dpr);
-  return target !== null && (target === el || el.contains(target));
+  if (target && (target === el || el.contains(target))) return true;
+  const composer = el.querySelector<HTMLElement>('[data-testid="chat-composer-shell"]');
+  if (!composer || (target && !target.contains(composer))) return false;
+  const rect = composer.getBoundingClientRect();
+  const x = position.x / dpr, y = position.y / dpr;
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }

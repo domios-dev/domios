@@ -53,12 +53,12 @@ impl ServiceContext {
             .snapshot()
             .tabs
             .iter()
-            .filter_map(|(id, tab)| {
+            .filter(|(_, tab)| {
                 tab.neighbor_authority
                     .as_ref()
                     .is_some_and(|child| child.root_tab_id.as_deref() == Some(root))
-                    .then(|| id.clone())
             })
+            .map(|(id, _)| id.clone())
             .collect();
         for child in children {
             if self.mux.read().get_tab(&child).is_some() {

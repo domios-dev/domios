@@ -1,0 +1,12 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+roles:
+  orchestrator:
+    kind: manager
+    instructions: |
+      Lead.
+  Security-Lead:
+    kind: manager
+    instructions: |
+      Review every change for security.

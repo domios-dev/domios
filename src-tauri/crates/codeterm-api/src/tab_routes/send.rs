@@ -514,7 +514,6 @@ pub async fn send_text(
             .flatten()
         });
 
-    if svc_token_match.is_none() {}
     neighbor::authorize_message(
         &state,
         &headers,

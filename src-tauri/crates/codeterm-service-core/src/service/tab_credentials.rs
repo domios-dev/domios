@@ -81,7 +81,10 @@ impl TabCaller {
                 self.validate_claim(Some(claim.as_str().ok_or("Invalid QA caller claim")?))?;
             }
         }
-        if matches!(method, "agent.spawn" | "orchestration.new") {
+        if matches!(
+            method,
+            "agent.spawn" | "orchestration.new" | "team.template.start"
+        ) {
             if body
                 .get("origin_peer")
                 .is_some_and(|value| !value.is_null())

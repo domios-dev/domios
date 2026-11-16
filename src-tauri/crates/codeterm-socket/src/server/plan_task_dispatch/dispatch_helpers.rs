@@ -89,6 +89,7 @@ pub(in crate::server) fn respawn_worker_params(
         task: Some(super::canonical_writer::compose_dispatch_brief(
             draft.task_prompt.clone(),
             draft.source_attempt.placement,
+            draft.source_attempt.shared_start_files.is_some(),
         )),
         workspace_id: draft.workspace_id.clone(),
         model: draft.model.clone(),

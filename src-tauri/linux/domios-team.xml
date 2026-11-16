@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/vnd.domios.team+zip">
+    <comment>Domios team template</comment>
+    <sub-class-of type="application/zip"/>
+    <icon name="domios-app"/>
+    <generic-icon name="package-x-generic"/>
+    <glob pattern="*.team" weight="60"/>
+  </mime-type>
+</mime-info>

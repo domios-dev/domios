@@ -12,6 +12,7 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldCheck,
+  Unlink,
   UserCog,
   X,
   type LucideIcon,
@@ -42,6 +43,7 @@ const GLYPHS: Record<TabMenuGlyph, LucideIcon> = {
   plugins: Puzzle,
   telegram: MessageSquare,
   telegramClose: MessageSquareX,
+  detach: Unlink,
   close: X,
 };
 

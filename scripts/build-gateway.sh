@@ -214,9 +214,14 @@ ct_gateway_owner_gone() {
   case "$pid" in ''|*[!0-9]*) return 1 ;; esac
   if [ "$(ct_gateway_pid_namespace)" = proc ]; then
     [ -d "/proc/$pid" ] || return 0
+    actual="$(cat "/proc/$pid/stat" 2>/dev/null || true)"
+    case "${actual#*) }" in Z\ *|X\ *) return 0 ;; esac
     actual="$(ct_gateway_process_start_token "$pid" 2>/dev/null || true)"
     [ -n "$actual" ] && [ -n "$expected" ] && [ "$actual" != "$expected" ]
   else
+    if [[ "$OSTYPE" == darwin* ]]; then
+      case "$(ps -p "$pid" -o stat= 2>/dev/null | tr -d ' ')" in Z*|X*) return 0 ;; esac
+    fi
     node --input-type=module -e '
       const { nativeIdentity } = await import(process.argv[1]);
       const actual = nativeIdentity(process.argv[2]);
@@ -246,13 +251,28 @@ ct_gateway_process_command() {
 }
 
 ct_gateway_terminate_descendant_tree() {
-  local pid="$1" child
-  kill -STOP "$pid" 2>/dev/null || true
-  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
-    ct_gateway_terminate_descendant_tree "$child"
+  local pid="$1" child children rc=0
+  command -v pgrep >/dev/null 2>&1 || return 2
+  if ! kill -STOP "$pid" 2>/dev/null; then
+    if kill -0 "$pid" 2>/dev/null; then return 1; else return 0; fi
+  fi
+  if [ "${CT_GATEWAY_TRACK_STOPPED:-0}" = 1 ]; then CT_GATEWAY_STOPPED_PIDS+=("$pid"); fi
+  children="$(pgrep -P "$pid")" || rc=$?
+  if [ "$rc" -gt 1 ]; then kill -CONT "$pid" 2>/dev/null || true; return "$rc"; fi
+  for child in $children; do
+    ct_gateway_terminate_descendant_tree "$child" || { rc=$?; kill -CONT "$pid" 2>/dev/null || true; return "$rc"; }
   done
-  kill -KILL "$pid" 2>/dev/null || true
+  kill -KILL "$pid" 2>/dev/null || { kill -CONT "$pid" 2>/dev/null || true; return 1; }
 }
+
+ct_gateway_cancel_unix_tree() (
+  CT_GATEWAY_TRACK_STOPPED=1
+  CT_GATEWAY_STOPPED_PIDS=()
+  trap 'for stopped in "${CT_GATEWAY_STOPPED_PIDS[@]}"; do kill -CONT "$stopped" 2>/dev/null || true; done' EXIT
+  trap 'exit 130' INT TERM HUP
+  ct_gateway_identity_alive "$1" "$2" || exit 1
+  ct_gateway_terminate_descendant_tree "$1"
+)
 
 ct_gateway_terminate_descendants() {
   local root_pid="${BASHPID:-$$}" child descendants
@@ -285,7 +305,8 @@ ct_gateway_terminate_descendants() {
     return
   fi
   for child in $(pgrep -P "$root_pid" 2>/dev/null || true); do
-    ct_gateway_terminate_descendant_tree "$child"
+    # Best effort on abort paths: under set -e a failed walk must not replace the caller's exit status.
+    ct_gateway_terminate_descendant_tree "$child" || true
     wait "$child" 2>/dev/null || true
   done
 }
@@ -430,7 +451,6 @@ ct_gateway_finish() {
     rc="$failure"
   elif [ -n "$outcome_override" ]; then
     state=failed
-      if [ "$outcome_override" = logging_degraded ] && [ "$rc" -eq 0 ]; then state=completed; fi
     outcome="$outcome_override"
   elif [ "${CT_GATEWAY_CANCELLED:-0}" = "1" ] || [ "$rc" -eq 130 ] || [ "$rc" -eq 143 ]; then
     state=cancelled
@@ -466,6 +486,7 @@ ct_gateway_on_exit() {
 
 ct_gateway_on_signal() {
   CT_GATEWAY_CANCELLED=1
+  if [ -n "${CT_GATEWAY_CANCEL_REQUEST:-}" ] && [ -f "$CT_GATEWAY_CANCEL_REQUEST" ]; then trap - EXIT; fi
   exit 130
 }
 
@@ -516,6 +537,7 @@ ct_gateway_acquire() {
   worktree="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
   owner_command="$(ct_gateway_process_command "$CT_GATEWAY_OWNER_PID" 2>/dev/null || true)"
   export CT_BUILD_JOB_ID CT_BUILD_QUEUE_KEY CT_GATEWAY_PROCESS_START
+  CT_GATEWAY_CANCEL_REQUEST="$dir/jobs/$CT_BUILD_JOB_ID.cancel-request"
   trap 'ct_gateway_on_exit' EXIT
   trap 'ct_gateway_on_signal' INT TERM
   ct_gateway_mutex_acquire "$dir" || return $?
@@ -631,8 +653,22 @@ ct_gateway_cancel() {
       ct_gateway_mutex_release "$dir"
       return 1
     fi
-    kill -TERM "$pid" 2>/dev/null || rc=1
-    ct_gateway_mutex_release "$dir"
+    : > "$dir/jobs/$job_id.cancel-request" || { ct_gateway_mutex_release "$dir"; return 74; }
+    if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+      ct_gateway_cancel_unix_tree "$pid" "$start_token" || rc=$?
+    else
+      node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-cancel.mjs" "$dir/lock" "$(cygpath -w "$(command -v ps)")" || rc=$?
+    fi
+    if [ "$rc" -eq 0 ]; then
+      if ct_gateway_recorded_owner_gone "$dir/lock"; then
+        CT_BUILD_JOB_ID="$job_id" ct_gateway_update_job cancelled 130 cancelled "" "$(ct_gateway_now)" || rc=$?
+        if [ "$rc" -eq 0 ]; then rm -f "$dir/jobs/$job_id.cancel-request" || rc=$?; fi
+        if [ "$rc" -eq 0 ]; then rm -rf "$dir/lock" || rc=$?; fi
+      else
+        rc=1
+      fi
+    fi
+    ct_gateway_mutex_release "$dir" || rc=$?
     [ "$rc" -eq 0 ] || return "$rc"
     return 0
   fi

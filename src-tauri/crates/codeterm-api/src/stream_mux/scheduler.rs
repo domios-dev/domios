@@ -1,7 +1,13 @@
 use axum::body::Bytes;
 use parking_lot::Mutex;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Notify;
+
+const OUTPUT_SPACE_DEADLINE: Duration = Duration::from_secs(5);
+
+#[cfg(test)]
+mod tests;
 
 pub(crate) mod model;
 pub(crate) use model::{Frame, Kind, Push, Traffic};
@@ -80,6 +86,32 @@ impl Scheduler {
     }
 
     pub async fn send(&self, id: &str, bytes: Bytes, kind: Kind, credit: u64) -> Result<(), Push> {
+        self.send_frame(id, bytes, kind, credit, false).await
+    }
+
+    pub async fn send_output(
+        &self,
+        id: &str,
+        bytes: Bytes,
+        kind: Kind,
+        credit: u64,
+    ) -> Result<(), Push> {
+        tokio::time::timeout(
+            OUTPUT_SPACE_DEADLINE,
+            self.send_frame(id, bytes, kind, credit, true),
+        )
+        .await
+        .unwrap_or(Err(Push::Overflow))
+    }
+
+    async fn send_frame(
+        &self,
+        id: &str,
+        bytes: Bytes,
+        kind: Kind,
+        credit: u64,
+        backpressure: bool,
+    ) -> Result<(), Push> {
         let mut frame = Frame {
             bytes,
             kind,
@@ -99,7 +131,9 @@ impl Scheduler {
                     self.0.ready.notify_one();
                     return Ok(());
                 }
-                Err((Push::Wait, returned)) => {
+                Err((reason, returned))
+                    if reason == Push::Wait || backpressure && reason == Push::Overflow =>
+                {
                     frame = returned;
                     space.await;
                 }

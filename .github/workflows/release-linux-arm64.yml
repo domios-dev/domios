@@ -33,7 +33,7 @@ jobs:
     name: build (aarch64-unknown-linux-gnu)
     # One hosted arm64 job compiles, signs, smokes and publishes; release signing secrets live in the release environment.
     runs-on: ${{ fromJSON(vars.CI_LINUX_ARM64_RUNNER || '"ubuntu-24.04-arm"') }}
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
     environment: release
     timeout-minutes: 120
     env:
@@ -133,10 +133,12 @@ jobs:
         run: |-
           set -euo pipefail
           cp "$RUNNER_TEMP/arm64-handoff.tar" arm64-handoff.tar
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -euo pipefail -c '
+          exec node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -euo pipefail -c '
               node scripts/release-arm64-handoff.mjs unpack aarch64-unknown-linux-gnu "${{ inputs.tag }}" "${{ inputs.source_ref }}" arm64-handoff.tar "${{ steps.compile.outputs.sha256 }}"
               node scripts/release-bundle-smoke.mjs linux src-tauri/target/aarch64-unknown-linux-gnu/release/bundle "${{ inputs.source_ref }}" arm64
             '
+      - name: Copy verified Linux arm64 packages
+        run: |
           mkdir -p "$ART/out"
           cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb "$ART/out/"
           cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage "$ART/out/"

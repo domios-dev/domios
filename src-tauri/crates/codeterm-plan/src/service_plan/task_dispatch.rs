@@ -613,7 +613,14 @@ impl PlanStore {
                 attempt.execution_intent = Some(intent.clone());
                 if let Some(inspected) = shared_binding.as_ref() {
                     attempt.checkout_path = Some(inspected.checkout.clone());
-                    attempt.shared_start_sha = Some(inspected.head.clone());
+                    match &inspected.start {
+                        super::shared_checkout::SharedStart::Commit(head) => {
+                            attempt.shared_start_sha = Some(head.clone());
+                        }
+                        super::shared_checkout::SharedStart::Files(hashes) => {
+                            attempt.shared_start_files = Some(hashes.clone());
+                        }
+                    }
                 }
                 task.interruption.execution_intent = intent.clone();
                 task.interruption.allowance = allowance.clone();

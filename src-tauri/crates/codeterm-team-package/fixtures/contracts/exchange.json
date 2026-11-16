@@ -1,0 +1,133 @@
+{
+  "distill_request": {
+    "team_id": "team_7",
+    "name": "ada/research-desk",
+    "version": "1.0.0",
+    "description": "Researches a market question and writes a cited report.",
+    "license": "MIT",
+    "runbook": "Split the question by angle; merge only checked claims.",
+    "opt_out": ["memory:1"],
+    "format": "yaml",
+    "save": true
+  },
+  "distill_result": {
+    "yaml": "name: ada/research-desk\nversion: 1.0.0\n",
+    "includes": [
+      {
+        "id": "file:notes/brief.md",
+        "kind": "file",
+        "label": "notes/brief.md",
+        "description": "The brief every researcher reads",
+        "executable": false,
+        "used_by": ["orchestrator", "researcher"]
+      },
+      {
+        "id": "skill:source-check",
+        "kind": "skill",
+        "label": "source-check",
+        "description": "Verify a claim against its cited source.",
+        "executable": true,
+        "used_by": ["checker"],
+        "script_path": "source-check/scripts/fetch.py"
+      }
+    ],
+    "check": { "format": "yaml", "valid": true, "name": "ada/research-desk", "version": "1.0.0", "diagnostics": [] },
+    "scrub": {
+      "machines_removed": 2,
+      "paths_generalized": 3,
+      "secret_values_removed": 1,
+      "secret_asks_added": 1,
+      "history_removed": 4,
+      "secret_names": ["SEARCH_API_KEY"]
+    },
+    "path": "/data/team-exports/ada-research-desk-1.0.0.team.yaml",
+    "saved": {
+      "name": "ada/research-desk",
+      "version": "1.0.0",
+      "description": "Researches a market question and writes a cited report.",
+      "provenance": "saved",
+      "workers": 2,
+      "verified": false,
+      "derived_from": { "name": "dev.domios/default", "version": "1.0.0" },
+      "authors": [{ "name": "Ada" }],
+      "links": { "homepage": "https://example.com/desk" },
+      "license": "MIT"
+    }
+  },
+  "import_result": {
+    "template": {
+      "name": "ada/research-desk",
+      "version": "1.1.0",
+      "description": "Researches a market question and writes a cited report.",
+      "provenance": "imported",
+      "workers": 3,
+      "received_from": "Ada",
+      "verified": false
+    },
+    "check": { "format": "team", "valid": true, "name": "ada/research-desk", "version": "1.1.0", "diagnostics": [] },
+    "update": {
+      "name": "ada/research-desk",
+      "from_version": "1.0.0",
+      "to_version": "1.1.0",
+      "roles_added": ["editor"],
+      "roles_changed": ["checker"],
+      "roles_kind_changed": [{ "role": "checker", "from": "worker", "to": "manager" }],
+      "payload_added": [{ "id": "skill:citations", "label": "citations" }],
+      "payload_removed": [{ "id": "memory:1", "label": "Market sizes older than two years mislead" }],
+      "asks_added": [{ "kind": "network", "hosts": ["api.example.com"] }]
+    }
+  },
+  "delete_request": { "template": { "name": "ada/research-desk", "version": "1.0.0" } },
+  "delete_result": { "removed": ["ada/research-desk@1.0.0"] },
+  "transfer_request": { "template": { "name": "ada/research-desk" }, "peer": "air", "format": "team" },
+  "share_card": {
+    "file_id": "f_91",
+    "template": {
+      "name": "ada/research-desk",
+      "version": "1.1.0",
+      "description": "Researches a market question and writes a cited report.",
+      "provenance": "imported",
+      "workers": 3,
+      "verified": false
+    },
+    "roles": 6,
+    "asks": [{ "kind": "secret", "name": "SEARCH_API_KEY", "purpose": "Web search", "required": true }, { "kind": "script", "item": "skill:source-check" }],
+    "state": "unverified"
+  },
+  "share_actions": ["preview", "dismiss"],
+  "peer_start_request": {
+    "peer": "eight",
+    "start": {
+      "template": { "template": { "name": "ada/research-desk", "version": "1.1.0" }, "inputs": { "question": "EU heat pumps" } },
+      "workspace_id": "ws_eight_research",
+      "orchestrator_agent": "harness-a",
+      "orchestrator_model": "opus",
+      "planner_agent": "harness-b",
+      "planner_model": null
+    },
+    "origin_workspace_id": "ws_home"
+  },
+  "peer_start_accepted": {
+    "state": "awaiting_owner",
+    "peer_id": "inst_8c1f",
+    "peer_name": "eight",
+    "request_id": "pa_31",
+    "notification_id": "n_77"
+  },
+  "peer_start_finished": {
+    "state": "finished",
+    "peer_id": "inst_8c1f",
+    "peer_name": "eight",
+    "request_id": "pa_32",
+    "outcome": {
+      "request_id": "pa_32",
+      "peer_id": "inst_8c1f",
+      "peer_name": "eight",
+      "state": "started",
+      "origin_workspace_id": "ws_home",
+      "workspace_id": "ws_eight_research",
+      "orchestrator_tab_id": "t_orch",
+      "planner_tab_id": "t_plan"
+    }
+  }
+}

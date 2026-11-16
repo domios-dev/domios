@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use uuid::Uuid;
 
-pub const NATIVE_HOST_PROTOCOL: u32 = 3;
+pub const NATIVE_HOST_PROTOCOL: u32 = 4;
 pub const MAX_NATIVE_HOST_FRAME_BYTES: usize = 32 * 1024;
 pub const MAX_PENDING_NATIVE_HOST_REQUESTS: usize = 64;
 pub const NATIVE_HOST_REQUEST_DEADLINE: Duration = Duration::from_secs(10);
@@ -308,6 +308,23 @@ pub struct NativeWebviewDiagnosticsSnapshot {
     pub status: NativeWebviewDiagnosticsStatus,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum NativeOutputFlow {
+    Rendered {
+        tab_id: String,
+        pty_id: String,
+        attachment: Uuid,
+        offset: u64,
+        attach: bool,
+    },
+    Detach {
+        pty_id: String,
+        attachment: Uuid,
+    },
+    DetachAll,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
 pub enum NativeHostFrame<UpdateRequest, UpdateResult> {
@@ -326,6 +343,11 @@ pub enum NativeHostFrame<UpdateRequest, UpdateResult> {
     Reply(NativeHostReply<UpdateResult>),
     Cancel(NativeHostCancellation),
     DiagnosticsStatus(NativeWebviewDiagnosticsReport),
+    OutputFlow {
+        connection: NativeHostConnection,
+        view_session: Uuid,
+        update: NativeOutputFlow,
+    },
     Event(NativeHostEvent),
 }
 

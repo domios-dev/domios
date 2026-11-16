@@ -59,7 +59,7 @@ export function sectionTitle(id: SectionId): string {
   return SETTINGS_SECTIONS.find((s) => s.id === id)?.label ?? id;
 }
 
-export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge" | "subscription-plans";
+export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge" | "subscription-plans" | "team-channels";
 
 export interface SettingsCardRoute {
   section: SectionId;
@@ -67,7 +67,7 @@ export interface SettingsCardRoute {
 }
 
 /** Links straight to one card inside a section. */
-export type CardLinkId = "messengers" | "plans";
+export type CardLinkId = "messengers" | "plans" | "team-channels";
 export type SettingsLinkId = SectionId | CardLinkId;
 
 export interface SettingsLinkRoute {
@@ -78,6 +78,7 @@ export interface SettingsLinkRoute {
 const CARD_ROUTES: Record<CardLinkId, SettingsLinkRoute> = {
   messengers: { section: "general", card: "telegram-bridge" },
   plans: { section: "account", card: "subscription-plans" },
+  "team-channels": { section: "agents", card: "team-channels" },
 };
 
 const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);

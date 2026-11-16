@@ -1,9 +1,9 @@
 export type { HostIo, HostIoFs, HostIoRequest, HostIoSteps } from "./io";
+export type { HostIoResult } from "./ioResults";
 // @codeterm/plugin-sdk — plugin contracts and pure recorded-diff mapping helpers.
 export type {ProviderAuthStatus, ProviderSessionObservations, RuntimeErrorSignal} from "./providerSignals";
 export type {
   Host,
-  HostFs,
   HostShell,
   HostPath,
   DirEntry,
@@ -14,17 +14,11 @@ export type {
   FetchResult,
   FetchStreamStart,
   FetchStreamPoll,
-  HostFetch,
   Backend,
   TabRef,
   UsageSnapshot,
-  HostWorker,
-  HostWorkspace,
-  HostAgent,
   HostAgentRun,
   HostAgentRunReply,
-  HostMem,
-  HostAnalytics,
   AnalyticsBucket,
   AnalyticsGroupBy,
   AnalyticsCoverage,
@@ -40,13 +34,10 @@ export type {
   AnalyticsAllowance,
   AnalyticsSnapshot,
   AnalyticsRefusal,
-  HostReceiverTarget,
-  HostLocalRecording,
   RecordingDeviceSelection,
   RecordingInputDevice,
   LocalRecordingStatus,
   LocalRecordingRefusal,
-  HostSurface,
   ReceiverTargetView,
   ReceiverTargetRefusal,
 } from "./host";

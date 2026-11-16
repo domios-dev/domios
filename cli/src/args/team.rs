@@ -1,7 +1,16 @@
 use clap::Subcommand;
 
+pub mod channel;
+pub mod exchange;
+pub mod template_start;
+
 #[derive(Subcommand)]
 pub enum TeamAction {
+    /// Subscribe to team package channels
+    Channel {
+        #[command(subcommand)]
+        action: channel::TeamChannelAction,
+    },
     /// List registered Teams
     List,
     /// Show one Team
@@ -76,7 +85,30 @@ pub enum TeamAction {
         /// an intermediary shell.
         #[arg(long)]
         acknowledge_leaf: bool,
+        /// Start from this team template (`name[@version]`); omitted keeps the standard pair
+        #[arg(long)]
+        template: Option<String>,
     },
+    /// Validate an ATP team package: a `name.team.yaml` file, a `name.team` archive or a package folder
+    Check {
+        /// Package path
+        path: String,
+    },
+    /// Team templates: list, preview and start
+    Template {
+        #[command(subcommand)]
+        action: template_start::TemplateAction,
+    },
+    /// Distill a live Team into a checked template package (procedure: `domios docs TEAMS`)
+    Distill(exchange::DistillArgs),
+    /// Export a template as `yaml`, `team` or `folder`
+    Export(exchange::ExportArgs),
+    /// Import a template package into My templates
+    Import(exchange::ImportArgs),
+    /// Recall the templates that fit a goal, best first; the default is always offered
+    Recall(exchange::RecallArgs),
+    /// Remove a saved template from My templates
+    DeleteTemplate(exchange::DeleteArgs),
 }
 
 #[cfg(test)]

@@ -1,6 +1,5 @@
-import { roleDisplayWord } from "./roleDisplay";
 import type { Tab } from "../../lib/types";
-import { roleKindLabel, hasTeamAuthority } from "../../lib/roleKind";
+import { roleDisplayLabel, roleKindLabel, hasTeamAuthority } from "../../lib/roleKind";
 
 export interface RemoteTeamIdentity {
   id: string;
@@ -13,17 +12,10 @@ export function managedByLabel(tab: Tab): string | null {
   return controller ? `managed by ${controller}` : null;
 }
 
-function titleCaseRole(profile: string): string {
-  return profile
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map(roleDisplayWord)
-    .join(" ");
-}
-
 export function namedManagerRole(tab: Tab): string | null {
   const profile = tab.role_profile?.trim();
-  if (profile) return titleCaseRole(profile);
+  // A profile is a key: built-in kinds read as their host name, others in sentence case.
+  if (profile) return roleDisplayLabel(profile);
   return hasTeamAuthority(tab) ? roleKindLabel(tab) : null;
 }
 

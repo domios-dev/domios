@@ -41,7 +41,10 @@ pub(crate) fn validate_path(path: &str) -> Result<Uri, String> {
 }
 
 fn read_post(path: &str) -> bool {
-    if path == "/api/essence-maps" {
+    if matches!(
+        path,
+        "/api/essence-maps" | "/api/automation/blueprints/solutions/list"
+    ) {
         return true;
     }
     let Some(rest) = path.strip_prefix("/api/tabs/") else {
@@ -58,6 +61,7 @@ fn read_post(path: &str) -> bool {
                 | "chat-raw/start"
                 | "chat-raw/history"
                 | "chat-raw/backfill"
+                | "chat-raw/resume"
         )
 }
 

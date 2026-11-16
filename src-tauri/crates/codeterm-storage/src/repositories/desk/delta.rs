@@ -15,6 +15,61 @@ use crate::schema::{self, WORKSPACE_ORDER_REVISION};
 use rusqlite::params;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(test)]
+#[path = "delta/tests.rs"]
+mod tests;
+
+struct ValidatedInventory {
+    snapshot: DeskSnapshot,
+    cost: usize,
+    counts: [usize; 4],
+}
+
+impl ValidatedInventory {
+    fn new(mut snapshot: DeskSnapshot) -> Result<Self, StorageError> {
+        retain_orphan_teams(&mut snapshot);
+        let cost = snapshot.validate()?;
+        let counts = inventory_counts(&snapshot);
+        Ok(Self {
+            snapshot,
+            cost,
+            counts,
+        })
+    }
+
+    fn target(self, current: &DeskSnapshot, reduce: bool) -> Result<DeskSnapshot, StorageError> {
+        let mut target = if reduce {
+            self.snapshot
+        } else {
+            preserve_missing(current, self.snapshot)
+        };
+        retain_orphan_teams(&mut target);
+        let target_counts = inventory_counts(&target);
+        // Equal counts reuse validation because preservation only adds or reorders submitted entities.
+        debug_assert!(target_counts
+            .iter()
+            .zip(self.counts)
+            .all(|(after, before)| *after >= before));
+        if target_counts != self.counts {
+            target.validate()?;
+        }
+        Ok(target)
+    }
+}
+
+fn inventory_counts(snapshot: &DeskSnapshot) -> [usize; 4] {
+    [
+        snapshot.workspaces.len(),
+        snapshot
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.tabs.len())
+            .sum(),
+        snapshot.teams.len(),
+        snapshot.agent_session_identities.len(),
+    ]
+}
+
 impl DeskRepository {
     pub fn save_preserving(
         &self,
@@ -34,23 +89,23 @@ impl DeskRepository {
 
     fn submit_delta(
         &self,
-        mut snapshot: DeskSnapshot,
+        snapshot: DeskSnapshot,
         expected: Revision,
         reduce: bool,
     ) -> Completion<Committed<()>> {
-        retain_orphan_teams(&mut snapshot);
-        let cost = match snapshot.validate() {
-            Ok(cost) => cost,
+        let validated = match ValidatedInventory::new(snapshot) {
+            Ok(validated) => validated,
             Err(error) => return Completion::settled(Err(error)),
         };
-        self.storage
-            .submit_mutation(cost, move |cx| apply_delta(cx, snapshot, expected, reduce))
+        self.storage.submit_mutation(validated.cost, move |cx| {
+            apply_delta(cx, validated, expected, reduce)
+        })
     }
 }
 
 fn apply_delta(
     cx: &mut WriteCx<'_>,
-    submitted: DeskSnapshot,
+    submitted: ValidatedInventory,
     expected: Revision,
     reduce: bool,
 ) -> Result<(), StorageError> {
@@ -60,13 +115,7 @@ fn apply_delta(
         Expect::At(expected),
         Some(current.revision),
     )?;
-    let mut target = if reduce {
-        submitted
-    } else {
-        preserve_missing(&current.snapshot, submitted)
-    };
-    retain_orphan_teams(&mut target);
-    target.validate()?;
+    let target = submitted.target(&current.snapshot, reduce)?;
     validate_references(&target)?;
 
     let initial_rows = cx.rows_written;

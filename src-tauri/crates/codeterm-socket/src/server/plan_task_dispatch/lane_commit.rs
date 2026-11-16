@@ -5,7 +5,7 @@
 use serde_json::{json, Value};
 
 use super::super::safety_nudge::{apply_safety_nudges, SafetyNudge};
-use codeterm_service_core::plan::TaskLaneMetadata;
+use codeterm_service_core::plan::{LaneOwnership, TaskLaneMetadata};
 use codeterm_service_core::service::{same_path, WorkerLaneProvenance};
 
 /// `canonical_project_path` is the PLAN's project checkout, and landing there is
@@ -35,6 +35,7 @@ pub(super) fn lane_metadata_for_dispatch(
         lane.branch = None;
         lane.base = None;
         lane.cleanup_status = None;
+        lane.ownership = None;
         return lane;
     }
     lane.worktree_path = Some(provenance.worktree_path.clone());
@@ -55,6 +56,30 @@ pub(super) fn clear_replaced_lane_routing_fields(lane: &mut TaskLaneMetadata) {
     lane.workspace_name = None;
     lane.worktree_path = None;
     lane.branch = None;
+    lane.ownership = None;
+}
+
+/// Decided once per dispatch from what dispatch itself did, never from the path:
+/// a lane it provisioned is Domios-owned, a reused recorded lane keeps its record,
+/// and any other resolved checkout was bound by the caller and is foreign.
+pub(super) fn dispatch_lane_ownership(
+    recorded: &TaskLaneMetadata,
+    provenance: Option<&WorkerLaneProvenance>,
+    provisioned: bool,
+) -> Option<LaneOwnership> {
+    let provenance = provenance?;
+    if provisioned {
+        return Some(LaneOwnership::DomiosLane);
+    }
+    let reused = recorded
+        .worktree_path
+        .as_deref()
+        .is_some_and(|path| same_path(path, &provenance.worktree_path));
+    if reused {
+        recorded.ownership
+    } else {
+        Some(LaneOwnership::ForeignCheckout)
+    }
 }
 
 #[derive(Clone, Debug)]

@@ -37,6 +37,7 @@ function AccountHeader({ identity, email, avatarUrl, initial, badge, summary }: 
       {badge ? <>
         <span className="ct-plan-badge" data-tier={badge.tier}>{badge.admin ? `Admin · ${badge.name}` : badge.name}</span>
         {badge.verifying && <span role="status">Verifying</span>}
+        {badge.unverified && <span role="status">{badge.unverified}</span>}
       </> : <span className="ct-plan-status" data-tone="inactive">Plan unavailable</span>}
     </div>
   </div>;
@@ -51,8 +52,10 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
   const [open, setOpen] = useState(false);
   const enrollmentNotice = useEnrollmentNotice(account.model.kind === "signed_in" ? account.model.identity.uid : null);
-  const desktopBilling = useDesktopBilling(account.model.kind === "signed_in" ? account.model.identity.uid : null, open);
+  // Read from sign-in, not on open, so the first opening already knows which subscription action applies.
+  const desktopBilling = useDesktopBilling(account.model.kind === "signed_in" ? account.model.identity.uid : null);
   const hasPaidSubscription = !!desktopBilling.subscription?.paid_subscription;
+  const subscriptionKnown = !desktopBilling.loading || desktopBilling.subscription !== null;
   const model = accountTrayModel(account.model, billing.plan);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const pending = model.kind === "pending";
@@ -70,8 +73,12 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
     ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
-    { label: hasPaidSubscription ? billing.pending ? "Opening subscription…" : "Manage subscription" : plansAction("Upgrade"),
-      disabled: billing.pending, onClick: () => { if (hasPaidSubscription) void manageSubscription(); else onOpenPlans(); } },
+    ...(model.signInRequired ? [{ label: "Sign in again", icon: ACCOUNT_ENTRY_OPTIONS[0].icon,
+      description: "Your plan is active; this machine needs a fresh sign-in to unlock it.",
+      disabled: pending, onClick: () => void startSignIn(ACCOUNT_ENTRY_OPTIONS[0].hint) }] : []),
+    { label: !subscriptionKnown ? "Checking subscription…"
+      : hasPaidSubscription ? billing.pending ? "Opening subscription…" : "Manage subscription" : plansAction("Upgrade"),
+      disabled: billing.pending || !subscriptionKnown, onClick: () => { if (hasPaidSubscription) void manageSubscription(); else onOpenPlans(); } },
     ...legalMenuItems(["terms", "privacy"]),
     { separator: true, key: "sign-out" },
     { label: "Sign out this machine", onClick: () => setConfirmSignOut(true) },
@@ -103,7 +110,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   items.push({separator:true,key:"community"},community);
   return <div className="flex items-center">
     {confirmSignOut && <SelfSessionSignOut onClose={() => setConfirmSignOut(false)} />}
-    <DropdownMenu menuLabel={model.kind === "signed_in" ? `Account: ${model.identity}, ${model.plan}` : "Account"} items={items} onOpenChange={setOpen}
+    <DropdownMenu menuLabel={model.kind === "signed_in" ? `Account: ${model.identity}, ${model.plan}` : "Account"} items={items} onOpenChange={setOpen} focusOnPointerOpen
       header={model.kind === "signed_in" ? <AccountHeader identity={model.identity} email={model.email} avatarUrl={model.avatarUrl} initial={model.initial} badge={model.badge} summary={model.plan} /> : signedOutNotice ? <p role="status" className="px-3 py-2 text-xs">{signedOutNotice}</p> : undefined} trigger={
       <button type="button" className={UI_TRAY_BTN} aria-label={billing.pending ? "Opening subscription" : model.name}
         title={billing.pending ? "Opening subscription…" : model.name} aria-haspopup="menu" aria-expanded={open} aria-busy={pending || billing.pending}>

@@ -527,7 +527,7 @@ fn execution_authority_does_not_implicitly_request_os_confinement() {
 #[test]
 fn explicit_spawn_sandbox_survives_json_and_pty_spec_round_trip() {
     let params = SpawnAgentParams::from_json(&serde_json::json!({
-        "agent":"opaque-provider", "role":"Worker", "sandbox":"read-only",
+        "agent":"opaque-provider", "role":"worker", "sandbox":"read-only",
         "execution_intent":"read_only"
     }))
     .unwrap();

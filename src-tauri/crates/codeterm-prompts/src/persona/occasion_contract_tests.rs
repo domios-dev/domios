@@ -6,14 +6,16 @@ use codeterm_types::agent::AgentRole;
 fn curator_ask_contract_reaches_launch_unchanged() {
     let mut preset =
         role_preset::resolve(Some(AgentRole::Manager), Some(builtins::CURATOR), None).unwrap();
-    let contract = role_preset::builtin_guidance(builtins::CURATOR).unwrap();
+    let contract = crate::builtin_roles::builtin_prose(builtins::CURATOR)
+        .unwrap()
+        .trim();
     let delivered = compose(
         Occasion::LaunchAssignment,
         Some(&preset),
         Some("opaque-digest"),
     )
     .unwrap();
-    assert!(delivered.contains(contract.as_str()));
+    assert!(delivered.contains(contract));
     for fragment in &mut preset.fragments {
         fragment.text = "opaque-ask-command\nopaque-notification-ban".into();
     }
@@ -30,7 +32,7 @@ fn curator_ask_contract_reaches_launch_unchanged() {
 #[test]
 fn every_bundled_suffix_declares_launch_delivery() {
     for descriptor in builtins::all() {
-        if role_preset::builtin_guidance(descriptor.id()).is_none() {
+        if crate::builtin_roles::builtin_prose(descriptor.id()).is_none() {
             continue;
         }
         let role = if descriptor.manages() {

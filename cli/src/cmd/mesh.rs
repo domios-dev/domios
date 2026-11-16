@@ -321,6 +321,12 @@ fn account_mesh_status_lines(state: &serde_json::Value) -> Vec<String> {
         return vec!["Sign in again to add this machine to your mesh".into()];
     }
     let mut lines = Vec::new();
+    if state["last_refusal"]["reason"] == "proof_invalid" {
+        lines.push(
+            "This build cannot join this account's mesh: the account service rejected its proof"
+                .into(),
+        );
+    }
     if let Some(publication) = state["publication"].as_str() {
         lines.push(format!("Account publication: {publication}"));
     }

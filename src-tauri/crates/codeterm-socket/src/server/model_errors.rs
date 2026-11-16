@@ -31,11 +31,30 @@ pub(super) fn spawn_target_rpc_error(
     }
 }
 
+/// A Team manager admission refusal is the caller's request, not a daemon fault.
+const MANAGER_ADMISSION_REFUSALS: [&str; 3] = [
+    codeterm_types::team::staffing::TEAM_ROLE_ALREADY_LIVE,
+    codeterm_types::team::staffing::TEAM_ROLE_REQUIRES_ORCHESTRATOR,
+    codeterm_types::team::staffing::TEAM_ROLE_NOT_TASK_BOUND,
+];
+
 pub(super) fn spawn_rpc_error(message: String) -> JsonRpcError {
-    JsonRpcError {
-        code: -32603,
-        message,
-        data: None,
+    let refusal = message.split_once(':').and_then(|(code, _)| {
+        MANAGER_ADMISSION_REFUSALS
+            .into_iter()
+            .find(|known| *known == code)
+    });
+    match refusal {
+        Some(code) => JsonRpcError {
+            code: -32602,
+            message,
+            data: Some(serde_json::json!({ "code": code })),
+        },
+        None => JsonRpcError {
+            code: -32603,
+            message,
+            data: None,
+        },
     }
 }
 

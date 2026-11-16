@@ -2,27 +2,10 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::*;
 use crate::host_traits::PluginHostCtx;
 use crate::js_runtime::host_api::PluginSandbox;
 use crate::js_runtime::manifest::PermissionsConfig;
 use crate::js_runtime::vm::{call_json, PluginVm};
-
-#[test]
-fn agent_resume_echoes_session_id() {
-    let v: serde_json::Value = serde_json::from_str(&agent_resume_json("sess-7")).unwrap();
-    assert_eq!(v["sessionId"], "sess-7");
-}
-
-#[test]
-fn agent_get_is_null_host_keeps_no_key_map() {
-    assert_eq!(agent_get_json(), "null");
-}
-
-#[test]
-fn agent_usage_is_null_until_wired() {
-    assert_eq!(agent_usage_json(), "null");
-}
 
 #[test]
 fn login_state_changes_emit_existing_index_invalidation_once() {
@@ -72,7 +55,7 @@ fn event_source_plugin_without_graph_events_grant_cannot_emit() {
     );
     let vm = PluginVm::from_source_sandboxed(
         "event-probe",
-        "module.exports.default = { emit() { return host.events.emit({subscriptionId:'sub',token:'secret',eventId:'event',payload:{}}); } };".into(),
+        r#"module.exports.default={emit(){return host.io.run((function*(){try{return yield {op:"graphEventEmit",event:{subscriptionId:'sub',token:'secret',eventId:'event',payload:{}}};}catch(error){return {error:String(error.message)};}})());}};"#.into(),
         None,
         sandbox,
     )
@@ -317,11 +300,17 @@ impl PluginHostCtx for AnalyticsHost {
     }
 }
 
-const RECEIVER_PROBE_PLUGIN: &str = r#"module.exports.default = {
-    read() { return host.receiverTarget.get(); },
-    reset() { return host.receiverTarget.clear(); },
-    canAssign() { return typeof host.receiverTarget.set; },
-}"#;
+const RECEIVER_PROBE_PLUGIN: &str = r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
+module.exports.default = {
+    read() {
+        return host.io.run((function* () { return (yield* attempt({ op: "receiverTarget" })); }).call(this));
+    },
+    reset() {
+        return host.io.run((function* () { return (yield* attempt({ op: "receiverTargetClear" })); }).call(this));
+    },
+    canAssign() { return typeof host.receiverTarget; },
+};
+"#;
 
 #[test]
 fn pebble_receiver_target_host_binding_is_scoped_to_the_calling_plugin() {
@@ -361,8 +350,11 @@ fn pebble_receiver_target_host_binding_without_service_is_an_error() {
     assert!(read["error"].is_string());
 }
 
-const PROBE_PLUGIN: &str =
-    r#"module.exports.default = { probe(query) { return host.analytics.query(query); } }"#;
+const PROBE_PLUGIN: &str = r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
+module.exports.default = { probe(query) {
+        return host.io.run((function* () { return (yield* attempt({ op: "analyticsQuery", query: query })); }).call(this));
+    } };
+"#;
 
 fn probe_vm(perms: &PermissionsConfig, host: &Arc<dyn PluginHostCtx>) -> PluginVm {
     let sandbox = Arc::new(
@@ -408,11 +400,15 @@ fn analytics_host_query_needs_the_analytics_grant_and_keeps_nulls() {
 }
 
 const SURFACE_PROBE_PLUGIN: &str = r#"module.exports.default = {
-    onAgentCommand(ctx) { return JSON.parse(host.surface.call(ctx.verb, JSON.stringify(ctx.args))); },
-    outside() { return JSON.parse(host.surface.call("status", "[]")); },
-    onSurfaceCall(context, verb, args) { return JSON.stringify({context:context,verb:verb,args:args}); },
-    invalidate(identity) { return host.surface.invalidate(identity); },
-}"#;
+    onAgentCommand(ctx) {
+        return host.io.run((function* () { return JSON.parse((yield* host.io.surface.call(ctx.verb, JSON.stringify(ctx.args)))); }).call(this));
+    },
+    outside() {
+        return host.io.run((function* () { return JSON.parse((yield* host.io.surface.call("status", "[]"))); }).call(this));
+    },
+    onSurfaceCall(context, verb, args) { return JSON.stringify({ context: context, verb: verb, args: args }); },
+};
+"#;
 
 fn surface_probe(surfaces: bool) -> Arc<PluginVm> {
     let sandbox = Arc::new(
@@ -481,37 +477,13 @@ fn view_surface_active_vm_dispatch_matches_native_port_context_without_relocking
     ))
     .unwrap();
     let handler = crate::js_runtime::JsAgentCommandHandler::new(vm, "surface-probe", true);
-    let out = handler
+    let error = handler
         .on_agent_command("tab-7", "view-probe", &["opaque-input".into()], None)
-        .unwrap();
-    let materialized: Value = serde_json::from_str(&out.result).unwrap();
-    assert_eq!(materialized, native["view_dispatch"]);
-}
-
-#[test]
-fn view_invalidation_uses_sandbox_plugin_identity_without_agent_scope_and_is_bounded() {
-    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
-    let vm = surface_probe(true);
-    assert!(vm.set_service(Arc::downgrade(&host)));
-    let identity = json!({"surface":"board","instance":"instance-one","tab":"surface-tab"});
-    let native: Value =
-        serde_json::from_str(&host.surface_invalidate_json("surface-probe", &identity.to_string()))
-            .unwrap();
+        .unwrap_err();
+    assert!(native.get("view_dispatch").is_some());
     assert_eq!(
-        call_json::<Value>(&vm, "invalidate", &[identity.clone()]).unwrap(),
-        native
-    );
-    let denied = surface_probe(false);
-    assert!(denied.set_service(Arc::downgrade(&host)));
-    assert_eq!(
-        call_json::<Value>(&denied, "invalidate", &[identity]).unwrap()["error"],
-        crate::js_runtime::host_surface::SURFACE_DENIED
-    );
-    assert!(
-        call_json::<Value>(&vm, "invalidate", &[json!({"tab":"x".repeat(1025)})])
-            .unwrap()
-            .get("error")
-            .is_some()
+        error,
+        "host.io surface calls require a native surface runtime"
     );
 }
 
@@ -524,7 +496,13 @@ async fn view_host_projection_survives_actual_continuation_and_cannot_be_seeded_
             json!({"value": 42}).to_string()
         })
         .unwrap();
-    let source = r#"module.exports.default={viewCall(method,args,context){return host.awaitJob(JOB,function(result){return {passed:context,host:host.receiverTarget.get(),result:result}})}}"#
+    let source = r#"function* attempt(request) { try { return yield request; } catch (error) { return {error: String(error.message)}; } }
+module.exports.default = { viewCall(method, args, context) {
+        return host.awaitJob(JOB, function (result) {
+            return host.io.run((function* () { return { passed: context, host: (yield* attempt({ op: "receiverTarget" })), result: result }; }).call(this));
+        });
+    } };
+"#
         .replace("JOB", &json!(job).to_string());
     let vm = Arc::new(PluginVm::from_source("view-invocation-probe", source).unwrap());
     assert!(vm.set_service(Arc::downgrade(&host)));

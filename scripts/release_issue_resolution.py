@@ -100,9 +100,12 @@ def included_history(version, source_sha, candidates, read_commits, request):
             row[field] = bool(release and not release.get("draft") and release.get("published_at"))
         private_assets = {asset["name"]: asset for asset in (private or {}).get("assets", [])}
         public_assets = {asset["name"] for asset in (public or {}).get("assets", [])}
-        if (row["private_published"] and row["public_published"]
-                and "issue-closure-boundary.json" in private_assets
-                and {"issue-closure-boundary.json", "domios-latest.json"} <= public_assets):
+        missing_mirror_assets = {"issue-closure-boundary.json", "domios-latest.json"} - public_assets
+        row["legacy_mirror_diagnostic"] = (
+            "legacy mirror release is absent" if not public else
+            "legacy mirror release is not published" if not row["public_published"] else
+            "legacy mirror lacks assets: " + ", ".join(sorted(missing_mirror_assets)) if missing_mirror_assets else None)
+        if row["private_published"] and "issue-closure-boundary.json" in private_assets:
             asset = private_assets["issue-closure-boundary.json"]
             boundary = remote(f"repos/{SOURCE_REPOSITORY}/releases/assets/{asset['id']}", True)
             try:
@@ -127,9 +130,12 @@ def included_history(version, source_sha, candidates, read_commits, request):
                             break
                     else:
                         raise ContractError("validator jobs exceed page bound")
-        row["refusal"] = closure_boundary_refusal(row)
+        row["refusal"] = (
+            "source release is not published" if not row["private_published"] else
+            "source release lacks issue-closure-boundary.json asset" if "issue-closure-boundary.json" not in private_assets else
+            closure_boundary_refusal(row))
         inspected.append(row)
-        if row["private_published"] and row["public_published"] and row["refusal"] is None:
+        if row["private_published"] and row["refusal"] is None:
             start = candidate["sha"]
             break
 

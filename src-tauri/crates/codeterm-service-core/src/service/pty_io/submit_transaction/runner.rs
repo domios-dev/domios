@@ -103,6 +103,8 @@ pub(super) fn run_with_submit_key_and_payload<T: SubmitTransport>(
     opts: VerifyOpts,
     mut key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
+    // A child blocked on stdout must drain before it can consume our one-shot input.
+    let _output_read = transport.suspend_output();
     transport.prewrite_guard()?;
     let started = Instant::now();
     let turn_was_started = enter && transport.turn_started();

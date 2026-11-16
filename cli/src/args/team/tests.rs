@@ -5,6 +5,32 @@ use crate::{Cli, Commands};
 use super::TeamAction;
 
 #[test]
+fn team_channel_verbs_parse() {
+    for tail in [
+        vec!["list"],
+        vec![
+            "add",
+            "https://example.org/teams.git",
+            "--name",
+            "community",
+        ],
+        vec!["refresh"],
+        vec!["refresh", "community"],
+        vec!["remove", "community"],
+    ] {
+        let mut args = vec!["domios", "team", "channel"];
+        args.extend(tail);
+        let parsed = Cli::try_parse_from(args).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Team {
+                action: TeamAction::Channel { .. }
+            }
+        ));
+    }
+}
+
+#[test]
 fn team_verbs_parse() {
     let parsed =
         Cli::try_parse_from(["codeterm", "team", "adopt-plan", "team_alpha", "pl_one"]).unwrap();
@@ -87,6 +113,7 @@ fn pair_parses_provider_model_specs_and_optional_fields() {
                     workspace,
                     title,
                     acknowledge_leaf,
+                    template,
                 },
         } => {
             assert_eq!(orchestrator, "claude:fable");
@@ -94,6 +121,7 @@ fn pair_parses_provider_model_specs_and_optional_fields() {
             assert_eq!(workspace.as_deref(), Some("ws1"));
             assert_eq!(title.as_deref(), Some("My Plan"));
             assert!(!acknowledge_leaf, "the flag defaults to false when absent");
+            assert!(template.is_none(), "no template keeps the standard pair");
         }
         _ => panic!("expected team pair"),
     }

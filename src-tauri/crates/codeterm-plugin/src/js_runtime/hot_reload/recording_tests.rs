@@ -7,7 +7,7 @@ use std::time::Duration;
 
 fn manifest(id: &str) -> String {
     serde_json::json!({
-        "id": id, "displayName": "Fixture", "version": "0.1.0",
+        "id": id, "hostIoJobs":true,"displayName": "Fixture", "version": "0.1.0",
         "hostApi": crate::js_runtime::host_api::HOST_API_VERSION, "entry": "plugin.js",
         "capabilities": { "localRecordingTrigger": { "vendorId": 1, "productId": 2, "usagePage": 3, "usage": 4 },
             "tabMenu": [{ "id": "receive", "label": "Receive here", "action": "receiverTarget" }] },

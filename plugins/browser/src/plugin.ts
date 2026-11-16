@@ -1,4 +1,4 @@
-import type { AgentCommandCtx, PluginModule } from "@codeterm/plugin-sdk";
+import { defineProviderIo, ioResolve, type HostIoSteps, type IoExports, type AgentCommandCtx, type PluginModule } from "@codeterm/plugin-sdk";
 import { readPage } from "./readPage";
 import { redactCredentials } from "./redaction";
 import { runBatch } from "./batch";
@@ -6,12 +6,12 @@ import { version } from "../plugin.json";
 
 export type AgentCommandReply = { result: string } | { error: string };
 
-type SurfaceCall = (verb: string, argsJson: string) => string;
+type SurfaceCall = (verb: string, argsJson: string) => string | HostIoSteps<string>;
 
 export type ParsedArgs = { args: string[]; of?: string } | { error: string };
 
 function hostSurfaceCall(): SurfaceCall | undefined {
-  return typeof host === "object" && host && host.surface ? host.surface.call : undefined;
+  return typeof host === "object" && host && host.io?.surface ? host.io.surface.call : undefined;
 }
 
 const OF_USAGE = "--of needs an agent name or tab id";
@@ -40,9 +40,9 @@ export function parseOf(raw: readonly unknown[]): ParsedArgs {
 }
 
 // The core browser runtime does the work; the plugin forwards the agent's verb to its own surface or `--of` another's.
-export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = hostSurfaceCall()): AgentCommandReply {
+export function* forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = hostSurfaceCall()): HostIoSteps<AgentCommandReply> {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
-  if (ctx.verb === "batch") return runBatch(ctx, (step) => forward(step, call));
+  if (ctx.verb === "batch") return yield* runBatch(ctx, (step) => forward(step, call));
   if (ctx.verb === "connect-secret") return { error: "connect accepts its token only through --stdin" };
   const secret = ctx.verb === "connect" ? ctx.body?.trim() : ctx.body;
   const verb = secret !== undefined && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb === "--help" ? "help" : ctx.verb || "help";
@@ -54,7 +54,7 @@ export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = ho
   const redact = (text: string) => redactCredentials(secret ? text.split(secret).join("REDACTED") : text);
   if (ctx.verb === "connect") {
     try {
-      const opening = JSON.parse(call("open", JSON.stringify(parsed.of === undefined ? parsed.args : { args: parsed.args, of: parsed.of }))) as { result?: string; error?: string };
+      const opening = JSON.parse(yield* ioResolve(call("open", JSON.stringify(parsed.of === undefined ? parsed.args : { args: parsed.args, of: parsed.of })))) as { result?: string; error?: string };
       if (typeof opening.error === "string") return { error: redact(opening.error) };
       if (typeof opening.result !== "string") return { error: "the browser runtime did not confirm the requested session" };
     } catch { return { error: "the browser runtime could not open the requested session" }; }
@@ -63,7 +63,7 @@ export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = ho
   const payload = parsed.of === undefined ? parsed.args : { args: parsed.args, of: parsed.of };
   let reply: unknown;
   try {
-    reply = JSON.parse(call(verb, JSON.stringify(payload)));
+    reply = JSON.parse(yield* ioResolve(call(verb, JSON.stringify(payload))));
   } catch {
     return { error: `the browser runtime returned no answer for ${verb}` };
   }
@@ -76,9 +76,9 @@ export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = ho
   return { error: `the browser runtime returned no answer for ${verb}` };
 }
 
-const plugin: PluginModule = {
+const plugin: IoExports<PluginModule> = {
   onAgentCommand: (ctx) => forward(ctx),
   blueprintSubmit: (request) => readPage(request, hostSurfaceCall()),
 };
 
-export default plugin;
+export default defineProviderIo(plugin, () => host.io);

@@ -46,7 +46,7 @@ import type {
   MeshPeersResponse,
 } from "../../lib/types";
 import { reducer } from "./reducer";
-import { acceptsPageFocus, focusRequestTarget, initialPageSelection, TAB_FOCUS_REQUESTED_EVENT, type FocusRequest, type FocusTarget } from "./pageSelection";
+import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
 import { loadClientPageSelection } from "../../lib/clientPageSelection";
 import { buildInitialState, HYDRATED_GENERATION } from "./initialState";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
@@ -66,12 +66,12 @@ import { remoteControllerSignature, remoteTabsFromOrdinaryProjection, refreshAtt
 import {
   loadAttachedRemoteTabs,
   hydrateAttachedRemoteTabs,
-  projectAttachedRemoteTab,
   reconcileAttachedRemoteTabs,
   saveAttachedRemoteTabs,
   type RemotePeerTabs,
 } from "../../lib/remoteTabPortal";
 import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
+import { useRemoteAttachments } from "./useRemoteAttachments";
 import { resumeRemoteOutputStreams } from "../../lib/outputStream";
 import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remoteTabEvents";
 import { spawnFreshGeneralSession, type SessionLaunchIntent } from "../../lib/generalSession";
@@ -141,29 +141,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
     return () => { active = false; };
   }, []);
-  useEffect(() => {
-    if (!IS_WEB) return;
-    let active = true;
-    let contextGeneration = 0;
-    const reset = () => {
-      contextGeneration++;
-      attachedRemoteTabsRef.current = {};
-      applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
-    };
-    const hydrate = () => {
-      const generation = ++contextGeneration;
-      void hydrateAttachedRemoteTabs().then((attached) => {
-        if (!active || generation !== contextGeneration) return;
-        attachedRemoteTabsRef.current = attached;
-        applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
-      });
-    };
-    window.addEventListener("codeterm-peer-switch-reset", reset);
-    window.addEventListener("codeterm-peer-switch-rebind", hydrate);
-    hydrate();
-    return () => { active = false; window.removeEventListener("codeterm-peer-switch-reset", reset); window.removeEventListener("codeterm-peer-switch-rebind", hydrate); };
-  }, [applyRemoteProjection]);
-
   const applyBackendState = useCallback((s: MultiplexerState, force = false) => {
     backendStateRevisionRef.current++;
     // here silently dropped the closed-history on every reload.
@@ -239,9 +216,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       (peerId) => invoke<RemotePeerTabs>("mesh_peer_tabs_list", { peerId }),
     );
     if (!remoteProjectionActiveRef.current) return;
-    for (const id of Object.keys(attachedRemoteTabsRef.current)) {
-      if (projected[id]) attachedRemoteTabsRef.current[id] = projected[id];
-    }
+    const attached = attachedRemoteTabsRef.current;
+    const kept = Object.fromEntries(Object.keys(attached).filter((id) => projected[id]).map((id) => [id, projected[id]]));
+    attachedRemoteTabsRef.current = kept;
+    if (Object.keys(kept).length !== Object.keys(attached).length) saveAttachedRemoteTabs(kept);
     applyRemoteProjection(projected);
     resumeRemoteOutputStreams();
     resumeRemoteTabEvents();
@@ -266,6 +244,30 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshRemoteProjection]);
   remoteRefreshRunRef.current = runRemoteRefresh;
+
+  // Saved attachments come back on every client after a restart, then the peer refresh reconnects or drops them.
+  useEffect(() => {
+    let active = true;
+    let contextGeneration = 0;
+    const reset = () => {
+      contextGeneration++;
+      attachedRemoteTabsRef.current = {};
+      applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
+    };
+    const hydrate = () => {
+      const generation = ++contextGeneration;
+      void hydrateAttachedRemoteTabs().then((attached) => {
+        if (!active || generation !== contextGeneration) return;
+        attachedRemoteTabsRef.current = { ...attached };
+        applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
+        if (Object.keys(attached).length > 0) void requestRemoteRefresh();
+      });
+    };
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener("codeterm-peer-switch-rebind", hydrate);
+    hydrate();
+    return () => { active = false; window.removeEventListener("codeterm-peer-switch-reset", reset); window.removeEventListener("codeterm-peer-switch-rebind", hydrate); };
+  }, [applyRemoteProjection, requestRemoteRefresh]);
 
   const runRefresh = useCallback(async (force = false): Promise<boolean> => {
     try {
@@ -386,15 +388,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     return () => { for (const stop of stops) stop?.(); };
   }, [remotePeerSubscriptions, requestRemoteRefresh]);
 
-  const attachRemoteTab = useCallback((workspaceId: string, peer: RemotePeerTabs, tab: Tab) => {
-    const projected = projectAttachedRemoteTab(tab, peer, workspaceId);
-    attachedRemoteTabsRef.current = { ...attachedRemoteTabsRef.current, [projected.id]: projected };
-    saveAttachedRemoteTabs(attachedRemoteTabsRef.current);
-    applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
-    dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: workspaceId });
-    dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId: projected.id });
-    dispatch({ type: "SET_FOCUSED_TAB", tabId: projected.id });
-  }, [applyRemoteProjection]);
+  const { attachRemoteTab, detachRemoteTab } = useRemoteAttachments({
+    attachedRef: attachedRemoteTabsRef, stateRef, dispatch, applyRemoteProjection,
+  });
 
   useEffect(() => onRemoteTransportState(({ ordinaryTabId, channel, availability }) => {
     dispatch({ type: "UPDATE_REMOTE_CHANNEL", tabId: ordinaryTabId, channel, availability });
@@ -622,22 +618,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     listen<{ tab_id: string }>("tab-focused", (event) => {
       const tabId = event.payload.tab_id;
       if (stateRef.current.tabs[tabId] && acceptsPageFocus(stateRef.current, tabId, true)) dispatch({ type: "SET_FOCUSED_TAB", tabId });
-    }).then((unlisten) => unlisteners.push(unlisten));
-
-    // An explicit request to show a tab (CLI, agent) is not a client's selection: every client shows it.
-    listen<FocusRequest>(TAB_FOCUS_REQUESTED_EVENT, (event) => {
-      const show = (target: FocusTarget) => {
-        dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: target.workspaceId });
-        if (target.tabId) dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: target.workspaceId, tabId: target.tabId });
-        const focused = target.tabId ?? stateRef.current.activeTabIds[target.workspaceId];
-        if (focused) dispatch({ type: "SET_FOCUSED_TAB", tabId: focused });
-      };
-      const known = focusRequestTarget(stateRef.current.workspaces, event.payload);
-      if (known) return show(known);
-      const requested = event.payload?.workspace_id
-        ? { workspaceId: event.payload.workspace_id, tabId: event.payload.tab_id ?? null } : null;
-      // Reducer actions apply in order, so the selection lands on the refreshed snapshot.
-      if (requested) void refreshFromBackend().then(() => show(requested));
     }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<unknown>(SURFACE_ACTIVITY_EVENT, (event) => recordSurfaceActivity(event.payload))
@@ -919,6 +899,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         setPendingCommand(res.tab_id, res.launch_command);
       }
       pendingTabSwitchRef.current[res.workspace_id] = { tabId: res.tab_id };
+      // The owner spawned it here: only this client moves, and it records that as the last selection.
+      guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId: res.workspace_id, tabId: res.tab_id }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: res.workspace_id });
       dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: res.workspace_id, tabId: res.tab_id });
       dispatch({ type: "SET_FOCUSED_TAB", tabId: res.tab_id });
@@ -1122,6 +1104,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderWorkspaces,
       createTab,
       attachRemoteTab,
+      detachRemoteTab,
       closeTab,
       reopenClosed,
       reopenGroup,
@@ -1156,6 +1139,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderWorkspaces,
       createTab,
       attachRemoteTab,
+      detachRemoteTab,
       closeTab,
       reopenClosed,
       reopenGroup,

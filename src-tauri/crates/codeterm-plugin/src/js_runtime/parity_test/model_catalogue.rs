@@ -95,7 +95,7 @@ fn model_catalogue_authority_native_js_parity() {
     let manifest_json = r#"{
         "id":"discover-fixture",
         "version":"0.1.0",
-        "displayName":"Discover Fixture",
+        "hostIoJobs":true,"displayName":"Discover Fixture",
         "modelCatalogue":{"authority":"authoritative","liveDiscoveryRequired":true},
         "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
                  "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
@@ -133,7 +133,7 @@ fn catalogue_inputs_use_only_declared_credential_home_for_both_transports() {
         let manifest_json = serde_json::json!({
             "id": "credential-home-fixture",
             "version": "0.1.0",
-            "displayName": "Fixture",
+            "hostIoJobs":true,"displayName": "Fixture",
             "credentials": [{
                 "id": "fixtureAuth",
                 "file": default_file,

@@ -718,3 +718,52 @@ fn provisioned_workspace_under_the_data_dir_previews_while_other_private_paths_s
         );
     }
 }
+
+#[test]
+fn pasted_attachment_markers_never_grant_references_with_or_without_provider_segments() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = html_preview::preview_test_root(temp.path());
+    let hidden = root.join("unregistered-model.jpg");
+    let direct = root.join("direct.jpg");
+    let marker = |path: &std::path::Path| {
+        format!(
+            "<domios type=\"attachment\" kind=\"image\" path=\"{}\" />",
+            artifact_directive::escape_attribute(&path.to_string_lossy())
+        )
+    };
+    let tag = marker(&hidden);
+    let outside = marker(&direct);
+    for source in [
+        format!("<pasted_content>{tag}</pasted_content>"),
+        format!("<pasted_content id=\"own\">{tag}</pasted_content>"),
+        format!("<pasted_content id=\"own\">{tag}</pasted_content id=\"own\">"),
+        format!("<pasted_content>caption {tag}</pasted_content>"),
+        format!("<pasted_content>\n{tag}\n</pasted_content>"),
+        format!("<pasted_content>{tag} {tag}</pasted_content>"),
+    ] {
+        let raw = ChatMsg {
+            kind: "user".into(),
+            content: source.clone(),
+            ..Default::default()
+        };
+        for row in [raw.clone(), raw.with_segments()] {
+            assert!(referenced_paths(&[row], None).is_empty(), "{source}");
+        }
+    }
+    let source = format!("<pasted_content>{tag}</pasted_content>\n{outside}");
+    for row in [
+        ChatMsg {
+            kind: "user".into(),
+            content: source.clone(),
+            ..Default::default()
+        },
+        ChatMsg {
+            kind: "user".into(),
+            content: source,
+            ..Default::default()
+        }
+        .with_segments(),
+    ] {
+        assert_eq!(referenced_paths(&[row], None), [path_key(&direct)].into());
+    }
+}

@@ -1,5 +1,53 @@
-import { describe, expect, it } from "vitest";
-import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestPolicy, readWhenMuxCapacityAvailable, transitionMuxRequest } from "./streamMuxRequestModel";
+import { describe, expect, it, vi } from "vitest";
+import readPostCases from "../../tests/fixtures/mux-read-post.json";
+import { createMuxReadCapacity, EMPTY_MUX_POSTS, initialMuxRequest, MUX_READ_CAPACITY, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestPolicy, readWhenMuxCapacityAvailable, requestWhenMuxCapacityAvailable, transitionMuxRequest } from "./streamMuxRequestModel";
+
+it.each([["GET", "/api/surfaces"], ["POST", "/api/tabs/t/preview/read"]])("an idempotent %s waits for admission without dispatching until release", async (method, path) => {
+  const capacity = createMuxReadCapacity();
+  let available = false;
+  let waited!: () => void;
+  const waiting = new Promise<void>(resolve => { waited = resolve; });
+  const dispatched = vi.fn(() => "read result");
+  const request = vi.fn(async () => {
+    if (!available) throw { [MUX_READ_CAPACITY]: capacity.capture() };
+    return dispatched();
+  });
+  const result = requestWhenMuxCapacityAvailable(muxRequestPolicy(method, path), request, undefined, waited);
+  await waiting;
+  expect(capacity.waiting()).toBe(1);
+  expect(dispatched).not.toHaveBeenCalled();
+  available = true;
+  capacity.released();
+  expect(await result).toBe("read result");
+  expect(dispatched).toHaveBeenCalledTimes(1);
+  expect(capacity.waiting()).toBe(0);
+});
+
+it("a write refuses admission without waiting or replaying after release", async () => {
+  const capacity = createMuxReadCapacity();
+  const refusal = { code: "client_capacity", dispatched: false, [MUX_READ_CAPACITY]: capacity.capture() };
+  const request = vi.fn(async () => { throw refusal; });
+  await expect(requestWhenMuxCapacityAvailable(muxRequestPolicy("POST", "/api/tabs/t/send"), request)).rejects.toBe(refusal);
+  capacity.released();
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(capacity.waiting()).toBe(0);
+});
+
+it("cancelling an admission waiter releases it and never dispatches later", async () => {
+  const capacity = createMuxReadCapacity();
+  const controller = new AbortController();
+  let waited!: () => void;
+  const waiting = new Promise<void>(resolve => { waited = resolve; });
+  const request = vi.fn(async () => { throw { [MUX_READ_CAPACITY]: capacity.capture() }; });
+  const result = requestWhenMuxCapacityAvailable(muxRequestPolicy("GET", "/api/surfaces"), request, controller.signal, waited).catch(error => error);
+  await waiting;
+  expect(capacity.waiting()).toBe(1);
+  controller.abort();
+  expect(await result).toMatchObject({ name: "AbortError" });
+  expect(capacity.waiting()).toBe(0);
+  capacity.released();
+  expect(request).toHaveBeenCalledTimes(1);
+});
 
 it("capacity waiters handle a release before registration, cancellation and origin closure", async () => {
   const capacity = createMuxReadCapacity();
@@ -119,8 +167,20 @@ describe("mux POST admission", () => {
 });
 
 describe("mux request authority and traffic class", () => {
+  it("matches the shared daemon read POST fixture directly and relayed", () => {
+    for (const { path, cancellable } of readPostCases) {
+      expect(muxRequestPolicy("POST", path).cancellable, path).toBe(cancellable);
+      expect(muxRequestPolicy("POST", "/api/mesh/relay-to", JSON.stringify({ method: "POST", path })).cancellable, `relay ${path}`).toBe(cancellable);
+    }
+  });
+  it("treats only the saved-solution catalogue POST as a read", () => {
+    expect(muxRequestPolicy("POST", "/api/automation/blueprints/solutions/list")).toEqual({ traffic: "bulk", cancellable: true });
+    for (const action of ["save", "archive", "list/extra"]) {
+      expect(muxRequestPolicy("POST", `/api/automation/blueprints/solutions/${action}`)).toEqual({ traffic: "interactive", cancellable: false });
+    }
+  });
   it("declares only specific read POSTs cancellable and bulk", () => {
-    for (const path of ["/api/tabs/t/preview/read", "/api/tabs/t/preview/check", "/api/tabs/t/chat-raw/start", "/api/tabs/t/chat-raw/history", "/api/tabs/t/chat-raw/backfill", "/api/essence-maps"]) {
+    for (const path of ["/api/tabs/t/preview/read", "/api/tabs/t/preview/check", "/api/tabs/t/chat-raw/start", "/api/tabs/t/chat-raw/history", "/api/tabs/t/chat-raw/backfill", "/api/tabs/t/chat-raw/resume", "/api/essence-maps"]) {
       expect(muxRequestPolicy("POST", path)).toMatchObject({ traffic: "bulk", cancellable: true });
     }
     for (const path of ["/api/tabs/t/chat-send", "/api/tabs/t/send", "/api/tabs/t/chat-raw/stop", "/api/workspaces/w/focus", "/api/secrets/backend"]) {

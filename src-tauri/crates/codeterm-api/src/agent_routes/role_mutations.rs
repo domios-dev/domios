@@ -37,7 +37,7 @@ pub async fn set_tab_role(
                 role_probe.role_profile.as_deref(),
             )
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        // Same contract as `agent spawn --role Planner` — never an anchor, so
+        // Same contract as `agent spawn --role planner` — never an anchor, so
         // promotion onboarding never applies here.
         if parsed_role == AgentRole::Manager && parsed_profile.as_deref() == Some(PLANNER) {
             let plan_id = body.plan_id.clone().ok_or_else(|| {

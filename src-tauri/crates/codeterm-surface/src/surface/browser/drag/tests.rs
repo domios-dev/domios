@@ -19,6 +19,7 @@ enum Mode {
     Pointer,
     NoDrop,
     NoIntercept,
+    OccludedDrop,
 }
 
 struct Connection {
@@ -68,6 +69,19 @@ impl CdpConnection for Connection {
                     .store(params["enabled"] == true, Ordering::SeqCst);
                 json!({})
             }
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("function domiosHitTest")) =>
+            {
+                let blocked = matches!(self.mode, Mode::OccludedDrop)
+                    && params["arguments"][0]["value"] == 100.0
+                    && self.calls.lock().iter().any(|(method, params)| {
+                        method == "Input.dispatchMouseEvent" && params["type"] == "mousePressed"
+                    });
+                json!({"result":{"value":if blocked { "target_occluded: covered by button#cover" } else { "clear" }}})
+            }
+            "DOM.resolveNode" => json!({"object":{"objectId":"button"}}),
             "DOM.getContentQuads" => json!({"quads":[[0,0,20,0,20,20,0,20]]}),
             "Target.attachToTarget" => json!({"sessionId":"session"}),
             "Page.getFrameTree" => json!({"frameTree":{"frame":{"id":"main","loaderId":"before"}}}),
@@ -97,7 +111,7 @@ impl CdpConnection for Connection {
                         json!(true)
                     } else {
                         let calls = self.calls.lock();
-                        json!({"started":!matches!(self.mode,Mode::Pointer),"dropped":!matches!(self.mode,Mode::NoDrop) && calls.iter().any(|(m,p)| m == "Input.dispatchDragEvent" && p["type"] == "drop"),"released":calls.iter().any(|(m,p)| m == "Input.dispatchMouseEvent" && p["type"] == "mouseReleased")})
+                        json!({"started":!matches!(self.mode,Mode::Pointer | Mode::OccludedDrop),"dropped":!matches!(self.mode,Mode::NoDrop) && calls.iter().any(|(m,p)| m == "Input.dispatchDragEvent" && p["type"] == "drop"),"released":calls.iter().any(|(m,p)| m == "Input.dispatchMouseEvent" && p["type"] == "mouseReleased")})
                     }
                 } else {
                     json!(true)
@@ -191,7 +205,7 @@ async fn browser_mobile_drag_restores_touch_and_preserves_later_desktop_click_an
 async fn browser_native_drag_uses_intercepted_payload_in_order_and_clears_interception() {
     let (runtime, page, connection, _root) = fixture(Mode::Native).await;
     let result = runtime
-        .drag_action(&page, [0.0, 0.0, 100.0, 100.0], json!({}))
+        .drag_action(&page, [0.0, 0.0, 100.0, 100.0], json!({}), None)
         .await
         .unwrap();
     assert!(result.contains("native drop event observed"));
@@ -231,7 +245,7 @@ async fn browser_native_drag_uses_intercepted_payload_in_order_and_clears_interc
 async fn browser_pointer_drag_requires_release_without_synthetic_native_drop() {
     let (runtime, page, connection, _root) = fixture(Mode::Pointer).await;
     assert!(runtime
-        .drag_action(&page, [0.0, 0.0, 100.0, 100.0], json!({}))
+        .drag_action(&page, [0.0, 0.0, 100.0, 100.0], json!({}), None)
         .await
         .unwrap()
         .contains("pointer release event observed"));
@@ -247,7 +261,7 @@ async fn browser_uncertain_drag_is_not_replayed_and_disables_interception() {
     for mode in [Mode::NoDrop, Mode::NoIntercept] {
         let (runtime, page, connection, _root) = fixture(mode).await;
         assert!(runtime
-            .drag_action(&page, [0.0, 0.0, 100.0, 100.0], json!({}))
+            .drag_action(&page, [0.0, 0.0, 100.0, 100.0], json!({}), None)
             .await
             .unwrap_err()
             .starts_with("action_unconfirmed:"));
@@ -285,4 +299,34 @@ fn browser_drag_rejects_file_and_unbounded_intercepted_data() {
         drag_data(&json!({"items":[],"dragOperationsMask":1,"extra":"x".repeat(1_048_577)}))
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn browser_drag_refuses_a_destination_covered_after_press_and_releases_outside() {
+    let (runtime, page, connection, _root) = fixture(Mode::OccludedDrop).await;
+    let error = runtime
+        .drag_action(&page, [0.0, 0.0, 100.0, 100.0], json!({}), Some([7, 8]))
+        .await
+        .unwrap_err();
+    assert!(error.starts_with("action_unconfirmed:"));
+    assert!(error.contains("target_occluded: covered by button#cover"));
+    let calls = connection.calls.lock();
+    assert!(!calls
+        .iter()
+        .any(|(method, _)| method == "Input.dispatchDragEvent"));
+    let releases: Vec<_> = calls
+        .iter()
+        .filter(|(method, params)| {
+            method == "Input.dispatchMouseEvent" && params["type"] == "mouseReleased"
+        })
+        .collect();
+    assert_eq!(releases.len(), 1);
+    assert_eq!(releases[0].1["x"], -1.0);
+    assert_eq!(releases[0].1["y"], -1.0);
+    assert!(calls
+        .iter()
+        .any(|(method, _)| method == "Input.cancelDragging"));
+    assert!(calls
+        .iter()
+        .any(|(method, params)| method == "Input.setInterceptDrags" && params["enabled"] == false));
 }

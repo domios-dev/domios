@@ -113,7 +113,8 @@ it("offers Retry for a sendable refusal but never for an empty attachment-only d
     addChatSend("empty-retry", send); setChatSendDraft("empty-retry", send.id, draft); failChatSendRequest("empty-retry", send.id);
     expect(beginChatSendRetry("empty-retry", send.id)).toBeUndefined();
     await act(async () => root.render(render({ ...send, draft: { ...draft, text: "sendable" } })));
-    const retry = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Retry");
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="status"] button')!.click());
+    const retry = Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Retry");
     expect(retry).toBeDefined();
     await act(async () => retry!.click());
     expect(retrySend).toHaveBeenCalledExactlyOnceWith(send.id);
@@ -137,7 +138,7 @@ it("a failed routed send offers no Retry and tells the owner how to resend it", 
       joinNext={false} selecting={false} cursor={false} streaming={false} latestFailedToolCall={false} forkable={false} revertible={false}
       context={{ ...context, retrySend }} deliverySend={send} deliveryView="failed" />));
     expect(Array.from(host.querySelectorAll("button")).some(button => button.textContent === "Retry")).toBe(false);
-    expect(host.querySelector('.ct-delivery[data-state="failed"] .ct-delivery__label:not(.sr-only)')?.textContent).toContain("domios send");
+    expect(host.querySelector('[role="status"][data-state="failed"]')?.getAttribute("aria-label")).toContain("domios send");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -163,7 +164,8 @@ it("shows a refusal with an explicit Retry and removes it when delivery wins", a
     expect(deliveryState(send)).toBe("failed");
     expect(host.querySelector('[role="status"]')).not.toBeNull();
     expect(retrySend).not.toHaveBeenCalled();
-    const retry = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Retry");
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="status"] button')!.click());
+    const retry = Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Retry");
     expect(retry).toBeDefined();
     await act(async () => retry!.click());
     expect(retrySend).toHaveBeenCalledExactlyOnceWith(send.id);

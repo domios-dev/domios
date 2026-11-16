@@ -1,5 +1,7 @@
+import {ioTestExport, installTestIo} from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
-import {decodeRegistry, registryBounds, saveRegistryCache, searchRegistryCache} from "../src/registry";
+import {decodeRegistry, registryBounds, saveRegistryCache as saveRegistryCacheSteps, searchRegistryCache as searchRegistryCacheSteps} from "../src/registry";
+const {saveRegistryCache, searchRegistryCache} = ioTestExport({saveRegistryCache: saveRegistryCacheSteps, searchRegistryCache: searchRegistryCacheSteps});
 const agent = {id:"fixture", name:"Fixture Agent", version:"1.2.3", description:"Offline coding", distribution:{npx:{package:"@fixture/agent@1.2.3", args:["--acp"], env:{LANG:"en"}}, binary:{"linux-x86_64":{archive:"https://example.org/agent.tgz",cmd:"./agent",sha256:"a".repeat(64)}}}};
 const text = JSON.stringify({version:"1.0.0",agents:[agent]});
 assert.equal(decodeRegistry(text).agents[0].distribution.binary?.["linux-x86_64"].sha256,"a".repeat(64));
@@ -33,9 +35,10 @@ console.log("✓ ACP authentication: declared IDs, terminal refusal, key presenc
 
 const {registryCache} = await import("../src/discovery");
 const paths: string[] = [];
-const appCache = registryCache({dataDir:()=>"/app-data",readFileHead:(path,max)=>{paths.push(path); assert.equal(max,registryBounds.bytes+1); return stored;},writeFileAtomic:(path,text)=>{paths.push(path); stored=text; return true;}});
-saveRegistryCache(appCache,text);
-assert.equal(searchRegistryCache(appCache,"fixture").length,1);
+const appHost = installTestIo({dataDir:()=>"/app-data",readFileHead:(path:string,max:number)=>{paths.push(path); assert.equal(max,registryBounds.bytes+1); return stored;},writeFileAtomic:(path:string,text:string)=>{paths.push(path); stored=text; return true;}});
+const appCache = registryCache(appHost);
+appHost.io.run(saveRegistryCacheSteps(appCache,text));
+assert.equal(appHost.io.run(searchRegistryCacheSteps(appCache,"fixture")).length,1);
 assert.deepEqual(paths,["/app-data/acp/cache/registry-v1.json","/app-data/acp/cache/registry-v1.json"]);
 console.log("✓ ACP registry cache is scoped to app data and requires no discovery subprocess");
 const runtime = await import("../src/runtime");

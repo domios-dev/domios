@@ -157,9 +157,11 @@ fn read_page_with(
     }
     let next_cursor = encode_cursor(epoch.clone(), &incarnation, parsed.new_offset)
         .ok_or_else(|| "Could not encode resume cursor".to_string())?;
+    let mut messages = super::rich_rows_to_chat_msgs(&parsed.messages, from);
+    super::stamp_record_incarnation(&mut messages, &incarnation.id);
     Ok(ChatResumeResult::Resumed {
         deltas: vec![ResumeDelta {
-            messages: super::rich_rows_to_chat_msgs(&parsed.messages, from),
+            messages,
             start_offset: from,
             offset: parsed.new_offset,
             cursor: next_cursor,

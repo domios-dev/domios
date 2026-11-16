@@ -253,6 +253,9 @@ pub struct ChatMsg {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub source_record: Option<super::delivery::SourceRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub runtime_source_item_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[ts(optional)]

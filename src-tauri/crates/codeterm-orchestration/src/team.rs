@@ -15,7 +15,9 @@ pub mod close;
 mod close_busy;
 mod member_commit;
 pub use member_commit::commit_team_member_prepared;
+mod runtime_shutdown;
 mod storage_teardown;
+pub(crate) mod template_start;
 mod validation;
 #[cfg(any(test, feature = "test-support"))]
 pub use close::close_team_with_state_change;
@@ -118,13 +120,18 @@ pub async fn add_team_member_checked(
     caller_tab_id: Option<&str>,
     params: AddTeamMemberParams,
 ) -> Result<AddTeamMemberResult, codeterm_service_core::service::spawn_params::SpawnTargetRefusal> {
+    let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
+    let (params, registered_effort) = if is_cartographer {
+        staffing::registered_cartographer_model(svc, team_id, params).await?
+    } else {
+        (params, None)
+    };
     codeterm_service_core::service::spawn::validate_agent_model(
         &svc.agent_registry,
         &params.provider,
         params.model.as_deref(),
     )
     .map_err(|error| error.to_string())?;
-    let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
     let is_orchestrator = params.role.trim().eq_ignore_ascii_case("orchestrator");
     let _cartographer_guard = if is_cartographer {
         Some(
@@ -191,6 +198,7 @@ pub async fn add_team_member_checked(
         svc.emit_state_changed_after_bus_publish(MuxEmitCause::Team);
     }
     let mut spawn_params = prepared.spawn_params;
+    spawn_params.reasoning_effort = spawn_params.reasoning_effort.take().or(registered_effort);
     attach_manager_bootstrap(svc, team_id, caller_tab_id, &mut spawn_params)?;
     let lane_label = format!("team-{team_id}");
     let service = svc.clone();
@@ -488,8 +496,9 @@ async fn close_team_inner(
     // early-return and leave last.json still holding the member tabs.
     codeterm_service_core::service::session_persist::persist_session_after_close(svc);
     for tab_id in &cleanup.member_tab_ids {
-        svc.chat_registry.shutdown_tab(tab_id);
+        svc.retire_closed_tab_notifications(tab_id);
     }
+    let runtime_shutdown = runtime_shutdown::stop_members(svc, &cleanup.member_tab_ids).await;
     for (plugin_id, session_id) in &cleanup.chat_backings {
         let _ = svc.chatbackend_close(plugin_id, session_id);
     }
@@ -514,6 +523,15 @@ async fn close_team_inner(
     .await
     {
         log::warn!("[team-close] launch artifact release task failed: {error}");
+    }
+    let closed_team = team_id.to_string();
+    match tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::team_template_payload::forget_team(&closed_team)
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        other => log::warn!("[team-close] team={team_id} payload residue not removed: {other:?}"),
     }
     let plan_store = std::sync::Arc::clone(&svc.plan_store);
     let lane_cleanup = tokio::task::spawn_blocking(move || {
@@ -569,6 +587,7 @@ async fn close_team_inner(
             reason: flag.reason,
         })
         .collect();
+    runtime_shutdown?;
     Ok(TeamCloseResult {
         remote_members,
         team,

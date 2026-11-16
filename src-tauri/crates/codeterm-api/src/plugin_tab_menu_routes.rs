@@ -24,6 +24,7 @@ fn refusal(status: StatusCode, code: &str, message: &str) -> Refusal {
 
 fn target_refusal(error: ReceiverTargetError) -> Refusal {
     let status = match error {
+        ReceiverTargetError::TabNotAgent => StatusCode::BAD_REQUEST,
         ReceiverTargetError::PersistFailed => StatusCode::INTERNAL_SERVER_ERROR,
         ReceiverTargetError::ReceiverNotFound
         | ReceiverTargetError::TabNotFound
@@ -125,6 +126,7 @@ mod tests {
         for (error, status) in [
             (ReceiverTargetError::ReceiverNotFound, StatusCode::NOT_FOUND),
             (ReceiverTargetError::TabNotFound, StatusCode::NOT_FOUND),
+            (ReceiverTargetError::TabNotAgent, StatusCode::BAD_REQUEST),
             (ReceiverTargetError::MenuItemNotFound, StatusCode::NOT_FOUND),
             (
                 ReceiverTargetError::PersistFailed,

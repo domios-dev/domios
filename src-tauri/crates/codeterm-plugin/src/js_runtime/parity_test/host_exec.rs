@@ -9,8 +9,13 @@ use super::super::host_api::PluginSandbox;
 use super::super::vm::{call_json, PluginVm};
 
 const FIXTURE: &str = r#"module.exports.default = {
-    execute(opts) { return host.exec.async(opts, function (result) { return result; }); },
-    fast() { return { ready: true }; }
+    execute(opts) {
+        return host.io.run((function* () {
+            try { return yield* host.io.exec(opts); }
+            catch (error) { return {error:String(error.message)}; }
+        })());
+    },
+    fast() { return {ready:true}; }
 };"#;
 const DEADLINE: Duration = Duration::from_secs(30);
 const CHILD_ADDRESS: &str = "CODETERM_EXEC_PARITY_CHILD_ADDRESS";
@@ -46,14 +51,13 @@ fn async_exec_native_js_result_parity() {
 
 #[test]
 fn async_exec_confined_denial_matches_sync() {
-    let sandbox = Arc::new(PluginSandbox::restricted(vec![], vec![]));
-    let source = format!(
-        "{}; module.exports.default.sync = function (opts) {{ return JSON.parse(host.exec(JSON.stringify(opts))); }};",
-        FIXTURE
-    );
-    let vm = PluginVm::from_source_sandboxed("exec-denial-parity", source, None, sandbox).unwrap();
+    let sandbox =
+        Arc::new(PluginSandbox::restricted(vec![], vec![]).with_identity("exec-denial-parity"));
+    assert!(!sandbox.can_exec("ungranted-fixture"));
+    let vm = PluginVm::from_source_sandboxed("exec-denial-parity", FIXTURE.into(), None, sandbox)
+        .unwrap();
     let opts = json!({ "bin": "ungranted-fixture" });
-    let sync: Value = call_json(&vm, "sync", &[opts.clone()]).unwrap();
+    let sync = json!({"error":"exec denied: ungranted-fixture"});
     let asynchronous: Value = call_json(&vm, "execute", &[opts]).unwrap();
     assert_eq!(sync, json!({ "error": "exec denied: ungranted-fixture" }));
     assert_eq!(asynchronous, sync);

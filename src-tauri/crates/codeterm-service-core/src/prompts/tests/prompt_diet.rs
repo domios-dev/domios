@@ -2,12 +2,11 @@
 //! surfaces. Fragments are opaque tokens here; wording belongs to the .md files.
 
 use crate::prompts::{
-    orchestrator_first_message, orchestrator_suffix, planner_suffix, worker_suffix,
-    AGENT_CODETERM_PRIMER, AGENT_PAD_RULE, BRIDGE_MEM, CODETERM_RULE, PLANNING_COMPACTION_CONTRACT,
-    PLAN_TASK_FLAGS, PLUGIN_DISCOVERY_RULE, QA_PIPELINE_DISCIPLINE, RICH_RENDERING_GUIDANCE,
-    TASK_SEQUENCING_CONTRACT, TEAM_CREATION_CONTRACT, TESTING_DISCIPLINE, TEST_AUTHOR_GUIDANCE,
-    WORKER_CODETERM_CONTEXT, WORKER_SUFFIX,
+    orchestrator_first_message, AGENT_CODETERM_PRIMER, AGENT_PAD_RULE, BRIDGE_MEM, CODETERM_RULE,
+    COMPOSED_ROLE_PROMPT_MAX_BYTES, MEM_MANAGEMENT, PLAN_TASK_FLAGS, PLUGIN_DISCOVERY_RULE,
+    QA_PIPELINE_DISCIPLINE, RICH_RENDERING_GUIDANCE, TESTING_DISCIPLINE, WORKER_CODETERM_CONTEXT,
 };
+use crate::service::builtin_roles::builtin_prose;
 use crate::service::plan::worker_charter::render_worker_charter;
 use crate::service::plan::worker_identity::{
     attach_worker_identity, compose_worker_identity_contract, WORKER_IDENTITY_END,
@@ -22,31 +21,11 @@ const WORKER_BODY_TOKEN: &str = "OPAQUE-TASK-BODY-2c8e1";
 const PLANNER_ASSIGNMENT_TOKEN: &str = "OPAQUE-PLANNER-ASSIGNMENT-d41a7";
 const CHARTER_TASK_TOKEN: &str = "task_opaque_6f3b2";
 
-/// Measured after the prompt diet, normalized to LF so a CRLF checkout measures
-/// the same bytes. Every ceiling sits below its pre-diet size.
-///
-/// The orchestrator ceiling was re-measured for the Cartographer project
-/// contract (7244934d6), which landed while this gate was not being run and put
-/// the surface 25 bytes over the previous 17_900. Raised to the new measurement
-/// rather than trimming another author's contract blind; the next addition pays
-/// the same cost of re-measuring deliberately.
-// Re-measured at 21_687 for the owner-approved Planner lifecycle, owner-feedback and revert-and-bounce rules.
-// Both roles raised 270 bytes for the owner-requested lightest-placement rule.
-const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 21_970;
-// Planner re-measured at 21_207 for its owner-approved lifecycle and owner-evidence rules.
-const PLANNER_CONTRACT_MAX_BYTES: usize = 21_490;
-// Worker suffix and launch overhead re-measured at 4_667 and 8_105 for the
-// provider-native subagent rule (9d4ae23d1).
-const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
 // Primer and worker launch re-measured for the owner-requested Sentinel command line
 // (bench case 9 needs the concrete flags) and the `ds-guide` rendering sentence.
 const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
-// Owner-raised headroom for the Curator, checklist proposal and Blueprint authoring lines.
-const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 26_870;
-// Owner-raised headroom alongside the shared Blueprint authoring line.
-const PLANNER_LAUNCH_MAX_BYTES: usize = 26_420;
 const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 9_000;
 
 fn lf_len(text: &str) -> usize {
@@ -54,7 +33,7 @@ fn lf_len(text: &str) -> usize {
 }
 
 fn orchestrator_launch() -> String {
-    role_onboarding_task(None, Some("Orchestrator"), None).expect("orchestrator launch")
+    role_onboarding_task(None, Some("Orchestrator"), None, None).expect("orchestrator launch")
 }
 
 fn planner_launch() -> String {
@@ -62,6 +41,7 @@ fn planner_launch() -> String {
         Some(PLANNER_ASSIGNMENT_TOKEN),
         Some("Manager"),
         Some("planner"),
+        None,
     )
     .expect("planner launch")
 }
@@ -81,7 +61,7 @@ fn worker_brief() -> (String, String) {
 }
 
 fn worker_launch(brief: &str) -> String {
-    role_onboarding_task(Some(brief), Some("Worker"), None).expect("worker launch")
+    role_onboarding_task(Some(brief), Some("Worker"), None, None).expect("worker launch")
 }
 
 fn charter() -> String {
@@ -106,28 +86,43 @@ fn slot_residue(text: &str) -> Vec<String> {
     residue
 }
 
+/// Every builtin slot and worker type, as one launch composes it with an opaque assignment.
+fn composed_builtin_launches() -> Vec<(&'static str, String)> {
+    crate::service::role_preset::builtin_presets()
+        .into_iter()
+        .map(|(kind, preset)| {
+            let role = preset.role.label();
+            let launch =
+                role_onboarding_task(Some(PLANNER_ASSIGNMENT_TOKEN), Some(role), Some(kind), None)
+                    .expect("builtin launch");
+            (kind, launch)
+        })
+        .collect()
+}
+
 #[test]
-fn prompt_diet_composed_surfaces_stay_within_measured_ceilings() {
+fn prompt_diet_every_composed_slot_and_worker_stays_within_the_role_budget() {
+    let measured: Vec<(&str, usize)> = composed_builtin_launches()
+        .iter()
+        .map(|(kind, launch)| (*kind, lf_len(launch)))
+        .collect();
+    let over: Vec<_> = measured
+        .iter()
+        .filter(|(_, bytes)| *bytes > COMPOSED_ROLE_PROMPT_MAX_BYTES)
+        .collect();
+    assert!(
+        over.is_empty(),
+        "composed launches over {COMPOSED_ROLE_PROMPT_MAX_BYTES} B: {over:?}; all: {measured:?}"
+    );
+}
+
+#[test]
+fn prompt_diet_shared_surfaces_stay_within_measured_ceilings() {
     let (_, brief) = worker_brief();
     let worker = worker_launch(&brief);
     let worker_overhead = lf_len(&worker).saturating_sub(lf_len(&brief));
 
     for (name, measured, ceiling) in [
-        (
-            "orchestrator contract",
-            lf_len(&orchestrator_suffix()),
-            ORCHESTRATOR_CONTRACT_MAX_BYTES,
-        ),
-        (
-            "planner contract",
-            lf_len(&planner_suffix()),
-            PLANNER_CONTRACT_MAX_BYTES,
-        ),
-        (
-            "worker suffix",
-            lf_len(&worker_suffix()),
-            WORKER_SUFFIX_MAX_BYTES,
-        ),
         (
             "spawned-agent primer",
             lf_len(AGENT_CODETERM_PRIMER),
@@ -142,16 +137,6 @@ fn prompt_diet_composed_surfaces_stay_within_measured_ceilings() {
             "worker charter",
             lf_len(&charter()),
             WORKER_CHARTER_MAX_BYTES,
-        ),
-        (
-            "orchestrator launch",
-            lf_len(&orchestrator_launch()),
-            ORCHESTRATOR_LAUNCH_MAX_BYTES,
-        ),
-        (
-            "planner launch",
-            lf_len(&planner_launch()),
-            PLANNER_LAUNCH_MAX_BYTES,
         ),
         (
             "worker launch overhead",
@@ -179,7 +164,7 @@ fn prompt_diet_worker_launch_leads_with_task_identity() {
         WORKER_CODETERM_CONTEXT,
         AGENT_PAD_RULE,
         RICH_RENDERING_GUIDANCE,
-        WORKER_SUFFIX,
+        builtin_prose("worker").expect("worker prose"),
     ]
     .iter()
     .map(|fragment| {
@@ -214,22 +199,20 @@ fn prompt_diet_role_launches_receive_each_fragment_once() {
     ];
 
     let orchestrator_fragments = [
-        TASK_SEQUENCING_CONTRACT,
-        PLANNING_COMPACTION_CONTRACT,
-        TEAM_CREATION_CONTRACT,
+        builtin_prose("orchestrator").expect("orchestrator prose"),
         PLAN_TASK_FLAGS,
+        MEM_MANAGEMENT,
     ];
     let planner_fragments = [
-        PLANNING_COMPACTION_CONTRACT,
-        TEAM_CREATION_CONTRACT,
-        TEST_AUTHOR_GUIDANCE,
+        builtin_prose("planner").expect("planner prose"),
         PLAN_TASK_FLAGS,
+        MEM_MANAGEMENT,
     ];
     let worker_fragments = [
+        builtin_prose("worker").expect("worker prose"),
         WORKER_CODETERM_CONTEXT,
         TESTING_DISCIPLINE,
         QA_PIPELINE_DISCIPLINE,
-        WORKER_SUFFIX,
     ];
 
     for (recipient, composed, fragments) in [
@@ -256,7 +239,8 @@ fn prompt_diet_role_launches_receive_each_fragment_once() {
 #[test]
 fn prompt_diet_composed_surfaces_carry_no_slot_residue() {
     let (_, brief) = worker_brief();
-    for (name, composed) in [
+    let mut surfaces: Vec<(&str, String)> = composed_builtin_launches();
+    surfaces.extend([
         ("orchestrator launch", orchestrator_launch()),
         ("planner launch", planner_launch()),
         ("worker launch", worker_launch(&brief)),
@@ -267,7 +251,8 @@ fn prompt_diet_composed_surfaces_carry_no_slot_residue() {
         ),
         ("codeterm rule", CODETERM_RULE.to_string()),
         ("bridge mem", BRIDGE_MEM.to_string()),
-    ] {
+    ]);
+    for (name, composed) in surfaces {
         assert_eq!(
             slot_residue(&composed),
             Vec::<String>::new(),
@@ -295,7 +280,7 @@ fn prompt_diet_worker_charter_carries_identity_before_discipline() {
 
 #[test]
 fn memory_management_fragment_reaches_only_target_launches() {
-    let fragment = crate::prompts::MEM_MANAGEMENT.trim();
+    let fragment = MEM_MANAGEMENT.trim();
     assert!(!fragment.is_empty());
     for (role, kind, expected) in [
         (Some("Orchestrator"), None, 1),
@@ -305,7 +290,8 @@ fn memory_management_fragment_reaches_only_target_launches() {
         (Some("Manager"), Some("cartographer"), 0),
     ] {
         for assignment in [None, Some("OPAQUE_MEMORY_ASSIGNMENT")] {
-            let rendered = role_onboarding_task(assignment, role, kind).expect("launch prompt");
+            let rendered =
+                role_onboarding_task(assignment, role, kind, None).expect("launch prompt");
             assert_eq!(
                 rendered.matches(fragment).count(),
                 if kind == Some("planner") && assignment.is_none() {
@@ -322,8 +308,8 @@ fn memory_management_fragment_reaches_only_target_launches() {
         }
     }
     for rendered in [
-        worker_suffix(),
-        crate::prompts::cartographer_suffix(),
+        crate::service::role_preset::builtin_guidance("worker").expect("worker"),
+        crate::service::role_preset::builtin_guidance("cartographer").expect("cartographer"),
         crate::prompts::CRON_COMPLETE_SUFFIX.to_string(),
         crate::prompts::TOOL_LESS.to_string(),
     ] {

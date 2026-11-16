@@ -4,7 +4,9 @@ use super::cdp_wire::{
 };
 use super::launch::{launch_args, validate_loopback_endpoint, LaunchSpec};
 use super::locator::locate;
-use super::process::{BrowserProcess, CloseOutcome, CLOSE_DEADLINE, KILL_DEADLINE, READY_DEADLINE};
+#[cfg(test)]
+use super::process::CLOSE_DEADLINE;
+use super::process::{BrowserProcess, CloseOutcome, KILL_DEADLINE, READY_DEADLINE};
 use super::profile::{
     foreign_profile_error, ProfileKind, ProfileLayout, ProfileLease, SharedBrowser,
 };
@@ -109,18 +111,23 @@ async fn launch_shared(
     let process = match BrowserProcess::spawn(&located.binary, &args, READY_DEADLINE).await {
         Ok(process) => Arc::new(process),
         Err(error) => {
-            discard_profile(&profile, &profile_dir).await;
-            return Err(foreign_profile_error(&profile_dir, &error));
+            if !error.process_may_be_running {
+                discard_profile(&profile, &profile_dir).await;
+            }
+            return Err(foreign_profile_error(&profile_dir, &error.detail));
         }
     };
     let client = match CdpClient::connect(process.endpoint()).await {
         Ok(client) => client,
         Err(error) => {
             process.kill();
-            process
+            let confirmed_exit = process
                 .wait_exit_until(Instant::now() + KILL_DEADLINE)
-                .await;
-            discard_profile(&profile, &profile_dir).await;
+                .await
+                .is_some();
+            if confirmed_exit || !cfg!(target_os = "macos") {
+                discard_profile(&profile, &profile_dir).await;
+            }
             return Err(error);
         }
     };
@@ -454,6 +461,7 @@ pub(super) async fn current_url(runtime: &Runtime) -> Option<String> {
 }
 
 /// Graceful close flushes cookies into a named profile; attach mode only disconnects.
+#[cfg(test)]
 pub(super) async fn stop(runtime: Arc<Runtime>) -> Option<CloseOutcome> {
     stop_within(runtime, CLOSE_DEADLINE).await
 }

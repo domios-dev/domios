@@ -60,7 +60,7 @@ env:
 jobs:
   build:
     name: build
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
     environment: release
     runs-on: ${{ fromJSON(matrix.runner_label) }}
     timeout-minutes: 120
@@ -219,7 +219,19 @@ jobs:
         run: |
           rm -rf "$ART"
           mkdir -p "$ART"
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash .agents/skills/github-release/scripts/mac-bundle.sh "${{ steps.ver.outputs.ver }}" "${{ matrix.arch }}" "$ART"
+          exec node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash .agents/skills/github-release/scripts/mac-bundle.sh "${{ steps.ver.outputs.ver }}" "${{ matrix.arch }}" "$ART"
+
+      - name: Retain macOS DMG failure diagnostics
+        if: ${{ failure() && steps.compile.outcome == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: macos-dmg-diagnostics-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: release-artifacts/macos-dmg-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Copy signed macOS disk image
+        run: |
           if [ "${{ matrix.arch }}" = arm64 ]; then root=src-tauri/target/release; else root=src-tauri/target/x86_64-apple-darwin/release; fi
           cp "$root/bundle/dmg/Domios_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.dmg" "$ART/"
 

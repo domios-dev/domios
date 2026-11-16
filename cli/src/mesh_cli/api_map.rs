@@ -47,8 +47,16 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     workspace,
                     title,
                     acknowledge_leaf,
+                    template,
                 },
-        } => team_pair_to_api(orchestrator, planner, workspace, title, *acknowledge_leaf),
+        } => team_pair_to_api(
+            orchestrator,
+            planner,
+            workspace,
+            title,
+            *acknowledge_leaf,
+            template.as_deref(),
+        ),
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
         Commands::Todo { .. } => {
             unsupported("agent todo checklists are local to the owning tab")
@@ -943,7 +951,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::Trace { .. }
         | Commands::Orchestrator { .. }
         | Commands::Curator { .. }
-        | Commands::Persona { .. }
+        | Commands::Role { .. }
         | Commands::Task { .. }
         | Commands::Radar { .. }
         | Commands::Canvas { .. }

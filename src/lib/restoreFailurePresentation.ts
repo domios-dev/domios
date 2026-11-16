@@ -27,7 +27,7 @@ export function restoreFailurePresentation(
 ): RestoreFailurePresentation {
   const failed = facts.bootStage === "spawn_failed";
   const pending = failed && isPendingRuntimeDeadline(failureReason);
-  const missingSession = facts.failureCode === "session_load_refused"
+  const missingSession = facts.failureCode === "session_load_refused" || facts.failureCode === "thread_not_found"
     || failureReason?.startsWith("restored_session_unavailable: session_missing:") === true;
   return {
     view: pending ? "pending" : failed && !keepShell ? "launch_failure" : "terminal",

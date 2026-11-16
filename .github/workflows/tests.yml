@@ -1,17 +1,11 @@
 name: CI
 on:
-  # CI runs only for a release PR into master; a new push to the PR cancels its previous run.
-  pull_request:
-    branches:
-      - master
-    types:
-      - opened
-      - synchronize
-      - reopened
+  push:
+    branches: ['release/[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Exact source commit SHA
+        description: Full 40-hex commit SHA already on master, develop or the dispatching release/X.Y.Z branch
         required: true
         type: string
       scope:
@@ -24,7 +18,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ inputs.source_ref != '' && format('tests-dispatch-{0}', github.run_id) || format('tests-pr-{0}', github.event.pull_request.number) }}
+  group: ${{ github.event_name == 'push' && format('tests-push-{0}', github.ref) || format('tests-dispatch-{0}', github.run_id) }}
   cancel-in-progress: true
 jobs:
   admission:
@@ -46,18 +40,30 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
         with:
           script: |-
-            // The Rust tier starts from the exact PR head, not the synthetic merge commit.
-            const pr = context.payload.pull_request;
-            core.setOutput('source_sha', process.env.SOURCE_REF || pr?.head.sha || context.sha);
-            const release = context.eventName === 'pull_request' && /^release\/\d+\.\d+\.\d+$/.test(pr.head.ref) &&
-              pr.head.repo.full_name === context.repo.owner + '/' + context.repo.repo && pr.user.login === 'rollacode' &&
+            const owner = ['rollacode', 'domios-dev'].includes(context.repo.owner) &&
               context.actor === 'rollacode' && process.env.GITHUB_TRIGGERING_ACTOR === 'rollacode';
-            core.setOutput('release_head', String(release));
-            if (context.eventName === 'pull_request' && !release) {
-              core.notice('Only an owner release/X.Y.Z PR into master runs CI');
-              core.setOutput('run', 'false');
-              return;
+            const release = context.eventName === 'push' && /^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref);
+            if (!owner || !(release || context.eventName === 'workflow_dispatch'))
+              throw new Error('CI requires an owner release push or diagnostic dispatch');
+            const source = release ? context.sha : process.env.SOURCE_REF;
+            if (!release) {
+              // Diagnostics run with farm secrets: only commits already on an owner-only branch are admitted.
+              const trusted = /^refs\/heads\/(release\/\d+\.\d+\.\d+)$/.exec(context.ref)?.[1];
+              if (!trusted) throw new Error('Dispatch diagnostics from release/X.Y.Z');
+              if (!/^[0-9a-f]{40}$/.test(source)) throw new Error('source_ref must be a full 40-hex commit SHA');
+              let reachable = false;
+              for (const branch of new Set([trusted, 'develop', 'master'])) {
+                const status = await github.rest.repos.compareCommitsWithBasehead({...context.repo,
+                  basehead: source + '...' + branch, per_page: 1}).then(response => response.data.status, error => {
+                  if (error.status === 404) return 'missing';
+                  throw error;
+                });
+                if (status === 'ahead' || status === 'identical') { reachable = true; break; }
+              }
+              if (!reachable) throw new Error('source_ref is not reachable from an owner-only branch');
             }
+            core.setOutput('source_sha', source);
+            core.setOutput('release_head', String(release));
             core.setOutput('run', 'true');
   policy:
     name: Repository guards
@@ -77,7 +83,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: ${{ inputs.source_ref || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ needs.admission.outputs.source_sha }}
           fetch-depth: 1
       - name: Fetch scoped policy history
         env:
@@ -141,22 +147,6 @@ jobs:
           SCAN_BASE: ${{ steps.change.outputs.base }}
         run: bash scripts/secret-scan.sh "$SCAN_BASE"
         if: ${{ !cancelled() && steps.change.outcome == 'success' }}
-      - name: Require a release branch
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          SOURCE_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$HEAD_REPO" == "$SOURCE_REPO" && "$PR_AUTHOR" == rollacode ]]
-          if [[ ! "$HEAD_REF" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::master accepts only release/X.Y.Z; open this pull request against develop (head was '$HEAD_REF')"
-            exit 1
-          fi
-          echo "release branch $HEAD_REF"
-        if: ${{ success() && github.event_name == 'pull_request' && github.base_ref == 'master' }}
     needs: admission
   fast:
     name: Fast checks
@@ -177,7 +167,7 @@ jobs:
     name: Rust tests
     # Starts with the push, beside the guards and the fast tier.
     needs: [admission]
-    if: ${{ !cancelled() && inputs.scope != 'fast' && github.event_name == 'pull_request' && needs.admission.outputs.run != 'false' }}
+    if: ${{ !cancelled() && inputs.scope != 'fast' && github.event_name == 'push' && needs.admission.outputs.run != 'false' }}
     uses: ./.github/workflows/tests-rust.yml
     with:
       source_ref: ${{ needs.admission.outputs.source_sha }}
@@ -205,7 +195,7 @@ jobs:
     with:
       source_ref: ${{ needs.fast.outputs.source_sha || github.ref }}
       report_name: rust-warnings-tests-all-report
-      comment: ${{ needs.admission.outputs.release_head == 'true' }}
+      comment: false
       additional_artifacts: ${{ needs.admission.outputs.release_head == 'true' && '["rust-warnings-release-macOS-aarch64-apple-darwin","rust-warnings-release-macOS-x86_64-apple-darwin","rust-warnings-release-Linux-aarch64-unknown-linux-gnu","rust-warnings-release-Linux-x86_64-unknown-linux-gnu","rust-warnings-release-Windows-x86_64-pc-windows-msvc","rust-warnings-release-Windows-aarch64-pc-windows-msvc"]' || '[]' }}
       artifacts: ${{ needs.fast.outputs.heavy == 'true' && format('["{0}","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc"]', needs.rust.outputs.warnings) || '[]' }}
   qualification:
@@ -291,13 +281,14 @@ jobs:
       issues: write
       pull-requests: write
     with:
-      tag: ${{ github.head_ref }}
+      tag: ${{ github.ref_name }}
       source_sha: ${{ needs.admission.outputs.source_sha }}
       dry_run: true
       mirror: false
     secrets: inherit
   result:
-    name: CI result
+    # A diagnostic attaches to the dispatching branch head, so it never shares the push context name.
+    name: ${{ github.event_name == 'push' && 'CI result' || 'CI diagnostic result' }}
     if: ${{ !cancelled() }}
     needs:
       - admission

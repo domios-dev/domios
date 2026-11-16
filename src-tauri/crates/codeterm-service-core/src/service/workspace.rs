@@ -177,35 +177,6 @@ impl ServiceContext {
         Ok(ws)
     }
 
-    pub fn focus_workspace(&self, id: &str) -> Result<(), String> {
-        let switched = {
-            let mut mux = self.mux.write();
-            let switched = mux
-                .get_active_workspace()
-                .map(|workspace| workspace.id.as_str())
-                != Some(id);
-            mux.set_active_workspace(id)?;
-            switched
-        };
-        if switched {
-            self.record_product_activity();
-        }
-        let cwd = self
-            .mux
-            .read()
-            .list_workspaces()
-            .into_iter()
-            .find(|w| w.id == id)
-            .and_then(|w| w.cwd);
-        self.refresh_workspace_cwd_state(id)?;
-        self.ensure_workspace_plans_loaded(cwd.as_deref());
-        self.emit_state_changed(MuxEmitCause::Workspace);
-        self.request_workspace_focus(id);
-        let _ =
-            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
-        Ok(())
-    }
-
     pub fn rename_workspace(&self, id: &str, name: &str) -> Result<(), String> {
         validate_workspace_name(name)?;
         self.mux.write().rename_workspace(id, name)?;

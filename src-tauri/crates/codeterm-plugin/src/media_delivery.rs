@@ -23,7 +23,9 @@ pub use input::{
     ingest_frame_input, open_context_input, IngestLimits, IngestRefusal, IngestSource,
     IngestedInput, OpenedInput, ViewInputDescriptor,
 };
-pub(crate) use run_lookup::{run_media_lookup_active, with_run_media_lookup};
+#[cfg(test)]
+pub(crate) use run_lookup::run_media_lookup_active;
+pub(crate) use run_lookup::with_run_media_lookup;
 pub use run_lookup::{RunMediaLookupContext, RunMediaLookupOrigin};
 
 pub const MAX_MEDIA_BYTES: u64 = 256 * 1024 * 1024;

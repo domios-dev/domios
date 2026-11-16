@@ -921,7 +921,8 @@ fn task_worker_switch_from_pty_carries_attempt_and_delivers_one_handoff() {
         .collect();
     assert_eq!(opens.len(), 1);
     let prompt = opens[0]["params"]["instructions"].as_str().unwrap();
-    let preset = crate::service::persona::resolve_ambient(
+    let preset = crate::service::persona::resolve(
+        &[],
         Some(crate::multiplexer::types::AgentRole::Worker),
         None,
         None,

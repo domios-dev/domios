@@ -57,6 +57,16 @@ fn mesh_status_explains_required_reauthentication() {
 }
 
 #[test]
+fn mesh_status_says_plainly_when_the_build_cannot_join() {
+    let lines = super::account_mesh_status_lines(&serde_json::json!({
+        "publication": "none",
+        "last_refusal": { "reason": "proof_invalid" },
+    }));
+    assert!(lines[0].starts_with("This build cannot join this account's mesh"));
+    assert!(lines.iter().any(|line| line.contains("proof_invalid")));
+}
+
+#[test]
 fn mesh_account_presence_is_distinct_from_offline_and_expired() {
     use serde_json::json;
     let mut row =

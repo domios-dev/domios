@@ -32,6 +32,26 @@ pub(crate) const SPAWN_REFUSAL_CLASS_UNCLASSIFIED: &str = "unknown";
 
 impl From<String> for SpawnRejection {
     fn from(message: String) -> Self {
+        if let Some(result) =
+            codeterm_team_package::contracts::TemplateStartResult::from_error_message(&message)
+        {
+            // The typed template outcome sits at the top level beside the usual error object.
+            let mut body = serde_json::to_value(result).unwrap_or_default();
+            if let Some(fields) = body.as_object_mut() {
+                fields.insert("ok".into(), false.into());
+                fields.insert(
+                    "error".into(),
+                    serde_json::json!({
+                        "code": codeterm_team_package::contracts::TEMPLATE_START_ERROR,
+                        "message": message,
+                    }),
+                );
+            }
+            return Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                body,
+            };
+        }
         if let Some((code, _)) = message.split_once(':') {
             if matches!(
                 code,

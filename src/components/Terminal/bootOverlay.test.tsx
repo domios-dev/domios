@@ -25,7 +25,8 @@ function tab(
 }
 
 assert(tabBootOverlayView(tab("pty_starting")).kind === "starting", "launch stage shows progress");
-assert(tabBootOverlayView(tab("awaiting_owner_prompt")).kind === "starting", "owner prompt shows progress");
+assert(tabBootOverlayView(tab("awaiting_owner_prompt")).kind === "starting", "an owner wait without a classified prompt retains startup");
+assert(tabBootOverlayView({ ...tab("awaiting_owner_prompt"), pending_prompt: { question: "opaque", options: [] } }).kind === "none", "a classified owner prompt exposes its terminal without a startup overlay");
 assert(tabBootOverlayView(tab("agent_ready")).kind === "none", "ready state has no overlay");
 
 const unresolved = tabBootOverlayView(

@@ -315,3 +315,23 @@ fn registry_commit_keeps_the_epoch_locked_through_the_injected_publication() {
         Err::<(), _>(Error::Revoked)
     );
 }
+
+#[test]
+fn paid_lock_without_verified_installation_names_the_real_refusal() {
+    use codeterm_billing::Verification;
+    let locked = Error::Locked.to_string();
+    assert_eq!(explained_lock(locked.clone(), None), locked);
+    assert_eq!(
+        explained_lock(locked.clone(), Some(Verification::SignInRequired)),
+        Error::InstallationUnverified.to_string()
+    );
+    assert_eq!(
+        explained_lock(locked, Some(Verification::Unconfirmed)),
+        Error::EntitlementsUnavailable.to_string()
+    );
+    let other = Error::RecipientLocked.to_string();
+    assert_eq!(
+        explained_lock(other.clone(), Some(Verification::SignInRequired)),
+        other
+    );
+}

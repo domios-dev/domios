@@ -24,10 +24,13 @@ async function main() {
     handlers.set(event, handler);
     return () => { handlers.delete(event); };
   }) as never);
+  const { RetryableMuxError } = await import("../../lib/streamMux");
+  const { TERMINAL_VIEWER_RECONNECTED_EVENT } = await import("../../lib/terminalViewerEvents");
   let rows = [row("initial")];
   let offset = 100;
   let starts = 0;
   let stops = 0;
+  let carrierStalled = false;
   const reads: string[] = [];
   bridge.__setInvokeForTest((async (command: string, args: Record<string, unknown>) => {
     if (command === "chat_start") {
@@ -39,6 +42,7 @@ async function main() {
     if (command === "chat_stop") stops++;
     if (command === "chat_resume") {
       reads.push(String(args.cursor));
+      if (carrierStalled) throw new RetryableMuxError("/api/tabs/activation/chat-raw/resume", "Mux carrier stopped delivering");
       const from = JSON.parse(String(args.cursor)).offset as number;
       return { kind: "resumed", caught_up: true, deltas: from === offset ? [] : [{ ...authority,
         messages: rows.slice((from - 100) / 10 + 1), start_offset: from, offset, cursor: cursor(offset) }] };
@@ -46,10 +50,12 @@ async function main() {
     return {};
   }) as never);
   let shown: string[] = [];
+  let shownError: string | null = null;
   function Harness({ active }: { active: boolean }) {
     const session = useChatSession({ tabId: "activation", agentSessionId: "own-session",
       sessionBindingNonce: "own-nonce", active, retainAttachment: true, live: active });
     shown = session.allMessages.map(message => message.id);
+    shownError = session.error;
     return null;
   }
   const root = createRoot(document.createElement("div"));
@@ -92,6 +98,25 @@ async function main() {
     assert.equal(shown[shown.length - 1], "background-lost");
     assert.equal(starts, 2);
     console.log("PASS window visibility return reconciles the selected tab");
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await act(async () => append("phone-background", false));
+    carrierStalled = true;
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    assert.equal(reads.length, 3, "resume reads once on return");
+    assert.equal(shownError, null, "a read lost with its carrier is not a chat error");
+    assert.equal(shown[shown.length - 1], "background-lost");
+    carrierStalled = false;
+    await act(async () => window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT)));
+    assert.deepEqual(reads.slice(2), [cursor(150), cursor(150)], "the reconnected stream resumes from the same cursor");
+    assert.equal(shown.filter(id => id === "phone-background").length, 1);
+    assert.equal(shown[shown.length - 1], "phone-background");
+    assert.equal(starts, 2, "catch-up keeps the existing stream lease");
+    await act(async () => window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT)));
+    assert.equal(shown.filter(id => id === "phone-background").length, 1, "a repeated catch-up adds no duplicate rows");
+    console.log("PASS a resume lost with a stalled carrier catches up once the event stream reconnects");
   } finally {
     await act(async () => root.unmount());
     bridge.__setInvokeForTest(null);

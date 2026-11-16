@@ -42,6 +42,16 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?
             .running;
         self.authenticate_curator(&caller)?;
+        if let Some(run_id) = before.as_ref().and_then(|run| run.run_id.as_deref()) {
+            let has_pty = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(|tab| tab.pty_id.is_some());
+            if has_pty {
+                self.run_watcher.ensure_cron_watcher(self, tab_id, run_id)?;
+            }
+        }
         if before.is_some_and(|run| run.session_id.is_none() || run.binding_nonce.is_none()) {
             self.emit_committed_plan_changed(&plan_id);
         }

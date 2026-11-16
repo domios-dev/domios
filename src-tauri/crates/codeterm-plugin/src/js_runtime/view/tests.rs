@@ -71,13 +71,17 @@ async fn view_args_cwd_never_mints_a_read_grant() {
     use crate::js_runtime::host_api::PluginSandbox;
     let tmp = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(tmp.path().join("loot")).unwrap();
-    let sandbox = Arc::new(PluginSandbox::restricted(vec![], vec![]));
+    let sandbox =
+        Arc::new(PluginSandbox::restricted(vec![], vec![]).with_identity("confined-view"));
     let vm = Arc::new(
         PluginVm::from_source_sandboxed(
             "confined-view",
             r#"module.exports.default = {
-                viewCall(method, args) { return { names: host.listChildDirs(args.cwd) }; }
-            }"#
+    viewCall(method, args) {
+        return host.io.run((function* () { return { names: (yield { op: "listChildDirs", path: args.cwd }) }; }).call(this));
+    }
+};
+"#
             .to_string(),
             None,
             sandbox.clone(),

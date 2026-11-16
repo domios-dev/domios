@@ -128,6 +128,30 @@ pub fn resolve_mirror(tab: &crate::multiplexer::types::Tab) -> Result<Mirror, Cu
     })
 }
 
+/// A Curator registration with an explicit `harness:model`, such as the owner's start-form
+/// pick, runs the round on it; otherwise the round mirrors the Orchestrator.
+pub fn curator_seat(
+    mirror: Mirror,
+    registration: Option<&codeterm_types::team::role_registration::RoleRegistration>,
+) -> Mirror {
+    let Some(registration) = registration else {
+        return mirror;
+    };
+    let Some(codeterm_team_package::ModelPreference::List(models)) = registration.model.as_ref()
+    else {
+        return mirror;
+    };
+    let Some((provider, model)) = models.first().and_then(|model| model.split_once(':')) else {
+        return mirror;
+    };
+    Mirror {
+        provider: provider.to_string(),
+        launch_profile: None,
+        model: model.to_string(),
+        effort: registration.reasoning.clone(),
+    }
+}
+
 fn waits_for_orchestrator(reason: Option<CuratorFailure>) -> bool {
     matches!(
         reason,
@@ -158,13 +182,10 @@ fn reconcile_idle_loop(
         let wake = now.saturating_add(1000);
         state.next_at = Some(state.next_at.map_or(wake, |next| next.min(wake)));
     }
-    let bound = now.saturating_add(codeterm_types::plan::CURATOR_MAX_DELAY_SECS * 1000);
-    state.next_at = Some(
-        state
-            .next_at
-            .unwrap_or_else(|| now.saturating_add(curator_delay(None) * 1000))
-            .min(bound),
-    );
+    let window = state.window();
+    let bound = now.saturating_add(window.delay(Some(u64::MAX)) * 1000);
+    let first = now.saturating_add(window.delay(None) * 1000);
+    state.next_at = Some(state.next_at.unwrap_or(first).min(bound));
 }
 
 #[cfg(test)]
@@ -260,7 +281,7 @@ impl ServiceContext {
                     outcome: codeterm_types::plan::CuratorOutcome::Fallback,
                     summary: cause.unwrap_or(reason.as_str()).into(),
                     reason: reason.as_str().into(),
-                    next_delay_secs: curator_delay(None),
+                    next_delay_secs: state.delay(None),
                     ..Default::default()
                 };
                 plan.append_round(round.clone());
@@ -289,6 +310,11 @@ impl ServiceContext {
             suspended.is_some(),
         );
         let mut loop_state = plan.control_loop.clone();
+        // The Team's registered Curator schedule feeds every delay below and later rounds;
+        // the host window stays implicit so default Teams write nothing new.
+        let window = crate::service::team_roles::curator_window(plan.team_id.as_deref());
+        loop_state.curator_window =
+            window.filter(|window| *window != codeterm_types::plan::CuratorWindow::HOST);
         if eligible && loop_state.running.is_some() {
             loop_state.agent_states = super::movement_sources::observed_agents(
                 self,
@@ -343,7 +369,7 @@ impl ServiceContext {
                     },
                     reason: reason.into(),
                     summary: reason.into(),
-                    next_delay_secs: curator_delay(None),
+                    next_delay_secs: loop_state.delay(None),
                     digest_hash: run.digest_hash.clone(),
                     section_sizes: run.section_sizes.clone(),
                     turns: run.turns,
@@ -360,7 +386,7 @@ impl ServiceContext {
                 loop_state.consecutive_failures += 1;
                 loop_state.fallback_reason = Some(CuratorFailure::ConsecutiveFailures);
                 loop_state.last_real_round_at = Some(now);
-                loop_state.next_at = Some(now + curator_delay(None) * 1000);
+                loop_state.next_at = Some(now + loop_state.delay(None) * 1000);
                 let applied = self
                     .plan_store
                     .edit_curator_round(&plan.id, now, |p| {
@@ -500,7 +526,7 @@ impl ServiceContext {
                     outcome: codeterm_types::plan::CuratorOutcome::Fallback,
                     reason: reason.as_str().into(),
                     summary: mirror_cause.as_deref().unwrap_or(reason.as_str()).into(),
-                    next_delay_secs: curator_delay(None),
+                    next_delay_secs: loop_state.delay(None),
                     ..Default::default()
                 });
             let applied = self
@@ -564,8 +590,8 @@ impl ServiceContext {
         if occupied {
             self.plan_store
                 .edit_curator_state(&plan.id, now, |plan| {
-                    plan.control_loop.next_at =
-                        Some(now.saturating_add(curator_delay(None) * 1000));
+                    let delay = plan.control_loop.delay(None);
+                    plan.control_loop.next_at = Some(now.saturating_add(delay * 1000));
                     Ok(())
                 })
                 .map_err(|e| e.to_string())?;
@@ -582,7 +608,12 @@ impl ServiceContext {
             .get_tab(owner)
             .cloned()
             .ok_or(CuratorFailure::OrchestratorAbsent)?;
-        let mirror = resolve_mirror(&tab)?;
+        let registration = crate::service::team_roles::registration_for(
+            plan.team_id.as_deref(),
+            codeterm_types::agent::AgentRole::Manager,
+            codeterm_types::agent::role_kind::builtins::CURATOR,
+        );
+        let mirror = curator_seat(resolve_mirror(&tab)?, registration.as_ref());
         let mirror = self.available_mirror(mirror)?;
         let since = read.since();
         let mut rows: std::collections::BTreeMap<String, Vec<digest::Row>> =
@@ -638,7 +669,6 @@ impl ServiceContext {
         let handoff_age = read.latest_handoff_at().map(|at| now.saturating_sub(at));
         let mut header=format!("plan {} | {:?} | control loop curator | orchestrator {} activity {:?} | open {} in_progress {} review {} blocked {} | lanes {} pressure {} | handoff_age_ms {:?} | round {}",plan.id,plan.mode,owner,self.resolved_tab_status(&tab),counts.pending,counts.in_progress,counts.in_review,counts.blocked,lanes,if lanes>CURATOR_HIGH_LANES {"high"}else if lanes>CURATOR_ELEVATED_LANES {"elevated"}else{"normal"},handoff_age,number);
         header.push_str(&format!("\nask: {}", super::ask::command(owner)));
-        let rubric = codeterm_prompts::prompts::CURATOR_RUBRIC;
         let real_rounds = read.real_rounds_started();
         let group_close = read.group_close().filter(|at| {
             plan.last_synthesis_group_close_at
@@ -651,7 +681,6 @@ impl ServiceContext {
         } else {
             "\nsynthesis: no"
         });
-        let header = format!("{header}\n\n{rubric}");
         let header = if synthesis {
             read.synthesis_context_header(&header)
                 .map_err(CuratorFireError::from)?
@@ -703,7 +732,11 @@ impl ServiceContext {
                 },
                 reason: "no_activity".into(),
                 summary: "No activity in the window".into(),
-                next_delay_secs: curator_delay(None),
+                next_delay_secs: crate::service::team_roles::curator_window(
+                    plan.team_id.as_deref(),
+                )
+                .unwrap_or_default()
+                .delay(None),
                 section_sizes: digest.section_sizes,
                 ..Default::default()
             };
@@ -741,36 +774,36 @@ impl ServiceContext {
         run_id: &str,
         now: u64,
     ) -> Result<(), String> {
-        self.extensions
+        let index = self
+            .extensions
             .try_get::<super::events::CuratorTabs>()
-            .ok_or("Curator runtime is unavailable")?
-            .0
-            .write()
-            .insert(tab_id.into(), plan_id.into());
-        let prior_rounds = self
-            .plan_store
-            .curator_real_rounds_projection(plan_id)
-            .map_err(|error| match error {
-                crate::service::plan::PlanError::NotFound => "plan absent".to_string(),
-                error => error.to_string(),
-            })?;
-        let number = self
-            .plan_store
-            .edit_curator_state(plan_id, now, |p| {
-                let run = p.control_loop.running.as_mut().ok_or_else(|| {
-                    crate::service::plan::PlanError::Validation("round absent".into())
+            .ok_or("Curator runtime is unavailable")?;
+        let number = self.with_curator_plan_gate(plan_id, || {
+            index.0.write().insert(tab_id.into(), plan_id.into());
+            let prior_rounds = self
+                .plan_store
+                .curator_real_rounds_projection(plan_id)
+                .map_err(|error| match error {
+                    crate::service::plan::PlanError::NotFound => "plan absent".to_string(),
+                    error => error.to_string(),
                 })?;
-                run.tab_id = Some(tab_id.into());
-                run.run_id = Some(run_id.into());
-                let number = run.number;
-                let close = run.synthesis_group_close_at;
-                p.control_loop.real_rounds_started = prior_rounds.saturating_add(1);
-                if close.is_some() {
-                    p.control_loop.last_synthesis_group_close_at = close;
-                }
-                Ok(number)
-            })
-            .map_err(|e| e.to_string())?;
+            self.plan_store
+                .edit_curator_state(plan_id, now, |p| {
+                    let run = p.control_loop.running.as_mut().ok_or_else(|| {
+                        crate::service::plan::PlanError::Validation("round absent".into())
+                    })?;
+                    run.tab_id = Some(tab_id.into());
+                    run.run_id = Some(run_id.into());
+                    let number = run.number;
+                    let close = run.synthesis_group_close_at;
+                    p.control_loop.real_rounds_started = prior_rounds.saturating_add(1);
+                    if close.is_some() {
+                        p.control_loop.last_synthesis_group_close_at = close;
+                    }
+                    Ok(number)
+                })
+                .map_err(|e| e.to_string())
+        })?;
         let plan =
             self.plan_store
                 .plan_identity_projection(plan_id)

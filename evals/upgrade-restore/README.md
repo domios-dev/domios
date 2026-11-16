@@ -21,12 +21,25 @@ structure and scalar state, captures the typed Plan store with tasks and
 execution attempts, and keeps live hidden/tabbar metadata separately. Unsupported
 sanitization refuses capture. Missing transcript data keeps the leaf and records
 `histories[].transcript.status = unavailable` with its backing kind and provider;
-other leaves retain their history shapes. Replay refuses unavailable
-transcript evidence explicitly rather than treating it as an empty conversation.
+other leaves retain their history shapes. Replay refuses unavailable transcript
+evidence unless the capture itself also records a degraded/refused/unavailable
+runtime state. Those leaves are inspected without selection or chat reads and
+reported separately as `preserved-unavailable`: identity, full captured runtime
+state, frozen state and launch nonce must persist, with no PTY or provider trace
+for the session. They never count as restored-history passes. Unavailable history
+without captured failure state still refuses replay.
 
-Histories carry shape, never transcript bytes, so the export size follows the
-message count rather than history volume and stays far below the 64 MiB export
-and 32 MiB import bounds. Each `histories[].shape` row describes one normalized
+Histories carry shape, never transcript bytes, so their export size follows the
+message count rather than history volume. The Plan store can still make a desk
+larger than 64 MiB. CLI export streams the authenticated HTTP response to a local
+staging file and validates it before writing the destination, bypassing the
+socket API adapter's 64 MiB response collector. The instance's HTTP listener must
+be available. Fixture import also streams over HTTP to a temporary file, then
+decodes the typed desk and plans off the runtime. It skips history payloads
+during decode and preserves the named-instance and persisted-import guards.
+The 32 MiB JSON collector is no longer on this bench-only staging path; a real
+upgrade restores committed storage without calling fixture import.
+Each `histories[].shape` row describes one normalized
 message in order: `kind`, `group` (tool-flow group, numbered by first appearance),
 `bytes` (content UTF-8 length) and, when present, `result_bytes`, `input_bytes`
 (serialized tool input), `image_bytes` (one entry per attachment) and
@@ -97,7 +110,10 @@ Repeat with `upgrade-restore-worst`, its isolated port and `/tmp/upgrade-worst`.
 The replay composes the DEV connection once through the bench lib (`dev_resolve`,
 target and identity assertions, `dev_run`), refuses non-`upgrade-restore-*`
 instances and ports 7685/7686, then reads health, providers and every tab's
-focus, inspect and chat in-process (`transport.mjs`). Only stage's config and
+selection, inspect and chat in-process (`transport.mjs`). Selection uses the same
+`/api/tabs/{id}/select` route as a client opening a tab, which wakes lazy restore.
+The `/focus` route only highlights a tab and does not activate it.
+Only stage's config and
 import mutations use `dc`. A shell plus lib resolution per read costs seconds
 each and exhausted the deadline before any tab verdict.
 Each verifier has one bounded failure deadline (maximum 120 seconds). It waits
@@ -137,7 +153,7 @@ exists. These failures require an owner decision or added backing; they are not
 skips, and unit fixtures are not pre/post DEV proof. The capture command requires
 a daemon that exposes the new export route; a new CLI cannot invent that route in
 an older running PROD daemon. A daemon still emitting v1 full-history filler is
-refused by the v2 CLI and can exceed the export bound on a large desk. Read-only export compatibility and cross-platform
+refused by the v2 CLI. Cross-platform
 live replay remain canonical integration work.
 
 Generated leaves read `LEAF_SESSION_ID_KEY` from the product's

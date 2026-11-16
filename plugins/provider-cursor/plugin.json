@@ -1,7 +1,7 @@
 {
   "id": "cursor",
-  "version": "1.4.9",
-  "minCodeterm": "1.19.0",
+  "version": "1.4.10",
+  "minCodeterm": "1.19.2",
   "hostApi": 2,
   "displayName": "Cursor",
   "binaryName": "cursor-agent",

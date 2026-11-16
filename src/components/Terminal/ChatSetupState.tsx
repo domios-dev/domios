@@ -11,11 +11,14 @@ import type { LockedView } from "../billing/freeLimitModel";
 import { LockedOverlay } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
 import { useTabRecovery } from "./useTabRecovery";
-import { describeRuntimeConnectionError } from "../../lib/describeError";
+import { describeRuntimeConnectionError, isMissingRuntimeConversation, MISSING_CONVERSATION_TITLE } from "../../lib/describeError";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
-import { tabActivity } from "../../lib/tabActivity";
+import { runtimeSessionUnavailable } from "../../lib/agentRuntimeState";
+import { tabFailure, tabLaunched } from "../../lib/tabFailure";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
+import { chatLaunchFailureDescription } from "./chatSetupModel";
+import { LaunchProviderQuestion } from "./LaunchProviderQuestion";
+import { openNeighborPage } from "../Neighbors/neighborFocus";
 
 export { chatSetupView } from "./chatSetupModel";
 
@@ -36,6 +39,7 @@ interface ChatSetupStateProps {
   providerIconHint?: string | null;
   onEscape?: () => void;
   onRetry?: () => void;
+  onOpenTerminal?: () => void;
   lock?: LockedView;
   /** Kept rows share the log with this state, so a launch failure takes a row instead of the whole body. */
   inLog?: boolean;
@@ -49,11 +53,14 @@ export function ChatSetupState({
   view,
   onEscape,
   onRetry,
+  onOpenTerminal,
   lock,
   inLog = false,
 }: ChatSetupStateProps) {
   const { restart: recovery, fresh, actions: launchActions, error: launchActionError } = useTabRecovery(tab?.id,
-    view.kind === "launch_failed" && !isReadOnlyTab(tab) ? tabActivity(tab).failure?.recovery : null);
+    view.kind === "launch_failed" && !isReadOnlyTab(tab) ? tabFailure({
+      bootStage: tab?.boot_stage, runtime: tab?.agent_runtime_state, launched: tabLaunched(tab), chatBacked: tab?.backing?.kind === "chat_backend",
+    }).recovery : null);
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.preventDefault();
@@ -63,16 +70,43 @@ export function ChatSetupState({
   if (view.kind === "locked") {
     return lock ? <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} /> : null;
   }
+  if (tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt_kind === "provider" && tab.pending_prompt) {
+    return visible ? <LaunchProviderQuestion key={JSON.stringify(tab.pending_prompt)} tabId={tab.id}
+      prompt={tab.pending_prompt} readOnly={isReadOnlyTab(tab)} onOpenTerminal={onOpenTerminal} /> : null;
+  }
+  const accessReason = [
+    tab?.boot_stage === "spawn_failed" ? tab.boot_failure_reason : null,
+    view.kind === "attach_failed" || view.kind === "launch_failed" ? view.reason : null,
+  ].find(reason => reason?.startsWith("neighbor_restore_grant_required:"));
+  const runtimeAccessRequired = tab?.agent_runtime_state?.state === "degraded"
+    && tab.agent_runtime_state.accessFailure === "neighbor_restore_grant_required";
+  if (tab?.neighbor_authority && (accessReason || runtimeAccessRequired)) {
+    const friendship = tab.neighbor_authority.friendship_id;
+    return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl" data-testid="chat-neighbor-access-required">
+      <TabLaunchFailure tabId={tab.id} workspace={workspace} reason={accessReason ?? null} inline
+        description={{ title: "This concierge can't continue until you review its access.", cause: "", raw: "Domios can't confirm what this concierge is allowed to do. Check its saved permissions before it starts again.", actions: [] }}
+        actions={[{ label: "Review access", ariaLabel: "Review concierge access", onClick: () => openNeighborPage(friendship, "permissions") }]} />
+    </div>;
+  }
   const startUnbound = tab?.agent_runtime_state?.state === "degraded"
     && tab.agent_runtime_state.failureCode === "runtime_start_unbound";
-  if (runtimeSessionLoadRefused(tab?.agent_runtime_state) || startUnbound) {
-    const detail = tab?.agent_runtime_state?.reason ?? "";
-    return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl" data-testid="chat-launch-failed">
+  // The attach can report a missing conversation before the runtime state names it; both are the same one notice.
+  const attachConversationMissing = view.kind === "attach_failed" && isMissingRuntimeConversation(view.reason);
+  if (runtimeSessionUnavailable(tab?.agent_runtime_state) || startUnbound || attachConversationMissing) {
+    const detail = (attachConversationMissing ? view.reason : tab?.agent_runtime_state?.reason) ?? "";
+    const conversationMissing = attachConversationMissing || tab?.agent_runtime_state?.failureCode === "thread_not_found";
+    const start = conversationMissing ? "Start a new conversation" : "Start new session";
+    // A failed start is the same problem, so it folds into this notice: pressing the action again is the retry.
+    const startFailed = fresh.actionError
+      ? conversationMissing ? "A new conversation couldn't start. Try again." : "A new session couldn't start. Try again."
+      : "";
+    return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl [&>section>div>button]:border-0 [&>section>div>button]:p-0 [&>section>div>button]:text-[var(--ct-accent)] [&>section>div>button:hover]:underline" data-testid="chat-launch-failed">
       <TabLaunchFailure tabId={tab?.id} workspace={workspace} reason={detail} inline
-        description={{ title: startUnbound ? "The agent could not start a session" : "The agent no longer has this session", cause: "", raw: detail, actions: [] }}
-        actions={[{ label: fresh.startingNewSession ? "Starting…" : "Start new session", ariaLabel: "Start new session",
+        description={{ title: startUnbound ? "The agent could not start a session"
+          : conversationMissing ? MISSING_CONVERSATION_TITLE : "The agent no longer has this session", cause: startFailed,
+          raw: [fresh.actionError, detail].filter(Boolean).join("\n\n"), actions: [] }}
+        actions={[{ label: fresh.startingNewSession ? "Starting…" : start, ariaLabel: start,
           disabled: fresh.startingNewSession, onClick: () => void fresh.onStartNewSession() }]} />
-      {fresh.actionError && <InlineErrorNotice error={fresh.actionError} operation="starting a new session" />}
     </div>;
   }
   if (view.kind === "attach_failed") {
@@ -82,7 +116,10 @@ export function ChatSetupState({
   }
   if (view.kind === "launch_failed") {
     return <div className={`${inLog ? "my-3" : "absolute inset-0 z-20 justify-center overflow-auto bg-[var(--ct-bg)]"} flex flex-col items-center gap-4`} data-testid="chat-launch-failed">
-      <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason} actions={launchActions} />
+      <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason}
+        description={chatLaunchFailureDescription(tab, view.reason)}
+        actions={onOpenTerminal && tab?.backing?.kind !== "chat_backend"
+          ? [{ label: "Open terminal", onClick: onOpenTerminal }, ...launchActions] : launchActions} />
       {launchActionError && <InlineErrorNotice error={launchActionError} operation="recovering this tab" />}
       {waitingMessages > 0 && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">{waitingMessages} {waitingMessages === 1 ? "message is" : "messages are"} waiting for this tab to start.</p>}
     </div>;

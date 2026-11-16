@@ -122,9 +122,11 @@ export type ChatSessionIntent = import("./gen/ChatSessionIntent").ChatSessionInt
 export type InteractiveElement = import("./gen/InteractiveElement").InteractiveElement;
 
 export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg" | "segments" | "inheritedFromSessionId"> {
+  attachmentNames?: Readonly<Record<string, string>>;
   id: string;
   /** An explicit source identity supplied by a projection adapter. */
   sourceMessageId?: string;
+  sourceRecord?: import("./gen/SourceRecord").SourceRecord;
   type: ChatMessageKind;
   content: string;
   segments?: import("./envelope").MessageSegment[] | null;

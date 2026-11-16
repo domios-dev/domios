@@ -264,7 +264,9 @@ mod tests {
         let discipline = crate::prompts::TESTING_DISCIPLINE.trim();
         assert!(!discipline.is_empty());
         assert!(
-            crate::prompts::worker_suffix().contains(discipline),
+            crate::service::role_preset::builtin_guidance("worker")
+                .unwrap()
+                .contains(discipline),
             "the bounded-run discipline the sweeper backstops never reaches a Worker"
         );
 

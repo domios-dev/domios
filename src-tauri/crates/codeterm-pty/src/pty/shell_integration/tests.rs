@@ -77,7 +77,7 @@ fn apply_env_wires_powershell_command_finished_observation() {
     // The shipped script, not this machine's copy: ensure_scripts discards its
     // write error, so an install could be running an older file than this constant.
     let content = POWERSHELL_PS1;
-    let authenticated_command = content.find("']633;E;;'").unwrap();
+    let authenticated_command = content.find("']633;E;'").unwrap();
     let command_finished = content.find("']633;D;'").unwrap();
     assert!(content.contains("$env:CODETERM_SHELL_NONCE"));
     assert!(content.contains("Remove-Item Env:CODETERM_SHELL_NONCE"));
@@ -138,7 +138,7 @@ fn restore_contract_powershell_command_finished_requires_a_new_history_entry() {
     let gate = content
         .find("$historyId -gt $global:__CodeTermLastHistoryId")
         .unwrap();
-    let authenticated_command = prompt + content[prompt..].find("']633;E;;'").unwrap();
+    let authenticated_command = prompt + content[prompt..].find("']633;E;'").unwrap();
     assert!(prompt < history && history < gate && gate < authenticated_command);
     assert!(!content.contains("__CodeTermPromptSeen"));
 }
@@ -187,6 +187,46 @@ if ((PSConsoleHostReadLine) -ne '') { throw 'Empty input changed' }
         1
     );
     assert!(stdout.contains("\x1b]633;A\x07\x1b]633;B\x07"));
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn shell_integration_powershell_completion_retains_command_text() {
+    let harness = r#"
+$env:CODETERM_SHELL_NONCE = 'own-nonce'
+$global:testLine = "echo 'C:\path;value'`nWrite-Output done"
+function global:PSConsoleHostReadLine { $global:testLine }
+function global:Get-History { param($Count) $global:testHistory }
+function global:prompt { 'custom-prompt' }
+"#;
+    let assertions = r#"
+$global:testHistory = [pscustomobject]@{ Id = 1; CommandLine = $global:testLine }
+$null = PSConsoleHostReadLine
+cmd /c exit 0
+$null = prompt
+$null = prompt
+$global:testHistory = [pscustomobject]@{ Id = 2; CommandLine = 'cmd /c exit 3' }
+cmd /c exit 3
+$null = prompt
+"#;
+    let output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command"])
+        .arg(format!("{harness}\n{POWERSHELL_PS1}\n{assertions}"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let command = "\x1b]633;E;echo 'C:\\\\path\\x3bvalue'\\x0aWrite-Output done;own-nonce\x07";
+    assert_eq!(stdout.matches(command).count(), 2);
+    assert!(stdout.contains(&format!("{command}\x1b]633;C\x07")));
+    assert!(stdout.contains(&format!("{command}\x1b]633;D;0\x07")));
+    assert!(stdout.contains("\x1b]633;E;cmd /c exit 3;own-nonce\x07\x1b]633;D;3\x07"));
+    assert_eq!(stdout.matches("\x1b]633;D;").count(), 2);
+    assert!(!stdout.contains("\x1b]633;E;;"));
 }
 
 #[test]

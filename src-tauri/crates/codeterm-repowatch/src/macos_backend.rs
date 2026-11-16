@@ -1,7 +1,8 @@
 use crate::backend::{
-    ActiveWatch, BatchHandler, RescanSink, RescanWatcher, WatchSignal, WatchSpec, REPLACEMENT_SINK,
+    ActiveWatch, BatchHandler, RescanSink, RescanWatcher, WatchSignal, WatchSpec, COVERAGE_CHANGES,
     RESCAN_SINK,
 };
+use crate::coverage::{Change, Coverage, PendingChanges};
 use crate::macos_stream::{NativeEvent, NativePort, Stream};
 use crate::stream_plan::{self, StreamSpec};
 use notify_debouncer_mini::{new_debouncer_opt, Config, DebounceEventResult};
@@ -10,7 +11,7 @@ use std::sync::{mpsc, Arc};
 
 enum Command {
     Set(Vec<WatchSpec>, mpsc::Sender<Result<(), String>>),
-    Event(NativeEvent),
+    Event(NativeEvent, Vec<Change>),
     Signal(WatchSignal),
     Stop,
 }
@@ -39,13 +40,17 @@ impl Drop for WatchSet {
     }
 }
 
-fn desired(specs: &[WatchSpec]) -> Result<BTreeSet<StreamSpec>, String> {
+fn desired(
+    specs: &[WatchSpec],
+    coverage: &mut Coverage,
+    changes: &[Change],
+) -> Result<BTreeSet<StreamSpec>, String> {
+    coverage.expand(specs, changes)?;
     let mut streams = BTreeSet::new();
     for spec in specs.iter().filter(|spec| spec.partitioned) {
-        streams.extend(stream_plan::plan(
-            &spec.path,
-            &crate::ignore_plan::plan(&spec.path)?,
-        )?);
+        if let Some(plan) = coverage.directory_plan(&spec.path) {
+            streams.extend(stream_plan::plan(&spec.path, plan)?);
+        }
     }
     Ok(streams)
 }
@@ -54,9 +59,11 @@ fn reconcile(
     port: &mut NativePort,
     streams: &mut BTreeMap<StreamSpec, Stream>,
     specs: &[WatchSpec],
+    coverage: &mut Coverage,
+    changes: &[Change],
 ) -> Result<bool, String> {
     let result = (|| {
-        let planned = desired(specs)?;
+        let planned = desired(specs, coverage, changes)?;
         let changed = streams.keys().cloned().collect::<BTreeSet<_>>() != planned;
         for spec in &planned {
             if !streams.contains_key(spec) {
@@ -106,36 +113,36 @@ pub(crate) fn build(
                 let _ = rescan.send(Command::Signal(WatchSignal::Rescan));
             });
             RESCAN_SINK.with(|slot| *slot.borrow_mut() = Some(sink));
-            let replacement = events.clone();
-            REPLACEMENT_SINK.with(|slot| {
-                *slot.borrow_mut() = Some(Arc::new(move |paths| {
-                    let _ = replacement.send(Command::Event(NativeEvent {
-                        paths,
-                        rescan: false,
-                        topology: true,
-                    }));
-                }))
-            });
+            let changes = Arc::new(parking_lot::Mutex::new(PendingChanges::default()));
+            COVERAGE_CHANGES.with(|slot| *slot.borrow_mut() = Some(changes.clone()));
             let batched = events.clone();
             let built = new_debouncer_opt::<_, RescanWatcher>(
                 Config::default().with_timeout(crate::DEBOUNCE),
                 move |result: DebounceEventResult| match result {
                     Ok(events) => {
-                        let paths = events.into_iter().map(|event| event.path).collect();
-                        let _ = batched.send(Command::Event(NativeEvent {
-                            paths,
-                            rescan: false,
-                            topology: false,
-                        }));
+                        let paths = events
+                            .into_iter()
+                            .map(|event| event.path)
+                            .collect::<Vec<_>>();
+                        let changed = changes.lock().take(&paths);
+                        let _ = batched.send(Command::Event(
+                            NativeEvent {
+                                paths,
+                                rescan: false,
+                                topology: false,
+                            },
+                            changed,
+                        ));
                     }
                     Err(error) => {
+                        changes.lock().clear();
                         let _ =
                             batched.send(Command::Signal(WatchSignal::Failed(error.to_string())));
                     }
                 },
             );
             RESCAN_SINK.with(|slot| *slot.borrow_mut() = None);
-            REPLACEMENT_SINK.with(|slot| *slot.borrow_mut() = None);
+            COVERAGE_CHANGES.with(|slot| *slot.borrow_mut() = None);
             let mut metadata_watcher = match built {
                 Ok(watcher) => watcher,
                 Err(error) => {
@@ -145,19 +152,33 @@ pub(crate) fn build(
             };
             let native = events.clone();
             let mut port = NativePort::new(move |event| {
-                let _ = native.send(Command::Event(event));
+                let changes = event
+                    .paths
+                    .iter()
+                    .map(|path| Change {
+                        path: path.clone(),
+                        directory: Some(event.topology),
+                        replaced: event.topology,
+                    })
+                    .collect();
+                let _ = native.send(Command::Event(event, changes));
             });
             let mut streams = BTreeMap::new();
             let mut active_metadata = BTreeMap::new();
             let mut specs = initial;
-            let result = reconcile(&mut port, &mut streams, &specs).and_then(|_| {
-                crate::subscriptions::reconcile(
-                    metadata_watcher.watcher(),
-                    &mut active_metadata,
-                    &metadata(&specs),
-                )
-                .map(|_| ())
-            });
+            let mut coverage = Coverage::default();
+            let mut metadata_coverage = Coverage::default();
+            let result =
+                reconcile(&mut port, &mut streams, &specs, &mut coverage, &[]).and_then(|_| {
+                    metadata_coverage
+                        .reconcile(
+                            metadata_watcher.watcher(),
+                            &mut active_metadata,
+                            &metadata(&specs),
+                            &[],
+                        )
+                        .map(|_| ())
+                });
             let failed = result.is_err();
             if ready.send(result).is_err() || failed {
                 return;
@@ -166,18 +187,47 @@ pub(crate) fn build(
                 match command {
                     Command::Stop => break,
                     Command::Signal(signal) => {
+                        if coverage.invalidate_on_signal(&signal) {
+                            metadata_coverage.invalidate();
+                            let result =
+                                reconcile(&mut port, &mut streams, &specs, &mut coverage, &[])
+                                    .and_then(|changed| {
+                                        metadata_coverage
+                                            .reconcile(
+                                                metadata_watcher.watcher(),
+                                                &mut active_metadata,
+                                                &metadata(&specs),
+                                                &[],
+                                            )
+                                            .map(|metadata| changed || metadata)
+                                    });
+                            match result {
+                                Ok(true) => {
+                                    let _ = dispatch.send(WatchSignal::CoverageChanged);
+                                }
+                                Ok(false) => {}
+                                Err(error) => {
+                                    let _ = dispatch.send(WatchSignal::Failed(error));
+                                }
+                            }
+                        }
                         let _ = dispatch.send(signal);
                     }
                     Command::Set(updated, reply) => {
+                        coverage.invalidate();
+                        metadata_coverage.invalidate();
                         let result =
-                            reconcile(&mut port, &mut streams, &updated).and_then(|changed| {
-                                crate::subscriptions::reconcile(
-                                    metadata_watcher.watcher(),
-                                    &mut active_metadata,
-                                    &metadata(&updated),
-                                )
-                                .map(|metadata| changed || metadata)
-                            });
+                            reconcile(&mut port, &mut streams, &updated, &mut coverage, &[])
+                                .and_then(|changed| {
+                                    metadata_coverage
+                                        .reconcile(
+                                            metadata_watcher.watcher(),
+                                            &mut active_metadata,
+                                            &metadata(&updated),
+                                            &[],
+                                        )
+                                        .map(|metadata| changed || metadata)
+                                });
                         if matches!(result, Ok(true)) {
                             let _ = dispatch.send(WatchSignal::CoverageChanged);
                         }
@@ -189,38 +239,47 @@ pub(crate) fn build(
                         }
                         let _ = reply.send(result.map(|_| ()));
                     }
-                    Command::Event(event) => {
+                    Command::Event(event, changes) => {
                         if event.rescan {
+                            coverage.invalidate();
+                            metadata_coverage.invalidate();
                             let _ = dispatch.send(WatchSignal::Rescan);
                         }
-                        if event.topology
-                            || crate::subscriptions::topology_changed(
-                                &specs,
-                                &active_metadata,
-                                &event.paths,
-                            )
                         {
                             let before = streams.len();
-                            if event.topology {
+                            if changes.iter().any(|change| change.replaced) {
                                 streams.retain(|spec, _| {
-                                    !event.paths.iter().any(|path| spec.root.starts_with(path))
+                                    !changes.iter().any(|change| {
+                                        change.replaced && spec.root.starts_with(&change.path)
+                                    })
                                 });
                             }
                             let rearmed = streams.len() != before;
-                            match reconcile(&mut port, &mut streams, &specs) {
+                            match reconcile(
+                                &mut port,
+                                &mut streams,
+                                &specs,
+                                &mut coverage,
+                                &changes,
+                            ) {
                                 Ok(changed) => {
-                                    let metadata_signals = crate::backend::refresh_coverage(
+                                    let metadata_result = metadata_coverage.reconcile(
                                         metadata_watcher.watcher(),
                                         &mut active_metadata,
                                         &metadata(&specs),
-                                        &event.paths,
-                                        event.topology,
+                                        &changes,
                                     );
                                     if changed || rearmed {
                                         let _ = dispatch.send(WatchSignal::CoverageChanged);
                                     }
-                                    for signal in metadata_signals {
-                                        let _ = dispatch.send(signal);
+                                    match metadata_result {
+                                        Ok(true) => {
+                                            let _ = dispatch.send(WatchSignal::CoverageChanged);
+                                        }
+                                        Ok(false) => {}
+                                        Err(error) => {
+                                            let _ = dispatch.send(WatchSignal::Failed(error));
+                                        }
                                     }
                                 }
                                 Err(error) => {

@@ -55,5 +55,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `domios docs BOUNCE` — Review bounce evidence and escalation.
 - `domios docs TEST-AUTHORING` — Focused test authoring rules.
 - `domios docs ESSENCE-MAP` — Source-backed essence map generation and validation.
+- `domios docs TEAM-FORMAT` — Agentic Team Protocol package format: forms, fields, roles and validation.
+- `domios docs TEAMS` — Starting, previewing, baking and sharing Team templates.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

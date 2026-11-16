@@ -24,14 +24,15 @@ export async function storeBrowserFiles(
 }
 
 /** Folders become folder capsules; the host answers where it can stat the path, the extension decides elsewhere. */
-export async function classifyAttachmentPaths(paths: string[]): Promise<InlineAttachment[]> {
+export async function classifyAttachmentPaths(paths: string[], originalPaths?: string[]): Promise<InlineAttachment[]> {
   let kinds: string[] = [];
   try {
     kinds = await invoke<string[]>("attachment_path_kinds", { paths });
   } catch {
     kinds = [];
   }
-  return paths.map((path, index) => ({ path, kind: kinds[index] === "folder" ? "folder" : attachmentKindForPath(path) }));
+  return paths.map((path, index) => ({ path, kind: kinds[index] === "folder" ? "folder" : attachmentKindForPath(path),
+    ...(originalPaths?.[index] ? { displayName: originalPaths[index].split(/[\\/]/).pop() } : {}) }));
 }
 
 export function useWebFileDrop(
@@ -40,17 +41,14 @@ export function useWebFileDrop(
   uploadFiles?: (files: File[]) => Promise<void>,
 ) {
   const [dragOver, setDragOver] = useState(false);
-  if (!IS_WEB) {
-    return { dragOver: false, handlers: {} };
-  }
   const handlers = {
-    onDragOver: (e: DragEvent) => {
+    onDragOverCapture: (e: DragEvent) => {
       if (isFileTransfer(e.dataTransfer)) {
         e.preventDefault();
         setDragOver(true);
       }
     },
-    onDragLeave: (e: DragEvent) => {
+    onDragLeaveCapture: (e: DragEvent) => {
       if (
         e.currentTarget === e.target ||
         !e.currentTarget.contains(e.relatedTarget as Node)
@@ -58,8 +56,12 @@ export function useWebFileDrop(
         setDragOver(false);
       }
     },
-    onDrop: (e: DragEvent) => {
+    onDropCapture: (e: DragEvent) => {
       setDragOver(false);
+      if (!IS_WEB) {
+        if (isFileTransfer(e.dataTransfer)) e.preventDefault();
+        return;
+      }
       const { preventNavigation, files, error } = planFileDrop(e.dataTransfer);
       if (preventNavigation) e.preventDefault();
       if (error) onError(error);
@@ -67,5 +69,5 @@ export function useWebFileDrop(
       void (uploadFiles ? uploadFiles(files) : storeBrowserFiles(files, onAttach, onError)).catch(error => onError(error instanceof Error ? error.message : String(error)));
     },
   };
-  return { dragOver, handlers };
+  return { dragOver: dragOver && IS_WEB, handlers };
 }

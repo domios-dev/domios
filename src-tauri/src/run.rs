@@ -74,8 +74,10 @@ pub fn run(
         cfg!(debug_assertions),
         &context.config().identifier,
     ) {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            startup::desktop_lifecycle::activate(app);
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            if !crate::team_files::receive_forwarded_launch(app, &args, &cwd) {
+                startup::desktop_lifecycle::activate(app);
+            }
         }));
     }
 
@@ -108,6 +110,8 @@ pub fn run(
             crate::install_client_startup_options(&app_handle, startup_options)?;
             startup::frontend_shell_initialize(&app_handle)?;
             app.manage(startup::desktop_lifecycle::DesktopLifecycle::default());
+            app.manage(crate::team_files::OpenedTeamFile::default());
+            crate::team_files::receive_launch_arguments(&app_handle);
             startup::starting_window::show(&app_handle)?;
             crate::host_ports::update_pair::install(&app_handle);
             startup::build_system_tray(app)?;
@@ -207,6 +211,10 @@ pub fn run(
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 startup::desktop_lifecycle::activate(app);
+            }
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                crate::team_files::receive_opened_urls(app, urls);
             }
             if let tauri::RunEvent::WindowEvent {
                 label,

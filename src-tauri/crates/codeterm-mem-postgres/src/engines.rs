@@ -153,7 +153,21 @@ impl EngineStore for PostgresMemStore {
         recovery: bool,
         current: &dyn Fn() -> bool,
     ) -> Result<(), String> {
-        self.transaction(|tx| { if !current() { return Err("re-embed cancelled".into()); } if recovery { tx.execute("UPDATE mem_shadow SET vectors=$3 WHERE target=$1 AND unit_key=$2", &[&stamp,&unit.key(),&vectors]).map_err(db_error)?; } else { tx.execute("INSERT INTO mem_shadow(target,unit_key,text_hash,vectors) VALUES ($1,$2,$3,$4) ON CONFLICT(target,unit_key) DO UPDATE SET text_hash=excluded.text_hash,vectors=excluded.vectors", &[&stamp,&unit.key(),&unit.hash(),&vectors]).map_err(db_error)?; } Ok(()) })
+        self.transaction(|tx| {
+            if !current() {
+                return Err("re-embed cancelled".into());
+            }
+            if recovery {
+                tx.execute(
+                    "UPDATE mem_shadow SET vectors=$3 WHERE target=$1 AND unit_key=$2",
+                    &[&stamp, &unit.key(), &vectors],
+                )
+                .map_err(db_error)?;
+            } else {
+                tx.execute("INSERT INTO mem_shadow(target,unit_key,text_hash,vectors) VALUES ($1,$2,$3,$4) ON CONFLICT(target,unit_key) DO UPDATE SET text_hash=excluded.text_hash,vectors=excluded.vectors", &[&stamp, &unit.key(), &unit.hash(), &vectors]).map_err(db_error)?;
+            }
+            Ok(())
+        })
     }
     fn publish_shadow(
         &self,

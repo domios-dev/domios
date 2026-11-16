@@ -44,8 +44,12 @@ export async function isRunning(instance, { request = fetch, snapshot } = {}) {
   const retained = instance.retained;
   if (retained) {
     const current = snapshot.processes.find(row => row.pid === retained.pid);
-    if (current && (!current.created || !current.executable)) return 'unknown';
-    if (current && current.created === retained.created && normalize(current.executable) === normalize(retained.executable)) return 'running';
+    // A known, different creation time means the PID was reused by an unrelated process.
+    const reused = Boolean(current?.created) && current.created !== retained.created;
+    if (current && !reused) {
+      if (!current.created || !current.executable) return 'unknown';
+      if (normalize(current.executable) === normalize(retained.executable)) return 'running';
+    }
   }
   if (!Number.isInteger(instance.port) || instance.port < 1 || instance.port > 65535 || instance.port === 7685) return 'unknown';
   for (const listener of snapshot.listeners.filter(row => row.port === instance.port)) {

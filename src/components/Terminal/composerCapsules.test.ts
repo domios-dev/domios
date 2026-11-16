@@ -207,3 +207,13 @@ console.log("composerCapsules tests passed");
   assert.deepEqual(capsuleSpans(lines).map((span) => span.label), ["text3 · 312 lines"]);
   assert.ok(!lines.includes("text3") && lines.includes("text\u2060\u2060\u2060\u00A0"), "typed name carries the ordinal as invisible marks");
 }
+
+// Display metadata survives draft storage without changing the PTY attachment marker.
+{
+  const path = "/uploads/0123456789abcdef0123456789abcdef.heic";
+  const old = capsulesForPaths(EMPTY_CAPSULES, [{ path }]);
+  const named = capsulesForPaths(EMPTY_CAPSULES, [{ path, displayName: "IMG_4321.heic" }]);
+  const restored = decodeCapsuleRegistry(encodeCapsuleRegistry(named.registry));
+  assert.equal(Object.values(restored)[0].displayName, "IMG_4321.heic");
+  assert.equal(serializeCapsuleDraft(named.text, restored), serializeCapsuleDraft(old.text, old.registry));
+}

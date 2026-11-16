@@ -4,10 +4,11 @@ import { fileURLToPath } from "node:url";
 import { restartObserved } from "../../restart-endurance/restart.mjs";
 import { JOURNEYS, renderMarkdown, verdict } from "./results.mjs";
 import { modelEvidenceErrors } from "./model-evidence.mjs";
+import { journeyIds, loadAreas, runs, selectionErrors } from "./selection.mjs";
 
 export const VERDICTS = ["pass", "fail", "skip"];
 export const PHASES = ["setup", "verify", "cleanup"];
-export const REQUIRED_JOURNEYS = ["SETUP", "J1", "J2", "J3", "J4"];
+const FIRST_REPLY = { J1: "send_reply_own_session", J4: "restore_fixture_reply" };
 const SHARED_PORTS = [7685, 7686];
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -25,6 +26,7 @@ function checkPhases(results, expected, errors) {
   if (!Array.isArray(results.phases) || !results.phases.length) { errors.push("results.json: phases is empty"); return; }
   const names = results.phases.map((phase) => phase?.name);
   for (const name of expected) if (!names.includes(name)) errors.push(`results.json: phase ${name} never ran`);
+  if (!expected.includes("verify") && names.includes("verify")) errors.push("results.json: phase verify ran although J4 is not selected");
   results.phases.forEach((phase, index) => {
     const at = `results.json: phases[${index}]`;
     if (!PHASES.includes(phase?.name)) errors.push(`${at}.name ${JSON.stringify(phase?.name)} is not one of ${PHASES.join("|")}`);
@@ -38,7 +40,7 @@ function checkPhases(results, expected, errors) {
   if (targets.size > 1) errors.push(`results.json: phases disagree on instance:port (${[...targets].join(", ")})`);
 }
 
-function checkChecks(results, journeys, errors) {
+function checkChecks(results, journeys, skipped, errors) {
   if (!Array.isArray(results.checks) || !results.checks.length) { errors.push("results.json: checks is empty"); return; }
   results.checks.forEach((check, index) => {
     const at = `results.json: checks[${index}] ${check?.journey ?? "?"}/${check?.name ?? "?"}`;
@@ -53,6 +55,9 @@ function checkChecks(results, journeys, errors) {
   for (const journey of journeys) {
     if (!results.checks.some((check) => check?.journey === journey)) errors.push(`results.json: no check recorded for ${journey}`);
   }
+  for (const journey of skipped) {
+    if (results.checks.some((check) => check?.journey === journey)) errors.push(`results.json: ${journey} is recorded as not run or waived but has checks`);
+  }
 }
 
 function checkIds(results, expected, errors) {
@@ -63,9 +68,11 @@ function checkIds(results, expected, errors) {
   const tabs = Array.isArray(state.tabs) ? state.tabs : [];
   if (!tabs.length) errors.push("results.json: state.tabs recorded no tab ids");
   tabs.forEach((tab, index) => { if (!isText(tab?.id)) errors.push(`results.json: state.tabs[${index}].id missing`); });
-  const replied = new Set(results.checks.filter((check) => check?.journey === "J1" && check.name === "send_reply_own_session" && check.verdict === "pass").map((check) => check.subject));
-  for (const tab of tabs.filter((entry) => entry?.journey === "J1" && replied.has(entry.provider))) {
-    if (!isText(tab.session)) errors.push(`results.json: J1 tab ${tab.id} answered but recorded no session id`);
+  for (const [journey, name] of Object.entries(FIRST_REPLY)) {
+    const replied = new Set(results.checks.filter((check) => check?.journey === journey && check.name === name && check.verdict === "pass").map((check) => check.subject));
+    for (const tab of tabs.filter((entry) => entry?.journey === journey && replied.has(entry.provider))) {
+      if (!isText(tab.session)) errors.push(`results.json: ${journey} tab ${tab.id} answered but recorded no session id`);
+    }
   }
   if (!expected.includes("verify")) return;
   const before = state.before_restart;
@@ -108,22 +115,29 @@ function checkRestart(dir, results, file, errors) {
   }
 }
 
-export function validateRun(dir, { phases = PHASES, journeys = REQUIRED_JOURNEYS, restartFile = "restart.json" } = {}) {
+export function validateRun(dir, { restartFile = "restart.json", areas = loadAreas() } = {}) {
   const errors = [];
   if (!existsSync(dir) || !statSync(dir).isDirectory()) return { pass: false, errors: [`${dir}: not a directory`], verdict: null };
   const results = readJson(dir, "results.json", errors);
+  // An absent or invalid selection is held to the full suite's contract.
+  const selectionInvalid = results ? selectionErrors(areas, results.selection) : [];
+  const selection = results && !selectionInvalid.length ? results.selection : null;
+  const restarts = !selection || runs(selection, "J4");
   if (results) {
     if (results.schema !== 1) errors.push(`results.json: schema ${JSON.stringify(results.schema)}, expected 1`);
     if (!isText(results.started_at)) errors.push("results.json: started_at missing");
+    errors.push(...selectionInvalid);
+    const phases = restarts ? PHASES : PHASES.filter((name) => name !== "verify");
+    const ran = journeyIds(areas).filter((id) => !selection || runs(selection, id));
     checkPhases(results, phases, errors);
-    checkChecks(results, journeys, errors);
+    checkChecks(results, ["SETUP", ...ran], journeyIds(areas).filter((id) => !ran.includes(id)), errors);
     checkIds(results, phases, errors);
-    errors.push(...modelEvidenceErrors(results.state, { verify: phases.includes("verify"),
+    errors.push(...modelEvidenceErrors(results.state, { verify: restarts, selection,
       builds: Object.fromEntries((Array.isArray(results.phases) ? results.phases : []).filter(Boolean).map(phase => [phase.name, phase.build_sha])) }));
     checkScreenshots(dir, results, phases, errors);
     checkMarkdown(dir, results, errors);
   }
-  if (phases.includes("verify")) checkRestart(dir, results, restartFile, errors);
+  if (restarts) checkRestart(dir, results, restartFile, errors);
   const outcome = results && Array.isArray(results.checks) ? verdict(results) : null;
   return { pass: errors.length === 0, errors, verdict: outcome };
 }

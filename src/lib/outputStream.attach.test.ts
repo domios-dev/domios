@@ -11,9 +11,131 @@ function pending<T>() {
   return { promise, resolve };
 }
 
+it("bounds no-progress capacity resumes and resets the budget after output progress", async () => {
+  vi.useFakeTimers(); vi.resetModules(); sessionStorage.setItem("codeterm-web-output-boot", "boot");
+  const output = await import("./outputStream");
+  let end!: (end: import("./transportClient").StreamEnd) => void;
+  let receive!: (name: string, frame: unknown) => void | Promise<void>;
+  const paths: string[] = [], errors = vi.fn();
+  output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (path, handler, options) => {
+    paths.push(path); receive = handler; end = options!.onEnd!; return () => {};
+  } } as import("./transportClient").TransportClient);
+  const stop = output.subscribeTabOutput("own", { onOutput() {}, onTruncated() {}, onEnded() {}, onStreamError: errors }, {}, "pty");
+  try {
+    for (const delay of [125, 250]) {
+      const count = paths.length;
+      end({ reason: "capacity", bytes: 1 });
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(paths).toHaveLength(count);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(paths).toHaveLength(count + 1);
+    }
+    await receive("message", { tab_id: "own", pty_id: "pty", boot: "boot", replay_complete: true, offset: 0 });
+    const count = paths.length;
+    end({ reason: "capacity", bytes: 1 });
+    expect(paths).toHaveLength(count + 1);
+    for (const delay of [125, 250]) {
+      const count = paths.length;
+      end({ reason: "capacity", bytes: 1 });
+      await vi.advanceTimersByTimeAsync(delay);
+      expect(paths).toHaveLength(count + 1);
+    }
+    const parked = paths.length;
+    end({ reason: "capacity", bytes: 1 });
+    expect(errors).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(paths).toHaveLength(parked);
+  } finally { stop(); output.resetOutputStream(); vi.useRealTimers(); }
+});
+
+it.each(["tab", "mesh:928b06dd-1234-4567-890a-123456789abc/tab"])("replays a reset %s ring even below the old byte cursor", async tabId => {
+  vi.resetModules(); sessionStorage.setItem("codeterm-web-output-boot", "boot");
+  const output = await import("./outputStream");
+  let receive!: (name: string, frame: unknown) => void | Promise<void>;
+  output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (_path, handler) => { receive = handler; return () => {}; } } as import("./transportClient").TransportClient);
+  const written = vi.fn(), gaps = vi.fn();
+  const stop = output.subscribeTabOutput(tabId, { onOutput: written, onTruncated: gaps, onEnded() {} }, {}, "own-pty");
+  try {
+    await receive("message", { tab_id: "tab", pty_id: "own-pty", boot: "boot", offset: 1000, b64: "WA" });
+    await receive("message", { tab_id: "tab", pty_id: "foreign", boot: "boot", reset: true, truncated: true, from: 0 });
+    expect(gaps).not.toHaveBeenCalled();
+    await receive("message", { tab_id: "tab", pty_id: "own-pty", boot: "boot", reset: true, truncated: true, from: 0 });
+    await receive("message", { tab_id: "tab", pty_id: "own-pty", boot: "boot", offset: 5, b64: "ZnJlc2g" });
+    expect(gaps).toHaveBeenCalledWith(0);
+    expect(written.mock.calls.map(([text]) => text)).toEqual(["X", "fresh"]);
+  } finally { stop(); output.resetOutputStream(); }
+});
+
+it("lists mounted tabs for replay priority while omitting unmounted rings", async () => {
+  vi.resetModules(); sessionStorage.setItem("codeterm-web-output-boot", "boot");
+  const output = await import("./outputStream");
+  const paths: string[] = [];
+  let receive!: (name: string, frame: unknown) => void | Promise<void>;
+  output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (path, handler) => { paths.push(path); receive = handler; return () => {}; } } as import("./transportClient").TransportClient);
+  const sink = { onOutput() {}, onTruncated() {}, onEnded() {} };
+  const stopOld = output.subscribeTabOutput("old", sink, {}, "old-pty");
+  await receive("message", { tab_id: "old", pty_id: "old-pty", boot: "boot", offset: 1, b64: "WA" });
+  stopOld();
+  const stopNew = output.subscribeTabOutput("new", { ...sink }, {}, "new-pty");
+  try {
+    expect(paths).toHaveLength(1);
+    output.restartOutputStream();
+    expect(paths).toHaveLength(2);
+    const since = new URL(paths[1], "http://daemon.test").searchParams.get("since")!;
+    expect(JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")))).toEqual({ boot: "boot", tabs: { new: { offset: 0, pty_id: "new-pty" } } });
+  } finally { stopNew(); output.resetOutputStream(); }
+});
+
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("aggregate terminal attachment", () => {
+  it("resets render ACK state on a new boot and suppresses the old write completion", async () => {
+    vi.resetModules(); localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    let receive!: (name: string, frame: unknown) => void | Promise<void>;
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (_path, handler) => {
+      receive = handler; return () => {};
+    } } as import("./transportClient").TransportClient);
+    const write = pending<void>(), rendered = vi.fn(), reset = vi.fn();
+    const stop = output.subscribeTabOutput("tab", { onOutput: () => write.promise, onRendered: rendered, onReset: reset, onTruncated() {}, onEnded() {} }, {}, "pty");
+    try {
+      const old = receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", offset: 1000000, b64: "QQ" });
+      await receive("message", { boot_changed: true, boot: "next-boot" });
+      expect(reset).toHaveBeenCalledOnce();
+      write.resolve(); await old;
+      expect(rendered).not.toHaveBeenCalled();
+      await receive("message", { tab_id: "tab", pty_id: "pty", boot: "next-boot", offset: 1, b64: "Qg" });
+      expect(rendered).toHaveBeenCalledExactlyOnceWith(1);
+    } finally { stop(); output.resetOutputStream(); }
+  });
+  it("acknowledges only completed xterm writes and disconnects even on capacity recovery", async () => {
+    vi.resetModules();
+    localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    let receive!: (name: string, frame: unknown) => void | Promise<void>;
+    let ended!: (end: import("./transportClient").StreamEnd) => void;
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (_path, handler, options) => {
+      receive = handler; ended = options!.onEnd!; return () => {};
+    } } as import("./transportClient").TransportClient);
+    const write = pending<void>();
+    const rendered = vi.fn(), disconnected = vi.fn();
+    const detach = output.subscribeTabOutput("tab", {
+      onOutput: () => write.promise, onRendered: rendered, onDisconnected: disconnected, onTruncated() {}, onEnded() {},
+    }, {}, "pty");
+    try {
+      const completed = receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", offset: 1, b64: "QQ" });
+      expect(rendered).not.toHaveBeenCalled();
+      await receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", offset: 1, b64: "QQ" });
+      expect(rendered).not.toHaveBeenCalled();
+      write.resolve();
+      await completed;
+      expect(rendered).toHaveBeenCalledExactlyOnceWith(1);
+      ended({ reason: "capacity", bytes: 100 });
+      expect(disconnected).toHaveBeenCalledOnce();
+    } finally { detach(); output.resetOutputStream(); }
+  });
   it.each(["tab", "mesh:928b06dd-1234-4567-890a-123456789abc/tab"])("reports an empty %s replay only for the bound PTY", async tabId => {
     vi.resetModules();
     localStorage.clear();
@@ -83,7 +205,7 @@ describe("aggregate terminal attachment", () => {
         ends({ reason: "eof" });
         output.pokeOutputStream();
         const since = new URL(paths[paths.length - 1], "http://daemon.test").searchParams.get("since")!;
-        expect(JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")))).toEqual({ boot: "boot", tabs: { tab: 42295516 } });
+        expect(JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")))).toEqual({ boot: "boot", tabs: { tab: { offset: 42295516, pty_id: "pty" } } });
         receive("message", { tab_id: "tab", truncated: true, from: 42295516 });
       }
       expect(gaps).toEqual([42295516]);
@@ -126,10 +248,10 @@ describe("aggregate terminal attachment", () => {
         const since = new URL(paths[paths.length - 1], "http://daemon.test").searchParams.get("since")!;
         return JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")));
       };
-      expect(cursor()).toEqual({ boot: "boot", tabs: { tab: 100 } });
+      expect(cursor()).toEqual({ boot: "boot", tabs: { tab: { offset: 100, pty_id: null } } });
       receive("message", { tab_id: "tab", truncated: true, from: 100 });
       output.resumeRemoteOutputStreams();
-      expect(cursor()).toEqual({ boot: "boot", tabs: { tab: 100 } });
+      expect(cursor()).toEqual({ boot: "boot", tabs: { tab: { offset: 100, pty_id: null } } });
       receive("message", { tab_id: "tab", truncated: true, from: 100 });
       expect(gaps).toEqual([100]);
       expect(paths).toHaveLength(3);
@@ -309,7 +431,7 @@ it("retains byte cursors across a capacity end and decodes once for multiple sin
     expect(errors).not.toHaveBeenCalled();
     expect(paths).toHaveLength(2);
     const since = new URL(paths[1], "http://daemon.test").searchParams.get("since")!;
-    expect(JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")))).toEqual({ boot: "boot", tabs: { t: 3 } });
+    expect(JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")))).toEqual({ boot: "boot", tabs: { t: { offset: 3, pty_id: "p" } } });
     receive("message", { tab_id: "t", pty_id: "p", boot: "boot", offset: 3, b64: "AP_i" });
     receive("message", { tab_id: "t", pty_id: "p", boot: "boot", offset: 5, b64: "gqw" });
     expect(bytes).toEqual([[0, 255, 226, 130, 172], [0, 255, 226, 130, 172]]);

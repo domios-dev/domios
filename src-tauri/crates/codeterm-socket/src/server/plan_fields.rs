@@ -9,37 +9,21 @@ use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 
 use super::JsonRpcError;
 
-/// An unclassified task in a project outside any git checkout needs no repository.
+/// An unclassified task mutates the project whether or not the folder has git.
 pub(super) fn execution_intent_field(
     params: Option<&Value>,
-    project_path: Option<&str>,
 ) -> Result<TaskExecutionIntent, JsonRpcError> {
     params
         .and_then(|value| value.get("execution_intent"))
         .cloned()
         .map(serde_json::from_value)
         .transpose()
-        .map(|intent| intent.unwrap_or_else(|| default_execution_intent(project_path)))
+        .map(Option::unwrap_or_default)
         .map_err(|error| JsonRpcError {
             code: -32602,
             message: format!("invalid execution_intent: {error}"),
             data: Some(serde_json::json!({ "type": "invalid_execution_intent" })),
         })
-}
-
-fn default_execution_intent(project_path: Option<&str>) -> TaskExecutionIntent {
-    let outside_checkout = project_path
-        .filter(|path| !path.trim().is_empty())
-        .is_some_and(|path| {
-            !std::path::Path::new(path)
-                .ancestors()
-                .any(|dir| dir.join(".git").exists())
-        });
-    if outside_checkout {
-        TaskExecutionIntent::NonRepository
-    } else {
-        TaskExecutionIntent::default()
-    }
 }
 
 pub(super) fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {

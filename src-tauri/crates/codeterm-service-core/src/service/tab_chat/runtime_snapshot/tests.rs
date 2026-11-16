@@ -169,6 +169,85 @@ fn attach(fixture: &ServiceFixture, tab_id: &str, content: &str) -> test_support
 }
 
 #[test]
+fn runtime_snapshot_after_workspace_relocation_keeps_own_thread_and_current_project_scope() {
+    let (fixture, _cwd, provider, tab_id) = fixture(false);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .cwd = Some(r"\\?\C:\Users\User\ai-biba\repo".into());
+    let _runtime = attach(&fixture, &tab_id, "own reply before relocation");
+    let current_cwd = "C:/Users/User/Developer/ai-biba";
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .cwd = Some(current_cwd.into());
+    let context = engine::for_tab(&tab_id).unwrap().context.lock().clone();
+    assert_eq!(context.cwd, r"\\?\C:\Users\User\ai-biba\repo");
+    let (rows, total) = super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).unwrap();
+    assert_eq!(total, 1);
+    assert_eq!(rows[0].content, "own reply before relocation");
+    let (rows, total) = super::super::session_chat_snapshot(
+        &fixture.service,
+        &provider,
+        current_cwd,
+        "own-thread",
+        0,
+    )
+    .unwrap();
+    assert_eq!(total, 1);
+    assert_eq!(rows[0].content, "own reply before relocation");
+    assert!(super::super::session_chat_snapshot(
+        &fixture.service,
+        &provider,
+        "C:/foreign-project",
+        "own-thread",
+        0
+    )
+    .is_err());
+    assert_eq!(
+        engine::for_tab(&tab_id).unwrap().context.lock().cwd,
+        context.cwd
+    );
+}
+
+#[test]
+#[cfg(windows)]
+fn runtime_snapshot_project_scope_accepts_windows_verbatim_and_slash_spellings() {
+    let (fixture, _cwd, provider, tab_id) = fixture(false);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .cwd = Some("C:/Users/User/Developer/ai-biba".into());
+    let _runtime = attach(&fixture, &tab_id, "own reply");
+    assert_eq!(
+        for_session(
+            &fixture.service,
+            &provider,
+            r"\\?\C:\Users\User\Developer\ai-biba",
+            "own-thread"
+        )
+        .unwrap()
+        .unwrap()
+        .0[0]
+            .content,
+        "own reply"
+    );
+    assert!(!same_cwd(
+        "C:/Users/User/Developer/ai-biba",
+        "C:/Users/User/Developer/ai-biba-other"
+    ));
+}
+
+#[test]
 fn runtime_snapshot_reads_own_reply_without_jsonl_even_after_process_loss() {
     let (fixture, cwd, provider, tab_id) = fixture(false);
     let _runtime = attach(&fixture, &tab_id, "opaque own reply");

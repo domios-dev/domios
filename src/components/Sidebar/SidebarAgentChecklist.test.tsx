@@ -3,6 +3,7 @@
 import type { Tab } from "../../lib/types";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { remoteTransportCall } from "../../lib/remoteTabTransport";
+import { createMuxReadCapacity, MUX_READ_CAPACITY } from "../../lib/streamMuxRequestModel";
 import { boundAgent, tab, TEAM } from "./SidebarWorkspaceTabs.fixtures.testdata";
 import { act, assert, createSuite, renderSidebar, setupDom } from "./SidebarWorkspaceTabs.testkit";
 
@@ -125,6 +126,72 @@ test("seeded criteria display completed after review updates the checklist", asy
   assert(region && JSON.stringify(checklistRows(region)) === JSON.stringify(["Acceptance criterionDone"]), "the persisted completion replaces Open in the sidebar");
   await act(async () => root.unmount());
   store.restore();
+});
+
+test("an expanded checklist waits for capacity release without showing a read failure", async () => {
+  const store = checklistStore(null);
+  const capacity = createMuxReadCapacity();
+  let reads = 0;
+  __setInvokeForTest((async (command: string) => {
+    if (command !== "tab_todo_list") return {};
+    reads++;
+    if (reads === 1) throw { code: "client_capacity", [MUX_READ_CAPACITY]: capacity.capture() };
+    return checklistRecord("worker", 1, 1, [["Saved step", "open"]]);
+  }) as never);
+  const { host, root } = await renderSidebar({ tabs: checklistTeam() });
+  try {
+    await open(toggleFor(host, "Mica")!);
+    const region = () => regionFor(host, "Mica")!;
+    assert(Number(reads) === 1, "a refused read waits instead of spinning");
+    assert(!region().textContent?.includes("unavailable") && !region().querySelector("button"), "admission pressure exposes no failure or retry action");
+    await act(async () => capacity.released());
+    assert(Number(reads) === 2, "one capacity event admits one reread");
+    assert(checklistRows(region())[0] === "Saved stepOpen", "saved data appears without toggling the disclosure");
+  } finally { await act(async () => root.unmount()); store.restore(); }
+});
+
+test("collapsing a checklist cancels its capacity wait without dispatching another read", async () => {
+  const store = checklistStore(null);
+  const capacity = createMuxReadCapacity();
+  let reads = 0;
+  __setInvokeForTest((async (command: string) => {
+    if (command !== "tab_todo_list") return {};
+    reads++;
+    throw { code: "client_capacity", [MUX_READ_CAPACITY]: capacity.capture() };
+  }) as never);
+  const { host, root } = await renderSidebar({ tabs: checklistTeam() });
+  try {
+    const toggle = toggleFor(host, "Mica")!;
+    await open(toggle);
+    await act(async () => toggle.click());
+    await act(async () => capacity.released());
+    assert(reads === 1 && !regionFor(host, "Mica"), "a collapsed row releases its waiter and never rereads");
+  } finally { await act(async () => root.unmount()); store.restore(); }
+});
+
+test("a genuine checklist read failure offers an explicit retry without collapsing", async () => {
+  const store = checklistStore(null);
+  let reads = 0;
+  __setInvokeForTest((async (command: string) => {
+    if (command !== "tab_todo_list") return {};
+    reads++;
+    if (reads === 1) throw new Error("read failed after dispatch");
+    return checklistRecord("worker", 1, 1, [["Recovered step", "done"]]);
+  }) as never);
+  const { host, root } = await renderSidebar({ tabs: checklistTeam() });
+  try {
+    await open(toggleFor(host, "Mica")!);
+    const region = () => regionFor(host, "Mica")!;
+    assert(Number(reads) === 1, "a dispatched failure is not automatically retried");
+    const retry = [...region().querySelectorAll("button")].find((button) => button.textContent === "Retry checklist");
+    assert(retry && region().querySelector('[role="status"]'), "the read failure has a status note and a named retry");
+    const details = region().querySelector("details");
+    assert(details && !details.open, "technical failure details stay collapsed");
+    await act(async () => details.querySelector("summary")!.click());
+    assert(details.open && details.textContent?.includes("read failed after dispatch"), "details disclose the read failure on request");
+    await act(async () => retry.click());
+    assert(Number(reads) === 2 && checklistRows(region())[0] === "Recovered stepDone", "retry reads the same expanded agent's checklist");
+  } finally { await act(async () => root.unmount()); store.restore(); }
 });
 
 test("an Orchestrator row shows the checklist it wrote for itself", async () => {

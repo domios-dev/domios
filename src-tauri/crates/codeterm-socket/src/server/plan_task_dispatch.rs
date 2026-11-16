@@ -24,6 +24,7 @@ mod preflight;
 mod recovery;
 pub(super) mod remote;
 pub(crate) mod remote_recovery;
+mod role_params;
 mod routing;
 pub(crate) mod startup;
 mod tab_reservation;
@@ -454,7 +455,16 @@ where
         parent.as_deref(),
         caller_tab_id.as_deref(),
     )?;
-    let requested_model = owned_str(p, "model").or_else(|| task.model.clone());
+    let role = role_params::resolve(
+        svc,
+        p,
+        &parent_tab_id,
+        preparation.brief.executor_role.as_deref(),
+    )
+    .map_err(invalid_dispatch)?;
+    let requested_model = owned_str(p, "model")
+        .or_else(|| task.model.clone())
+        .or(role.model);
     let model_selection = codeterm_service_core::service::spawn::resolve_agent_model_selection(
         &svc.agent_registry,
         owned_str(p, "agent").as_deref(),
@@ -473,6 +483,7 @@ where
             ))
         }
     };
+    let without_git = canonical_writer::dispatch_without_git(&execution_intent, &task)?;
     let (placement, placement_reason) = canonical_writer::resolve_placement(
         p,
         &execution_intent,
@@ -484,12 +495,9 @@ where
                 &task.canonical_project_path
             })
             .map_err(plan_rpc_err)?,
+        without_git,
     )?;
-    let worker_profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
-        preparation.brief.executor_role.as_deref(),
-        owned_str(p, "worker_kind").as_deref(),
-    )
-    .map_err(invalid_dispatch)?;
+    let worker_profile = role.profile;
     let allowance_capability = svc
         .agent_registry
         .with_provider(&resolved_provider, |provider| {
@@ -582,7 +590,9 @@ where
             })
         } else if requires_repository {
             if !placement.is_isolated_lane() {
-                canonical_writer::verify_canonical_writer_checkout(&canonical_cwd)?;
+                if !without_git {
+                    canonical_writer::verify_canonical_writer_checkout(&canonical_cwd)?;
+                }
                 Some(lane_resolution::DispatchLaneResolution {
                     spawn_cwd: canonical_cwd.clone(),
                     existing: None,
@@ -657,6 +667,7 @@ where
             &authorized_gates,
         ),
         placement,
+        without_git,
     );
     let will_provision_lane = lane_placement
         .as_ref()
@@ -865,6 +876,11 @@ where
     if replaces_recorded_lane {
         lane_commit::clear_replaced_lane_routing_fields(&mut lane_for_commit);
     }
+    lane_for_commit.ownership = lane_commit::dispatch_lane_ownership(
+        &task.lane,
+        initial_provenance.as_ref(),
+        provisioned_lane.is_some(),
+    );
     if let Some((workspace_id, workspace_name)) =
         svc.resolve_spawn_workspace_identity(&spawn_params)
     {
@@ -929,6 +945,31 @@ where
                     now,
                 )
             }
+        })
+        .and_then(|started| {
+            if let Some(cwd) = spawn_params.cwd.as_ref().filter(|_| {
+                requires_repository
+                    && spawn_params.execution_intent
+                        == Some(codeterm_service_core::plan::ExecutionIntent::Mutating)
+            }) {
+                if let Err(error) = store.record_attempt_checkout(
+                    &plan_id,
+                    &task_id,
+                    &reserved_tab_id,
+                    &started.attempt_id,
+                    cwd.clone(),
+                    now,
+                ) {
+                    store.roll_back_task_dispatch_attempt(
+                        &started.undo,
+                        &reserved_tab_id,
+                        &started.attempt_id,
+                        now,
+                    )?;
+                    return Err(error);
+                }
+            }
+            Ok(started)
         });
     let (started, provisioned_lane) =
         match finish_unreserved_dispatch(attempt_start, provisioned_lane, || {
