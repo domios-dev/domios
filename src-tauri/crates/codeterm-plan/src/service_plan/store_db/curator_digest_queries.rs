@@ -8,6 +8,22 @@ use std::collections::BTreeMap;
 const ROWS: &str = "WITH history AS (
     SELECT row_json FROM plan_strides WHERE plan_id=?1
     UNION ALL SELECT row_json FROM plan_task_milestones WHERE plan_id=?1
+    ), recent_candidates(section,id,kind,state,summary) AS (
+    SELECT 'recent decisions',json_extract(h.row_json,'$.id'),json_extract(h.row_json,'$.kind'),
+        printf('%20s',h.row_json->'$.ts'),coalesce(json_extract(h.row_json,'$.text'),'')
+    FROM history h WHERE json_extract(h.row_json,'$.kind') IN ('decision','plan_decision','decision_answer')
+        OR (json_extract(h.row_json,'$.from.tab_id')=(SELECT owner_tab_id FROM runtime_scope)
+            AND json_extract(h.row_json,'$.kind') NOT IN ('curator_round','report','worker_report'))
+    UNION ALL SELECT 'recent decisions',json_extract(r.value,'$.id'),'review:'||json_extract(r.value,'$.verdict'),
+        printf('%20s',r.value->'$.at'),coalesce(json_extract(r.value,'$.note'),'')
+    FROM plan_tasks t,json_each(t.row_json,'$.review_evidence') r WHERE t.plan_id=?1
+    UNION ALL SELECT 'recent decisions',task_id,status,printf('%20s',coalesce(row_json->'$.status_changed_at','0')),json_extract(row_json,'$.name')
+    FROM plan_tasks WHERE plan_id=?1 AND status IN ('done','cancelled')
+    UNION ALL SELECT 'recent decisions',id,CASE WHEN resolved THEN 'notification:resolved' ELSE 'notification:answered' END,printf('%20s',at),title
+    FROM observations WHERE resolved OR (action_needed AND answered)
+    ), recent AS (
+    SELECT DISTINCT section,id,kind,state,domios_curator_clean(substr(summary,1,instr(summary||char(10),char(10))-1),120) AS summary
+    FROM recent_candidates ORDER BY state DESC,id,kind,summary LIMIT 10
     ), completed_tasks AS MATERIALIZED (
     SELECT plan_id,task_id FROM plan_tasks WHERE plan_id=?1 AND status='done'
     ), episodes AS (
@@ -42,15 +58,17 @@ const ROWS: &str = "WITH history AS (
     FROM (SELECT slug,task_id FROM episodes ORDER BY slug,task_id) GROUP BY slug HAVING count(*)>=2
     ), all_rows AS (
     SELECT * FROM durable
+    UNION ALL SELECT * FROM recent
     UNION ALL SELECT * FROM input_rows
     UNION ALL SELECT s.key,json_extract(r.value,'$.id'),json_extract(r.value,'$.kind'),json_extract(r.value,'$.state'),json_extract(r.value,'$.summary')
     FROM json_each(?3) s,json_each(s.value) r
     ), unique_rows AS (SELECT DISTINCT section,id,kind,state,summary FROM all_rows), ranked AS (
     SELECT *,count(*) OVER(PARTITION BY section) AS total,
-        row_number() OVER(PARTITION BY section ORDER BY CASE WHEN section='time in state' THEN summary END DESC,id,kind,state,summary) AS rank
+        row_number() OVER(PARTITION BY section ORDER BY CASE WHEN section='recent decisions' THEN state END DESC,
+            CASE WHEN section='time in state' THEN summary END DESC,id,kind,state,summary) AS rank
     FROM unique_rows
     ), limits AS (SELECT CAST(key AS INTEGER) AS ordering,json_extract(value,'$[0]') AS section,json_extract(value,'$[1]') AS cap FROM json_each(?4))
-    SELECT r.section,domios_curator_clean(id,64),domios_curator_clean(kind,32),domios_curator_clean(state,32),domios_curator_clean(summary,120),total,
+    SELECT r.section,domios_curator_clean(id,64),domios_curator_clean(kind,32),domios_curator_clean(state,32),domios_curator_clean(summary,120),CASE WHEN r.section='recent decisions' THEN min(total,cap) ELSE total END,
         EXISTS(SELECT 1 FROM unique_rows u JOIN limits USING(section) WHERE domios_curator_activity(u.section))
     FROM ranked r JOIN limits USING(section)
     WHERE rank<=cap ORDER BY limits.ordering,rank";

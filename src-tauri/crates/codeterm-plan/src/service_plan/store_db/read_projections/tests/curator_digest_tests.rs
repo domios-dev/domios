@@ -30,7 +30,7 @@ fn curator_sql_rows_match_distinct_order_counts_synthesis_and_digest_budgets() {
     let mut plan = Plan::new(
         "Digest".into(),
         directory.path().display().to_string(),
-        OrchestratorRef::default(),
+        OrchestratorRef::from_tab("owner"),
     );
     plan.control_loop.last_round = Some(CuratorRound {
         ended_at: 50,
@@ -88,6 +88,12 @@ fn curator_sql_rows_match_distinct_order_counts_synthesis_and_digest_budgets() {
     }
     plan.strides
         .push(milestone("decision", "decision_answer", "opaque", 100));
+    plan.strides.push(milestone(
+        "owner-stride",
+        "status_update",
+        "opaque-first\nexcluded-tail",
+        49,
+    ));
     plan.strides.push(milestone(
         "decision-max",
         "decision_answer",
@@ -301,8 +307,14 @@ fn curator_runtime_notices_keep_action_needed_answers_and_done_confirmation_rule
     let mut plan = Plan::new(
         "Runtime".into(),
         directory.path().display().to_string(),
-        OrchestratorRef::default(),
+        OrchestratorRef::from_tab("owner"),
     );
+    plan.strides.push(milestone(
+        "prior-owner-step",
+        "status_update",
+        "opaque-prior-decision\nexcluded-tail",
+        1,
+    ));
     plan.control_loop.last_round = Some(CuratorRound {
         ended_at: 50,
         ..Default::default()
@@ -318,6 +330,15 @@ fn curator_runtime_notices_keep_action_needed_answers_and_done_confirmation_rule
     let database = fixtures::database(directory.path(), &plan);
     let read = database.curator_digest_projection(&plan.id, 1000).unwrap();
     let notices = vec![
+        CuratorRuntimeNotice {
+            id: "resolved-question".into(),
+            timestamp: 300,
+            action_needed: true,
+            answered: false,
+            resolved: true,
+            title: "opaque-resolution\nexcluded-tail".into(),
+            body: None,
+        },
         CuratorRuntimeNotice {
             id: "open-question".into(),
             timestamp: 200,
@@ -356,6 +377,26 @@ fn curator_runtime_notices_keep_action_needed_answers_and_done_confirmation_rule
         },
     ];
     let mut expected = rows(&plan, 50, 1000, true);
+    for (id, at, summary) in [
+        ("new-answer", 1, "answered"),
+        ("already-seen", 200, "old answer"),
+        ("resolved-question", 300, "opaque-resolution"),
+    ] {
+        expected
+            .entry("recent decisions".into())
+            .or_default()
+            .push(digest::Row {
+                id: id.into(),
+                kind: if id == "resolved-question" {
+                    "notification:resolved"
+                } else {
+                    "notification:answered"
+                }
+                .into(),
+                state: format!("{at:20}"),
+                summary: summary.into(),
+            });
+    }
     for (section, id, kind, state, summary) in [
         (
             "owner questions",

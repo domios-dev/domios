@@ -99,10 +99,14 @@ impl ServiceContext {
             {
                 return Err("That choice is no longer available".into());
             }
-            let value = handler
-                .handler
-                .answer(&request, label)
-                .ok_or("daemon question type unavailable")??;
+            let value = if request.starts_with("role-sync:") {
+                self.answer_role_sync(&request, label)?
+            } else {
+                handler
+                    .handler
+                    .answer(&request, label)
+                    .ok_or("daemon question type unavailable")??
+            };
             let admission = self.notif.lock().record_answer(id, label);
             match admission {
                 AnswerAdmission::Recorded(_) => (),

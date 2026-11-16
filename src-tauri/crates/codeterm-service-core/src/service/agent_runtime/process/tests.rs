@@ -279,17 +279,20 @@ fn assert_child_environment(result: &serde_json::Value, expected: &HashMap<Strin
     );
 }
 
-fn write_cli_probe(directory: &Path, artifact: &str) {
+fn write_cli_probe(directory: &Path, artifact: &str, node: &Path) {
     std::fs::create_dir_all(directory).unwrap();
-    let peer = Path::new(&capability().command.args[0])
-        .canonicalize()
-        .unwrap();
+    let peer = codeterm_paths::simplified_path(
+        &Path::new(&capability().command.args[0])
+            .canonicalize()
+            .unwrap(),
+    );
     for alias in ["domios", "codeterm"] {
         #[cfg(windows)]
         let (name, script) = (
             format!("{alias}.cmd"),
             format!(
-                "@node \"{}\" --cli-probe {artifact} \"%~f0\"\r\n",
+                "@\"{}\" \"{}\" --cli-probe {artifact} \"%~f0\"\r\n",
+                node.display(),
                 peer.display()
             ),
         );
@@ -297,7 +300,8 @@ fn write_cli_probe(directory: &Path, artifact: &str) {
         let (name, script) = (
             alias.to_string(),
             format!(
-                "#!/bin/sh\nexec node '{}' --cli-probe {artifact} \"$0\"\n",
+                "#!/bin/sh\nexec '{}' '{}' --cli-probe {artifact} \"$0\"\n",
+                node.to_str().unwrap().replace('\'', "'\\''"),
                 peer.to_str().unwrap().replace('\'', "'\\''")
             ),
         );
@@ -319,8 +323,9 @@ async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells(
     let dir = tempfile::tempdir().unwrap();
     let pinned = dir.path().join("private worker");
     let stale = dir.path().join("stale bin");
-    write_cli_probe(&pinned, "pinned");
-    write_cli_probe(&stale, "stale");
+    let node = codeterm_paths::simplified_path(&which::which("node").unwrap());
+    write_cli_probe(&pinned, "pinned", &node);
+    write_cli_probe(&stale, "stale", &node);
     let suffix = if cfg!(windows) { ".cmd" } else { "" };
     let instance = InstanceEnv {
         socket_path: "fixture-own-socket".into(),
@@ -340,16 +345,17 @@ async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells(
     let mut env = compose_launch_env(&instance, Some(&tab), LaunchSurface::Service);
     let mut identity = env.clone();
     identity.remove("CODETERM_SHELL_NONCE");
-    let inherited = std::env::var_os("PATH").unwrap();
-    let inherited_path = std::env::join_paths(
-        std::iter::once(stale.clone()).chain(std::env::split_paths(&inherited)),
-    )
-    .unwrap()
-    .into_string()
-    .unwrap();
+    let mut search_path = vec![stale.clone()];
+    if cfg!(windows) {
+        search_path.push(Path::new(&std::env::var_os("SystemRoot").unwrap()).join("System32"));
+    }
+    let inherited_path = std::env::join_paths(search_path)
+        .unwrap()
+        .into_string()
+        .unwrap();
     env.insert("PATH".into(), inherited_path.clone());
     let process = spawn(
-        &ResolvedLaunch::unprofiled("node", capability()),
+        &ResolvedLaunch::unprofiled(node.to_str().unwrap(), capability()),
         dir.path().to_str().unwrap(),
         env,
         "fixture-own-tab",

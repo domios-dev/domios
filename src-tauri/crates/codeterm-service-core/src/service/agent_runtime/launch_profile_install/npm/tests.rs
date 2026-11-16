@@ -86,3 +86,40 @@ async fn fake_download_and_package_manager_install_only_verified_archive() {
     assert_eq!(port.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn node_script_argv_uses_plain_paths_for_install_and_launch() {
+    for (script, expected) in [
+        (r"\\?\C:\profile\agent.js", r"C:\profile\agent.js"),
+        (
+            r"\\?\UNC\server\share\npm-cli.js",
+            r"\\server\share\npm-cli.js",
+        ),
+        ("/profile/agent.js", "/profile/agent.js"),
+    ] {
+        let command = node_command(Path::new("node"), Path::new(script));
+        assert_eq!(command.binary, "node");
+        assert_eq!(command.args, [expected]);
+        let persisted = serde_json::to_value(&command).unwrap();
+        assert_eq!(persisted["args"][0], expected);
+    }
+}
+
+#[test]
+fn installed_script_normalizes_only_after_canonical_containment() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("install");
+    std::fs::create_dir(&target).unwrap();
+    let script = target.join("agent.js");
+    let outside = root.path().join("outside.js");
+    std::fs::write(&script, b"fixture").unwrap();
+    std::fs::write(&outside, b"fixture").unwrap();
+    let node = Path::new("node");
+    let command = installed_command(node, &script, &target).unwrap();
+    let expected = codeterm_paths::simplified_path(&script.canonicalize().unwrap());
+    assert_eq!(command.args, [expected.to_string_lossy().into_owned()]);
+    assert_eq!(
+        installed_command(node, &outside, &target).unwrap_err(),
+        "Package binary escapes install directory"
+    );
+}

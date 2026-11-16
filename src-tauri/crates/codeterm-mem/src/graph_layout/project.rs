@@ -331,7 +331,7 @@ pub fn project_positions(
     let n = vectors.len();
     let raw: Vec<Vec<f32>> = vectors.iter().map(|(_, v)| v.clone()).collect();
     let (projected, knn) = project_2d(&raw)?;
-    let mut normalized = placement::normalize(&projected);
+    let mut normalized = placement::normalize_seed(&projected);
 
     // mutual-kNN edges keep the semantic neighborhoods from drifting apart.
     let id_index: HashMap<&str, usize> = vectors
@@ -361,7 +361,7 @@ pub fn project_positions(
         }
     }
     super::linlog::refine(&mut normalized, &edges);
-    let mut normalized = placement::normalize(&normalized);
+    let mut normalized = placement::normalize_seed(&normalized);
 
     let relation_edges: Vec<super::louvain::LouvainEdge> = edges
         .iter()

@@ -3500,6 +3500,17 @@ Render a role's kind, authority and the exact text it receives at each delivery 
 - `<role_type>` — Role name the Team registers, or watcher
 - `--team` — Team whose registration of this type to render
 
+#### `domios role sync`
+
+Preview a shipped manager's instructions or ask the owner to approve their sync
+
+- `--apply` — Request the owner's notification choice; this flag never grants approval
+- `--current-hash`
+- `--preview`
+- `--replacement-hash`
+- `<role>`
+- `--team`
+
 #### `domios send`
 
 Send text to a tab (default: current tab)

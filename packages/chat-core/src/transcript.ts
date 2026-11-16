@@ -3,6 +3,7 @@ import { placePendingSends } from "./sendPlacement";
 import { placeQueuedRows } from "./queuedPlacement";
 import { mergeBatchesById, mergeById } from "./merge";
 import { reconcileSends, type ChatSend, type SendEcho } from "./sendOrder";
+import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 
 /** Half-open source window; byte boundaries align to complete records. */
@@ -412,6 +413,23 @@ export interface TranscriptProjection {
   pending: ChatSend[];
   /** Echo identity of every send reconciled against this transcript. */
   echoes: Map<string, SendEcho>;
+  /** Sends whose exact record lies in older history this window has not loaded. */
+  outside: ReadonlySet<string>;
+}
+
+/** The oldest loaded time of the bound session while older history of it is still unloaded. */
+function unloadedHistoryBoundaryMs(
+  state: TranscriptState, rows: readonly NormalizedChatMessage[],
+): number | null {
+  const session = state.authority?.sourceSessionId;
+  if (session == null || ((transcriptBackfillCursor(state) ?? 0) <= 0 && state.evictedOlder === 0)) return null;
+  let oldest: number | null = null;
+  for (const row of rows) {
+    if (row.sourceSessionId !== session || row.inheritedFromSessionId != null) continue;
+    const at = timestampMs(row.timestamp);
+    if (at != null && (oldest == null || at < oldest)) oldest = at;
+  }
+  return oldest;
 }
 
 export function projectTranscript(
@@ -426,7 +444,9 @@ export function projectTranscript(
       for (const row of segment.rows) rowStarts.set(row.id, Math.min(rowStarts.get(row.id) ?? Infinity, segment.range.start));
     }
   }
-  const { echoes, pending } = reconcileSends(sends, committedRows, state.authority, rowStarts);
+  const { echoes, pending, outside } = reconcileSends(
+    sends, committedRows, state.authority, rowStarts, unloadedHistoryBoundaryMs(state, committedRows),
+  );
   const projectedCommittedRows = projectTranscriptParts(committedRows, sends);
-  return { rows: placePendingSends(placeQueuedRows(projectedCommittedRows), pending), pending, echoes };
+  return { rows: placePendingSends(placeQueuedRows(projectedCommittedRows), pending), pending, echoes, outside };
 }

@@ -91,6 +91,15 @@ test("dismissal and a cleared send set remove the retained handoff bubble", () =
   }
 });
 
+test("a retained handoff bubble whose record lies before the loaded window leaves the tail", () => {
+  const state = memory();
+  const pending = entry({ id: send.id, type: "user", content: send.content });
+  stableDeliveryEntries([pending], [send], new Map(), state);
+  const latest = entry({ id: "latest", type: "assistant", content: "opaque latest" });
+  assert.deepEqual(stableDeliveryEntries([latest], [send], new Map(), state, new Set([send.id])).map(row => row.msg.id), ["latest"]);
+  assert.equal(state.pending.size, 0);
+});
+
 test("a delivered record moves from the tail to its final slot once before a late echo", () => {
   const authority = { sourceSessionId: "own", sessionBindingNonce: "launch" };
   const record = (offset: number) => ({ kind: "jsonl" as const, incarnation: "file", record_start: offset, record_row: 0 });

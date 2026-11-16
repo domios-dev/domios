@@ -1,3 +1,4 @@
+use super::fixture::{completed, pending};
 use super::*;
 use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
 use crate::agent::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
@@ -101,8 +102,9 @@ impl AgentProvider for ToolLessProvider {
     }
 }
 
-#[test]
-fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
+pub fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report(
+    make_fixture: impl FnOnce(MultiplexerState) -> ServiceFixture,
+) {
     let (mut mux, dispatcher) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&dispatcher).unwrap();
     let worker = mux.create_tab(&workspace).unwrap();
@@ -115,7 +117,7 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         tab.session_binding_nonce = Some("nonce".into());
         tab.reported_session_binding_nonce = Some("nonce".into());
     }
-    let fixture = ServiceFixture::new(mux);
+    let fixture = make_fixture(mux);
     let _dispatcher = fixture.bind_recorded_agent_recipient(
         &dispatcher,
         "dispatcher-session",
