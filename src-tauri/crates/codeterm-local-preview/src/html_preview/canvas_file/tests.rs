@@ -109,11 +109,11 @@ fn two_writers_from_one_base_yield_exactly_one_write_and_one_conflict_with_its_t
     let first = BOARD.replace("agent", "first");
     let second = BOARD.replace("agent", "second");
     let start = std::sync::Barrier::new(2);
+    let write = |next: &str| {
+        start.wait();
+        write_canvas_file(&path, open, BOARD, next).unwrap()
+    };
     let (one, two) = std::thread::scope(|scope| {
-        let write = |next: &str| {
-            start.wait();
-            write_canvas_file(&path, open, BOARD, next).unwrap()
-        };
         let one = scope.spawn(|| write(&first));
         let two = scope.spawn(|| write(&second));
         (one.join().unwrap(), two.join().unwrap())
