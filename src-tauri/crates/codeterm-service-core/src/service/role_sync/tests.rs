@@ -20,10 +20,9 @@ fn fixture() -> ServiceFixture {
     team.id = "team_sync".into();
     mux.upsert_team(team);
     let fixture = ServiceFixture::new(mux);
-    assert!(fixture
+    fixture
         .service
-        .set_ext(TeamRoleStore::new(fixture.temp.path().join("roles")))
-        .is_ok());
+        .ext_or_init(|| TeamRoleStore::new(fixture.temp.path().join("roles")));
     assert!(fixture
         .service
         .register_host_extension(Arc::new(DaemonQuestions::new(Arc::new(OtherQuestions))))
