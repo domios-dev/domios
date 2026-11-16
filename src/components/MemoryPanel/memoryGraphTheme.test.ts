@@ -25,15 +25,15 @@ console.log("memoryGraphTheme tests");
 {
   const palette = deriveMemoryGraphPalette("#0d1117", "#c9d1d9");
   assert("dark theme uses foreground RGB for edges", palette.edgeRgb === "201,209,217");
-  assert("dark theme detail edges stay subtle", palette.realEdgeAlpha(0.5) < 0.1);
+  assert("dark theme detail edges remain visible", palette.realEdgeAlpha(0.5) >= 0.25);
   assert("dark theme labels use foreground", palette.labelColor === "#c9d1d9");
 }
 
 {
   const palette = deriveMemoryGraphPalette("#0d1117", "#c9d1d9");
   assert(
-    "edge colors are premultiplied for sigma's blending",
-    palette.edgeColor(0.5) === "rgba(101,105,109,0.5)",
+    "edge colors retain foreground channels for sigma 4 blending",
+    palette.edgeColor(0.5) === "rgba(201,209,217,0.5)",
     palette.edgeColor(0.5),
   );
   assert("an opaque edge keeps the foreground", palette.edgeColor(1) === "rgba(201,209,217,1)");

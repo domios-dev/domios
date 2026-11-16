@@ -111,6 +111,14 @@ export async function setPinnedPosition(
   if (!res.ok) throw new Error(`pin failed: ${res.status}`);
 }
 
+export async function clearPinnedPosition(api: ApiConfig, id: string): Promise<void> {
+  const res = await daemonFetch(api, `/api/mem/pinned-positions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(api),
+  });
+  if (!res.ok) throw new Error(`unpin failed: ${res.status}`);
+}
+
 export async function rebuildLayout(api: ApiConfig): Promise<{ started: boolean }> {
   const res = await daemonFetch(api, `/api/mem/graph/layout/rebuild`, {
     method: "POST",

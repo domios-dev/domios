@@ -8,7 +8,7 @@ import { pathCurved } from "sigma/rendering";
 import type { ApiConfig } from "../../lib/types";
 import { MemoryNodeDetail } from "./MemoryNodeDetail";
 import { colorForKind, KIND_COLORS } from "./nodeKind";
-import { fetchGraphEdges, fetchLabels, setPinnedPosition } from "./memoryApi";
+import { clearPinnedPosition, fetchGraphEdges, fetchLabels, setPinnedPosition } from "./memoryApi";
 import {
   readMemoryGraphPalette,
   type MemoryGraphPalette,
@@ -27,6 +27,7 @@ import {
   type Bounds,
 } from "./snapshotLogic";
 import type { SnapshotEdge, SnapshotNode } from "./snapshotTypes";
+import { fitFramedNodes, hasDragged } from "./memoryGraphInteraction";
 
 interface Props {
   api: ApiConfig;
@@ -79,7 +80,7 @@ export function MemorySnapshotCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<Graph | null>(null);
-  const draggingRef = useRef<string | null>(null);
+  const draggingRef = useRef<{ id: string; start: { x: number; y: number }; moved: boolean } | null>(null);
   const indexRef = useRef<NodeIndex>(index);
   indexRef.current = index;
 
@@ -113,7 +114,7 @@ export function MemorySnapshotCanvas({
   const handlersRef = useRef({ setSelectedId });
   handlersRef.current = { setSelectedId };
 
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+  const [pinOverrides, setPinOverrides] = useState<Map<string, boolean>>(new Map());
   const [chipStyle, setChipStyle] = useState<{
     x: number;
     y: number;
@@ -135,6 +136,7 @@ export function MemorySnapshotCanvas({
 
     const sigma = new Sigma(graph, containerRef.current, {
       settings: {
+        enableNodeDrag: false,
         renderLabels: true,
         renderEdgeLabels: false,
         labelDensity: 0.6,
@@ -143,7 +145,7 @@ export function MemorySnapshotCanvas({
         minCameraRatio: 0.05,
         maxCameraRatio: 20,
       },
-      primitives: { edges: { paths: [pathCurved({ curvature: 0.25 })] } },
+      primitives: { edges: { paths: [pathCurved()], variables: { curvature: { type: "number", default: 0.25 } } } },
       styles: {
         nodes: {
           x: { attribute: "x" },
@@ -156,6 +158,7 @@ export function MemorySnapshotCanvas({
         },
         edges: {
           path: "curved",
+          curvature: { attribute: "curvature", defaultValue: 0.25 },
           size: { attribute: "size" },
           color: { attribute: "color" },
         },
@@ -192,7 +195,7 @@ export function MemorySnapshotCanvas({
         if (!g.extremities(edge).includes(sel)) return { ...data, visibility: "hidden" };
         const palette = paletteRef.current;
         if (!palette) return { ...data, zIndex: 1 };
-        const size = Math.max(data.size ?? 0, 0.4);
+        const size = Math.max(data.size ?? 0, 1.2);
         return { ...data, zIndex: 1, size, color: palette.edgeColor(palette.egoEdgeAlpha) };
       },
     });
@@ -201,9 +204,10 @@ export function MemorySnapshotCanvas({
     sigma.on("clickNode", ({ node }) => {
       if (node.startsWith("__cluster_")) {
         // Zoom into the cluster centroid.
-        const attrs = graph.getNodeAttributes(node);
+        const position = sigma.getNodeDisplayData(node);
+        if (!position) return;
         sigma.getCamera().animate(
-          { x: attrs.x as number, y: attrs.y as number, ratio: 0.4 },
+          { x: position.x, y: position.y, ratio: 0.4 },
           { duration: 350 },
         );
         return;
@@ -216,31 +220,35 @@ export function MemorySnapshotCanvas({
     });
     sigma.on("leaveNode", () => setHoveredId(null));
 
-    sigma.on("downNode", ({ node }) => {
+    sigma.on("downNode", ({ node, event }) => {
       if (node.startsWith("__cluster_")) return;
-      draggingRef.current = node;
-      if (!sigma.getCustomBBox()) sigma.setCustomBBox(sigma.getBBox());
+      draggingRef.current = { id: node, start: { x: event.x, y: event.y }, moved: false };
+      event.preventSigmaDefault();
     });
 
     sigma.on("moveBody", ({ event }) => {
-      const id = draggingRef.current;
-      if (!id) return;
-      const pos = sigma.viewportToGraph(event);
-      graph.setNodeAttribute(id, "x", pos.x);
-      graph.setNodeAttribute(id, "y", pos.y);
+      const drag = draggingRef.current;
+      if (!drag) return;
       event.preventSigmaDefault();
       event.original.preventDefault();
       event.original.stopPropagation();
+      if (!drag.moved && !hasDragged(drag.start, event)) return;
+      drag.moved = true;
+      if (!sigma.getCustomBBox()) sigma.setCustomBBox(sigma.getBBox());
+      const pos = sigma.viewportToGraph(event);
+      graph.setNodeAttribute(drag.id, "x", pos.x);
+      graph.setNodeAttribute(drag.id, "y", pos.y);
     });
 
     const handleUp = () => {
-      const id = draggingRef.current;
-      if (!id) return;
+      const drag = draggingRef.current;
       draggingRef.current = null;
+      if (!drag?.moved) return;
+      const id = drag.id;
       const attrs = graph.getNodeAttributes(id);
       // Persist drag as a pin (graph y is screen-down; store math-up).
       setPinnedPosition(api, id, attrs.x as number, -(attrs.y as number))
-        .then(() => setPinnedIds(previous => new Set(previous).add(id)))
+        .then(() => setPinOverrides(previous => new Map(previous).set(id, true)))
         .catch(() => {});
     };
     sigma.on("upNode", handleUp);
@@ -255,7 +263,7 @@ export function MemorySnapshotCanvas({
 
   const provenanceCanvasRef = useProvenanceRings(sigmaRef, metadataNodes);
 
-  const adapterNodes = useMemo(() => buildAdapterMap(index, labelsRef.current, metadataNodes, pinnedIds), [index, labelTick, metadataNodes, pinnedIds]);
+  const adapterNodes = useMemo(() => buildAdapterMap(index, labelsRef.current, metadataNodes, pinOverrides), [index, labelTick, metadataNodes, pinOverrides]);
 
   const rebuildGraph = useCallback(() => {
     const graph = graphRef.current;
@@ -450,7 +458,7 @@ export function MemorySnapshotCanvas({
           x: viewport.x,
           y: viewport.y,
           label: truncate(title, 60),
-          sub: [n.kind, (n.pinned || pinnedIds.has(activeId)) ? "Position fixed" : null].filter(Boolean).join(" · "),
+          sub: [n.kind, (pinOverrides.get(activeId) ?? n.pinned) ? "Position fixed" : null].filter(Boolean).join(" · "),
         };
         if (
           prev &&
@@ -467,34 +475,31 @@ export function MemorySnapshotCanvas({
     sigma.on("afterRender", onAfter);
     onAfter();
     return () => { sigma.off("afterRender", onAfter); };
-  }, [selectedId, hoveredId, labelTick, metadataNodes, pinnedIds]);
+  }, [selectedId, hoveredId, labelTick, metadataNodes, pinOverrides]);
 
   const doFit = useCallback(() => {
     const sigma = sigmaRef.current;
     const graph = graphRef.current;
-    const el = containerRef.current;
-    if (!sigma || !graph || !el || graph.order === 0) return;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    graph.forEachNode((_id, attrs) => {
-      const x = attrs.x as number;
-      const y = attrs.y as number;
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
+    if (!sigma || !graph || !indexRef.current.byId.size) return;
+    graph.clear();
+    buildDetailView(graph, indexRef.current, null, labelsRef.current);
+    const palette = paletteRef.current ?? readMemoryGraphPalette();
+    if (sigma.getCamera().ratio <= EDGE_DETAIL_RATIO) applyRealEdges(graph, edgesByNodeRef.current, palette);
+    applyEgoEdges(graph, selectedIdRef.current, edgesByNodeRef.current, palette);
+    sigma.setCustomBBox(null);
+    sigma.refresh();
+    const points: { x: number; y: number }[] = [];
+    graph.forEachNode(id => {
+      const data = sigma.getNodeDisplayData(id);
+      if (data) points.push(data);
     });
-    if (!isFinite(minX)) return;
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    const w = Math.max(1, maxX - minX);
-    const h = Math.max(1, maxY - minY);
-    const pad = 1.15;
-    const ratio = Math.max(
-      (w * pad) / Math.max(1, el.clientWidth),
-      (h * pad) / Math.max(1, el.clientHeight),
-      0.05,
-    );
-    sigma.getCamera().animate({ x: cx, y: cy, ratio }, { duration: 300 });
+    const { width, height } = sigma.getDimensions();
+    const padding = Math.min(sigma.getStagePadding(), Math.min(width, height) / 4);
+    const neutral = { cameraState: { x: 0.5, y: 0.5, ratio: 1, angle: 0 } };
+    const frame = fitFramedNodes(points,
+      sigma.viewportToFramedGraph({ x: padding, y: padding }, neutral),
+      sigma.viewportToFramedGraph({ x: width - padding, y: height - padding }, neutral));
+    if (frame) void sigma.getCamera().animate(frame, { duration: 300 });
   }, []);
   useEffect(() => {
     registerFit(doFit);
@@ -515,6 +520,12 @@ export function MemorySnapshotCanvas({
       })),
     [egoEdges],
   );
+
+  const handleUnpinPosition = useCallback(async (id: string) => {
+    await clearPinnedPosition(api, id);
+    setPinOverrides(previous => new Map(previous).set(id, false));
+    onRefresh?.();
+  }, [api.host, api.port, api.token, onRefresh]);
 
   const handleDelete = useCallback(
     (id: string) => {
@@ -560,6 +571,7 @@ export function MemorySnapshotCanvas({
           edges={detailEdges}
           nodes={adapterNodes}
           onSelectNode={setSelectedId}
+          onUnpinPosition={handleUnpinPosition}
         />
       )}
 
@@ -578,7 +590,7 @@ export function MemorySnapshotCanvas({
   );
 }
 
-function buildAdapterMap(index: NodeIndex, labels: Map<string, string>, metadataNodes?: Map<string, MemNode>, pinnedIds = new Set<string>()): Map<string, MemNode> {
+function buildAdapterMap(index: NodeIndex, labels: Map<string, string>, metadataNodes?: Map<string, MemNode>, pinOverrides = new Map<string, boolean>()): Map<string, MemNode> {
   const out = new Map<string, MemNode>();
   for (const [id, n] of index.byId) {
     out.set(id, {
@@ -592,7 +604,7 @@ function buildAdapterMap(index: NodeIndex, labels: Map<string, string>, metadata
       has_vector: n.has_vector,
       has_body: true,
       ...metadataNodes?.get(id),
-      pinned: n.pinned || pinnedIds.has(id),
+      pinned: pinOverrides.get(id) ?? n.pinned,
     });
   }
   return out;
@@ -643,7 +655,8 @@ function buildClusterView(graph: Graph, idx: NodeIndex, palette: MemoryGraphPale
     if (graph.hasEdge(key)) continue;
     try {
       graph.addEdgeWithKey(key, from, to, {
-        size: Math.min(2, 0.3 + Math.log10(e.weight + 1) * 0.6),
+        size: Math.min(2, 1 + Math.log10(e.weight + 1) * 0.3),
+        curvature: 0.25,
         color: palette.edgeColor(palette.clusterEdgeAlpha),
       });
     } catch {
@@ -699,7 +712,8 @@ function applyRealEdges(
       try {
         const conf = e.confidence ?? 0.5;
         graph.addEdgeWithKey(key, e.from, e.to, {
-          size: 0.005 + conf * 0.01,
+          size: 1,
+          curvature: 0.25,
           color: palette.edgeColor(palette.realEdgeAlpha(conf)),
         });
       } catch {
@@ -722,7 +736,8 @@ function applyEgoEdges(
     if (!graph.hasNode(e.from) || !graph.hasNode(e.to) || graph.hasEdge(key)) continue;
     try {
       graph.addEdgeWithKey(key, e.from, e.to, {
-        size: 0.4,
+        size: 1.2,
+        curvature: 0.25,
         color: palette.edgeColor(palette.egoEdgeAlpha),
       });
     } catch {
