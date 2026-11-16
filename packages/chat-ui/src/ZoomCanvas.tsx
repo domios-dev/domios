@@ -1,3 +1,4 @@
+import { CANVAS_ZOOM_STEP } from "./useCanvasStage";
 import type { ReactNode } from "react";
 import type { ViewportBox } from "@codeterm/canvas-camera";
 import { CanvasToolbar } from "./CanvasToolbar";
@@ -20,7 +21,7 @@ export function ZoomCanvas({ bounds, focus, cameraKey, initialFit = "ready", chi
 }) {
   const { camera, mode, scaleOutput, interactions, fit, zoom, natural } = useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect });
   const controls = <CanvasToolbar appearance={toolbar === "header" ? "inline" : "floating"} floating={toolbar !== "header"} label="Canvas zoom controls" fitLabel={fitLabel} actualSizeLabel={resetLabel} fitPressed={mode === "fit"} actualSizePressed={mode === "natural"}
-      onFit={fit} onActualSize={natural} onZoomOut={() => zoom(-0.2)} onZoomIn={() => zoom(0.25)}
+      onFit={fit} onActualSize={natural} onZoomOut={() => zoom(-CANVAS_ZOOM_STEP)} onZoomIn={() => zoom(CANVAS_ZOOM_STEP)}
       extras={<output ref={scaleOutput} aria-live="polite" aria-label="Zoom level" className={toolbar === "header" ? "block w-[4ch] text-center text-xs tabular-nums" : "px-1 font-mono text-xs tabular-nums"}>{Math.round(camera.transformRef.current.scale * 100)}%</output>} />;
   return <>
     {toolbar === "header" && renderHeader?.(controls)}

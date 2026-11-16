@@ -1,3 +1,4 @@
+import { measureCanvas, checkStageGestures } from "../../../packages/chat-ui/src/canvasStage.testdata";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
@@ -101,4 +102,12 @@ describe("EssenceMapCanvas gesture ownership", () => {
     expect(pinchZoomIn).toBeGreaterThan(initial);
     expect(plainZoomOut).toBeLessThan(pinchZoomIn);
   });
+});
+
+it("essence stage fits, handles zoom keys and touch, and keeps the camera after resize", async () => {
+  const measurement = measureCanvas();
+  try {
+    const host = await renderMap();
+    await checkStageGestures(host.querySelector<HTMLElement>("[data-testid='essence-map-projects']")!, host.querySelector<HTMLElement>("[data-testid='essence-map-transform-layer']")!, measurement.resize);
+  } finally { measurement.restore(); }
 });

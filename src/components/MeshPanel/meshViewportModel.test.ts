@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeFitTransform, touchTransform } from "@codeterm/canvas-camera";
-import { DESKTOP_ZOOM_STEP, TOUCH_ZOOM_STEP, inventoryView, listCardScale, meshZoomStep, offersInventoryList } from "./meshViewportModel";
-import { webGraphInitialView, webGraphLayout, MACHINE_CARD_WIDTH } from "./webGraphLayout";
+import { inventoryView, listCardScale, offersInventoryList } from "./meshViewportModel";
+import { webGraphLayout, MACHINE_CARD_WIDTH } from "./webGraphLayout";
 
 describe("mesh inventory on a phone", () => {
   it("a touch phone starts on the list and can switch to the graph; desktop keeps the graph at any width", () => {
@@ -20,11 +20,7 @@ describe("mesh inventory on a phone", () => {
     expect(listCardScale(1200)).toBe(1);
   });
 
-  it("+/- step is visible on touch and unchanged on desktop", () => {
-    expect(meshZoomStep(true)).toBe(TOUCH_ZOOM_STEP);
-    expect(meshZoomStep(false)).toBe(DESKTOP_ZOOM_STEP);
-    expect(DESKTOP_ZOOM_STEP).toBe(0.06);
-  });
+
 });
 
 describe("mesh graph camera", () => {
@@ -36,8 +32,7 @@ describe("mesh graph camera", () => {
       x: Math.min(...xs) - MACHINE_CARD_WIDTH / 2, y: Math.min(...ys) - 130,
       width: Math.max(...xs) - Math.min(...xs) + MACHINE_CARD_WIDTH, height: Math.max(...ys) - Math.min(...ys) + 260,
     };
-    const initial = webGraphInitialView(390, 700, bounds)!;
-    const fit = computeFitTransform(initial.bounds, 390, 700, { fitPadding: 24, maxScale: 1 })!;
+    const fit = computeFitTransform(bounds, 390, 700, { fitPadding: 24, maxScale: 1 })!;
     expect(fit.scale).toBeLessThan(0.35);
     expect(fit.x + (bounds.x + bounds.width / 2) * fit.scale).toBeCloseTo(195);
     expect(fit.y + (bounds.y + bounds.height / 2) * fit.scale).toBeCloseTo(350);
