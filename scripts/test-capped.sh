@@ -7,6 +7,7 @@
 # filterset, a successful run must show a passed test in a libtest or nextest
 # summary; otherwise it exits 97. An explicit --no-tests=pass|warn opts out, and
 # a run with no filter is never subject to that check.
+# TEST_REQUIRE_EXECUTION=1 makes test-one reject empty runs without an opt-out.
 #
 # Usage:
 #   scripts/test-capped.sh [<cargo-test-args>...]
@@ -190,17 +191,23 @@ passed_test_count() {
         /^[[:space:]]*Summary \[[^]]*\][[:space:]]+[0-9]+(\/[0-9]+)? stress run iterations?: [0-9]+ passed/ {
             line = $0; sub(/.* stress run iterations?: /, "", line); stress_passes += line + 0
         }
-        END { print total + (stress_details ? 0 : stress_passes) }
+        END { print total + (stress_details || ENVIRON["TEST_REQUIRE_EXECUTION"] == "1" ? 0 : stress_passes) }
     ' "$1"
 }
 
 filtered_run_ran_nothing() {
-    case "$NO_TESTS_MODE" in pass|warn) return 1 ;; esac
+    if [ "${TEST_REQUIRE_EXECUTION:-0}" != 1 ]; then
+        [ -n "$REQUESTED_FILTER" ] || return 1
+        case "$NO_TESTS_MODE" in pass|warn) return 1 ;; esac
+    fi
     [ "$(passed_test_count "$1")" -eq 0 ]
 }
 
 report_zero_match() {
     local context="${FILTER_PACKAGE:-${FILTER_MANIFEST:-unspecified crate}}"
+    if [ "${TEST_REQUIRE_EXECUTION:-0}" = 1 ]; then
+        printf 'error: test-one requires at least one passed test; zero executed tests or a missing runner summary cannot pass.\n' >&2
+    fi
     printf '\n'
     printf '══════════════════════════════════════════════════════════════════\n'
     printf '  ZERO MATCHES: filter %s selected no tests in %s.\n' "$REQUESTED_FILTER" "$context"
@@ -265,7 +272,7 @@ capture_test() {
     fi
 }
 if capture_test "$@"; then
-    if [ "$EXEC_MODE" -eq 0 ] && [ -n "$REQUESTED_FILTER" ]; then
+    if [ "$EXEC_MODE" -eq 0 ]; then
         if filtered_run_ran_nothing "$TEST_LOG"; then
             report_zero_match
             exit "$ZERO_MATCH_EXIT"

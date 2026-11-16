@@ -198,7 +198,7 @@ export -f fake_nextest
 exec "$BASH" scripts/test-capped.sh "$@"
 `;
 
-function capped(output, args, status = 0) {
+function capped(output, args, status = 0, env = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nextest-summary-'));
   try {
     const file = path.join(directory, 'output.log');
@@ -207,7 +207,7 @@ function capped(output, args, status = 0) {
       encoding: 'utf8', timeout: 10000,
       env: { ...process.env, CARGO_TEST_CMD: 'fake_nextest', CARGO_TEST_BUILD_CMD: '',
         CODETERM_TEST_HOST_TRIPLE: 'x86_64-unknown-linux-gnu', TEST_CAP_SECS: '0',
-        CT_BUILD_ARTIFACT_DIR: '', FAKE_OUTPUT: file.replaceAll('\\', '/'), FAKE_STATUS: String(status) },
+        CT_BUILD_ARTIFACT_DIR: '', FAKE_OUTPUT: file.replaceAll('\\', '/'), FAKE_STATUS: String(status), ...env },
     });
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
@@ -257,6 +257,33 @@ for (const output of ['', 'Summary [0.001s] 0 tests run: 0 passed\n',
 test('nextest explicit empty-run policy is recognized after a filter', () => {
   const result = capped('', ['owned_test', '--stress-count', '30', '--no-tests', 'pass']);
   assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+for (const output of ['', 'runner exited without a summary\n',
+  'Summary [0.001s] 0 tests run: 0 passed\n',
+  'Summary [0.001s] 1/1 stress run iterations: 1 passed\n',
+  'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n']) {
+  for (const args of [[], ['owned_test'], ['-E', 'test(owned_test)', '--no-tests=pass'],
+    ['owned_test', '--no-tests', 'warn']]) {
+    test(`test-one refuses zero execution: ${JSON.stringify({ output, args })}`, () => {
+      const result = capped(output, args, 0, { TEST_REQUIRE_EXECUTION: '1' });
+      assert.equal(result.status, 97, result.stdout + result.stderr);
+      assert.match(result.stderr, /test-one requires at least one passed test/);
+    });
+  }
+}
+
+for (const output of ['Summary [0.001s] 1 test run: 1 passed\n',
+  'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n', stressOutput]) {
+  test(`test-one accepts executed tests: ${JSON.stringify(output.slice(-100))}`, () => {
+    const result = capped(output, ['owned_test'], 0, { TEST_REQUIRE_EXECUTION: '1' });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  });
+}
+
+test('test-one preserves a failed runner exit even without a summary', () => {
+  const result = capped('', ['owned_test'], 23, { TEST_REQUIRE_EXECUTION: '1' });
+  assert.equal(result.status, 23, result.stdout + result.stderr);
 });
 
 const loggingJob = `set -eu

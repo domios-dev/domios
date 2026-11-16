@@ -16,7 +16,6 @@ pub use super::neighbors::NeighborsConfig;
 pub use super::supporter::{
     MemoryRerankConfig, SupporterConfig, SupporterConnection, SupporterSources,
 };
-pub use super::tab_sleep::TabSleepConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
@@ -24,7 +23,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub browser_upload_folders: BTreeMap<String, Vec<String>>,
     pub restore: RestoreConfig,
-    pub tab_sleep: TabSleepConfig,
     pub account: serde_json::Value,
     pub billing: serde_json::Value,
     pub theme: ThemeConfig,
@@ -84,7 +82,6 @@ impl Default for AppConfig {
         Self {
             browser_upload_folders: BTreeMap::new(),
             restore: RestoreConfig::default(),
-            tab_sleep: TabSleepConfig::default(),
             account: serde_json::json!({}),
             billing: serde_json::json!({"provider": "cloud"}),
             theme: ThemeConfig::default(),
