@@ -102,7 +102,7 @@ pub trait NeighborsExt {
         route: &str,
         uid: &str,
         generation: u64,
-        load: impl Future<Output = Result<Value>>,
+        load: impl Future<Output = Result<Value>> + Send,
     ) -> impl std::future::Future<Output = Result<Value>> + Send;
     fn invalidate_neighbor_list(&self) -> impl std::future::Future<Output = Result<()>> + Send;
     fn commit_neighbor_list_epoch<T>(
@@ -204,7 +204,7 @@ impl NeighborsExt for ServiceContext {
         route: &str,
         uid: &str,
         generation: u64,
-        load: impl Future<Output = Result<Value>>,
+        load: impl Future<Output = Result<Value>> + Send,
     ) -> Result<Value> {
         self.neighbor_reconciliation().require_readable()?;
         self.require_neighbor_projection_account(uid, generation)?;

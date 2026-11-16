@@ -52,7 +52,7 @@ pub trait NeighborsExt {
     ) -> impl std::future::Future<Output = Result<(), String>> + Send
     where
         P: Send + 'static,
-        Prep: std::future::Future<Output = Result<P, String>>,
+        Prep: std::future::Future<Output = Result<P, String>> + Send,
         Apply: FnOnce(P) -> Applied + Send + 'static,
         Applied: std::future::Future<Output = Result<(), String>> + Send + 'static;
     fn apply_neighbor_friend_listeners(
@@ -307,7 +307,7 @@ impl NeighborsExt for ServiceContext {
     ) -> Result<(), String>
     where
         P: Send + 'static,
-        Prep: std::future::Future<Output = Result<P, String>>,
+        Prep: std::future::Future<Output = Result<P, String>> + Send,
         Apply: FnOnce(P) -> Applied + Send + 'static,
         Applied: std::future::Future<Output = Result<(), String>> + Send + 'static,
     {

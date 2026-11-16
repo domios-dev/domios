@@ -16,14 +16,15 @@ pub trait NeighborsExt {
     ) -> impl std::future::Future<Output = Result<(), String>> + Send
     where
         F: FnOnce(
-            Option<String>,
-            Option<String>,
-            String,
-            Permission,
-            Option<String>,
-            ConciergeOptions,
-        ) -> Fut,
-        Fut: std::future::Future<Output = Result<String, String>>;
+                Option<String>,
+                Option<String>,
+                String,
+                Permission,
+                Option<String>,
+                ConciergeOptions,
+            ) -> Fut
+            + Send,
+        Fut: std::future::Future<Output = Result<String, String>> + Send;
     fn retire_superseded_neighbor_concierges(
         &self,
         metadata: &Metadata,
@@ -62,14 +63,15 @@ impl NeighborsExt for ServiceContext {
     ) -> Result<(), String>
     where
         F: FnOnce(
-            Option<String>,
-            Option<String>,
-            String,
-            Permission,
-            Option<String>,
-            ConciergeOptions,
-        ) -> Fut,
-        Fut: std::future::Future<Output = Result<String, String>>,
+                Option<String>,
+                Option<String>,
+                String,
+                Permission,
+                Option<String>,
+                ConciergeOptions,
+            ) -> Fut
+            + Send,
+        Fut: std::future::Future<Output = Result<String, String>> + Send,
     {
         self.require_neighbor_concierge_receiver(friendship)
             .map_err(|error| error.to_string())?;
