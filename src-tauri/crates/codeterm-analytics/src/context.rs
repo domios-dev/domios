@@ -19,7 +19,7 @@ pub struct Context {
 impl Context {
     pub fn new(version: &str, os_version: Option<String>, locale: Option<&str>) -> Self {
         Self {
-            platform: "Desktop",
+            platform: "app",
             os_name: match std::env::consts::OS {
                 "windows" => "Windows",
                 "macos" => "macOS",
