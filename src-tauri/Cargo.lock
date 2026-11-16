@@ -1301,7 +1301,6 @@ dependencies = [
  "codeterm-frontend-shell",
  "codeterm-mem",
  "codeterm-mesh",
- "codeterm-neighbors-service",
  "codeterm-notification-core",
  "codeterm-orchestration",
  "codeterm-paths",
@@ -1521,7 +1520,7 @@ dependencies = [
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-mesh",
- "codeterm-neighbors-service",
+ "codeterm-orchestration",
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-service-core",
@@ -1909,51 +1908,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "codeterm-neighbors-service"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "axum",
- "base64 0.23.1",
- "chrono",
- "codeterm-account",
- "codeterm-analytics",
- "codeterm-billing",
- "codeterm-entitlements",
- "codeterm-events",
- "codeterm-mesh",
- "codeterm-neighbors",
- "codeterm-notification-core",
- "codeterm-paths",
- "codeterm-plugin",
- "codeterm-provider-signals",
- "codeterm-secrets",
- "codeterm-service-core",
- "codeterm-types",
- "codeterm-util",
- "codeterm-wire",
- "ed25519-dalek",
- "futures-util",
- "hostname",
- "libc",
- "log",
- "md-5 0.10.6",
- "parking_lot 0.12.5",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tower",
- "url",
- "uuid",
- "windows-sys 0.61.2",
- "workspace-hack",
- "zeroize",
-]
-
-[[package]]
 name = "codeterm-notification-core"
 version = "0.0.0"
 dependencies = [
@@ -2005,17 +1959,9 @@ dependencies = [
 name = "codeterm-orchestration"
 version = "0.0.0"
 dependencies = [
- "chrono",
  "codeterm-analytics",
- "codeterm-blueprint-types",
  "codeterm-events",
- "codeterm-mem",
- "codeterm-notification-core",
  "codeterm-paths",
- "codeterm-plan",
- "codeterm-plugin",
- "codeterm-prompts",
- "codeterm-provider-signals",
  "codeterm-sentinel",
  "codeterm-service-core",
  "codeterm-team-package",
@@ -2023,12 +1969,10 @@ dependencies = [
  "codeterm-wire",
  "log",
  "parking_lot 0.12.5",
- "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
- "uuid",
  "workspace-hack",
 ]
 
@@ -2552,7 +2496,6 @@ dependencies = [
  "codeterm-build-info",
  "codeterm-events",
  "codeterm-mem",
- "codeterm-neighbors-service",
  "codeterm-notification-core",
  "codeterm-orchestration",
  "codeterm-paths",
@@ -3563,7 +3506,6 @@ dependencies = [
  "codeterm-frontend-shell",
  "codeterm-mem",
  "codeterm-mem-postgres",
- "codeterm-neighbors-service",
  "codeterm-orchestration",
  "codeterm-paths",
  "codeterm-plan",
