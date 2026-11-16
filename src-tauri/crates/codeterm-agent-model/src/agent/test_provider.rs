@@ -62,6 +62,7 @@ pub struct MockProvider {
     has_hooks: bool,
     session_starts_on_first_user_turn: bool,
     provider_readiness_strategy: ProviderReadinessStrategy,
+    input_attach_signal: super::provider::InputAttachSignal,
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
@@ -139,6 +140,7 @@ impl MockProvider {
             has_hooks: false,
             session_starts_on_first_user_turn: false,
             provider_readiness_strategy: ProviderReadinessStrategy::default(),
+            input_attach_signal: super::provider::InputAttachSignal::None,
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
             resume_context_log: None,
@@ -459,6 +461,11 @@ impl MockProvider {
         self.provider_readiness_strategy = strategy;
         self
     }
+
+    pub fn with_input_attach_signal(mut self, signal: super::provider::InputAttachSignal) -> Self {
+        self.input_attach_signal = signal;
+        self
+    }
 }
 
 impl AgentProvider for MockProvider {
@@ -627,6 +634,9 @@ impl AgentProvider for MockProvider {
     }
     fn provider_readiness_strategy(&self) -> ProviderReadinessStrategy {
         self.provider_readiness_strategy.clone()
+    }
+    fn input_attach_signal(&self) -> super::provider::InputAttachSignal {
+        self.input_attach_signal
     }
     fn system_prompt_delivery(&self) -> SystemPromptDelivery {
         self.system_prompt_delivery.clone()
