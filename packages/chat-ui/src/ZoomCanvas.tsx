@@ -2,6 +2,7 @@ import { CANVAS_ZOOM_STEP } from "./useCanvasStage";
 import type { ReactNode } from "react";
 import type { ViewportBox } from "@codeterm/canvas-camera";
 import { CanvasToolbar } from "./CanvasToolbar";
+import { CameraRestContext } from "./canvasRest";
 import { useZoomCanvas, type CanvasFocus } from "./useZoomCanvas";
 import type { InitialCanvasFit } from "./imageCanvasCamera";
 
@@ -19,7 +20,7 @@ export function ZoomCanvas({ bounds, focus, cameraKey, initialFit = "ready", chi
   fitLabel?: string;
   resetLabel?: string;
 }) {
-  const { camera, mode, scaleOutput, interactions, fit, zoom, natural } = useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect });
+  const { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural } = useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect });
   const controls = <CanvasToolbar appearance={toolbar === "header" ? "inline" : "floating"} floating={toolbar !== "header"} label="Canvas zoom controls" fitLabel={fitLabel} actualSizeLabel={resetLabel} fitPressed={mode === "fit"} actualSizePressed={mode === "natural"}
       onFit={fit} onActualSize={natural} onZoomOut={() => zoom(-CANVAS_ZOOM_STEP)} onZoomIn={() => zoom(CANVAS_ZOOM_STEP)}
       extras={<output ref={scaleOutput} aria-live="polite" aria-label="Zoom level" className={toolbar === "header" ? "block w-[4ch] text-center text-xs tabular-nums" : "px-1 font-mono text-xs tabular-nums"}>{Math.round(camera.transformRef.current.scale * 100)}%</output>} />;
@@ -34,7 +35,7 @@ export function ZoomCanvas({ bounds, focus, cameraKey, initialFit = "ready", chi
         backgroundSize: "var(--canvas-step, 24px) var(--canvas-step, 24px)",
         backgroundPosition: "var(--canvas-x, 0px) var(--canvas-y, 0px)",
       }}>
-      <div ref={camera.layerRef} style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0" }}>{children}</div>
+      <div ref={camera.layerRef} style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0" }}><CameraRestContext value={rest}>{children}</CameraRestContext></div>
     </div>
     {toolbar === "floating" && controls}
   </div>

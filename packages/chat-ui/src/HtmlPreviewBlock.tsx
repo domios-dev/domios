@@ -9,7 +9,7 @@ import { loadHtmlFile } from "./htmlFileLoader";
 export const HTML_PREVIEW_MIN_HEIGHT = 80;
 export const HTML_PREVIEW_MAX_HEIGHT = 720;
 export const HTML_PREVIEW_LENGTH_LIMIT = 200_000;
-const HTML_PREVIEW_MESSAGE_SOURCE = "ct-html-preview";
+export const HTML_PREVIEW_MESSAGE_SOURCE = "ct-html-preview";
 const HTML_PREVIEW_MAX_FILE_BYTES = 5 * 1024 * 1024;
 const HTML_TAILWIND_RUNTIME = typeof __CODETERM_HTML_TAILWIND_RUNTIME__ === "string"
   ? __CODETERM_HTML_TAILWIND_RUNTIME__
@@ -30,6 +30,7 @@ const HTML_PREVIEW_CSP = [
 const HEIGHT_REPORTER = `<script>(function(){
 var post=function(){var d=document;var h=Math.max(d.documentElement.scrollHeight,d.body?d.body.scrollHeight:0);parent.postMessage({source:${JSON.stringify(HTML_PREVIEW_MESSAGE_SOURCE)},height:h},'*')};
 document.addEventListener('keydown',function(event){if(event.key==='Escape'){event.preventDefault();parent.postMessage({source:'ct-html-preview',action:'close'},'*')}});
+window.addEventListener('message',function(event){var d=event.data;if(event.source===parent&&d&&d.source==='ct-html-preview'&&typeof d.zoom==='number'&&d.zoom>0&&d.zoom<=1){document.documentElement.style.zoom=d.zoom===1?'':String(d.zoom)}});
 window.addEventListener('load',post);
 document.addEventListener('DOMContentLoaded',post);
 if(window.ResizeObserver){new ResizeObserver(post).observe(document.documentElement)}

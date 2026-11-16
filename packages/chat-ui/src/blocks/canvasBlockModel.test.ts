@@ -47,8 +47,10 @@ test("live frames stay within the budget, selected first, then visible ones in o
   assert.equal(chooseLiveFrames(frames, "not-a-frame").size, CANVAS_LIVE_FRAME_BUDGET);
 });
 
-test("the static preview fits and centres the whole canvas without enlarging it", () => {
-  assert.deepEqual(fitPreview({ x: 0, y: 0, width: 1600, height: 400 }, 800, 320), { scale: 0.5, x: 0, y: 60 });
+test("the static preview fits and centres the whole canvas inside its padding without enlarging it", () => {
+  assert.deepEqual(fitPreview({ x: 0, y: 0, width: 1600, height: 400 }, 800, 320, 0), { scale: 0.5, x: 0, y: 60 });
+  assert.deepEqual(fitPreview({ x: 0, y: 0, width: 1536, height: 400 }, 800, 320), { scale: 0.5, x: 16, y: 60 }, "16px padding on every side by default");
   assert.deepEqual(fitPreview({ x: -100, y: 0, width: 200, height: 100 }, 800, 320), { scale: 1, x: 400, y: 110 });
   assert.equal(fitPreview({ x: 0, y: 0, width: 10, height: 10 }, 0, 320).scale, 0);
+  assert.equal(fitPreview({ x: 0, y: 0, width: 10, height: 10 }, 32, 320).scale, 0, "no room inside the padding");
 });

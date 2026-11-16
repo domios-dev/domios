@@ -4,6 +4,7 @@ import { swipeDirection } from "./galleryModel";
 import { type InitialCanvasFit } from "./imageCanvasCamera";
 import { useCanvasStage } from "./useCanvasStage";
 import { canvasGrid } from "./canvasGrid";
+import { nextCameraRest, type CameraRest, type CameraRestEvent } from "./canvasRest";
 
 export interface CanvasFocus { request: number; bounds: ViewportBox }
 type ViewMode = "fit" | "focus" | "custom" | "natural";
@@ -21,6 +22,14 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
   const focusRequest = useRef<number | null>(null);
   const scaleOutput = useRef<HTMLOutputElement>(null);
   const imageCamera = cameraKey !== undefined;
+  const [rest, setRest] = useState<CameraRest>(null);
+  const restRef = useRef<CameraRest>(null);
+  const moveRest = (event: CameraRestEvent) => {
+    const next = nextCameraRest(restRef.current, event);
+    if (next === restRef.current) return;
+    restRef.current = next;
+    setRest(next);
+  };
   const stage = useCanvasStage({ minScale: 0.0001, maxScale: 8, wheelBehavior, constrainToFit: false,
     memoryKey: cameraKey === undefined ? undefined : `image:${cameraKey}`,
     ready: initialFit === "ready", cancelled: initialFit === "cancelled",
@@ -29,6 +38,7 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     fit: (camera, _size, initial) => { camera.fitToView(initial ? focus?.bounds ?? bounds : bounds); if (!initial) setMode("fit"); else if (focus) setMode("custom"); },
     onUserControl: () => setMode("custom"), onReset: () => natural(), onNavigate,
     onPaint: transform => {
+      moveRest({ kind: "paint", scale: transform.scale });
       if (scaleOutput.current) scaleOutput.current.textContent = `${Math.round(transform.scale * 100)}%`;
       const style = camera.containerRef.current?.style;
       const grid = canvasGrid(transform);
@@ -41,6 +51,7 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
   const { camera, size } = stage;
   const { animateToView } = camera;
   const previousSize = useRef(size);
+  useLayoutEffect(() => moveRest({ kind: "settle", scale: camera.transform.scale }), [camera.transform]);
   useLayoutEffect(() => { if (imageCamera && stage.restored) setMode("custom"); }, [imageCamera, stage.restored]);
   useLayoutEffect(() => {
     const previous = previousSize.current;
@@ -111,5 +122,5 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     },
     onKeyDown: stage.interactions.onKeyDown,
   };
-  return { camera, mode, scaleOutput, interactions, fit, zoom, natural };
+  return { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural };
 }
