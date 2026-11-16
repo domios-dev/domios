@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { waiverReleaseNotes } from './release-test-waiver.mjs';
 import { sourceRepository } from './source-repository.mjs';
 // Caller: CI release-manifest-validate.yml; scripts tests/release-notes-sync.test.mjs; skill github-release
 
@@ -144,7 +145,8 @@ function prepareTag(sourceRepo, mirrorRepo, tag) {
   const marker = existing.match(/<!-- qualification(?::.*?|\-complete) -->/g)?.join('\n');
   const canonical = chooseCanonicalBody(tag, existing.replace(/<!-- qualification(?::.*?|\-complete) -->/g, ''), replacement);
   const body = marker ? `${canonical}\n\n${marker}` : canonical;
-  return { tag, body };
+  const waiver = process.env.RELEASE_TEST_WAIVER ? JSON.parse(process.env.RELEASE_TEST_WAIVER) : undefined;
+  return { tag, body: waiverReleaseNotes(body, waiver) };
 }
 
 function publishedTags(repo, count) {

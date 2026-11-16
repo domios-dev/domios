@@ -61,7 +61,11 @@ jobs:
       source_sha: ${{ steps.source.outputs.source_sha }}
       promote_run_id: ${{ steps.source.outputs.promote_run_id }}
       branch: ${{ steps.source.outputs.branch }}
+      test_waiver: ${{ steps.source.outputs.test_waiver }}
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
       - id: source
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         env:
@@ -89,18 +93,20 @@ jobs:
               pr.head.repo.full_name === context.repo.owner + '/' + context.repo.repo && /^release\/\d+\.\d+\.\d+$/.test(pr.head.ref));
             if (!pr) {core.notice('No merged release PR for this master push');return;}
             const sha = pr.head.sha;
-            // PRs squash-merge, so master must carry exactly the files of the green release head.
+            // Master must carry exactly the files of the admitted release head.
             const tree = async ref => (await github.rest.repos.getCommit({...context.repo, ref})).data.commit.tree.sha;
             if (await tree(context.sha) !== await tree(sha)) throw new Error('Release requires master to carry exactly the qualified head tree');
+            const {pathToFileURL} = require('node:url');
+            const load = name => import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/' + name).href);
+            const {parseTestWaiver} = await load('release-test-waiver.mjs');
+            const {selectReleasePushRun} = await load('ci-qualification.mjs');
+            const {requireQualificationWithGithub} = await load('ci-workflow-api.mjs');
+            const waiver = parseTestWaiver(pr.body ?? '');
             const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {...context.repo,
               workflow_id: 'tests.yml', event: 'push', head_sha: sha, per_page: 100});
-            const run = runs.filter(run => run.head_sha === sha && run.head_branch === pr.head.ref &&
-              run.event === 'push' && run.path === '.github/workflows/tests.yml' &&
-              run.repository.full_name === context.repo.owner + '/' + context.repo.repo &&
-              run.head_repository.full_name === pr.head.repo.full_name &&
-              run.actor.login === 'rollacode' && run.triggering_actor.login === 'rollacode' &&
-              Number.isSafeInteger(run.id)).sort((a,b) => b.id-a.id)[0];
-            if (!run || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('No green release push run for the exact head');
+            const run = selectReleasePushRun(runs, sha, pr.head.ref, context.repo.owner + '/' + context.repo.repo, waiver);
+            if (waiver) await requireQualificationWithGithub(github, context, sha, {runId: run.id, waiver});
+            core.setOutput('test_waiver', waiver ? JSON.stringify(waiver) : '');
             core.setOutput('promote_run_id', String(run.id));
             core.setOutput('branch', pr.head.ref);
             core.setOutput('source_sha', sha);
@@ -123,6 +129,7 @@ jobs:
       published: ${{ steps.release.outputs.published }}
       branch: ${{ steps.release.outputs.branch }}
       kind: ${{ steps.release.outputs.kind }}
+      test_waiver: ${{ needs.qualified-source.outputs.test_waiver }}
     steps:
 
       - name: Use the runner bundled Node
@@ -172,6 +179,7 @@ jobs:
         if: ${{ !inputs.dry_run || github.event_name == 'workflow_dispatch' }}
         env:
           PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id }}
+          RELEASE_TEST_WAIVER: ${{ needs.qualified-source.outputs.test_waiver }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
           script: |-
@@ -187,6 +195,7 @@ jobs:
           MIRROR_INPUT: ${{ inputs.mirror }}
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
           PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id }}
+          RELEASE_TEST_WAIVER: ${{ needs.qualified-source.outputs.test_waiver }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
           SOURCE_REPO: ${{ github.repository }}
@@ -496,6 +505,7 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           PROMOTE_RUN_ID: ${{ needs.prepare.outputs.promote_run_id }}
+          RELEASE_TEST_WAIVER: ${{ needs.prepare.outputs.test_waiver }}
         run: |
           set -euo pipefail
           work=$(mktemp -d "$RUNNER_TEMP/promote.XXXXXX")
@@ -514,6 +524,7 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       source_sha: ${{ needs.prepare.outputs.source_sha }}
       promote_run_id: ${{ needs.prepare.outputs.promote_run_id }}
+      test_waiver: ${{ needs.prepare.outputs.test_waiver }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
     secrets: inherit
 

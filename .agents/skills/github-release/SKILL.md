@@ -20,7 +20,8 @@ each failed run. An untested proposal must not become an established recipe.
 
 - Publication, tags, version bumps, installation and production restart require owner GO.
   Dry-run authorization does not authorize shipping. Never move a published tag, overwrite a
-  published version with rebuilt bytes, force-push master or bypass a failed gate.
+  published version with rebuilt bytes or force-push master. Failed tests may use only the explicit
+  owner test waiver below; all other failed gates refuse publication.
 - Use the exact reviewed committed candidate. Real-merge lanes; never reconstruct their tree
   by copying patches. Exclude unrelated dirty files. Record workflow-ref SHA separately from
   application `source_ref` SHA when they differ.
@@ -173,6 +174,47 @@ then sync them here. Never hand-edit the bundled snapshot.
    the admin merges with `gh pr merge <n> --merge --admin` (never squash or rebase). Merge within
    three days of the green run: its qualification artifact expires after that. Synchronize develop
    through an admin merge PR. A later correction takes a new version.
+
+## Owner waiver for defective tests
+
+When the owner judges failed tests defective, the owner may publish that run's existing
+hidden draft without rerunning the full qualification. Put exactly one field on its own
+line in the owner release PR body, using the exact Actions job names (including matrix suffixes):
+
+```text
+Release-Test-Waiver: {"run_id":"123456789","jobs":["Fast checks / ts unit (1/4)","Rust tests / rust platform (Windows)"]}
+```
+
+This is an explicit release decision. The owner names only failed test jobs. A green job,
+unknown job, build/sign job, duplicate name, different run ID, newer superseding run,
+cancellation or expired evidence refuses admission. Waivable jobs are TS unit/Vitest,
+plugin tests, script test contracts and the Rust full/platform/embeddings suites. A mixed
+job qualifies only when its failed steps are the test steps: compilation, formatting,
+generated-bundle checks, setup, receipt storage and cleanup failures cannot be waived.
+
+Admission checks the exact completed owner tests.yml push run directly because its normal
+qualification receipt may be skipped. It derives only the fixed test reporting consequences:
+CI result, Rust test receipts, Rust warning report and qualification receipt. A report must
+fail only in its known dependency-check step; the warning log must prove no missing
+collections and incomplete collections only from the explicitly waived Rust tests. Any
+unrelated or unverifiable aggregate failure refuses. The owner never lists these reports.
+
+All six platform build/sign job groups and consolidated manifest verification must succeed.
+The own-run draft must already be hidden and complete, bind the exact SHA/run, and contain
+every platform's completion receipt and assets matching its SHA256/size inventory. The
+waiver path has no missing-draft upload fallback. Evidence expires after three days.
+A master publication retry may continue after the draft became public only when its retained
+release-admission.json proves the identical source, run/attempt and waiver; PR admission still
+requires a hidden draft.
+The normal rollacode actor, release-environment approval, owner publication GO and exact
+master/head tree equality remain mandatory. PR qualification, master admission and each
+publication recheck apply the same waiver; removing the field restores green-only admission.
+
+Publication uploads release-admission.json with the named tests and derived reporting
+consequences, adds a visible Owner test waiver section to the release notes, and carries
+the waiver into both manifest verification records and issue-closure-boundary.json. Public
+issue closure comments name the run and waived jobs. Fix the defective tests on the next
+version's line; do not change this qualified head or mix runs' assets.
 
 ## PR CI tiers
 
@@ -660,4 +702,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->
