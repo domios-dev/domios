@@ -39,7 +39,7 @@ function usePreviewWidth() {
 }
 
 /** The static preview; a file canvas adds its source path, a named view and, for its owner, an editor. */
-export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0 }: { canvas: DsCanvas; view?: string; editor?: CanvasEditor; fullscreenRequest?: number }) {
+export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0, details }: { canvas: DsCanvas; view?: string; editor?: CanvasEditor; fullscreenRequest?: number; details?: string }) {
   const layout = useMemo(() => layoutCanvas(canvas), [canvas]);
   const theme = useMemo(() => readThemeVars(), []);
   const [open, setOpen] = useState(false);
@@ -68,6 +68,7 @@ export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0 }: {
         <span className="min-w-0 truncate" style={{ color: "var(--ct-fg)" }}>{title}</span>
         <span aria-hidden>·</span>
         <span className="shrink-0">{count}</span>
+        {details && <details data-canvas-details="" className="min-w-0 opacity-80"><summary className="cursor-pointer select-none">Details</summary><p className="m-0 mt-1 break-words">{details}</p></details>}
       </figcaption>
       {open && <CanvasViewer canvas={canvas} layout={layout} title={title} view={view} editor={editor} anchorRef={ref} onClose={() => setOpen(false)} />}
     </figure>

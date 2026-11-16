@@ -15,6 +15,8 @@ export interface CanvasFile {
   canvas: DsCanvas | null;
   session: CanvasFileSession;
   writable: boolean;
+  /** Why the board shows without live updates, for its Details; `null` while it follows the file. */
+  unwatched: string | null;
 }
 
 /**
@@ -40,6 +42,7 @@ export function useCanvasFile(path: string, tabId: string | undefined): CanvasFi
   const state = useSyncExternalStore(session.subscribe, session.snapshot, session.snapshot);
   const [read, setRead] = useState<CanvasFileRead>(() => localArtifactMemory.get(memoryKey) ? { status: "ready" } : { status: "loading" });
   const [writable, setWritable] = useState(false);
+  const [unwatched, setUnwatched] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -73,6 +76,7 @@ export function useCanvasFile(path: string, tabId: string | undefined): CanvasFi
           if (!alive) { watch.release(); return; }
           release = watch.release;
           setWritable(watch.writable);
+          setUnwatched(watch.watching ? null :"Live updates are off because too many canvases are open. Close one, then reopen this canvas.");
         },
         () => { if (alive) setWritable(false); },
       );
@@ -93,5 +97,5 @@ export function useCanvasFile(path: string, tabId: string | undefined): CanvasFi
     previous.current = next;
     return next;
   }, [parsed]);
-  return { read, state, parsed, canvas, session, writable };
+  return { read, state, parsed, canvas, session, writable, unwatched };
 }

@@ -42,7 +42,7 @@ function LoadedCanvasFile({ src, view, fullscreenRequest = 0, onLoaded }: { src:
   return <>
     {notice}
     {file.canvas && <CanvasSourceContext value={src}>
-      <CanvasPreview canvas={file.canvas} view={view} editor={editor} fullscreenRequest={fullscreenRequest} />
+      <CanvasPreview canvas={file.canvas} view={view} editor={editor} fullscreenRequest={fullscreenRequest} details={file.unwatched ?? undefined} />
     </CanvasSourceContext>}
   </>;
 }

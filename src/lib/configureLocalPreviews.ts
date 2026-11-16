@@ -8,13 +8,16 @@ import { classifyTabTarget } from "./remoteTabTransport";
 const canvasFilePort: CanvasFilePort = {
   write: (path, tabId, base, document) => invoke<CanvasWriteResult>("write_local_canvas_file", { path, tabId, base, document }),
   async watch(path, tabId, onChange) {
-    if (classifyTabTarget(tabId).kind !== "local") return { writable: false, release() {} };
+    if (classifyTabTarget(tabId).kind !== "local") return { writable: false, watching: false, release() {} };
     const unlisten = await listen<{ path?: string }>(`local-canvas-changed-${tabId}`, (event) => { if (event.payload?.path === path) onChange(); });
     try {
-      const { writable } = await invoke<{ writable: boolean }>("watch_local_canvas_file", { path, tabId, watch: true });
-      let released = false;
+      const { writable, watching } = await invoke<{ writable: boolean; watching: boolean }>("watch_local_canvas_file", { path, tabId, watch: true });
+      // A refused watch holds no slot, so releasing it must not free another viewer's.
+      if (!watching) unlisten();
+      let released = !watching;
       return {
         writable,
+        watching,
         release() {
           if (released) return;
           released = true;

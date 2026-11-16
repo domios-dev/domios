@@ -242,6 +242,8 @@ pub fn write_canvas(
 #[derive(Debug, serde::Serialize)]
 pub struct CanvasWatchResponse {
     pub writable: bool,
+    /// `false` when every watch slot is held by an open viewer: the board shows without live updates.
+    pub watching: bool,
 }
 
 /// Starts change events for a canvas file the tab may read, and says whether the owner may write
@@ -254,8 +256,11 @@ pub fn watch_canvas(
     watch: bool,
 ) -> Result<CanvasWatchResponse, String> {
     if !watch {
-        canvas_watch::release(tab_id, path);
-        return Ok(CanvasWatchResponse { writable: false });
+        canvas_watch::watches().release(tab_id, path);
+        return Ok(CanvasWatchResponse {
+            writable: false,
+            watching: false,
+        });
     }
     let policy = tab_policy(svc, tab_id, configured, &[path.to_owned()])?;
     html_preview::probe_canvas_file(path, |path, canonical| policy.authorize(path, canonical))?;
@@ -266,6 +271,6 @@ pub fn watch_canvas(
     let canonical = html_preview::checked_path(path)?
         .canonicalize()
         .map_err(|error| format!("Unable to resolve preview file: {error}"))?;
-    canvas_watch::watch(svc.ui.clone(), tab_id, path, &canonical)?;
-    Ok(CanvasWatchResponse { writable })
+    let watching = canvas_watch::watches().watch(svc.ui.clone(), tab_id, path, &canonical)?;
+    Ok(CanvasWatchResponse { writable, watching })
 }

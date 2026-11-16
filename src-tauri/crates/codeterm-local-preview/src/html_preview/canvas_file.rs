@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use super::file::PreviewSource;
 use crate::artifact_directive::canvas_write_permitted;
@@ -45,8 +47,42 @@ pub fn probe_canvas_file(
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+type FileLocks = Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>;
+static FILE_LOCKS: LazyLock<FileLocks> = LazyLock::new(Default::default);
+
+/// Serializes this process's writers of one file; the entry goes when its last writer leaves.
+struct FileLock {
+    path: PathBuf,
+    lock: Arc<Mutex<()>>,
+}
+
+impl FileLock {
+    fn new(path: &Path) -> Self {
+        let mut locks = FILE_LOCKS.lock().unwrap_or_else(PoisonError::into_inner);
+        let lock = locks.entry(path.to_path_buf()).or_default().clone();
+        Self {
+            path: path.to_path_buf(),
+            lock,
+        }
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let mut locks = FILE_LOCKS.lock().unwrap_or_else(PoisonError::into_inner);
+        if Arc::strong_count(&self.lock) == 2 {
+            locks.remove(&self.path);
+        }
+    }
+}
+
 /// Replaces the canvas atomically when it still holds `base`: write a sibling temp, then rename.
 /// A file changed underneath returns its current text instead, so the edit lands on top of it.
+///
+/// Writers in this process take a per-file lock around read, compare and rename, so two edits
+/// from one base never both succeed. External writers, such as an agent's editor, are not locked
+/// out: the text is compared once more just before the rename, which leaves only the moment
+/// between that comparison and the rename in which their write could be replaced.
 pub fn write_canvas_file(
     raw: &str,
     guard: impl Fn(&Path, Option<&Path>) -> Result<(), String>,
@@ -58,6 +94,15 @@ pub fn write_canvas_file(
             "Local preview source exceeds {CANVAS_FILE_LIMIT} bytes"
         ));
     }
+    // Resolving the identity keeps no handle open, so it never blocks another writer's rename.
+    let identity = super::checked_path(raw)?
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve preview file: {error}"))?;
+    let file_lock = FileLock::new(&identity);
+    let _held = file_lock
+        .lock
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     let (target, current) = read_canvas(raw, &guard)?;
     if current != base {
         return Ok(CanvasWrite::Conflict(current));
@@ -97,7 +142,7 @@ fn replace(
         .and_then(|()| file.sync_all())
         .map_err(|error| format!("Unable to write canvas: {error}"))?;
     drop(file);
-    // The second read narrows the window in which an agent's write could be replaced unseen.
+    // External writers hold no lock; this last comparison leaves them only the instant before rename.
     let (_, latest) = read_canvas(raw, guard)?;
     if latest != base {
         return Ok(CanvasWrite::Conflict(latest));

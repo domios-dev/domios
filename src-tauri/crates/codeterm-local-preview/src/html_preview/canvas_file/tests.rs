@@ -101,3 +101,44 @@ fn write_refuses_guarded_paths_added_files_invalid_documents_and_other_extension
     assert_eq!(std::fs::read_to_string(&path).unwrap(), BOARD);
     assert!(leftovers(temp.path()).is_empty());
 }
+
+#[test]
+fn two_writers_from_one_base_yield_exactly_one_write_and_one_conflict_with_its_text() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = board(temp.path(), "board.canvas.json", BOARD);
+    let first = BOARD.replace("agent", "first");
+    let second = BOARD.replace("agent", "second");
+    let start = std::sync::Barrier::new(2);
+    let (one, two) = std::thread::scope(|scope| {
+        let write = |next: &str| {
+            start.wait();
+            write_canvas_file(&path, open, BOARD, next).unwrap()
+        };
+        let one = scope.spawn(|| write(&first));
+        let two = scope.spawn(|| write(&second));
+        (one.join().unwrap(), two.join().unwrap())
+    });
+    let on_disk = std::fs::read_to_string(&path).unwrap();
+    let outcomes = [(one, &first), (two, &second)];
+    let written: Vec<_> = outcomes
+        .iter()
+        .filter(|(outcome, _)| *outcome == CanvasWrite::Written)
+        .collect();
+    assert_eq!(written.len(), 1, "exactly one writer wins");
+    assert_eq!(&on_disk, written[0].1);
+    let conflict = outcomes
+        .iter()
+        .find(|(outcome, _)| *outcome != CanvasWrite::Written)
+        .unwrap();
+    assert_eq!(conflict.0, CanvasWrite::Conflict(on_disk.clone()));
+    assert!(leftovers(temp.path()).is_empty());
+    let root = temp.path().canonicalize().unwrap();
+    assert!(
+        !FILE_LOCKS
+            .lock()
+            .unwrap()
+            .keys()
+            .any(|key| key.starts_with(&root)),
+        "a file's lock goes with its last writer"
+    );
+}

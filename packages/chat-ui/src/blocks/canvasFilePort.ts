@@ -1,7 +1,8 @@
 import { createContext } from "react";
 
 export type CanvasWriteResult = { status: "written" } | { status: "conflict"; current: string };
-export interface CanvasFileWatch { writable: boolean; release(): void }
+/** `watching: false` means every live-update slot is taken, so the board shows without live updates. */
+export interface CanvasFileWatch { writable: boolean; watching: boolean; release(): void }
 
 /** The host's file-backed canvas operations; absent hosts show file canvases read-only without live reload. */
 export interface CanvasFilePort {

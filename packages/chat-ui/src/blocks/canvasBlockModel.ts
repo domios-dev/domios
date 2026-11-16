@@ -17,7 +17,9 @@ const FLOW_ROW_WIDTH = 1600;
 
 export interface PlacedCanvasItem { item: DsCanvasItem; index: number; x: number; y: number; w: number; h: number }
 export interface CanvasLayout { items: PlacedCanvasItem[]; bounds: ViewportBox }
-export interface CanvasPagerTarget { label: string; bounds: ViewportBox }
+/** `key` names the view or item a target stands for, so the pager can follow it across reloads. */
+export interface CanvasPagerTarget { key: string; label: string; bounds: ViewportBox }
+export interface CanvasPagerPosition { key: string; index: number }
 
 export const isLiveFrameItem = (item: DsCanvasItem) => item.kind === "html" || item.kind === "page";
 export const canvasItemLabel = (item: DsCanvasItem) => item.title || ("src" in item ? item.src.split(/[\\/]/).pop() || item.src : item.kind === "html" ? "HTML" : "Note");
@@ -55,8 +57,15 @@ export function sentenceCase(name: string): string {
 
 /** The pager steps through named views, or through items when a canvas names none. */
 export function canvasPagerTargets(canvas: DsCanvas, layout: CanvasLayout): CanvasPagerTarget[] {
-  if (canvas.views.length) return canvas.views.map((view) => ({ label: sentenceCase(view.name), bounds: { x: view.x, y: view.y, width: view.w, height: view.h } }));
-  return layout.items.map((placed) => ({ label: canvasItemLabel(placed.item), bounds: placedBox(placed) }));
+  if (canvas.views.length) return canvas.views.map((view) => ({ key: `view:${view.name}`, label: sentenceCase(view.name), bounds: { x: view.x, y: view.y, width: view.w, height: view.h } }));
+  return layout.items.map((placed) => ({ key: `item:${placed.item.id}`, label: canvasItemLabel(placed.item), bounds: placedBox(placed) }));
+}
+
+/** The pager's target after the targets changed: the same view or item while it exists, else the nearest index. */
+export function reconcilePager(targets: readonly CanvasPagerTarget[], position: CanvasPagerPosition | null): number | null {
+  if (position === null || targets.length === 0) return null;
+  const same = targets.findIndex((target) => target.key === position.key);
+  return same >= 0 ? same : Math.min(position.index, targets.length - 1);
 }
 
 /** `null` is the whole canvas; stepping past either end returns to it. */

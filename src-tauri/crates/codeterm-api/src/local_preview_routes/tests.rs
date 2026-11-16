@@ -853,3 +853,76 @@ async fn completed_claimed_route_requires_positive_matching_host_source_provenan
         StatusCode::OK
     );
 }
+
+#[tokio::test]
+async fn canvas_write_and_watch_refuse_tab_credentials_and_serve_only_the_local_owner() {
+    let fixture = Fixture::new();
+    let board =
+        r#"{"format":"domios.canvas/1","items":[{"id":"n","kind":"note","markdown":"agent"}]}"#;
+    let edited = board.replace("agent", "owner");
+    let path = fixture.write("board.canvas.json", board);
+    fixture.reference(&fixture.owner, &path);
+    fixture.reference(&fixture.sibling, &path);
+    fixture
+        .state
+        .svc
+        .mux
+        .write()
+        .get_tab_mut(&fixture.sibling)
+        .unwrap()
+        .session_binding_nonce = Some("canvas-nonce".into());
+    let token = fixture
+        .state
+        .svc
+        .mint_tab_credential(&fixture.sibling, "canvas-nonce")
+        .unwrap();
+    let tab_auth = format!("Bearer {token}");
+    let write = serde_json::json!({"path": path, "base": board, "document": edited});
+    let watch = serde_json::json!({"path": path, "watch": true});
+    for (suffix, body) in [("canvas/write", &write), ("canvas/watch", &watch)] {
+        let response = fixture
+            .post(&fixture.sibling, suffix, body.clone(), Some(&tab_auth))
+            .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "{suffix} on the token's own tab"
+        );
+        assert_eq!(
+            json(response).await["error"],
+            "Canvas edits require the local owner"
+        );
+        let response = fixture
+            .post(&fixture.owner, suffix, body.clone(), Some(&tab_auth))
+            .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "{suffix} on another tab"
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), board);
+    let owner = Some("Bearer preview-test-token");
+    let response = fixture
+        .post(&fixture.owner, "canvas/watch", watch, owner)
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        json(response).await,
+        serde_json::json!({"writable": true, "watching": true})
+    );
+    let response = fixture
+        .post(&fixture.owner, "canvas/write", write, owner)
+        .await;
+    assert_eq!(json(response).await["status"], "written");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
+    let response = fixture
+        .post(
+            &fixture.owner,
+            "canvas/watch",
+            serde_json::json!({"path": path, "watch": false}),
+            owner,
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+}

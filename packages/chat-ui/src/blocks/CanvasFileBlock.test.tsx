@@ -18,8 +18,8 @@ const click = (element: Element | null | undefined) => act(async () => { (elemen
 const press = (key: string) => act(async () => { browser.dispatchEvent(new browser.KeyboardEvent("keydown", { key, code: key })); });
 const viewer = () => document.querySelector<HTMLElement>("[data-testid='chat-canvas-viewer']");
 
-function host(writable: boolean) {
-  const files = { text: board("first"), reads: [] as { path: string; kind: string; canvas?: string }[], writes: 0, change: null as null | (() => void), released: 0 };
+function host(writable: boolean, { text = board("first"), watching = true } = {}) {
+  const files = { text, reads: [] as { path: string; kind: string; canvas?: string }[], writes: 0, change: null as null | (() => void), released: 0 };
   configureLocalArtifactLoader(async (path, kind, _tabId, canvas) => {
     files.reads.push({ path, kind, ...(canvas ? { canvas } : {}) });
     if (path === SRC) return { data: files.text, media_type: "application/json" };
@@ -36,7 +36,7 @@ function host(writable: boolean) {
     async watch(path, _tabId, onChange) {
       assert.equal(path, SRC);
       files.change = onChange;
-      return { writable, release: () => { files.released++; } };
+      return { writable, watching, release: () => { files.released++; } };
     },
   });
   return files;
@@ -94,4 +94,82 @@ test("the owner deletes and undoes in the viewer and every change writes the fil
     assert.deepEqual((JSON.parse(files.text) as { items: { id: string }[] }).items.map((item) => item.id), ["shot", "n"]);
     assert.equal(files.writes, 2);
   } finally { await view.close(); reset(); }
+});
+
+const pointer = (target: EventTarget | null | undefined, type: string, clientX: number) => act(async () => {
+  (target as EventTarget).dispatchEvent(new browser.PointerEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: 100 }));
+});
+const shotX = (text: string) => (JSON.parse(text) as { items: { id: string; x?: number }[] }).items.find((item) => item.id === "shot")?.x;
+
+test("a drag commits the moved frame on release, and a cancelled drag writes nothing but lets held updates land", async () => {
+  const view = await mount();
+  const files = host(true);
+  try {
+    await view.render(<LocalArtifactScope tabId="owner"><RichMarkdown text={`<ds-canvas src="${SRC}" />`} /></LocalArtifactScope>);
+    await settle();
+    await click(view.host.querySelector("[aria-label^='Open canvas']"));
+    const stage = viewer()!;
+    const shot = () => stage.querySelector<HTMLElement>("[data-canvas-item='shot']");
+    await pointer(shot()?.querySelector("[data-canvas-select]"), "pointerdown", 100);
+    await pointer(browser, "pointermove", 200);
+    assert.equal(shot()?.style.left, "80px", "the item follows the pointer at the 800/640 screen scale");
+    await pointer(browser, "pointerup", 200);
+    await settle();
+    assert.equal(shotX(files.text), 80, "the release writes the move");
+    assert.equal(files.writes, 1);
+    await pointer(shot()?.querySelector("[data-canvas-select]"), "pointerdown", 100);
+    await pointer(browser, "pointermove", 300);
+    files.text = files.text.replace("first", "agent wrote this");
+    await act(async () => { files.change?.(); });
+    await settle();
+    assert.doesNotMatch(stage.querySelector("[data-canvas-item='n']")?.textContent ?? "", /agent wrote this/, "nothing changes under the pointer");
+    await pointer(browser, "pointercancel", 300);
+    await settle();
+    assert.equal(shot()?.style.left, "80px", "a cancelled drag puts the item back");
+    assert.match(stage.querySelector("[data-canvas-item='n']")?.textContent ?? "", /agent wrote this/, "the held update lands when the gesture ends");
+    assert.equal(files.writes, 1, "a cancelled drag writes nothing");
+  } finally { await view.close(); reset(); }
+});
+
+test("the pager follows its target by identity and clamps when the target is deleted", async () => {
+  const view = await mount();
+  const text = JSON.stringify({ format: "domios.canvas/1", items: [
+    { id: "shot", kind: "image", src: "/work/shot.png", x: 0, y: 0, w: 640, h: 400 },
+    { id: "n", kind: "note", markdown: "a", title: "First note", x: 0, y: 440, w: 320, h: 120 },
+    { id: "m", kind: "note", markdown: "b", title: "Second note", x: 400, y: 440, w: 320, h: 120 },
+  ] });
+  const files = host(true, { text });
+  try {
+    await view.render(<LocalArtifactScope tabId="owner"><RichMarkdown text={`<ds-canvas src="${SRC}" />`} /></LocalArtifactScope>);
+    await settle();
+    await click(view.host.querySelector("[aria-label^='Open canvas']"));
+    const stage = viewer()!;
+    const pager = () => stage.querySelector("nav[aria-label='Canvas items'] [aria-live]")?.textContent;
+    await click(stage.querySelector("[aria-label='Previous item']"));
+    assert.equal(pager(), "Second note 3 / 3");
+    await click(stage.querySelector("[data-canvas-item='m'] [data-canvas-select]"));
+    await press("Delete");
+    await settle();
+    assert.deepEqual((JSON.parse(files.text) as { items: { id: string }[] }).items.map((item) => item.id), ["shot", "n"]);
+    assert.equal(pager(), "First note 2 / 2", "a deleted target clamps to the nearest one");
+    files.text = JSON.stringify({ format: "domios.canvas/1", items: [
+      { id: "n", kind: "note", markdown: "a", title: "First note", x: 0, y: 440, w: 320, h: 120 },
+      { id: "shot", kind: "image", src: "/work/shot.png", x: 0, y: 0, w: 640, h: 400 },
+    ] });
+    await act(async () => { files.change?.(); });
+    await settle();
+    assert.equal(pager(), "First note 1 / 2", "an agent's reorder keeps the same target");
+  } finally { await view.close(); reset(); }
+});
+
+test("a canvas that gets no live-update slot shows its board with a quiet note under Details", async () => {
+  const view = await mount();
+  const files = host(true, { watching: false });
+  try {
+    await view.render(<LocalArtifactScope tabId="owner"><RichMarkdown text={`<ds-canvas src="${SRC}" />`} /></LocalArtifactScope>);
+    await settle();
+    assert.ok(view.host.querySelector("[data-canvas-item='shot']"), "the board still shows");
+    assert.match(view.host.querySelector("[data-canvas-details]")?.textContent ?? "", /^DetailsLive updates are off/);
+  } finally { await view.close(); reset(); }
+  assert.equal(files.released, 1);
 });
