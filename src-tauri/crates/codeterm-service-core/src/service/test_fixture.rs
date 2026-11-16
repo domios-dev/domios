@@ -445,9 +445,6 @@ impl ServiceFixture {
         extensions.insert_service_slots();
         extensions.insert_late::<FixtureLimitGate>();
         extensions.insert(config);
-        extensions.insert(crate::service::neighbor_account::AccountDataRoot(
-            data_dir.clone(),
-        ));
         let (private_key, public_key) = crate::mesh::crown::generate_peer_keypair();
         extensions.insert::<crate::MeshStateHandle>(Arc::new(Mutex::new(
             crate::mesh::MeshManager::in_memory(
@@ -727,6 +724,11 @@ impl ServiceFixture {
             extensions: Arc::new(extensions.finish()),
             host_extensions: Default::default(),
         };
+        assert!(service
+            .set_ext(crate::service::neighbor_account::AccountDataRoot(
+                data_dir.clone()
+            ))
+            .is_ok());
         let owner = Arc::new(service.clone());
         assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
         crate::ports::neighbors::install_fixture(&owner);
