@@ -19,7 +19,7 @@ pub struct Process {
     boundary: Option<Arc<super::process_boundary::Boundary>>,
 }
 impl Process {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn for_test(client: Client) -> Self {
         let (stop, mut stopping) = watch::channel(None::<bool>);
         let (ended, exit) = watch::channel(None);

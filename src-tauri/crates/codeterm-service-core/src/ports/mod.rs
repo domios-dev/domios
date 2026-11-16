@@ -11,6 +11,7 @@
 
 pub mod daemon_question;
 pub mod host;
+pub mod neighbors;
 pub mod orchestration;
 pub mod rest;
 pub mod sentinel;

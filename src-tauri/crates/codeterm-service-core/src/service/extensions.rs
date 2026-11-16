@@ -103,14 +103,10 @@ impl ExtensionsBuilder {
     }
 
     pub(crate) fn insert_service_slots(&mut self) {
-        self.insert_late::<crate::service::neighbors::NeighborRuntimeCell>();
-        self.insert_late::<crate::service::neighbors::updates::UpdateCell>();
-        self.insert_late::<crate::service::neighbors::history::HistoryCell>();
-        self.insert_late::<crate::service::account::AccountCredentialCell>();
-        self.insert_late::<crate::service::account::callable_admission::Changes>();
-        self.insert_late::<crate::service::account::startup::IdentityWriter>();
-        self.insert_late::<crate::service::account::startup::StartupAccount>();
-        self.insert_late::<crate::service::account::logout::LogoutCell>();
+        self.insert_late::<crate::service::neighbor_account::StartupAccount>();
+        self.insert_late::<crate::service::neighbor_account::AccountDataRoot>();
+        self.insert::<crate::service::neighbor_state::State>(Default::default());
+        self.insert::<Arc<crate::service::neighbor_state::LaunchState>>(Default::default());
         self.insert_late::<crate::service::agent_restart::ProviderSwitchOperations>();
         self.insert_late::<crate::CronState>();
         self.insert_late::<crate::CronWake>();
@@ -126,7 +122,6 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::session_persist::SessionPersistenceWorker>();
         self.insert_late::<Arc<crate::service::turn_resume::Wave>>();
         self.insert_late::<crate::agent::live_state::RestoreReportWorker>();
-        self.insert_late::<crate::service::account_mesh::AccountMeshCell>();
         self.insert_late::<crate::service::lane_git_queue::LaneGitQueue>();
         self.insert_late::<crate::service::durable_delivery::DurableDeliveryRuntime>();
         self.insert_late::<crate::service::model_providers::ModelProviderClientState>();
@@ -152,7 +147,7 @@ fn key<T: Any>() -> (TypeId, &'static str) {
 /// The single key list both the daemon and `ServiceFixture` must satisfy.
 fn required() -> Vec<(TypeId, &'static str)> {
     use crate::service::{
-        account::AccountCell, analytics::AnalyticsCell, billing::BillingCell,
+        analytics::AnalyticsCell, billing::BillingCell, neighbor_account::AccountCell,
         receiver_target::LocalRecordingTargets, receiver_target::ReceiverTargets,
         task_files::LaunchTaskFiles, workspace_cwd::WorkspaceRelocationLock, BridgeOutboundRx,
         LoadedPlanProjects, MuxEmitPending, PlanStartupLoaded, PublishedTabStatuses,
@@ -220,4 +215,4 @@ fn required() -> Vec<(TypeId, &'static str)> {
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

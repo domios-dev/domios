@@ -226,7 +226,7 @@ async fn publish_with_origin(
             _ => None,
         };
         if let Some((thread, turn, message, working, finished)) = handling {
-            use crate::service::neighbors::history::handling::State;
+            use codeterm_wire::api_contracts::State;
             let failed = matches!(
                 &runtime,
                 RuntimeEvent::TurnUpdated {
@@ -244,6 +244,7 @@ async fn publish_with_origin(
                 State::DeliveredToConcierge
             };
             if let Err(error) = svc
+                .neighbors()
                 .neighbor_runtime_handling_event(
                     &context.tab_id,
                     &context.binding_nonce,

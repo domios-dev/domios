@@ -62,7 +62,7 @@ fn backend_projection_reports_actual_endpoint_kind_and_never_exposes_urls_or_sec
 async fn backend_route_requires_local_owner_auth_and_reports_the_executing_endpoint_selection() {
     use tower::ServiceExt;
     let (mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let tab_token = state
         .svc

@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Extension, Json,
 };
+use codeterm_neighbors_service::prelude::*;
 use serde::Deserialize;
 
 use crate::routes::AppState;

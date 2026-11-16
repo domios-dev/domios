@@ -1,0 +1,245 @@
+use super::*;
+
+#[cfg(not(any(test, feature = "test-support")))]
+pub type WatchStartup<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, String>> + Send + 'a>>;
+
+#[derive(Default)]
+pub struct RestorationRearm(Arc<super::super::recovery::Rearm>);
+
+#[cfg(any(test, not(feature = "test-support")))]
+#[derive(Default)]
+pub struct RestorationHold(Arc<super::super::recovery::hold::EntitlementHold>);
+
+pub trait NeighborsExt {
+    fn neighbor_restoration_entitlement_changed(&self);
+    #[cfg(any(test, not(feature = "test-support")))]
+    fn spawn_neighbor_restoration(
+        &self,
+        future: impl std::future::Future<Output = ()> + Send + 'static,
+    );
+    fn rearm_neighbor_restoration(&self);
+    #[cfg(any(test, not(feature = "test-support")))]
+    fn start_neighbor_restoration_with<F, A>(
+        &self,
+        generation: u64,
+        attempt: A,
+        clock: Arc<dyn codeterm_neighbors::supervisor::RetryClock>,
+    ) where
+        F: std::future::Future<Output = codeterm_neighbors::Result<()>> + Send + 'static,
+        A: FnMut() -> F + Send + 'static;
+    fn cancel_neighbor_restoration(&self);
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn restore_neighbor_watches(&self, generation: u64) -> WatchStartup<'_>;
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn restore_neighbors_once(&self);
+}
+
+impl NeighborsExt for ServiceContext {
+    /// Entitlement and account changes are the only events that may lift a held entitlement refusal.
+    fn neighbor_restoration_entitlement_changed(&self) {
+        #[cfg(any(test, not(feature = "test-support")))]
+        self.extensions
+            .get_or_init(RestorationHold::default)
+            .0
+            .changed();
+    }
+
+    #[cfg(any(test, not(feature = "test-support")))]
+    fn spawn_neighbor_restoration(
+        &self,
+        future: impl std::future::Future<Output = ()> + Send + 'static,
+    ) {
+        *self.neighbor_cell().restoration.lock() = Some(tokio::spawn(future));
+    }
+
+    fn rearm_neighbor_restoration(&self) {
+        self.extensions
+            .get_or_init(RestorationRearm::default)
+            .0
+            .signal();
+        if self
+            .neighbor_cell()
+            .restoration
+            .lock()
+            .as_ref()
+            .is_none_or(|task| task.is_finished())
+        {
+            self.neighbor_cell()
+                .bootstrapped
+                .store(false, Ordering::Release);
+        }
+        #[cfg(not(any(test, feature = "test-support")))]
+        self.restore_neighbors_once();
+    }
+
+    #[cfg(any(test, not(feature = "test-support")))]
+    fn start_neighbor_restoration_with<F, A>(
+        &self,
+        generation: u64,
+        attempt: A,
+        clock: Arc<dyn codeterm_neighbors::supervisor::RetryClock>,
+    ) where
+        F: std::future::Future<Output = codeterm_neighbors::Result<()>> + Send + 'static,
+        A: FnMut() -> F + Send + 'static,
+    {
+        if self
+            .neighbor_cell()
+            .bootstrapped
+            .swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        let rearm = self
+            .extensions
+            .get_or_init(RestorationRearm::default)
+            .0
+            .clone();
+        let hold = self
+            .extensions
+            .get_or_init(RestorationHold::default)
+            .0
+            .clone();
+        let mut unheld = attempt;
+        let attempt = move || {
+            let hold = hold.clone();
+            let next = unheld();
+            async move {
+                hold.released().await;
+                let epoch = hold.epoch();
+                let result = next.await;
+                log_hold_transition(hold.settle(epoch, &result));
+                result
+            }
+        };
+        let service = self.clone();
+        self.spawn_neighbor_restoration(async move {
+            let _ = super::super::recovery::run(&rearm, clock.as_ref(), attempt, || {
+                let service = service.clone();
+                async move {
+                    let cancelled = service.neighbor_cell().control_cancel.notified();
+                    tokio::pin!(cancelled);
+                    cancelled.as_mut().enable();
+                    if service.require_neighbor_generation(generation).is_err()
+                        || service.require_neighbors_enabled().is_err()
+                    {
+                        return;
+                    }
+                    cancelled.await;
+                }
+            })
+            .await;
+        });
+    }
+
+    fn cancel_neighbor_restoration(&self) {
+        if let Some(task) = self.neighbor_cell().restoration.lock().take() {
+            task.abort();
+        }
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn restore_neighbor_watches(&self, generation: u64) -> WatchStartup<'_> {
+        Box::pin(async move {
+            if self.neighbor_access_locked().await {
+                return Err(Error::Locked.to_string());
+            }
+            self.require_neighbors_enabled()
+                .map_err(|error| error.to_string())?;
+            self.require_neighbor_generation(generation)?;
+            let (registry, _scope, metadata) = self.neighbor_key_ports().await?;
+            let list = self
+                .neighbor_registry_owned(super::super::NeighborCommand::List {})
+                .await?;
+            self.reconcile_neighbor_nonlocal_receivers(
+                &metadata,
+                &registry.uid,
+                &registry.installation_id,
+                &list,
+                generation,
+            )
+            .await?;
+            if !super::super::updates::receives_friends(&list, &registry.installation_id) {
+                return Ok(true);
+            }
+            self.neighbor_operation(owner::Operation::RegistryChanged)
+                .await?;
+            Ok(true)
+        })
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn restore_neighbors_once(&self) {
+        if self
+            .ext::<crate::service::account::AccountCell>()
+            .0
+            .get()
+            .is_none()
+        {
+            return;
+        }
+        if self.require_neighbors_enabled().is_err() {
+            return;
+        }
+        let service = self.clone();
+        let generation = self.neighbor_history_generation();
+        self.start_neighbor_restoration_with(
+            generation,
+            move || {
+                let service = service.clone();
+                async move {
+                    let result = async {
+                        if !service.restore_neighbor_watches(generation).await? {
+                            service
+                                .neighbor_operation(owner::Operation::Restore)
+                                .await?;
+                        }
+                        Ok::<(), String>(())
+                    }
+                    .await;
+                    service
+                        .require_neighbor_generation(generation)
+                        .map_err(|_| Error::Revoked)?;
+                    service.require_neighbors_enabled()?;
+                    result.map_err(|error| {
+                        let refusal = super::super::recovery::startup_error(&error);
+                        if !super::super::recovery::hold::entitlement_refusal(refusal) {
+                            log::debug!("[neighbors] restoration failed: {error}");
+                        }
+                        service.ui.emit(
+                            "neighbor-runtime-status",
+                            json!(
+                                codeterm_neighbors::responses::NeighborListenerEvent::Unavailable {
+                                    receiver_unavailable: true,
+                                    friendship_id: None,
+                                    friend_receivers_version: None,
+                                    reason: Some("neighbor_reception_start_failed".into()),
+                                    message: Some(error)
+                                }
+                            ),
+                        );
+                        refusal
+                    })
+                }
+            },
+            Arc::new(codeterm_neighbors::supervisor::RuntimeClock),
+        );
+    }
+}
+
+#[cfg(any(test, not(feature = "test-support")))]
+fn log_hold_transition(transition: super::super::recovery::hold::HoldTransition) {
+    use super::super::recovery::hold::HoldTransition;
+    match transition {
+        HoldTransition::Held(error) => log::info!(
+            "[neighbors] restoration held until an entitlement or account change: {error}"
+        ),
+        HoldTransition::Released(error) => {
+            log::info!("[neighbors] restoration hold released: {error}")
+        }
+        HoldTransition::Unchanged => {}
+    }
+}
+
+#[cfg(test)]
+pub mod tests;

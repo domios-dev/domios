@@ -116,6 +116,8 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
             }
         }
     }
+    #[cfg(any(test, feature = "test-support"))]
+    publication_gate(tab);
     {
         let mut mux = svc.mux.write();
         let Some(target) = mux.get_tab_mut(tab) else {
@@ -179,4 +181,33 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
         "agent-runtime-state",
         serde_json::json!({"tab_id":tab,"session_binding_nonce":context.binding_nonce,"state":value}),
     );
+}
+
+#[cfg(any(test, feature = "test-support"))]
+type PublicationGate = (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+#[cfg(any(test, feature = "test-support"))]
+static PUBLICATION_GATES: std::sync::LazyLock<
+    parking_lot::Mutex<std::collections::HashMap<String, PublicationGate>>,
+> = std::sync::LazyLock::new(Default::default);
+#[cfg(any(test, feature = "test-support"))]
+pub fn hold_publication_for_test(
+    tab: &str,
+) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+    let (entered, observed) = std::sync::mpsc::channel();
+    let (release, resume) = std::sync::mpsc::channel();
+    assert!(PUBLICATION_GATES
+        .lock()
+        .insert(tab.into(), (entered, resume))
+        .is_none());
+    (observed, release)
+}
+#[cfg(any(test, feature = "test-support"))]
+fn publication_gate(tab: &str) {
+    let gate = PUBLICATION_GATES.lock().remove(tab);
+    if let Some((entered, resume)) = gate {
+        entered.send(()).expect("publication observer remains live");
+        resume
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("publication is released before the failure deadline");
+    }
 }

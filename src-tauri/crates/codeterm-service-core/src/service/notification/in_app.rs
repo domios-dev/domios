@@ -1,6 +1,6 @@
 use super::*;
 
-pub(in crate::service) struct InAppNotice {
+pub struct InAppNotice {
     pub title: String,
     pub actions: Vec<codeterm_notification_core::contract::NotificationAction>,
     pub origin: NotificationOrigin,
@@ -9,7 +9,7 @@ pub(in crate::service) struct InAppNotice {
 }
 
 impl InAppNotice {
-    pub(in crate::service) fn neighbor_connection(title: String, event_key: String) -> Self {
+    pub fn neighbor_connection(title: String, event_key: String) -> Self {
         Self {
             title,
             actions: vec![],

@@ -67,7 +67,8 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     ) -> Result<SpawnResult, String> {
-        self.inherit_neighbor_agent_spawn_sync(&mut params)?;
+        self.neighbors()
+            .inherit_neighbor_agent_spawn_sync(&mut params)?;
         self.validate_remote_spawn(&params)?;
         crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
@@ -208,7 +209,9 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<SpawnResult, String> {
-        self.inherit_neighbor_agent_spawn(&mut params).await?;
+        self.neighbors()
+            .inherit_neighbor_agent_spawn(&mut params)
+            .await?;
         self.validate_remote_spawn(&params)?;
         crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
@@ -1032,7 +1035,7 @@ impl ServiceContext {
         {
             crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
-        let friend = self.neighbor_spawn_friend_name(target_tab);
+        let friend = self.neighbors().neighbor_spawn_friend_name(target_tab);
         let (text, pending) = self
             .ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
             .spawn_task_message(
@@ -1147,7 +1150,7 @@ use remote_binding::remote_task_binding_matches;
 pub use remote_binding::remote_task_binding_matches_authority;
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 #[cfg(unix)]
 fn free_disk_gb(path: &str) -> Option<u64> {

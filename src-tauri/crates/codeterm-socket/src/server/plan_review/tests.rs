@@ -260,7 +260,7 @@ pub(super) fn socket_bounce_fixture(
     } else {
         "worker-tab-absent".into()
     };
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let store = &fixture.service.plan_store;
     let mut plan = Plan::new(
         "socket bounce".into(),

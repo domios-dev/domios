@@ -104,7 +104,7 @@ fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixt
 #[test]
 fn relay_fences_a_closed_peer_before_forwarding() {
     let (mux, _) = mux_with_tabs();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = app_state(&fixture);
     assert!(state.mesh.lock().traffic_open(ISOLATED_PEER));
 
@@ -146,7 +146,7 @@ const TAB_WRITES: [&str; 5] = ["send", "exec", "respond", "prompt/respond", "att
 #[tokio::test]
 async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
     let (mux, tabs) = mux_with_tabs();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = app_state(&fixture);
     for foreign in [&tabs.unowned, &tabs.other_peers] {
         for suffix in TAB_WRITES {
@@ -193,7 +193,7 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
 #[tokio::test]
 async fn relayed_writes_into_an_owned_tab_pass_the_shared_owner_check() {
     let (mux, tabs) = mux_with_tabs();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = app_state(&fixture);
     let owner = |tab_id: &str| crate::auth::tab_owner_peer_id(&state, tab_id);
     for suffix in TAB_WRITES {
@@ -239,7 +239,7 @@ async fn relayed_writes_into_an_owned_tab_pass_the_shared_owner_check() {
 #[tokio::test]
 async fn dot_segments_cannot_retarget_an_authorized_relay() {
     let (mux, tabs) = mux_with_tabs();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = app_state(&fixture);
     let (owned, foreign) = (&tabs.owned, &tabs.unowned);
     for path in [
@@ -263,7 +263,7 @@ async fn dot_segments_cannot_retarget_an_authorized_relay() {
 #[test]
 fn relayed_isolated_listing_keeps_only_owned_rows() {
     let (mux, tabs) = mux_with_tabs();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = app_state(&fixture);
     let mut listing = serde_json::json!([
         { "id": tabs.owned, "other_workspace_tab_count": 3 },

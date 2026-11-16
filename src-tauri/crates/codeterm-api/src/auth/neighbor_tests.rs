@@ -143,7 +143,7 @@ async fn concierge_fixture(
     tab.agent_session_id = ready.then(|| "own-session".into());
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.reported_session_binding_nonce = ready.then(|| "own-nonce".into());
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     fixture
         .seed_neighbor_concierge(
             &concierge,
@@ -492,52 +492,47 @@ async fn neighbor_save_matrix(case: &str) {
     let router = crate::memory_router::memory_routes(Router::new())
         .with_state(state.clone())
         .layer(axum::middleware::from_fn_with_state(state, auth_middleware));
-    codeterm_service_core::mem_ops::neighbor_save::matrix::run(
-        case,
-        &fixture,
-        &concierge,
-        |method, body| {
-            let router = router.clone();
-            let token = token.clone();
-            async move {
-                let token = if method == "owner" {
-                    "owner-secret".to_string()
-                } else {
-                    token
-                };
-                let path = if method == "mem.save" {
-                    "/api/mem/items"
-                } else {
-                    "/api/mem/neighbor-save"
-                };
-                let response = router
-                    .oneshot(
-                        Request::builder()
-                            .method("POST")
-                            .uri(path)
-                            .header("authorization", format!("Bearer {token}"))
-                            .header("content-type", "application/json")
-                            .body(Body::from(body.to_string()))
-                            .unwrap(),
-                    )
-                    .await
-                    .unwrap();
-                let status = response.status();
-                let bytes = axum::body::to_bytes(response.into_body(), 65536)
-                    .await
-                    .unwrap();
-                let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-                if status.is_success() {
-                    Ok(value)
-                } else {
-                    Err((
-                        status.as_u16(),
-                        value["message"].as_str().unwrap().to_string(),
-                    ))
-                }
+    codeterm_neighbors_service::memory_matrix::run(case, &fixture, &concierge, |method, body| {
+        let router = router.clone();
+        let token = token.clone();
+        async move {
+            let token = if method == "owner" {
+                "owner-secret".to_string()
+            } else {
+                token
+            };
+            let path = if method == "mem.save" {
+                "/api/mem/items"
+            } else {
+                "/api/mem/neighbor-save"
+            };
+            let response = router
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(path)
+                        .header("authorization", format!("Bearer {token}"))
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), 65536)
+                .await
+                .unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            if status.is_success() {
+                Ok(value)
+            } else {
+                Err((
+                    status.as_u16(),
+                    value["message"].as_str().unwrap().to_string(),
+                ))
             }
-        },
-    )
+        }
+    })
     .await;
 }
 

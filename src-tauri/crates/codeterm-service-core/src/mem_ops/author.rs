@@ -2,7 +2,7 @@ use crate::mem::store::MemAuthor;
 use crate::service::ServiceContext;
 
 #[derive(Default)]
-pub(crate) struct OwnerMemoryAuthor(pub parking_lot::RwLock<Option<String>>);
+pub struct OwnerMemoryAuthor(pub parking_lot::RwLock<Option<String>>);
 
 pub async fn mem_author_for_rpc(
     svc: &ServiceContext,
@@ -41,7 +41,7 @@ pub async fn mem_author_for_caller(
             (tab.neighbor_authority.clone(), tab.worker_id.clone())
         };
         if let Some(authority) = neighbor {
-            let peer_uid = svc.neighbor_memory_peer_uid(&authority).await?;
+            let peer_uid = svc.neighbors().neighbor_memory_peer_uid(&authority).await?;
             return Ok(MemAuthor::neighbor(peer_uid, authority.friendship_id));
         }
         if let Some(worker_id) = worker_id {
@@ -80,4 +80,4 @@ pub fn author_audit_label(author: &MemAuthor) -> String {
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

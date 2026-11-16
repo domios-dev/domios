@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_neighbors_service::prelude::*;
 use serde::Deserialize;
 use std::net::SocketAddr;
 
@@ -281,7 +282,7 @@ mod tests {
         super::AppState,
     ) {
         let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+        let fixture = codeterm_neighbors_service::test_support::fixture(mux);
         let state = crate::test_support::app_state(&fixture);
         state.config.lock().api.token = Some("secret".into());
         (fixture, state)

@@ -1,15 +1,13 @@
 use super::*;
 use crate::auth::AuthenticatedOrigin;
 use axum::{body::Body, http::Request, routing::post, Router};
-use codeterm_service_core::{
-    multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
-};
+use codeterm_service_core::multiplexer::state::MultiplexerState;
 use serde_json::json;
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn every_remote_neighbor_route_requires_verified_owner_origin() {
-    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::new().0);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let (key, public) = codeterm_service_core::mesh::crown::generate_peer_keypair();
     let instance = "neighbor-view-owner";
@@ -62,7 +60,7 @@ async fn every_remote_neighbor_route_requires_verified_owner_origin() {
 
 #[tokio::test]
 async fn remote_owner_writes_are_refused_before_service_work() {
-    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::new().0);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let app = Router::new()
         .route("/api/neighbors/list", post(list))
