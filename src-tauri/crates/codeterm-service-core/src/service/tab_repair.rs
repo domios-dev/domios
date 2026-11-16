@@ -249,8 +249,8 @@ fn live_task_plan(svc: &ServiceContext, tab: &Tab) -> Result<Option<String>, Tab
 }
 
 impl ServiceContext {
-    #[cfg(test)]
-    pub(crate) fn authorize_tab_repair(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn authorize_tab_repair(
         &self,
         tab_id: &str,
         caller: &AuthenticatedPlanCaller,

@@ -190,8 +190,10 @@ impl ServiceContext {
                 .screen_state
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
-            if crate::service::agent_restart::screen_shows_agent_tui(&self.agent_registry, &screen)
-            {
+            if crate::service::agent_lifecycle::screen_shows_agent_tui(
+                &self.agent_registry,
+                &screen,
+            ) {
                 log::warn!(
                     "[inject] agent TUI on screen for pty {} - refusing shell-spawn launch write",
                     &pty_id[..pty_id.len().min(8)]

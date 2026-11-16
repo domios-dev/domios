@@ -11,7 +11,7 @@ mod deliver;
 mod inject;
 mod lifecycle;
 mod send;
-pub(crate) mod submit_transaction;
+pub mod submit_transaction;
 pub(crate) mod tab_env;
 pub(crate) mod utility_command;
 

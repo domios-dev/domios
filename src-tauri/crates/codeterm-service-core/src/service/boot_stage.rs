@@ -47,7 +47,7 @@ pub fn classify_restart_readiness(
     }
 }
 
-pub(crate) fn wait_for_restart_readiness(
+pub fn wait_for_restart_readiness(
     mux: &crate::MuxState,
     tab_id: &str,
     replaced_pty_id: Option<&str>,
@@ -79,7 +79,7 @@ pub(crate) fn wait_for_restart_readiness(
     RestartReadiness::TimedOut { pty_id }
 }
 
-pub(crate) fn first_turn_input_is_ready(tab: &Tab) -> bool {
+pub fn first_turn_input_is_ready(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::ProviderReady)
         && !tab.agent_booting
         && !tab.frozen
@@ -503,7 +503,8 @@ impl ServiceContext {
         self.schedule_restore_report();
         crate::startup::boot_timing::mark(tab_id, None, "finish_restore_done");
         if stage == BootStage::ShellReady {
-            self.resume_exited_member_on_shell_ready(tab_id);
+            self.lifecycle_port()
+                .resume_exited_member_on_shell_ready(tab_id);
         }
         if stage == BootStage::AgentReady {
             if let Ok(authority) = self.user_send_authority(tab_id) {
@@ -576,7 +577,7 @@ impl ServiceContext {
     /// Latch a provisional launch: uncertainty about one PTY and one launch
     /// attempt, carrying the evidence that made this observer give up. Only a
     /// nonce-verified binding for the same pair retires it.
-    pub(crate) fn record_provisional_launch(
+    pub fn record_provisional_launch(
         &self,
         attempt: &crate::service::launch_readiness::LaunchAttempt,
         stage: BootStage,
@@ -585,7 +586,7 @@ impl ServiceContext {
         self.record_provisional_launch_with_binding_wait(attempt, stage, reason, false, false);
     }
 
-    pub(crate) fn record_first_turn_input_ready(
+    pub fn record_first_turn_input_ready(
         &self,
         attempt: &crate::service::launch_readiness::LaunchAttempt,
         reason: &str,

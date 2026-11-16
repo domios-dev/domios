@@ -21,8 +21,8 @@ pub mod account_mesh;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
+pub mod agent_lifecycle;
 pub mod agent_pad;
-pub mod agent_restart;
 pub mod agent_runtime;
 pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
@@ -34,12 +34,12 @@ pub mod tab_todos;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
 mod analytics_host;
-pub(crate) mod background_work;
+pub mod background_work;
 pub(crate) mod background_work_watch;
 pub mod billing;
 pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
-pub(crate) mod boot_wait;
+pub mod boot_wait;
 pub(crate) mod bridge_threads;
 pub mod gift_redemption;
 pub mod neighbors;
@@ -47,7 +47,7 @@ pub use codeterm_browser as browser;
 pub(crate) mod capability_probe;
 pub use capability_probe::refresh as capability_probe_refresh;
 pub(crate) mod cartographer;
-pub(crate) mod chat_send_evidence;
+pub mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod client_selection;
 mod close_history;
@@ -77,7 +77,7 @@ pub mod launch_delivery;
 mod pty_memory;
 mod shared_history;
 pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_input;
-pub(crate) mod launch_diagnostics;
+pub mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
 #[cfg(any(test, feature = "test-support"))]
@@ -100,11 +100,11 @@ mod plan_projects;
 pub mod role_policy;
 mod tab_input_policy;
 pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
-pub(crate) mod orchestrator;
+pub mod orchestrator;
 pub mod ordered_actions;
 pub mod parked_user_delivery;
 pub mod post_update;
-pub(crate) mod process_tree;
+pub mod process_tree;
 pub mod prompt_resolution;
 #[cfg(any(test, feature = "test-support"))]
 pub use prompt_resolution::tests as prompt_resolution_tests;
@@ -121,21 +121,21 @@ pub mod provider_cli_actions;
 pub mod provider_hooks;
 pub(crate) mod provider_signals;
 pub use provider_signals::apply_structured as provider_signals_apply_structured;
-pub(crate) mod provider_runtime_update;
-mod provider_signals_probe;
+pub mod provider_runtime_update;
+pub mod provider_signals_probe;
 pub(crate) mod provider_update;
 pub(crate) mod pty_resize;
 pub use pty_resize::resize as pty_resize_resize;
 pub(crate) mod public_send_readiness;
 pub(crate) mod skill_mirror;
-pub(crate) mod startup_turn;
-pub(crate) mod task_files;
+pub mod startup_turn;
+pub mod task_files;
 pub use orchestrator::build_agent_command_for_service;
 pub(crate) use orchestrator::provider_launch_task;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
 pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
-mod directory_pre_trust;
+pub mod directory_pre_trust;
 pub(crate) mod directory_trust;
 pub(crate) mod execution_sandbox;
 pub use execution_sandbox::{
@@ -159,8 +159,8 @@ pub mod plan_batch_authority;
 mod plan_pause;
 pub mod plan_reconcile;
 mod prompt_chain;
-mod provider_handoff;
-use codeterm_util::pty_frame_timing;
+pub mod provider_handoff;
+pub use codeterm_util::pty_frame_timing;
 mod pty_output_pipeline;
 pub use plan_reconcile::tab_has_live_agent;
 pub(crate) mod local_recording;
@@ -175,7 +175,7 @@ pub mod pty_io;
 pub mod pty_lifecycle;
 pub(crate) mod pty_ownership;
 pub mod push;
-mod reasoning_effort;
+pub mod reasoning_effort;
 pub mod receiver_target;
 pub use receiver_target::ReceiverTargetError;
 pub mod remote_tabs;
@@ -184,8 +184,7 @@ pub mod remote_worker_transfer;
 pub mod remote_workers;
 pub mod reply_relay;
 pub mod restore_admission;
-pub(crate) mod restore_exited_member;
-mod restored_binding;
+pub mod restored_binding;
 pub mod role_identity;
 pub mod role_preset;
 pub mod role_profile;
@@ -193,7 +192,7 @@ mod role_target;
 mod session_backup;
 pub mod session_binding_deferral;
 mod session_binding_state;
-pub(crate) mod session_model;
+pub mod session_model;
 pub mod session_persist;
 mod session_resume;
 pub(crate) mod shell_exec;
@@ -204,7 +203,7 @@ pub mod smart_add;
 pub mod spawn;
 pub mod spawn_capability;
 mod spawn_chatbackend;
-mod spawn_cli;
+pub mod spawn_cli;
 pub mod spawn_cwd;
 pub mod spawn_speed;
 pub mod step_agent_run;
@@ -224,7 +223,7 @@ pub(crate) mod spawn_title;
 pub use spawn_title::validate_agent_tab_title as spawn_title_validate_agent_tab_title;
 pub mod startup_lease;
 pub(crate) mod startup_nudge;
-mod status_reconciliation;
+pub mod status_reconciliation;
 pub(crate) mod stop_execution;
 pub use stop_execution::stop_agent_turn as stop_execution_stop_agent_turn;
 mod tab_status_events;
@@ -238,7 +237,7 @@ pub use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod blocking;
 pub use blocking::run as blocking_run;
 pub mod launch_credentials;
-pub(crate) mod restored_launch;
+pub mod restored_launch;
 pub mod store;
 pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
@@ -253,7 +252,7 @@ pub mod tab_budget;
 pub mod tab_chat;
 pub(crate) mod tab_conditions;
 pub mod tab_credentials;
-pub(crate) mod tab_lifecycle;
+pub mod tab_lifecycle;
 pub mod tab_repair;
 pub(crate) mod tab_session_binding;
 pub mod tab_transport;
@@ -279,6 +278,8 @@ pub use task_lane_guard::{
 // ServiceContext wrapper instead.
 #[cfg(any(test, feature = "test-support"))]
 pub use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
+#[cfg(any(test, feature = "test-support"))]
+pub mod consumer_load_fixture;
 #[cfg(test)]
 mod consumer_load_tests;
 #[cfg(test)]
@@ -295,9 +296,8 @@ pub mod web_access;
 pub use codeterm_util::windows_job;
 pub mod worker_ack;
 pub mod worker_identity;
-pub(crate) mod worker_interruption;
 pub mod worker_lane;
-pub(crate) mod worker_loss;
+pub mod worker_loss;
 #[cfg(any(test, feature = "test-support"))]
 pub use worker_lane::provision_lane_for_test;
 pub use worker_lane::{
@@ -379,7 +379,7 @@ pub(crate) use worker_persona::{WorkerIdentityAllocator, WorkerPersonaReservatio
 mod configuration;
 pub(crate) mod extensions;
 mod host_extensions;
-pub(crate) use extensions::Extensions;
+pub use extensions::Extensions;
 pub use extensions::ExtensionsBuilder;
 
 /// Shared service context — all state needed for multiplexer operations.
@@ -447,7 +447,7 @@ pub struct ServiceContext {
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub gateway: Arc<crate::service::message_gateway::MessageGateway>,
-    pub(crate) extensions: Arc<Extensions>,
+    pub extensions: Arc<Extensions>,
     host_extensions: Arc<host_extensions::HostExtensions>,
 }
 
@@ -527,7 +527,7 @@ pub fn start_plan_reminder_scheduler(svc: ServiceState) {
 }
 
 impl ServiceContext {
-    pub(crate) fn create_pending_delivery(
+    pub fn create_pending_delivery(
         &self,
         tab_id: &str,
         channel: crate::multiplexer::types::PendingDeliveryChannel,
@@ -652,7 +652,7 @@ impl ServiceContext {
         self.cleanup_pending_delivery(tab_id, true, "confirmed", None)
     }
 
-    fn discard_pending_delivery(
+    pub fn discard_pending_delivery(
         &self,
         tab_id: &str,
     ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
@@ -971,7 +971,7 @@ pub fn resolve_refs(
 }
 
 pub(crate) mod context_bundle;
-pub(crate) mod tool_less_instructions;
+pub mod tool_less_instructions;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use plan_authority::test_fixture::fixture as plan_authority_fixture;
@@ -1014,7 +1014,6 @@ pub use pty_ownership::OwnershipEvent;
 
 pub use model_defaults::start as start_model_defaults;
 pub use provider_update::check_available as check_provider_update_available;
-pub use restore_exited_member::{apply_restore_decisions, mark_legacy_role_shell_failures};
 pub use skill_mirror::{mirror_skills_to_providers, seed_bundled_skills};
 pub use utility_deadline::restore as restore_utility_deadlines;
 

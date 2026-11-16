@@ -73,7 +73,7 @@ pub(crate) fn role_launch_task(
     }
 }
 
-pub(crate) fn provider_launch_task(
+pub fn provider_launch_task(
     registry: &AgentRegistry,
     provider_id: &str,
     assignment: Option<&str>,
@@ -190,7 +190,7 @@ fn worker_agent_system_prompt_with_plugins(
     sections.join("\n\n")
 }
 
-pub(crate) fn restorable_identity_task(
+pub fn restorable_identity_task(
     task: Option<&str>,
     role: Option<&str>,
     role_profile: Option<&str>,

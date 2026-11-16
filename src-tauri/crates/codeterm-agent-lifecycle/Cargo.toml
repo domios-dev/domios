@@ -1,0 +1,41 @@
+[package]
+license = "AGPL-3.0-only"
+name = "codeterm-agent-lifecycle"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "codeterm_agent_lifecycle"
+
+[features]
+test-support = ["codeterm-service-core/test-support"]
+
+[dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-notification-core = { path = "../codeterm-notification-core" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-pty = { path = "../codeterm-pty" }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-wire = { path = "../codeterm-wire" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
+parking_lot = "0.12"
+regex = "1"
+serde_json = { version = "1", features = ["raw_value"] }
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
+codeterm-entitlements = { path = "../codeterm-entitlements" }
+codeterm-plugin = { path = "../codeterm-plugin", features = ["test-support"] }
+codeterm-pty = { path = "../codeterm-pty", features = ["test-support"] }
+codeterm-util = { path = "../codeterm-util", features = ["test-support"] }
+rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
+tempfile = "3"
+tokio = { version = "1", features = ["test-util"] }
+toml = "0.8"

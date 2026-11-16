@@ -87,7 +87,7 @@ pub fn build_agent_command_with_launch_marker_for_service(
     .shell_command
 }
 
-pub(crate) fn prepare_agent_command_for_service(
+pub fn prepare_agent_command_for_service(
     service: &ServiceContext,
     tab_id: &str,
     agent_cmd: &str,

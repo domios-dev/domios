@@ -1,0 +1,897 @@
+//! Live model switch for one tab. The provider's capability says how: a
+//! `RestartResume` provider is relaunched on its own verified session with the
+//! new model launch args. The first assistant turn after the transcript
+//! boundary confirms the model; a ready relaunch without one returns pending.
+
+use crate::service::MuxEmitCause;
+use std::time::{Duration, Instant};
+
+use super::{
+    AgentRestartError, ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence,
+    ModelSwitchOutcome, TabRestartSnapshot, DEFAULT_GRACE_SECS,
+};
+use crate::agent::provider::ModelSwitchMode;
+use crate::multiplexer::types::RestorableLaunchParameters;
+use crate::prelude::*;
+use crate::service::agent_lifecycle::model_request::record_live_request_identity;
+use crate::service::{ServiceContext, SpawnAgentParams};
+
+pub mod first_turn;
+pub(in crate::service::agent_restart) use first_turn::SessionlessTeardownError;
+pub mod live_command;
+pub mod next_turn;
+pub mod staging;
+
+/// Deadline for the relaunched session to report its model before returning pending.
+pub(crate) const MODEL_OBSERVE_TIMEOUT_SECS: u64 = 20;
+
+fn effective_model_switch_mode(
+    declared: ModelSwitchMode,
+    live_result: Option<&crate::service::structured_prompt::LiveModelSwitchResult>,
+) -> (ModelSwitchMode, Option<String>) {
+    match (declared, live_result) {
+        (
+            ModelSwitchMode::Live,
+            Some(crate::service::structured_prompt::LiveModelSwitchResult::Applied { .. }),
+        ) => (ModelSwitchMode::Live, None),
+        (
+            ModelSwitchMode::Live,
+            Some(crate::service::structured_prompt::LiveModelSwitchResult::Unsupported { reason }),
+        ) => (ModelSwitchMode::RestartResume, Some(reason.clone())),
+        (ModelSwitchMode::NextTurn, _) => (ModelSwitchMode::NextTurn, None),
+        (ModelSwitchMode::LiveCommand, _) => (ModelSwitchMode::LiveCommand, None),
+        (ModelSwitchMode::RestartResume, _) => (ModelSwitchMode::RestartResume, None),
+        (ModelSwitchMode::Unsupported, _) => (ModelSwitchMode::Unsupported, None),
+        (ModelSwitchMode::Live, None) => (
+            ModelSwitchMode::RestartResume,
+            Some("the live switch route was not probed".into()),
+        ),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelSwitchObservation {
+    model: String,
+    evidence: ModelSwitchEvidence,
+}
+
+/// The relaunch a model switch performs: the same parameters a daemon restore
+/// would use for this tab, with only the model replaced.
+pub struct ModelSwitchLaunch {
+    provider: String,
+    session_id: String,
+    transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary,
+    params: SpawnAgentParams,
+    launch: RestorableLaunchParameters,
+    task: Option<String>,
+    sessionless_attempt: Option<crate::service::launch_readiness::LaunchAttempt>,
+}
+
+impl ModelSwitchLaunch {
+    fn prepare(
+        svc: &ServiceContext,
+        snap: &TabRestartSnapshot,
+        session_id: &str,
+        requested: &str,
+    ) -> Result<Self, ModelSwitchError> {
+        let cwd = snap.cwd.as_deref().ok_or_else(|| {
+            ModelSwitchError::NotSwitchable(
+                "the session's working directory is unavailable for model verification".to_string(),
+            )
+        })?;
+        let transcript_boundary = if session_id.is_empty() {
+            Default::default()
+        } else {
+            svc.agent_registry
+                .with_provider(&snap.provider, |provider| {
+                    provider.session_model_transcript_boundary(cwd, session_id)
+                })
+                .flatten()
+                .unwrap_or_default()
+        };
+        let registry = &svc.agent_registry;
+        let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+            &svc.configuration(),
+            registry,
+            &snap.provider,
+            Some(requested.to_string()),
+            (!session_id.is_empty()).then_some(session_id),
+        );
+        let model = resolution.model.clone().ok_or_else(|| {
+            ModelSwitchError::NotSwitchable(format!(
+                "provider {} resolved no launch model for '{requested}'",
+                snap.provider
+            ))
+        })?;
+        let mut launch = {
+            let mux = svc.mux.read();
+            let tab = mux.get_tab(&snap.tab_id).ok_or_else(|| {
+                ModelSwitchError::NotFound(format!("Tab {} not found", snap.tab_id))
+            })?;
+            recorded_launch_parameters(tab)
+        };
+        launch.requested_model = resolution
+            .requested_model
+            .clone()
+            .or_else(|| Some(requested.to_string()));
+        launch.model = Some(model.clone());
+        let authorization =
+            crate::service::restored_launch::restore_permission_bypass_authorization(
+                &svc,
+                registry,
+                &snap.tab_id,
+                &snap.provider,
+                &launch,
+            )
+            .map_err(ModelSwitchError::NotSwitchable)?;
+        let skip_permissions = if launch.captured {
+            launch.permission_bypass_requested && authorization.is_some()
+        } else {
+            authorization.is_some()
+        };
+        let reasoning_effort = launch
+            .resolved_reasoning_effort
+            .clone()
+            .or_else(|| launch.requested_reasoning_effort.clone());
+        let team_id = svc
+            .mux
+            .read()
+            .get_tab(&snap.tab_id)
+            .and_then(|tab| tab.team_id.clone());
+        let (prompt_capable, task) = crate::service::restored_launch::restored_launch_task(
+            registry,
+            &snap.provider,
+            snap.role.as_deref(),
+            snap.role_profile.as_deref(),
+            team_id.as_deref(),
+            &launch,
+        );
+        let system_prompt = prompt_capable.then(|| task.clone()).flatten();
+        if !launch.captured {
+            launch.permission_bypass_requested = skip_permissions;
+        }
+        launch.captured = true;
+        launch.identity_instructions = system_prompt.clone();
+        launch.resolved_reasoning_effort = reasoning_effort.clone();
+        let params = SpawnAgentParams {
+            context_files: launch.context_files.clone(),
+            context_skills: launch.context_skills.clone(),
+            agent: Some(snap.provider.clone()),
+            agent_name: launch.agent_name.clone(),
+            args: launch.args.clone(),
+            cwd: snap.cwd.clone(),
+            skip_permissions: Some(skip_permissions),
+            permission_bypass_authorization: authorization,
+            model: Some(model),
+            reasoning_effort,
+            system_prompt,
+            resume_session_id: (!session_id.is_empty()).then(|| session_id.to_string()),
+            role: snap.role.clone(),
+            role_profile: snap.role_profile.clone(),
+            starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
+            ..Default::default()
+        };
+        Ok(Self {
+            provider: snap.provider.clone(),
+            session_id: session_id.to_string(),
+            transcript_boundary,
+            params,
+            launch,
+            task,
+            sessionless_attempt: if session_id.is_empty() {
+                crate::service::launch_readiness::LaunchAttempt::current(
+                    &svc.mux,
+                    &snap.tab_id,
+                    &snap.pty_id,
+                )
+            } else {
+                None
+            },
+        })
+    }
+
+    fn launched_model(&self) -> &str {
+        self.params.model.as_deref().unwrap_or_default()
+    }
+
+    pub(super) fn command(
+        &self,
+        svc: &ServiceContext,
+        snap: &TabRestartSnapshot,
+    ) -> Option<(
+        crate::service::orchestrator::PreparedAgentCommand,
+        Option<String>,
+    )> {
+        let command = crate::service::orchestrator::prepare_agent_command_for_service(
+            svc,
+            &snap.tab_id,
+            &self.provider,
+            &self.params,
+            self.task.as_deref(),
+            None,
+            &svc.agent_registry,
+            None,
+        );
+        (!command.trim().is_empty()).then(|| (command, self.task.clone()))
+    }
+
+    /// The tab's spawn record now names the new model, so a daemon restore
+    /// relaunches what is actually running.
+    pub fn commit(&self, svc: &ServiceContext, tab_id: &str) {
+        if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
+            tab.model_fallback = None;
+            tab.pending_model_switch_observation = (!self.session_id.is_empty()).then(|| {
+                crate::multiplexer::types::PendingModelSwitchObservation {
+                    session_id: self.session_id.clone(),
+                    launched_model: self.launched_model().to_string(),
+                    transcript_boundary: self.transcript_boundary.clone(),
+                }
+            });
+        }
+        crate::service::restored_launch::persist_restored_launch_identity(
+            &svc.mux,
+            tab_id,
+            &self.provider,
+            &self.params,
+            &self.launch,
+        );
+        if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
+            svc,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        ) {
+            log::warn!("[agent-model] tab={tab_id} failed to persist the switched model: {error}");
+        }
+        svc.emit_state_changed(MuxEmitCause::Model);
+    }
+}
+
+/// The restorable launch record with the same fallbacks a restore applies.
+fn recorded_launch_parameters(tab: &crate::multiplexer::types::Tab) -> RestorableLaunchParameters {
+    let mut launch = tab.restorable_launch.clone();
+    launch.requested_model = launch
+        .requested_model
+        .or_else(|| tab.agent_requested_model.clone());
+    launch.model = launch
+        .model
+        .or_else(|| tab.agent_provider_resolved_model.clone())
+        .or_else(|| tab.agent_session_model.clone());
+    launch.requested_reasoning_effort = launch
+        .requested_reasoning_effort
+        .or_else(|| tab.reasoning_effort_identity.requested.clone());
+    launch.resolved_reasoning_effort = launch
+        .resolved_reasoning_effort
+        .or_else(|| tab.reasoning_effort_identity.resolved.clone());
+    launch
+}
+
+fn live_model_confirmation_matches(
+    registry: &crate::agent::registry::AgentRegistry,
+    tab: &crate::multiplexer::types::Tab,
+    provider: &str,
+    session_id: &str,
+    binding_nonce: &str,
+    observed_model: &str,
+) -> bool {
+    tab.agent_type.as_deref() == Some(provider)
+        && tab.agent_session_id.as_deref() == Some(session_id)
+        && tab.agent_session_model.as_deref().is_some_and(|model| {
+            crate::service::session_model::session_model_matches(
+                registry,
+                provider,
+                observed_model,
+                model,
+            )
+        })
+        && tab
+            .agent_session_model_identity
+            .as_ref()
+            .is_some_and(|identity| {
+                identity.session_id == session_id
+                    && identity.session_binding_nonce == binding_nonce
+                    && tab.session_binding_nonce.as_deref() == Some(binding_nonce)
+                    && tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce)
+            })
+}
+
+pub trait ModelSwitchExt {
+    #[cfg(test)]
+    fn agent_switch_model(
+        &self,
+        tab_id: &str,
+        requested: &str,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError>;
+    #[cfg(test)]
+    fn agent_switch_model_with_reasoning(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError>;
+    #[cfg(test)]
+    fn agent_switch_model_with_options(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+        force: bool,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError>;
+    fn agent_switch_model_with_fallback(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+        force: bool,
+        restart_fallback: bool,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError>;
+    fn execute_model_switch(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+        force: bool,
+        restart_fallback: bool,
+        staged: Option<&staging::SwitchRequest>,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError>;
+    fn record_live_model_confirmation(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        session_id: &str,
+        requested_model: &str,
+        observed_model: &str,
+    ) -> bool;
+    fn verified_resumable_session(
+        &self,
+        snap: &TabRestartSnapshot,
+    ) -> Result<String, ModelSwitchError>;
+    fn await_model_switch_observation(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        session_id: &str,
+        launched_model: &str,
+        timeout: Duration,
+    ) -> Option<ModelSwitchObservation>;
+}
+
+impl ModelSwitchExt for ServiceContext {
+    #[cfg(test)]
+    fn agent_switch_model(
+        &self,
+        tab_id: &str,
+        requested: &str,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        self.agent_switch_model_with_reasoning(tab_id, requested, None)
+    }
+
+    #[cfg(test)]
+    fn agent_switch_model_with_reasoning(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        self.agent_switch_model_with_options(tab_id, requested, requested_effort, false)
+    }
+
+    #[cfg(test)]
+    fn agent_switch_model_with_options(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+        force: bool,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        self.agent_switch_model_with_fallback(tab_id, requested, requested_effort, force, false)
+    }
+
+    fn agent_switch_model_with_fallback(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+        force: bool,
+        restart_fallback: bool,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        self.execute_model_switch(
+            tab_id,
+            requested,
+            requested_effort,
+            force,
+            restart_fallback,
+            None,
+        )
+    }
+
+    fn execute_model_switch(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+        force: bool,
+        restart_fallback: bool,
+        staged: Option<&staging::SwitchRequest>,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab_id) {
+            return crate::service::agent_runtime::controls::switch(
+                self,
+                &tab,
+                requested,
+                requested_effort,
+                None,
+                None,
+            );
+        }
+        let requested = requested.trim();
+        let (resolved_tab, provider) = {
+            let mux = self.mux.read();
+            let resolved = mux
+                .resolve_tab_id(tab_id)
+                .ok_or_else(|| ModelSwitchError::NotFound(format!("Tab {tab_id} not found")))?;
+            let provider = mux
+                .get_tab(&resolved)
+                .and_then(|tab| tab.agent_type.clone())
+                .ok_or_else(|| {
+                    ModelSwitchError::NotSwitchable("no agent in this Tab".to_string())
+                })?;
+            (resolved, provider)
+        };
+        let completion_boundary = self.staged_completion_boundary(&resolved_tab);
+        let declared_mode = self
+            .agent_registry
+            .with_provider(&provider, |p| p.model_switch())
+            .ok_or_else(|| {
+                ModelSwitchError::NotSwitchable(format!("unknown agent provider: {provider}"))
+            })?;
+        if declared_mode == ModelSwitchMode::Unsupported {
+            return Err(ModelSwitchError::Unsupported { provider });
+        }
+        let model_selection = crate::service::spawn::resolve_agent_model_selection(
+            &self.agent_registry,
+            Some(&provider),
+            Some(requested),
+            &provider,
+        )
+        .map_err(ModelSwitchError::InvalidModel)?;
+        let requested = model_selection.model.as_deref().unwrap_or_default();
+        let declared_mode = if declared_mode == ModelSwitchMode::LiveCommand && restart_fallback {
+            ModelSwitchMode::RestartResume
+        } else {
+            declared_mode
+        };
+        let snap = self.snapshot_tab_for_restart(&resolved_tab)?;
+        if let Some(request) = staged {
+            request.require_mechanism(declared_mode)?;
+        }
+        let first_turn = self.sessionless_model_switch_ready(&snap);
+        let session_id = if first_turn {
+            String::new()
+        } else {
+            self.verified_resumable_session(&snap)?
+        };
+        let effort = requested_effort.map(str::to_owned).or_else(|| {
+            let saved = self
+                .mux
+                .read()
+                .get_tab(&snap.tab_id)
+                .and_then(|tab| recorded_launch_parameters(tab).resolved_reasoning_effort);
+            saved.filter(|effort| {
+                crate::service::spawn::validate_agent_reasoning_effort(
+                    &self.agent_registry,
+                    &provider,
+                    Some(requested),
+                    Some(effort),
+                )
+                .is_ok()
+            })
+        });
+        crate::service::spawn::validate_agent_reasoning_effort(
+            &self.agent_registry,
+            &provider,
+            Some(requested),
+            effort.as_deref(),
+        )
+        .map_err(ModelSwitchError::NotSwitchable)?;
+        let previous_model = {
+            let mux = self.mux.read();
+            mux.get_tab(&snap.tab_id).and_then(|tab| {
+                tab.agent_session_model
+                    .clone()
+                    .or_else(|| tab.agent_provider_resolved_model.clone())
+            })
+        };
+        if first_turn {
+            if let Some(request) = staged {
+                request.require_snapshot(&snap)?;
+                request.require_current(self)?;
+            } else {
+                self.cancel_staged_model_switch(&snap.tab_id);
+            }
+            return self.switch_model_before_first_turn(
+                snap,
+                requested,
+                effort,
+                previous_model,
+                force,
+            );
+        }
+        let during_turn = declared_mode == ModelSwitchMode::LiveCommand
+            && self
+                .agent_registry
+                .with_provider(&provider, |provider| {
+                    provider
+                        .model_switch_commands()
+                        .is_some_and(|commands| commands.during_turn)
+                })
+                .unwrap_or(false);
+        let mid_turn = !self.tab_is_idle(&snap.tab_id);
+        if let Some(request) = staged {
+            request.require_snapshot(&snap)?;
+            request.require_current(self)?;
+        } else if mid_turn && !during_turn {
+            return self.stage_model_switch(
+                &snap,
+                &session_id,
+                requested,
+                effort.as_deref(),
+                staging::StagingParams {
+                    mechanism: declared_mode,
+                    force,
+                    restart_fallback,
+                    previous_model,
+                    completion_boundary: completion_boundary.ok_or_else(|| {
+                        ModelSwitchError::NotSwitchable(
+                            "no verified own-turn completion boundary for staging".into(),
+                        )
+                    })?,
+                },
+            );
+        } else {
+            self.cancel_staged_model_switch(&snap.tab_id);
+        }
+        if declared_mode == ModelSwitchMode::LiveCommand {
+            return self
+                .switch_model_by_command(
+                    &snap,
+                    &session_id,
+                    requested,
+                    effort.as_deref(),
+                    staged.is_some(),
+                )
+                .map_err(|error| {
+                    if mid_turn && during_turn {
+                        self.during_turn_switch_incident(&snap, error)
+                    } else {
+                        error
+                    }
+                });
+        }
+        if declared_mode == ModelSwitchMode::NextTurn {
+            return self.switch_model_on_next_turn(
+                &snap,
+                &session_id,
+                requested,
+                effort.as_deref(),
+                previous_model,
+            );
+        }
+        let live_result = if declared_mode == ModelSwitchMode::Live {
+            Some(
+                crate::service::structured_prompt::live_switch_for_tab(
+                    &snap.tab_id,
+                    &session_id,
+                    requested,
+                    effort.as_deref(),
+                )
+                .map_err(ModelSwitchError::LiveSwitchFailed)?,
+            )
+        } else {
+            None
+        };
+        let (mechanism, fallback_reason) =
+            effective_model_switch_mode(declared_mode, live_result.as_ref());
+        if staged.is_some() && fallback_reason.is_some() {
+            return Err(ModelSwitchError::LiveSwitchFailed(
+                fallback_reason.unwrap_or_default(),
+            ));
+        }
+        if let Some(crate::service::structured_prompt::LiveModelSwitchResult::Applied {
+            observed_model,
+            confirmation_detail,
+        }) = live_result
+        {
+            self.record_live_model_request(
+                &snap.tab_id,
+                &provider,
+                &session_id,
+                requested,
+                effort.as_deref(),
+            )?;
+            let confirmed = observed_model.as_deref().is_some_and(|observed| {
+                crate::service::structured_prompt::same_model_id(requested, observed)
+                    && self.record_live_model_confirmation(
+                        &snap.tab_id,
+                        &provider,
+                        &session_id,
+                        requested,
+                        observed,
+                    )
+            });
+            let detail = if confirmed {
+                None
+            } else {
+                confirmation_detail.or_else(|| {
+                    Some("the bound session model has not confirmed the request".into())
+                })
+            };
+            let confirmation = if confirmed {
+                ModelSwitchConfirmation::Observed {
+                    model: observed_model.clone().unwrap_or_default(),
+                    evidence: ModelSwitchEvidence::LiveSessionRecord,
+                }
+            } else {
+                ModelSwitchConfirmation::Pending
+            };
+            return Ok(ModelSwitchOutcome {
+                tab_id: snap.tab_id,
+                provider,
+                session_id,
+                restart: None,
+                mechanism: ModelSwitchMode::Live,
+                fallback_reason: None,
+                previous_model,
+                requested_model: requested.to_string(),
+                launched_model: requested.to_string(),
+                confirmation_detail: detail,
+                confirmation,
+                control_changes: Vec::new(),
+            });
+        }
+        if mechanism == ModelSwitchMode::Unsupported {
+            return Err(ModelSwitchError::Unsupported { provider });
+        }
+        self.require_background_work_safe(&snap.tab_id, force)?;
+        if !self.tab_is_idle(&snap.tab_id) {
+            let suffix = fallback_reason
+                .as_deref()
+                .map(|reason| format!(" Live mode was unavailable: {reason}."))
+                .unwrap_or_default();
+            return Err(ModelSwitchError::NotSwitchable(format!(
+                "the agent is mid-turn or waiting on a prompt; RestartResume requires an idle tab.{suffix}"
+            )));
+        }
+        let mut launch = ModelSwitchLaunch::prepare(self, &snap, &session_id, requested)?;
+        launch.params.reasoning_effort = effort.clone();
+        launch.launch.requested_reasoning_effort = effort.clone();
+        launch.launch.resolved_reasoning_effort = effort;
+        let launched_model = launch.launched_model().to_string();
+        log::info!(
+            "[agent-model] tab={} provider={} session={} {:?} -> {}",
+            snap.tab_id,
+            provider,
+            session_id,
+            previous_model,
+            launched_model
+        );
+        let restart = self.restart_live_agent(
+            snap,
+            force,
+            DEFAULT_GRACE_SECS,
+            Some(&launch),
+            super::RestartMode::Standard,
+        )?;
+        let observed = self.await_model_switch_observation(
+            &restart.tab_id,
+            &provider,
+            &session_id,
+            &launched_model,
+            Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS),
+        );
+        let confirmation = match model_switch_confirmation(
+            &self.agent_registry,
+            &provider,
+            &launched_model,
+            observed,
+        ) {
+            Ok(confirmation) => confirmation,
+            Err(observed_model) => {
+                return Err(ModelSwitchError::ModelMismatch {
+                    outcome: restart,
+                    launched_model,
+                    observed_model,
+                })
+            }
+        };
+        Ok(ModelSwitchOutcome {
+            tab_id: restart.tab_id.clone(),
+            provider: restart.provider.clone(),
+            session_id: session_id.clone(),
+            restart: Some(restart),
+            mechanism,
+            fallback_reason,
+            previous_model,
+            requested_model: requested.to_string(),
+            launched_model,
+            confirmation_detail: None,
+            confirmation,
+            control_changes: Vec::new(),
+        })
+    }
+
+    fn record_live_model_confirmation(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        session_id: &str,
+        requested_model: &str,
+        observed_model: &str,
+    ) -> bool {
+        if !crate::service::session_model::session_model_matches(
+            &self.agent_registry,
+            provider,
+            requested_model,
+            observed_model,
+        ) {
+            return false;
+        }
+        let binding_nonce = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return false;
+            };
+            if tab.agent_type.as_deref() != Some(provider)
+                || tab.agent_session_id.as_deref() != Some(session_id)
+                || tab.session_binding_nonce.is_none()
+                || tab.session_binding_nonce != tab.reported_session_binding_nonce
+            {
+                return false;
+            }
+            tab.session_binding_nonce.clone().unwrap_or_default()
+        };
+        self.apply_session_model(
+            tab_id,
+            provider,
+            session_id,
+            observed_model.to_string(),
+            None,
+            Some(&binding_nonce),
+            false,
+        );
+        let snapshot = self.mux.read().get_tab(tab_id).cloned();
+        let Some(snapshot) = snapshot else {
+            return false;
+        };
+        if !live_model_confirmation_matches(
+            &self.agent_registry,
+            &snapshot,
+            provider,
+            session_id,
+            &binding_nonce,
+            observed_model,
+        ) {
+            return false;
+        }
+        self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_type == snapshot.agent_type
+                && tab.agent_session_id == snapshot.agent_session_id
+                && tab.session_binding_nonce == snapshot.session_binding_nonce
+                && tab.reported_session_binding_nonce == snapshot.reported_session_binding_nonce
+                && tab.agent_session_model == snapshot.agent_session_model
+                && tab.agent_session_model_identity == snapshot.agent_session_model_identity
+        })
+    }
+
+    fn verified_resumable_session(
+        &self,
+        snap: &TabRestartSnapshot,
+    ) -> Result<String, ModelSwitchError> {
+        let verified = {
+            let mux = self.mux.read();
+            mux.get_tab(&snap.tab_id).is_some_and(|tab| {
+                tab.session_binding_nonce.is_some()
+                    && tab.session_binding_nonce == tab.reported_session_binding_nonce
+            })
+        };
+        match snap.session_id.clone() {
+            Some(session_id) if verified && self.session_file_present(snap) => Ok(session_id),
+            _ => Err(ModelSwitchError::NotSwitchable(
+                "the Tab has no verified resumable session to carry into the new model; spawn a fresh agent with --model"
+                    .to_string(),
+            )),
+        }
+    }
+
+    fn await_model_switch_observation(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        session_id: &str,
+        launched_model: &str,
+        timeout: Duration,
+    ) -> Option<ModelSwitchObservation> {
+        let mut observed = None;
+        let mut mismatched_report = None;
+        crate::service::boot_wait::wait_until(Instant::now() + timeout, || {
+            let (report, model, pending_model) = {
+                let mux = self.mux.read();
+                let Some(tab) = mux.get_tab(tab_id) else {
+                    return false;
+                };
+                let identity_current =
+                    crate::service::session_model::has_current_session_model(tab, session_id);
+                (
+                    crate::service::session_model::current_launch_report(tab, session_id),
+                    identity_current
+                        .then(|| tab.agent_session_model.clone())
+                        .flatten(),
+                    tab.pending_model_switch_observation
+                        .as_ref()
+                        .filter(|pending| pending.session_id == session_id)
+                        .map(|pending| pending.launched_model.clone()),
+                )
+            };
+            if pending_model.is_none() {
+                if let Some(report) = report {
+                    if crate::service::session_model::session_model_matches(
+                        &self.agent_registry,
+                        provider,
+                        launched_model,
+                        &report.model,
+                    ) {
+                        observed = Some(ModelSwitchObservation {
+                            model: report.model,
+                            evidence: ModelSwitchEvidence::SessionStartReport,
+                        });
+                        return true;
+                    }
+                    mismatched_report = Some(ModelSwitchObservation {
+                        model: report.model,
+                        evidence: ModelSwitchEvidence::SessionStartReport,
+                    });
+                }
+            }
+            if pending_model.is_none() {
+                if let Some(model) = model {
+                    observed = Some(ModelSwitchObservation {
+                        model,
+                        evidence: ModelSwitchEvidence::FirstPostRelaunchTurn,
+                    });
+                    return true;
+                }
+                false
+            } else {
+                false
+            }
+        });
+        observed.or(mismatched_report)
+    }
+}
+
+fn model_switch_confirmation(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider: &str,
+    launched_model: &str,
+    observation: Option<ModelSwitchObservation>,
+) -> Result<ModelSwitchConfirmation, String> {
+    let Some(observation) = observation else {
+        return Ok(ModelSwitchConfirmation::Pending);
+    };
+    if crate::service::session_model::session_model_matches(
+        registry,
+        provider,
+        launched_model,
+        &observation.model,
+    ) {
+        Ok(ModelSwitchConfirmation::Observed {
+            model: observation.model,
+            evidence: observation.evidence,
+        })
+    } else {
+        Err(observation.model)
+    }
+}
+
+#[cfg(test)]
+mod runtime_route_tests;
+#[cfg(test)]
+mod tests;

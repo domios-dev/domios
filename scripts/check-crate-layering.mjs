@@ -7,6 +7,7 @@ const hosts = new Set([
   "domios-server",
   "codeterm-service-core", "codeterm-api", "codeterm-commands",
   "codeterm-orchestration", "codeterm-sentinel-host", "codeterm-socket",
+  "codeterm-agent-lifecycle",
 ]);
 // Process layers: the native window links only client and shared crates, shared crates never reach
 // the server layer, and no other crate depends on the client. Every unlisted crate is server layer.

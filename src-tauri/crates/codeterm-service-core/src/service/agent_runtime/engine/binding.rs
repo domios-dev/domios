@@ -2,12 +2,12 @@ use super::{RuntimeFailure, ServiceContext, Session};
 
 use codeterm_plugin::agent_runtime::RuntimeFailureCode;
 
-pub(crate) fn session_load_refused(svc: &ServiceContext, session: &Session) -> bool {
+pub fn session_load_refused(svc: &ServiceContext, session: &Session) -> bool {
     degraded_unloaded_with(svc, session, &[RuntimeFailureCode::SessionLoadRefused])
 }
 
 /// The bound thread can never load again (refused, or its provider record is gone), so only a fresh session continues the tab.
-pub(crate) fn conversation_unavailable(svc: &ServiceContext, session: &Session) -> bool {
+pub fn conversation_unavailable(svc: &ServiceContext, session: &Session) -> bool {
     degraded_unloaded_with(
         svc,
         session,

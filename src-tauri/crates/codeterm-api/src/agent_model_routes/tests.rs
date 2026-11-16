@@ -149,7 +149,7 @@ fn pending_model_switch_success_reports_ready_same_session_relaunch() {
         provider: "provider-7d1a".into(),
         session_id: session_id.into(),
         restart: Some(
-            codeterm_service_core::service::agent_restart::RestartOutcome {
+            codeterm_service_core::service::agent_lifecycle::RestartOutcome {
                 tab_id: "tab-4f3a".into(),
                 provider: "provider-7d1a".into(),
                 session_id: Some(session_id.into()),
@@ -219,7 +219,7 @@ fn live_model_switch_success_reports_the_bound_session_record() {
             evidence: ModelSwitchEvidence::LiveSessionRecord,
         },
         control_changes: vec![
-            codeterm_service_core::service::agent_restart::ControlChange {
+            codeterm_service_core::service::agent_lifecycle::ControlChange {
                 control: "effort",
                 previous: Some("medium".into()),
                 current: Some("high".into()),

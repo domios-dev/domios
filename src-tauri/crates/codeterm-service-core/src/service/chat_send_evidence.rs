@@ -24,7 +24,7 @@ pub(crate) mod session_append;
 mod turn_window;
 
 use turn_window::structured_evidence_records;
-pub(crate) use turn_window::window_has_foreign_user_turn;
+pub use turn_window::window_has_foreign_user_turn;
 use turn_window::{window_evidence_records, window_evidence_turns};
 
 #[cfg(test)]
@@ -165,7 +165,7 @@ fn jsonl_boundary(
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct CapturedSendEvidence {
+pub struct CapturedSendEvidence {
     pub(crate) anchor: Option<SendEvidenceAnchor>,
     pub(crate) first_materialization: Option<FirstMaterialization>,
     pub(crate) live_binding: Option<SendLiveBinding>,
@@ -317,7 +317,7 @@ fn same_evidence_source(left: &SendEvidenceAnchor, right: &SendEvidenceAnchor) -
 impl ServiceContext {
     /// Capture an append-window anchor or capability-scoped first-turn evidence.
     /// Sessionless evidence resolves only after the tab authenticates its launch session.
-    pub(crate) fn chat_send_anchor(&self, tab_id: &str) -> CapturedSendEvidence {
+    pub fn chat_send_anchor(&self, tab_id: &str) -> CapturedSendEvidence {
         let captured = {
             let mux = self.mux.read();
             mux.get_tab(tab_id).map(|tab| {

@@ -62,8 +62,8 @@ fn claim(tab: &str, thread: &str) -> bool {
 static LAUNCHES: LazyLock<Mutex<std::collections::HashMap<String, tokio::task::JoinHandle<()>>>> =
     LazyLock::new(Default::default);
 
-#[cfg(test)]
-pub(crate) fn join_for_test(tab: &str) -> bool {
+#[cfg(any(test, feature = "test-support"))]
+pub fn join_for_test(tab: &str) -> bool {
     let handle = LAUNCHES.lock().remove(tab);
     handle.is_some_and(|handle| crate::async_runtime::block_on(handle).is_ok())
 }
@@ -124,9 +124,9 @@ fn launch(svc: &ServiceContext, session: &Session, tab: &str, thread: &str) {
     if choose(rows.as_deref()) != LostSessionChoice::FreshLaunch {
         return;
     }
-    match svc.agent_restart_observed_with_options(
+    match svc.lifecycle_port().agent_restart_observed_with_options(
         tab,
-        crate::service::agent_restart::RestartOptions {
+        crate::service::agent_lifecycle::RestartOptions {
             fresh: true,
             ..Default::default()
         },

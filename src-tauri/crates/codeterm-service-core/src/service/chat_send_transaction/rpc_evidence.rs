@@ -119,7 +119,7 @@ impl ChatSendLedger {
         self.confirm_send_with_row(client_id, source.as_ref())
     }
 
-    pub(crate) fn mark_rpc_uncertain(&self, send_id: &str) -> Option<ChatSendStatus> {
+    pub fn mark_rpc_uncertain(&self, send_id: &str) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
         if !state.rpc_by_id.contains_key(send_id) {
             return None;

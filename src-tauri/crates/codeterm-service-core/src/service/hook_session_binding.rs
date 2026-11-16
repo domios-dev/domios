@@ -101,7 +101,9 @@ pub async fn finish_session_binding(
             let session = sid.to_string();
             let nonce = nonce.to_string();
             tokio::task::spawn_blocking(move || {
-                service.carry_authorized_runtime_restart_binding(&tab, &session, &nonce)
+                service
+                    .lifecycle_port()
+                    .carry_authorized_runtime_restart_binding(&tab, &session, &nonce)
             })
             .await
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?

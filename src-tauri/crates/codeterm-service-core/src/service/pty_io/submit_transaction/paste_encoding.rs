@@ -59,7 +59,7 @@ pub(super) fn xterm_paste(
     }
 }
 
-pub(crate) fn live_command_input(text: &str, live_mode: Option<bool>) -> Vec<u8> {
+pub fn live_command_input(text: &str, live_mode: Option<bool>) -> Vec<u8> {
     let mut input = xterm_paste(text, live_mode, PasteEncodingCapability::Shell).into_bytes();
     input.push(b'\r');
     input

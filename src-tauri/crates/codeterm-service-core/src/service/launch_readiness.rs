@@ -255,7 +255,7 @@ pub enum LaunchObservation {
 }
 
 /// Whether the tab still holds the exact launch this observation is bound to.
-pub(crate) fn attempt_owns_tab(tab: &Tab, attempt: &LaunchAttempt) -> bool {
+pub fn attempt_owns_tab(tab: &Tab, attempt: &LaunchAttempt) -> bool {
     tab.pty_id.as_deref() == Some(attempt.pty_id.as_str())
         && tab.session_binding_nonce.as_deref() == Some(attempt.binding_nonce.as_str())
 }
@@ -1058,7 +1058,7 @@ impl ServiceContext {
                 let recovery_tab_id = tab_id.clone();
                 let recovery_attempt_id = attempt_id.clone();
                 std::thread::spawn(move || {
-                    match svc.recover_exited_provider_after_launch_exit(&attempt) {
+                    match svc.lifecycle_port().recover_exited_provider_after_launch_exit(&attempt) {
                         Ok(outcome) => log::info!(
                             "[launch-recovery] attempt=completed tab={} launch={} session={} ready={} recovered_in_place={}",
                             recovery_tab_id,
@@ -1069,10 +1069,10 @@ impl ServiceContext {
                         ),
                         Err(error) => {
                             let reason = match &error {
-                                crate::service::agent_restart::RestartAttemptError::Request(_) => {
+                                crate::service::agent_lifecycle::RestartAttemptError::Request(_) => {
                                     None
                                 }
-                                crate::service::agent_restart::RestartAttemptError::Failed {
+                                crate::service::agent_lifecycle::RestartAttemptError::Failed {
                                     reason,
                                     ..
                                 } => Some(reason.as_str()),

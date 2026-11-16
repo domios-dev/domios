@@ -9,11 +9,11 @@ const BYTES_PER_TOKEN: usize = 3;
 const TOOL_LINE_LIMIT: usize = 8;
 const TOOL_LINE_CHARS: usize = 320;
 
-pub(crate) fn should_handoff_history(source: &str, target: &str, requested: bool) -> bool {
+pub fn should_handoff_history(source: &str, target: &str, requested: bool) -> bool {
     requested && source != target
 }
 
-pub(crate) fn compose_launch_task(existing: Option<&str>, history: &str) -> String {
+pub fn compose_launch_task(existing: Option<&str>, history: &str) -> String {
     let handoff = format!("Previous conversation handoff:\n{history}");
     match existing.filter(|task| !task.trim().is_empty()) {
         Some(task) => format!("{task}\n\n{handoff}"),
@@ -21,7 +21,7 @@ pub(crate) fn compose_launch_task(existing: Option<&str>, history: &str) -> Stri
     }
 }
 
-pub(crate) fn reset_tab_identity_for_provider_change(
+pub fn reset_tab_identity_for_provider_change(
     tab: &mut crate::multiplexer::types::Tab,
     auto_approve: bool,
 ) {
@@ -38,7 +38,7 @@ pub(crate) fn reset_tab_identity_for_provider_change(
     tab.auto_approve = auto_approve;
 }
 
-pub(crate) fn select_history(messages: &[ChatMsg], budget_tokens: usize) -> String {
+pub fn select_history(messages: &[ChatMsg], budget_tokens: usize) -> String {
     let budget_bytes = budget_tokens.saturating_mul(BYTES_PER_TOKEN);
     if budget_bytes == 0 {
         return String::new();

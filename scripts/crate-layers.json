@@ -24,6 +24,7 @@
     "codeterm-socket",
     "codeterm-api",
     "codeterm-orchestration",
+    "codeterm-agent-lifecycle",
     "codeterm-plan",
     "codeterm-host-runtime",
     "codeterm-pty",

@@ -81,7 +81,7 @@ fn authorized_mode(requested: Option<bool>, authorized: bool) -> Result<&'static
 }
 
 impl ServiceContext {
-    pub(crate) fn prepare_agent_runtime_launch_options(
+    pub fn prepare_agent_runtime_launch_options(
         &self,
         tab_id: &str,
         params: &SpawnAgentParams,

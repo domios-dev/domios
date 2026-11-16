@@ -17,7 +17,7 @@ fn restart_response_reports_observed_transition_legs() {
         )
     );
 
-    let outcome = codeterm_service_core::service::agent_restart::RestartOutcome {
+    let outcome = codeterm_service_core::service::agent_lifecycle::RestartOutcome {
         tab_id: "tab-1".into(),
         provider: "provider-fixture".into(),
         session_id: Some("session-1".into()),
@@ -49,7 +49,7 @@ fn restart_response_reports_observed_transition_legs() {
 
 #[test]
 fn exit_recovery_response_reports_the_same_pty_resumed_in_place() {
-    let outcome = codeterm_service_core::service::agent_restart::RestartOutcome {
+    let outcome = codeterm_service_core::service::agent_lifecycle::RestartOutcome {
         tab_id: "tab-1".into(),
         provider: "provider-fixture".into(),
         session_id: Some("session-1".into()),
@@ -77,7 +77,7 @@ fn exit_recovery_response_reports_the_same_pty_resumed_in_place() {
 #[test]
 fn agent_restart_reports_resumed_or_fresh_launch() {
     let outcome = |session_id: Option<&str>, session_was_stale| {
-        codeterm_service_core::service::agent_restart::RestartOutcome {
+        codeterm_service_core::service::agent_lifecycle::RestartOutcome {
             tab_id: "tab-1".into(),
             provider: "provider-fixture".into(),
             session_id: session_id.map(str::to_string),
@@ -111,7 +111,7 @@ fn stale_pre_restart_ready_does_not_satisfy_new_agent_readiness() {
     );
     assert_eq!(readiness, None);
 
-    let outcome = codeterm_service_core::service::agent_restart::RestartOutcome {
+    let outcome = codeterm_service_core::service::agent_lifecycle::RestartOutcome {
         tab_id: "tab-1".into(),
         provider: "provider-fixture".into(),
         session_id: Some("session-1".into()),

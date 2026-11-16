@@ -477,6 +477,8 @@ impl ServiceFixture {
         )));
         crate::ports::orchestration::register_fixture_extensions(&mut extensions);
         extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
+        crate::ports::lifecycle::register_fixture_extensions(&mut extensions);
+        extensions.insert(crate::ports::lifecycle::InstalledLifecycle::default());
         extensions.insert::<crate::ShellCapabilityState>(Arc::new(Mutex::new(Default::default())));
         extensions.insert::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(Arc::new(
             crate::service::protocol_recorder::ProtocolRecorder::new(
@@ -505,8 +507,8 @@ impl ServiceFixture {
                 codeterm_bridge::bridge::threads::ThreadRegistry::in_memory(),
             ),
         ));
-        extensions.insert::<crate::service::agent_restart::RestartTracker>(
-            crate::service::agent_restart::new_restart_tracker(),
+        extensions.insert::<crate::service::agent_lifecycle::RestartTracker>(
+            crate::service::agent_lifecycle::new_restart_tracker(),
         );
         extensions.insert::<crate::delayed_send::DelayedSendQueue>(
             crate::delayed_send::DelayedSendQueue::open(data_dir.join("delayed_send.json"))
@@ -727,6 +729,7 @@ impl ServiceFixture {
         let owner = Arc::new(service.clone());
         assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
         crate::ports::orchestration::install_fixture(&owner);
+        crate::ports::lifecycle::install_fixture(&owner);
         Self {
             service,
             ui,

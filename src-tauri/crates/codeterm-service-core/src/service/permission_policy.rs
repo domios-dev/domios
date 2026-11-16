@@ -16,7 +16,7 @@ impl PermissionBypassAuthorization {
     }
 }
 
-pub(crate) fn authorize_permission_bypass(
+pub fn authorize_permission_bypass(
     registry: &AgentRegistry,
     provider_id: &str,
     requested: bool,

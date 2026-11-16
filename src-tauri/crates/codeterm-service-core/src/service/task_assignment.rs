@@ -9,7 +9,7 @@ pub struct ExistingTaskAssignment {
     role: Option<String>,
 }
 
-pub(crate) fn authenticated_tab_binding(tab: &Tab) -> Option<AssignmentRuntimeBinding> {
+pub fn authenticated_tab_binding(tab: &Tab) -> Option<AssignmentRuntimeBinding> {
     let session_id = tab.agent_session_id.as_ref()?;
     let nonce = tab.session_binding_nonce.as_ref()?;
     (!session_id.trim().is_empty()

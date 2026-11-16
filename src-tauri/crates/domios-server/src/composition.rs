@@ -433,6 +433,8 @@ pub(crate) fn compose_observed(
     );
     drop(phase);
     let phase = startup::StartupStep::debug("service wiring");
+    // Startup wiring may already restart or recover agents through the lifecycle port.
+    codeterm_service_core::ports::lifecycle::install(&svc_ctx);
     if let Some(account) = local_account {
         assert!(svc_ctx.set_ext(account).is_ok());
     }

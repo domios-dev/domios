@@ -79,7 +79,7 @@ impl PreparedAgentCommand {
         }
     }
 
-    pub(crate) fn with_stub(mut self, provider: &str) -> Self {
+    pub fn with_stub(mut self, provider: &str) -> Self {
         let command = crate::agent::stub_launch::apply(provider, self.shell_command.clone());
         if command != self.shell_command {
             self.direct = None;

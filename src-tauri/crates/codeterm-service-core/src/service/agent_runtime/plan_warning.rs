@@ -4,7 +4,7 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum PlanBindingWarningStage {
+pub enum PlanBindingWarningStage {
     Finalization,
     RestartAuthorization,
     RestartCallerRestoration,
@@ -12,19 +12,19 @@ pub(crate) enum PlanBindingWarningStage {
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum PlanBindingFailureKind {
+pub enum PlanBindingFailureKind {
     AuthorityViolation,
     BookkeepingUnavailable,
 }
 
 #[derive(Debug)]
-pub(crate) struct PlanBindingFailure {
+pub struct PlanBindingFailure {
     pub kind: PlanBindingFailureKind,
     pub reason: String,
 }
 
 impl PlanBindingFailure {
-    pub(crate) fn bookkeeping(reason: impl ToString) -> Self {
+    pub fn bookkeeping(reason: impl ToString) -> Self {
         Self {
             kind: PlanBindingFailureKind::BookkeepingUnavailable,
             reason: reason.to_string(),
@@ -78,7 +78,7 @@ struct PlanBindingWarning<'a> {
 
 impl ServiceContext {
     /// Returns the notice text when the bound plan could not record the warning as a stride.
-    pub(crate) fn warn_runtime_plan_binding(
+    pub fn warn_runtime_plan_binding(
         &self,
         tab_id: &str,
         stage: PlanBindingWarningStage,
@@ -94,7 +94,7 @@ impl ServiceContext {
                 }
             })
         };
-        self.clear_runtime_restart_binding(tab_id);
+        self.lifecycle_port().clear_runtime_restart_binding(tab_id);
         let warning = PlanBindingWarning {
             kind: "runtime_plan_binding_warning",
             stage,
