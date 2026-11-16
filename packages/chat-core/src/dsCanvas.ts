@@ -1,9 +1,9 @@
 import { isDsAbsolutePath } from "./dsBlocks.schema";
 
-export const DS_CANVAS_BODY_LIMIT = 200_000;
+const DS_CANVAS_BODY_LIMIT = 200_000;
 export const DS_CANVAS_ITEM_LIMIT = 64;
-export const DS_CANVAS_FILE_LIMIT = 32;
-export const DS_CANVAS_VIEW_LIMIT = 16;
+const DS_CANVAS_FILE_LIMIT = 32;
+const DS_CANVAS_VIEW_LIMIT = 16;
 const POSITION_LIMIT = 1_000_000;
 const SIZE_LIMIT = 100_000;
 const VIEW_NAME_BYTES = 80;
@@ -12,7 +12,7 @@ const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
 
 export const DS_CANVAS_ITEM_KINDS = ["image", "html", "page", "document", "note"] as const;
 export type DsCanvasItemKind = typeof DS_CANVAS_ITEM_KINDS[number];
-export type DsCanvasFileKind = Extract<DsCanvasItemKind, "image" | "page" | "document">;
+type DsCanvasFileKind = Extract<DsCanvasItemKind, "image" | "page" | "document">;
 
 interface DsCanvasItemFrame { id: string; x?: number; y?: number; w?: number; h?: number; title?: string }
 export type DsCanvasItem =
