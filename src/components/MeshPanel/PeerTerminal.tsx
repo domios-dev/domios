@@ -3,18 +3,11 @@ import type { PeerInventory } from "./peerInventoryModel";
 import { memo, type ReactNode } from "react";
 import { MachineName } from "./MachineName";
 
-type AccessLevel = "full" | "read_only" | "agent_isolated";
-
 interface Props {
   inventory?: PeerInventory;
   name: string;
   ip: string;
   isThisMachine?: boolean;
-  isPaired?: boolean;
-  /** Vouched-by-a-paired-peer but not yet paired itself — must never render as "paired". */
-  pending?: boolean;
-  accessLevel?: AccessLevel;
-  pairedDuration?: string;
   onClick?: () => void;
   offline?: boolean;
   disabled?: boolean;
@@ -29,10 +22,6 @@ function PeerTerminalComponent({
   name,
   ip,
   isThisMachine,
-  isPaired,
-  pending,
-  accessLevel,
-  pairedDuration,
   onClick,
   offline = false,
   disabled = false,
@@ -88,17 +77,6 @@ function PeerTerminalComponent({
         }}
       >
         {inventory && <PeerCapsuleSections inventory={inventory} />}
-        {isPaired && accessLevel && (
-          <div className="mt-2 text-[10px] text-[var(--ct-muted)]">
-            paired · access: {accessLevel}
-            {pairedDuration ? ` · ${pairedDuration}` : ""}
-          </div>
-        )}
-        {!isPaired && pending && (
-          <div className="mt-2 text-[10px] text-[var(--ct-muted)]">
-            pending · auto-pairs when online
-          </div>
-        )}
       </div>
       {footer}
     </div>

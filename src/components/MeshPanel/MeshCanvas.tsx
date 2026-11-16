@@ -1,3 +1,4 @@
+import { LocalMachineFooter, MachineFooter, ACCESS_LABELS } from "./MachineFooter";
 import { REMOVED_COPY } from "./accountMachines";
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
@@ -246,11 +247,16 @@ export const MeshCanvas = memo(function MeshCanvas({
 
   const peerFooter = (id: string) => {
     const footer = account?.canvas.peerFooters.get(id);
-    if (!account || !footer) return undefined;
+    if (!account || !footer) {
+      const peer = peers.find((candidate) => candidate.instance_id === id);
+      return peer ? <MachineFooter label={peer.pending ? "Waiting to pair" : peer.online ? "Connected" : "Unreachable"}
+        secondary={peer.pending ? "pairs when online" : peer.online ? ACCESS_LABELS[peer.access_level] : undefined}
+        tone={peer.online ? "ok" : "warning"} version={peer.domios_version} build={peer.domios_build} /> : undefined;
+    }
     const peer = peers.find((candidate) => candidate.instance_id === id);
     const name = footer.row.name;
     const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
-    return <PeerAccountFooterView footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
+    return <PeerAccountFooterView peer={peer} footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
       busy={account.busy === footer.key} actions={account.actions} hint={!offersTailscaleSetup(footer.row.status) ? undefined : tailscaleHint(name, peer?.online ?? false, footer.row.transport)} />;
   };
 
@@ -276,15 +282,13 @@ export const MeshCanvas = memo(function MeshCanvas({
               <button type="button" disabled={!!account.busy || account.signingIn} onClick={account.onRejoin}>Sign in and rejoin</button>
             </div>}
             {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
-            {tailscale && <TailscaleFooter tailscale={tailscale} />}
+            <LocalMachineFooter networkOn={tailscale?.state.kind === "connected"} />
+            {tailscale && tailscale.state.kind !== "connected" && <TailscaleFooter tailscale={tailscale} />}
           </> : peerFooter(p.id)}
           inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
           name={p.name}
           ip={p.ip}
           isThisMachine={p.isThisMachine}
-          isPaired={p.isPaired}
-          pending={p.pending}
-          accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
           disabled={row?.status === "signed_out"}
           onClick={() => onPeerClick(p.isThisMachine ? thisMachine.name : peers.find((peer) => peer.instance_id === p.id)?.name ?? p.name)}
           offline={p.isThisMachine ? !meshEnabled : row?.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online}

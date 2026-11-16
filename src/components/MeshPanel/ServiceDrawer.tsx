@@ -1,3 +1,6 @@
+import { ACCESS_LABELS, MachineFooter } from "./MachineFooter";
+import { appVersion, buildHash } from "../../lib/buildStamp";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { PeerInventorySections } from "./PeerInventorySections";
 import { inventoryResourceKey } from "./meshInventoryModel";
 import { peerInventoryModel, type PeerInventory } from "./peerInventoryModel";
@@ -106,6 +109,7 @@ export function ServiceDrawer({
     if (selectedResource) return <SvcDrawer service={selectedResource} machineName={thisMachineName} onClose={() => setSelectedResource(null)} onActionDone={onActionDone} actionAdapter={actionAdapter} onAnnouncement={onAnnouncement} />;
     return (
       <PeerDrawer
+        key={peer.instance_id}
         peer={peer}
         isSelf={isSelf}
         inventory={peerInventoryModel(services, peer, isSelf, loading, error)}
@@ -156,13 +160,16 @@ function PeerDrawer({
   onAnnouncement?: (message: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
+  const [accessLevel, setAccessLevel] = useState(peer.access_level);
   const [announcement, setAnnouncement] = useState("");
   const [showAddWizard, setShowAddWizard] = useState(false);
-  const badgeClass = "rounded text-[9px] px-1.5 py-0.5";
   const sectionTextClass = `${UI_TEXT.metaMuted} text-[10px]`;
   const sectionSelectClass = `${UI_INPUT.full} text-[10px] px-2 py-1`;
   const peerActionBtnClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border`;
   const headingRef = useRef<HTMLElement>(null);
+
+  useEffect(() => setAccessLevel(peer.access_level), [peer.access_level]);
 
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true });
@@ -172,17 +179,20 @@ function PeerDrawer({
     level: AccessLevel,
   ) => {
     setBusy(true);
+    setAccessError(null);
     try {
       await invoke("mesh_set_access", {
         instanceId: peer.instance_id,
         accessLevel: level,
       });
-      const message = `Access level updated on target machine ${peer.name}.`;
+      setAccessLevel(level);
+      const message = `${peer.name} now has ${ACCESS_LABELS[level]} here.`;
       setAnnouncement(message);
       onAnnouncement?.(message);
       onActionDone();
     } catch (e) {
-      const message = `Set access failed: target machine ${peer.name} rejected or failed the request (${String(e)}).`;
+      setAccessError(String(e));
+      const message = `Couldn't change ${peer.name}'s access. Try again.`;
       setAnnouncement(message);
       onAnnouncement?.(message);
     } finally {
@@ -206,27 +216,9 @@ function PeerDrawer({
           </button>
         </div>
 
-        <div className="flex gap-1.5 flex-wrap">
-          {isSelf ? (
-            <span className={`${badgeClass} bg-[var(--ct-accent)] text-[var(--ct-bg)] font-medium`}>
-              this machine
-            </span>
-          ) : (
-            <>
-              <span className={`${badgeClass} bg-[var(--ct-green)] text-[var(--ct-bg)] font-medium`}>
-                {peer.pending ? "pending" : "paired"}
-              </span>
-              <span
-                className={`${badgeClass} ${peer.online ? "bg-[var(--ct-green)] text-[var(--ct-bg)]" : "bg-[var(--ct-bg)] text-[var(--ct-muted)]"}`}
-              >
-                {peer.online ? "online" : "offline"}
-              </span>
-              <span className={`${badgeClass} bg-[var(--ct-bg)] text-[var(--ct-muted)]`}>
-                {peer.access_level}
-              </span>
-            </>
-          )}
-        </div>
+        <MachineFooter label={isSelf ? "This machine" : peer.pending ? "Waiting to pair" : peer.online ? "Connected" : "Unreachable"}
+          secondary={peer.pending ? "pairs when online" : ACCESS_LABELS[accessLevel] ?? accessLevel} tone={peer.online ? "ok" : "warning"}
+          version={isSelf ? appVersion() : peer.domios_version} build={isSelf ? buildHash() : peer.domios_build} showBuild inset={false} />
 
         <Section label="IP">
           <div className={`${sectionTextClass} text-[var(--ct-fg)]`}>
@@ -243,19 +235,22 @@ function PeerDrawer({
         {!isSelf && (
           <Section label="Access level">
             <select
-              value={peer.access_level}
+              aria-label={`Access for ${peer.name} here`}
+              value={accessLevel}
               disabled={busy}
               onChange={(e) =>
                 handleAccessChange(e.target.value as AccessLevel)
               }
               className={sectionSelectClass}
             >
-              <option value="full">full</option>
-              <option value="read_only">read_only</option>
-              <option value="agent_isolated">agent_isolated</option>
+              <option value="full">Full access</option>
+              <option value="read_only">Read only</option>
+              <option value="agent_isolated">Its own agents only</option>
             </select>
           </Section>
         )}
+
+        {accessError ? <InlineErrorNotice description={{ title: `Couldn't change ${peer.name}'s access. Try again.`, cause: "", raw: accessError, actions: [] }} /> : announcement && <p className={sectionTextClass}>{announcement}</p>}
 
         <PeerInventorySections inventory={inventory} onSelect={onSelect} />
 

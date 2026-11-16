@@ -112,6 +112,8 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         "renewed".parse().unwrap(),
     );
     let announce = PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: PEER.into(),
         instance_name: "Peer".into(),
         addresses: vec![PeerAddress::from_ip("192.0.2.9")],
@@ -201,6 +203,8 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         "renewed-again".parse().unwrap(),
     );
     let announce = PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: PEER.into(),
         instance_name: "Peer".into(),
         addresses: vec![PeerAddress::from_ip("192.0.2.9")],
