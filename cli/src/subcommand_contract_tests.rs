@@ -659,7 +659,7 @@ fn team_pair_starts_unbound() {
         );
     }
 
-    let params = crate::cmd::team::pair_params("claude:opus", "codex", None, None, false);
+    let params = crate::cmd::team::pair_params("claude:opus", "codex", None, None, false, None);
     let params = params.as_object().expect("object params");
     assert!(params.contains_key("orchestrator_agent"));
     assert!(params.contains_key("planner_agent"));

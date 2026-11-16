@@ -6,6 +6,73 @@ use crate::{
 use std::sync::Arc;
 
 struct NoCalls;
+
+#[tokio::test]
+async fn missing_permission_is_local_to_one_friend_during_receiver_reconciliation() {
+    let data = tempfile::tempdir().unwrap();
+    let (fixture, metadata, friend, root, child, other_root) = fixture(data.path()).await;
+    let service = &fixture.service;
+    let other = "c".repeat(64);
+    let mut settings = metadata.settings().await.unwrap();
+    settings.permissions.remove(&friend);
+    metadata.save_settings(settings).await.unwrap();
+    service
+        .mux
+        .write()
+        .get_tab_mut(&other_root)
+        .unwrap()
+        .boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    let mut restored = Vec::new();
+    for id in [&friend, &other] {
+        service
+            .reconcile_neighbor_concierge_receiver_with(
+                &metadata,
+                "owner",
+                id,
+                true,
+                1,
+                service.neighbor_history_generation(),
+                || {
+                    restored.push(id.clone());
+                    async {
+                        if id == &friend {
+                            service
+                                .restore_neighbor_concierge(&metadata, "owner", id)
+                                .await
+                        } else {
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .await
+            .unwrap();
+    }
+    assert_eq!(restored, [friend.clone(), other.clone()]);
+    for tab in [&root, &child] {
+        assert!(service.require_neighbor_restore_grant(tab, false).is_err());
+    }
+    assert!(service
+        .require_neighbor_restore_grant(&other_root, false)
+        .is_ok());
+    let saved = metadata.settings().await.unwrap();
+    for (id, expected) in [(&friend, "concierge_access_needed"), (&other, "ready")] {
+        let receiver = service.neighbor_friend_receiver(id).unwrap();
+        assert_eq!(
+            service.neighbor_concierge_view(id, &saved, &receiver)["state"],
+            expected
+        );
+        assert!(service.neighbor_friend_receiving_here(id));
+        assert_eq!(saved.concierge_receivers[id].revision, 1);
+    }
+    assert!(!fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .any(|(name, data)| name == "neighbor-runtime-status"
+            && data["receiver_unavailable"] == true));
+}
 #[async_trait::async_trait]
 impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {
     async fn invoke(&self, _: &str, _: Value) -> codeterm_neighbors::Result<Value> {
@@ -239,14 +306,12 @@ async fn per_friend_loss_retires_only_its_root_and_descendants_and_revokes_crede
     assert!(mux.get_tab(&other).is_some());
     let workspace = mux.find_workspace_for_tab(&other).unwrap();
     let closed = mux.list_recently_closed(&workspace);
-    assert_eq!(
-        closed.iter().filter(|entry| entry.tab_id == root).count(),
-        1
-    );
-    assert_eq!(
-        closed.iter().filter(|entry| entry.tab_id == child).count(),
-        1
-    );
+    for id in [&root, &child] {
+        assert!(
+            !closed.iter().any(|entry| &entry.tab_id == id),
+            "retired concierge must not enter ordinary reopen history"
+        );
+    }
 }
 
 #[tokio::test]
@@ -674,7 +739,10 @@ async fn signout_metadata_failures_still_retire_current_account_agents_and_crede
         let closed = mux.list_recently_closed(&workspace);
         for id in [&root, &child, &other_friend] {
             assert!(mux.get_tab(id).is_none());
-            assert_eq!(closed.iter().filter(|entry| &entry.tab_id == id).count(), 1);
+            assert!(
+                !closed.iter().any(|entry| &entry.tab_id == id),
+                "retired concierge must not enter ordinary reopen history"
+            );
         }
         drop(mux);
         if fail_save {

@@ -466,8 +466,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/session/backups/import",
-            post(super::session_exchange::import)
-                .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)),
+            post(super::session_exchange::import).layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .route(
             "/api/sessions/search",
@@ -545,6 +544,18 @@ pub(super) fn create_router_with_preview_admission(
         .route(
             "/api/neighbors/sidebar",
             get(super::account_routes::neighbor_sidebar::read),
+        )
+        .route(
+            "/api/neighbors/list",
+            post(super::account_routes::neighbor_remote::list),
+        )
+        .route(
+            "/api/neighbors/runtime",
+            post(super::account_routes::neighbor_remote::runtime),
+        )
+        .route(
+            "/api/neighbors/files",
+            post(super::account_routes::neighbor_remote::files),
         )
         .route("/api/account/plan", get(super::account_routes::plan))
         .route("/api/account/upgrade", post(super::account_routes::upgrade))
@@ -677,6 +688,14 @@ pub(super) fn create_router_with_preview_admission(
         .route(
             "/api/mesh/worker-dispatch-status",
             post(mesh_routes::mesh_worker_dispatch_status),
+        )
+        .route(
+            "/api/mesh/template-start",
+            post(mesh_routes::template_hosting::mesh_template_start),
+        )
+        .route(
+            "/api/mesh/peer-ask-outcome",
+            post(mesh_routes::template_hosting::mesh_peer_ask_outcome),
         )
         .route(
             "/api/mesh/worker-lane-bundle",
@@ -1087,6 +1106,7 @@ fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {
         .merge(super::transport_tabs::router())
         .merge(super::transport_capabilities::router())
         .merge(super::transport_orchestration::router())
+        .merge(super::team_template_routes::router())
         .merge(super::frontend_shell_routes::router())
 }
 

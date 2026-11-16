@@ -74,6 +74,7 @@ impl ServiceContext {
             from_spec,
             now_ms,
         )?;
+        crate::service::team_template_payload::attach_held_skills_for_plan(self, &outcome.plan.id);
         self.emit_state_changed(MuxEmitCause::PlanTask);
         let _ = crate::service::session_persist::persist_session_after_mutation(
             self,
@@ -123,6 +124,7 @@ impl ServiceContext {
                 })?;
             outcome.plan.planner = binding.planner;
         }
+        crate::service::team_template_payload::attach_held_skills_for_plan(self, &outcome.plan.id);
         self.emit_state_changed(MuxEmitCause::PlanTask);
         let _ = crate::service::session_persist::persist_session_after_mutation(
             self,

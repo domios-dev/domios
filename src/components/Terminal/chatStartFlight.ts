@@ -25,7 +25,7 @@ export const runChatStart = createChatStartFlight();
 
 export function canRetryChatStart(state: string, cause: string): boolean {
   return state !== "failed" || ["retry", "authority_changed", "history_settled", "resync:epoch_changed",
-    "tab_activated", "window_activated", "resync:reconnected", "listener_owned"].includes(cause);
+    "tab_activated", "window_activated", "stream_reconnected", "resync:reconnected", "listener_owned"].includes(cause);
 }
 
 

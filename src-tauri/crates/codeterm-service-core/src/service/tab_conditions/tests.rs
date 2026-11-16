@@ -74,6 +74,81 @@ fn set_pending_prompt(fixture: &ServiceFixture, tab_id: &str, prompt: PendingPro
 }
 
 #[test]
+fn launch_provider_question_notifies_once_with_bound_options_and_resolves() {
+    use codeterm_notification_core::contract::{NotificationAction, NotifyLevel};
+    let (mut mux, _owner, child) = two_tabs();
+    {
+        let tab = mux.get_tab_mut(&child).unwrap();
+        tab.boot_stage = Some(BootStage::AwaitingOwnerPrompt);
+        tab.role = Some(codeterm_types::pty::AgentRole::Manager);
+        tab.audience = TabAudience::Automation;
+    }
+    let fixture = ServiceFixture::new(mux);
+    let asked = prompt("opaque option");
+    set_pending_prompt(&fixture, &child, asked.clone());
+    for _ in 0..2 {
+        fixture
+            .service
+            .route_pending_prompt(&child, &asked, PromptKind::Provider);
+    }
+    let identity = PromptIdentity::new(PromptKind::Provider, &asked);
+    {
+        let store = fixture.service.notif.lock();
+        let records = store.list(false);
+        let notices = records
+            .iter()
+            .filter(|record| record.tab_id.as_deref() == Some(&child))
+            .collect::<Vec<_>>();
+        assert_eq!(notices.len(), 1);
+        let notice = notices[0];
+        assert_eq!(notice.level, Some(NotifyLevel::ActionNeeded));
+        assert_eq!(notice.title, asked.question);
+        let answer = store
+            .prompt_option_answer(&notice.id, &asked.options[0].label)
+            .unwrap();
+        assert_eq!(answer.value, asked.options[0].value);
+        assert_eq!(answer.identity, identity);
+        assert_eq!(
+            notice.actions,
+            Some(vec![NotificationAction::RespondPromptOption {
+                label: asked.options[0].label.clone(),
+                value: asked.options[0].value.clone(),
+                identity: identity.clone(),
+            }])
+        );
+    }
+    assert_eq!(
+        fixture
+            .service
+            .answer_prompt_notifications(&child, &identity, 0, "test-owner")
+            .len(),
+        1
+    );
+    assert!(open_records_for(&fixture, &child).is_empty());
+    fixture.service.clear_pending_prompt(&child);
+    fixture
+        .service
+        .resolve_prompt_notifications(&child, &identity);
+    assert!(open_records_for(&fixture, &child).is_empty());
+
+    let next = asked;
+    set_pending_prompt(&fixture, &child, next.clone());
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&child)
+        .unwrap()
+        .boot_stage = Some(BootStage::AwaitingOwnerPrompt);
+    fixture
+        .service
+        .route_pending_prompt(&child, &next, PromptKind::Provider);
+    assert_eq!(open_records_for(&fixture, &child).len(), 1);
+    fixture.service.close_tab(&child).unwrap();
+    assert!(open_records_for(&fixture, &child).is_empty());
+}
+
+#[test]
 fn parent_prompt_report_body_includes_parsed_options() {
     let mut asked = prompt("Allow once");
     asked.question = "opaque permission question".into();

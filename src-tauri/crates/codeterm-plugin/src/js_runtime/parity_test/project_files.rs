@@ -14,18 +14,25 @@ fn parity_private_state_root_can_be_created_without_project_write_grants() {
     for instance in [".domios-dev", ".domios-dev-isolated"] {
         let data = home.path().join(instance).join("rotterdom");
         let (reads, writes) = super::super::loader::confined_roots(&manifest, &bundle, &data);
-        let sandbox = Arc::new(PluginSandbox::restricted(reads, writes).with_project_roots(
-            Vec::new(),
-            Vec::new(),
-            bundle.join("grants.yaml"),
-        ));
+        let sandbox = Arc::new(
+            PluginSandbox::restricted(reads, writes)
+                .with_identity("rotterdom")
+                .with_project_roots(Vec::new(), Vec::new(), bundle.join("grants.yaml")),
+        );
         let vm = PluginVm::from_source_sandboxed(
             "rotterdom",
             r#"module.exports.default = {
-                mkdir(path) { return host.fs.makeDirs(path); },
-                write(path) { return host.fs.writeFileAtomic(path, 'persisted'); },
-                read(path) { return host.fs.readFile(path); }
-            };"#
+    mkdir(path) {
+        return host.io.run((function* () { return (yield { op: "makeDirs", path: path }); }).call(this));
+    },
+    write(path) {
+        return host.io.run((function* () { return (yield { op: "writeFileAtomic", path: path, contents: 'persisted' }); }).call(this));
+    },
+    read(path) {
+        return host.io.run((function* () { return (yield { op: "readFile", path: path }); }).call(this));
+    }
+};
+"#
             .into(),
             None,
             sandbox.clone(),
@@ -71,15 +78,17 @@ fn parity_project_write_grant_is_the_native_and_js_ceiling() {
     let file = project.join("result.txt");
     for approved in [false, true] {
         let sandbox = Arc::new(
-            PluginSandbox::restricted(Vec::new(), Vec::new()).with_project_roots(
-                vec![project.clone()],
-                if approved {
-                    vec![project.clone()]
-                } else {
-                    Vec::new()
-                },
-                root.path().join("grants.yaml"),
-            ),
+            PluginSandbox::restricted(Vec::new(), Vec::new())
+                .with_identity("project-files")
+                .with_project_roots(
+                    vec![project.clone()],
+                    if approved {
+                        vec![project.clone()]
+                    } else {
+                        Vec::new()
+                    },
+                    root.path().join("grants.yaml"),
+                ),
         );
         let native = sandbox.can_write(file.to_str().unwrap());
         assert_eq!(native, approved);
@@ -88,9 +97,14 @@ fn parity_project_write_grant_is_the_native_and_js_ceiling() {
         let vm = PluginVm::from_source_sandboxed(
             "project-files",
             r#"module.exports.default = {
-            write(path) { return host.writeFileAtomic(path, 'fixture'); },
-            allowed(root) { return host.projectWriteAllowed(root); }
-        };"#
+    write(path) {
+        return host.io.run((function* () { return (yield { op: "writeFileAtomic", path: path, contents: 'fixture' }); }).call(this));
+    },
+    allowed(root) {
+        return host.io.run((function* () { return (yield { op: "projectWriteAllowed", root: root }); }).call(this));
+    }
+};
+"#
             .into(),
             None,
             sandbox,
@@ -124,14 +138,20 @@ fn project_files_refuse_symlink_escape_even_with_missing_parents() {
         }
         let sb = Arc::new(
             PluginSandbox::restricted(vec![outside_root.clone()], vec![outside_root])
+                .with_identity("project-escape")
                 .with_project_roots(projects.clone(), projects, root.path().join("grants.yaml")),
         );
         let vm = PluginVm::from_source_sandboxed(
             "project-escape",
             r#"module.exports.default = {
-                write(path) { return host.writeFileAtomic(path, 'fixture'); },
-                read(path) { return host.readFile(path); }
-            };"#
+    write(path) {
+        return host.io.run((function* () { return (yield { op: "writeFileAtomic", path: path, contents: 'fixture' }); }).call(this));
+    },
+    read(path) {
+        return host.io.run((function* () { return (yield { op: "readFile", path: path }); }).call(this));
+    }
+};
+"#
             .into(),
             None,
             sb.clone(),

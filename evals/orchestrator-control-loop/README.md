@@ -9,15 +9,14 @@ final-release verification, and concrete action on reported work and blockers.
 
 ## Run
 
-The command below tests the suffix fragment. For launch-composition evidence,
-render the substitutions and appended manual from
-`src-tauri/src/prompts.rs::orchestrator_suffix` and pass that retained file.
-Compare both variants using the same composition and fixtures. The runner does
-not expand every role-specific placeholder automatically.
+The command below tests the Orchestrator role prose. For launch-composition
+evidence, render the composed contract with `domios role show orchestrator
+--occasion launch_assignment` and pass that retained file. Compare both variants
+using the same composition and fixtures.
 
 ```bash
 python .agents/skills/prompt-evaluator/runner.py \
-  --prompt-file src-tauri/prompts/orchestrator_suffix.md \
+  --prompt-file src-tauri/team-templates/default/managers/orchestrator.md \
   --eval-set evals/orchestrator-control-loop/evals.json \
   --runs 3
 ```

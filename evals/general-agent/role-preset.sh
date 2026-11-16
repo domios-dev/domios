@@ -23,21 +23,13 @@ check() {
 # The GA kind reaches the resolver and keeps its anchoring capability.
 check "manager kinds resolve through one resolver" assert_manager_kinds_resolve
 check "team authority and anchoring unchanged" assert_planner_team_authority
-check "unmatched pairs use the declared fallback" assert_declared_fallback
 
-# The GA composes its own instructions file, so it carries no bundled role
-# suffix — but its bootstrap slot must still fall back to declared text, never
-# to an empty identity.
-GA_VIEW="$(preset_show Manager general_agent)"
-check "general_agent renders with builtin provenance" \
-  test "$(preset_field origin <<<"$GA_VIEW")" = builtin
-check "general_agent bootstrap text is non-empty" \
-  test -n "$(preset_occasion_text manager_bootstrap <<<"$GA_VIEW")"
-check "general_agent contributes no launch-assignment suffix" \
-  test -z "$(preset_occasion_text launch_assignment <<<"$GA_VIEW")"
+# The General Agent composes its own instructions file and is never launched by role.
+ga_type_refused() { ! dc role show general_agent --json >/dev/null 2>&1; }
+check "general_agent is refused as a role type" ga_type_refused
 
-# An overlay file can never turn the machine agent into something spawnable.
-check "no overlay kind claims capability" assert_planner_team_authority
+# Team registrations never turn a worker type into something that anchors or spawns.
+check "no worker type claims capability" assert_planner_team_authority
 
 [ "$FAILED" -eq 0 ] || { echo "RESULT: FAIL ($FAILED)" >&2; exit 1; }
 echo "RESULT: general-agent role-preset seam intact"

@@ -3,6 +3,8 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
+mod checkout_binding;
+
 const PROVIDER: &str = "dispatch-runtime-fixture";
 const SOURCE: &str = r#"
 module.exports = {

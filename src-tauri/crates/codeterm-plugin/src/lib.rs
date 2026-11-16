@@ -57,6 +57,7 @@ pub mod surfaces;
 pub mod system_plugins;
 pub mod tab_menu;
 pub mod tab_state;
+pub mod token_usage;
 pub(crate) mod toml_folder_trust;
 pub mod transcribe;
 pub mod update_prompt;

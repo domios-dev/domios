@@ -4,7 +4,7 @@ use codeterm_service_core::session::store::SessionSnapshot;
 use codeterm_types::agent::chat_types::ChatMsg;
 use serde_json::json;
 
-fn fixture_document() -> serde_json::Value {
+pub(super) fn fixture_document() -> serde_json::Value {
     json!({"format":super::FORMAT,"sanitized":true,"plans":[],
         "snapshot":{"version":"3","timestamp":1,"active_workspace_id":"ws",
             "workspaces":[{"id":"ws","name":"Fixture","active_tab_id":"tab",

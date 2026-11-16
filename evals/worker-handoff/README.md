@@ -8,7 +8,7 @@ and batches verification without inventing project-specific commands.
 
 ```bash
 python .agents/skills/prompt-evaluator/runner.py \
-  --prompt-file src-tauri/prompts/worker_suffix.md \
+  --prompt-file src-tauri/team-templates/default/workers/worker.md \
   --eval-set evals/worker-handoff/evals.json \
   --runs 3
 ```

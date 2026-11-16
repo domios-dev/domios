@@ -2,10 +2,16 @@ import { useEffect, useCallback, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { invoke } from "../../lib/bridge";
 import { restartOutputStream, subscribeTabOutput, type TabOutputSink } from "../../lib/outputStream";
+import { outputBindingPtyId } from "../../lib/terminalFrameGate";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { consumePendingCwd } from "../../lib/pendingCommands";
+import { tabOutputRoute } from "../../lib/remoteTabRoute";
+import { relayTarget } from "../../lib/webApi";
+import { nativeBridge } from "../../lib/nativeBridge";
+import { createRendererOutputFlow, rendererFlowEligible } from "./rendererOutputFlow";
 import { uid } from "../../lib/uid";
 import { isPlanLockedRefusal } from "../../lib/spawnErrorMessage";
+import { tabWakeRequiresRetry } from "../../lib/wakeOnOpen";
 import { shouldAttachTerminalOutput, writeTerminalOutputAndWait } from "./terminalOutputWrite";
 import { writeTerminalInput } from "./terminalInputWrite";
 import {
@@ -14,6 +20,8 @@ import {
   type TerminalViewport,
 } from "./terminalViewport";
 import { setTerminalReadingHistory } from "./terminalHistoryReaders";
+import { DEV_BUILD } from "../../lib/devBuild";
+import { streamMuxDiagnostics, verifyStreamMuxes } from "../../lib/streamMux";
 
 export function shouldFetchInitialTerminalHistory(
   _ptyId: string | null | undefined,
@@ -75,6 +83,9 @@ export function usePtyConnection({
     (a, b) => a === b,
   );
   const tabCwdRef = useRef(tabCwd);
+  const spawnBlocked = useMuxSelector(s => !ptyId && tabWakeRequiresRetry(s.tabs[tabId]));
+  const flowAllowed = useMuxSelector(s => rendererFlowEligible(s.tabs[tabId]));
+  const remotePtyId = useMuxSelector(s => s.tabs[tabId]?.remote_pty_id ?? null);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const viewportRestoreRequestRef = useRef(0);
   const [readinessFailed, setReadinessFailed] = useState(false);
@@ -117,18 +128,28 @@ export function usePtyConnection({
 
   useEffect(() => {
     const term = termRef.current;
-    if (!term || !termReady || !shouldAttachTerminalOutput(ioEnabled, renderEnabled)) return;
+    if (!term || !termReady || !shouldAttachTerminalOutput(ioEnabled, renderEnabled)
+      || spawnBlocked) return;
     let disposed = false;
     let framed = false;
     let unsubscribe: (() => void) | undefined;
+    let releaseFlow: (() => void) | undefined;
     callbacks.current.onConnectionStateChange?.(false);
     callbacks.current.onHistoryReplayStateChange?.(false);
     setReadinessFailed(false);
-    const failReadiness = () => { if (!disposed && !framed) setReadinessFailed(true); };
-    const failureDeadline = setTimeout(failReadiness, TERMINAL_READINESS_FAILURE_MS);
+    const failReadiness = (reason: string) => {
+      if (disposed || framed) return;
+      if (DEV_BUILD) console.debug("[terminal-output] first frame failed", JSON.stringify({ tabId, ptyId, reason, mux: streamMuxDiagnostics() }));
+      verifyStreamMuxes();
+      setReadinessFailed(true);
+    };
+    let failureDeadline: ReturnType<typeof setTimeout> | undefined = setTimeout(() => failReadiness("first_frame_deadline"), TERMINAL_READINESS_FAILURE_MS);
     const frameReady = (id: string) => {
       if (termRef.current !== term) return;
-      if (!framed) { framed = true; clearTimeout(failureDeadline); setReadinessFailed(false); }
+      if (!framed) {
+        if (DEV_BUILD) console.debug("[terminal-output] frame ready", JSON.stringify({ tabId, ptyId: id, mux: streamMuxDiagnostics() }));
+        framed = true; clearTimeout(failureDeadline); setReadinessFailed(false);
+      }
       callbacks.current.onFrameReady?.(id);
     };
 
@@ -146,8 +167,46 @@ export function usePtyConnection({
       }
       if (disposed) return;
       connectedPtyRef.current = id;
+      const flow = flowAllowed && !remotePtyId && !tabOutputRoute(tabId, relayTarget()?.id ?? null) && nativeBridge.terminalOutputFlow
+        ? createRendererOutputFlow(tabId, id, uid(), nativeBridge.terminalOutputFlow) : undefined;
+      const updateVisibility = () => {
+        if (document.visibilityState === "hidden" || !document.hasFocus()) flow?.suspend();
+        else flow?.resume();
+      };
+      const leaveNativeFocus = flow ? nativeBridge.terminalOutputFocus?.(focused => {
+        if (focused) { updateVisibility(); flow.refresh(); } else flow.suspend();
+      }) : undefined;
+      updateVisibility();
+      document.addEventListener("visibilitychange", updateVisibility);
+      window.addEventListener("blur", updateVisibility);
+      window.addEventListener("focus", updateVisibility);
+      releaseFlow = () => {
+        leaveNativeFocus?.();
+        flow?.suspend();
+        document.removeEventListener("visibilitychange", updateVisibility);
+        window.removeEventListener("blur", updateVisibility);
+        window.removeEventListener("focus", updateVisibility);
+      };
       const sink: TabOutputSink = {
-        onReady() { if (!disposed) callbacks.current.onConnectionStateChange?.(true); },
+        onRendered(offset) { if (!disposed) flow?.rendered(offset); },
+        onDisconnected() { flow?.suspend(); },
+        onReset() { flow?.reset(); },
+        onStarting() {
+          flow?.suspend();
+          if (disposed || framed) return;
+          clearTimeout(failureDeadline);
+          failureDeadline = undefined;
+          setReadinessFailed(false);
+        },
+        onSubscribed() {
+          if (disposed) return;
+          if (!framed && failureDeadline === undefined) failureDeadline = setTimeout(() => failReadiness("first_frame_deadline"), TERMINAL_READINESS_FAILURE_MS);
+        },
+        onReady() {
+          updateVisibility();
+          if (disposed) return;
+          callbacks.current.onConnectionStateChange?.(true);
+        },
         onReplayComplete() {
           if (disposed) return;
           callbacks.current.onConnectionStateChange?.(true);
@@ -169,17 +228,19 @@ export function usePtyConnection({
           if (!disposed) term.writeln(`\r\n\x1b[90m[output truncated — resuming from byte ${from}]\x1b[0m`);
         },
         onEnded: () => {
+          flow?.suspend();
           if (disposed) return;
           connectedPtyRef.current = null;
           callbacks.current.onConnectionStateChange?.(false);
         },
-        onStreamError: () => {
+        onStreamError: (error) => {
+          flow?.suspend();
           if (disposed) return;
           callbacks.current.onConnectionStateChange?.(false);
-          failReadiness();
+          failReadiness(error.name);
         },
       };
-      unsubscribe = subscribeTabOutput(tabId, sink, term, id);
+      unsubscribe = subscribeTabOutput(tabId, sink, term, outputBindingPtyId(tabId, id, remotePtyId));
     };
     void connect().catch((error: unknown) => {
       if (disposed) return;
@@ -190,16 +251,17 @@ export function usePtyConnection({
       }
       console.warn("Failed to setup PTY:", error);
       callbacks.current.onConnectionStateChange?.(false);
-      failReadiness();
+      failReadiness("setup_failed");
     });
     return () => {
       disposed = true;
       clearTimeout(failureDeadline);
+      releaseFlow?.();
       unsubscribe?.();
       connectedPtyRef.current = null;
       callbacks.current.onConnectionStateChange?.(false);
     };
-  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt]);
+  }, [ptyId, remotePtyId, flowAllowed, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt, spawnBlocked]);
 
   return { writePty, readinessFailed, retryConnection };
 }

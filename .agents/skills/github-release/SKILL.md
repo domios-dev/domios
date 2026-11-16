@@ -37,7 +37,33 @@ each failed run. An untested proposal must not become an established recipe.
 
 ## Public repository policy
 
-Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only trusted owner release/X.Y.Z PRs, admitted master merge publication and reviewed release dispatches may acquire release runners and secrets, behind the `release` environment approval. Non-release jobs use no environment. Side PR checks into develop run hosted and secret-free; trusted owner release PRs into master retain their existing heavy graph and runner policy; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
+Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions.
+Only owner release/X.Y.Z pushes qualify and package. Application publication has exactly one path:
+the master merge push of the owner release PR, approved in the `release` environment (branch policies
+`release/*` and `master`). Dispatches never publish an application: `release.yml` dispatches are
+dry runs of the dispatching release head and `release-publish.yml` only rehearses. Every PR uses
+hosted, secret-free checks. The trusted organization runner group must restrict every acquiring
+workflow to explicit reviewed release branch refs; unrestricted repository runners are forbidden.
+
+### Release environment approvals
+
+The `release` environment requires the owner's review. Two kinds of approval exist:
+
+- **Build approvals** cover the build, signing and dry-run packaging stages of an owner `release/X.Y.Z` push run.
+  The release Orchestrator holds the owner's standing permission to approve these as `rollacode`, without asking each
+  time. Before each approval, verify the run's event (`push`), branch and exact head SHA against the intended candidate,
+  then read back the approval:
+
+  ```bash
+  gh api repos/domios-dev/domios/actions/runs/RUN_ID/pending_deployments
+  GH_TOKEN="$(gh auth token --user rollacode)" gh api --method POST \
+    repos/domios-dev/domios/actions/runs/RUN_ID/pending_deployments \
+    -F 'environment_ids[]=ENV_ID' -f state=approved -f comment="dry-run packaging for SHA; not publication"
+  gh api repos/domios-dev/domios/actions/runs/RUN_ID/approvals
+  ```
+
+- **Publication** (the master merge of the release PR and its promotion) needs the owner's explicit GO for each release.
+  Never infer it from a build approval.
 
 ## Choose the release kind
 
@@ -79,11 +105,18 @@ archive checksum, source-commit receipt and client `domios update check --force`
 | `master` | Admin merges the green release PR here to publish its retained artifacts. |
 | `ci/*` | Reviewed non-publishing candidate refs for diagnostics. |
 
+Before preparing a release, refresh the bundled team floor with
+`node scripts/sync-builtin-teams.mjs <40-hex-domios-teams-commit>`. Review and commit
+the snapshot and its `SOURCE_COMMIT` receipt; edit teams in `domios-dev/domios-teams`,
+then sync them here. Never hand-edit the bundled snapshot.
+
 1. Record the candidate, included lanes, fixed/deferred issues and evidence in the release PR
    description (not a file). Review changed commands/docs and remove obsolete callers.
 2. Before a release-branch push, qualify the exact committed release head in canonical using
    the gates skill. `build.sh check` is not release qualification. Required live evidence includes
-   [core journeys J1–J4](../../../evals/core-journeys/README.md) and
+   the [core journeys](../../../evals/core-journeys/README.md) that the release diff selects
+   (unselected ones recorded as not run, owner waivers as accepted risk; the gates skill's
+   Release section owns the procedure) and
    [upgrade restore](../../../evals/upgrade-restore/README.md), with isolated named instances,
    their documented commands, passing evidence contracts and real startup/restore results.
    Source fixtures or capture/import alone do not replace these gates.
@@ -94,22 +127,23 @@ archive checksum, source-commit receipt and client `domios update check --force`
    that committed head and `git diff --check`.
    Keep the release branch separate from moving `develop`. Commit release fixes on that line,
    then real-merge the release into `develop`; never pull unrelated dev work into the release.
-   Push release/X.Y.Z and open its PR into master. The release PR's tests.yml
-   run checks out its exact head SHA for full CI, records qualification, then calls
-   release.yml with dry_run=true to build and sign every platform and retain bytes.
-   New PR pushes cancel the previous run through per-PR concurrency. Side PR
-   runs into develop remain hosted and secret-free; they never run full CI or packaging.
-   With publication GO, an admin squash-merges the green PR; publication checks that master carries the qualified tree.
-   The master push discovers that merged release PR, verifies both merge parents,
-   and publishes the exact head's retained green push run through promote_run_id.
-   Qualification and packaging must belong to that same run. No master merge
-   commit is built. Protected release environments and the publication switch
-   remain required. The release PR runs CI, so the trusted runner group serves this
-   repository's workflows without a ref list; every fork PR run waits for owner approval
-   and only the owner merges into master. Signing keys remain out of unsigned compile jobs.
+   Before pushing, complete the OWNER runner-policy step below. Push release/X.Y.Z and wait for
+   its exact-SHA tests.yml push run to finish green, including full CI, qualification and the
+   reusable release.yml dry run (`dry_run=true`, `mirror=false`). A newer push cancels the previous
+   run through per-branch concurrency. Only then open or refresh the PR into master.
+   Every PR uses hosted light checks (**PR result**); the master PR also requires **Release
+   qualification**, a read-only `release-pr.yml` job that verifies the current head's owner push run
+   and its unexpired receipts. Only a PR whose base is master emits that context, so a develop PR or
+   a diagnostic on the same head cannot satisfy it; a base retarget reruns it.
+   Missing, failed or superseded evidence fails this check; refresh it after a green push run.
+   With publication GO, an admin merges the green PR with a merge commit. Master must carry the
+   qualified head tree. Its push selects the completed green tests.yml push run for the exact
+   release head, branch, repository and owner, then pins qualification and retained packaging
+   to that `promote_run_id`. The master merge commit is never built. Protected release environments,
+   manifest validation and the publication switch remain required.
    After publication, synchronize develop through an admin-owned merge PR; workflows
    never push master/develop with GITHUB_TOKEN.
-   Two nightly schedules qualify dev as fallback. Fast checks own
+   Fast checks own
    frontend production/typechecking, static/plugin/TS suites, Clippy and the CLI suite.
    The Rust tier owns the Linux full suite, native macOS/Windows subsets and embeddings.
    `scripts/ci-qualification.mjs check <40-hex-sha>` verifies a green trusted tests run,
@@ -123,12 +157,17 @@ archive checksum, source-commit receipt and client `domios update check --force`
    gh login: it skips private-runner discovery for hosted images and requires one online runner
    matching every label in each self-hosted array. It does not prove hosted capacity or signing;
    completed Actions jobs do. Confirm the intended version is unpublished.
-   Read back `domios-trusted` through the [runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
-   Its current policy has `restricted_to_workflows=false` and `selected_workflows=[]`;
-   release preparation does not edit the group or add workflow refs. If readback differs,
-   stop and reconcile the owner-approved procedure before requesting a runner.
-   Push `release/X.Y.Z` and open its PR to master for CI and dry-run packaging. Do not manually create
-   `vX.Y.Z`; release.yml owns tag creation and promotion.
+   **OWNER, once per application release, before the first push:** retarget every entry in
+   [.github/admin/runner-group-policy.json](../../../.github/admin/runner-group-policy.json) to
+   `refs/heads/release/X.Y.Z`, review the acquiring workflow list, PATCH `domios-trusted`, then
+   read back its policy, selected repository grant, fleet and absence of repository runners using
+   [the runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
+   Require `restricted_to_workflows=true` and exact reviewed refs, with no wildcard or PR refs.
+   The list must hold every workflow that can select a `vars.*` runner (an unlisted one queues
+   until timeout); default-branch and PR workflows name hosted runners literally and stay out.
+   This is an explicit owner operation; agents prepare the payload and never apply it as a
+   release-preparation side effect. Record the readback before requesting runners.
+   Do not manually create `vX.Y.Z`; release.yml owns tag creation and promotion.
 5. The final manifest job requires all builds and test gates, publishes and verifies served
    bytes after the admin merge starts promotion. The master ruleset reports the PR as BLOCKED, so
    the admin merges with `gh pr merge <n> --merge --admin` (never squash or rebase). Merge within
@@ -142,11 +181,14 @@ repository guards, fmt-check, TS static/unit/Vitest, plugin bundles/tests and
 one cargo check --workspace --all-targets --locked. Every job defaults to
 ubuntu-24.04 with read-only permissions and no repository/environment secrets.
 Compilation uses hosted sccache; forks require no private store access.
-CI result requires every light job to succeed. No Rust suites, qualification
+PR result requires every light job to succeed. No Rust suites, qualification
 receipt or packaging run on this path. Require that aggregate in develop's
 rules as an owner operation and inspect the first Dependabot run's actual
-runners after merge. Trusted release/X.Y.Z PRs into master retain tests.yml
-and its existing heavy graph; other master PRs remain refused.
+runners after merge. Release PRs into master use the same hosted light checks plus the read-only
+Release qualification job in release-pr.yml. Other master PRs fail admission. tests.yml owns only
+release pushes (CI result) and owner diagnostics (CI diagnostic result); neither name is a merge
+gate, and no PR calls privileged reusable jobs. The Docker archive smoke is an owner dispatch from
+release/X.Y.Z, never a PR job.
 See [CI admission](../../../docs/release/ci.md).
 
 ## Dry runs and narrow diagnostics
@@ -155,9 +197,12 @@ Inspect the actual workflow inputs and publication conditions at the pinned work
 any dispatch. `mirror=false` alone is not a dry run. For the full graph use:
 
 ```bash
-gh workflow run release.yml --repo domios-dev/domios --ref <reviewed-ref> \
-  -f tag=<version-tag> -f dry_run=true -f mirror=false
+gh workflow run release.yml --repo domios-dev/domios --ref release/X.Y.Z \
+  -f tag=vX.Y.Z -f dry_run=true -f mirror=false
 ```
+
+A `release.yml` dispatch refuses unless `dry_run=true` and the ref is an exact release/X.Y.Z
+branch; it always builds that branch head, whatever `tag` says, and can never publish.
 
 The release branch push always packages with dry_run=true regardless of the publication switch.
 The master merge push selects its retained green release push run; RELEASE_PUBLISH_ENABLED must be true for
@@ -185,22 +230,20 @@ explicitly selects it too. Native Windows, macOS and embeddings have hosted defa
 Embeddings start independently of the platform matrix because they consume no platform artifacts.
 Targets remain per workspace.
 
-Manual fallback only: the normal publication is the admin merge of the release PR. To publish a
-wholly green dry run without that merge, use `release-publish.yml`, never a rebuild. Its tooling
-comes from the reviewed release branch; publication reuses the qualified bytes:
+The only application publication path is the admin merge of the release PR; its master push
+promotes the qualified run's retained bytes. There is no dispatch fallback: a failed publication is
+repaired by rerunning the failed jobs of that same master push run, and a further change takes a new
+version. `release-publish.yml` remains as a rehearsal only and refuses `rehearsal=false`:
 
 ```bash
 gh workflow run release-publish.yml --repo domios-dev/domios --ref release/X.Y.Z \
-  -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true   # then rehearsal=false with publication GO
+  -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true
 ```
 
-`scripts/release-publish.sh` refuses unless the run is a completed, successful release.yml dry run
-on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. A rehearsal checks both
+`scripts/release-publish.sh` refuses unless the run is a completed, successful tests.yml release push run
+on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. The rehearsal checks both
 tokens' write access, downloads and re-validates every retained byte and signature, and changes
-nothing. Publication creates both drafts, uploads the retained bytes (fragments only to the source
-draft) with read-back against each receipt, merges and verifies `domios-latest.json`/`domios-latest-deb.json`,
-tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. Automatic publication through `release-publish.yml` is disabled; the owner dispatches this workflow and approves the release environment. Issue closure and the
-merge to master stay separate steps.
+nothing. The owner dispatches it and approves the release environment.
 
 The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
 `ci-artifact.sh put` spools the file with a warning and the job's `ci-artifact-spool` action uploads
@@ -214,10 +257,12 @@ that refuses a request, and any digest or signature mismatch, still fail.
 
 For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml`, `release-windows-arm64.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
-and `mirror=false`, using that workflow's declared inputs. A `tests.yml` dispatch runs the fast tier only.
+and `mirror=false`, using that workflow's declared inputs. A `tests.yml` dispatch runs the fast tier only;
+dispatch it from release/X.Y.Z with a full 40-hex `source_ref` already reachable from master, develop
+or that release branch. Admission refuses anything else, so a contributor's PR head never reaches the farm.
 Direct platform dispatch cannot mutate release assets. Its guard distinguishes the direct workflow
 name from a manually dispatched release.yml caller: reusable workflows inherit the caller's event.
-Do not disable publication for a legitimate release caller merely because its event is workflow_dispatch.
+A dispatched release.yml caller is always a dry run; publication arrives only as the master push event.
 
 `tests-fast.yml` resolves scope once and passes it to `tests-rust.yml`. Required Rust
 receipts include one nonempty Linux full suite, macOS and Windows subsets, and embeddings.
@@ -301,6 +346,11 @@ DMG, mounts it read-only and verifies the payload. The existing notary helper su
 DMG; staple/assess the app before creating its updater archive. Unexpected helper executables or
 Tauri re-signing fail loudly. Native execution must validate this path; injected fixtures are only
 source-contract evidence. Standard DMG, .app.tar.gz updater and self-install remain the transports.
+
+DMG creation flushes staged filesystem writes with `sync` and makes one `hdiutil create` attempt.
+On failure, the job retains `macos-dmg-diagnostics-<arch>-<attempt>` with bounded create output,
+image/disk inventory and source/output file holders. Diagnostic failures preserve the create error;
+use those receipts to identify contention before proposing recovery. No timed retry or forced detach.
 
 ### Runtime and bundle proof
 
@@ -388,7 +438,7 @@ Release workflows verify the compiled server's production analytics fingerprint 
 key variables and emits non-secret hash cfgs so sccache cannot reuse a keyless build; never
 replace the binary check with a secret-presence check or print the keys.
 
-All `runs-on` selectors use `fromJSON(variable || '<hosted image as JSON>')`, directly or
+Privileged `runs-on` selectors use `fromJSON(variable || '<hosted image as JSON>')`, directly or
 through a matrix value. Set each runner variable to a JSON string for a hosted image or a JSON
 array for self-hosted labels. The complete array is selected; no workflow adds an outer
 `self-hosted` constraint. Empty variables use hosted defaults. For example, the literal variable
@@ -440,7 +490,7 @@ Windows, Linux and shared-cache matrix jobs finish on the intended runners, incl
 Mac notarization probe. For a single Mac diagnostic, `macos_label=macos-15` or
 `macos_label=macos-15-intel` selects that hosted image; another label explicitly selects a
 self-hosted Mac. A successful dispatch is not a probe pass: read the completed jobs and logs.
-Then use the 1.19.1 release PR CI to prove hosted packaging, notarization, updater signatures
+Then use the release push CI to prove hosted packaging, notarization, updater signatures
 and retained artifact readback. Local lint cannot establish these platform results.
 
 A persistent self-hosted runner accumulates job PATH entries in its `.path` file. On Windows an
@@ -558,6 +608,12 @@ SHA; readers confirm that run through Actions. A failed/cancelled run qualifies 
 exact-attempt jobs prove published-source verification, Debian verification and boundary minting
 succeeded in one job before any failure/cancellation. Missing/unverifiable boundaries are refused,
 never inferred from asset presence or release ownership.
+Included-history admission requires a published source release and its source boundary asset.
+The legacy mirror's publication and assets are diagnostic only; after the public-source move,
+the source repository also serves the verified public manifests. Actions evidence is still read
+from the authoritative source repository; a boundary cannot redirect verification to a foreign repository.
+Missing source assets, absent legacy mirror releases/assets and unreadable validator runs are
+reported separately. The source-SHA, workflow, run/attempt and served-byte checks remain required.
 Set repository variable `RELEASE_CLOSE_PUBLIC_ISSUES=false` when the owner closes public issues
 manually; this skips only automatic closure, preserving publication verification and boundary evidence.
 Included-history resolution first atomically fetches the exact source history and remote product tags without force. Fetch failures, conflicting tags and absence of a verified published boundary refuse resolution. It retains the fully qualified tag ref in evidence and prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
@@ -580,4 +636,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 23 -->
+<!-- revision: 28 -->

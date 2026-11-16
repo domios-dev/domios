@@ -12,13 +12,15 @@
  * resync instead of guessing what was missed.
  */
 import { apiHost, relayTarget } from "./webApi";
-import { type TransportClient } from "./transportClient";
+import { type StreamEnd, type TransportClient } from "./transportClient";
 import { baseDaemonTransport } from "./daemonBootstrap";
-import { wakeStreamMuxes } from "./streamMux";
+import { streamMuxDiagnostics, verifyStreamMuxes, wakeStreamMuxes } from "./streamMux";
 import { fireResync } from "./resync";
 import { replayCursorForTarget } from "./resyncModel";
 import { createSeqGapTracker } from "./eventSeqGaps";
-import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, shouldResetReconnectBackoff, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
+import { RECONNECT_FIRST_MS, shouldResetReconnectBackoff, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
+import { eventReconnectDelay, isLocalEventStream, LOCAL_EVENT_RETRY_MS, nextEventReconnectBackoff } from "./webEventRecovery";
+import { DEV_BUILD } from "./devBuild";
 import { TERMINAL_VIEWER_DISCONNECTED_EVENT, TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
 import { signalEventStreamReady } from "./eventStreamReady";
 import { WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT, type BootChangedDetail } from "./buildDriftReload";
@@ -52,6 +54,7 @@ const handlers = new Map<string, Set<Handler>>();
 let streamAbort: AbortController | null = null;
 let started = false;
 let lastFrameAt = 0;
+let activityRevision = 0;
 let hasAttemptedConnection = false;
 let reconnectState: WebReconnectState = "connected";
 let cancelReconnectWait: (() => void) | null = null;
@@ -60,28 +63,72 @@ let streamGeneration = 0;
 let wakeRequested = false;
 let receiveDeadline: ReturnType<typeof setTimeout> | null = null;
 let streamRelayed = false;
+let silentProof: Promise<void> | null = null;
 
-export function webReconnectEnabled(): boolean {
-  try {
-    return sessionStorage.getItem("codeterm-capability:web-reconnect-probe") === "true";
-  } catch {
-    return false;
-  }
+type ConnectionStage = "attempt" | "ready" | "activity" | "frame" | "silence" | "proof-ok" | "proof-failed" | "channel-replace" | "lost" | "retry" | "wake";
+const connectionDiagnostics: object[] = [];
+declare global { interface Window { __ctConnectionDiagnostics?: () => readonly object[] } }
+
+function diagnose(stage: ConnectionStage, end?: StreamEnd, retryMs?: number): void {
+  if (!DEV_BUILD) return;
+  window.__ctConnectionDiagnostics ??= webConnectionDiagnostics;
+  const record = {
+    at: Date.now(), stage, generation: streamGeneration, state: reconnectState,
+    hidden: document.hidden, silentMs: Date.now() - lastFrameAt, relayed: streamRelayed,
+    cursor: cursor !== null, end: end?.reason,
+    status: end?.reason === "http" ? end.status : undefined,
+    error: end?.error instanceof Error ? end.error.name : undefined, retryMs,
+    mux: streamMuxDiagnostics().map(({ requests, streams, queued, bufferedBytes, carrier, connected }) =>
+      ({ requests, streams, queued, bufferedBytes, carrier, connected })),
+  };
+  if (connectionDiagnostics.length === 128) connectionDiagnostics.shift();
+  connectionDiagnostics.push(record);
+  console.debug("[event-connection]", record);
 }
 
+export function webConnectionDiagnostics(): readonly object[] { return DEV_BUILD ? [...connectionDiagnostics] : []; }
+
 export function wakeWebEvents(): void {
+  diagnose("wake");
   wakeStreamMuxes();
   if (wakeReconnectWait) {
     wakeReconnectWait();
   } else if (reconnectState === "connected" && Date.now() - lastFrameAt > RECEIVE_TIMEOUT_MS) {
+    if (streamAbort) void proveSilentStream(streamAbort, streamGeneration);
+  }
+}
+
+function proveSilentStream(abort: AbortController, generation: number): Promise<void> {
+  if (silentProof) return silentProof;
+  const pendingProof = checkSilentStream(abort, generation).finally(() => {
+    if (silentProof === pendingProof) silentProof = null;
+  });
+  silentProof = pendingProof;
+  return pendingProof;
+}
+
+async function checkSilentStream(abort: AbortController, generation: number): Promise<void> {
+  const observedActivity = activityRevision;
+  diagnose("silence");
+  const alive = await verifyStreamMuxes(eventOrigin());
+  if (abort.signal.aborted || generation !== streamGeneration) return;
+  if (activityRevision !== observedActivity) {
+    diagnose("proof-ok");
+    armReceiveDeadline(abort);
+  } else {
+    diagnose(alive ? "channel-replace" : "proof-failed");
     wakeRequested = true;
-    streamAbort?.abort();
+    abort.abort(new DOMException(alive ? "Event channel stopped delivering keepalives" : "Carrier liveness proof failed", "TimeoutError"));
   }
 }
 
 function armReceiveDeadline(abort: AbortController): void {
   if (receiveDeadline) clearTimeout(receiveDeadline);
-  receiveDeadline = setTimeout(() => abort.abort(), RECEIVE_TIMEOUT_MS);
+  const generation = streamGeneration;
+  receiveDeadline = setTimeout(() => {
+    receiveDeadline = null;
+    void proveSilentStream(abort, generation);
+  }, RECEIVE_TIMEOUT_MS);
   (receiveDeadline as unknown as { unref?: () => void }).unref?.();
 }
 
@@ -109,7 +156,8 @@ function waitForReconnectFailure(delay: number, hiddenDelay: number, generation:
       resolve(generation === streamGeneration && next.action === "probe");
     };
     const onVisibilityChange = () => {
-      if (document.hidden) {
+      if (!document.hidden) finish("wake");
+      else {
         deadlineAt = Math.max(deadlineAt, startedAt + hiddenDelay);
         scheduleDeadline();
       }
@@ -237,7 +285,9 @@ export function webEventStreamUrl(
 
 async function runStream(): Promise<void> {
   const generation = ++streamGeneration;
-  let backoffMs = RECONNECT_FIRST_MS;
+  const local = isLocalEventStream(eventOrigin(), relayTarget() !== null);
+  const firstBackoff = local ? LOCAL_EVENT_RETRY_MS : RECONNECT_FIRST_MS;
+  let backoffMs = firstBackoff;
   for (;;) {
     if (generation !== streamGeneration) return;
     const attemptStartedAt = Date.now();
@@ -248,7 +298,21 @@ async function runStream(): Promise<void> {
     const reconnecting = hasAttemptedConnection;
     hasAttemptedConnection = true;
     let connected = false;
+    let sawApplicationFrame = false;
+    let end: StreamEnd | undefined;
     const client = eventClient ?? baseDaemonTransport();
+    const markConnected = (stage: "ready" | "activity" | "frame") => {
+      if (abort.signal.aborted || generation !== streamGeneration || connected) return;
+      connected = true;
+      backoffMs = firstBackoff;
+      reconnectState = transitionWebReconnect(reconnectState, "connected").state;
+      diagnose(stage);
+      if (reconnecting) {
+        window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+        window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
+      }
+    };
+    diagnose("attempt");
     if (cursor) {
       const separator = cursor.lastIndexOf(":");
       const seq = Number(cursor.slice(separator + 1));
@@ -261,16 +325,9 @@ async function runStream(): Promise<void> {
         streamRelayed = target !== null;
         const frame = data as EventFrame;
         if (!frame || typeof frame.event_type !== "string") return;
-        const firstFrame = !connected;
-        if (firstFrame) {
-          connected = true;
-          backoffMs = RECONNECT_FIRST_MS;
-          reconnectState = transitionWebReconnect(reconnectState, "connected").state;
-          if (reconnecting) {
-            window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
-            window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
-          }
-        }
+        const firstFrame = !sawApplicationFrame;
+        sawApplicationFrame = true;
+        markConnected("frame");
         handleFrame(frame);
         if (!firstFrame && frame.event_type === "overflow") signalEventStreamReady();
       }, {
@@ -281,18 +338,27 @@ async function runStream(): Promise<void> {
         },
         onReady() {
           if (abort.signal.aborted || generation !== streamGeneration) return;
+          markConnected("ready");
           armReceiveDeadline(abort);
           signalEventStreamReady();
           if (reconnecting) window.dispatchEvent(new Event(WEB_EVENTS_READY_EVENT));
         },
-        onActivity() { lastFrameAt = Date.now(); armReceiveDeadline(abort); },
-        onEnd() {
+        onActivity() {
+          if (abort.signal.aborted || generation !== streamGeneration) return;
+          lastFrameAt = Date.now();
+          activityRevision += 1;
+          markConnected("activity");
+          armReceiveDeadline(abort);
+        },
+        onEnd(outcome) {
+          end = outcome;
           resolve();
         },
       });
     });
     if (generation !== streamGeneration) return;
-    if (shouldResetReconnectBackoff(connected, Date.now() - attemptStartedAt)) backoffMs = RECONNECT_FIRST_MS;
+    if (shouldResetReconnectBackoff(connected, Date.now() - attemptStartedAt)) backoffMs = firstBackoff;
+    diagnose("lost", end);
     abort.abort();
     if (receiveDeadline) { clearTimeout(receiveDeadline); receiveDeadline = null; }
     if (wakeRequested) {
@@ -301,10 +367,11 @@ async function runStream(): Promise<void> {
     }
     const hidden = document.hidden;
     const random = Math.random();
-    const delay = reconnectDelay(backoffMs, random, hidden);
-    const hiddenDelay = reconnectDelay(backoffMs, random, true);
+    const delay = eventReconnectDelay(backoffMs, random, hidden, local);
+    const hiddenDelay = eventReconnectDelay(backoffMs, random, true, local);
+    diagnose("retry", end, delay);
     if (!await waitForReconnectFailure(delay, hiddenDelay, generation)) return;
-    backoffMs = nextReconnectBackoff(backoffMs, document.hidden);
+    backoffMs = nextEventReconnectBackoff(backoffMs, document.hidden, local);
   }
 }
 
@@ -355,6 +422,7 @@ function stopReconnect(): void {
   receiveDeadline = null;
   reconnectState = "connected";
   wakeRequested = false;
+  silentProof = null;
   hasAttemptedConnection = false;
 }
 

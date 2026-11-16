@@ -34,22 +34,21 @@ fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
     let prompt =
         spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
     assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
+    assert!(prompt.contains(
+        crate::service::role_preset::builtin_guidance("orchestrator")
+            .unwrap()
+            .trim()
+    ));
     assert_eq!(
         prompt
-            .matches(crate::prompts::ORCH_CHILD_PTY_RECOVERY_TRIGGER)
+            .matches(
+                crate::service::builtin_roles::builtin_prose("orchestrator")
+                    .unwrap()
+                    .trim()
+            )
             .count(),
         1
     );
-}
-
-#[test]
-fn cartographer_prompt_orchestrator_composition_delivers_manager_notice() {
-    let prompt =
-        spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
-    let notice = crate::prompts::ORCH_CARTOGRAPHER_CONTRACT_NOTICE;
-    assert_eq!(prompt.matches(notice).count(), 1);
-    assert!(!prompt.contains("{cartographer_contract_notice}"));
     assert!(prompt.len() <= crate::prompts::COMPOSED_ROLE_PROMPT_MAX_BYTES);
 }
 
@@ -60,13 +59,24 @@ fn cartographer_prompt_cartographer_composition_delivers_contract_and_assignment
         Some(ASSIGNMENT_TOKEN),
         Some("Manager"),
         Some("cartographer"),
+        None,
     )
     .expect("cartographer system prompt");
-    let contract = crate::prompts::CARTOGRAPHER_SUFFIX.trim();
+    let contract = crate::service::builtin_roles::builtin_prose("cartographer")
+        .unwrap()
+        .trim();
     assert_eq!(prompt.matches(contract).count(), 1);
     assert_eq!(prompt.matches(ASSIGNMENT_TOKEN).count(), 1);
-    assert!(!prompt.contains(crate::prompts::WORKER_SUFFIX.trim()));
-    assert!(!prompt.contains(crate::prompts::planner_suffix().trim()));
+    assert!(!prompt.contains(
+        crate::service::builtin_roles::builtin_prose("worker")
+            .unwrap()
+            .trim()
+    ));
+    assert!(!prompt.contains(
+        crate::service::role_preset::builtin_guidance("planner")
+            .unwrap()
+            .trim()
+    ));
     assert!(!prompt.contains("{cartographer_contract_notice}"));
     assert!(prompt.len() <= crate::prompts::COMPOSED_ROLE_PROMPT_MAX_BYTES);
 }
@@ -94,7 +104,7 @@ fn planner_onboarding_remains_work_when_a_task_is_provided() {
     };
     assert!(spawn_onboarding_task(&params)
         .unwrap()
-        .contains(&crate::prompts::planner_suffix()));
+        .contains(&crate::service::role_preset::builtin_guidance("planner").unwrap()));
 }
 
 /// Every launch composition, by capability class rather than provider id: a
@@ -102,14 +112,17 @@ fn planner_onboarding_remains_work_when_a_task_is_provided() {
 fn every_launch_composition() -> Vec<(&'static str, String)> {
     vec![
         ("spawned non-worker", agent_system_prompt(None)),
-        ("spawned worker", worker_agent_system_prompt(None, None)),
+        (
+            "spawned worker",
+            worker_agent_system_prompt(None, None, None),
+        ),
         (
             "spawned non-worker with assignment",
             agent_system_prompt(Some("do the thing")),
         ),
         (
             "spawned worker with assignment",
-            worker_agent_system_prompt(Some("do the thing"), None),
+            worker_agent_system_prompt(Some("do the thing"), None, None),
         ),
         (
             "spawned orchestrator",
@@ -118,22 +131,23 @@ fn every_launch_composition() -> Vec<(&'static str, String)> {
         ),
         (
             "spawned planner",
-            super::role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner"))
+            super::role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner"), None)
                 .expect("planner system prompt"),
         ),
         (
             "spawned watcher",
-            super::role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher"))
+            super::role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher"), None)
                 .expect("watcher system prompt"),
         ),
         // Capability declarations determine composition, so provider identity need not select the prompt path.
         (
             "solo on a system-prompt-capable provider",
-            super::role_launch_task(Some("do it"), None, None, true).expect("solo system prompt"),
+            super::role_launch_task(Some("do it"), None, None, None, true)
+                .expect("solo system prompt"),
         ),
         (
             "roled launch on a fallback-only provider",
-            super::role_launch_task(Some("fix it"), Some("Worker"), None, false)
+            super::role_launch_task(Some("fix it"), Some("Worker"), None, None, false)
                 .expect("fallback composition"),
         ),
     ]
@@ -161,12 +175,12 @@ fn quoted_handoff_payload_reaches_every_recipient_brief_byte_exact() {
         ),
         (
             "spawned planner",
-            super::role_onboarding_task(Some(PAYLOAD), Some("Manager"), Some("planner"))
+            super::role_onboarding_task(Some(PAYLOAD), Some("Manager"), Some("planner"), None)
                 .expect("planner system prompt"),
         ),
         (
             "spawned worker",
-            super::role_onboarding_task(Some(PAYLOAD), Some("Worker"), None)
+            super::role_onboarding_task(Some(PAYLOAD), Some("Worker"), None, None)
                 .expect("worker system prompt"),
         ),
     ];
@@ -201,7 +215,7 @@ fn every_spawned_recipient_receives_the_agent_pad_rule_exactly_once() {
 /// skill carrying the full reference. Both arrive as whole constants.
 #[test]
 fn spawned_worker_receives_the_codeterm_primer() {
-    let composed = worker_agent_system_prompt(Some("do the thing"), None);
+    let composed = worker_agent_system_prompt(Some("do the thing"), None, None);
     assert!(composed.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(composed.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
 }
@@ -217,7 +231,7 @@ fn routed_contract_is_adjacent_to_the_primer_and_survives_both_delivery_channels
     let primer = crate::prompts::AGENT_CODETERM_PRIMER.trim();
     let routing = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
     let external_launch =
-        super::worker_agent_system_prompt_with_plugins(None, ASSIGNMENT, None, Some(PLUGINS));
+        super::worker_agent_system_prompt_with_plugins(None, ASSIGNMENT, None, None, Some(PLUGINS));
     let system_prompt = super::agent_system_prompt_with_plugins(None, Some(PLUGINS));
     let expected_prefix = format!("{primer}\n\n{routing}\n\n{PLUGINS}");
 
@@ -305,7 +319,7 @@ fn per_task_doctrine_override_reaches_the_composed_worker_brief() {
     let brief =
         crate::service::plan::worker_identity::attach_worker_identity(&identity, "# Task body");
 
-    let composed = super::role_onboarding_task(Some(&brief), Some("Worker"), None)
+    let composed = super::role_onboarding_task(Some(&brief), Some("Worker"), None, None)
         .expect("worker system prompt");
 
     assert_eq!(composed.matches(TASK_DOCTRINE_TOKEN).count(), 1);
@@ -321,7 +335,10 @@ fn every_spawned_recipient_receives_rich_rendering_guidance() {
 
     for (recipient, composed) in [
         ("spawned non-worker", agent_system_prompt(None)),
-        ("spawned worker", worker_agent_system_prompt(None, None)),
+        (
+            "spawned worker",
+            worker_agent_system_prompt(None, None, None),
+        ),
     ] {
         assert_eq!(
             composed.matches(guidance).count(),
@@ -345,7 +362,7 @@ fn a_task_less_worker_shape_still_receives_the_worker_doctrine() {
 
     let doctrine = crate::service::role_preset::builtin_guidance(builtins::WORKER)
         .expect("the builtin Worker kind carries bundled doctrine");
-    let composed = super::role_onboarding_task(Some(ASSIGNMENT_TOKEN), Some("Worker"), None)
+    let composed = super::role_onboarding_task(Some(ASSIGNMENT_TOKEN), Some("Worker"), None, None)
         .expect("worker system prompt");
 
     assert_eq!(
@@ -370,7 +387,7 @@ fn the_roleless_fallback_shape_carries_no_worker_doctrine() {
 
     let doctrine = crate::service::role_preset::builtin_guidance(builtins::WORKER)
         .expect("the builtin Worker kind carries bundled doctrine");
-    let composed = super::role_onboarding_task(Some(ASSIGNMENT_TOKEN), None, None)
+    let composed = super::role_onboarding_task(Some(ASSIGNMENT_TOKEN), None, None, None)
         .expect("roleless system prompt");
 
     assert_eq!(composed.matches(ASSIGNMENT_TOKEN).count(), 1);
@@ -419,7 +436,7 @@ fn mesh_spawn_return_route_does_not_guess_partial_or_local_targets() {
         };
         assert_eq!(
             super::spawn_launch_task(&params, true),
-            super::role_launch_task(params.task.as_deref(), None, None, true),
+            super::role_launch_task(params.task.as_deref(), None, None, None, true),
         );
     }
 }
@@ -476,7 +493,8 @@ fn tool_less_capability_selects_assignment_without_cli_contract_fragments() {
             "opaque-provider",
             params.task.as_deref(),
             Some("Worker"),
-            None
+            None,
+            None,
         ),
         Some("opaque identity\n\nopaque assignment".into())
     );
@@ -507,7 +525,7 @@ fn utility_guidance_reaches_managers_and_roleless_but_not_workers() {
         (Some("Orchestrator"), None),
         (Some("Manager"), Some("planner")),
     ] {
-        let prompt = super::role_onboarding_task(Some("opaque-task"), role, profile).unwrap();
+        let prompt = super::role_onboarding_task(Some("opaque-task"), role, profile, None).unwrap();
         assert_eq!(
             prompt
                 .matches(crate::prompts::UTILITY_TAB_GUIDANCE.trim())
@@ -515,7 +533,8 @@ fn utility_guidance_reaches_managers_and_roleless_but_not_workers() {
             1
         );
     }
-    let worker = super::role_onboarding_task(Some("opaque-task"), Some("Worker"), None).unwrap();
+    let worker =
+        super::role_onboarding_task(Some("opaque-task"), Some("Worker"), None, None).unwrap();
     assert!(!worker.contains(crate::prompts::UTILITY_TAB_GUIDANCE.trim()));
     assert!(crate::prompts::UTILITY_TAB_GUIDANCE.lines().count() <= 3);
 }
@@ -535,11 +554,12 @@ fn built_in_plugins_follow_the_routing_contract_and_are_absent_without_contribut
     assert!(with.find(routing_contract) < with.find(SECTION));
     assert_eq!(with.replacen(&format!("{SECTION}\n\n"), "", 1), plain);
 
-    let worker_plain = super::worker_agent_system_prompt_with_plugins(None, "opaque", None, None);
+    let worker_plain =
+        super::worker_agent_system_prompt_with_plugins(None, "opaque", None, None, None);
     assert!(!worker_plain.contains("Built-in plugins:"));
     assert_eq!(worker_plain.matches(routing_contract).count(), 1);
     let worker =
-        super::worker_agent_system_prompt_with_plugins(None, "opaque", None, Some(SECTION));
+        super::worker_agent_system_prompt_with_plugins(None, "opaque", None, None, Some(SECTION));
     assert_eq!(worker.matches(&before_plugins).count(), 1);
     assert!(worker.find(routing_contract) < worker.find(SECTION));
     assert_eq!(

@@ -138,7 +138,7 @@ Restore matches normalized `cwd`. `GET /api/mux/state`: newest-first `recently_c
 | POST | `/api/tabs/{id}/agent/runtime/reset-credits` | `{action:"read"}` or `{action:"redeem", idempotencyKey, confirmed:true, creditId?}` | Read support, or redeem one reset credit (UUID v4 key + confirmation; `creditId` omitted = provider picks); returns outcome and before/after counts |
 | GET | `/api/tabs/{id}/output/stream` | — | SSE real-time output stream |
 | GET | `/api/agent-runs/{tab_id}/log` | — | Agent run log for a tab |
-| POST | `/api/tabs/{id}/focus` | — | Explicit focus request: every open client shows the tab |
+| POST | `/api/tabs/{id}/focus` | — | Focus request: no client moves; every client highlights the tab (snapshot `focus_requested`) until one opens it |
 | POST | `/api/tabs/{id}/select` | — | Record one client's own tab selection silently; no other client follows it |
 | POST | `/api/tabs/{id}/close` | `?force=true` | Close tab + kill PTY. With `X-CodeTerm-Tab-Id`, closing a Worker that executes an `in_progress` task returns `409` unless `force=true`; without it the close proceeds and returns `warnings`. The Orchestrator is notified either way (see `tab.close` in API-TRANSPORT). |
 | POST | `/api/tabs/{id}/restart` | `{cwd?}` | Replace a plain shell PTY in the same tab while preserving tab and Team metadata. Agent and chat-backend tabs are rejected, including an agent-role tab whose provider exited (`shell_restart_agent_member`; resume it with `agent restart`). |
@@ -161,7 +161,7 @@ Restore matches normalized `cwd`. `GET /api/mux/state`: newest-first `recently_c
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/tabs/{id}/role` | `{role, parent_tab_id?, can_spawn?, plan_id?}` | Orchestrator/Worker (`Conductor` aliases Orchestrator). Manager with `role_profile:"planner"` requires `plan_id`; omitted parent resolves to its live Orchestrator owner, explicit parent wins. |
+| POST | `/api/tabs/{id}/role` | `{role, parent_tab_id?, can_spawn?, plan_id?}` | Orchestrator/Worker (`Conductor` aliases Orchestrator). Manager with `role_profile:"planner"` (the persisted kind) requires `plan_id`; omitted parent resolves to its live Orchestrator owner, explicit parent wins. |
 | DELETE | `/api/tabs/{id}/role` | — | Clear role: detach a Worker, or retire an Orchestrator while keeping the final anchor's Team and active Plan for a replacement |
 | GET | `/api/tabs/{id}/status` | — | `working`/`question`/`idle`/`error`/`exited` (as in tab list), role, children; active numbered prompt adds `pending_prompt:{question,options}`; a failed boot or degraded runtime adds `failure:{boot_stage?,runtime_state?,code?,reason}` (one-line reason); both also returned by `domios tab status --json`. |
 | POST | `/api/tabs/{id}/report` | `{message, caller_tab_id?, caller_session_id?, session_binding_nonce?, plan_id?, task_id?, status?, ...}` | Send an authenticated hierarchy report. A Plan-authorized task-less reporter uses `plan_id` without `task_id`/`status`; success returns `plan_report` and persists a task-less Plan stride before Orchestrator delivery. |
@@ -209,4 +209,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 247 -->
+<!-- revision: 249 -->

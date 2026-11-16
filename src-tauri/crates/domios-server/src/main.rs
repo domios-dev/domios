@@ -11,6 +11,16 @@ use domios_server::{
 use std::io::{self, BufRead, Read, Write};
 
 fn main() {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("serve"))
+        && std::env::var_os("CANDLE_NUM_THREADS").is_none()
+    {
+        // Candle reads its global pool size once; set the default before any thread starts.
+        std::env::set_var(
+            "CANDLE_NUM_THREADS",
+            codeterm_util::embedding_cpu::DEFAULT_THREADS,
+        );
+        codeterm_util::embedding_cpu::record_default_injection();
+    }
     if let Err(error) = execute() {
         if std::env::args().nth(1).as_deref() == Some("memory-migrate")
             && std::env::args().any(|arg| arg == "--json")

@@ -67,7 +67,7 @@ async fn native_and_js_media_ports_agree_and_undeclared_export_stays_denied() {
 #[test]
 fn manifest_media_descriptor_is_closed_and_requires_view() {
     let manifest = |caps: Value| {
-        PluginManifest::from_json_str(&serde_json::json!({"id":"fixture","version":"1.0.0","displayName":"Fixture","capabilities":caps}).to_string())
+        PluginManifest::from_json_str(&serde_json::json!({"id":"fixture","version":"1.0.0","hostIoJobs":true,"displayName":"Fixture","capabilities":caps}).to_string())
     };
     let valid = manifest(
         serde_json::json!({"view":true,"mediaDelivery":{"types":["video/mp4","image/png"]}}),

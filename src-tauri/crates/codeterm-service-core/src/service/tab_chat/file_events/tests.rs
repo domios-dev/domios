@@ -11,6 +11,12 @@ struct InjectedBackend {
 
 struct InjectedWatch(Arc<std::sync::atomic::AtomicUsize>);
 
+impl DirectoryStream for InjectedWatch {
+    fn stop(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 impl Drop for InjectedWatch {
     fn drop(&mut self) {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -33,11 +39,85 @@ impl DirectoryBackend for InjectedBackend {
         mode: RecursiveMode,
         _: u64,
         _: &Sender<Command>,
-    ) -> Result<Box<dyn Send>, String> {
+    ) -> Result<Box<dyn DirectoryStream>, String> {
         assert_eq!(mode, RecursiveMode::NonRecursive);
         self.started.lock().push(root.to_path_buf());
         Ok(Box::new(InjectedWatch(self.stopped.clone())))
     }
+}
+
+#[test]
+fn bundle_swap_retargets_injected_watch_and_new_subscribers_until_restore() {
+    let backend = Arc::new(InjectedBackend::default());
+    let parent = PathBuf::from("plugins");
+    let bundle = parent.join("fixture");
+    let nested = bundle.join("catalogue");
+    backend
+        .directories
+        .lock()
+        .extend([parent.clone(), bundle.clone(), nested.clone()]);
+    let mut registry = Registry {
+        backend: backend.clone(),
+        ..Registry::default()
+    };
+    let (commands, _) = mpsc::channel();
+    let (wake, _) = mpsc::sync_channel(1);
+    registry
+        .subscribe(
+            nested.join("models.json"),
+            wake.clone(),
+            Arc::new(AtomicBool::new(true)),
+            &commands,
+        )
+        .unwrap();
+    registry.suspend(bundle.clone(), &commands).unwrap();
+    registry.suspend(bundle.clone(), &commands).unwrap();
+    assert_eq!(backend.stopped.load(Ordering::SeqCst), 1);
+    assert_eq!(registry.roots.keys().collect::<Vec<_>>(), vec![&parent]);
+    registry
+        .subscribe(
+            bundle.join("new.json"),
+            wake,
+            Arc::new(AtomicBool::new(true)),
+            &commands,
+        )
+        .unwrap();
+    let generation = registry.roots[&parent].generation;
+    registry.event(
+        parent.clone(),
+        generation,
+        Ok(
+            Event::new(EventKind::Create(notify::event::CreateKind::File))
+                .add_path(bundle.join("new.json")),
+        ),
+        &commands,
+    );
+    assert_eq!(registry.roots.keys().collect::<Vec<_>>(), vec![&parent]);
+    registry.resume(&bundle, &commands);
+    assert_eq!(registry.roots.keys().collect::<Vec<_>>(), vec![&parent]);
+    registry.resume(&bundle, &commands);
+    assert_eq!(registry.roots.len(), 2);
+    assert!(registry.roots.contains_key(&bundle));
+    assert!(registry.roots.contains_key(&nested));
+}
+
+#[test]
+fn bundle_suspend_acknowledges_native_release_before_swap_and_restores_on_drop() {
+    let directory = tempfile::tempdir().unwrap();
+    let bundle = directory.path().join("fixture");
+    std::fs::create_dir(&bundle).unwrap();
+    let source = bundle.join("models.json");
+    std::fs::write(&source, "old").unwrap();
+    let (wake, _) = mpsc::sync_channel(1);
+    let guard = watch(&source, wake).unwrap();
+    let scope = suspend_bundle(&bundle).unwrap();
+    assert!(roots(&guard, &bundle.canonicalize().unwrap()).is_empty());
+    let backup = directory.path().join("previous");
+    std::fs::rename(&bundle, &backup).unwrap();
+    std::fs::create_dir(&bundle).unwrap();
+    std::fs::write(&source, "new").unwrap();
+    drop(scope);
+    assert_eq!(roots(&guard, &bundle.canonicalize().unwrap()).len(), 1);
 }
 
 #[test]

@@ -352,6 +352,7 @@ pub(crate) fn start_servers(
             storage,
             &codeterm_service_core::paths::data_dir(),
         );
+        codeterm_sentinel_host::team_automation::install(service_state);
     }
 
     drop(phase);

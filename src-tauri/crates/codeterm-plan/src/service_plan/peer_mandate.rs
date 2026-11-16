@@ -37,14 +37,14 @@ pub fn planning_structure_nudge(
     ))
 }
 
-/// The canonical `agent spawn --role Planner --plan <id>` command, filled in
+/// The canonical `agent spawn --role planner --plan <id>` command, filled in
 /// with a real orchestrator tab id when known (falls back to a placeholder
 /// token otherwise, matching the `PLAN_ID`-style placeholders used elsewhere
 /// in onboarding text).
 pub fn planner_spawn_cmd_hint(orchestrator_tab_id: Option<&str>, plan_id: &str) -> String {
     let parent = orchestrator_tab_id.unwrap_or("<orch-tab>");
     format!(
-        "Choose an available provider and model appropriate for this planning task, then run: domios agent spawn <provider> [--model <model>] --parent-tab {parent} --role Planner --plan {plan_id}"
+        "Choose an available provider and model appropriate for this planning task, then run: domios agent spawn <provider> [--model <model>] --parent-tab {parent} --role planner --plan {plan_id}"
     )
 }
 
@@ -126,7 +126,7 @@ mod tests {
         let hint = planner_spawn_cmd_hint(Some("orch-1"), "pl_123");
         assert!(hint.contains("--parent-tab orch-1"));
         assert!(hint.contains("--plan pl_123"));
-        assert!(hint.contains("--role Planner"));
+        assert!(hint.contains("--role planner"));
         assert!(hint.contains("agent spawn <provider> [--model <model>]"));
         assert!(!hint.contains("agent spawn claude"));
         assert!(!hint.contains("fable"));

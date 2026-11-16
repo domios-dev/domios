@@ -839,21 +839,13 @@ additional system records never become foreign user turns.
 
 ## Agent-callable view surfaces
 
-For host 1.18+, declare `capabilities.view`, a view surface's `agentVerbs` and
-`stateInvalidation`, plus the `surfaces`/`agentCommands` grants. Forward agent
-commands to `host.surface.call`; implement `onSurfaceCall(context,verb,args)`.
-Context is host-owned `{surface,instance,tab,owner,actor,actorLabel}`; never infer
-caller authority from words. Native host ports and the JS bridge share the same
-ownership planner and descriptor. Dispatch stays in the active VM, avoiding a
-reentrant registry/VM lock. Return a string; job ids/state remain plugin-owned.
-
-Backend changes call `host.surface.invalidate({surface,instance,tab})`; the
-capability-gated port rejects stale identities and arbitrary payloads. Views use
-`ct.onSurfaceStateChanged` and release the subscription on unmount. This is a
-state-refetch hint, not a reload, job ledger or durable media handle. The host API
-adds no FS/network/env reach; activity includes only sanitized verbs and labels.
-Test two agents, cross-workspace refusal, declaration/instance bounds, native/JS
-port parity, late frame events and teardown. See `domios docs SURFACES` for usage.
+Declare the `surfaces`/`agentCommands` grants and use `host.io.surface.call`
+from a generator inside `onAgentCommand` for native surfaces. The host captures
+the caller and original Blueprint owner; arguments cannot override authority.
+JavaScript view dispatch is refused. The synchronous surface and invalidation
+bindings are removed; native host ports own view invalidation. View documents
+may use `ct.onSurfaceStateChanged` to refetch state through `ct.invoke` and must
+release their subscription on unmount. See `domios docs SURFACES` for usage.
 
 View backends implement `viewCall(method,args,context)`, with a host-resolved
 `ViewCallContext` (plugin, surface/instance/tab/owner/workspace/team, local actor,
@@ -868,3 +860,21 @@ Test stale/foreign tuples, owner changes, native/JS parity and stale async repli
 
 - [Canonical oracles](claude-canonical-oracles.md) owns repository build and live QA procedures.
 - [Verification evidence](claude-verification-evidence.md) retains the local hook refresh and outstanding producer evidence moved out of the bundled guide.
+
+`usageAccounting()` declares `transcript`, `runtime_turn`, or `unreported` (default).
+Only transcript providers return `usageSources`; their pure `parseUsageRecord(record,
+nowSeconds)` returns a normalized compaction, response, cumulative record, or null.
+Parser errors preserve the host cursor. Native implementations use `parse_usage_record`;
+shared fixtures must agree with the JS export. This adds no host I/O authority.
+Runtime accounting requires `TokenUsage.response_id`, stable for the provider's exact
+thread and prompt across replay/resume. Input includes cache reads; uncached input
+subtracts the reported cached slice. Context fill is never token spend. The host
+archives normalized turn usage and updates the ledger atomically; transcript-backed
+providers never also write runtime spend. No report remains unknown, including a
+provider that reports only account limits or context fill.
+
+A SQLite transcript provider owns `usageSqlQuery(scoped)`: a read-only SELECT
+returning `(position, response_id, record_json)`, ordered by position, with parameters
+`?1` (exclusive cursor), `?2` (inclusive upper bound), and, when scoped, `?3` (exact
+session). The host uses a read-only connection to the provider's declared source;
+this pure query declaration adds no filesystem, SQLite, environment or network grant.

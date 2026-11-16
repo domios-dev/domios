@@ -8,6 +8,7 @@ import { ActivityFeed } from "../../Supporter/ActivityFeed";
 import { ActivityDots } from "../../shared/ActivityDots";
 import { AnchoredPopover } from "../../shared/AnchoredPopover";
 import { ChecklistItemDetail } from "../../Sidebar/ChecklistItemDetail";
+import { ChecklistReadFailure } from "../../Sidebar/ChecklistReadFailure";
 import { checklistStateLabel, type AgentChecklistItem } from "../../Sidebar/agentChecklistModel";
 import { useAgentChecklists, type ChecklistView } from "../../Sidebar/useAgentChecklists";
 import { BoardPanel } from "./BoardPanel";
@@ -52,7 +53,7 @@ function UnderwayRow({ tab, task, view, plans, refs, deepLinks }: {
       onClick={() => { if (task) refs.get(task.id)?.open?.(); }}>{task?.key ?? "–"}</button>
     <div className="mc-underway-track">
       {view?.status === "ready" && view.checklist?.proposal?.state === "proposed" && <span role="status">Not reviewed yet</span>}
-      {view?.status !== "ready" ? <span role="status">{view?.status === "error" ? "Checklist unavailable" : <><span className="sr-only">Loading checklist</span><Skeleton inline><SkeletonBlock width={160} height={12} /></Skeleton></>}</span>
+      {view?.status !== "ready" ? view?.status === "error" ? <ChecklistReadFailure error={view.error} onRetry={view.retry} /> : <span role="status"><span className="sr-only">Loading checklist</span><Skeleton inline><SkeletonBlock width={160} height={12} /></Skeleton></span>
         : items.length === 0 ? <span>No checklist</span>
         : <ol aria-label={`Checklist of ${tab.title}`}>{items.map((item, index) => <Segment key={item.id} item={item} index={index} total={items.length} plans={plans} tabId={tab.id} />)}</ol>}
     </div>

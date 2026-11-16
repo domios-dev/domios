@@ -1,4 +1,4 @@
-import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence, qualificationAttemptNumbers} from './ci-qualification.mjs';
+import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence, qualificationAttemptNumbers, selectReleasePushRun} from './ci-qualification.mjs';
 import {readQualificationArchive} from './ci-qualification-archive.mjs';
 export {readQualificationArchive} from './ci-qualification-archive.mjs';
 
@@ -17,11 +17,14 @@ export async function listFailureJobs(github, context) {
 export async function cancelWorkflow(github, context) {
   await github.rest.actions.cancelWorkflowRun({...context.repo,run_id:context.runId});
 }
-export async function requireQualificationWithGithub(github, context, sha, readArchive=readQualificationArchive, retain=retainQualificationEvidence) {
+export async function requireQualificationWithGithub(github, context, sha, {runId, readArchive=readQualificationArchive, retain=retainQualificationEvidence} = {}) {
   if(!/^[a-f0-9]{40}$/.test(sha))throw new Error('Invalid qualification SHA');
+  if(runId !== undefined && !/^[1-9]\d*$/.test(String(runId)))throw new Error('Invalid qualification run ID');
   const name='qualification-'+sha;
-  const artifacts=(await github.rest.actions.listArtifactsForRepo({...context.repo,name,per_page:100})).data.artifacts;
-  const artifact=selectQualificationArtifact(artifacts,sha);
+  const artifacts=(await (runId === undefined
+    ? github.rest.actions.listArtifactsForRepo({...context.repo,name,per_page:100})
+    : github.rest.actions.listWorkflowRunArtifacts({...context.repo,run_id:runId,name,per_page:100}))).data.artifacts;
+  const artifact=selectQualificationArtifact(artifacts,sha,Date.now(),runId);
   const run=(await github.rest.actions.getWorkflowRun({...context.repo,run_id:artifact.workflow_run.id})).data;
   if(String(run.id)!==String(artifact.workflow_run.id))throw new Error('Foreign qualification artifact run');
   const jobs=[];
@@ -38,4 +41,21 @@ export async function requireQualificationWithGithub(github, context, sha, readA
   const archive=(await github.rest.actions.downloadArtifact({...context.repo,artifact_id:artifact.id,archive_format:'zip'})).data;
   return retain({...verifyQualification(readArchive(archive),run,jobs,sha,context.repo.owner+'/'+context.repo.repo,attempts),
     verification_artifact:{id:artifact.id,expires_at:artifact.expires_at}});
+}
+
+export async function requireReleasePrQualification(github, context, verify = requireQualificationWithGithub) {
+  const pr = context.payload.pull_request;
+  const repository = context.repo.owner + '/' + context.repo.repo;
+  if (context.eventName !== 'pull_request' || pr?.base.ref !== 'master' || pr.user.login !== 'rollacode'
+    || pr.head.repo.full_name !== repository || !/^release\/\d+\.\d+\.\d+$/.test(pr.head.ref))
+    throw new Error('master accepts only an owner release/X.Y.Z PR');
+  const current = (await github.rest.pulls.get({...context.repo, pull_number: pr.number})).data;
+  const branch = (await github.rest.repos.getBranch({...context.repo, branch: pr.head.ref})).data;
+  if (current.head.sha !== pr.head.sha || current.head.ref !== pr.head.ref || current.head.repo.full_name !== repository
+    || current.base.ref !== 'master' || current.state !== 'open' || branch.commit.sha !== pr.head.sha)
+    throw new Error('Superseded release PR head');
+  const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {...context.repo,
+    workflow_id: 'tests.yml', event: 'push', head_sha: pr.head.sha, branch: pr.head.ref, per_page: 100});
+  const run = selectReleasePushRun(runs, pr.head.sha, pr.head.ref, repository);
+  return verify(github, context, pr.head.sha, {runId: run.id});
 }

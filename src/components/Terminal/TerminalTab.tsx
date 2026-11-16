@@ -94,6 +94,8 @@ export const TerminalTab = memo(function TerminalTab({
   const tabRootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fallbackShellRef = useRef<HTMLDivElement>(null);
+  const fallbackCloseRef = useRef<HTMLButtonElement>(null);
+  const fallbackOpenerRef = useRef<HTMLElement | null>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
   const { updateTabStatus } = useMultiplexer();
@@ -137,6 +139,8 @@ export const TerminalTab = memo(function TerminalTab({
   if (uiMode === "chat") chatActivated.current = true;
   const [keptFailureKey, setKeptFailureKey] = useState<string | null>(null);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
+  const providerQuestionPending = tab?.pending_prompt_kind === "provider" && Boolean(tab.pending_prompt);
+  const questionInOverlay = terminalFallbackOpen && providerQuestionPending;
   const [framePtyId, setFramePtyId] = useState<string | null>(null);
   const frameReady = framePtyId !== null && framePtyId === (ptyId ?? connectedPtyRef.current);
   const [terminalIoReady, setTerminalIoReady] = useState(false);
@@ -174,7 +178,7 @@ export const TerminalTab = memo(function TerminalTab({
     tabId,
     ptyId,
     termReady,
-    isFocused,
+    isFocused: isFocused && !questionInOverlay,
     resizeEnabled: terminalVisible && isVisible,
     resizeClientId,
     isRemote: viewerLocalGeometry,
@@ -211,7 +215,7 @@ export const TerminalTab = memo(function TerminalTab({
   const activateTerminal = useTerminalActivationResize({
     active: isVisible && terminalVisible,
     viewerLocalGeometry,
-    isFocused,
+    isFocused: isFocused && !questionInOverlay,
     termReady: termReady && terminalIoReady,
     tabId,
     ptyId,
@@ -351,8 +355,12 @@ export const TerminalTab = memo(function TerminalTab({
     const term = termRef.current;
     if (!term) return;
     refitAndCommitResize();
-    if (frameReady) term.focus();
-  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, frameReady, termRef, refitAndCommitResize]);
+    if (frameReady && !questionInOverlay) term.focus();
+  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, frameReady, termRef, refitAndCommitResize, questionInOverlay]);
+
+  useLayoutEffect(() => {
+    if (questionInOverlay) fallbackCloseRef.current?.focus();
+  }, [questionInOverlay, termReady]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;
@@ -376,11 +384,11 @@ export const TerminalTab = memo(function TerminalTab({
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [terminalFallbackOpen, uiMode]);
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((event: React.MouseEvent) => {
     onFocus?.(tabId);
     activateTerminal("interaction");
-    termRef.current?.focus();
-  }, [onFocus, tabId, termRef, activateTerminal]);
+    if (!questionInOverlay || containerRef.current?.contains(event.target as Node)) termRef.current?.focus();
+  }, [onFocus, tabId, termRef, activateTerminal, questionInOverlay]);
 
   useEffect(() => {
     let cancelled = false;
@@ -413,9 +421,15 @@ export const TerminalTab = memo(function TerminalTab({
   }, []);
 
   const openTerminalFallback = useCallback(() => {
+    fallbackOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setTerminalFallbackOpen(true);
-    termRef.current?.focus();
-  }, [termRef]);
+    if (!providerQuestionPending) termRef.current?.focus();
+  }, [termRef, providerQuestionPending]);
+
+  const closeTerminalFallback = useCallback(() => {
+    setTerminalFallbackOpen(false);
+    if (fallbackOpenerRef.current?.isConnected) fallbackOpenerRef.current.focus();
+  }, []);
 
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
@@ -667,10 +681,12 @@ export const TerminalTab = memo(function TerminalTab({
             <button
               type="button"
               data-testid="terminal-fallback-close"
+              ref={fallbackCloseRef}
+              aria-label="Close terminal"
               className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]"
               style={{ color: "var(--ct-muted-fg)" }}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setTerminalFallbackOpen(false)}
+              onClick={closeTerminalFallback}
               title="Close"
             >
               <X size={15} />
@@ -709,6 +725,8 @@ export const TerminalTab = memo(function TerminalTab({
             <button
               type="button"
               data-testid="terminal-sheet-done"
+              ref={fallbackCloseRef}
+              aria-label="Close terminal"
               className="mt-1 flex h-8 items-center gap-1 rounded-full px-3 text-[13px] font-semibold select-none touch-manipulation transition-transform active:scale-95"
               style={{
                 background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)",
@@ -716,7 +734,7 @@ export const TerminalTab = memo(function TerminalTab({
                 color: "var(--ct-accent, #58a6ff)",
               }}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setTerminalFallbackOpen(false)}
+              onClick={closeTerminalFallback}
             >
               <X size={14} strokeWidth={2.4} />
               Done
@@ -772,7 +790,7 @@ export const TerminalTab = memo(function TerminalTab({
       </div>
 
       {/* Loading overlay */}
-      {terminalVisible && <TabBootOverlay
+      {terminalVisible && !(tab?.boot_stage === "awaiting_owner_prompt" && tab.pending_prompt) && <TabBootOverlay
         tabId={tabId}
         view={bootOverlay}
         workspace={tabWorkspace}

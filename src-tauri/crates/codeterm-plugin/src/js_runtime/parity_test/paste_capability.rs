@@ -75,7 +75,7 @@ fn bracketed_paste_support_native_js_parity() {
         ),
     ] {
         let raw = serde_json::json!({
-            "id": "paste-fixture", "version": "0.1.0", "displayName": "Paste Fixture",
+            "id": "paste-fixture", "version": "0.1.0", "hostIoJobs":true,"displayName": "Paste Fixture",
             "spawn": {
                 "paste": declaration,
                 "readinessStrategy": {"kind": "fixed_delay", "durationMs": 0},

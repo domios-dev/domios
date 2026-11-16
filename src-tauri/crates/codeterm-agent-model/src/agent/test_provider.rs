@@ -462,6 +462,25 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn usage_sql_query(&self, scoped: bool) -> Option<String> {
+        Some(format!("SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 {}ORDER BY rowid ASC", if scoped { "AND session_id = ?3 " } else { "" }))
+    }
+
+    fn usage_accounting(&self) -> codeterm_plugin::token_usage::UsageAccounting {
+        codeterm_plugin::token_usage::UsageAccounting::Transcript
+    }
+
+    fn parse_usage_record(
+        &self,
+        record: &serde_json::Value,
+        now: u64,
+    ) -> Result<Option<codeterm_plugin::token_usage::ParsedUsage>, String> {
+        use codeterm_plugin::token_usage::{cumulative, grouped, nested};
+        Ok(nested::parse_record(record, now)
+            .or_else(|| cumulative::parse_record(record, now))
+            .or_else(|| grouped::parse_record(record, now)))
+    }
+
     fn agent_runtime(&self) -> Option<codeterm_plugin::agent_runtime::AgentRuntimeCapability> {
         self.runtime.clone()
     }

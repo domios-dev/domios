@@ -98,8 +98,7 @@ pub(super) fn dispatch(
                 message: "params required".to_string(),
                 data: None,
             })?;
-            let mut spawn_params = codeterm_service_core::service::SpawnAgentParams::from_json(p)
-                .map_err(|e| JsonRpcError {
+            let mut spawn_params = svc.spawn_params_from_json(p).map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
                 data: None,

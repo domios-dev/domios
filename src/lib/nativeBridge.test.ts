@@ -1,16 +1,44 @@
 import type { TransportClient } from "./transportClient";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn(), minimize: vi.fn(), open: vi.fn(), drop: vi.fn(), tray: vi.fn() }));
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn(), minimize: vi.fn(), open: vi.fn(), drop: vi.fn(), tray: vi.fn(), focus: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke, isTauri: () => false }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
-vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ minimize: mocks.minimize }) }));
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ minimize: mocks.minimize, onFocusChanged: mocks.focus }) }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDropEvent: mocks.drop }) }));
 vi.mock("@tauri-apps/api/tray", () => ({ TrayIcon: { getById: mocks.tray } }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: mocks.open, save: vi.fn() }));
-import { bindNativeBridgeTransport, createNativeBridge, NativeCapabilityUnavailable } from "./nativeBridge";
+import { bindNativeBridgeTransport, createNativeBridge, NativeCapabilityUnavailable, TEAM_FILE_OPENED_EVENT } from "./nativeBridge";
 
 beforeEach(() => vi.clearAllMocks());
 describe("nativeBridge", () => {
+  it("never creates output-flow or focus subscriptions on exempt Windows", () => {
+    const bridge = createNativeBridge(true, "Win32");
+    expect(bridge.terminalOutputFlow).toBeUndefined();
+    expect(bridge.terminalOutputFocus).toBeUndefined();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.focus).not.toHaveBeenCalled();
+  });
+  it("shares authoritative native focus events between terminal attachments", () => {
+    mocks.focus.mockResolvedValue(vi.fn());
+    const bridge = createNativeBridge(true, "Linux x86_64");
+    const first = vi.fn(), second = vi.fn();
+    const leave = bridge.terminalOutputFocus!(first);
+    bridge.terminalOutputFocus!(second);
+    expect(mocks.focus).toHaveBeenCalledOnce();
+    mocks.focus.mock.calls[0][0]({ payload: true });
+    expect(first).toHaveBeenCalledWith(true);
+    expect(second).toHaveBeenCalledWith(true);
+    leave();
+    mocks.focus.mock.calls[0][0]({ payload: false });
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenLastCalledWith(false);
+  });
+  it("keeps renderer ACK authority native-only", async () => {
+    expect(createNativeBridge(false).terminalOutputFlow).toBeUndefined();
+    const update = { action: "detach_all" } as const;
+    await createNativeBridge(true, "Linux x86_64").terminalOutputFlow!(update);
+    expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("native_terminal_output_flow", { update });
+  });
   it("makes OS capabilities explicitly unavailable in a browser", async () => {
     const bridge = createNativeBridge(false);
     expect([bridge.window, bridge.tray, bridge.dialogs, bridge.notificationPermission, bridge.updater, bridge.deepLinks, bridge.fileDrop, bridge.resizeEvents, bridge.autostart]).toEqual(Array(9).fill(undefined));
@@ -93,6 +121,30 @@ describe("nativeBridge", () => {
     mocks.invoke.mockResolvedValue({ status: "already_running" });
     expect(await createNativeBridge(true).updater?.install("rc")).toEqual({ status: "already_running" });
     expect(mocks.invoke).toHaveBeenCalledWith("install_app_update", { channel: "rc" });
+  });
+  it("delivers each opened team package once: the one waiting at subscribe, then one per wake", async () => {
+    expect(createNativeBridge(false).openedTeamFiles).toBeUndefined();
+    const order: string[] = [];
+    const unlisten = vi.fn();
+    mocks.listen.mockImplementation(async () => { order.push("listen"); return unlisten; });
+    mocks.invoke.mockImplementation(async () => { order.push("take"); return order.length === 2 ? "/waiting.team" : null; });
+    const handler = vi.fn();
+    const stop = await createNativeBridge(true).openedTeamFiles!.subscribe(handler);
+    expect(order).toEqual(["listen", "take"]);
+    expect(mocks.listen).toHaveBeenCalledWith(TEAM_FILE_OPENED_EVENT, expect.any(Function));
+    expect(mocks.invoke).toHaveBeenCalledWith("take_opened_team_file");
+    expect(handler).toHaveBeenCalledExactlyOnceWith("/waiting.team");
+    const wake = mocks.listen.mock.calls[0][1] as () => void;
+    mocks.invoke.mockResolvedValueOnce("/next.team").mockResolvedValueOnce(null);
+    wake();
+    wake();
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(3));
+    await Promise.resolve();
+    expect(handler.mock.calls).toEqual([["/waiting.team"], ["/next.team"]]);
+    stop();
+    expect(unlisten).toHaveBeenCalledOnce();
+    mocks.listen.mockReset();
+    mocks.invoke.mockReset();
   });
   it("routes application restart over the bound daemon transport", async () => {
     const localJson = vi.fn().mockResolvedValue({ ok: true });

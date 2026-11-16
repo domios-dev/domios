@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { localFetch } from "../../lib/webApi";
+import { neighborFetch } from "./neighborFetch";
 
 /** Neighbors is on unless the config says otherwise; a config without the field reads as on. */
 export function neighborsEnabled(config: object | null | undefined): boolean {
@@ -8,7 +8,7 @@ export function neighborsEnabled(config: object | null | undefined): boolean {
 }
 
 export async function setNeighborsEnabled(enabled: boolean): Promise<boolean> {
-  const response = await localFetch("/api/account/neighbors/enabled", {
+  const response = await neighborFetch("/api/account/neighbors/enabled", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }),
   });
   if (!response.ok) throw new Error(await response.text());

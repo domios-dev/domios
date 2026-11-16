@@ -10,6 +10,7 @@ import type { ChannelRecord } from "./types";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { ChevronRight, Trash2 } from "lucide-react";
 import { KebabGlyph } from "../shared/RowMenuButton";
+import { ChannelName } from "../Channels/ChannelParts";
 import type { PluginActivity } from "../../lib/types";
 import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 
@@ -283,10 +284,7 @@ function ChannelRows({
               if (!selected) e.currentTarget.style.background = "transparent";
             }}
           >
-            <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 560, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{channel.name}</span>
-              <ChannelBadge channel={channel} />
-            </span>
+            <ChannelName label={channel.name} official={channel.name === CORE_CHANNEL || channel.system === true} badgeTestId="extensions-channel-badge" />
             <span style={{ color: "var(--ct-muted)", fontSize: 11, whiteSpace: "nowrap" }}>
               {count} plugin{count === 1 ? "" : "s"}
             </span>
@@ -399,27 +397,5 @@ function PluginRow({
       </div>
 
     </div>
-  );
-}
-
-function ChannelBadge({ channel }: { channel: ChannelRecord }) {
-  return (
-    <span
-      data-testid="extensions-channel-badge"
-      style={{
-        fontSize: 9.5,
-        fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-        letterSpacing: 0,
-        textTransform: "uppercase",
-        borderRadius: 4,
-        padding: "1px 5px",
-        flex: "none",
-        color: "var(--ct-muted)",
-        border: "1px solid var(--ct-border-default)",
-        background: channel.system ? "var(--ct-bg-active)" : "transparent",
-      }}
-    >
-      {channel.name === CORE_CHANNEL || channel.system ? "Official" : "Custom"}
-    </span>
   );
 }

@@ -112,7 +112,8 @@ pub fn compose_runtime_system_prompt(params: &mut SpawnAgentParams) -> Option<St
     }
     let resolved =
         codeterm_types::agent::restore_role(params.role.as_deref(), params.role_profile.as_deref());
-    let preset = crate::service::persona::resolve_ambient(
+    let preset = crate::service::persona::resolve(
+        &crate::service::team_roles::registrations(params.team_id.as_deref()),
         resolved.as_ref().map(|role| role.role),
         resolved
             .as_ref()
@@ -165,7 +166,8 @@ pub(crate) fn prepare_runtime_identity(
 ) -> Result<(), String> {
     let resolved =
         codeterm_types::agent::restore_role(params.role.as_deref(), params.role_profile.as_deref());
-    let Some(preset) = crate::service::persona::resolve_ambient(
+    let Some(preset) = crate::service::persona::resolve(
+        &crate::service::team_roles::registrations(params.team_id.as_deref()),
         resolved.as_ref().map(|role| role.role),
         resolved
             .as_ref()

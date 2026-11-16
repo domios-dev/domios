@@ -1,0 +1,13 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+roles:
+  orchestrator:
+    kind: manager
+    instructions: |
+      Lead.
+  researcher:
+    kind: worker
+    instructions: |
+      Research one angle.
+    instructions_file: roles/researcher.md

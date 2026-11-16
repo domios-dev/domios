@@ -22,7 +22,7 @@ pub(crate) use super::spawn_params::validate_watcher_spawn_target;
 #[path = "spawn_model.rs"]
 mod spawn_model;
 #[path = "spawn_model_catalogue.rs"]
-mod spawn_model_catalogue;
+pub(crate) mod spawn_model_catalogue;
 pub use spawn_model::attach_planned_model;
 pub use spawn_model::normalize_session_model;
 pub use spawn_model::persist_model_launch_identity;
@@ -201,6 +201,7 @@ pub struct AgentSpawnSpec {
     pub resume_session_id: Option<String>,
     #[serde(default, skip_deserializing)]
     pub(crate) fork_session: bool,
+    /// Highlight the new tab in every client; it never moves a client or the last selection.
     #[serde(default)]
     pub activate: Option<bool>,
     #[serde(skip)]
@@ -473,7 +474,7 @@ impl ServiceContext {
                 }
             }
             if agent.activate.unwrap_or(false) {
-                let _ = mux.set_active_tab(&ws_id, &result);
+                mux.set_tab_focus_requested(&result, true);
             }
             result
         };
@@ -656,6 +657,11 @@ impl ServiceContext {
             spawn_input.provider_task,
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
+            self.mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.team_id.clone())
+                .as_deref(),
         );
         let role_suffixed_task =
             role_suffixed_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task));
@@ -980,6 +986,11 @@ impl ServiceContext {
             assignment.as_deref(),
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
+            self.mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.team_id.clone())
+                .as_deref(),
         );
         let wrapped_task = if self
             .agent_registry

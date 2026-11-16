@@ -1,6 +1,6 @@
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Notification, Tab } from "../../lib/types";
-import { attentionActions, tabAttention, tabAttentionByTab, tabStatusMark, tabStartingLabel } from "./tabAttention";
+import { attentionActions, groupAttention, mergeGroupAttention, tabAttention, tabAttentionByTab, tabStatusMark, tabStartingLabel } from "./tabAttention";
 
 const tab: Tab = { id: "agent", title: "Agent", pty_id: null, tab_type: "Terminal", cwd: null };
 function notice(id: string, level: Notification["level"], overrides: Partial<Notification> = {}): Notification {
@@ -63,6 +63,21 @@ describe("tab attention model", () => {
       expect(mark?.kind === "attention" ? mark.level : null).toBe(level);
     }
   });
+  it("highlights a tab someone asked to show until a client opens it, below every input need", () => {
+    const requested = { ...tab, focus_requested: true };
+    const away = tabAttention(requested, null, []);
+    expect(away.kind).toBe("requested");
+    expect(away.showMark).toBe(true);
+    expect(away.cleared).toBe(false);
+    const mark = tabStatusMark(tab.title, away);
+    expect(mark?.kind === "attention" ? mark.level : null).toBe("requested");
+    const shown = tabAttention(requested, null, [], true);
+    expect(shown.showMark).toBe(false);
+    expect(tabStatusMark(tab.title, shown, true)).toBe(null);
+    expect(tabAttention(requested, "Waiting", []).kind).toBe("waiting");
+    expect(tabAttention(requested, null, [notice("n", "action_needed")]).kind).toBe("action_needed");
+    expect(tabAttention({ ...tab, focus_requested: false }, null, []).kind).toBe(null);
+  });
   it("uses the icon clock for frozen tabs and clears it on wake", () => {
     const sleeping = tabAttention({ ...tab, frozen: true }, null, []);
     expect(tabStatusMark(tab.title, sleeping)).toEqual({ kind: "sleeping", label: "Asleep" });
@@ -70,6 +85,35 @@ describe("tab attention model", () => {
     expect(tabStatusMark(tab.title, tabAttention({ ...tab, frozen: false }, null, []))).toBe(null);
     const starting = { ...tab, frozen: false, agent_type: "fixture", boot_stage: "agent_launching" as const };
     expect(tabStatusMark(tab.title, tabAttention(starting, null, []))?.kind).toBe("starting");
+  });
+  it("lets every attention mark outrank the sleep clock and keeps the clock once opened", () => {
+    const frozen = { ...tab, frozen: true };
+    const cases = [
+      [tabAttention({ ...frozen, focus_requested: true }, null, []), "requested"],
+      [tabAttention(frozen, null, [notice("a", "action_needed")]), "action_needed"],
+      [tabAttention(frozen, null, [notice("f", "failure")]), "failure"],
+    ] as const;
+    for (const [model, level] of cases) {
+      const mark = tabStatusMark(tab.title, model);
+      expect(mark?.kind).toBe("attention");
+      expect(mark?.kind === "attention" ? mark.level : null).toBe(level);
+      expect(mark?.label.endsWith("(Asleep)")).toBe(true);
+      expect(tabStatusMark(tab.title, model, true)?.kind).toBe("sleeping");
+    }
+  });
+  it("summarizes hidden group marks by count and strongest level, skipping the tab in view", () => {
+    const byTab = {
+      requested: tabAttention({ ...tab, id: "requested", focus_requested: true }, null, []),
+      failing: tabAttention({ ...tab, id: "failing" }, null, [notice("f", "failure", { tab_id: "failing" })]),
+      quiet: tabAttention({ ...tab, id: "quiet" }, null, []),
+      sleeping: tabAttention({ ...tab, id: "sleeping", frozen: true, focus_requested: true }, null, []),
+    };
+    expect(groupAttention(["quiet"], byTab)).toBe(null);
+    expect(groupAttention(["requested", "quiet", "sleeping"], byTab)).toEqual({ count: 2, level: "requested" });
+    expect(groupAttention(["requested", "failing"], byTab)).toEqual({ count: 2, level: "failure" });
+    expect(groupAttention(["requested", "failing"], byTab, (id) => id === "failing")).toEqual({ count: 1, level: "requested" });
+    expect(mergeGroupAttention([null, { count: 1, level: "requested" }, undefined, { count: 2, level: "waiting" }])).toEqual({ count: 3, level: "waiting" });
+    expect(mergeGroupAttention([null, undefined])).toBe(null);
   });
   it("does not offer stale choices after resolution, answering or loss of the asking tab", () => {
     const n = notice("choice", "action_needed", { actions: [{ type: "answer", label: "choice-token" }] });

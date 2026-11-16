@@ -135,7 +135,8 @@ impl PlanDatabase {
                 "SELECT DISTINCT json_extract(a.row_json,'$.checkout_path')
              FROM plan_task_attempts a JOIN plans p ON p.id=a.plan_id
              WHERE p.status='active' AND json_extract(a.row_json,'$.placement')='shared'
-                AND json_type(a.row_json,'$.checkout_path')='text'",
+                AND json_type(a.row_json,'$.checkout_path')='text'
+                AND json_type(a.row_json,'$.shared_start_files') IS NULL",
             )
             .map_err(db_error)?;
         let rows = statement

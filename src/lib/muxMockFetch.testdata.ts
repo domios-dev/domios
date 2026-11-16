@@ -8,7 +8,6 @@ type FetchPort = NonNullable<TransportOptions["fetch"]>;
 const sessions = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
 
 // Test fakes are loosely typed (string urls, Response-like results); the mux hands them plain hrefs.
-// biome-ignore lint/suspicious/noExplicitAny: test fake signature
 export type DaemonFake = (input: any, init?: any) => unknown;
 
 interface ResponseLike { status?: number; ok?: boolean; headers?: HeadersInit; text?: () => Promise<string>; json?: () => Promise<unknown> }

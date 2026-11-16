@@ -230,8 +230,9 @@ SQLite archive path; it does not back up Postgres. See `domios docs MEMORY`.
 
 ## CI smoke
 
-The new `.github/workflows/docker-smoke.yml` runs on relevant pull requests or
-manual dispatch. Each native Ubuntu amd64/arm64 job invokes the new named
+`.github/workflows/docker-smoke.yml` runs only on an owner dispatch from a
+release/X.Y.Z branch; no pull request starts it, because the production-profile
+build needs the build configuration. Each native Ubuntu amd64/arm64 job invokes the new named
 operation `CI=true DOMIOS_DOCKER_SMOKE=1 CARGO_BUILD_TARGET=TARGET bash ./build.sh
 docker-smoke-inputs`. It builds the frontend, CLI and server with `--release`,
 checks source/CLI digest binding and the headless dependency closure, and uses

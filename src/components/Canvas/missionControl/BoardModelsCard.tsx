@@ -26,6 +26,9 @@ export function ModelsCard({ spend = NO_MACHINE_SPEND, teamSpend = null }: { spe
   return (
     <BoardPanel testId="mc-board-models" title="Models" meta={teamSpend ? TEAM_SCOPE_CAPTION : SPEND_SCOPE_CAPTION}>
       <BoardPanelSection>
+        {teamSpend?.usage_providers?.filter((provider) => provider.state === "no_usage_reported").map((provider) => (
+          <p key={provider.provider} className="mc-board-note">{provider.provider}: no usage reported</p>
+        ))}
         {rows.length === 0 ? (
           <p data-testid="mc-board-models-empty" className="mc-board-note">
             {teamSpend ? teamSpendNote(teamSpend) ?? "no data" : spendReading(spend).note ?? "no data"}

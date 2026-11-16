@@ -6,6 +6,11 @@ describe("remote tab transport adapter", () => {
     expect(remoteTransportCall("system_heartbeat_list", { tabId: "mesh:peer/owned" })).toMatchObject({ peerId: "peer", remoteTabId: "owned", method: "GET", suffix: "/system-heartbeats" });
     expect(remoteTransportCall("delayed_send_list", { tabId: "mesh:peer/owned" })).toMatchObject({ peerId: "peer", remoteTabId: "owned", method: "GET", suffix: "/delayed-messages" });
   });
+  it("asks the owning peer for the tab's PTY and keeps the composite identity here", () => {
+    const call = remoteTransportCall("spawn_pty", { tabId: "mesh:peer/shell", cols: 120, rows: 40, predictedId: "local-guess" });
+    expect(call).toMatchObject({ peerId: "peer", remoteTabId: "shell", method: "POST", suffix: "/pty/spawn", body: { cols: 120, rows: 40 } });
+    expect(call?.select?.({ pty_id: "peer-pty" })).toBe("mesh:peer/shell");
+  });
   it("preserves an immediate timestamp in the peer's camelCase request", () => {
     expect(remoteTransportCall("delayed_send_create", { tabId: "mesh:peer/owned", text: "opaque body", scheduledAtMs: 1 })).toMatchObject({ method: "POST", suffix: "/delayed-messages", body: { text: "opaque body", scheduledAtMs: 1 } });
   });
@@ -186,7 +191,7 @@ describe("remote tab transport adapter", () => {
       expect(hasCompositeTabArgument({ tabId: id })).toBe(true);
     }
     expect(hasCompositeTabArgument({ tabId: "mesh:peer/shared" })).toBe(true);
-    expect(remoteTransportCall("spawn_pty", { tabId: "mesh:peer/shared" })).toBeNull();
+    expect(remoteTransportCall("unmapped_local_command", { tabId: "mesh:peer/shared" })).toBeNull();
   });
 });
 

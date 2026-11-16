@@ -18,4 +18,4 @@ Also create and fire a one-step ask Blueprint through the current canonical Blue
 
 For 1.12.4 the owner selected `opencode run --format json --pure`: async process completion already has a bounded host event wait. A reusable serve backend remains a later option and needs its own readiness/lifetime boundary; the archived Router's sleep/heartbeat/log polling is not reused. No serve performance comparison is claimed.
 
-Mapping and confinement derive from `rollacode/codeterm-plugins` branches `feat/domios-router` at `a39224ce5a402c0545329b8737c018c7517e77e6` and `feat/router-coding` at `ae1420df878a692444325526818e69703cf1499f`, adapted to the existing typed DecisionModel contract and a tool-less process.
+Mapping and confinement derive from `domios-dev/domios-plugins` branches `feat/domios-router` at `a39224ce5a402c0545329b8737c018c7517e77e6` and `feat/router-coding` at `ae1420df878a692444325526818e69703cf1499f`, adapted to the existing typed DecisionModel contract and a tool-less process.

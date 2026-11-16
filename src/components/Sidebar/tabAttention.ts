@@ -6,7 +6,8 @@ import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
 import { asleepLabel } from "../../lib/tabSleep";
 import type { PlanControlLoop } from "../Canvas/planControlLoop";
 
-export type TabAttentionKind = "waiting" | "action_needed" | "failure";
+/** `requested`: an agent or automation asked to show the tab; only the owner moves a client to it. */
+export type TabAttentionKind = "requested" | "waiting" | "action_needed" | "failure";
 
 export interface TabAttention {
   wantsAttention: boolean;
@@ -34,7 +35,9 @@ export function tabAttention(tab: Tab, status: TabStatus | null | undefined, not
     Number(b.level === "failure") - Number(a.level === "failure") || b.timestamp - a.timestamp)[0] ?? null;
   const activity = tabActivity(tab, status);
   const waiting = activity.kind === "waiting-on-user";
-  const kind = notification ? notification.level === "failure" ? "failure" : "action_needed" : waiting ? "waiting" : null;
+  const requested = tab.focus_requested === true;
+  const kind = notification ? notification.level === "failure" ? "failure" : "action_needed"
+    : waiting ? "waiting" : requested ? "requested" : null;
   return {
     sleeping: tab.frozen === true,
     sleepingLabel: tab.frozen ? asleepLabel(tab, Date.now()) : undefined,
@@ -44,7 +47,7 @@ export function tabAttention(tab: Tab, status: TabStatus | null | undefined, not
     body: notification?.body ?? null,
     notification,
     notificationIds: candidates.map((item) => item.id),
-    cleared: candidates.length === 0 && (!waiting || active),
+    cleared: candidates.length === 0 && ((!waiting && !requested) || active),
     showMark: kind !== null && !active,
     starting: activity.kind === "starting"
       ? tab.boot_stage === "launch_binding_unconfirmed" ? "connecting" : "starting"
@@ -57,6 +60,7 @@ export function tabAttentionByTab(tabs: Readonly<Record<string, Tab>>, statuses:
 }
 
 export function tabAttentionLabel(title: string, attention: TabAttention): string {
+  if (attention.kind === "requested") return `${title} asks you to open it`;
   return `${title} needs your input: ${attention.reason}`;
 }
 
@@ -73,10 +77,36 @@ export function tabStatusMark(title: string, attention: TabAttention | null | un
   if (!attention) return null;
   if (attention.curatorSchedule?.kind === "suspended") return { kind: "attention", label: attention.curatorSchedule.label, level: "action_needed" };
   if (attention.curatorSchedule?.kind === "scheduled" && (!attention.showMark || active)) return { kind: attention.curatorSchedule.kind, label: attention.curatorSchedule.label };
+  // Attention outranks the sleep clock: a request to show a frozen tab must stay visible.
+  if (attention.showMark && !active) {
+    const label = tabAttentionLabel(title, attention);
+    return { kind: "attention", label: attention.sleeping ? `${label} (${attention.sleepingLabel ?? "Asleep"})` : label, level: attention.kind };
+  }
   if (attention.sleeping) return { kind: "sleeping", label: attention.sleepingLabel ?? "Asleep" };
-  if (attention.showMark && !active) return { kind: "attention", label: tabAttentionLabel(title, attention), level: attention.kind };
   if (attention.starting) return { kind: "starting", label: `${title} ${attention.starting === "connecting" ? "waiting to connect" : "starting"}` };
   return null;
+}
+
+export interface GroupAttention { count: number; level: TabAttentionKind }
+const ATTENTION_RANK: Record<TabAttentionKind, number> = { requested: 0, waiting: 1, action_needed: 2, failure: 3 };
+
+function strongerGroup(a: GroupAttention | null, b: GroupAttention | null): GroupAttention | null {
+  if (!a || !b) return a ?? b;
+  return { count: a.count + b.count, level: ATTENTION_RANK[b.level] > ATTENTION_RANK[a.level] ? b.level : a.level };
+}
+
+/** Attention marks hidden inside a collapsed group; an active tab is already in view. */
+export function groupAttention(tabIds: readonly string[], attentionByTab: Readonly<Record<string, TabAttention>>, isActive: (tabId: string) => boolean = () => false): GroupAttention | null {
+  let group: GroupAttention | null = null;
+  for (const tabId of tabIds) {
+    const mark = tabStatusMark("", attentionByTab[tabId], isActive(tabId));
+    if (mark?.kind === "attention" && mark.level) group = strongerGroup(group, { count: 1, level: mark.level });
+  }
+  return group;
+}
+
+export function mergeGroupAttention(groups: readonly (GroupAttention | null | undefined)[]): GroupAttention | null {
+  return groups.reduce<GroupAttention | null>((merged, group) => strongerGroup(merged, group ?? null), null);
 }
 
 export function curatorTabAttention(attention: TabAttention, loop: PlanControlLoop | undefined): TabAttention {

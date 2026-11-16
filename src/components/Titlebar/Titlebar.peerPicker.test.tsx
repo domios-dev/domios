@@ -26,7 +26,6 @@ vi.mock("../Canvas/PlansProvider", () => ({
 }));
 vi.mock("../Sidebar/SidebarWorkspaceTabs", () => ({ SidebarWorkspaceTabs: () => null }));
 vi.mock("../Sidebar/WorkspaceCardGrid", () => ({ WorkspaceCardGrid: () => null }));
-vi.mock("../Sidebar/OrchestrationCreate", () => ({ OrchestrationCreate: () => null }));
 vi.mock("../Terminal/NewSessionPicker", () => ({ NewSessionPicker: () => null }));
 vi.mock("./KeepAwakeTray", () => ({ KeepAwakeTray: () => null }));
 vi.mock("./SettingsMenu", () => ({ SettingsMenu: () => null }));

@@ -4,6 +4,7 @@ import { AgentIcon } from "../AgentIcon";
 import { ListChecks, Workflow } from "lucide-react";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
+import { RoleModelButton } from "./RoleModelButton";
 
 /** A 70+ model catalog scrolls inside this bound instead of spilling down the
  *  viewport; the section headers keep it navigable. */
@@ -20,10 +21,16 @@ export interface OrchestrationPairValues {
 
 interface RoleRowProps {
   modelControls?: boolean;
+  /** One row: harness, then a model · effort pill that opens the unified model picker. */
+  compact?: boolean;
+  /** Replaces the label line, e.g. a role name with a muted slot. */
+  heading?: ReactNode;
   /** Takes the model's place beside the provider pill, e.g. an ACP profile pill. */
   modelSlot?: ReactNode;
   details?: ReactNode;
   label: string;
+  /** Shown while no provider is picked, such as a package decision; the model picker waits for a provider. */
+  providerPlaceholder?: string;
   providers: ProviderDescriptor[];
   providerId: string;
   modelId: string;
@@ -33,6 +40,8 @@ interface RoleRowProps {
   onModelChange: (id: string) => void;
   /** Called only when the selected model has reasoning efforts. */
   onEffortChange?: (id: string) => void;
+  /** The compact pill commits model and effort together. */
+  onSelectionChange?: (modelId: string, effortId?: string) => void;
   /** Distinct testids for the picker's two role rows (task_234c14f0) — the
    *  shared per-label testid on the row wrapper isn't specific enough for
    *  Playwright to target the orchestrator vs. planner select independently. */
@@ -42,13 +51,20 @@ interface RoleRowProps {
   /** When set, a not-installed provider offers a one-click "Install" that
    *  opens the provider's installer in a terminal tab. */
   onInstallProvider?: (providerId: string) => void;
+  /** Locks every control, e.g. while a harness switch is in flight. */
+  disabled?: boolean;
+  /** Ties the provider control to a sentence that explains its current refusal. */
+  providerDescribedBy?: string;
 }
 
 export function OrchestrationRoleRow({
   modelControls = true,
+  compact = false,
+  heading,
   modelSlot,
   details,
   label,
+  providerPlaceholder,
   providers,
   providerId,
   modelId,
@@ -57,15 +73,20 @@ export function OrchestrationRoleRow({
   onProviderChange,
   onModelChange,
   onEffortChange,
+  onSelectionChange,
   providerTestId,
   modelTestId,
   effortTestId,
   onInstallProvider,
+  disabled = false,
+  providerDescribedBy,
 }: RoleRowProps) {
   const provider = providers.find((p) => p.id === providerId);
   const models = provider?.available_models ?? [];
   const efforts = reasoningEffortsForModel(provider, modelId);
   const providerDisabled = disabledProviderIds?.has(providerId) === true;
+  const locked = disabled || providerDisabled;
+  const awaitingProvider = Boolean(providerPlaceholder) && !provider;
   const providerOptions: DropdownSelectOption[] = providers.map((p) => {
     const disabled = disabledProviderIds?.has(p.id) === true;
     return {
@@ -86,36 +107,47 @@ export function OrchestrationRoleRow({
       }));
   const effortOptions: DropdownSelectOption[] = efforts.map((e) => ({
     value: e.id,
-    label: e.display_name,
+    label: `${e.display_name.charAt(0).toUpperCase()}${e.display_name.slice(1)}`,
   }));
+  const pill = compact && modelControls && !modelSlot && !awaitingProvider;
   return (
     <div className="orchestration-role-row flex flex-col gap-1.5" data-testid={`orchestration-role-${label.toLowerCase()}`}>
-      <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{label}</div>
+      <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{heading ?? label}</div>
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
           <DropdownSelect
             aria-label={`${label} provider`}
+            aria-describedby={providerDescribedBy}
+            disabled={disabled}
             data-testid={providerTestId}
             options={providerOptions}
             value={providerId}
             onChange={onProviderChange}
-            leading={<AgentIcon providerId={providerId} className="text-[12px] shrink-0" />}
+            placeholder={providerPlaceholder}
+            leading={awaitingProvider ? undefined : <AgentIcon providerId={providerId} className="text-[12px] shrink-0" />}
           />
         </div>
         {modelSlot && <div className="flex-1 min-w-0">{modelSlot}</div>}
-        {!modelSlot && modelControls && <div className="flex-1 min-w-0">
+        {pill && <div className="flex-1 min-w-0">
+          <RoleModelButton label={label} provider={provider} modelId={modelId} effortId={effortId} disabled={locked} testId={modelTestId}
+            onChange={(nextModel, nextEffort) => {
+              if (onSelectionChange) onSelectionChange(nextModel, nextEffort);
+              else onModelChange(nextModel);
+            }} />
+        </div>}
+        {!pill && !modelSlot && modelControls && !awaitingProvider && <div className="flex-1 min-w-0">
           <DropdownSelect
             data-testid={modelTestId}
             options={modelOptions}
             value={modelId}
             onChange={onModelChange}
             aria-label={`${label} model`}
-            disabled={models.length === 0 || providerDisabled}
+            disabled={models.length === 0 || locked}
             menuMaxHeight={MODEL_MENU_MAX_HEIGHT}
           />
         </div>}
       </div>
-      {modelControls && efforts.length > 0 && onEffortChange && (
+      {!pill && modelControls && efforts.length > 0 && onEffortChange && (
         <div className="min-w-0">
           <DropdownSelect
             data-testid={effortTestId}
@@ -124,7 +156,7 @@ export function OrchestrationRoleRow({
             onChange={onEffortChange}
             placeholder="Default"
             aria-label={`${label} effort`}
-            disabled={providerDisabled}
+            disabled={locked}
           />
         </div>
       )}
@@ -136,6 +168,7 @@ export function OrchestrationRoleRow({
             <button
               type="button"
               data-testid={`install-provider-${providerId}`}
+              disabled={disabled}
               onClick={() => onInstallProvider(providerId)}
               className="rounded border px-1.5 py-0.5 text-[10px] font-medium text-[var(--ct-accent)] hover:brightness-125"
               style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 40%, transparent)" }}
@@ -160,9 +193,15 @@ export function OrchestrationPairForm({
   roleTestIds,
   roleControls,
   onInstallProvider,
+  extraMembers,
+  compact = false,
 }: {
   providers: ProviderDescriptor[];
   values: OrchestrationPairValues;
+  /** Each role in one row: harness, then a model · effort pill. */
+  compact?: boolean;
+  /** Further roster rows after the Planner, such as the managers a template adds later. */
+  extraMembers?: ReactNode;
   disabledProviderIds?: ReadonlySet<string>;
   onChange: (next: OrchestrationPairValues) => void;
   layout?: "team" | "stack";
@@ -227,6 +266,8 @@ export function OrchestrationPairForm({
         ),
       })}
       onEffortChange={(effortId) => onChange({ ...values, orchestratorEffortId: effortId })}
+      compact={compact}
+      onSelectionChange={(modelId, effortId) => onChange({ ...values, orchestratorModelId: modelId, orchestratorEffortId: effortId })}
       providerTestId={roleTestIds?.orchestratorProvider}
       modelTestId={roleTestIds?.orchestratorModel}
       effortTestId={roleTestIds?.orchestratorEffort}
@@ -255,6 +296,8 @@ export function OrchestrationPairForm({
         ),
       })}
       onEffortChange={(effortId) => onChange({ ...values, plannerEffortId: effortId })}
+      compact={compact}
+      onSelectionChange={(modelId, effortId) => onChange({ ...values, plannerModelId: modelId, plannerEffortId: effortId })}
       providerTestId={roleTestIds?.plannerProvider}
       modelTestId={roleTestIds?.plannerModel}
       effortTestId={roleTestIds?.plannerEffort}
@@ -277,7 +320,7 @@ export function OrchestrationPairForm({
       <div
         className="team-roster"
         role="list"
-        aria-label="Team"
+        aria-label="Managers"
         data-testid={pairAffordanceTestId ?? "new-session-pair-affordance"}
       >
         <TeamRosterMember role="orchestrator" icon={<Workflow size={13} aria-hidden="true" />}>
@@ -286,13 +329,14 @@ export function OrchestrationPairForm({
         <TeamRosterMember role="planner" icon={<ListChecks size={13} aria-hidden="true" />}>
           {plannerRow}
         </TeamRosterMember>
+        {extraMembers}
       </div>
       {titleField}
     </div>
   );
 }
 
-function TeamRosterMember({ role, icon, children }: { role: string; icon: ReactNode; children: ReactNode }) {
+export function TeamRosterMember({ role, icon, children }: { role: string; icon: ReactNode; children: ReactNode }) {
   return (
     <div className="team-roster-member" role="listitem" data-pair-role={role}>
       <span className="team-roster-avatar">{icon}</span>

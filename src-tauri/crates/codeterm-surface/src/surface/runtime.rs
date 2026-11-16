@@ -142,6 +142,10 @@ pub trait SurfaceRuntime: Send + Sync {
         None
     }
     async fn dispose(&self);
+    async fn close(&self) -> Result<(), SurfaceError> {
+        self.dispose().await;
+        Ok(())
+    }
     /// Daemon exit: dispose with only `graceful` before a kill; false when something was killed.
     async fn shutdown(&self, graceful: Duration) -> bool {
         let _ = graceful;

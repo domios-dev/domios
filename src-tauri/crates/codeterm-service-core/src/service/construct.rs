@@ -118,6 +118,7 @@ pub fn build_service_context(
     let startup_config = states.config.lock().clone();
     let kpi =
         crate::agent::kpi::KpiRecorder::from_config(&startup_config, &crate::paths::data_dir());
+    kpi.set_provider_registry(agent_registry.clone());
     {
         let ui = ui.clone();
         kpi.on_commit(move |plan_ids| {

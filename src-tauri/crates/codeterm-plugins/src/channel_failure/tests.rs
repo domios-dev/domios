@@ -44,10 +44,12 @@ fn unknown_git_failures_keep_the_diagnostic_block() {
 
 #[test]
 fn unavailable_message_names_cause_and_source_without_credentials() {
-    let message = channel_unavailable(
-        REPOSITORY_NOT_FOUND,
+    let failure = ChannelFailure::fetch(
+        REPOSITORY_NOT_FOUND.into(),
         "https://user:token@github.com/rollacode/codeterm.git?x=1#master:plugins",
     );
+    assert_eq!(failure.kind, ChannelFailureKind::NotFound);
+    let message = failure.to_string();
     assert_eq!(
         message,
         "Plugin channel unavailable: repository not found or not readable without access \
@@ -70,4 +72,23 @@ fn git_recovery_hint_does_not_replace_the_error_head() {
     );
     assert!(cause.contains("fatal: unable to checkout working tree"));
     assert!(cause.ends_with("and retry with 'git restore --source=HEAD :/'"));
+}
+
+#[test]
+fn fetch_causes_map_to_typed_kinds() {
+    let kind = |cause: &str| ChannelFailure::fetch(cause.into(), "https://example.invalid/c").kind;
+    assert_eq!(kind(NETWORK_UNAVAILABLE), ChannelFailureKind::Unreachable);
+    assert_eq!(
+        kind(AUTHENTICATION_REQUIRED),
+        ChannelFailureKind::AccessDenied
+    );
+    assert_eq!(kind(ASSET_NOT_FOUND), ChannelFailureKind::NotFound);
+    assert_eq!(
+        kind(&format!("{INTEGRITY_FAILED}: malformed published checksum")),
+        ChannelFailureKind::Integrity
+    );
+    assert_eq!(
+        kind("git failed: fatal: bad object HEAD"),
+        ChannelFailureKind::Other
+    );
 }

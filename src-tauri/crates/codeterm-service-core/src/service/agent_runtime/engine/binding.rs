@@ -1,13 +1,34 @@
 use super::{RuntimeFailure, ServiceContext, Session};
 
+use codeterm_plugin::agent_runtime::RuntimeFailureCode;
+
 pub(crate) fn session_load_refused(svc: &ServiceContext, session: &Session) -> bool {
-    let refused = {
+    degraded_unloaded_with(svc, session, &[RuntimeFailureCode::SessionLoadRefused])
+}
+
+/// The bound thread can never load again (refused, or its provider record is gone), so only a fresh session continues the tab.
+pub(crate) fn conversation_unavailable(svc: &ServiceContext, session: &Session) -> bool {
+    degraded_unloaded_with(
+        svc,
+        session,
+        &[
+            RuntimeFailureCode::SessionLoadRefused,
+            RuntimeFailureCode::ThreadNotFound,
+        ],
+    )
+}
+
+fn degraded_unloaded_with(
+    svc: &ServiceContext,
+    session: &Session,
+    codes: &[RuntimeFailureCode],
+) -> bool {
+    let matched = {
         let state = session.state.lock();
         matches!(state.phase, super::RuntimePhase::Degraded { .. })
-            && state.failure_code
-                == Some(codeterm_plugin::agent_runtime::RuntimeFailureCode::SessionLoadRefused)
+            && state.failure_code.is_some_and(|code| codes.contains(&code))
     };
-    refused
+    matched
         && !session
             .thread_loaded
             .load(std::sync::atomic::Ordering::Acquire)

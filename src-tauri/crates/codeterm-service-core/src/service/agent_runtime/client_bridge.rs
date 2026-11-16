@@ -510,7 +510,7 @@ fn terminal_cwd(bridge: &Bridge, command: &terminal::Command) -> Result<PathBuf,
         .cwd
         .as_deref()
         .unwrap_or_else(|| bridge.root.to_str().unwrap_or(""));
-    if PathBuf::from(cwd) == bridge.root {
+    if std::path::Path::new(cwd) == bridge.root {
         return Ok(bridge.root.clone());
     }
     let relative = fs::relative(&bridge.root, cwd)?;

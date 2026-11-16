@@ -1,3 +1,4 @@
+import { parseUsageRecord } from "./usageRecord";
 import { ioFileTransaction } from "@codeterm/plugin-sdk";
 import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
 import { ioSqlite, ioResolve, type HostIoSteps } from "@codeterm/plugin-sdk";
@@ -75,6 +76,9 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin = {
+  usageAccounting: () => "transcript" as const,
+  parseUsageRecord,
+  usageSqlQuery: (scoped: boolean) => `SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 ${scoped ? "AND session_id = ?3 " : ""}ORDER BY rowid ASC`,
   ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkOpencodeUpdate,

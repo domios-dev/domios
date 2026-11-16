@@ -8,11 +8,13 @@ use serde::Serialize;
 use super::TeamMutationCaller;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::TabBacking;
+use codeterm_service_core::plan::LaneOwnership;
 use codeterm_service_core::process_util;
+use codeterm_service_core::service::plan::lane_ownership::{
+    strictest_ownership, unmanaged_lane_reason_listed, LANE_BRANCH_PREFIX,
+};
 use codeterm_service_core::service::plan::TeamClosePlanRead;
 use codeterm_service_core::service::plan::{PlanStore, TaskLaneUpdate};
-
-const LANE_BRANCH_PREFIX: &str = "lane/";
 
 #[derive(Debug)]
 pub struct CloseTeamCleanup {
@@ -32,6 +34,7 @@ pub struct TeamCloseLane {
     pub(crate) base: Option<String>,
     pub(crate) destination: Option<String>,
     pub(crate) hold_reason: Option<String>,
+    pub(crate) ownership: Option<LaneOwnership>,
 }
 
 pub struct PreparedTeamClose {
@@ -48,6 +51,8 @@ pub struct StagedTeamClose {
 }
 
 pub(super) trait TeamLaneCleanupIo {
+    /// Why Domios must not touch this lane at all; asked before any other git.
+    fn not_managed(&mut self, lane: &TeamCloseLane) -> Option<String>;
     fn worktree_exists(&mut self, path: &str) -> bool;
     fn branch_exists(&mut self, lane: &TeamCloseLane, branch: &str) -> Result<bool, String>;
     fn hold_reason(&mut self, lane: &TeamCloseLane) -> Option<String>;
@@ -57,6 +62,10 @@ pub(super) trait TeamLaneCleanupIo {
 struct GitTeamLaneCleanup;
 
 impl TeamLaneCleanupIo for GitTeamLaneCleanup {
+    fn not_managed(&mut self, lane: &TeamCloseLane) -> Option<String> {
+        unmanaged_reason(lane, None)
+    }
+
     fn worktree_exists(&mut self, path: &str) -> bool {
         Path::new(path).exists()
     }
@@ -238,6 +247,7 @@ pub(super) fn team_close_lanes(
                     task.lane.branch.as_deref(),
                     task.lane.base.as_deref(),
                     task.lane.destination.as_deref(),
+                    task.lane.ownership,
                 );
             }
             for attempt in matching_attempts {
@@ -256,6 +266,7 @@ pub(super) fn team_close_lanes(
                         .destination
                         .as_deref()
                         .or(task.lane.destination.as_deref()),
+                    attempt.ownership,
                 );
             }
         }
@@ -277,7 +288,7 @@ fn finish_team_lane_cleanup_using(
     now_ms: u64,
     cleanup_io: &mut impl TeamLaneCleanupIo,
 ) -> Result<TeamCloseInventory, String> {
-    let existing_lanes: Vec<_> = lanes
+    let present_lanes: Vec<_> = lanes
         .iter()
         .filter(|lane| {
             lane.worktree_path
@@ -286,6 +297,26 @@ fn finish_team_lane_cleanup_using(
                 || lane.branch.as_deref().is_some_and(|branch| {
                     matches!(cleanup_io.branch_exists(lane, branch), Ok(true))
                 })
+        })
+        .collect();
+    let mut not_managed = Vec::new();
+    let mut not_managed_hints = HashMap::<(String, String), Vec<String>>::new();
+    let existing_lanes: Vec<_> = present_lanes
+        .into_iter()
+        .filter(|lane| match cleanup_io.not_managed(lane) {
+            Some(reason) => {
+                not_managed_hints
+                    .entry((lane.plan_id.clone(), lane.task_id.clone()))
+                    .or_default()
+                    .push(lane_hint(lane, &reason));
+                not_managed.push(TeamCloseLaneRecord {
+                    path: lane.worktree_path.clone(),
+                    branch: lane.branch.clone(),
+                    reason: Some(reason),
+                });
+                false
+            }
+            None => true,
         })
         .cloned()
         .collect();
@@ -302,6 +333,7 @@ fn finish_team_lane_cleanup_using(
         removed: Vec::new(),
         kept: Vec::new(),
         orphan_branches: Vec::new(),
+        not_managed,
     };
     for lane in &assessed_lanes {
         if lane
@@ -338,7 +370,15 @@ fn finish_team_lane_cleanup_using(
             .push((lane, failure));
     }
     let mut errors = Vec::new();
+    // A foreign checkout leaves nothing for Domios to settle: its task records
+    // the untouched path as a hint and its lane references are released.
+    for key in not_managed_hints.keys() {
+        outcomes.entry(key.clone()).or_default();
+    }
     for ((plan_id, task_id), lane_outcomes) in outcomes {
+        let untouched = not_managed_hints
+            .remove(&(plan_id.clone(), task_id.clone()))
+            .unwrap_or_default();
         let debt: Vec<_> = lane_outcomes
             .iter()
             .filter_map(|(lane, failure)| failure.as_ref().map(|reason| (*lane, reason)))
@@ -356,6 +396,7 @@ fn finish_team_lane_cleanup_using(
                 cleanup_hints: Some(
                     debt.iter()
                         .map(|(lane, reason)| lane_hint(lane, reason))
+                        .chain(untouched)
                         .collect(),
                 ),
             }
@@ -369,7 +410,7 @@ fn finish_team_lane_cleanup_using(
                 base: Some(None),
                 destination: Some(None),
                 cleanup_status: Some(Some("done".into())),
-                cleanup_hints: Some(Vec::new()),
+                cleanup_hints: Some(untouched),
             }
         };
         if let Err(error) = plan_store.update_task_lane(&plan_id, &task_id, update, now_ms) {
@@ -471,19 +512,21 @@ pub(crate) fn push_lane(
     branch: Option<&str>,
     base: Option<&str>,
     destination: Option<&str>,
+    ownership: Option<LaneOwnership>,
 ) {
     let worktree_path = non_empty(worktree_path);
     let branch = non_empty(branch);
     if worktree_path.is_none() && branch.is_none() {
         return;
     }
-    if lanes.iter().any(|lane| {
+    if let Some(existing) = lanes.iter_mut().find(|lane| {
         lane.plan_id == plan_id
             && lane.task_id == task_id
             && lane.worktree_path == worktree_path
             && lane.branch == branch
             && lane.destination.as_deref() == destination
     }) {
+        existing.ownership = strictest_ownership(existing.ownership, ownership);
         return;
     }
     lanes.push(TeamCloseLane {
@@ -495,7 +538,20 @@ pub(crate) fn push_lane(
         base: non_empty(base),
         destination: non_empty(destination),
         hold_reason: None,
+        ownership,
     });
+}
+
+/// The ownership gate for one inventoried lane; `worktrees` is a preloaded
+/// `git worktree list --porcelain` of its project when the caller has one.
+pub(crate) fn unmanaged_reason(lane: &TeamCloseLane, worktrees: Option<&str>) -> Option<String> {
+    unmanaged_lane_reason_listed(
+        lane.ownership,
+        &lane.project_path,
+        lane.worktree_path.as_deref(),
+        lane.branch.as_deref(),
+        worktrees,
+    )
 }
 
 pub(crate) fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
@@ -509,6 +565,9 @@ pub(crate) fn lane_hold_reason_with_inventory(
 ) -> Option<String> {
     if let Some(reason) = &lane.hold_reason {
         return Some(reason.clone());
+    }
+    if let Some(reason) = unmanaged_reason(lane, inventory.map(|(worktrees, _)| worktrees)) {
+        return Some(reason);
     }
     if let Some(branch) = lane.branch.as_deref() {
         let registrations = if let Some((worktrees, _)) = inventory {
@@ -702,6 +761,7 @@ pub(crate) fn cleanup_lane_with_tabs(
                 branch: None,
                 canonical_cwd: Some(lane.project_path.clone()),
                 force: false,
+                ownership: lane.ownership,
             },
             live_tabs,
         )?;
@@ -798,6 +858,7 @@ mod lane_safety_tests {
             base: Some(base.into()),
             destination: Some(base.into()),
             hold_reason: None,
+            ownership: None,
         }
     }
 

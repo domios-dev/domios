@@ -11,6 +11,10 @@ export function RestoreStatePanel({ view, pulse = false }: {
   pulse?: boolean;
 }) {
   const currentLabel = view.steps[Math.max(0, view.current)]?.label ?? view.label;
+  if (view.phase === "attention") return <section role="status" className="flex h-full flex-col items-center justify-center gap-3 p-6">
+    <h2>{view.label}</h2>
+    {view.detail && <p>{view.detail}</p>}
+  </section>;
   if (view.phase === "failed") {
     return <BrandState model={brandStateModel({ error: { title: view.label, sentence: view.hint ?? "The session could not be restored." } })} className="ct-loading-material">
       {view.detail && <InlineErrorNotice error={view.detail} operation="restoring this session" />}

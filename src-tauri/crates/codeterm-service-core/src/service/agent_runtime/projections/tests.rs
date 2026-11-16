@@ -58,6 +58,7 @@ fn token_only_reading_is_visible_without_fabricating_allowance() {
         token_usage: Some(Reading {
             captured_at: 10,
             value: TokenUsage {
+                response_id: None,
                 cost_micros: None,
                 input_tokens: 12,
                 output_tokens: 3,
@@ -294,6 +295,7 @@ fn context_reports_and_token_usage_project_only_observed_fill_and_cost() {
     assert_eq!(current.window_tokens, 200);
     assert_eq!(current.cost_usd, None);
     let mut token_usage = TokenUsage {
+        response_id: None,
         input_tokens: 1000,
         output_tokens: 2000,
         cost_micros: Some(500_000),

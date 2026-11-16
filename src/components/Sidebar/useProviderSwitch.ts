@@ -3,6 +3,7 @@ import { invoke } from "../../lib/bridge";
 import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { isProviderSelectable } from "../../lib/providerAvailability";
+import { describeError } from "../../lib/describeError";
 import { reasoningEffortsForModel, resolveEffort, resolveProviderModel } from "../../lib/newSessionChoice";
 import type { Tab } from "../../lib/types";
 import { getTabProviderApi } from "./tabProviderApi";
@@ -10,7 +11,7 @@ import { supportsProviderHandoff, switchTabProvider, type ProviderSwitchResult, 
 
 export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const providers = useAgentDescriptors().filter((provider) => supportsProviderHandoff(provider) && provider.id !== tab.agent_type);
-  const [providerId, setProviderId] = useState(initialProviderId);
+  const [providerId, updateProviderId] = useState(initialProviderId);
   const provider = providers.find((candidate) => candidate.id === providerId && isProviderSelectable(candidate));
   const [selectedModel, setModel] = useState<string>();
   const model = resolveProviderModel(provider, selectedModel) ?? selectedModel;
@@ -20,13 +21,19 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   const activity = useTabActivity(tab.id, tab);
   const [phase, setPhase] = useState<"choosing" | "waiting" | "switching" | "complete">("choosing");
   const [error, setError] = useState<string | null>(null);
+  const [retryAfterSeconds, setRetryAfterSeconds] = useState<number | null>(null);
   const [result, setResult] = useState<ProviderSwitchResult | null>(null);
   const [history, setHistory] = useState<Array<{ kind: string; content: string }> | null>(null);
   const submitting = useRef(false);
   const ready = activity.status === "Idle" && !activity.launching;
 
+  function setProviderId(id: string) {
+    updateProviderId(id);
+    setError(null);
+  }
+
   async function submit(force = false) {
-    if (!provider || submitting.current) return;
+    if (!provider || submitting.current || retryAfterSeconds !== null) return;
     submitting.current = true;
     setPhase("switching");
     setError(null);
@@ -41,13 +48,20 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
       setResult(result);
       setPhase("complete");
     } catch (error) {
-      setError(String(error));
+      const detail = error instanceof Error ? error.message : String(error);
+      setError(detail);
+      setRetryAfterSeconds(describeError(detail, { operation: "switching the harness" }).retryAfterSeconds ?? null);
       setPhase("choosing");
     } finally { submitting.current = false; }
   }
 
   const submitRef = useRef(submit);
   submitRef.current = submit;
+  useEffect(() => {
+    if (retryAfterSeconds === null) return;
+    const timer = setTimeout(() => { setRetryAfterSeconds(null); setError(null); }, retryAfterSeconds * 1000);
+    return () => clearTimeout(timer);
+  }, [retryAfterSeconds]);
   useEffect(() => {
     if (phase === "waiting" && ready) void submitRef.current();
   }, [phase, ready]);
@@ -62,5 +76,5 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
   }
 
   return { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort, efforts,
-    phase, setPhase, error, result, history, ready, activity, submit, showHistory };
+    phase, setPhase, error, retryAfterSeconds, result, history, ready, activity, submit, showHistory };
 }

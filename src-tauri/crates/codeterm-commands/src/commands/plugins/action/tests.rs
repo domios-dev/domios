@@ -1,4 +1,65 @@
 use super::*;
+
+#[test]
+fn directory_install_request_enters_lifecycle_after_host_compatibility_gate() {
+    struct Lifecycle(std::sync::atomic::AtomicUsize);
+    impl codeterm_plugins::InstallLifecycle for Lifecycle {
+        fn install(
+            &self,
+            _: &str,
+            _: &std::path::Path,
+            operation: &mut codeterm_plugins::InstallOperation<'_>,
+        ) -> Result<(), String> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            operation(&mut || Ok(()))
+        }
+    }
+    for (version, minimum, compatible) in [
+        (Some("1.19.2"), "1.19.2", true),
+        (Some("1.19.2"), "1.20.0", false),
+        (None, "1.19.2", false),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(source.join("plugin.json"), serde_json::json!({
+            "id":"fixture", "version":"1.0.0", "displayName":"Fixture", "entry":"plugin.js", "minCodeterm":minimum
+        }).to_string()).unwrap();
+        std::fs::write(source.join("plugin.js"), "module.exports = {};").unwrap();
+        let action: PluginManagerAction = serde_json::from_value(serde_json::json!({
+            "kind":"install", "fromDir":source, "idOverride":"renamed"
+        }))
+        .unwrap();
+        assert_eq!(
+            plugin_action_activity(&action).unwrap().plugin_id,
+            "renamed"
+        );
+        let args = plugin_action_args(&action).unwrap();
+        let lifecycle = Arc::new(Lifecycle(std::sync::atomic::AtomicUsize::new(0)));
+        let data = root.path().join("data");
+        let result = super::super::cli::run_with_lifecycle(
+            &args,
+            codeterm_plugins::PluginCtx {
+                data_root: data.clone(),
+                version: version.map(str::to_owned),
+            },
+            lifecycle.clone(),
+        );
+        if compatible {
+            assert_eq!(result.unwrap()["id"], "renamed");
+        } else {
+            assert!(result.unwrap_err().contains("requires Domios"));
+        }
+        assert_eq!(
+            lifecycle.0.load(std::sync::atomic::Ordering::SeqCst),
+            usize::from(compatible)
+        );
+        assert_eq!(
+            data.join("plugins/renamed/plugin.json").exists(),
+            compatible
+        );
+    }
+}
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -121,6 +182,8 @@ async fn snapshot_invalidation_forces_rebuild() {
 #[test]
 fn update_action_builds_json_cli_args() {
     let action = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "update".into(),
         plugin_id: Some("demo".into()),
         channel: None,
@@ -162,6 +225,8 @@ fn every_supported_action_refreshes_the_returned_catalog() {
 #[test]
 fn update_action_builds_json_cli_args_without_plugin_id() {
     let action = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "update".into(),
         plugin_id: None,
         channel: None,
@@ -184,6 +249,8 @@ fn update_action_builds_json_cli_args_without_plugin_id() {
 #[test]
 fn settings_action_builds_shared_cli_args() {
     let action = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "settings".into(),
         plugin_id: Some("demo".into()),
         channel: None,
@@ -215,6 +282,8 @@ fn settings_action_builds_shared_cli_args() {
 #[test]
 fn add_channel_requires_url() {
     let action = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "add-channel".into(),
         plugin_id: None,
         channel: None,
@@ -234,6 +303,8 @@ fn add_channel_requires_url() {
 #[test]
 fn remove_action_builds_json_cli_args_with_optional_force() {
     let base = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "remove".into(),
         plugin_id: Some("demo".into()),
         channel: None,
@@ -279,6 +350,8 @@ fn remove_action_builds_json_cli_args_with_optional_force() {
 #[test]
 fn remove_action_requires_plugin_id() {
     let action = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "remove".into(),
         plugin_id: None,
         channel: None,
@@ -300,6 +373,8 @@ fn remove_action_requires_plugin_id() {
 #[test]
 fn plugin_action_activity_maps_install_remove_and_update() {
     let install = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "install".into(),
         plugin_id: Some("transcriber".into()),
         channel: None,
@@ -319,6 +394,8 @@ fn plugin_action_activity_maps_install_remove_and_update() {
     assert_eq!(install_activity.label, "Installing transcriber…");
 
     let remove = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "remove".into(),
         plugin_id: Some("transcriber".into()),
         channel: None,
@@ -338,6 +415,8 @@ fn plugin_action_activity_maps_install_remove_and_update() {
     assert_eq!(remove_activity.label, "Uninstalling transcriber…");
 
     let update_system = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "update-system".into(),
         plugin_id: Some("codeterm-core".into()),
         channel: None,
@@ -360,6 +439,8 @@ fn plugin_action_activity_maps_install_remove_and_update() {
 #[test]
 fn plugin_action_activity_maps_channel_operations() {
     let add = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "add-channel".into(),
         plugin_id: None,
         channel: None,
@@ -379,6 +460,8 @@ fn plugin_action_activity_maps_channel_operations() {
     assert_eq!(add_activity.label, "Adding channel demo…");
 
     let refresh = PluginManagerAction {
+        from_dir: None,
+        id_override: None,
         kind: "refresh-channel".into(),
         plugin_id: None,
         channel: Some("demo".into()),

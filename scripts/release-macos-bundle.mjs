@@ -1,13 +1,17 @@
 // Caller: github-release/scripts/build-mac.sh, release-macos-x86_64.sh
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateManifest } from './package-server-component-manifest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const commandTimeoutMs = 240000;
+const createCaptureBytes = 1048576;
+const diagnosticTimeoutMs = 5000;
+const diagnosticOutputBytes = 65536;
 
 async function regularBytes(file) {
   const stat = await lstat(file);
@@ -33,8 +37,57 @@ export async function verifyMacPayload({ app, stage, expected }) {
   await regularBytes(path.join(app, 'Contents', 'MacOS', 'domios-app'));
 }
 
-function command(program, args, cwd) {
-  execFileSync(program, args, { cwd, stdio: 'inherit', timeout: 240000 });
+function command(program, args, cwd, options = {}) {
+  return execFileSync(program, args, { cwd, stdio: 'inherit', timeout: commandTimeoutMs, ...options });
+}
+
+async function recordDmgFailure({ repo, target, sourceSha, imageSource, dmg, args, error }) {
+  const directory = path.join(repo, 'release-artifacts', 'macos-dmg-diagnostics', target);
+  await mkdir(directory, { recursive: true });
+  const text = value => Buffer.from(value ?? '').subarray(0, diagnosticOutputBytes).toString('utf8');
+  await writeFile(path.join(directory, 'create.json'), JSON.stringify({
+    source_sha: sourceSha, target, program: 'hdiutil', args,
+    timeout_ms: commandTimeoutMs, capture_limit_bytes: createCaptureBytes,
+    retained_stream_limit_bytes: diagnosticOutputBytes,
+    status: error.status ?? null, signal: error.signal ?? null, code: error.code ?? null,
+    message: String(error.message ?? error).slice(0, 4096),
+    stdout: text(error.stdout), stderr: text(error.stderr),
+  }, null, 2) + '\n');
+  for (const [name, program, diagnosticArgs] of [
+    ['images', 'hdiutil', ['info', '-plist']],
+    ['disks', 'diskutil', ['list', '-plist']],
+    ['source-holders', 'lsof', ['-nP', '-Fpcn', '+D', imageSource]],
+    ['output-holders', 'lsof', ['-nP', '-Fpcn', '--', dmg]],
+  ]) {
+    try {
+      const result = spawnSync(program, diagnosticArgs, {
+        cwd: repo, timeout: diagnosticTimeoutMs, killSignal: 'SIGKILL', maxBuffer: diagnosticOutputBytes,
+      });
+      await writeFile(path.join(directory, `${name}.json`), JSON.stringify({
+        program, args: diagnosticArgs, timeout_ms: diagnosticTimeoutMs, output_limit_bytes: diagnosticOutputBytes,
+        status: result.status, signal: result.signal, error: result.error?.message ?? null,
+        stdout: text(result.stdout), stderr: text(result.stderr),
+      }, null, 2) + '\n');
+    } catch (diagnosticError) {
+      process.stderr.write(`macOS DMG diagnostic ${name} unavailable: ${diagnosticError.message}\n`);
+    }
+  }
+  process.stderr.write(`macOS DMG failure diagnostics: ${directory}\n`);
+}
+
+async function createDmg({ invoke, repo, target, sourceSha, imageSource, dmg }) {
+  const args = ['create', '-volname', 'Domios', '-srcfolder', imageSource, '-ov', '-format', 'UDZO', dmg];
+  try {
+    const output = await invoke('hdiutil', args, { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: createCaptureBytes });
+    if (output?.length) process.stderr.write(output);
+  } catch (error) {
+    try {
+      await recordDmgFailure({ repo, target, sourceSha, imageSource, dmg, args, error });
+    } catch (diagnosticError) {
+      process.stderr.write(`macOS DMG diagnostics unavailable: ${diagnosticError.message}\n`);
+    }
+    throw error;
+  }
 }
 
 export async function bundleMacPair({ repo = root, target, env = process.env,
@@ -64,7 +117,7 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
       manifest.client_identity.team_id !== env.APPLE_TEAM_ID ||
       manifest.server_executable !== '../MacOS/domios-server' ||
       manifest.server_sha256 !== hash(expected.server)) throw new Error('macOS staged component identity differs from final signed server');
-  const invoke = async (program, args) => run(program, args, repo);
+  const invoke = async (program, args, options) => run(program, args, repo, options);
   await invoke('pnpm', ['tauri', 'bundle', '--no-sign', '--no-binary-patching', ...targetArgs,
     ...(env.CODETERM_RELEASE_FEATURES ? ['--features', env.CODETERM_RELEASE_FEATURES] : []), '--bundles', 'app',
     '--config', '{"bundle":{"createUpdaterArtifacts":false}}']);
@@ -80,13 +133,15 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
   await mkdir(path.dirname(dmg), { recursive: true });
   const scratch = await mkdtemp(path.join(bundleRoot, '.pair-dmg-'));
   let mounted = false;
+  let failure;
   const mountpoint = path.join(scratch, 'readback');
   try {
     const imageSource = path.join(scratch, 'source');
     await mkdir(imageSource);
     await invoke('ditto', ['--rsrc', '--extattr', app, path.join(imageSource, 'Domios.app')]);
     await linkApplications(path.join(imageSource, 'Applications'));
-    await invoke('hdiutil', ['create', '-volname', 'Domios', '-srcfolder', imageSource, '-ov', '-format', 'UDZO', dmg]);
+    await invoke('sync', []);
+    await createDmg({ invoke, repo, target, sourceSha, imageSource, dmg });
     await invoke('codesign', ['--force', '--timestamp', '--keychain', keychain, '--sign', identity, dmg]);
     await invoke('codesign', ['--verify', '--strict', dmg]);
     await mkdir(mountpoint);
@@ -95,9 +150,17 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
     const mountedApp = path.join(mountpoint, 'Domios.app');
     await verifyMacPayload({ app: mountedApp, stage, expected });
     await invoke('codesign', ['--verify', '--strict', '--deep', mountedApp]);
+  } catch (error) {
+    failure = error;
+    throw error;
   } finally {
-    if (mounted) await invoke('hdiutil', ['detach', mountpoint]);
-    await rm(scratch, { recursive: true, force: true });
+    try {
+      if (mounted) await invoke('hdiutil', ['detach', mountpoint]);
+      await rm(scratch, { recursive: true, force: true });
+    } catch (cleanupError) {
+      if (!failure) throw cleanupError;
+      process.stderr.write(`macOS DMG cleanup failed: ${cleanupError.message}\n`);
+    }
   }
   return { target, app, dmg, serverSha256: hash(expected.server), cliSha256: hash(expected.cli) };
 }

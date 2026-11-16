@@ -6,7 +6,7 @@ fn marked(node: &Value) -> bool {
     node.get("attributes")
         .and_then(Value::as_array)
         .is_some_and(|attrs| {
-            attrs.chunks_exact(2).any(|pair| {
+            attrs.as_chunks::<2>().0.iter().any(|pair| {
                 let key = pair[0].as_str().unwrap_or("").to_ascii_lowercase();
                 let value = pair[1].as_str().unwrap_or("").to_ascii_lowercase();
                 key == "data-sensitive"

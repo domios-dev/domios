@@ -6,6 +6,7 @@ export interface AgentRuntimeState {
   controls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   authentication?: import("@codeterm/plugin-sdk").RuntimeAuthentication;
   notice?: string | null;
+  accessFailure?: string | null;
   requiredSecrets?: string[];
   /** Declared sign-in methods that take an API key, which the host stores and injects. */
   apiKeyMethods?: string[];
@@ -29,8 +30,9 @@ export interface AgentRuntimeState {
 
 export type RuntimeHistoryState = "loading" | "complete" | "failed";
 
-export function runtimeSessionLoadRefused(state: AgentRuntimeState | null | undefined): boolean {
-  return state?.state === "degraded" && state.failureCode === "session_load_refused";
+/** The harness can no longer load this tab's conversation, so only a new one can continue; one notice owns it. */
+export function runtimeSessionUnavailable(state: AgentRuntimeState | null | undefined): boolean {
+  return state?.state === "degraded" && (state.failureCode === "session_load_refused" || state.failureCode === "thread_not_found");
 }
 
 export function runtimeResponseDeadlinePending(
@@ -104,7 +106,7 @@ export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: st
 }
 
 export function runtimeStatusPresentation(state: AgentRuntimeState | null, startupOwned = false) {
-  if (runtimeSessionLoadRefused(state)) return null;
+  if (runtimeSessionUnavailable(state)) return null;
   if (state?.state === "loginPending") return { severity: "action_needed" as const,
     label: "Sign-in required", reason: "Sign in to continue.", details: null, canRetry: true };
   if (runtimeResponseDeadlinePending(state)) {

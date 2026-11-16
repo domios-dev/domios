@@ -22,7 +22,7 @@ impl ServiceContext {
                 .lock()
                 .get(&root)
                 .map(|grant| grant.access == MachineAccess::Full)
-                .ok_or_else(|| codeterm_neighbors::Error::MachineAccessUnsupported.to_string())?;
+                .ok_or_else(|| codeterm_neighbors::Error::RestoreGrantRequired.to_string())?;
             (root, bypass)
         };
         self.require_neighbor_restore_grant(tab_id, bypass)?;
@@ -31,7 +31,7 @@ impl ServiceContext {
             .lock()
             .get(&root)
             .map(|grant| grant.access)
-            .ok_or_else(|| codeterm_neighbors::Error::MachineAccessUnsupported.to_string())
+            .ok_or_else(|| codeterm_neighbors::Error::RestoreGrantRequired.to_string())
     }
 
     pub(crate) fn neighbor_scoped_tool_launch_args(

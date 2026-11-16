@@ -1,5 +1,5 @@
 import { listen } from "../../lib/bridge";
-import { localFetch } from "../../lib/webApi";
+import { neighborFetch } from "./neighborFetch";
 import { recordProductEvent } from "../../lib/productAnalytics";
 import { nativeBridge, type NativeBridge } from "../../lib/nativeBridge";
 import { receipt, type NeighborReceipt } from "./neighborRuntimeClient";
@@ -40,7 +40,7 @@ const record = (value: unknown): value is Record<string, unknown> => typeof valu
 const count = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
 async function call(command: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
-  const response = await localFetch("/api/account/neighbors/files", {
+  const response = await neighborFetch("/api/account/neighbors/files", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), signal,
   });
   if (!response.ok) {
@@ -87,6 +87,13 @@ export async function openSavedFile(friendship: string, fileId: string,
     } catch { /* An older daemon refuses launch, and a desktop open can fail; the daemon open below still serves. */ }
   }
   await runtime({ operation: "open", friendship_id: friendship, file_id: fileId });
+}
+
+/** Where a saved file from them lives on this machine, without opening it. */
+export async function savedFilePath(friendship: string, fileId: string, runtime: (command: Record<string, unknown>) => Promise<unknown> = call): Promise<string> {
+  const resolved = await runtime({ operation: "open", friendship_id: friendship, file_id: fileId, launch: false });
+  if (!record(resolved) || typeof resolved.path !== "string") throw new Error("The file could not be found.");
+  return resolved.path;
 }
 
 export const neighborFilesClient: NeighborFilesClient = {

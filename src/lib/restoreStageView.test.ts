@@ -51,7 +51,7 @@ assert.equal(failed.phase, "failed");
 assert.equal(failed.detail, "opaque-error");
 assert.equal(restorePanelOwnsBody({ ...awake, boot_stage: "spawn_failed" }, { requested: true }, failed), false);
 assert.equal(restoreStageView(tab, { error: "RPC error" }).detail, "RPC error");
-assert.equal(restoreStageView({ ...awake, boot_stage: "spawn_failed" }, { pending: true }).phase, "restoring");
+assert.equal(restoreStageView({ ...awake, boot_stage: "spawn_failed" }, { pending: true }).phase, "failed");
 const runtime: Partial<Tab> = { backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "saved" }, agent_runtime_state: { state: "loading", epoch: 2 } };
 assert.equal(restoreStageView(runtime).current, 0);
 assert.equal(restoreStageView({ ...runtime, boot_stage: "agent_launching" }).current, 0);

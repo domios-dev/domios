@@ -20,6 +20,7 @@ pub(crate) mod relay_stream;
 pub mod remote_tabs;
 pub mod rpc;
 pub mod send_dedupe;
+pub mod template_hosting;
 pub mod worker_dispatch;
 pub mod worker_observation;
 pub mod worker_transfer;

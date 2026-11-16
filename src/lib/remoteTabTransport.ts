@@ -120,6 +120,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
         } : result.owner,
       };
     });
+    // The peer owns the tab's PTY: it reuses a live one or starts it there, never here.
+    case "spawn_pty": return call("POST", "/pty/spawn", { cols: args.cols, rows: args.rows }, () => identity.ordinaryTabId);
     case "read_pty": {
       const offset = readOffsets.get(identity.ordinaryTabId) ?? 0;
       return call("GET", `/pty/read?offset=${offset}`, null, (value) => {

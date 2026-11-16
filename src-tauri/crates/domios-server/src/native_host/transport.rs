@@ -54,6 +54,8 @@ pub enum NativeHostBindError {
 }
 
 pub struct NativeHostEndpoint<UpdateRequest, UpdateResult> {
+    pub(super) output_service:
+        Arc<RwLock<Option<std::sync::Weak<codeterm_service_core::service::ServiceContext>>>>,
     pub(super) active: Arc<RwLock<Option<Arc<Session<UpdateRequest, UpdateResult>>>>>,
     pub(super) active_generation: Arc<AtomicU64>,
     pub(super) attached_once: Arc<AtomicBool>,
@@ -66,6 +68,7 @@ pub struct NativeHostEndpoint<UpdateRequest, UpdateResult> {
 impl<UpdateRequest, UpdateResult> Clone for NativeHostEndpoint<UpdateRequest, UpdateResult> {
     fn clone(&self) -> Self {
         Self {
+            output_service: self.output_service.clone(),
             active: self.active.clone(),
             active_generation: self.active_generation.clone(),
             attached_once: self.attached_once.clone(),
@@ -89,6 +92,8 @@ struct AcceptState<UpdateRequest, UpdateResult> {
 
 pub(super) struct Session<UpdateRequest, UpdateResult> {
     pub(super) connection: NativeHostConnection,
+    pub(super) output_service:
+        Arc<RwLock<Option<std::sync::Weak<codeterm_service_core::service::ServiceContext>>>>,
     pub(super) client_process: ProcessProvenance,
     pub(super) process: PinnedProcess,
     pub(super) active_generation: Arc<AtomicU64>,
@@ -103,6 +108,7 @@ pub(super) struct Session<UpdateRequest, UpdateResult> {
 pub(super) struct SessionState<UpdateResult> {
     pub(super) view: Option<NativeViewBinding>,
     pub(super) diagnostics: Option<NativeWebviewDiagnosticsReport>,
+    pub(super) output_attachments: HashMap<String, (uuid::Uuid, u64)>,
     pub(super) pending: HashMap<NativeHostRequestId, Pending<UpdateResult>>,
 }
 
@@ -143,6 +149,7 @@ where
         Ok(Self {
             listener,
             endpoint: NativeHostEndpoint {
+                output_service: Arc::default(),
                 active: Arc::new(RwLock::new(None)),
                 active_generation: Arc::new(AtomicU64::new(0)),
                 attached_once: Arc::new(AtomicBool::new(false)),
@@ -541,6 +548,7 @@ where
         let (shutdown, _) = watch::channel(false);
         let session = Arc::new(Session {
             connection: connection.clone(),
+            output_service: self.endpoint.output_service.clone(),
             client_process: enrollment.client_process.clone(),
             process,
             active_generation: self.endpoint.active_generation.clone(),
@@ -550,6 +558,7 @@ where
             state: Mutex::new(SessionState {
                 view,
                 diagnostics: None,
+                output_attachments: HashMap::new(),
                 pending: HashMap::new(),
             }),
             shutdown,
@@ -737,7 +746,11 @@ where
         let _ = self.shutdown.send(true);
         let pending = {
             let mut state = self.state.lock();
+            if let Some(view) = &state.view {
+                self.revoke_output_view(view.session_id);
+            }
             state.view = None;
+            state.output_attachments.clear();
             state.diagnostics = None;
             std::mem::take(&mut state.pending)
         };
@@ -850,7 +863,7 @@ where
         let _ = writer.shutdown().await;
     }
 
-    async fn read_loop<R>(&self, mut reader: R)
+    async fn read_loop<R>(self: &Arc<Self>, mut reader: R)
     where
         R: tokio::io::AsyncRead + Unpin,
     {
@@ -867,6 +880,21 @@ where
                 },
             };
             match frame {
+                Frame::OutputFlow {
+                    connection,
+                    view_session,
+                    update,
+                } if connection == self.connection => {
+                    let session = self.clone();
+                    if tokio::task::spawn_blocking(move || {
+                        session.accept_output_flow(view_session, update)
+                    })
+                    .await
+                    .is_err()
+                    {
+                        break;
+                    }
+                }
                 Frame::Reply(reply) => self.accept_reply(reply),
                 Frame::BindView { connection, view } if connection == self.connection => {
                     self.bind_view(view);
@@ -991,131 +1019,6 @@ where
                     completion: NativeHostCompletion::Rejected(NativeHostRejection::HostRejected),
                 });
             }
-        }
-    }
-
-    pub(super) fn bind_view(&self, view: NativeViewBinding) {
-        if self.retired.load(Ordering::Acquire)
-            || !view.is_well_formed()
-            || !self.allowed_view_origins.contains(&view.origin)
-        {
-            return;
-        }
-        let (replies, cancellations) = {
-            let mut state = self.state.lock();
-            if self.retired.load(Ordering::Acquire) {
-                return;
-            }
-            let Some(previous) = state.view.replace(view.clone()) else {
-                state.diagnostics = None;
-                return;
-            };
-            if previous.session_id == view.session_id {
-                if previous.origin == view.origin {
-                    return;
-                }
-                state.view = Some(previous);
-                return;
-            }
-            state.diagnostics = None;
-            let old_session = previous.session_id;
-            let (replies, cancellations) = self.revoke_view_requests(&mut state, old_session);
-            (replies, cancellations)
-        };
-        self.complete_view_revocation(replies, cancellations);
-    }
-
-    pub(super) fn release_view(&self, session_id: uuid::Uuid) {
-        let (replies, cancellations) = {
-            let mut state = self.state.lock();
-            if !state
-                .view
-                .as_ref()
-                .is_some_and(|view| view.session_id == session_id)
-            {
-                return;
-            }
-            state.view = None;
-            state.diagnostics = None;
-            self.revoke_view_requests(&mut state, session_id)
-        };
-        self.complete_view_revocation(replies, cancellations);
-    }
-
-    fn revoke_view_requests(
-        &self,
-        state: &mut SessionState<UpdateResult>,
-        session_id: uuid::Uuid,
-    ) -> (
-        Vec<(
-            oneshot::Sender<NativeHostReply<UpdateResult>>,
-            NativeHostReply<UpdateResult>,
-        )>,
-        Vec<NativeHostRequestId>,
-    ) {
-        let mut replies = Vec::new();
-        let mut cancellations = Vec::new();
-        let request_ids = state
-            .pending
-            .iter()
-            .filter_map(|(request_id, call)| {
-                (call.scope == NativeHostScope::View(session_id)).then_some(*request_id)
-            })
-            .collect::<Vec<_>>();
-        for request_id in request_ids {
-            if state
-                .pending
-                .get(&request_id)
-                .is_some_and(|call| call.dispatched)
-            {
-                if let Some(call) = state.pending.get_mut(&request_id) {
-                    if let Some(reply) = call.reply.take() {
-                        let response = NativeHostReply {
-                            request_id,
-                            connection: self.connection.clone(),
-                            scope: call.scope.clone(),
-                            completion: NativeHostCompletion::Uncertain(
-                                NativeHostUncertainty::CancelledAfterDispatch,
-                            ),
-                        };
-                        replies.push((reply, response));
-                    }
-                }
-                cancellations.push(request_id);
-            } else if let Some(mut call) = state.pending.remove(&request_id) {
-                if let Some(reply) = call.reply.take() {
-                    let response = NativeHostReply {
-                        request_id,
-                        connection: self.connection.clone(),
-                        scope: call.scope,
-                        completion: NativeHostCompletion::Rejected(
-                            NativeHostRejection::InvalidView,
-                        ),
-                    };
-                    replies.push((reply, response));
-                }
-            }
-        }
-        (replies, cancellations)
-    }
-
-    fn complete_view_revocation(
-        &self,
-        replies: Vec<(
-            oneshot::Sender<NativeHostReply<UpdateResult>>,
-            NativeHostReply<UpdateResult>,
-        )>,
-        cancellations: Vec<NativeHostRequestId>,
-    ) {
-        for (sender, reply) in replies {
-            let _ = sender.send(reply);
-        }
-        for request_id in cancellations {
-            let cancellation = NativeHostCancellation {
-                request_id,
-                connection: self.connection.clone(),
-            };
-            let _ = self.control.try_send(Frame::Cancel(cancellation));
         }
     }
 

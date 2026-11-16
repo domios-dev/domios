@@ -1,7 +1,9 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import type { BlueprintStepRequest } from "@codeterm/plugin-sdk";
 import { describe, expect, it } from "vitest";
 import plugin from "../src/plugin";
-import { readPage } from "../src/readPage";
+import { readPage as readPageSteps } from "../src/readPage";
+const {readPage} = ioTestExport({readPage: readPageSteps});
 
 type Answer = { result: string } | { error: string };
 

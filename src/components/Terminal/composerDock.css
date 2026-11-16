@@ -96,8 +96,7 @@
 }
 .ct-expanded-composer__close:hover { background: var(--ct-bg); color: var(--ct-fg); }
 @media (max-width: 640px) {
-  .ct-expanded-composer { padding: 32px 8px 12px; }
-  .ct-expanded-composer textarea { font-size: 16px; }
+  .ct-expanded-composer { padding: 32px 8px 12px; --ct-capsule-font-size: 16px; }
   .ct-composer-expand span { opacity: 1; }
 }
 .ct-composer-card {

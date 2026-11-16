@@ -2,7 +2,8 @@ import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import { Globe, Network, TriangleAlert } from "lucide-react";
 import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
 import { SurfaceIcon } from "../Surface/surfaceIcon";
@@ -306,7 +307,9 @@ function TabItemInner({
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const meshLabel = meshBadgeLabel(tab);
-  const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : description;
+  // A Team worker reads as name and role label; its description stays in the row's tooltip.
+  const labelledWorker = tab.role === "Worker" && Boolean(tab.role_label?.trim());
+  const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : labelledWorker ? null : description;
   const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: roleShield });
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
@@ -330,6 +333,7 @@ function TabItemInner({
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(tab);
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tab.id, !tab.remote_peer_id);
+  const muxActions = useContext(MultiplexerActionsContext);
   const menuEntries = useMemo(() => buildTabMenu({
     tab,
     surface: "sidebar",
@@ -351,6 +355,7 @@ function TabItemInner({
       switchProvider: openProviderSwitch,
       rename: () => { setEditName(canonicalTitle); setEditing(true); },
       close: onClose,
+      detach: () => muxActions?.detachRemoteTab?.(tab.id),
     }).catch((error) => console.warn("Tab action failed:", error));
   };
 

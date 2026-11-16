@@ -4,13 +4,18 @@ use crate::plan::{Plan, Task};
 use crate::plan::{TaskFiles, WorkerPlacement};
 mod history;
 mod inspection;
+mod plain_folder;
 mod report;
 pub use super::store_db::read_projections::checkout::{
     CheckoutAttemptRead, CheckoutPeerRead, CheckoutTaskRead, TaskCheckoutRead,
 };
 pub(in crate::service_plan) use history::SharedHistoryWatch;
 pub use history::{LostSharedCommit, ReportedSharedCommit, SharedHistoryPorts, LOST_COMMIT_STRIDE};
-pub(crate) use inspection::{SharedDispatchInspection, SharedReportInspection};
+pub(crate) use inspection::{SharedDispatchInspection, SharedReportInspection, SharedStart};
+pub use plain_folder::{
+    placement_without_git, project_history, ChangedFileHashes, FileHashes, ProjectHistory,
+    NO_GIT_HISTORY,
+};
 pub use report::{shared_checkout_head, validate_shared_report};
 
 #[cfg(test)]
@@ -214,10 +219,7 @@ pub fn choose_placement_facts(
     } else {
         files.shared_edit_paths().map_err(|error| format!("{error}. Declare edit files: domios plan task files {} {} --edit-file <path>; or request isolation: domios plan task dispatch {} {} --execution-intent mutating --placement lane", plan_id, task_id, plan_id, task_id))?;
         validate_edit_links_at(&checkout, files)?;
-        match validate_shared_ownership_at(plans, plan_id, task_id, &checkout, files) {
-            Ok(()) => None,
-            Err(error) => Some(error),
-        }
+        validate_shared_ownership_at(plans, plan_id, task_id, &checkout, files).err()
     };
     if let Some(reason) = lane_reason {
         if requested == Some("shared") {
@@ -246,6 +248,14 @@ impl PlanStore {
                 "only a live shared Worker can extend edit files".into(),
             ));
         }
+        let added = TaskFiles {
+            edit: paths
+                .iter()
+                .filter(|path| !task.files.owns_edit_path(path))
+                .cloned()
+                .collect(),
+            ..Default::default()
+        };
         let mut files = task.files.clone();
         files.edit.extend(paths);
         let files = files.validated().map_err(PlanError::InvalidPlanText)?;
@@ -257,15 +267,40 @@ impl PlanStore {
             &files,
         )
         .map_err(PlanError::InvalidPlanText)?;
+        // Without git, a newly declared path needs its own start hash to show a change later.
+        let added_start = if !added.edit.is_empty()
+            && project_history(&task.checkout).map_err(PlanError::InvalidPlanText)?
+                == ProjectHistory::NoGit
+        {
+            plain_folder::hash_declared_files(&task.checkout, &added)
+                .map_err(PlanError::InvalidPlanText)?
+        } else {
+            FileHashes::new()
+        };
         self.with_task_rows_in_writer(
             &writer_turn,
             plan_id,
             task_id,
-            super::store_db::hot_write::TaskHistory::Core,
+            if added_start.is_empty() {
+                super::store_db::hot_write::TaskHistory::Core
+            } else {
+                super::store_db::hot_write::TaskHistory::LiveAndReported
+            },
             now,
             |edit| {
                 let task = &mut edit.task;
                 task.files = files;
+                for attempt in task.execution_attempts.iter_mut().filter(|attempt| {
+                    attempt.placement == WorkerPlacement::Shared
+                        && attempt.closed_at.is_none()
+                        && attempt.retired_at.is_none()
+                }) {
+                    if let Some(start) = attempt.shared_start_files.as_mut() {
+                        for (path, hash) in &added_start {
+                            start.entry(path.clone()).or_insert_with(|| hash.clone());
+                        }
+                    }
+                }
                 task.updated_at = now;
                 Ok(())
             },

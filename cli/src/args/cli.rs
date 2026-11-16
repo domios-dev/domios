@@ -24,10 +24,10 @@ use super::misc::{
 };
 use super::orchestrator::OrchestratorAction;
 use super::pad::PadAction;
-use super::persona::PersonaAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::radar::RadarAction;
+use super::role::RoleAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;
@@ -165,10 +165,10 @@ pub enum Commands {
         action: OrchestratorAction,
     },
 
-    /// Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits
-    Persona {
+    /// Inspect the shared role resolver — kinds, overlays, and the exact text each delivery occasion emits
+    Role {
         #[command(subcommand)]
-        action: PersonaAction,
+        action: RoleAction,
     },
 
     /// Tab management

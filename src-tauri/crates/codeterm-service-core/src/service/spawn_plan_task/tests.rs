@@ -342,7 +342,7 @@ fn validate_rejects_gates_a_spawn_cannot_enforce() {
         ..verifier(&["./build.sh verify"])
     })
     .expect_err("gates are a Worker concept");
-    assert!(roleless.contains("--role Worker"), "{roleless}");
+    assert!(roleless.contains("--role worker"), "{roleless}");
 
     let task_bound = validate_worker_plan_task_spawn(&SpawnAgentParams {
         plan_task: Some("spawn-bind".into()),

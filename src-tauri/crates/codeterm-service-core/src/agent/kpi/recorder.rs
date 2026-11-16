@@ -14,6 +14,7 @@ type RebuildReply = SyncSender<Result<UsageRebuildOutcome, String>>;
 
 enum KpiCommand {
     Event(KpiEventInput),
+    RuntimeUsage(KpiEventInput),
     Ingest {
         source: UsageSource,
         attribution: Box<KpiAttribution>,
@@ -30,6 +31,7 @@ struct RecorderInner {
     on_commit: Arc<OnceLock<CommitListener>>,
     /// Read side for callers that project ledger aggregates; writes stay on the thread.
     ledger: Arc<KpiLedger>,
+    providers: Arc<OnceLock<Arc<crate::agent::registry::AgentRegistry>>>,
 }
 
 /// Cheap to clone; a disabled recorder holds no channel, no thread and no db file.
@@ -81,6 +83,8 @@ impl KpiRecorder {
         let reader = Arc::clone(&ledger);
         let on_commit: Arc<OnceLock<CommitListener>> = Arc::default();
         let listener = Arc::clone(&on_commit);
+        let providers = Arc::new(OnceLock::<Arc<crate::agent::registry::AgentRegistry>>::new());
+        let parser_providers = providers.clone();
         let (tx, rx) = channel::<KpiCommand>();
         std::thread::Builder::new()
             .name("kpi-ledger".into())
@@ -94,6 +98,15 @@ impl KpiRecorder {
                     for cmd in std::iter::once(first).chain(rx.try_iter()) {
                         match cmd {
                             KpiCommand::Event(event) => pending.push(event),
+                            KpiCommand::RuntimeUsage(event) => {
+                                flush(&ledger, &mut pending, &mut committed);
+                                match ledger.record_runtime_usage(&event) {
+                                    Ok(()) => committed.record(&[event]),
+                                    Err(error) => {
+                                        log::warn!("[kpi] runtime usage archive failed: {error}")
+                                    }
+                                }
+                            }
                             KpiCommand::Ingest {
                                 source,
                                 attribution,
@@ -105,11 +118,16 @@ impl KpiRecorder {
                                     &source,
                                     &attribution,
                                     &mut committed,
+                                    parser_providers.get(),
                                 );
                             }
                             KpiCommand::RebuildUsage(reply) => {
                                 flush(&ledger, &mut pending, &mut committed);
-                                let outcome = super::rebuild::rebuild_usage(&ledger, &mut ingestor);
+                                let outcome = super::rebuild::rebuild_usage(
+                                    &ledger,
+                                    &mut ingestor,
+                                    parser_providers.get(),
+                                );
                                 if let Ok(outcome) = &outcome {
                                     committed.touch(outcome.plans.iter().cloned());
                                 }
@@ -132,6 +150,7 @@ impl KpiRecorder {
                 tx,
                 on_commit,
                 ledger: reader,
+                providers,
             })),
             open_error: None,
         }
@@ -158,6 +177,18 @@ impl KpiRecorder {
     pub fn record(&self, event: KpiEventInput) {
         if let Some(inner) = &self.inner {
             let _ = inner.tx.send(KpiCommand::Event(event));
+        }
+    }
+
+    pub fn set_provider_registry(&self, providers: Arc<crate::agent::registry::AgentRegistry>) {
+        if let Some(inner) = &self.inner {
+            let _ = inner.providers.set(providers);
+        }
+    }
+
+    pub fn record_runtime_usage(&self, event: KpiEventInput) {
+        if let Some(inner) = &self.inner {
+            let _ = inner.tx.send(KpiCommand::RuntimeUsage(event));
         }
     }
 
@@ -272,10 +303,34 @@ fn ingest_into_ledger(
     source: &UsageSource,
     attribution: &KpiAttribution,
     committed: &mut Committed,
+    providers: Option<&Arc<crate::agent::registry::AgentRegistry>>,
 ) {
+    if let Err(error) = ledger.remember_usage_provider(&source.key(), &attribution.provider) {
+        log::warn!("[kpi] source ownership failed: {error}");
+        return;
+    }
     seed_cursor_from_ledger(ledger, ingestor, source);
     let cursor_before = ingestor.cursor(source);
-    let batch = match ingestor.ingest(source) {
+    let parsed = match providers {
+        Some(registry) => match registry.provider_arc(&attribution.provider) {
+            Some(provider) => {
+                let now = super::attribution::now_epoch_secs();
+                ingestor.ingest_with_parser(
+                    source,
+                    &|record| provider.parse_usage_record(record, now),
+                    provider
+                        .usage_sql_query(source.session_id.is_some())
+                        .as_deref(),
+                )
+            }
+            None => Err(format!(
+                "usage provider {} unavailable",
+                attribution.provider
+            )),
+        },
+        None => ingestor.ingest(source),
+    };
+    let batch = match parsed {
         Ok(batch) => batch,
         Err(e) => {
             log::warn!("[kpi] usage ingest {} failed: {}", source.path.display(), e);
@@ -309,6 +364,9 @@ fn ingest_into_ledger(
         .collect();
     match ledger.insert_usage_batch(&events, &source.key(), cursor.persisted()) {
         Ok(()) => committed.record(&events),
-        Err(e) => log::warn!("[kpi] usage insert failed: {}", e),
+        Err(e) => {
+            ingestor.forget(source);
+            log::warn!("[kpi] usage insert failed: {}", e);
+        }
     }
 }

@@ -13,5 +13,7 @@ pub(in crate::service_plan) struct SharedReportRead {
     pub executor_tab_id: String,
     pub checkout: Option<String>,
     pub start_sha: Option<String>,
+    #[serde(default)]
+    pub start_files: Option<std::collections::BTreeMap<String, String>>,
     pub files: TaskFiles,
 }

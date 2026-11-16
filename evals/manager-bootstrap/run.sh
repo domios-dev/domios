@@ -18,11 +18,9 @@ cleanup() {
 }
 trap cleanup EXIT
 dev_get /api/health >/dev/null || { echo "dev 7686 unavailable" >&2; exit 7; }
-# Every manager kind bootstraps from the one shared resolver, and an unmatched
-# kind lands on the declared fallback instead of an empty identity.
+# Every manager type bootstraps from the one shared resolver over the default package.
 assert_manager_kinds_resolve
 assert_planner_team_authority
-assert_declared_fallback
 WS=$(new_workspace "manager-bootstrap-eval" "$ROOT")
 TEAMS_BEFORE=$(capture_json dc team list --json)
 PROVIDERS=$(capture_json dc agent providers --json)
@@ -48,7 +46,7 @@ for tab in "$ORCH" "$PLANNER"; do
   dc send --tab "$tab" "Who are you? What team and project are you in?" >/dev/null
   REPLY="$(await_first "$tab")"; [[ "$REPLY" == *manager-bootstrap-eval* && "$REPLY" == *"not yet established"* ]]; case "$tab" in "$ORCH") [[ "$REPLY" == *Orchestrator* ]];; *) [[ "$REPLY" == *Planner* ]];; esac
 done
-WORKER_RESPONSE=$(capture_json dc agent spawn "$SYSTEM" --role Worker --parent "$ORCH" --workspace "$WS" --cwd "$ROOT" --title "manager-bootstrap-worker" --json)
+WORKER_RESPONSE=$(capture_json dc agent spawn "$SYSTEM" --role worker --parent "$ORCH" --workspace "$WS" --cwd "$ROOT" --title "manager-bootstrap-worker" --json)
 WORKER=$(spawned_tab_id <<<"$WORKER_RESPONSE")
 CREATED+=("$WORKER")
 dc send --tab "$WORKER" "Who are you?" >/dev/null

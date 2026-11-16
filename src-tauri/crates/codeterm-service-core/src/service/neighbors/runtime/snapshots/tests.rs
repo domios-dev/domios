@@ -3,7 +3,10 @@ use crate::{multiplexer::state::MultiplexerState, service::test_fixture::Service
 
 #[tokio::test]
 async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding() {
-    let (mux, tab) = MultiplexerState::new();
+    let (mut mux, general) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&general).unwrap();
+    let tab = mux.create_tab(&workspace).unwrap();
+    mux.get_tab_mut(&tab).unwrap().agent_type = Some("neighbor-projection-fixture".into());
     let fixture = ServiceFixture::new(mux);
     let friendship = "a".repeat(64);
     fixture
@@ -23,10 +26,26 @@ async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding(
     ]});
     fixture.service.remember_neighbor_names(&list);
     fixture.service.remember_neighbor_registry(&list);
+    let mut projection = fixture.service.neighbor_sidebar_projection().await.unwrap();
+    let concierge = projection[&friendship]
+        .as_object_mut()
+        .unwrap()
+        .remove("concierge")
+        .unwrap();
+    assert_eq!(concierge["gateway_tab"], tab);
+    assert_eq!(concierge["receiving_here"], true);
+    let unbound_concierge = projection["b".repeat(64)]
+        .as_object_mut()
+        .unwrap()
+        .remove("concierge")
+        .unwrap();
+    assert!(unbound_concierge["gateway_tab"].is_null());
+    assert_eq!(unbound_concierge["receiving_here"], false);
     assert_eq!(
-        fixture.service.neighbor_sidebar_projection().await.unwrap(),
+        projection,
         json!({(friendship.clone()): {"tab_id":tab, "friend_display_name":"Opaque Friend", "friend_photo_url":"https://example.test/avatar.png", "paused":false, "access":"paid",
-            "receiver":{"receiving_here":true,"receiver_machine_label":"Fixture","receiving_enabled":true,"revision":1,"is_me":true}}})
+            "receiver":{"receiving_here":true,"receiver_machine_label":"Fixture","receiver_installation_id":"fixture-here","receiver_online":true,"receiving_enabled":true,"revision":1,"is_me":true}},
+            ("b".repeat(64)): {"tab_id":null,"friend_display_name":"Unbound Friend","friend_photo_url":null,"paused":false,"access":"paid","receiver":null}})
     );
     let session = fixture
         .service
@@ -50,7 +69,7 @@ async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding(
     assert_eq!(
         moved[&friendship]["receiver"],
         json!({
-            "receiving_here":false,"receiver_machine_label":"Fixture","receiving_enabled":true,"revision":2,"is_me":false
+            "receiving_here":false,"receiver_machine_label":"Fixture","receiver_installation_id":"fixture-elsewhere","receiving_enabled":true,"revision":2,"is_me":false
         })
     );
     let metadata = Metadata::new(
@@ -62,6 +81,7 @@ async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding(
     metadata.save_settings(settings).await.unwrap();
     let unbound = fixture.service.neighbor_sidebar_projection().await.unwrap();
     assert!(unbound[&friendship]["tab_id"].is_null());
+    assert!(unbound[&friendship]["concierge"]["gateway_tab"].is_null());
     assert_eq!(
         unbound[&friendship]["receiver"],
         moved[&friendship]["receiver"]
@@ -71,6 +91,20 @@ async fn sidebar_projection_keeps_known_receiver_rows_after_concierge_unbinding(
     let projection = fixture.service.neighbor_sidebar_projection().await.unwrap();
     assert!(projection[&friendship]["friend_photo_url"].is_null());
     assert!(projection[&friendship]["access"].is_null());
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&friendship, None, 3);
+    let unknown = fixture.service.neighbor_sidebar_projection().await.unwrap();
+    assert_eq!(unknown[&friendship]["friend_display_name"], "Opaque Friend");
+    assert!(unknown[&friendship]["tab_id"].is_null());
+    assert!(unknown[&friendship]["receiver"].is_null());
+    fixture
+        .service
+        .remember_neighbor_names(&json!({"friends":[]}));
+    assert_eq!(
+        fixture.service.neighbor_sidebar_projection().await.unwrap(),
+        json!({})
+    );
 }
 
 #[test]

@@ -1,6 +1,6 @@
 import { lockedView, type LockedView } from "../billing/freeLimitModel";
 import { isReadOnlyTab } from "../../lib/tabInputPolicy";
-import { isProviderSelectable, providerAvailabilityLabel } from "../../lib/providerAvailability";
+import { isProviderSelectable } from "../../lib/providerAvailability";
 import { isGeneralAgent } from "../../lib/roleKind";
 import { pluginTabMenuEntries, type PluginTabMenuEntry, type PluginTabMenuState } from "../../lib/pluginTabMenu";
 import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
@@ -43,7 +43,14 @@ export const TAB_MENU_LABELS = {
   plugins: "Plugins",
   closeSession: "Close session",
   closeTab: "Close Tab",
+  detach: "Detach from this machine",
 } as const;
+
+/** Close on a remote tab names the machine it closes on; a local close keeps its plain label. */
+function closeLabel(tab: Tab): string {
+  const base = tab.agent_type != null ? TAB_MENU_LABELS.closeSession : TAB_MENU_LABELS.closeTab;
+  return tab.remote_peer_id ? `${base} on ${tab.remote_peer_name ?? "the other machine"}` : base;
+}
 
 function modelHint(providerName: string): string {
   return `Switches in session — ${providerName} keeps this session and its history.`;
@@ -64,6 +71,7 @@ export type TabMenuAction =
   | { type: "runPlugin"; entry: PluginTabMenuEntry }
   | { type: "openTelegram" }
   | { type: "closeTelegram" }
+  | { type: "detach" }
   | { type: "close" };
 
 export type TabMenuGlyph =
@@ -78,6 +86,7 @@ export type TabMenuGlyph =
   | "plugins"
   | "telegram"
   | "telegramClose"
+  | "detach"
   | "close";
 
 export type TabMenuIcon = TabMenuGlyph | { svg: string | null; color: string | null } | null;
@@ -181,27 +190,21 @@ function modelSubmenu({ tab, descriptor, status }: TabMenuInput): TabMenuSubmenu
   };
 }
 
-function providerSubmenu({ tab, descriptors, status }: TabMenuInput): TabMenuSubmenuEntry | null {
+/** Opens the switch dialog directly; its chooser owns the target, so the menu only seeds an installed alternative with a model catalog. */
+function providerItem({ tab, descriptors, status }: TabMenuInput): TabMenuItemEntry | null {
   const view = tabProviderMenuView(tab, descriptors, status);
   if (!view) return null;
+  const others = view.providers.filter((provider) => provider.id !== view.currentProviderId);
+  const target = others.find((provider) => isProviderSelectable(provider) && provider.available_models.length > 0)
+    ?? others.find(isProviderSelectable) ?? others[0];
   return {
-    kind: "submenu",
+    kind: "item",
     id: "provider",
     testId: "tab-menu-provider",
     label: tabProviderEntryLabel(view),
     icon: "provider",
-    description: TAB_MENU_LABELS.providerHint,
-    entries: view.providers.map((provider): TabMenuItemEntry => ({
-      kind: "item",
-      id: `provider-${provider.id}`,
-      testId: `tab-menu-provider-${provider.id}`,
-      label: provider.display_name,
-      icon: null,
-      disabled: !isProviderSelectable(provider),
-      hint: !isProviderSelectable(provider) ? providerAvailabilityLabel(provider) : undefined,
-      selected: provider.id === view.currentProviderId,
-      action: provider.id === view.currentProviderId || !isProviderSelectable(provider) ? null : { type: "switchProvider", providerId: provider.id },
-    })),
+    title: TAB_MENU_LABELS.providerHint,
+    action: { type: "switchProvider", providerId: target.id },
   };
 }
 
@@ -368,7 +371,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
       action: { type: "makePlanner", planId: activity.planId },
     });
   }
-  const agentSubmenus = [...(isGeneralAgent(tab) ? [modelSubmenu(input)] : []), providerSubmenu(input)];
+  const agentSubmenus = [...(isGeneralAgent(tab) ? [modelSubmenu(input)] : []), providerItem(input)];
   for (const submenu of [...agentSubmenus, recoverySubmenu(input)]) {
     if (submenu) entries.push(submenu);
   }
@@ -378,12 +381,15 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   }
   const plugins = pluginsSubmenu(input);
   if (plugins) entries.push(plugins);
+  if (tab.remote_peer_id) {
+    entries.push({ kind: "item", id: "detach", testId: "tab-menu-detach", label: TAB_MENU_LABELS.detach, icon: "detach", action: { type: "detach" } });
+  }
   if (input.canClose && !tab.protected) {
     entries.push({
       kind: "item",
       id: "close",
       testId: "tab-menu-close",
-      label: tab.agent_type != null ? TAB_MENU_LABELS.closeSession : TAB_MENU_LABELS.closeTab,
+      label: closeLabel(tab),
       icon: "close",
       danger: true,
       action: { type: "close" },
@@ -392,7 +398,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   const lock = input.lock ?? lockedView("agent.tabs", tab);
   if (!lock.locked) return entries;
   return entries.map((entry): TabMenuEntry => {
-    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close") return entry;
+    if (entry.kind === "header" || entry.kind === "separator" || entry.id === "close" || entry.id === "detach") return entry;
     if (entry.kind === "submenu") {
       return { ...entry, disabled: true, title: lock.label, entries: entry.entries.map(child =>
         child.kind === "separator" ? child : { ...child, disabled: true, title: lock.label }) };

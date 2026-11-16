@@ -93,6 +93,7 @@ impl ServiceContext {
             .lock()
             .retain(|_, grant| grant.uid != uid || grant.friendship != friendship);
     }
+    #[cfg(test)]
     pub(super) fn clear_neighbor_restore_grants(&self, uid: &str) {
         self.neighbor_cell()
             .restore_grants
@@ -101,32 +102,51 @@ impl ServiceContext {
     }
 
     pub(super) fn remember_neighbor_restore_grant(&self, tab_id: &str, access: MachineAccess) {
-        let grant = {
-            let mux = self.mux.read();
-            let Some(tab) = mux.get_tab(tab_id) else {
-                return;
-            };
-            let Some(authority) = &tab.neighbor_authority else {
-                return;
-            };
-            if authority.root_tab_id.is_some() {
-                return;
-            }
-            let Some(nonce) = &tab.session_binding_nonce else {
-                return;
-            };
-            RestoreGrant {
-                generation: self.neighbor_history_generation(),
-                uid: authority.uid.clone(),
-                friendship: authority.friendship_id.clone(),
-                nonce: nonce.clone(),
-                access,
-            }
-        };
-        self.neighbor_cell()
-            .restore_grants
-            .lock()
-            .insert(tab_id.into(), grant);
+        if let Some(grant) = self.neighbor_restore_grant(tab_id, access) {
+            self.neighbor_cell()
+                .restore_grants
+                .lock()
+                .insert(tab_id.into(), grant);
+        }
+    }
+
+    fn neighbor_restore_grant(&self, tab_id: &str, access: MachineAccess) -> Option<RestoreGrant> {
+        let mux = self.mux.read();
+        let tab = mux.get_tab(tab_id)?;
+        let authority = tab.neighbor_authority.as_ref()?;
+        if authority.root_tab_id.is_some() {
+            return None;
+        }
+        let nonce = tab.session_binding_nonce.as_ref()?;
+        Some(RestoreGrant {
+            generation: self.neighbor_history_generation(),
+            uid: authority.uid.clone(),
+            friendship: authority.friendship_id.clone(),
+            nonce: nonce.clone(),
+            access,
+        })
+    }
+
+    pub(super) fn refresh_neighbor_restore_grants(
+        &self,
+        uid: &str,
+        settings: &Settings,
+        before_publish: impl FnOnce(),
+    ) {
+        let replacement: Vec<_> = settings
+            .bindings
+            .iter()
+            .filter_map(|(friendship, tab)| {
+                self.tag_neighbor_root(uid, friendship, tab).ok()?;
+                let access = settings.permissions.get(friendship)?.machine_access;
+                self.neighbor_restore_grant(tab, access)
+                    .map(|grant| (tab.clone(), grant))
+            })
+            .collect();
+        before_publish();
+        let mut grants = self.neighbor_cell().restore_grants.lock();
+        grants.retain(|_, grant| grant.uid != uid);
+        grants.extend(replacement);
     }
 
     pub(crate) fn prepare_neighbor_restore_grant(
@@ -154,10 +174,10 @@ impl ServiceContext {
         {
             return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
         }
-        let access = params
-            .neighbor_machine_access
-            .or_else(|| self.neighbor_restore_access(tab_id).ok())
-            .ok_or_else(|| codeterm_neighbors::Error::MachineAccessUnsupported.to_string())?;
+        let access = match params.neighbor_machine_access {
+            Some(access) => access,
+            None => self.neighbor_restore_access(tab_id)?,
+        };
         if (access == MachineAccess::Full) != params.permission_bypass_requested(provider) {
             return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
         }
@@ -189,7 +209,7 @@ impl ServiceContext {
         }) {
             Ok(())
         } else {
-            Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string())
+            Err(codeterm_neighbors::Error::RestoreGrantRequired.to_string())
         }
     }
 
@@ -228,7 +248,7 @@ impl ServiceContext {
                 grant.nonce = new_nonce.into();
                 Ok(())
             }
-            None => Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string()),
+            None => Err(codeterm_neighbors::Error::RestoreGrantRequired.to_string()),
         }
     }
 
@@ -411,3 +431,6 @@ fn bound_launch_matches(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod refresh_tests;

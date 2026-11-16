@@ -22,24 +22,19 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release branch release/X.Y.Z (or vX.Y.Z) to build; with dry_run, any branch'
+        description: 'Label only; a dispatch always builds the head of the dispatching release/X.Y.Z branch'
         required: true
         type: string
       mirror:
-        description: 'Publish to the public mirror'
-        required: false
-        default: true
-        type: boolean
-      dry_run:
-        description: 'Build and sign every platform from the ref without drafts, uploads, tags, or a manifest'
+        description: 'Ignored by dry runs; publication mirrors from the master merge push'
         required: false
         default: false
         type: boolean
-      promote_run_id:
-        description: 'Publish the retained bytes of this green release.yml dry run of the same release/X.Y.Z head instead of building'
+      dry_run:
+        description: 'Required true: build and sign every platform without drafts, uploads, tags, or a manifest'
         required: false
-        default: ''
-        type: string
+        default: true
+        type: boolean
 
 permissions:
   actions: read
@@ -55,8 +50,8 @@ concurrency:
 jobs:
   qualified-source:
     name: admit release head
-    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) }}
+    runs-on: ${{ fromJSON(github.ref == 'refs/heads/master' && '"ubuntu-24.04"' || vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -74,17 +69,22 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
         with:
           script: |-
-            if (context.eventName === 'workflow_dispatch') return;
+            if (context.eventName === 'workflow_dispatch') {
+              // A dispatch only rebuilds the dispatching release head; publication is the master merge push alone.
+              if (process.env.DRY_RUN !== 'true') throw new Error('Publication runs only from the master merge push of the release PR; dispatch with dry_run=true');
+              if (!/^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref)) throw new Error('Dispatch the dry run from release/X.Y.Z');
+              core.setOutput('source_sha', context.sha);
+              return;
+            }
             if (process.env.DRY_RUN === 'true') {
-              const head = context.payload.pull_request?.head;
-              if (!head || !/^release\/\d+\.\d+\.\d+$/.test(head.ref) || process.env.SOURCE_SHA !== head.sha)
-                throw new Error('Foreign release PR head');
-              core.setOutput('source_sha', head.sha);
+              if (context.eventName !== 'push' || !/^refs\/heads\/release\/\d+\.\d+\.\d+$/.test(context.ref) || process.env.SOURCE_SHA !== context.sha)
+                throw new Error('Foreign release push head');
+              core.setOutput('source_sha', context.sha);
               return;
             }
             if (context.ref !== 'refs/heads/master') throw new Error('Publication requires master merge push');
             const prs = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {...context.repo,commit_sha:context.sha,per_page:100});
-            const pr = prs.find(pr => pr.merged_at && pr.merge_commit_sha === context.sha && pr.base.ref === 'master' &&
+            const pr = prs.find(pr => pr.merged_at && pr.merge_commit_sha === context.sha && pr.base.ref === 'master' && pr.user.login === 'rollacode' &&
               pr.head.repo.full_name === context.repo.owner + '/' + context.repo.repo && /^release\/\d+\.\d+\.\d+$/.test(pr.head.ref));
             if (!pr) {core.notice('No merged release PR for this master push');return;}
             const sha = pr.head.sha;
@@ -92,12 +92,14 @@ jobs:
             const tree = async ref => (await github.rest.repos.getCommit({...context.repo, ref})).data.commit.tree.sha;
             if (await tree(context.sha) !== await tree(sha)) throw new Error('Release requires master to carry exactly the qualified head tree');
             const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {...context.repo,
-              workflow_id: 'tests.yml', event: 'pull_request', head_sha: sha, per_page: 100});
+              workflow_id: 'tests.yml', event: 'push', head_sha: sha, per_page: 100});
             const run = runs.filter(run => run.head_sha === sha && run.head_branch === pr.head.ref &&
+              run.event === 'push' && run.path === '.github/workflows/tests.yml' &&
+              run.repository.full_name === context.repo.owner + '/' + context.repo.repo &&
               run.head_repository.full_name === pr.head.repo.full_name &&
               run.actor.login === 'rollacode' && run.triggering_actor.login === 'rollacode' &&
-              run.status === 'completed' && run.conclusion === 'success').sort((a,b) => b.id-a.id)[0];
-            if (!run) throw new Error('No green release PR run for the exact head');
+              Number.isSafeInteger(run.id)).sort((a,b) => b.id-a.id)[0];
+            if (!run || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('No green release push run for the exact head');
             core.setOutput('promote_run_id', String(run.id));
             core.setOutput('branch', pr.head.ref);
             core.setOutput('source_sha', sha);
@@ -105,10 +107,10 @@ jobs:
   prepare:
     name: prepare release
     needs: qualified-source
-    if: ${{ always() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && (github.event_name == 'workflow_dispatch' || (needs.qualified-source.result == 'success' && needs.qualified-source.outputs.source_sha != '')) }}
+    if: ${{ always() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.qualified-source.result == 'success' && needs.qualified-source.outputs.source_sha != '' }}
     environment: release
     # GitHub's runner: ubunta's single runner is often busy with the Rust suite, and every build waits on this job.
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ${{ fromJSON(github.ref == 'refs/heads/master' && '"ubuntu-24.04"' || vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 30
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -144,7 +146,7 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ needs.qualified-source.outputs.source_sha || inputs.source_sha || inputs.tag || github.sha }}
+          ref: ${{ needs.qualified-source.outputs.source_sha }}
           fetch-depth: 1
           # History without blobs: unshallowing a workspace a shallow job left behind took minutes.
           filter: blob:none
@@ -165,15 +167,17 @@ jobs:
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs packaging
 
-      - name: Require green dev qualification for the exact release SHA
+      - name: Require green push qualification for the exact release SHA
         if: ${{ !inputs.dry_run || github.event_name == 'workflow_dispatch' }}
+        env:
+          PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
           script: |-
             const {pathToFileURL} = require('node:url');
             const {requireQualificationWithGithub} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
             const sha = process.env.QUALIFICATION_SHA || require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
-            await requireQualificationWithGithub(github, context, sha);
+            await requireQualificationWithGithub(github, context, sha, {runId: process.env.PROMOTE_RUN_ID || undefined});
 
       - name: Resolve release version
         id: release
@@ -181,7 +185,7 @@ jobs:
           REQUESTED_REF: ${{ inputs.tag || needs.qualified-source.outputs.branch || github.ref_name }}
           MIRROR_INPUT: ${{ inputs.mirror }}
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
-          PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id || inputs.promote_run_id }}
+          PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
           SOURCE_REPO: ${{ github.repository }}
@@ -202,7 +206,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           if [ "$DRY_RUN" = true ]; then
             version=$(node -p "require('./package.json').version")
-            if [ "$EVENT_NAME" = pull_request ] && [ "$REQUESTED_REF" != "release/$version" ]; then
+            if [ "$EVENT_NAME" = push ] && [ "$REQUESTED_REF" != "release/$version" ]; then
               echo "::error::$REQUESTED_REF carries version $version; set the branch version"
               exit 1
             fi
@@ -305,10 +309,10 @@ jobs:
   frontend-dist:
     name: frontend bundle
     needs: prepare
-    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '' }}
+    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '' }}
     environment: release
     # GitHub's runner: ubunta's single runner is often busy with the Rust suite, and every build waits on this job.
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ${{ fromJSON(github.ref == 'refs/heads/master' && '"ubuntu-24.04"' || vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 20
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -471,10 +475,10 @@ jobs:
   promote-evidence:
     name: promote qualified dry-run evidence
     needs: prepare
-    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' }}
+    if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' }}
     environment: release
     # The LAN store makes our Linux runner fastest; CI_RELEASE_EVIDENCE_RUNNER=hosted moves it to the public edge.
-    runs-on: ${{ fromJSON(vars.CI_RELEASE_EVIDENCE_RUNNER || '"ubuntu-24.04"') }}
+    runs-on: ${{ fromJSON(github.ref == 'refs/heads/master' && '"ubuntu-24.04"' || vars.CI_RELEASE_EVIDENCE_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 120
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -530,6 +534,7 @@ jobs:
       tag: ${{ needs.prepare.outputs.tag }}
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       source_sha: ${{ needs.prepare.outputs.source_sha }}
+      promote_run_id: ${{ needs.prepare.outputs.promote_run_id }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
     secrets: inherit
 

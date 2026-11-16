@@ -914,8 +914,10 @@ fn apply_failure_accounting(
             job.consecutive_failures = job.consecutive_failures.saturating_add(1);
             if job.is_plan_control_loop() {
                 if job.enabled {
-                    let next =
-                        now_ms.saturating_add(codeterm_types::plan::curator_delay(None) * 1000);
+                    // Provisional: the plan reconcile re-arms this job from its Team's window.
+                    let next = now_ms.saturating_add(
+                        codeterm_types::plan::CuratorWindow::HOST.delay(None) * 1000,
+                    );
                     job.next_run = Some(next);
                     job.schedule = next.to_string();
                 }

@@ -201,7 +201,7 @@ fn model_catalog_override_applies_reasoning_efforts() {
 
     let id = "model-catalog-effort-override-fixture";
     let manifest_json = format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",
+        r#"{{"id":"{id}","version":"0.1.0","hostIoJobs":true,"displayName":"Fixture",
                 "models":[{{"id":"fixture-model","displayName":"Fixture Model"}}],
                 "reasoningEfforts":[
                     {{"id":"low","displayName":"Low"}},

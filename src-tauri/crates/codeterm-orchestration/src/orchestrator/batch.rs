@@ -13,19 +13,12 @@ pub async fn batch(svc: &ServiceContext, commands: Vec<BatchOp>) -> Vec<serde_js
 
         let result = match cmd.method.as_str() {
             "spawn" => batch_spawn(svc, &params).await,
-            "send" => batch_send(svc, &params).map_err(SpawnTargetRefusal::from),
-            "rename" => batch_rename(svc, &params).map_err(SpawnTargetRefusal::from),
             "close" => batch_close(svc, &params)
                 .await
                 .map_err(SpawnTargetRefusal::from),
-            "role" => batch_role(svc, &params).map_err(SpawnTargetRefusal::from),
-            "notify" => batch_notify(svc, &params).map_err(SpawnTargetRefusal::from),
-            "can-spawn" => batch_can_spawn(svc, &params).map_err(SpawnTargetRefusal::from),
-            "report" => batch_report(svc, &params).map_err(SpawnTargetRefusal::from),
-            other => Err(SpawnTargetRefusal::Other(format!(
-                "Unknown method: {}",
-                other
-            ))),
+            method => batch_sync(svc, method, params)
+                .await
+                .map_err(SpawnTargetRefusal::from),
         };
 
         match result {
@@ -53,11 +46,30 @@ pub async fn batch(svc: &ServiceContext, commands: Vec<BatchOp>) -> Vec<serde_js
     results
 }
 
+async fn batch_sync(
+    svc: &ServiceContext,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let svc = svc.clone();
+    let method = method.to_owned();
+    codeterm_service_core::service::blocking::run(move || match method.as_str() {
+        "send" => batch_send(&svc, &params),
+        "rename" => batch_rename(&svc, &params),
+        "role" => batch_role(&svc, &params),
+        "notify" => batch_notify(&svc, &params),
+        "can-spawn" => batch_can_spawn(&svc, &params),
+        "report" => batch_report(&svc, &params),
+        other => Err(format!("Unknown method: {other}")),
+    })
+    .await
+}
+
 async fn batch_spawn(
     svc: &ServiceContext,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value, SpawnTargetRefusal> {
-    let p = SpawnAgentParams::from_json(params)?;
+    let p = svc.spawn_params_from_json(params)?;
     let provider = p
         .agent
         .clone()

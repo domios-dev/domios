@@ -90,16 +90,17 @@ describe("inline attachment capsules in the user bubble", () => {
     const path = `/tmp/${name}`;
     const host = await render(formatAttachmentMarker(path, kind, `${name} · 2.3 MB`));
     const [button] = capsules(host);
-    expect(button.textContent).toBe(`${name} · 2.3 MB`);
+    expect(button.textContent).toBe(kind === "image" ? name : `${name} · 2.3 MB`);
     expect(button.getAttribute("aria-label")).toContain(name);
+    if (kind === "image") expect(button.getAttribute("aria-label")).toBe(`Open image ${name}`);
     expect(button.title).toBe(path);
   });
 
-  it.each([["image", "image1", "image"], ["video", "video2", "video"], ["quote", "quote3 · a line", "quote · a line"]] as const)("never shows the generated number of a %s capsule", async (kind, label, shown) => {
+  it.each([["image", "image1", "a.bin"], ["video", "video2", "video"], ["quote", "quote3 · a line", "quote · a line"]] as const)("never shows the generated number of a %s capsule", async (kind, label, shown) => {
     const host = await render(formatAttachmentMarker("/tmp/a.bin", kind, label));
     const [button] = capsules(host);
     expect(button.textContent).toBe(shown);
-    expect(button.getAttribute("data-attachment-label")).toBe(label);
+    expect(button.getAttribute("data-attachment-label")).toBe(kind === "image" ? shown : label);
   });
 
   it.each([["image", "Open image", "png"], ["video", "Play video", "mp4"]] as const)("names a generated %s capsule by its file, never by its number", async (kind, verb, ext) => {

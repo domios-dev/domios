@@ -32,7 +32,7 @@ async fn model_discovery_fingerprint_matches_native_observation_on_both_entry_po
         std::fs::set_permissions(binary.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     let mut manifest: super::super::PluginManifest = serde_json::from_value(serde_json::json!({
-        "id": "discovery-fixture", "version": "1.0.0", "displayName": "Fixture",
+        "id": "discovery-fixture", "version": "1.0.0", "hostIoJobs":true,"displayName": "Fixture",
         "cliBinary": binary.path(),
         "spawn": { "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 }, "taskDelivery": "pty_input", "verifySubmit": { "kind": "none" } }
     })).unwrap();

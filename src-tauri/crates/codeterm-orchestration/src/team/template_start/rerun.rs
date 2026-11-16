@@ -1,0 +1,126 @@
+//! Re-running a template start on an existing Team: live managers and registrations already
+//! pinned to the package are reported as present, only missing registrations are added, and
+//! nothing ever spawns a duplicate manager or any Worker.
+
+use std::collections::BTreeMap;
+
+use codeterm_service_core::multiplexer::state::MultiplexerState;
+use codeterm_service_core::service::team_template_start::{
+    admit_bound, vault_unbound, ConsentLedger,
+};
+use codeterm_service_core::service::ServiceContext;
+use codeterm_team_package::contracts::{
+    ManagerStartFailure, TemplateItemState, TemplateStartResult,
+};
+use codeterm_team_package::{ORCHESTRATOR, PLANNER};
+
+use super::seats::started_managers;
+use super::summary::pinned_statuses;
+use super::{
+    apply_payload, deliver_summary, manager_item, refused, register, remember_consent,
+    TemplateRail, TemplateStartLocks,
+};
+use crate::{OrchestrationPairParams, OrchestrationPairResult};
+
+/// The live manager Tab for each started manager name in the Team.
+pub(super) fn live_managers(
+    mux: &MultiplexerState,
+    team_id: &str,
+    names: &[String],
+) -> BTreeMap<String, String> {
+    mux.all_tabs()
+        .filter(|tab| {
+            tab.team_id.as_deref() == Some(team_id)
+                && tab.role == Some(codeterm_types::agent::AgentRole::Manager)
+        })
+        .filter_map(|tab| {
+            let name = tab.role_kind_id()?;
+            names
+                .iter()
+                .any(|wanted| wanted == name)
+                .then(|| (name.to_string(), tab.id.clone()))
+        })
+        .collect()
+}
+
+/// A re-run never replaces a manager: a missing one is returned to the caller with its reason.
+pub(super) fn missing_manager(
+    team_id: &str,
+    names: &[String],
+    live: &BTreeMap<String, String>,
+) -> Option<ManagerStartFailure> {
+    let name = names.iter().find(|name| !live.contains_key(*name))?;
+    Some(ManagerStartFailure {
+        role: name.clone(),
+        reason: format!(
+            "Team {team_id} has no live {name}; a template re-run adds registrations only and never starts a replacement manager"
+        ),
+        choices: Vec::new(),
+    })
+}
+
+pub(crate) async fn rerun(
+    svc: &ServiceContext,
+    params: &OrchestrationPairParams,
+    team_id: &str,
+) -> Result<OrchestrationPairResult, String> {
+    let gate = svc.ext::<TemplateStartLocks>().0.for_team(team_id);
+    let _serialized = gate.lock_owned().await;
+    let request = params.template.as_ref();
+    let unbound = vault_unbound(svc, request).await;
+    let admitted = admit_bound(request, ConsentLedger::global(), &unbound).map_err(refused)?;
+    remember_consent(&admitted).await;
+    let rail = TemplateRail {
+        opt_out: request
+            .map(|request| request.opt_out.clone())
+            .unwrap_or_default(),
+        admitted,
+        seats: BTreeMap::new(),
+    };
+    let names = started_managers(&rail.admitted.resolved);
+    let live = {
+        let mux = svc.mux.read();
+        if mux.get_team(team_id).is_none() {
+            return Err(format!("Team {team_id} does not exist"));
+        }
+        let foreign_caller = params
+            .spawned_by_tab_id
+            .as_deref()
+            .and_then(|caller| mux.get_tab(caller))
+            .and_then(|tab| tab.team_id.as_deref())
+            .is_some_and(|own| own != team_id);
+        if foreign_caller {
+            return Err(format!(
+                "a member of another Team cannot re-run a template on Team {team_id}"
+            ));
+        }
+        live_managers(&mux, team_id, &names)
+    };
+    if let Some(failure) = missing_manager(team_id, &names, &live) {
+        return Err(TemplateStartResult::ManagerFailed { failure }.error_message());
+    }
+    let orchestrator_tab_id = live[ORCHESTRATOR].clone();
+    let planner_tab_id = live.get(PLANNER).cloned();
+    let registrations = register(svc, team_id, &rail).await?;
+    let mut statuses = pinned_statuses(&registrations);
+    statuses.extend(apply_payload(svc, team_id, &rail).await);
+    deliver_summary(svc, team_id, &orchestrator_tab_id, &statuses).await;
+    Ok(OrchestrationPairResult {
+        plan_id: None,
+        orchestrator_tab_id,
+        orchestrator_model: None,
+        planner_tab_id,
+        planner_model: None,
+        warning: None,
+        budget_notice: None,
+        template: Some(TemplateStartResult::Started {
+            team_id: team_id.to_string(),
+            managers: live
+                .keys()
+                .map(|name| manager_item(name, TemplateItemState::AlreadyPresent))
+                .collect(),
+            registrations,
+            warnings: rail.admitted.resolved.warnings.clone(),
+        }),
+    })
+}

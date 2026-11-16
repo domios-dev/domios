@@ -74,6 +74,12 @@ test("the plans link opens the subscription plans card in Account", () => {
   assert(route?.section === "account" && route.card === "subscription-plans", "plans routes to the subscription plans card");
 });
 
+test("the team channels link opens the Team channels card in Agents", () => {
+  assert(isSettingsLinkId("team-channels"), "team channels link rejected");
+  const route = resolveSettingsLink("team-channels");
+  assert(route?.section === "agents" && route.card === "team-channels", "team channels routes to its card");
+});
+
 test("notification_settings_home: the agents description no longer claims notifications", () => {
   const agents = SETTINGS_SECTIONS.find((s) => s.id === "agents");
   assert(agents, "agents entry");

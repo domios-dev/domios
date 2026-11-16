@@ -15,7 +15,7 @@ const EFFORT_FLAG: &str = "--fixture-effort";
 
 fn template_manifest_json(id: &str, launch: &str, resume: &str) -> String {
     format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",
+        r#"{{"id":"{id}","version":"0.1.0","hostIoJobs":true,"displayName":"Fixture",
             "commands":{{
                 "launchArgsFormat":"{launch}",
                 "resumeArgsFormat":"{resume}",

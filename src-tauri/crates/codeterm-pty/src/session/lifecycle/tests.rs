@@ -99,6 +99,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
         task_binding: None,
         roleless_tracked: false,
         managed: None,
+        role_label: None,
         lifecycle_epoch: epoch,
         lifecycle_operation_id: operation.map(str::to_string),
     }

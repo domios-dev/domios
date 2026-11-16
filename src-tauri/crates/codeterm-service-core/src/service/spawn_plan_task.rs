@@ -59,11 +59,11 @@ fn worker_spawn_has_kind(params: &SpawnAgentParams) -> bool {
 /// Task binding governs lifecycle authority; Worker kinds add role guidance.
 pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Result<(), String> {
     if worker_spawn_plan_task_ref(params).is_some() && !is_worker_spawn(params) {
-        return Err("--plan-task is only valid with --role Worker".into());
+        return Err("--plan-task is only valid with --role worker".into());
     }
     if !params.authorized_gates.is_empty() {
         if !is_worker_spawn(params) {
-            return Err("authorized gates are only valid with --role Worker".into());
+            return Err("authorized gates are only valid with --role worker".into());
         }
         if worker_spawn_is_task_bound(params) && params.task_launch_authority.is_none() {
             return Err(concat!(

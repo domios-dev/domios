@@ -89,6 +89,7 @@ pub mod task_routes;
 pub mod team_mission_control_routes;
 pub mod team_routes;
 pub mod team_spend;
+mod team_template_routes;
 pub mod theme_routes;
 pub mod transport_capabilities;
 pub mod transport_orchestration;

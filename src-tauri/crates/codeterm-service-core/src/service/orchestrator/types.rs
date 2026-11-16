@@ -139,7 +139,7 @@ pub struct SpawnAgentParams {
     pub remote_task_binding: Option<RemoteTaskBinding>,
     #[serde(default, skip)]
     pub plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
-    /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
+    /// Named plan task to bind when spawning `--role worker` (`--plan-task`).
     pub plan_task: Option<String>,
     /// Gate tokens a task-less Worker may claim as executed, rendered into its
     /// brief by the same writer the plan-task dispatch path uses.
@@ -211,6 +211,7 @@ pub struct SpawnAgentParams {
     pub tick_interval_secs: Option<u64>,
     pub nudge_cooldown_secs: Option<u64>,
     pub max_actions_per_tick: Option<u32>,
+    /// Highlight the new tab in every client; it never moves a client or the last selection.
     pub activate: Option<bool>,
     /// Audience axis for input-request notifications. `Automation` marks a tab
     /// whose prompts have no human owner (bench/probe tabs) — they never bell.

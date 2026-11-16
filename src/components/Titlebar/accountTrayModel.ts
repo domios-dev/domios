@@ -1,5 +1,5 @@
 import { accountInitials, type AccountModel } from "../Settings/accountModel";
-import type { PlanModel } from "../Settings/accountPlanModel";
+import { unverifiedPlanNotice, type PlanModel } from "../Settings/accountPlanModel";
 
 const MAX_AVATAR_URL_LENGTH = 2048;
 
@@ -15,11 +15,22 @@ export function accountAvatarUrl(value: string | null | undefined): string | nul
   }
 }
 
-export interface PlanBadge { tier: string; name: string; admin: boolean; stale: boolean; verifying?: boolean }
+export interface PlanBadge { tier: string; name: string; admin: boolean; stale: boolean; verifying?: boolean; unverified?: string }
 
 export function planBadge(plan: PlanModel | null): PlanBadge | null {
   if (!plan) return null;
-  return { tier: plan.plan, name: capitalized(plan.plan), admin: plan.authority === "admin", stale: plan.stale, ...(plan.verifying ? { verifying: true } : {}) };
+  const unverified = unverifiedPlanNotice(plan.unverified)?.label;
+  return { tier: plan.plan, name: capitalized(plan.plan), admin: plan.authority === "admin", stale: plan.stale,
+    ...(plan.verifying ? { verifying: true } : {}), ...(unverified ? { unverified } : {}) };
+}
+
+/** While sign-in is required the status is not what limits the plan, so the summary names only the sign-in. */
+function planState(plan: PlanModel): string {
+  const unverified = unverifiedPlanNotice(plan.unverified)?.label;
+  if (plan.verifying) return ` · ${plan.status} · verifying`;
+  if (plan.unverified === "sign_in_required" && unverified) return ` · ${unverified.toLowerCase()}`;
+  if (unverified) return ` · ${plan.status} · ${unverified.toLowerCase()}`;
+  return ` · ${plan.status}${plan.stale ? " · stale" : ""}`;
 }
 
 export function accountTrayModel(account: AccountModel, plan: PlanModel | null) {
@@ -29,7 +40,8 @@ export function accountTrayModel(account: AccountModel, plan: PlanModel | null) 
       initial: accountInitials(identity),
       avatarUrl: accountAvatarUrl(account.identity.photo_url),
       badge: planBadge(plan),
-      plan: plan ? `${plan.authority === "admin" ? "Admin · " : ""}${capitalized(plan.plan)} · ${plan.status}${plan.verifying ? " · verifying" : plan.stale ? " · stale" : ""}` : "Plan unavailable",
+      plan: plan ? `${plan.authority === "admin" ? "Admin · " : ""}${capitalized(plan.plan)}${planState(plan)}` : "Plan unavailable",
+      signInRequired: plan?.unverified === "sign_in_required",
       name: `Account: ${identity}` };
   }
   return { kind: account.kind, name: account.kind === "pending" ? "Signing in or loading account" : "Account",

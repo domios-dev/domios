@@ -1,11 +1,26 @@
 use super::*;
 
+/// Classifies by spelling alone, as git does, so a missing folder is still a folder and never a clone.
 pub(super) fn looks_like_local_path(value: &str) -> bool {
-    value.starts_with("file://")
-        || value.starts_with('.')
-        || value.starts_with('/')
-        || value.contains(":\\")
-        || Path::new(value).exists()
+    if value.starts_with("file://") {
+        return true;
+    }
+    if value.contains("://") {
+        return false;
+    }
+    let bytes = value.as_bytes();
+    let drive = bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && bytes.get(2).is_none_or(|b| matches!(b, b'/' | b'\\'));
+    if drive || value.starts_with(['.', '/', '\\', '~']) {
+        return true;
+    }
+    // scp-like `[user@]host:path` names a remote when its colon comes before any slash.
+    match value.find(':') {
+        Some(colon) => value.find(['/', '\\']).is_some_and(|slash| slash < colon),
+        None => true,
+    }
 }
 
 pub(super) struct ChannelSource {
@@ -157,7 +172,7 @@ fn run_git_with(
     let mut command = resolve()?;
     command.args(args);
     if let Some(cwd) = cwd {
-        command.current_dir(cwd);
+        command.current_dir(codeterm_paths::simplified_path(cwd));
     }
     run_registered_git(command, epoch)
 }
@@ -300,11 +315,13 @@ pub(super) fn compat_reason(min: &str, app: Option<&str>) -> String {
     }
 }
 
-// no daemon); only block when we positively know app < min.
 pub(super) fn compat_check(min: Option<&str>) -> Result<(), String> {
     let Some(min) = min else { return Ok(()) };
     let Some(app) = app_version() else {
-        return Ok(());
+        return Err(format!(
+            "{}; running Domios version is unknown",
+            compat_reason(min, None)
+        ));
     };
     let app_version =
         semver::Version::parse(&app).map_err(|_| format!("invalid Domios version: {app}"))?;

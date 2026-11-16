@@ -96,20 +96,14 @@ impl StepDescriptor {
                         if *media == port.kind
                             && !matches!(media, PortKind::Text | PortKind::Json)
                             && handle.len() == 64
-                            && handle.bytes().all(|b| b.is_ascii_hexdigit()) =>
-                    {
-                        ()
-                    }
+                            && handle.bytes().all(|b| b.is_ascii_hexdigit()) => {}
                     PortValue::MediaSource { id, media }
                         if output
                             && *media == port.kind
                             && !matches!(media, PortKind::Text | PortKind::Json)
                             && !id.is_empty()
                             && id.len() <= 128
-                            && !id.chars().any(char::is_control) =>
-                    {
-                        ()
-                    }
+                            && !id.chars().any(char::is_control) => {}
                     _ => return Err("port type violated".into()),
                 }
             }

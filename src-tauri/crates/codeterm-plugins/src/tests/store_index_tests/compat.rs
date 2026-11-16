@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn unknown_context_version_never_trusts_the_environment() {
+    let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let previous = std::env::var("CODETERM_VERSION").ok();
+    std::env::set_var("CODETERM_VERSION", "99.0.0");
+    {
+        let _context = enter_ctx(PluginCtx {
+            data_root: PathBuf::new(),
+            version: None,
+        });
+        assert_eq!(ctx_version(), None);
+        assert_eq!(
+            compat_check(Some("1.20.0")).unwrap_err(),
+            "requires Domios \u{2265} 1.20.0; running Domios version is unknown"
+        );
+        assert!(compat_check(None).is_ok());
+    }
+    restore_env("CODETERM_VERSION", previous);
+}
+
+#[test]
 fn compat_check_blocks_only_when_app_older_than_min() {
     let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
     let prev = std::env::var("CODETERM_VERSION").ok();
@@ -11,9 +31,12 @@ fn compat_check_blocks_only_when_app_older_than_min() {
     let err = compat_check(Some("2.0.0")).unwrap_err();
     assert!(err.contains("2.0.0") && err.contains("1.3.2"), "got: {err}");
 
-    // Fail-open: unknown running version never blocks.
     std::env::remove_var("CODETERM_VERSION");
-    assert!(compat_check(Some("99.0.0")).is_ok());
+    assert_eq!(
+        compat_check(Some("99.0.0")).unwrap_err(),
+        "requires Domios \u{2265} 99.0.0; running Domios version is unknown"
+    );
+    assert!(compat_check(None).is_ok());
     std::env::set_var("CODETERM_VERSION", "1.0.0-rc.1");
     assert!(compat_check(Some("1.0.0")).is_err());
     assert!(compat_check(Some("1.0.0-beta.9")).is_ok());

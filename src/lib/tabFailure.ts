@@ -44,7 +44,7 @@ const AGENT_ERROR: TabFailure = { kind: "agent_error", label: "Agent error", rec
 /** The one mapping from a failed tab's facts to its name and recovery; the failure code decides, never a reason's wording. */
 export function tabFailure({ status, bootStage, runtime, launched, chatBacked }: TabFailureFacts): TabFailure {
   if (status === "Dead") return ENDED;
-  if (runtime?.state === "degraded" && runtime.failureCode === "session_load_refused") return SESSION_UNAVAILABLE;
+  if (runtime?.state === "degraded" && (runtime.failureCode === "session_load_refused" || runtime.failureCode === "thread_not_found")) return SESSION_UNAVAILABLE;
   if (runtime?.state === "degraded" && runtime.failureCode === "runtime_start_unbound") return START_UNBOUND;
   if (!launched) return chatBacked ? START_UNBOUND : LAUNCH_FAILED;
   // A failed relaunch of a bound session is still that session's runtime failing, not a launch that never happened.

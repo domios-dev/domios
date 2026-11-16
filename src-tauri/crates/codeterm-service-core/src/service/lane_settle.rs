@@ -199,6 +199,7 @@ pub fn settle(
             branch: None,
             force: false,
             canonical_cwd: Some(canonical.into()),
+            ownership: None,
         };
         return match git.remove_cancelled(&request) {
             Ok(()) => Settlement::Record {
@@ -243,6 +244,7 @@ pub fn settle(
                 branch: record.branch.clone(),
                 force: false,
                 canonical_cwd: Some(canonical.to_string()),
+                ownership: None,
             };
             match git.remove(&request) {
                 Ok(()) => Settlement::Removed,
@@ -360,8 +362,12 @@ impl LaneGit for ServiceLaneGit<'_> {
     }
 
     fn remove_cancelled(&mut self, request: &LaneRemovalRequest) -> Result<(), String> {
-        let outcome = crate::service::lane_removal::remove_cancelled_worktree(
+        let request = crate::service::lane_removal::with_recorded_ownership(
+            &self.service.plan_store,
             request,
+        )?;
+        let outcome = crate::service::lane_removal::remove_cancelled_worktree(
+            &request,
             &self.service.live_tab_cwds(),
         )?;
         crate::service::lane_removal::finalize_lane_removal(

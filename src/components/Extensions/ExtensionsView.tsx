@@ -6,7 +6,7 @@ import { BackPill } from "../shared/BackPill";
  * on the right). Catalog merge/filter logic lives in `pluginCatalog.ts` (pure, tested);
  * this owns state + side effects over `plugin_manager_snapshot` / `plugin_manager_action`.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { invoke } from "../../lib/bridge";
 import {
@@ -24,7 +24,9 @@ import type { ChannelRecord } from "./types";
 import type { AppConfig, PluginActivity } from "../../lib/types";
 import type { PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { SELECT_EXTENSION_EVENT, takePendingExtensionSelection } from "../Titlebar/extensionsTrayLogic";
-import { Plus, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import { ChannelAddForm } from "../Channels/ChannelParts";
+import { channelFormError } from "../Channels/channelForm";
 import {
   ensurePluginSnapshot,
   runPluginSnapshotAction,
@@ -162,16 +164,9 @@ export function ExtensionsView({
     async ({ name, url }: { name: string; url: string }): Promise<boolean> => {
       const trimmedName = name.trim();
       const trimmedUrl = url.trim();
-      if (!trimmedName || !trimmedUrl) {
-        setLocalError("Channel name and URL are required.");
-        return false;
-      }
-      if (!/^[A-Za-z0-9._-]+$/.test(trimmedName)) {
-        setLocalError("Channel name can use letters, numbers, dots, underscores, and hyphens.");
-        return false;
-      }
-      if (!looksLikeChannelUrl(trimmedUrl)) {
-        setLocalError("Channel URL must be a URL, local path, or git SSH address.");
+      const invalid = channelFormError({ name, url }, { nameRequired: true });
+      if (invalid) {
+        setLocalError(invalid);
         return false;
       }
       const added = await runAction("add-channel", { kind: "add-channel", url: trimmedUrl, name: trimmedName });
@@ -326,17 +321,6 @@ export function ExtensionsView({
   );
 }
 
-function looksLikeChannelUrl(value: string): boolean {
-  if (/^(git@|ssh:\/\/|https?:\/\/|file:\/\/)/.test(value)) return true;
-  if (/^(\.?\.?\/|~\/|[A-Za-z]:[\\/])/.test(value)) return true;
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol.length > 1;
-  } catch {
-    return false;
-  }
-}
-
 function ChannelDetailPanel({
   channel,
   pluginCount,
@@ -389,7 +373,7 @@ function ChannelDetailPanel({
         </div>
       )}
       <div style={{ marginTop: "auto", borderTop: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))", paddingTop: 14 }}>
-        <AddChannelInline busy={busy} open={addOpen} onOpenChange={onAddOpenChange} onAdd={onAdd} />
+        <ChannelAddForm testIdPrefix="extensions-channel" nameRequired busy={busy !== null} open={addOpen} onOpenChange={onAddOpenChange} onAdd={onAdd} />
       </div>
     </div>
   );
@@ -417,94 +401,6 @@ function Attribute({ label, value, wide = false }: { label: string; value: strin
   );
 }
 
-
-function AddChannelInline({
-  busy,
-  open,
-  onOpenChange,
-  onAdd,
-}: {
-  busy: string | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onAdd: (input: { name: string; url: string }) => Promise<boolean>;
-}) {
-  if (!open) {
-    return (
-      <button type="button" data-testid="extensions-channel-add-open" onClick={() => onOpenChange(true)} style={addButtonStyle}>
-        <Plus size={14} strokeWidth={1.8} />
-        Add channel
-      </button>
-    );
-  }
-  return (
-    <form
-      style={{ display: "flex", flexDirection: "column", gap: 8 }}
-      data-testid="extensions-channel-add-form"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const data = new FormData(form);
-        const ok = await onAdd({
-          name: String(data.get("name") ?? ""),
-          url: String(data.get("url") ?? ""),
-        });
-        if (!ok) return;
-        form.reset();
-      }}
-    >
-      <input data-testid="extensions-channel-name-input" name="name" required placeholder="channel name" style={inputStyle} />
-      <input data-testid="extensions-channel-url-input" name="url" required placeholder="channel URL" style={inputStyle} />
-      <div style={{ display: "flex", gap: 8 }}>
-        <button
-          type="submit"
-          data-testid="extensions-channel-add-submit"
-          disabled={busy !== null}
-          style={{ ...smallButtonStyle, flex: 1 }}
-        >
-          Add
-        </button>
-        <button type="button" data-testid="extensions-channel-add-cancel" onClick={() => onOpenChange(false)} style={{ ...smallButtonStyle, flex: 1 }}>
-          Cancel
-        </button>
-      </div>
-    </form>
-  );
-}
-
-const addButtonStyle: CSSProperties = {
-  width: "100%",
-  minHeight: 34,
-  borderRadius: 7,
-  border: "1px solid var(--ct-border-default, rgba(255,255,255,0.12))",
-  background: "transparent",
-  color: "var(--ct-fg)",
-  cursor: "pointer",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 7,
-  fontSize: 12,
-};
-
-const smallButtonStyle: CSSProperties = {
-  fontSize: 11.5,
-  borderRadius: 6,
-  padding: "6px 10px",
-  border: "1px solid var(--ct-border-default, rgba(255,255,255,0.12))",
-  background: "transparent",
-  color: "var(--ct-fg)",
-  cursor: "pointer",
-};
-
-const inputStyle: CSSProperties = {
-  fontSize: 12,
-  borderRadius: 6,
-  padding: "7px 9px",
-  border: "1px solid var(--ct-border-default, rgba(255,255,255,0.12))",
-  background: "var(--ct-bg-elev, rgba(255,255,255,0.03))",
-  color: "var(--ct-fg)",
-};
 
 function EmptyState({ count }: { count: number }) {
   return (

@@ -1,5 +1,5 @@
 import { listen } from "../../lib/bridge";
-import { localFetch } from "../../lib/webApi";
+import { neighborFetch } from "./neighborFetch";
 
 export type NeighborDeliveryStatus = import("../../../gen/DeliveryStatus").DeliveryStatus;
 export type NeighborListenerState = import("../../../gen/ListenerState").ListenerState;
@@ -64,7 +64,7 @@ export function receipt(value: unknown): NeighborReceipt {
 }
 
 export async function runtimeCall(command: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
-  const response = await localFetch("/api/account/neighbors/runtime", {
+  const response = await neighborFetch("/api/account/neighbors/runtime", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), signal,
   });
   if (!response.ok) {
@@ -99,6 +99,9 @@ export function receiverState(value: unknown): value is ReceiverState {
     && (value.receiver_machine_label === null || typeof value.receiver_machine_label === "string")
     && typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0
     && (value.is_me === undefined || typeof value.is_me === "boolean")
+    && (value.receiver_installation_id === undefined || typeof value.receiver_installation_id === "string")
+    && (value.receiver_instance_id === undefined || typeof value.receiver_instance_id === "string")
+    && (value.receiver_online === undefined || typeof value.receiver_online === "boolean")
     && (value.not_receiving_reason === undefined || value.not_receiving_reason === "membership_expired");
 }
 

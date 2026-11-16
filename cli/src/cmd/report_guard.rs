@@ -18,7 +18,7 @@ pub struct ReportGitMetadata {
 /// Asserted by name, not wording — codeterm#305.
 pub const UNBOUND_WORKER_BINDING_ADVISORY: &str = "UNBOUND WORKER BINDING";
 
-/// Shared by `agent spawn --role Worker` and `agent report`, so the two
+/// Shared by `agent spawn --role worker` and `agent report`, so the two
 /// entry points cannot drift apart — codeterm#305.
 pub fn worker_binding_resolved(has_plan_task: bool, has_plan: bool, has_task: bool) -> bool {
     has_plan_task || (has_plan && has_task)
@@ -267,8 +267,11 @@ fn readiness_validation_options(
     base: crate::cmd::report_attribution::ReportBase,
     acknowledge_dirty: bool,
 ) -> (Option<String>, bool) {
-    if task_scope.is_some_and(|scope| scope.canonical_writer || scope.recorded_checkout) {
+    if task_scope.is_some_and(|scope| scope.canonical_writer) {
         (None, false)
+    } else if let Some(scope) = task_scope.filter(|scope| scope.recorded_checkout) {
+        // A bound checkout's changes are everything since it was bound.
+        (scope.start_sha.clone(), false)
     } else {
         (
             base.resolve(task_scope.and_then(|scope| scope.base.clone())),

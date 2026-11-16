@@ -13,6 +13,7 @@ const cases: Array<[string, TabFailureFacts, ReturnType<typeof tabFailure>["kind
   ["a launched session that degraded", { launched: true, runtime: degraded }, "runtime_needs_recovery", "restart"],
   ["a launched session whose runtime stopped", { launched: true, runtime: { state: "unloaded", epoch: 1, reason: "opaque" } }, "runtime_stopped", "restart"],
   ["a session the agent refused to load", { launched: true, runtime: { ...degraded, failureCode: "session_load_refused" } }, "session_unavailable", "start_new_session"],
+  ["a conversation the harness can no longer find", { launched: true, runtime: { ...degraded, failureCode: "thread_not_found" } }, "session_unavailable", "start_new_session"],
   ["a start the runtime could not bind", { launched: false, runtime: { ...degraded, failureCode: "runtime_start_unbound" } }, "launch_failed", "start_new_session"],
   ["a failed relaunch of a session whose runtime degraded", { bootStage: "spawn_failed", launched: true, runtime: degraded }, "runtime_needs_recovery", "restart"],
   ["a failed relaunch of a session whose runtime stopped", { bootStage: "spawn_failed", launched: true, runtime: { state: "unloaded", epoch: 1, reason: "opaque" } }, "runtime_stopped", "restart"],

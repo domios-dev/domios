@@ -1,7 +1,7 @@
 name: Release publication
 
-# Publishes the retained bytes of a green release.yml dry run; nothing is rebuilt or re-signed.
-# Dispatch from the reviewed release branch; rehearsal changes nothing.
+# Rehearses publication of a green dry run's retained bytes; nothing is rebuilt, re-signed or published.
+# Publication itself is the master merge push of the release PR (release.yml). Dispatch from release/X.Y.Z.
 "on":
   workflow_dispatch:
     inputs:
@@ -14,7 +14,7 @@ name: Release publication
         required: true
         type: string
       rehearsal:
-        description: Check and stage everything without publishing
+        description: Must stay true; this workflow checks and stages without publishing
         type: boolean
         default: true
 
@@ -29,7 +29,7 @@ concurrency:
 jobs:
   publish:
     name: publish ${{ inputs.tag }}
-    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     environment: release
     runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 60
@@ -71,7 +71,10 @@ jobs:
           INPUT_REHEARSAL: ${{ inputs.rehearsal }}
         run: |
           set -euo pipefail
-          run="$INPUT_RUN"; tag="$INPUT_TAG"; mode=$([ "$INPUT_REHEARSAL" = true ] && echo rehearsal || echo publish)
+          [[ "$GITHUB_REF" =~ ^refs/heads/release/[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::dispatch from release/X.Y.Z"; exit 1; }
+          # One publication path: the master merge push of the release PR. This workflow only rehearses.
+          [ "$INPUT_REHEARSAL" = true ] || { echo "::error::publication runs only from the master merge push of the release PR; dispatch with rehearsal=true"; exit 1; }
+          run="$INPUT_RUN"; tag="$INPUT_TAG"; mode=rehearsal
           printf 'run=%s\ntag=%s\nmode=%s\n' "$run" "$tag" "$mode" >> "$GITHUB_OUTPUT"
       - name: Publish the retained bytes
         if: steps.plan.outputs.mode != 'skip'

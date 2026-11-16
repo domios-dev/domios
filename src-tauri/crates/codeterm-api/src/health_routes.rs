@@ -6,6 +6,7 @@ use axum::{
 
 use crate::routes::AppState;
 use codeterm_service_core::ports::socket::REMOTE_TASK_DISPATCH_FEATURE;
+use codeterm_service_core::service::team_template_remote::TEMPLATE_HOSTING_FEATURE;
 
 #[derive(Clone)]
 pub struct NativeDiagnosticsPort(pub std::sync::Arc<dyn Fn() -> Option<u16> + Send + Sync>);
@@ -61,6 +62,7 @@ const IDENTIFY_FEATURES: &[&str] = &[
     "canvas",
     "delayed_recurrence",
     REMOTE_TASK_DISPATCH_FEATURE,
+    TEMPLATE_HOSTING_FEATURE,
 ];
 
 /// Liveness must never wait on the mesh lock, so a contended read reports no name.

@@ -40,6 +40,7 @@ fn team_members() -> (MultiplexerState, String, String, String, String) {
 
 mod process_split_contract;
 mod remote_members;
+mod runtime_shutdown;
 
 #[test]
 fn team_manager_permission_allows_orchestrator_and_planner() {
@@ -1191,6 +1192,7 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
 
 mod close_busy;
 mod close_lifecycle;
+mod foreign_checkout;
 pub(crate) mod sentinel_fixture;
 mod storage_cutover_team_teardown;
 mod team_teardown_off_runtime;

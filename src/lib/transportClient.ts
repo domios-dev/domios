@@ -1,8 +1,10 @@
+import { SseAccumulator, SseCapacityError, parseSseFrame } from "./sseParser";
+export { MAX_SSE_FRAME_BYTES, SseCapacityError, parseSseFrame, type SseMessage } from "./sseParser";
 import { uid } from "./uid";
 import { withRestRequestSignal } from "./restTimeoutPolicy";
 import { createStartupLoading, startingSubsystem } from "./startupLoading";
 import { createStartupMutations, startupMutationKey } from "./startupMutations";
-import { MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
+import { MUX_REQUEST_TIMEOUT, MUX_CAPACITY_WAIT, type MuxRequestInit } from "./streamMuxRequestModel";
 
 export const streamClientId = uid();
 export const browserFetch: NonNullable<TransportOptions["fetch"]> = (input, init) => {
@@ -21,12 +23,6 @@ export interface TransportOptions {
   headers?: HeadersInit;
   onGatewayState?: (available: boolean) => void;
   onStreamError?: (error: unknown) => void;
-}
-
-export interface SseMessage {
-  event: string;
-  data: string;
-  id?: string;
 }
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -77,92 +73,6 @@ export function decodeTransportResponse<T>(status: number, path: string, text: s
     throw new InvalidJsonResponseError(status, path, text, contentType);
   }
   return value as T;
-}
-
-export const MAX_SSE_FRAME_BYTES = 2 * 1024 * 1024;
-const MAX_JSON_DEPTH = 32;
-const MAX_JSON_STRUCTURAL_TOKENS = 256 * 1024;
-
-export class SseCapacityError extends Error {
-  constructor(public bytes: number) { super(`SSE capacity exceeded (${bytes} bytes)`); }
-}
-
-function guardJsonStructure(value: string, bytes: number): void {
-  let depth = 0, tokens = 0;
-  let quoted = false, escaped = false;
-  for (const character of value) {
-    if (quoted) {
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') quoted = false;
-      continue;
-    }
-    if (character === '"') quoted = true;
-    else if ("{}[],:".includes(character)) {
-      tokens++;
-      if (character === "{" || character === "[") depth++;
-      else if (character === "}" || character === "]") depth--;
-      if (depth > MAX_JSON_DEPTH || tokens > MAX_JSON_STRUCTURAL_TOKENS) throw new SseCapacityError(bytes);
-    }
-  }
-}
-
-class SseAccumulator {
-  private buffer = new Uint8Array(4096);
-  private bytes = 0;
-  private tail = 0;
-
-  async push(chunk: Uint8Array, deliver: (frame: string) => void | Promise<void>): Promise<void> {
-    for (const byte of chunk) {
-      if (this.bytes === this.buffer.length) {
-        const grown = new Uint8Array(Math.min(this.buffer.length * 2, MAX_SSE_FRAME_BYTES + 4));
-        grown.set(this.buffer);
-        this.buffer = grown;
-      }
-      this.buffer[this.bytes++] = byte;
-      this.tail = ((this.tail << 8) | byte) >>> 0;
-      const lastThree = this.tail & 0xffffff;
-      const separator = this.tail === 0x0d0a0d0a ? 4
-        : lastThree === 0x0a0d0a || lastThree === 0x0d0a0a ? 3
-        : (this.tail & 0xffff) === 0x0a0a ? 2 : 0;
-      if (separator) {
-        const frame = new TextDecoder().decode(this.buffer.subarray(0, this.bytes - separator));
-        this.bytes = 0;
-        this.tail = 0;
-        await deliver(frame);
-      } else {
-        const suffix = lastThree === 0x0d0a0d ? 3
-          : (this.tail & 0xffff) === 0x0d0a || (this.tail & 0xffff) === 0x0a0d ? 2
-          : byte === 13 || byte === 10 ? 1 : 0;
-        if (this.bytes - suffix > MAX_SSE_FRAME_BYTES) throw new SseCapacityError(this.bytes - suffix);
-      }
-    }
-  }
-
-  finish(): void {
-    if (this.bytes > MAX_SSE_FRAME_BYTES) throw new SseCapacityError(this.bytes);
-  }
-}
-
-export function parseSseFrame(frame: string): SseMessage | null {
-  const bytes = new TextEncoder().encode(frame).length;
-  if (bytes > MAX_SSE_FRAME_BYTES) throw new SseCapacityError(bytes);
-  const data: string[] = [];
-  let event = "message";
-  let id: string | undefined;
-  for (const line of frame.split(/\r?\n/)) {
-    if (line.startsWith(":")) continue;
-    const colon = line.indexOf(":");
-    const field = colon < 0 ? line : line.slice(0, colon);
-    const value = colon < 0 ? "" : line.slice(colon + 1).replace(/^ /, "");
-    if (field === "data") data.push(value);
-    if (field === "event") event = value;
-    if (field === "id" && !value.includes("\0")) id = value;
-  }
-  if (!data.length) return null;
-  const payload = data.join("\n");
-  guardJsonStructure(payload, bytes);
-  return { event, data: payload, ...(id === undefined ? {} : { id }) };
 }
 
 export function createTransportClient(options: TransportOptions): TransportClient {
@@ -282,8 +192,9 @@ export function createTransportClient(options: TransportOptions): TransportClien
         try {
           const streamPath = options.relayPeerId && !init.local
             ? `/api/mesh/relay-stream?${new URLSearchParams({ peer: options.relayPeerId, path })}` : path;
-          const streamRequest = { headers: { Accept: "text/event-stream", "X-CodeTerm-Client-Id": streamClientId }, signal: controller.signal };
-          let response = await localFetch(streamPath, streamRequest);
+          const streamRequest: MuxRequestInit = { headers: { Accept: "text/event-stream", "X-CodeTerm-Client-Id": streamClientId }, signal: controller.signal, [MUX_CAPACITY_WAIT]: init.onStarting };
+          const fetchStream = () => localFetch(streamPath, streamRequest);
+          let response = await fetchStream();
           if (response.status === 503 && path !== "/api/startup/events") {
             const value: unknown = await response.clone().json().catch(() => null);
             const area = startingSubsystem(response, value);
@@ -291,7 +202,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
               init.onStarting?.();
               await response.body?.cancel();
               await (area === "mesh" ? localStartup : startup).wait(area, controller.signal);
-              response = await localFetch(streamPath, streamRequest);
+              response = await fetchStream();
             }
           }
           if (!response.ok) throw new TransportError(response.status, path, await response.text());
@@ -308,8 +219,8 @@ export function createTransportClient(options: TransportOptions): TransportClien
             const chunk = await reader.read();
             if (chunk.done || controller.signal.aborted) break;
             init.onActivity?.();
-            await accumulator.push(chunk.value, async (frame) => {
-              const message = parseSseFrame(frame);
+            await accumulator.push(chunk.value, async (frame, bytes) => {
+              const message = parseSseFrame(frame, bytes);
               if (message && !controller.signal.aborted) {
                 let data: unknown = message.data;
                 try { data = JSON.parse(message.data); } catch {}

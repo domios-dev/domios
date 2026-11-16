@@ -34,6 +34,27 @@ import {remoteProvider, remoteSpawnSelection, type ExecutionLocation} from "../.
 import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
 import {useLaunchProfileSelection} from "./useLaunchProfileSelection";
 import {cloudExecution} from "./cloudExecution";
+import { TeamTemplateSection } from "../TeamTemplates/TeamTemplateSection";
+import { openTeamChannelsSettings } from "../../lib/teamTemplates/teamChannels";
+import { openSecretsSettings } from "../../lib/teamTemplates/vaultSecrets";
+import { PinnedFooter } from "../TeamTemplates/PinnedFooter";
+import { hasPendingTemplatePreview } from "../../lib/teamTemplates/pendingPreview";
+import { useTeamTemplateChoice } from "../TeamTemplates/useTeamTemplateChoice";
+import { blockerView, startErrorView, templateTitle, type PickerSeed, type StartErrorView } from "../../lib/teamTemplates/startModel";
+import { peerOutcomeError } from "../../lib/teamTemplates/peerStartOutcome";
+
+function pairChoice(prev: NewSessionChoice): NewSessionChoice {
+  if (prev.mode === "pair") return prev;
+  return {
+    mode: "pair",
+    orchestratorProviderId: prev.providerId,
+    orchestratorModelId: prev.modelId,
+    orchestratorEffortId: prev.effortId,
+    plannerProviderId: prev.providerId,
+    plannerModelId: prev.modelId,
+    plannerEffortId: prev.effortId,
+  };
+}
 
 export function NewSessionPicker({
   workspaceId,
@@ -65,6 +86,7 @@ export function NewSessionPicker({
   const [execution, setExecution] = useState({providerId: "", location: "local" as ExecutionLocation, environmentId: ""});
   const allowedModes = allowedNewSessionModes(section);
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
+  const [templatePreviewRequested] = useState(hasPendingTemplatePreview);
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const localId = choice.mode === "single" ? choice.providerId : "";
   const selectedProvider = visibleProviders.find(provider => provider.id === localId);
@@ -80,6 +102,7 @@ export function NewSessionPicker({
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
   const [busy, setBusy] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const [startError, setStartError] = useState<StartErrorView | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
   const disabledProviderIds = useMemo(
@@ -91,6 +114,22 @@ export function NewSessionPicker({
     () => state.workspaces.find((w) => w.id === workspaceId),
     [state.workspaces, workspaceId],
   );
+
+  const seedPair = useCallback((seats: Partial<Record<"orchestrator" | "planner", PickerSeed>>) => {
+    setChoice((current) => current.mode !== "pair" ? current : {
+      ...current,
+      ...(seats.orchestrator ? { orchestratorProviderId: seats.orchestrator.providerId, orchestratorModelId: seats.orchestrator.modelId || undefined, orchestratorEffortId: seats.orchestrator.effortId } : {}),
+      ...(seats.planner ? { plannerProviderId: seats.planner.providerId, plannerModelId: seats.planner.modelId || undefined, plannerEffortId: seats.planner.effortId } : {}),
+    });
+  }, []);
+  const templates = useTeamTemplateChoice({
+    enabled: choice.mode === "pair", recallQuery: selectedWorkspace?.name ?? "", onSeedPair: seedPair,
+    openSettings: (link) => {
+      onClose();
+      if (link === "secrets") openSecretsSettings();
+      else openTeamChannelsSettings();
+    },
+  });
 
   const hasRestoredRef = useRef(false);
   const remoteRefreshStartedRef = useRef(false);
@@ -130,10 +169,11 @@ export function NewSessionPicker({
     if (initialLocalId && visibleProviders.some((provider) => provider.id === initialLocalId)) {
       setChoice(initialProviderChoice(visibleProviders.find((candidate) => candidate.id === initialLocalId)!));
     } else {
-      setChoice(choiceForSessionSection(restored, section));
+      const fitted = choiceForSessionSection(restored, section);
+      setChoice(templatePreviewRequested && allowedNewSessionModes(section).includes("pair") ? pairChoice(fitted) : fitted);
     }
     hasRestoredRef.current = true;
-  }, [initialProviderId, visibleProviders, section, menuProviders]);
+  }, [initialProviderId, visibleProviders, section, menuProviders, templatePreviewRequested]);
 
   useEffect(() => {
     if (!hasRestoredRef.current) return;
@@ -268,24 +308,65 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    await finishSpawn(async () => {
-      const result = await createOrchestrationPair({
-        orchestratorAgent: choice.orchestratorProviderId,
-        orchestratorModel: orchestratorProfile.profile ? orchestratorProfile.model || undefined : choice.orchestratorModelId,
-        orchestratorReasoningEffort: orchestratorProfile.profile ? orchestratorProfile.effort || undefined : choice.orchestratorEffortId,
-        orchestratorLaunchProfile: orchestratorProfile.profile || undefined,
-        plannerAgent: choice.plannerProviderId,
-        plannerModel: plannerProfile.profile ? plannerProfile.model || undefined : choice.plannerModelId,
-        plannerReasoningEffort: plannerProfile.profile ? plannerProfile.effort || undefined : choice.plannerEffortId,
-        plannerLaunchProfile: plannerProfile.profile || undefined,
-        workspaceId,
+    const pair = {
+      orchestratorAgent: choice.orchestratorProviderId,
+      orchestratorModel: orchestratorProfile.profile ? orchestratorProfile.model || undefined : choice.orchestratorModelId,
+      orchestratorReasoningEffort: orchestratorProfile.profile ? orchestratorProfile.effort || undefined : choice.orchestratorEffortId,
+      orchestratorLaunchProfile: orchestratorProfile.profile || undefined,
+      plannerAgent: choice.plannerProviderId,
+      plannerModel: plannerProfile.profile ? plannerProfile.model || undefined : choice.plannerModelId,
+      plannerReasoningEffort: plannerProfile.profile ? plannerProfile.effort || undefined : choice.plannerEffortId,
+      plannerLaunchProfile: plannerProfile.profile || undefined,
+      workspaceId,
+    };
+    const template = templates.startRequest();
+    if (!template) {
+      await finishSpawn(async () => {
+        const result = await createOrchestrationPair(pair);
+        return { workspaceId, tabId: result.orchestrator_tab_id };
       });
-      return { workspaceId, tabId: result.orchestrator_tab_id };
-    });
-  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, orchestratorProfile, plannerProfile]);
+      return;
+    }
+    setBusy(true);
+    setStartError(null);
+    try {
+      if (templates.remotePeer) {
+        const accepted = await templates.startOnPeer({
+          template,
+          orchestrator_agent: pair.orchestratorAgent,
+          orchestrator_model: pair.orchestratorModel ?? null,
+          planner_agent: pair.plannerAgent,
+          planner_model: pair.plannerModel ?? null,
+        }, workspaceId);
+        if (accepted.outcome && accepted.outcome.state !== "started") {
+          setStartError(peerOutcomeError(accepted.outcome));
+          return;
+        }
+        if (!accepted.outcome) {
+          createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null, workspaceId,
+            title: `${accepted.peer_name}'s owner decides on this package there`,
+            detail: "Its managers appear here once the team starts on that machine.",
+            severity: "Info" });
+        }
+        onClose();
+        return;
+      }
+      const result = await createOrchestrationPair({ ...pair, template });
+      await selectTabByTab(workspaceId, result.orchestrator_tab_id).catch(() => {});
+      onClose();
+    } catch (error) {
+      if (!isFreeLimitRefusal(error)) setStartError(startErrorView(error));
+    } finally {
+      setBusy(false);
+    }
+  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section, orchestratorProfile, plannerProfile, templates, selectTabByTab, onClose, upsertToast]);
 
   const handleStart = useCallback(() => {
     if (busy || dismissing || selectedWorkspace?.cwd_missing) return;
+    if (choice.mode === "pair" && templates.usesTemplate) {
+      void runPairSpawn();
+      return;
+    }
     setDismissing(true);
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) onClose();
     const start = async () => {
@@ -296,7 +377,7 @@ export function NewSessionPicker({
       }
     };
     void start();
-  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn]);
+  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn, templates.usesTemplate]);
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
     if (!allowedNewSessionModes(section).includes(mode)) return;
@@ -310,15 +391,7 @@ export function NewSessionPicker({
           effortId: prev.mode === "pair" ? prev.orchestratorEffortId : prev.effortId,
         };
       }
-      return {
-        mode: "pair",
-        orchestratorProviderId: prev.mode === "single" ? prev.providerId : prev.orchestratorProviderId,
-        orchestratorModelId: prev.mode === "single" ? prev.modelId : prev.orchestratorModelId,
-        orchestratorEffortId: prev.mode === "single" ? prev.effortId : prev.orchestratorEffortId,
-        plannerProviderId: prev.mode === "pair" ? prev.plannerProviderId : prev.providerId,
-        plannerModelId: prev.mode === "pair" ? prev.plannerModelId : prev.modelId,
-        plannerEffortId: prev.mode === "pair" ? prev.plannerEffortId : prev.effortId,
-      };
+      return pairChoice(prev);
     });
   }, [section, visibleProviders]);
 
@@ -330,7 +403,17 @@ export function NewSessionPicker({
       && choice.plannerProviderId.length > 0
       && !disabledProviderIds.has(choice.orchestratorProviderId)
       && !disabledProviderIds.has(choice.plannerProviderId)
-      && orchestratorProfile.ready && plannerProfile.ready;
+      && orchestratorProfile.ready && plannerProfile.ready
+      && templates.blocker === null;
+  const templateStep = choice.mode === "pair" && templates.view.kind !== "form";
+  const teamForm = choice.mode === "pair" && !templateStep;
+  const chosenTemplate = templates.view.kind === "review" ? templates.view.preview.form.template : templates.chosen?.form.template;
+  const teamDescription = chosenTemplate
+    ? [templateTitle(chosenTemplate), chosenTemplate.workers > 0 ? `${chosenTemplate.workers} ${chosenTemplate.workers === 1 ? "worker" : "workers"}` : null].filter(Boolean).join(" · ")
+    : undefined;
+  const blocker = templates.blocker
+    ? blockerView(templates.blocker, (id) => visibleProviders.find((provider) => provider.id === id)?.display_name ?? id)
+    : null;
 
   return createPortal(
     <div
@@ -348,14 +431,15 @@ export function NewSessionPicker({
         aria-modal="true"
         aria-labelledby="new-session-picker-title"
         tabIndex={-1}
-        className="new-session-picker-card picker-stagger relative my-auto w-full max-w-lg overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none"
+        style={teamForm ? { display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}
+        className={`new-session-picker-card picker-stagger relative my-auto w-full max-w-lg overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none`}
       >
         <span
           aria-hidden
           className="picker-ambient-wash"
           data-mode={choice.mode}
         />
-        <div className="relative mb-4 pr-8">
+        <div className="relative mb-4 shrink-0 pr-8">
           <h2 id="new-session-picker-title" className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</h2>
         </div>
         <button
@@ -370,12 +454,13 @@ export function NewSessionPicker({
         </button>
 
         {selectedWorkspace?.cwd_missing ? <FolderPaneState workspace={selectedWorkspace} /> : <>
-        <div className="relative mb-4" role="group" aria-label="Session mode">
-          <ModeCards mode={choice.mode} allowedModes={allowedModes} onSelect={handleModeSelect} />
+        <div className="relative mb-4 shrink-0" role="group" aria-label="Session mode">
+          <ModeCards mode={choice.mode} allowedModes={allowedModes} onSelect={handleModeSelect} teamDescription={teamDescription} />
         </div>
 
-        <div ref={modeFrameRef} className="picker-mode-frame relative">
-          <div ref={modeContentRef}>
+        <div ref={modeFrameRef} className="picker-mode-frame relative" data-step={templateStep ? "template" : undefined}
+          style={teamForm ? { minHeight: 0, flexShrink: 1, overflowY: "auto", overflowX: "hidden" } : undefined}>
+          <div ref={modeContentRef} className={teamForm ? "pb-4" : undefined}>
             <div key={choice.mode} className="picker-mode-panel">
               {choice.mode === "single" && location === "local" && presets.some((preset) => preset.provider === choice.providerId) && <label>
                 Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
@@ -421,7 +506,30 @@ export function NewSessionPicker({
                 />
                 {singleProfile.details}</>
               ) : (
-                <>
+                <TeamTemplateSection
+                  choice={templates}
+                  providers={visibleProviders}
+                  roleControls={{orchestrator: orchestratorProfile, planner: plannerProfile}}
+                  disabledProviderIds={disabledProviderIds}
+                  pair={{
+                    orchestratorProviderId: choice.orchestratorProviderId,
+                    orchestratorModelId: choice.orchestratorModelId ?? "",
+                    orchestratorEffortId: choice.orchestratorEffortId,
+                    plannerProviderId: choice.plannerProviderId,
+                    plannerModelId: choice.plannerModelId ?? "",
+                    plannerEffortId: choice.plannerEffortId,
+                  }}
+                  onPairChange={(values) => setChoice({
+                    mode: "pair",
+                    orchestratorProviderId: values.orchestratorProviderId,
+                    orchestratorModelId: values.orchestratorModelId || undefined,
+                    orchestratorEffortId: values.orchestratorEffortId,
+                    plannerProviderId: values.plannerProviderId,
+                    plannerModelId: values.plannerModelId || undefined,
+                    plannerEffortId: values.plannerEffortId,
+                  })}
+                  onInstallProvider={handleInstallProvider}
+                  defaultForm={(laterManagers) => <>
                   <p data-testid="picker-team-hint" className="mb-2.5 text-[12px] leading-snug text-[var(--ct-muted-fg)]">
                     Tell the Orchestrator what you need. It plans and brings in the agents.
                   </p>
@@ -447,6 +555,8 @@ export function NewSessionPicker({
                       plannerEffortId: values.plannerEffortId,
                     })}
                     layout="team"
+                    compact
+                    extraMembers={laterManagers}
                     pairAffordanceTestId="pair-affordance"
                     roleTestIds={{
                       orchestratorProvider: "picker-provider-orchestrator",
@@ -458,25 +568,39 @@ export function NewSessionPicker({
                     }}
                     onInstallProvider={handleInstallProvider}
                   />
-                </>
+                </>}
+                />
               )}
             </div>
           </div>
         </div>
 
 
-        <div className="relative mt-4 flex justify-end">
-          <Button
-            variant="primary"
-            className="text-xs"
-            data-testid="picker-confirm"
-            disabled={!canStart}
-            loading={busy}
-            onClick={handleStart}
-          >
-            {choice.mode === "pair" ? "Start team" : "Start session"}
-          </Button>
-        </div>
+        {!templateStep && (choice.mode === "pair" ? (
+          <PinnedFooter data-testid="picker-footer"
+            style={{ position: "relative", bottom: "auto", flexShrink: 0 }}
+            className="flex flex-col gap-2 border-t border-[var(--ct-border)] bg-[var(--ct-surface)] sm:flex-row sm:items-center sm:gap-3">
+            {startError ? (
+              <div role="alert" data-testid="picker-start-error" className="min-w-0 flex-1 text-[12px] text-[var(--ct-red)]">
+                <div>{startError.message}</div>
+                {startError.reasons.map((reason) => <div key={reason} className="text-[var(--ct-muted-fg)]">{reason}</div>)}
+                {startError.choices.length > 0 && <div className="text-[var(--ct-muted-fg)]">{startError.choices.join(" · ")}</div>}
+              </div>
+            ) : blocker ? (
+              <span data-testid="picker-start-blocker" data-tone={templates.touched ? blocker.tone : "neutral"}
+                className={`min-w-0 flex-1 text-[12px] ${!templates.touched ? "text-[var(--ct-muted-fg)]" : blocker.tone === "red" ? "text-[var(--ct-red)]" : "text-[var(--ct-yellow,#d97706)]"}`}>{blocker.text}</span>
+            ) : <span aria-hidden="true" className="hidden flex-1 sm:block" />}
+            <Button variant="primary" className="w-full text-xs sm:w-auto" data-testid="picker-confirm" disabled={!canStart} loading={busy} onClick={handleStart}>
+              Start team
+            </Button>
+          </PinnedFooter>
+        ) : (
+          <div data-testid="picker-footer" className="relative mt-4 flex flex-wrap items-center justify-end gap-3">
+            <Button variant="primary" className="text-xs" data-testid="picker-confirm" disabled={!canStart} loading={busy} onClick={handleStart}>
+              Start session
+            </Button>
+          </div>
+        ))}
         </>}
       </div>
 

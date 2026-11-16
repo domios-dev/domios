@@ -138,6 +138,7 @@ export function projectAttachedRemoteTab(
     id: ordinaryId,
     workspace_id: workspaceId,
     pty_id: source.pty_id ? ordinaryId : null,
+    remote_pty_id: source.pty_id ?? null,
     remote_peer_id: peer.peer_id,
     remote_peer_name: peer.peer_name,
     remote_tab_id: source.id,

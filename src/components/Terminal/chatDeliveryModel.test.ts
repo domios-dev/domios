@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, waitsAfterTurn, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canDeleteChatSend, canEditChatSend, canRetryChatSend, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const send = (): DeliverySend => ({ id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 1000 });
 const status = (state: ChatSendStatus["state"], sequence: number): ChatSendStatus => ({
@@ -44,18 +45,23 @@ test("failed and uncertain formerly held sends return to send-time placement acr
   }
 });
 
-test("tail placement shares one rule for queued and formerly held active sends", () => {
-  for (const state of ["held", "written", "submit_unconfirmed", "failed", "delivered"] as const) {
-    for (const wasHeld of [false, true]) {
-      const current = { ...applyDeliveryStatus(send(), status(state, 1)), wasHeld };
-      const expected = state === "held" || (wasHeld && state === "written");
-      assert.equal(waitsAfterTurn(current), expected);
-      assert.equal(deliveryProjectionSends([current])[0].held, expected);
+test("own send ordering stays at send time through admission and every delivery state", () => {
+  const at = 1_800_000_000_000;
+  const transcript = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
+    rows: [
+      { id: "earlier", type: "assistant", content: "before", timestamp: String(at - 1000) },
+      { id: "later", type: "assistant", content: "after", timestamp: String(at + 1000) },
+    ],
+  }).state;
+  let current: DeliverySend = { ...send(), sentAtMs: at };
+  for (const [index, state] of ([undefined, "held", "written", "submit_unconfirmed", "delivered"] as const).entries()) {
+    if (state) current = applyDeliveryStatus(current, status(state, index));
+    for (const value of [current, JSON.parse(JSON.stringify(current)) as DeliverySend]) {
+      assert.deepEqual(projectTranscript(transcript, deliveryProjectionSends([value])).rows.map(row => row.id),
+        ["earlier", "bubble", "later"]);
     }
   }
-  const admitting = { ...send(), wasHeld: true };
-  assert.equal(waitsAfterTurn(admitting), true);
-  assert.equal(deliveryProjectionSends([admitting])[0].held, true);
 });
 
 test("sending becomes delivered without changing the bubble", () => {
@@ -216,7 +222,7 @@ test("two failed sends remain visible across reload alongside a similar new sess
   }
 });
 
-test("written sends flow above later rows while held and failed sends retain their state", () => {
+test("all sends flow above later rows while retaining their delivery state", () => {
   const at = 1_800_000_000_000;
   const transcript = reduceTranscript(createTranscriptState(), {
     kind: "snapshot", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
@@ -229,28 +235,29 @@ test("written sends flow above later rows while held and failed sends retain the
     const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(state, 2));
     const projected = projectTranscript(transcript, deliveryProjectionSends([current]));
     assert.deepEqual(projected.rows.map((row) => row.id),
-      state === "held" ? ["old", "new", "bubble"] : ["old", "bubble", "new"]);
+      ["old", "bubble", "new"]);
     assert.equal(projected.pending.length, 1);
     assert.equal(deliveryState(current), state === "written" ? "sending" : state === "submit_unconfirmed" ? "uncertain"
       : state === "held" ? "queued" : state);
   }
 });
 
-test("a held send stays one bubble after the running turn until its exact echo replaces it", () => {
+test("a held send stays one bubble at send time until its exact echo replaces it", () => {
   const at = 1_800_000_000_000;
   const authority = { sourceSessionId: "own", sessionBindingNonce: "launch" };
   const running = reduceTranscript(createTranscriptState(), {
     kind: "snapshot", authority, range: null,
     rows: [
       { id: "turn", type: "user", content: "earlier ask", timestamp: String(at - 1000) },
-      { id: "work", type: "assistant", content: "still working", timestamp: String(at + 1000) },
+      { id: "work", type: "assistant", content: "still working", timestamp: String(at - 500) },
     ],
   }).state;
   const held = applyDeliveryStatus({ ...send(), sentAtMs: at }, { ...status("held", 1), pending_reason: "held_active_turn" });
   assert.equal(queuedBehindTurn(held, "idle"), true);
   assert.deepEqual(projectTranscript(running, deliveryProjectionSends([held])).rows.map((row) => row.id), ["turn", "work", "bubble"]);
   const written = applyDeliveryStatus(held, status("written", 2));
-  assert.equal(queuedBehindTurn(written, "working"), false);
+  assert.equal(queuedBehindTurn(written, "working"), true);
+  assert.equal(queuedBehindTurn(written, "idle"), false);
   assert.deepEqual(projectTranscript(running, deliveryProjectionSends([written])).rows.map((row) => row.id), ["turn", "work", "bubble"]);
   const echoed = reduceTranscript(running, {
     kind: "delta", authority, range: null,
@@ -320,21 +327,31 @@ test("a held status with no local send counts as queued elsewhere; settled and o
   assert.equal(unownedHeldSends([], [{ ...other, correlationId: undefined }]), 0);
 });
 
-test("written and unconfirmed receipts keep their meaning across agent activity", () => {
-  for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
-    const current = applyDeliveryStatus(send(), status(ledgerState, 2));
-    const before = JSON.stringify(current);
-    const expected = ledgerState === "written" ? "written" : "uncertain";
-    assert.equal(deliveryPresentation(current, "working"), expected);
-    for (const activity of ["starting", "waiting-on-user", "failed"] as const) {
-      assert.equal(deliveryPresentation(current, activity), expected);
-    }
-    assert.equal(deliveryPresentation(current, "idle"), expected);
-    assert.equal(JSON.stringify(current), before);
-    const delivered = applyDeliveryStatus(current, status("delivered", 3));
-    assert.equal(deliveryPresentation(delivered, "working"), "delivered");
-    assert.equal(deliveryPresentation(delivered, "idle"), "delivered");
+test("written input waits for the running turn and becomes uncertain only once that turn ends without evidence", () => {
+  const written = applyDeliveryStatus(send(), status("written", 2));
+  const unconfirmed = applyDeliveryStatus(written, status("submit_unconfirmed", 3));
+  const before = JSON.stringify(unconfirmed);
+  for (const [label, current] of [["written", written], ["submit_unconfirmed", unconfirmed]] as const) {
+    assert.equal(deliveryPresentation(current, "working"), "queued", label);
+    assert.equal(queuedBehindTurn(current, "working"), true, label);
   }
+  assert.equal(deliveryPresentation(written, "idle"), "written");
+  for (const activity of ["idle", "starting", "waiting-on-user", "failed"] as const) {
+    assert.equal(deliveryPresentation(unconfirmed, activity), "uncertain", activity);
+    assert.equal(queuedBehindTurn(unconfirmed, activity), false, activity);
+  }
+  assert.equal(JSON.stringify(unconfirmed), before, "presentation never rewrites the receipt");
+  const delivered = applyDeliveryStatus(unconfirmed, status("delivered", 4));
+  for (const activity of ["working", "idle"] as const) {
+    assert.equal(deliveryPresentation(delivered, activity), "delivered");
+    assert.equal(queuedBehindTurn(delivered, activity), false);
+  }
+});
+
+test("a written prompt the agent refused while busy stays uncertain during the turn", () => {
+  const refused = applyDeliveryStatus(send(), { ...status("submit_unconfirmed", 2), error: "agent_refused_while_busy: opaque" });
+  assert.equal(deliveryPresentation(refused, "working"), "uncertain");
+  assert.equal(queuedBehindTurn(refused, "working"), false);
 });
 
 test("activity never changes held or proven terminal outcomes", () => {
@@ -423,4 +440,25 @@ test("matched row identity and attachments survive reload and keep delivered sta
   assert.equal(sendForRow([restored], {
     id: "same-text-decoy", type: "user", content: "opaque", timestamp: "1000", sourceSessionId: "own-session",
   }), undefined);
+});
+
+test("a merged record hides only the dismissed send's segment and keeps the kept send's identity", () => {
+  const record = { kind: "jsonl" as const, incarnation: "file", record_start: 40, record_row: 0 };
+  const claim = (ordinal: number) => ({ source: { source_session_id: "own", record }, ordinal });
+  const first: DeliverySend = { id: "first", correlationId: "first", content: "opaque-a", sentAtMs: 1000, dismissed: true, matchedRow: claim(1) };
+  const second: DeliverySend = { id: "second", correlationId: "second", content: "opaque-b", sentAtMs: 2000, matchedRow: claim(2) };
+  const merged: NormalizedChatMessage = { id: "merged", type: "user", sourceSessionId: "own", sourceRecord: record, correlationId: "first",
+    content: "opaque-a\nopaque-b", segments: [{ type: "text", text: "opaque-a", correlationId: "first" }, { type: "text", text: "\n" },
+      { type: "text", text: "opaque-b", correlationId: "second" }] };
+  const [kept] = visibleDeliveryRows([merged], [first, second]);
+  assert.equal(kept.content, "opaque-b");
+  assert.deepEqual(kept.segments?.flatMap(segment => segment.correlationId ? [segment.correlationId] : []), ["second"]);
+  assert.equal(visibleDeliveryRows([merged], [first, second])[0], kept, "a stripped row keeps its identity across renders");
+  assert.equal(sendForRow([first, second], merged)?.id, "second");
+  assert.equal(visibleDeliveryRows([merged], [{ ...first, dismissed: false }, { ...second, dismissed: true }])[0].content, "opaque-a");
+  assert.deepEqual(visibleDeliveryRows([merged], [first, { ...second, dismissed: true }]), []);
+  const unsplit = { ...merged, segments: undefined };
+  assert.deepEqual(visibleDeliveryRows([unsplit], [first, second]), [unsplit], "unsplittable text stays whole rather than losing the kept send");
+  const local = { id: "first", type: "user" as const, content: "opaque-a", sourceSessionId: "own", sourceRecord: record };
+  assert.deepEqual(visibleDeliveryRows([local], [first, second]), [], "a dismissed local bubble belongs to its send alone");
 });

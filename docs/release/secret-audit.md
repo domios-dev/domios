@@ -19,14 +19,29 @@ integration report after verification.
 | `5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-claude/plugin.js:generic-api-key:667` | Protocol field comparisons, not a credential | Ignore this exact historical fingerprint. |
 | `5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-codex/plugin.js:generic-api-key:1178` | Protocol field comparisons, not a credential | Ignore this exact historical fingerprint. |
 | `096608ee249126d0e1271b3910d43bbb2cc704d8:plugins/provider-codex/plugin.js:generic-api-key:2268` | Same comparison after bundle regeneration | Ignore this exact historical fingerprint. |
-| `plugins/provider-claude/plugin.js:generic-api-key:1010` | Same comparison in a directory scan | Ignore this exact file/line fingerprint. |
-| `plugins/provider-codex/plugin.js:generic-api-key:2268` | Same comparison in a directory scan | Ignore this exact file/line fingerprint. |
+| `plugins/provider-claude/plugin.js:generic-api-key:1072` | Same comparison in a directory scan | Ignore this exact file/line fingerprint. |
+| `plugins/provider-codex/plugin.js:generic-api-key:2299` | Same comparison in a directory scan | Ignore this exact file/line fingerprint. |
 
 Directory-scan fingerprints follow the current bundle lines; the superseded
-lines 667 and 1178 no longer exist in the tree.
+lines 667 and 1178 no longer exist in the tree. The current-tree entries
+were refreshed from 1010/2268 to 1072/2299 after bundle regeneration; the
+comparison and its triage are unchanged, and the stale entries were replaced.
 
 Both generated lines compare `stop_reason` with `max_tokens` and `finish_reason`
 with `length` inside `outputLimit`. Neither contains a credential or performs
 authentication. The scanner reports these comparisons as `generic-api-key`
 findings. Source, history, scanner rules and all other findings remain subject
 to the same checks.
+
+## Team export redaction canaries
+
+| Fingerprint | Verdict | Action |
+| --- | --- | --- |
+| `72a3b38e2aed8b29ed0a11be3eb725845fc9d59d:src-tauri/crates/codeterm-service-core/src/service/team_exchange/tests.rs:generic-api-key:173` | Verified synthetic AWS-shaped redaction canary; used only as scrubber input. | Exact historical fingerprint ignored; current fixture uses an obvious canary and retains the secret-name placeholder assertion. |
+| `72a3b38e2aed8b29ed0a11be3eb725845fc9d59d:src-tauri/crates/codeterm-util/src/redact/tests.rs:generic-api-key:6` | Verified synthetic AWS-shaped redaction canary; used only as redactor input. | Exact historical fingerprint ignored; current fixture uses an obvious canary and retains exact redacted-output equality. |
+| `50774f400542ce4be9c31abee1d9f1f9aa6ef934:src-tauri/crates/codeterm-service-core/src/service/team_exchange/tests.rs:generic-api-key:153` | Verified synthetic sk-live-prefixed redaction canary; used only as scrubber input. | Exact historical fingerprint ignored; current fixture uses an obvious test value and retains placeholder, removal, count and idempotence assertions. |
+
+These test values never authenticate requests. Their historical commits remain
+in Git and CI scans the PR commit range as well as the current tree. The
+existing commit-pinned fingerprint mechanism covers only these three historical
+occurrences; no current-tree, path-wide or rule-wide exception was added.

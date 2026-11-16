@@ -51,7 +51,16 @@ where
     handle().spawn_blocking(task)
 }
 
+#[track_caller]
 pub fn block_on<F: Future>(task: F) -> F::Output {
+    #[cfg(debug_assertions)]
+    if crate::paths::is_dev_instance() {
+        log::debug!(
+            "[runtime-blocking] caller={} runtime_context={}",
+            std::panic::Location::caller(),
+            Handle::try_current().is_ok()
+        );
+    }
     handle().block_on(task)
 }
 

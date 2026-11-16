@@ -116,14 +116,14 @@ Both peers enforce Full access and owner rules. No token, provider credential, s
 Exploratory work without a plan uses task-less spawn; it creates no origin attempt. Spawn from the machine owning the plan so reports return there:
 
 ```bash
-domios agent spawn claude --mesh PEER --role Worker --cwd <peer-workspace-path> --task-file <local-brief-path>
+domios agent spawn claude --mesh PEER --role worker --cwd <peer-workspace-path> --task-file <local-brief-path>
 ```
 
 Use `--task-file` for authored briefs. Multiline or over-240-character `--task` values are refused to prevent shell expansion or truncation. `--task-file -` accepts a single-quoted heredoc. The origin reads the file and sends its contents, never its local path.
 
 `--cwd` must name an absolute, existing peer workspace directory. From Git Bash, set `MSYS_NO_PATHCONV=1` for POSIX paths such as `/srv/project`.
 
-Keep `--role Worker`: it selects Worker doctrine and exactly one `domios agent report` per turn. Roleless spawn loses that reporting doctrine. Task-less Workers may edit peer source, but own no task or execution intent; `--execution-intent mutating` is refused without a task binding. They do not participate in plan-bound attempt, report or merge accounting.
+Keep `--role worker`: it selects Worker doctrine and exactly one `domios agent report` per turn. Roleless spawn loses that reporting doctrine. Task-less Workers may edit peer source, but own no task or execution intent; `--execution-intent mutating` is refused without a task binding. They do not participate in plan-bound attempt, report or merge accounting.
 
 ## Peer API compatibility
 

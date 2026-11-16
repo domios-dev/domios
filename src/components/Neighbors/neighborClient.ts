@@ -1,4 +1,4 @@
-import { localFetch } from "../../lib/webApi";
+import { neighborFetch } from "./neighborFetch";
 import { recordProductEvent } from "../../lib/productAnalytics";
 import { parseNeighbors, type NeighborCommand, type NeighborList } from "./neighborModel";
 
@@ -8,7 +8,7 @@ export interface NeighborClient {
 }
 
 async function call(command: NeighborCommand | { operation: "refresh" }, signal?: AbortSignal): Promise<unknown> {
-  const response = await localFetch("/api/account/neighbors", {
+  const response = await neighborFetch("/api/account/neighbors", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(command), signal,

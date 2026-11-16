@@ -71,7 +71,7 @@ impl AgentProvider for NativeStub {
 fn js_only(id: &str) -> JsProvider {
     let plugin_js = "module.exports.default = {};".to_string();
     let manifest_json = format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"X",
+        r#"{{"id":"{id}","version":"0.1.0","hostIoJobs":true,"displayName":"X",
                 "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                          "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
     );

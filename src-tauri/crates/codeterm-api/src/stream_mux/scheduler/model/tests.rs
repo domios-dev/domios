@@ -7,6 +7,41 @@ fn frame(text: &str, kind: Kind) -> Frame {
         credit: 0,
     }
 }
+
+#[test]
+fn output_reserve_survives_a_full_uncredited_bulk_backlog() {
+    let mut model = Model::default();
+    model.register("credit".into(), Traffic::Bulk, false);
+    credited(&mut model, "credit", "sent", BULK_WINDOW);
+    assert_eq!(model.pop().unwrap(), "sent");
+    for n in 0..16 {
+        let id = format!("bulk-{n}");
+        model.register(id.clone(), Traffic::Bulk, false);
+        for _ in 0..CHANNEL_DEPTH {
+            let _ = model.push(
+                &id,
+                Frame {
+                    bytes: Bytes::from(vec![0; FRAME_CAP]),
+                    kind: Kind::Data,
+                    credit: FRAME_CAP as u64,
+                },
+            );
+        }
+    }
+    assert_eq!(
+        model.buffered,
+        BYTE_BUDGET - INTERACTIVE_RESERVE - OUTPUT_RESERVE
+    );
+    assert!(model.pop().is_none());
+    model.register("output".into(), Traffic::Output, true);
+    put(&mut model, "output", "terminal", Kind::Data);
+    model.register("foreground".into(), Traffic::Interactive, false);
+    put(&mut model, "foreground", "stop", Kind::Data);
+    assert!(model.buffered <= BYTE_BUDGET);
+    assert_eq!(model.pop().unwrap(), "stop");
+    assert_eq!(model.pop().unwrap(), "terminal");
+    assert!(model.pop().is_none());
+}
 /// A credited bulk data frame costing `credit` payload bytes.
 fn credited(model: &mut Model, id: &str, text: &str, credit: u64) {
     let frame = Frame {

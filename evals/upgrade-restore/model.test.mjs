@@ -5,6 +5,7 @@ import {worstCases} from './fixtures.mjs';
 import {leaves, validateCapture, requireBackings, verdict, failureReason, measurements, requireRestart, historyMatches,
   synthesizeHistory} from './model.mjs';
 import {peer} from './fake-peer.mjs';
+import {unavailableVerdict} from './unavailable.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const fixture = () => worstCases(root, '/isolated-fixture-project');
@@ -72,6 +73,30 @@ test('capture keeps unavailable transcripts explicit and replay refuses missing 
   document.measurements = measurements(document.snapshot, document.histories);
   assert.equal(validateCapture(document).length, 6);
   assert.throws(() => requireBackings(document), /transcript unavailable \(backing=chat_backend, provider=fixture-provider\)/);
+});
+
+test('captured unavailable state has a separate passive oracle and rejects activation or identity drift', () => {
+  const document = fixture();
+  const tab = leaves(document)[1];
+  const state = {state: 'degraded', epoch: 3, reason: 'opaque refusal'};
+  tab.agent_identity.agent_runtime_state = state;
+  document.histories[1].transcript = {status: 'unavailable', backing_kind: 'chat_backend', provider: 'codex'};
+  document.measurements = measurements(document.snapshot, document.histories);
+  assert.equal(requireBackings(document).length, 6);
+  const actual = {...tab, agent_session_id: tab.agent_session_id,
+    backing: {kind: 'pty'},
+    session_binding_nonce: tab.agent_identity.session_binding_nonce,
+    agent_runtime_state: structuredClone(state), frozen: true, pty_id: null};
+  assert.deepEqual(unavailableVerdict(document, tab, actual, []), {
+    tab_id: tab.tab_id, bucket: 'preserved-unavailable', preserved: true,
+    reason: 'captured unavailable state and identity preserved without activation'});
+  assert.equal(verdict(tab, actual).ready, false);
+  for (const changed of [{...actual, agent_session_id: 'other'}, {...actual, frozen: false},
+    {...actual, agent_runtime_state: {...state, epoch: 4}}, {...actual, pty_id: 'unauthorized'},
+    {...actual, session_binding_nonce: 'new-launch'}, {...actual, backing: {kind: 'surface'}}]) {
+    assert.equal(unavailableVerdict(document, tab, changed, []).preserved, false);
+  }
+  assert.equal(unavailableVerdict(document, tab, actual, [{thread_id: tab.agent_session_id}]).preserved, false);
 });
 
 test('capture refuses missing plan backing for a legacy plan/task-only Worker', () => {

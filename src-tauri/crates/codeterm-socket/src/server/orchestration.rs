@@ -29,28 +29,12 @@ pub(super) fn dispatch(
                     message: format!("invalid params: {e}"),
                     data: None,
                 })?;
-            codeterm_service_core::service::spawn::validate_agent_model(
-                &svc.agent_registry,
-                &req.orchestrator_agent,
-                req.orchestrator_model.as_deref(),
-            )
-            .map_err(super::model_errors::invalid_model_rpc_error)?;
-            codeterm_service_core::service::spawn::validate_agent_model(
-                &svc.agent_registry,
-                &req.planner_agent,
-                req.planner_model.as_deref(),
-            )
-            .map_err(super::model_errors::invalid_model_rpc_error)?;
-
+            // Manager models are decided inside the pair primitive by the shared decision service.
             let svc_ref = &**svc;
             let result = codeterm_service_core::async_runtime::block_on(
                 svc_ref.create_orchestration_pair(req),
             )
-            .map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e,
-                data: None,
-            })?;
+            .map_err(super::team_template_start::template_result_error)?;
 
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,

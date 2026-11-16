@@ -1,7 +1,7 @@
 use super::tests::{test_caps, TestRegistrar};
 use super::*;
 
-struct FixtureLifecycle(Arc<HotReloadRegistry>);
+struct FixtureLifecycle(Arc<HotReloadRegistry>, super::fs_events::HoldsPath);
 
 impl codeterm_plugins::InstallLifecycle for FixtureLifecycle {
     fn install(
@@ -10,18 +10,21 @@ impl codeterm_plugins::InstallLifecycle for FixtureLifecycle {
         destination: &std::path::Path,
         operation: &mut codeterm_plugins::InstallOperation<'_>,
     ) -> Result<(), String> {
-        self.0.install(id, destination, |reload| operation(reload))
+        self.0.install(id, destination, |reload| {
+            assert!(!(self.1)(&destination.canonicalize().unwrap()));
+            operation(reload)
+        })
     }
 }
 
 fn write_install_bundle(directory: &std::path::Path, id: &str, version: &str, marker: &str) {
     std::fs::create_dir_all(directory).unwrap();
     std::fs::write(directory.join("plugin.json"), serde_json::json!({
-        "id": id, "version": version, "displayName": "Fixture", "entry": "plugin.js",
+        "id": id, "version": version, "hostIoJobs":true,"displayName": "Fixture", "entry": "plugin.js",
         "capabilities": {"agentProvider": true}, "hostApi": super::super::host_api::HOST_API_VERSION,
     }).to_string()).unwrap();
     std::fs::write(directory.join("plugin.js"), format!(
-        "module.exports.default = {{ marker() {{ return '{marker}'; }}, hold(db) {{ return host.fs.sqliteQuery(db, 'SELECT value FROM items', []); }} }};"
+        "module.exports.default = {{ marker() {{ return '{marker}'; }}, hold(db) {{ return host.io.run(host.io.fs.sqliteQuery(db, 'SELECT value FROM items', [])); }} }};"
     )).unwrap();
 }
 
@@ -32,6 +35,8 @@ fn live_vm_releases_windows_bundle_handles_and_rolls_back_failed_registration() 
     let id = "live-install-fixture";
     let directory = plugins.join(id);
     write_install_bundle(&directory, id, "1.0.0", "old");
+    std::fs::write(plugins.join(".gitignore"), "ignored/\n").unwrap();
+    std::fs::create_dir(plugins.join("ignored")).unwrap();
     let db = directory.join("fixture.sqlite");
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
@@ -40,6 +45,9 @@ fn live_vm_releases_windows_bundle_handles_and_rolls_back_failed_registration() 
     drop(connection);
     let registrar = TestRegistrar::new();
     let watcher = HotReloadRegistry::new(vec![plugins.clone()], registrar.clone(), test_caps());
+    let (events, holds) = super::fs_events::tests::install_fixture(&plugins);
+    assert!(holds(&directory.canonicalize().unwrap()));
+    *watcher.file_events.lock() = Some(events);
     watcher.tick();
     let old_vm = watcher.existing_vm(id).unwrap();
     let _lease = crate::js_runtime::lease_plugin_sqlite(id);
@@ -57,7 +65,7 @@ fn live_vm_releases_windows_bundle_handles_and_rolls_back_failed_registration() 
     write_install_bundle(&source, id, "2.0.0", "new");
     let install = || {
         codeterm_plugins::with_install_lifecycle(
-            Arc::new(FixtureLifecycle(watcher.clone())),
+            Arc::new(FixtureLifecycle(watcher.clone(), holds.clone())),
             || {
                 codeterm_plugins::run(
                     codeterm_plugins::PluginCtx {
@@ -75,6 +83,7 @@ fn live_vm_releases_windows_bundle_handles_and_rolls_back_failed_registration() 
         )
     };
     install().unwrap();
+    assert!(holds(&directory.canonicalize().unwrap()));
     let current_vm = watcher.existing_vm(id).unwrap();
     assert_eq!(
         crate::js_runtime::call_json::<String>(&current_vm, "marker", &[]).unwrap(),
@@ -85,11 +94,12 @@ fn live_vm_releases_windows_bundle_handles_and_rolls_back_failed_registration() 
         "old"
     );
     assert_eq!(registrar.provider_count(), 1);
-    assert_eq!(std::fs::read_dir(&plugins).unwrap().count(), 1);
+    assert_eq!(std::fs::read_dir(&plugins).unwrap().count(), 3);
 
     write_install_bundle(&source, id, "3.0.0", "broken");
     std::fs::write(source.join("plugin.js"), "not valid JavaScript {{{").unwrap();
     let error = install().unwrap_err();
+    assert!(holds(&directory.canonicalize().unwrap()));
     assert!(error.contains("previous plugin restored"), "{error}");
     let restored_vm = watcher.existing_vm(id).unwrap();
     assert_eq!(
@@ -104,7 +114,7 @@ fn live_vm_releases_windows_bundle_handles_and_rolls_back_failed_registration() 
         "2.0.0"
     );
     assert_eq!(registrar.provider_count(), 1);
-    assert_eq!(std::fs::read_dir(&plugins).unwrap().count(), 1);
+    assert_eq!(std::fs::read_dir(&plugins).unwrap().count(), 3);
 }
 
 #[test]
@@ -115,7 +125,7 @@ fn staging_and_rollback_are_never_discovered_as_plugins() {
         std::fs::create_dir(&directory).unwrap();
         std::fs::write(
             directory.join("plugin.json"),
-            r#"{"id":"fixture","version":"2","displayName":"Fixture"}"#,
+            r#"{"id":"fixture","version":"2","hostIoJobs":true,"displayName":"Fixture"}"#,
         )
         .unwrap();
     }
@@ -135,7 +145,7 @@ fn install_acknowledges_registration_without_a_watcher_tick() {
     let registrar = TestRegistrar::new();
     let watcher = HotReloadRegistry::new(vec![root.path().into()], registrar.clone(), test_caps());
     let manifest = serde_json::json!({
-        "id": "fixture", "version": "1", "displayName": "Fixture",
+        "id": "fixture", "version": "1", "hostIoJobs":true,"displayName": "Fixture",
         "capabilities": {"agentProvider": true}, "entry": "plugin.js",
         "hostApi": super::super::host_api::HOST_API_VERSION
     });
@@ -146,4 +156,27 @@ fn install_acknowledges_registration_without_a_watcher_tick() {
     assert_eq!(registrar.provider_count(), 1);
     assert_eq!(watcher.tracked_ids(), vec!["fixture"]);
     assert!(watcher.refresh_installed(&["absent".into()]).is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn sharing_refusal_names_provider_tabs_and_supported_close_action() {
+    let failure = "move previous plugin aside: Access is denied (os error 5)";
+    let message = super::install::install_failure(
+        "fixture",
+        failure.into(),
+        &["Research (tab-1)".into(), "Draft (tab-2)".into()],
+    );
+    assert!(message.contains("Research (tab-1)"));
+    assert!(message.contains("Draft (tab-2)"));
+    assert!(message.contains("domios tab close --tab <id>"));
+    assert!(message.contains(failure));
+    assert_eq!(
+        super::install::install_failure(
+            "fixture",
+            "bad manifest".into(),
+            &["Research (tab-1)".into()]
+        ),
+        "bad manifest"
+    );
 }

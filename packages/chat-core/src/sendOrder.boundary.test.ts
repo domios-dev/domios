@@ -124,7 +124,7 @@ test("JSONL status enrichment preserves an already reconciled echo", () => {
   assert.equal(result.pending.length, 0);
 });
 
-test("a first JSONL status keeps the prior bounded append-window reconciliation", () => {
+test("a JSONL status reconciles its record without append-window text matching", () => {
   const request: ChatSend = {
     ...send("send-a"),
     correlationId: undefined,
@@ -134,7 +134,8 @@ test("a first JSONL status keeps the prior bounded append-window reconciliation"
   };
 
   assert.deepEqual(projectTranscript(history, [request]).pending.map((row) => row.id), ["send-a"]);
-  const result = projectTranscript(append(history, [user("jsonl-first")]), [request]);
+  const result = projectTranscript(append(history, [{ ...user("jsonl-first"), content: "enriched provider content",
+    sourceRecord: request.matchedRow!.source.record }]), [request]);
 
   assert.deepEqual(result.rows.map((row) => row.id), ["history", "jsonl-first"]);
   assert.equal(result.pending.length, 0);
@@ -146,7 +147,7 @@ test("a JSONL claim joins by exact correlation only inside its source session", 
     kind: "jsonl" as const, incarnation: "file-generation", record_start: 40, record_row: 0,
   } }, ordinal: 1 };
   const request = { ...send("send-a"), matchedRow };
-  const own = projectTranscript(append(history, [{ ...user("jsonl-own"), correlationId: "send-a" }]), [request]);
+  const own = projectTranscript(append(history, [{ ...user("jsonl-own"), correlationId: "send-a", sourceRecord: matchedRow.source.record }]), [request]);
   const foreign = projectTranscript(append(history, [{ ...user("jsonl-foreign"), sourceSessionId: "other-session", correlationId: "send-a" }]), [request]);
 
   assert.equal(own.pending.length, 0);
@@ -204,12 +205,12 @@ test("intentional identical sends reconcile to their distinct structured rows", 
   assert.equal(result.echoes.size, 2);
 });
 
-test("a structured matched row from another session cannot claim the current transcript", () => {
+test("a structured matched row cannot claim a row from another session", () => {
   const state = append(history, [{ ...user("foreign-item"), sourceSessionId: "other-session" }]);
   const request: ChatSend = {
     ...send("send-a"),
-    matchedRow: { source: { source_session_id: "other-session", record: {
-      kind: "structured", thread_id: "other-session", item_id: "foreign-item",
+    matchedRow: { source: { source_session_id: "own-session", record: {
+      kind: "structured", thread_id: "own-session", item_id: "foreign-item",
     } }, ordinal: 1 },
   };
 
@@ -266,4 +267,54 @@ test("a current send cannot claim matching old-session history after handoff", (
 test("clock-independent matching requires exact text", () => {
   const result = projectTranscript(append(history, [{ ...user("similar"), content: `${content} extra words` }]), [send("send-a")]);
   assert.equal(result.pending.length, 1);
+});
+
+test("ledger JSONL claims ignore stale boundaries, captions and clocks across reload", () => {
+  const record = { kind: "jsonl" as const, incarnation: "own-file", record_start: 90, record_row: 2 };
+  const request: ChatSend = { ...send("local"), content: "caption with original attachment", held: false,
+    echoBoundary: { sourceSessionId: "stale-session", sessionBindingNonce: "old-launch", lastRowId: "evicted" },
+    matchedRow: { source: { source_session_id: "own-session", record }, ordinal: 1 } };
+  const row: NormalizedChatMessage = { ...user("native"), sourceRecord: record,
+    content: "provider queued_command with model-copy image", timestamp: "1", timelineMarker: { kind: "queued" } };
+  const state = append(history, [row]);
+  for (const current of [request, JSON.parse(JSON.stringify(request))]) {
+    const result = projectTranscript(state, [current]);
+    assert.equal(result.pending.length, 0);
+    assert.equal(result.echoes.size, 1);
+    assert.deepEqual(result.rows.map(row => row.id), ["history", "native"]);
+  }
+  for (const changed of [
+    { ...record, incarnation: "replaced-file" }, { ...record, record_start: 91 }, { ...record, record_row: 1 },
+  ]) {
+    const result = projectTranscript(append(history, [{ ...row, content: request.content, sourceRecord: changed }]), [request]);
+    assert.equal(result.pending.length, 1, "text cannot override a different record identity");
+  }
+});
+
+test("out-of-order ledger receipts place missing rows by record before their echoes load", () => {
+  const record = (offset: number) => ({ kind: "jsonl" as const, incarnation: "own-file", record_start: offset, record_row: 0 });
+  const message = (id: string, offset: number, type = "assistant"): NormalizedChatMessage => ({
+    id, type: type as "assistant" | "user", sourceSessionId: "own-session", content: "opaque", sourceRecord: record(offset), timestamp: String(serverAt + offset),
+  });
+  const requests: ChatSend[] = [90, 80].map(offset => ({ ...send(`send-${offset}`), sentAtMs: serverAt - offset,
+    flowAtMs: serverAt - offset, matchedRow: { source: { source_session_id: "own-session", record: record(offset) }, ordinal: 1 } }));
+  const state = append(createTranscriptState(), [message("before", 10), message("turn-answer", 70), message("after", 100)]);
+  const missing = projectTranscript(state, requests);
+  assert.deepEqual(missing.rows.map(row => row.id), ["before", "turn-answer", "send-80", "send-90", "after"]);
+  const loaded = projectTranscript(append(createTranscriptState(), [message("before", 10), message("turn-answer", 70),
+    message("echo-80", 80, "user"), message("echo-90", 90, "user"), message("after", 100)]), requests);
+  assert.equal(loaded.pending.length, 0);
+  assert.equal(loaded.echoes.size, 2);
+  assert.deepEqual(loaded.rows.map(row => row.id), ["before", "turn-answer", "echo-80", "echo-90", "after"]);
+});
+
+test("ledger ordinals let several sends share one merged record without text reconciliation", () => {
+  const record = { kind: "jsonl" as const, incarnation: "file", record_start: 40, record_row: 0 };
+  const requests = [1, 2].map(ordinal => ({ ...send(`local-${ordinal}`), content: `original-${ordinal}`,
+    matchedRow: { source: { source_session_id: "own-session", record }, ordinal } }));
+  const state = append(history, [{ ...user("merged"), content: "provider-enriched merged content", sourceRecord: record }]);
+  const result = projectTranscript(state, requests);
+  assert.deepEqual(result.pending, []);
+  assert.deepEqual([...result.echoes.keys()], ["local-1", "local-2"]);
+  assert.deepEqual(result.rows.map(row => row.id), ["history", "merged"]);
 });

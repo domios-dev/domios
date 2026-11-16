@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { BULK_CREDIT_STEP, bulkCreditDue, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused } from "./streamMuxModel";
+import { BULK_CREDIT_STEP, bulkCreditDue, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused, transitionCarrierLiveness } from "./streamMuxModel";
+
+describe("carrier liveness after a wake", () => {
+  it("probes a suspect carrier once and replaces it only when the bound passes without proof", () => {
+    expect(transitionCarrierLiveness("trusted", "suspect")).toEqual({ state: "proving", action: "probe" });
+    expect(transitionCarrierLiveness("proving", "suspect")).toEqual({ state: "proving", action: "none" });
+    expect(transitionCarrierLiveness("proving", "deadline")).toEqual({ state: "trusted", action: "replace" });
+  });
+
+  it("a delivered response or a closed carrier ends the suspicion without replacement", () => {
+    expect(transitionCarrierLiveness("proving", "proven")).toEqual({ state: "trusted", action: "none" });
+    expect(transitionCarrierLiveness("proving", "closed")).toEqual({ state: "trusted", action: "none" });
+    expect(transitionCarrierLiveness("trusted", "deadline")).toEqual({ state: "trusted", action: "none" });
+  });
+});
 
 describe("mux stream routes", () => {
   it("shares events, startup, output, relay, agent-run and surface streams", () => {

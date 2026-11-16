@@ -212,15 +212,30 @@ describe("tab menu model", () => {
     }
   });
 
-  it("marks the current model and provider and leaves the current provider without an action", () => {
+  it("marks the current model and opens the harness switch directly on another harness", () => {
     const entries = buildTabMenu(input("sidebar", { tab: tab({ role: "Manager", role_profile: "general_agent" } as never) }));
     const model = child(submenu(entries, "model"), "model-model-a");
     expect(model?.kind === "item" ? model.selected : null).toBe(true);
-    const current = child(submenu(entries, "provider"), `provider-${CURRENT.id}`);
-    const other = child(submenu(entries, "provider"), `provider-${OTHER.id}`);
-    expect(current?.kind === "item" ? current.action : "missing").toBeNull();
-    expect(other?.kind === "item" ? other.action?.type : null).toBe("switchProvider");
+    const provider = entries.find((entry) => entry.id === "provider");
+    expect(provider?.kind).toBe("item");
+    expect(provider?.kind === "item" ? provider.action : null).toEqual({ type: "switchProvider", providerId: OTHER.id });
   });
+});
+
+it("offers Detach on a remote tab and names the machine its Close acts on", () => {
+  const remote = tab({ id: "mesh:peer/one", remote_peer_id: "peer", remote_peer_name: "PEER-NAME", remote_tab_id: "one" });
+  const entries = buildTabMenu(input("sidebar", { tab: remote }));
+  const detach = entries.find((entry) => entry.id === "detach");
+  expect(detach?.kind === "item" ? detach.action?.type : null).toBe("detach");
+  const close = entries.find((entry) => entry.id === "close");
+  expect(close?.kind === "item" ? close.label : null).toContain("PEER-NAME");
+  const guarded = buildTabMenu(input("sidebar", { tab: { ...remote, protected: true } }));
+  expect(guarded.some((entry) => entry.id === "detach")).toBe(true);
+  expect(guarded.some((entry) => entry.id === "close")).toBe(false);
+  const local = buildTabMenu(input("sidebar"));
+  expect(local.some((entry) => entry.id === "detach")).toBe(false);
+  const localClose = local.find((entry) => entry.id === "close");
+  expect(localClose?.kind === "item" ? localClose.label : null).not.toContain("PEER-NAME");
 });
 
 it("offers a session fork only for a declaring provider and a bound local tab", () => {
@@ -241,15 +256,18 @@ for (const surface of SURFACES) {
     expect(entries.map(entry => entry.id)).toEqual(["close"]);
   });
 }
-it("disables unavailable provider targets on both menu surfaces", () => {
+it("seeds the harness switch with an installed, catalogued target first on both menu surfaces", () => {
+  const third = descriptor("third-provider");
   for (const surface of SURFACES) {
-    const entries = buildTabMenu(input(surface, { descriptors: [CURRENT, { ...OTHER, availability: "unavailable" }] }));
-    const target = child(submenu(entries, "provider"), `provider-${OTHER.id}`);
-    expect(target?.kind).toBe("item");
-    if (target?.kind !== "item") throw new Error("Missing target");
-    expect(target.disabled).toBe(true);
-    expect(target.action).toBe(null);
-    expect(target.hint).toBe("not installed");
+    const seeded = (descriptors: ProviderDescriptor[]) => {
+      const entry = buildTabMenu(input(surface, { descriptors })).find((candidate) => candidate.id === "provider");
+      return entry?.kind === "item" ? entry.action : null;
+    };
+    expect(seeded([CURRENT, { ...OTHER, availability: "unavailable" }, third])).toEqual({ type: "switchProvider", providerId: third.id });
+    expect(seeded([CURRENT, { ...OTHER, availability: "unavailable" }])).toEqual({ type: "switchProvider", providerId: OTHER.id });
+    const uncatalogued = { ...descriptor("uncatalogued-provider"), available_models: [] };
+    expect(seeded([CURRENT, uncatalogued, third])).toEqual({ type: "switchProvider", providerId: third.id });
+    expect(seeded([CURRENT, uncatalogued])).toEqual({ type: "switchProvider", providerId: uncatalogued.id });
   }
 });
 

@@ -8,7 +8,8 @@ on:
 jobs:
   cargo-audit:
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    # Scheduled default-branch runs are outside the release-ref runner allowlist, so this stays hosted.
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         directory: [src-tauri, cli, crates/mem-store]
@@ -26,7 +27,7 @@ jobs:
           package-manager-cache: false
           node-version: 22.22.0
         if: runner.environment == 'github-hosted'
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           fetch-depth: 1
           ref: ${{ github.sha }}
@@ -46,7 +47,8 @@ jobs:
 
   pnpm-audit:
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    # Scheduled default-branch runs are outside the release-ref runner allowlist, so this stays hosted.
+    runs-on: ubuntu-24.04
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
@@ -61,7 +63,7 @@ jobs:
           package-manager-cache: false
           node-version: 22.22.0
         if: runner.environment == 'github-hosted'
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           fetch-depth: 1
           ref: ${{ github.sha }}

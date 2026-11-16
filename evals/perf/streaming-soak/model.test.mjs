@@ -83,7 +83,7 @@ test('elapsed cadence schedules samples but never proves readiness or ack',() =>
 
 
 const split = () => ({health:{status:'ok',build_sha:'a'.repeat(40),instance:{name:'',api_port:7686}},
-  provenance:{schema:3,buildSha:'a'.repeat(40),instance:{name:'',apiPort:'7686',vitePort:'1420',cdpPort:'9223',identifier:'com.codeterm.dev'}},
+  provenance:{schema:3,buildSha:'a'.repeat(40),instance:{name:'',apiPort:'7686',vitePort:'1420',cdpPort:'9223',identifier:'com.domios.dev'}},
   surface:'chrome',cdp:58454,target:'owned-page'});
 const browserTarget = origin => ({id:'owned-page',type:'page',url:origin+'/',webSocketDebuggerUrl:'ws://127.0.0.1:58454/devtools/page/owned-page'});
 
@@ -94,8 +94,10 @@ test('split Browser admission pins exact server provenance and API-served target
   for (const provenance of [null,{...input.provenance,schema:2},{...input.provenance,buildSha:'b'.repeat(40)},
     {...input.provenance,instance:{...input.provenance.instance,name:'foreign'}},
     {...input.provenance,instance:{...input.provenance.instance,apiPort:'7685'}},
-    {...input.provenance,instance:{...input.provenance.instance,identifier:'com.codeterm'}}])
+    {...input.provenance,instance:{...input.provenance.instance,identifier:'com.domios'}}])
     assert.throws(() => admitDevSurface({...input,provenance}));
+  for (const identifier of ['com.domios','com.domios.app','com.domios.devil','com.domiosdev','com.codeterm.dev'])
+    assert.throws(() => admitDevSurface({...input,provenance:{...input.provenance,instance:{...input.provenance.instance,identifier}}}));
   for (const health of [{...input.health,status:'starting'},{...input.health,build_sha:'a123'},
     {...input.health,build_sha:'b'.repeat(40)},{...input.health,instance:{name:'foreign',api_port:7686}},
     {...input.health,instance:{name:'',api_port:7685}}]) assert.throws(() => admitDevSurface({...input,health}));
@@ -111,12 +113,12 @@ test('split native surface refuses missing owning locator while legacy target ch
   const input = split();
   assert.deepEqual(admitDevSurface({...input,surface:'native'}),{available:false,reason:'Native CDP locator unavailable for independent server'});
   const legacy = {...input,health:{...input.health,instance:{...input.health.instance,
-    identifier:'com.codeterm.dev',vite_port:'1420',cdp_port:'9223'}}};
+    identifier:'com.domios.dev',vite_port:'1420',cdp_port:'9223'}}};
   assert.equal(admitDevSurface(legacy).origin,'http://127.0.0.1:1420');
   const native = admitDevSurface({...legacy,surface:'native'});
   assert.equal(native.cdpPort,9223);
   assert.throws(() => admitDevSurface({...legacy,cdp:9223}));
-  for (const patch of [{identifier:'com.codeterm'},{vite_port:'9999'},{cdp_port:''}])
+  for (const patch of [{identifier:'com.domios'},{vite_port:'9999'},{cdp_port:''}])
     assert.throws(() => admitDevSurface({...legacy,health:{...legacy.health,instance:{...legacy.health.instance,...patch}}}));
 });
 

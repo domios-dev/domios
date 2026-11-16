@@ -29,6 +29,21 @@ pub(in crate::service_plan) fn apply_lane_update(
     if let Some(value) = update.workspace_name {
         lane.workspace_name = value;
     }
+    // Ownership describes the checkout dispatch recorded; a hand-set lane is not it.
+    let rebinds = |current: &Option<String>, next: &Option<String>| {
+        next.is_some() && next.as_deref() != current.as_deref()
+    };
+    if update
+        .worktree_path
+        .as_ref()
+        .is_some_and(|next| rebinds(&lane.worktree_path, next))
+        || update
+            .branch
+            .as_ref()
+            .is_some_and(|next| rebinds(&lane.branch, next))
+    {
+        lane.ownership = None;
+    }
     if let Some(value) = update.worktree_path {
         lane.worktree_path = value;
     }

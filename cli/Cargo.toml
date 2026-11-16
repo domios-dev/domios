@@ -1,7 +1,7 @@
 [package]
 license = "AGPL-3.0-only"
 name = "codeterm-cli"
-version = "1.19.2"
+version = "1.20.0"
 edition = "2021"
 # One workspace and one lockfile with the app and server, so shared dependencies resolve identically.
 workspace = "../src-tauri"
@@ -54,6 +54,7 @@ codeterm-process-identity = { path = "../src-tauri/crates/codeterm-process-ident
 codeterm-types = { path = "../src-tauri/crates/codeterm-types" }
 codeterm-notification-core = { path = "../src-tauri/crates/codeterm-notification-core" }
 codeterm-blueprint-types = { path = "../src-tauri/crates/codeterm-blueprint-types" }
+codeterm-team-package = { path = "../src-tauri/crates/codeterm-team-package" }
 codeterm-mesh = { path = "../src-tauri/crates/codeterm-mesh" }
 codeterm-wire = { path = "../src-tauri/crates/codeterm-wire" }
 

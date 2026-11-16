@@ -10,6 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "tab/lifecycle_exit.rs"]
 mod lifecycle_exit;
+mod runtime_shutdown;
+#[cfg(any(test, feature = "test-support"))]
+pub use runtime_shutdown::RuntimeStopOverride;
 #[cfg(test)]
 #[path = "tab/tests.rs"]
 mod tests;
@@ -150,8 +153,7 @@ impl ServiceContext {
         self.invalidate_guarded_agent_input(tab_id);
         super::background_work_watch::cancel(self, tab_id);
         crate::flow_trace::cancel_tab(tab_id);
-        self.chat_registry.shutdown_tab(tab_id);
-        super::agent_runtime::engine::stop_blocking(self, tab_id)?;
+        self.shutdown_tab_agent_runtime(tab_id)?;
         self.deferred_session_bindings.clear(tab_id);
 
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
@@ -409,6 +411,7 @@ impl ServiceContext {
             crate::service::tab_chat::closed_transcript::forget_evicted(self);
         }
         let pty_ids = close_result?;
+        super::team_template_remote::release_hosting_lease(&canonical_tab_id);
         if let Err(error) = self.settle_closed_durable_deliveries(&canonical_tab_id) {
             log::error!("[agent-delivery] closed recipient settlement failed tab={canonical_tab_id}: {error}");
         }
@@ -439,17 +442,7 @@ impl ServiceContext {
         self.finish_tab_close(&canonical_tab_id)?;
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
-        let resolved = {
-            let mut notif = self.notif.lock();
-            // A closed tab has no agent to exit or prompt to answer, so its conditions end with it.
-            let resolved = notif.resolve_tab_conditions(&canonical_tab_id);
-            notif.close_push_scope(&crate::notification::push::tab_scope(tab_id));
-            // An unanswered question outlives its tab as a visibly undeliverable
-            // card, never as buttons that would quietly do nothing.
-            notif.forget_answer_tab(tab_id);
-            resolved
-        };
-        self.announce_resolved(&resolved);
+        self.retire_closed_tab_notifications(&canonical_tab_id);
         self.release_bridge_threads(tab_id);
         session_persist::persist_session_after_close(self);
         self.emit_state_changed(MuxEmitCause::TabLifecycle);
@@ -558,13 +551,13 @@ impl ServiceContext {
             let mux = self.mux.read();
             mux.resolve_tab_id(tab_id).filter(|id| {
                 mux.get_tab(id)
-                    .is_some_and(|tab| super::lazy_restore::wake_eligible(tab, true))
+                    .is_some_and(super::lazy_restore::wake_on_open_eligible)
             })
         };
         if let Some(target) = target {
             let service = self.clone();
             crate::async_runtime::spawn_blocking(move || {
-                if let Err(reason) = service.wake_tab_on_request(&target) {
+                if let Err(reason) = service.wake_tab_on_open(&target) {
                     log::warn!("[tab-focus] wake failed tab={target}: {reason}");
                 }
             });
@@ -684,6 +677,8 @@ impl ServiceContext {
             self.wake_parked_user_send(tab_id);
             self.wake_agent_deliveries_on_state_change(tab_id);
         }
+        // An Orchestrator proving its launch is the moment its Team can take Blueprints.
+        crate::service::team_template_payload::settle_automation_for_tab(self, tab_id);
     }
 
     /// Boot path: refresh model once for every tab that already has an

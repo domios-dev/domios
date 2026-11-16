@@ -20,7 +20,7 @@ top as a **role profile** — a free-form label on the spawn spec/tab that picks
 the onboarding prompt, default model routing, and presence label without
 changing hierarchy semantics. The first named profile is **Planner** (1.6.2): a
 high-reasoning Worker the Orchestrator spawns (`agent spawn claude --model
-fable --role Planner`) to author or refine GOAL/Spec/Plan/Tasks and sequencing
+fable --role planner`) to author or refine GOAL/Spec/Plan/Tasks and sequencing
 in the Domios planner, then report back with `in_review`. The Planner never
 spawns agents, assigns Tabs, or accepts work — execution and acceptance stay
 with the Orchestrator. Per-task free-form role guidance lives on the task
@@ -41,7 +41,7 @@ never filled in; an invented role is worse than an absent one, because the
 Orchestrator would route on it.
 
 Exact built-in leaf `executor_role` values select their Worker prompt profile at
-local dispatch. `--kind qa` or `--kind release_manager` may select that prompt
+local dispatch. `--role qa` or `--role release_manager` may select that prompt
 without editing the saved task role. The kind is prompt composition only;
 task-bound placement still needs parent-authorized dispatch. Shared canonical is the default with declared disjoint edit files; overlap or `build-breaking` selects a lane. `--placement shared|lane` overrides automatic selection; `--canonical-writer` reserves exclusive access. Direct task-bound
 spawn cannot reserve that attempt. Task-less kinds with Plan context retain

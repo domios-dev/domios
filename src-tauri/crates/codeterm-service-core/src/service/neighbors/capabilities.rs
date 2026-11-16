@@ -200,18 +200,7 @@ impl ServiceContext {
         uid: &str,
         settings: &super::storage::Settings,
     ) {
-        self.clear_neighbor_restore_grants(uid);
-        for (friendship, tab) in &settings.bindings {
-            let _ = self.tag_neighbor_root(uid, friendship, tab);
-            self.remember_neighbor_restore_grant(
-                tab,
-                settings
-                    .permissions
-                    .get(friendship)
-                    .map(|permission| permission.machine_access)
-                    .unwrap_or_default(),
-            );
-        }
+        self.refresh_neighbor_restore_grants(uid, settings, || {});
         let known: Vec<_> = self
             .neighbor_cell()
             .concierge_accounts

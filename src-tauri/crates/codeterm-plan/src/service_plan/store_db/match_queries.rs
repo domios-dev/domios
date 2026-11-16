@@ -16,6 +16,7 @@ pub struct SectionRefRow {
 pub struct AttemptLanePathRead {
     pub attempt_id: String,
     pub worktree_path: String,
+    pub lane_ownership: Option<crate::plan::LaneOwnership>,
 }
 
 // Mirrors `paths::plan_sidecar_root`: a blank canonical path falls back to the project path.
@@ -64,7 +65,8 @@ impl PlanDatabase {
         super::read_projections::record_query();
         let mut statement = connection
             .prepare_cached(
-                "SELECT plan_id,attempt_id,row_json->'$.worktree_path' FROM plan_task_attempts
+                "SELECT plan_id,attempt_id,row_json->'$.worktree_path',row_json->'$.lane_ownership'
+             FROM plan_task_attempts
              WHERE json_type(row_json,'$.worktree_path') IS NOT NULL
                 AND json_type(row_json,'$.worktree_path')<>'null'",
             )
@@ -75,14 +77,23 @@ impl PlanDatabase {
                     super::read_projections::column::<String>(row, 0)?,
                     super::read_projections::column::<String>(row, 1)?,
                     super::read_projections::column::<String>(row, 2)?,
+                    super::read_projections::column::<Option<String>>(row, 3)?,
                 ))
             })
             .map_err(db_error)?;
         rows.map(|row| {
-            let (plan_id, attempt_id, raw) = row.map_err(db_error)?;
+            let (plan_id, attempt_id, raw, ownership) = row.map_err(db_error)?;
             Ok(AttemptLanePathRead {
                 attempt_id,
                 worktree_path: super::read_projections::decode(&plan_id, &raw)?,
+                lane_ownership: ownership
+                    .map(|raw| {
+                        super::read_projections::decode::<Option<crate::plan::LaneOwnership>>(
+                            &plan_id, &raw,
+                        )
+                    })
+                    .transpose()?
+                    .flatten(),
             })
         })
         .collect()

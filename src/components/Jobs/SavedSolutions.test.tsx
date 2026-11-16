@@ -8,6 +8,7 @@ import type { BlueprintSolutionsApi } from "./blueprintSolutions";
 import type { CatalogEntry } from "./solutionCatalog";
 import { catalogEntry, filterCatalog, NO_CATALOG_FILTER, solutionKind } from "./solutionCatalog";
 import { createMuxReadCapacity, MUX_READ_CAPACITY } from "../../lib/streamMuxRequestModel";
+import { readSolutionCatalogue } from "./readSolutionCatalogue";
 
 const callable = { schema_version: 2, kind: "pipeline", name: "add-seventeen", steps: [{ id: "add", code: { lang: "python", src: "def main(v): return v + 17" }, in: { type: "integer" }, out: { type: "integer" } }], result: { from: "add.out" } };
 const watch = { schema_version: 2, kind: "watch", name: "ci-watch", steps: [{ id: "source", uses: "probe", with: { command: { lit: "gh run list" } } }, { id: "decide", uses: "ask", buckets: ["failing"], routes: { failing: "notify" } }, { id: "notify", uses: "notify" }] };
@@ -160,6 +161,63 @@ async function main() {
   const afterUnmount = reads;
   await act(async () => { change("w", "blueprint-library:5"); });
   assert.equal(reads, afterUnmount);
+  let holdRefresh = false;
+  let finishRefresh!: (entries: Awaited<ReturnType<BlueprintSolutionsApi["list"]>>) => void;
+  const refreshApi: BlueprintSolutionsApi = { ...api, list: (workspace, signal) => holdRefresh
+    ? new Promise(resolve => { finishRefresh = resolve; }) : api.list(workspace, signal) };
+  await render(<SavedSolutions sources={sources} revision={0} api={refreshApi} />);
+  await flush();
+  const previousRows = rows();
+  assert(previousRows.length > 0);
+  holdRefresh = true;
+  await render(<SavedSolutions sources={sources} revision={1} api={refreshApi} />);
+  assert.deepEqual(rows(), previousRows, "a library revision keeps the previous catalogue visible while loading");
+  await act(async () => finishRefresh([]));
+  await flush();
+  assert.deepEqual(rows(), [], "a completed crawl replaces the previous entries");
+
+  const startedScopes: string[] = [], abortedScopes: string[] = [];
+  const failure = new Error("workspace list failed");
+  let failList!: () => void;
+  const failingApi: BlueprintSolutionsApi = { ...api, list: (workspace, signal) => {
+    startedScopes.push(workspace);
+    return new Promise((_resolve, reject) => {
+      if (workspace === "a") failList = () => reject(failure);
+      signal?.addEventListener("abort", () => { abortedScopes.push(workspace); reject(signal.reason); }, { once: true });
+    });
+  } };
+  const failedCrawl = readSolutionCatalogue(["a", "b", "c", "queued"], failingApi, new AbortController().signal).catch(error => error);
+  assert.deepEqual(startedScopes, ["a", "b", "c"]);
+  failList();
+  assert.equal(await failedCrawl, failure);
+  assert(abortedScopes.includes("b") && abortedScopes.includes("c"), "a failed list aborts sibling transport reads");
+  assert.deepEqual(startedScopes, ["a", "b", "c"], "a failed crawl never dispatches queued workspaces");
+  const pendingLists: Array<() => void> = [];
+  const catalogueScopes = Array.from({ length: 64 }, (_, index) => `scope${index}`);
+  let listStarted = 0, listActive = 0, peakLists = 0;
+  const boundedApi: BlueprintSolutionsApi = { ...api, list: async (_workspace, signal) => {
+    listStarted++; listActive++; peakLists = Math.max(peakLists, listActive);
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => { listActive--; reject(signal?.reason); };
+      signal?.addEventListener("abort", abort, { once: true });
+      pendingLists.push(() => { signal?.removeEventListener("abort", abort); listActive--; resolve(); });
+    });
+    return [];
+  } };
+  await render(<SavedSolutions sources={catalogueScopes} revision={0} api={boundedApi} />);
+  assert.equal(listStarted, 3, "the catalogue bounds list admission before transport dispatch");
+  while (pendingLists.length) {
+    await act(async () => { pendingLists.splice(0).forEach((finish) => finish()); });
+  }
+  assert.equal(listStarted, 64, "every requested workspace is read");
+  assert.equal(peakLists, 3);
+  listStarted = 0;
+  await render(<SavedSolutions sources={catalogueScopes} revision={1} api={boundedApi} />);
+  assert.equal(listStarted, 3);
+  await render(<div />);
+  assert.equal(listActive, 0, "leaving aborts active catalogue reads");
+  assert.equal(listStarted, 3, "leaving never dispatches the queued workspaces");
+  pendingLists.length = 0;
   const capacity = createMuxReadCapacity();
   let documentReads = 0;
   const capacityApi = {

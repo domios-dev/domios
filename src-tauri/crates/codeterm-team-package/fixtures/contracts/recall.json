@@ -1,0 +1,24 @@
+{
+  "matches": [
+    {
+      "name": "dev.domios/video-studio",
+      "version": "1.2.0",
+      "title": "Video studio",
+      "description": "Makes a product video in HTML from the real app and checks every export before the owner sees it.",
+      "when": ["make a launch video"],
+      "provenance": "builtin",
+      "workers": 6,
+      "verified": false
+    }
+  ],
+  "fallback": {
+    "name": "dev.domios/default",
+    "version": "1.0.0",
+    "title": "Default team",
+    "description": "Orchestrator and Planner; every built-in worker available on demand.",
+    "provenance": "builtin",
+    "workers": 0,
+    "verified": false
+  },
+  "recall_available": true
+}

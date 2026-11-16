@@ -237,6 +237,7 @@ impl CapabilityRegistries {
                 id.clone(),
                 Arc::new(
                     super::JsAgentCommandHandler::new(vm.clone(), id.clone(), true)
+                        .with_read_only_verbs(manifest.agent_read_only_verbs.clone())
                         .with_catalog(super::catalog_from_manifest(manifest, core)),
                 ),
             );
@@ -305,6 +306,7 @@ pub struct HotReloadRegistry {
     load_errors: Mutex<HashMap<String, PluginLoadError>>,
     service: Mutex<Option<std::sync::Weak<dyn PluginHostCtx>>>,
     reconciliation: Mutex<()>,
+    file_events: Mutex<Option<fs_events::FileEvents>>,
     settings_changed: Mutex<Vec<String>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
@@ -393,6 +395,7 @@ impl HotReloadRegistry {
             load_errors: Mutex::new(HashMap::new()),
             service: Mutex::new(None),
             reconciliation: Mutex::new(()),
+            file_events: Mutex::new(None),
             settings_changed: Mutex::new(Vec::new()),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
@@ -593,20 +596,37 @@ impl HotReloadRegistry {
         let started = std::thread::Builder::new()
             .name("codeterm-plugin-watcher".into())
             .spawn(move || {
-                let mut events = match fs_events::FileEvents::new(me.roots.clone()) {
-                    Ok(events) => events,
-                    Err(error) => {
-                        log::error!("[plugin-watcher] cannot watch plugin roots: {error}");
-                        me.tick();
-                        return;
-                    }
+                let receiver = {
+                    let _reconciliation = me.reconciliation.lock();
+                    let receiver = match fs_events::FileEvents::new(me.roots.clone()) {
+                        Ok(mut events) => {
+                            let receiver = events.take_receiver();
+                            *me.file_events.lock() = Some(events);
+                            Some(receiver)
+                        }
+                        Err(error) => {
+                            log::error!("[plugin-watcher] cannot watch plugin roots: {error}");
+                            None
+                        }
+                    };
+                    me.tick_inner();
+                    receiver
                 };
-                me.tick();
-                while events.wait().is_ok() {
-                    if let Err(error) = events.refresh() {
-                        log::error!("[plugin-watcher] cannot refresh plugin roots: {error}");
+                me.flush_settings_changed();
+                let Some(receiver) = receiver else { return };
+                while receiver.recv().is_ok() {
+                    {
+                        let _reconciliation = me.reconciliation.lock();
+                        if let Some(events) = me.file_events.lock().as_mut() {
+                            if let Err(error) = events.refresh() {
+                                log::error!(
+                                    "[plugin-watcher] cannot refresh plugin roots: {error}"
+                                );
+                            }
+                        }
+                        me.tick_inner();
                     }
-                    me.tick();
+                    me.flush_settings_changed();
                 }
             });
         if let Err(error) = started {

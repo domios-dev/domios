@@ -90,6 +90,15 @@ pub struct HistoryPage {
 pub struct ReceiverState {
     pub receiving_here: bool,
     pub receiver_machine_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub receiver_installation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub receiver_instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub receiver_online: Option<bool>,
     pub receiving_enabled: bool,
     pub revision: u64,
     pub is_me: bool,

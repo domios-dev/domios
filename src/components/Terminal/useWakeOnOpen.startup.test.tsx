@@ -42,6 +42,36 @@ function paneFrame(host: HTMLElement): "error" | "content" | "restoring" | "empt
   return "empty";
 }
 
+it.each([
+  { boot_stage: "spawn_failed" as const },
+  { boot_failure_reason: JSON.stringify({ class: "requires_workspace_repair" }) },
+  { boot_failure_reason: JSON.stringify({ code: "workspace_cwd_missing" }) },
+])("opening a failed sleeping tab waits for explicit Retry (%j)", async failure => {
+  const calls: string[] = [];
+  __setInvokeForTest(<T,>(command: string): Promise<T> => {
+    calls.push(command);
+    return Promise.resolve({} as T);
+  });
+  const tab = { id: `failed-open-${JSON.stringify(failure)}`, frozen: true, backing: { kind: "pty" }, ...failure } as Tab;
+  function Probe({ visible }: { visible: boolean }) {
+    const wake = useWakeOnOpen(tab, visible);
+    return <button onClick={wake.retry}>Retry launch</button>;
+  }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    for (const visible of [false, true, false, true]) {
+      await act(async () => root.render(<Probe visible={visible} />));
+      expect(calls).toEqual([]);
+    }
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+    expect(calls).toEqual(["wake_tab"]);
+  } finally {
+    await act(async () => root.unmount());
+    __setInvokeForTest(null);
+  }
+});
+
 it("recognizes the initial sleeping loader even before wake adds progress steps", async () => {
   const host = document.createElement("div");
   document.body.append(host);

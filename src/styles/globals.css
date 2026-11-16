@@ -679,6 +679,7 @@ button {
 }
 
 .ct-liquid-interactive:focus-visible,
+.ct-focus-ring:focus-visible,
 .ct-segmented-option:focus-visible,
 .sidebar-tab-activation:focus-visible,
 .sidebar-team-card-activation:focus-visible {
@@ -687,28 +688,19 @@ button {
   box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px var(--ct-accent);
 }
 
+/* No transform press: a transient layer inside the scrolled sidebar makes WebKit misplace its sticky headers. */
 .sidebar-tab-activation {
-  transform-origin: center;
   transition:
-    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
     color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
-}
-
-
-.sidebar-tab-activation:active {
-  transform: scale(0.975);
-  transition-duration: var(--ct-duration-liquid-press);
-  transition-timing-function: var(--ct-ease-liquid-settle);
 }
 
 .ct-liquid-interactive[data-touch-mode="true"]:not(:disabled):hover {
   transform: var(--ct-liquid-base-transform) scale(1.0075);
 }
 
-.ct-liquid-interactive[data-touch-mode="true"]:not(:disabled):active,
-[data-touch-mode="true"] .sidebar-tab-activation:active {
+.ct-liquid-interactive[data-touch-mode="true"]:not(:disabled):active {
   transform: scale(0.965);
 }
 
@@ -722,12 +714,8 @@ button {
     animation: none;
   }
 
-  .sidebar-tab-activation,
-  .sidebar-tab-activation:hover,
-  .sidebar-tab-activation:active {
-    transform: none;
+  .sidebar-tab-activation {
     transition: none;
-    animation: none;
   }
 }
 
@@ -2113,15 +2101,28 @@ button {
   }
 }
 
+/* Phone width: the session dialog becomes a full-screen sheet in the same order. */
 @media (max-width: 640px) {
   .new-session-picker {
-    padding: 0.75rem;
+    padding: 0;
     align-items: stretch;
   }
   .new-session-picker-card {
-    max-width: calc(100vw - 1.5rem);
-    padding: 1rem;
-    align-self: center;
+    max-width: none;
+    min-height: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    padding: calc(1rem + var(--ct-safe-top, 0px)) 1rem calc(1rem + var(--ct-safe-bottom, 0px));
+    align-self: stretch;
+  }
+  /* The Team card's subtitle names the chosen template; on a phone it stays one line. */
+  .picker-mode-card-desc {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 }
 
@@ -2448,6 +2449,7 @@ button {
   text-align: left;
 }
 
+/* Own compositing layer from the start: WebKit misplaces sticky headers promoted mid-scroll by animated rows below them. */
 .sidebar-general-section > .sidebar-structural-header,
 .sidebar-structural-section > .sidebar-structural-header,
 .sidebar-workspace-detail-header {
@@ -2455,6 +2457,7 @@ button {
   top: 0;
   z-index: 5;
   background: var(--ct-bg);
+  will-change: transform;
 }
 
 [data-touch-mode="true"] { --sidebar-section-header-h: 52px; }

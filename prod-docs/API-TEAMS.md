@@ -30,7 +30,7 @@ Every active plan must reference exactly one live Team, and a live Team may have
 
 ## Team staffing and Orchestrator recovery (POST /api/teams/{team_id}/members)
 
-`{provider, role, title?, task?, brief?, model?}` adds one member to an existing Team; `role` is `worker`, `planner`, `orchestrator`, or `cartographer`. Supply either `task` or `brief`, never both. This endpoint, the UI add-member action, the socket `team.add_member` verb, and `domios agent spawn <provider> --team <id> --role Orchestrator` are one service path. `domios team attach-cartographer <team> --provider <provider> [--model <model>] [--brief-file <path>]` uses that same path; `-` reads stdin verbatim.
+`{provider, role, title?, task?, brief?, model?}` adds one member to an existing Team; `role` is `worker`, `planner`, `orchestrator`, or `cartographer`. Supply either `task` or `brief`, never both. This endpoint, the UI add-member action, the socket `team.add_member` verb, and `domios agent spawn <provider> --team <id> --role orchestrator` are one service path. `domios team attach-cartographer <team> --provider <provider> [--model <model>] [--brief-file <path>]` uses that same path; `-` reads stdin verbatim.
 
 A Team may have one optional Cartographer Manager. The first attachment spawns a tab with the built-in `cartographer` role kind and delivers the supplied brief as its launch task. Repeated attachments return the same `tab_id` with `reused: true` and deliver the brief to that tab without creating another; a send refusal fails the request. It is a non-anchoring Manager without Team-management, plan, or spawn authority. Team close removes the Cartographer tab and its Team binding with every other member; the default Orchestrator/Planner pair does not include one unless explicitly attached.
 
@@ -120,4 +120,29 @@ Team staffing and closing use the authority and confirmation rules above.
 | POST | `/api/teams/{team_id}/members` | Add a Team member. |
 | POST | `/api/teams/{team_id}/rename` | Rename a Team. |
 
-<!-- revision: 13 -->
+## Team templates
+
+`POST /api/orchestration/new` takes an optional `template` (a `TemplateStartRequest`); without it the standard pair starts. The package format is `domios docs TEAM-FORMAT` and the procedure `domios docs TEAMS`. Until an operation is available in a build, it answers HTTP 501 with `{code: "template_unavailable", operation, message}` and changes nothing.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| GET | `/api/team-channels` | List installed Team channels as `{channels}`. |
+| POST | `/api/team-channels` | Apply `{action: list}`, `{action: add, url, name?}`, `{action: refresh, name?}` or `{action: remove, name}`; return `{channels}` or HTTP 400 `{error, code}`. |
+| POST | `/api/team-templates/file` | `{template, path?, role?}` with exactly one target → package file or role instructions as text; paths must stay package-relative. |
+| POST | `/api/team-templates/peer-start` | `{peer, start}` → start on a paired, online Full-access peer Main; return its outcome or pending owner ask and publish `team-template-peer-outcome`. |
+| POST | `/api/team-templates/peer-outcome` | `{peer, request_id}` → read the peer ask outcome after an answer or origin restart. |
+| POST | `/api/team-templates/transfer` | `{peer, template, format: team, tab}` → export an archive, deliver it to the peer tab and import it unverified into that peer's My templates. |
+| POST | `/api/mesh/template-start` | Signed paired-peer request with `{template, workspace_id, orchestrator_agent?, orchestrator_model?, planner_agent?, planner_model?}` → start in the named local workspace or return `{state: awaiting_owner, request_id, notification_id}` when consent is needed. Full access, package and vault checks apply. |
+| POST | `/api/mesh/peer-ask-outcome` | Signed Full-access paired-peer `{request_id}` → finished ask outcome, or HTTP 404 for an unknown ask. |
+| GET | `/api/team-templates` | List builtin and saved templates as `{templates}`. |
+| POST | `/api/team-templates/preview` | `{template}` → the start form, asks, payload with opt-out ids, warnings and consent decision. |
+| POST | `/api/team-templates/recall` | `{query}` → best matches first and the default fallback. |
+| POST | `/api/team-templates/export` | `{template, format: yaml\|team\|folder, out?}` → checked package, scrub report, written `path` and exact `yaml`. |
+| POST | `/api/team-templates/import` | `{path}` → validate a package and save it to My templates, unverified; `update` lists changes from a saved version. |
+| POST | `/api/team-templates/delete` | `{template}` → remove a saved template (one version or all) from My templates and recall. |
+| POST | `/api/team-templates/card` | `{file_id, path}` → the Neighborhood share card for a received package file; nothing is saved. |
+| POST | `/api/teams/{team_id}/distill` | `{name, version, description, title?, license?, authors?, when?, runbook?, opt_out?, format, out?, save?, dry_run?}` → exact `yaml`, `includes`, check, scrub report, `path` and `saved`. |
+
+Exchange errors are HTTP 400 (bad request), 404 (unknown template) or 422 (refused package) with `{code, message, diagnostics?}`.
+
+<!-- revision: 16 -->

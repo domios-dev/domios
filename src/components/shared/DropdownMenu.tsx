@@ -109,6 +109,8 @@ interface DropdownMenuProps {
   /** Pixel cap on the open menu; content beyond it scrolls internally. */
   maxHeight?: number;
   onOpenChange?: (open: boolean) => void;
+  /** A pointer open focuses the first item, as a keyboard open does; by default it leaves focus where it was. */
+  focusOnPointerOpen?: boolean;
 }
 
 /**
@@ -129,6 +131,7 @@ export function DropdownMenu({
   disabled,
   maxHeight,
   onOpenChange,
+  focusOnPointerOpen = false,
 }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
@@ -332,7 +335,7 @@ export function DropdownMenu({
     <>
       <div
         ref={triggerRef}
-        onPointerDown={disabled ? undefined : toggle}
+        onPointerDown={disabled ? undefined : (event) => toggle(event, focusOnPointerOpen)}
         onPointerUp={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(event) => {
@@ -358,7 +361,7 @@ export function DropdownMenu({
         {triggerWithPopup}
       </div>
       {!open && <div id={menuId} role="menu" aria-label={menuLabel} hidden />}
-      <AnchoredPopover open={open} anchor={contextPoint ?? triggerRef} placement={placement} width={maxWidth} gap={contextPoint ? 0 : 2}>
+      <AnchoredPopover open={open} anchor={contextPoint ?? triggerRef} placement={placement} width={maxWidth} gap={contextPoint ? 0 : 2} portalContainer={triggerRef.current?.closest('[aria-modal="true"]')}>
           <div
             ref={menuRef}
             id={menuId}
@@ -394,7 +397,7 @@ export function DropdownMenu({
               moveFocus(event.key);
             }}
             aria-description={activeSubmenu?.description}
-            className="ct-menu w-max"
+            className={`ct-menu w-max${triggerRef.current?.closest('[aria-modal="true"]') ? " ct-menu--modal" : ""}`}
             style={{ width: maxWidth ?? (inSubmenu && pageWidth ? pageWidth : undefined), maxHeight, maxWidth }}
           >
             <div key={submenuKey ?? "root"} className="ct-menu-page" data-direction={pageDirection ?? undefined}>
@@ -557,9 +560,11 @@ export function DropdownSelect({
   leading,
   prefix,
   "aria-label": ariaLabel,
+  "aria-describedby": ariaDescribedBy,
   menuMaxHeight,
   className,
   "data-testid": testId,
+  focusOnPointerOpen,
 }: {
   options: DropdownSelectOption[];
   value: string;
@@ -572,10 +577,12 @@ export function DropdownSelect({
    *  "Effort" → "Effort Medium". */
   prefix?: string;
   "aria-label"?: string;
+  "aria-describedby"?: string;
   /** Pixel cap on the open menu; longer lists scroll internally. */
   menuMaxHeight?: number;
   className?: string;
   "data-testid"?: string;
+  focusOnPointerOpen?: boolean;
 }) {
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? placeholder ?? "";
@@ -606,6 +613,7 @@ export function DropdownSelect({
       data-value={value}
       disabled={disabled}
       aria-label={ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined}
+      aria-describedby={ariaDescribedBy}
       className={`${SELECT_TRIGGER} ${className ?? ""}`}
     >
       {leading}
@@ -635,6 +643,7 @@ export function DropdownSelect({
       className="w-full min-w-0"
       maxHeight={menuMaxHeight}
       disabled={disabled}
+      focusOnPointerOpen={focusOnPointerOpen}
     />
   );
 }

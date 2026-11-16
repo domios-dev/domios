@@ -17,25 +17,27 @@ fn open_and_send_children_receive_host_tab_credential_and_nonce() {
     ]);
     let host: Arc<dyn PluginHostCtx> = Arc::new(host);
     let vm = vm_with(
-        r#"
-        let last = "";
-        function probe(then) {
-            const opts = host.platform() === "windows"
-                ? { bin: "powershell", args: ["-NoProfile", "-Command",
+        r#"let last = "";
+function probe(then) {
+    return host.io.run((function* () {
+        const opts = host.platform() === "windows"
+            ? { bin: "powershell", args: ["-NoProfile", "-Command",
                     "& powershell -NoProfile -Command '[Console]::Out.Write(($env:CODETERM_API_TOKEN, $env:CODETERM_TAB_ID, $env:CODETERM_SESSION_BINDING_NONCE -join [char]124))'"] }
-                : { bin: "sh", args: ["-c", "sh -c 'printf %s \"$CODETERM_API_TOKEN|$CODETERM_TAB_ID|$CODETERM_SESSION_BINDING_NONCE\"'"] };
-            opts.env = { CODETERM_API_TOKEN: "owner-secret", CODETERM_TAB_ID: "foreign", CODETERM_SESSION_BINDING_NONCE: "stale" };
-            return host.exec.async(opts, function (out) {
-                if (out.code !== 0) throw new Error(JSON.stringify(out));
-                return then(out.stdout);
-            });
-        }
-        module.exports.default = {
-            openSession() { return probe(function (value) { last = value; return { sessionId: "s1" }; }); },
-            sendMessage() { return probe(function (value) { last = value; }); },
-            poll() { return [{ id: "1", type: "assistant", content: last }]; }
-        };
-    "#,
+            : { bin: "sh", args: ["-c", "sh -c 'printf %s \"$CODETERM_API_TOKEN|$CODETERM_TAB_ID|$CODETERM_SESSION_BINDING_NONCE\"'"] };
+        opts.env = { CODETERM_API_TOKEN: "owner-secret", CODETERM_TAB_ID: "foreign", CODETERM_SESSION_BINDING_NONCE: "stale" };
+        return (function (out) {
+            if (out.code !== 0)
+                throw new Error(JSON.stringify(out));
+            return then(out.stdout);
+        })((yield* host.io.exec(opts)));
+    }).call(this));
+}
+module.exports.default = {
+    openSession() { return probe(function (value) { last = value; return { sessionId: "s1" }; }); },
+    sendMessage() { return probe(function (value) { last = value; }); },
+    poll() { return [{ id: "1", type: "assistant", content: last }]; }
+};
+"#,
     );
     assert!(vm.set_service(Arc::downgrade(&host)));
     let backend = JsChatBackend::new(vm, "test-chatbackend");
@@ -124,17 +126,20 @@ fn chatbackend_host_exec_env_includes_tab_identity() {
 fn send_message_host_exec_sees_chatbackend_tab_identity() {
     let vm = vm_with(
         r#"let last = "";
-           module.exports.default = {
-             openSession(ctx) { return { sessionId: "s1" }; },
-             sendMessage(sid, text) {
-               const opts = host.platform() === "windows"
-                 ? { bin: "powershell", args: ["-NoProfile", "-Command", "[Console]::Out.Write($env:CODETERM_TAB_ID)"] }
-                 : { bin: "sh", args: ["-c", "printf %s \"$CODETERM_TAB_ID\""] };
-               const out = JSON.parse(host.exec(JSON.stringify(opts)));
-               last = out.stdout || "";
-             },
-             poll() { return [{ id: "1", type: "assistant", content: last }]; }
-           }"#,
+module.exports.default = {
+    openSession(ctx) { return { sessionId: "s1" }; },
+    sendMessage(sid, text) {
+        return host.io.run((function* () {
+            const opts = host.platform() === "windows"
+                ? { bin: "powershell", args: ["-NoProfile", "-Command", "[Console]::Out.Write($env:CODETERM_TAB_ID)"] }
+                : { bin: "sh", args: ["-c", "printf %s \"$CODETERM_TAB_ID\""] };
+            const out = JSON.parse(JSON.stringify((yield* host.io.exec(JSON.parse(JSON.stringify(opts))))));
+            last = out.stdout || "";
+        }).call(this));
+    },
+    poll() { return [{ id: "1", type: "assistant", content: last }]; }
+};
+"#,
     );
     let b = JsChatBackend::new(vm, "local-shell");
     let sid = b
@@ -432,7 +437,7 @@ fn context_owner_comes_from_manifest_key() {
         r#"{
             "id": "context-owner-fixture",
             "version": "0.1.0",
-            "displayName": "Context Owner Fixture",
+            "hostIoJobs":true,"displayName": "Context Owner Fixture",
             "capabilities": { "chatBackend": { "contextOwner": "host" } }
         }"#,
     )
@@ -449,7 +454,7 @@ fn context_owner_absent_manifest_key_is_plugin() {
         r#"{
             "id": "context-owner-absent-fixture",
             "version": "0.1.0",
-            "displayName": "Context Owner Absent Fixture",
+            "hostIoJobs":true,"displayName": "Context Owner Absent Fixture",
             "capabilities": { "chatBackend": { "spawnable": true } }
         }"#,
     )
@@ -465,7 +470,7 @@ fn watcher_capable_comes_from_manifest_flag() {
         r#"{
             "id": "lmstudio",
             "version": "0.1.0",
-            "displayName": "LM Studio",
+            "hostIoJobs":true,"displayName": "LM Studio",
             "capabilities": { "chatBackend": { "spawnable": true, "watcher": true } }
         }"#,
     )

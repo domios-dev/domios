@@ -107,7 +107,7 @@ pub async fn gate_ask(
             .map_err(plan_err)?;
         let request_id = request.request_id.clone();
         if let Some(tab_id) = routed_to.as_deref() {
-            let _ = state.svc.replay_planner_requests_if_routable(tab_id);
+            state.svc.replay_planner_requests_if_routable(tab_id);
         }
         let gate_context = state
             .svc

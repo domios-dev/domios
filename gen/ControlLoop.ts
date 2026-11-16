@@ -6,9 +6,14 @@ import type { CuratorFailure } from "./CuratorFailure";
 import type { CuratorRound } from "./CuratorRound";
 import type { CuratorRun } from "./CuratorRun";
 import type { CuratorSuspension } from "./CuratorSuspension";
+import type { CuratorWindow } from "./CuratorWindow";
 
 export type ControlLoop = { manual_run_requested: boolean, real_rounds_started: number, last_synthesis_group_close_at: number | null, mode: ControlLoopMode, heartbeat_interval_secs: number | null, next_at: number | null, last_round: CuratorRound | null, fallback_reason: CuratorFailure | null, suspended_reason: CuratorSuspension | null, 
 /**
  * Projected from `curator_round` strides by readers; storage never supplies it.
  */
-counts_7d: CuratorCounts, consecutive_failures: number, last_real_round_at: number | null, cron_id: string | null, running: CuratorRun | null, owner_turn_cursor: string | null, owner_session_key: string | null, task_states: { [key in string]: string }, agent_states: { [key in string]: CuratorAgentState }, observed_owner_answers: Array<string>, save_candidates: { [key in string]: Array<string> }, save_candidate_shapes: { [key in string]: string }, };
+counts_7d: CuratorCounts, consecutive_failures: number, last_real_round_at: number | null, cron_id: string | null, running: CuratorRun | null, owner_turn_cursor: string | null, owner_session_key: string | null, task_states: { [key in string]: string }, agent_states: { [key in string]: CuratorAgentState }, observed_owner_answers: Array<string>, save_candidates: { [key in string]: Array<string> }, save_candidate_shapes: { [key in string]: string }, 
+/**
+ * The Team's registered Curator schedule, clamped into the host bounds.
+ */
+curator_window: CuratorWindow | null, };

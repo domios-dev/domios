@@ -65,7 +65,7 @@ bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" 
 EXIT_WAIT_PROCESS=$BENCH_STREAM_PID
 read -r ready <&8
 [ "$ready" = READY ] || fail "exit observer readiness"
-EXIT_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$EXIT_TITLE" --role Orchestrator --non-user-facing --args --lifecycle-exit-fixture --stub-session "$EXIT_SESSION")"
+EXIT_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$EXIT_TITLE" --role orchestrator --non-user-facing --args --lifecycle-exit-fixture --stub-session "$EXIT_SESSION")"
 EXIT_TAB="$(json_field "$EXIT_SPAWN" '.result.tab_id')"
 read -r EXIT_OBSERVED <&8
 wait "$EXIT_WAIT_PROCESS"
@@ -92,7 +92,7 @@ bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" 
 EXIT_RECOVERY_WAIT_PROCESS=$BENCH_STREAM_PID
 read -r ready <&8
 [ "$ready" = READY ] || fail "exited-shell replacement observer readiness"
-EXIT_REPLACEMENT_SPAWN="$(dc --json agent spawn claude --team "$EXIT_TEAM_ID" --role Orchestrator)"
+EXIT_REPLACEMENT_SPAWN="$(dc --json agent spawn claude --team "$EXIT_TEAM_ID" --role orchestrator)"
 EXIT_REPLACEMENT="$(json_field "$EXIT_REPLACEMENT_SPAWN" '.result.tab_id')"
 read -r EXIT_RECOVERED <&8
 wait "$EXIT_RECOVERY_WAIT_PROCESS"
@@ -180,7 +180,7 @@ bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" 
 OWNER_WAIT_PROCESS=$BENCH_STREAM_PID
 read -r ready <&8
 [ "$ready" = READY ] || fail "owner observer readiness"
-OWNER_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$ORCH_TITLE" --role Orchestrator --non-user-facing)"
+OWNER_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$ORCH_TITLE" --role orchestrator --non-user-facing)"
 OLD_ORCHESTRATOR="$(json_field "$OWNER_SPAWN" '.result.tab_id')"
 read -r OWNER_OBSERVED <&8
 wait "$OWNER_WAIT_PROCESS"
@@ -204,7 +204,7 @@ bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" 
 RECOVERY_WAIT_PROCESS=$BENCH_STREAM_PID
 read -r ready <&8
 [ "$ready" = READY ] || fail "recovery observer readiness"
-REPLACEMENT_SPAWN="$(dc --json agent spawn claude --team "$TEAM_ID" --role Orchestrator)"
+REPLACEMENT_SPAWN="$(dc --json agent spawn claude --team "$TEAM_ID" --role orchestrator)"
 REPLACEMENT="$(json_field "$REPLACEMENT_SPAWN" '.result.tab_id')"
 read -r RECOVERED <&8
 wait "$RECOVERY_WAIT_PROCESS"

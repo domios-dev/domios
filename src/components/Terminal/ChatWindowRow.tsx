@@ -10,6 +10,7 @@ export function ChatWindowRow({ message, children, liveActivityLabel }: {
   if (!hasChatWindowRow(message)) return null;
   return <div
     data-chat-window-row={message.id}
+    data-testid={liveActivityLabel ? "chat-live-operation" : undefined}
     role={liveActivityLabel ? "status" : undefined}
     aria-live={liveActivityLabel ? "polite" : undefined}
     aria-label={liveActivityLabel}

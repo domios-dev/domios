@@ -326,7 +326,7 @@ pub(super) fn dispatch(
                 .map_err(draft_mutation_rpc_err)?;
             codeterm_service_core::service::ensure_planner_task_fields_are_structural(
                 &author,
-                p.unwrap_or(&Value::Null),
+                &normalized,
             )
             .map_err(|message| JsonRpcError {
                 code: -32003,
@@ -411,16 +411,7 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("intent"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
-                        execution_intent: execution_intent_field(
-                            p,
-                            Some(
-                                store
-                                    .document_metadata(&id)
-                                    .map_err(plan_rpc_err)?
-                                    .project_path
-                                    .as_str(),
-                            ),
-                        )?,
+                        execution_intent: execution_intent_field(p)?,
                         parent_task_id: p
                             .and_then(|x| x.get("parent"))
                             .and_then(|v| v.as_str())

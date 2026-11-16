@@ -1,5 +1,4 @@
 import { memo, useMemo, type ReactNode } from "react";
-import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { ChatDaySeparator, ChatHighlightRow, MessageBubble, MessageTimeFrame, OutboundReportCard, messageRowTime } from "@codeterm/chat-ui";
 import type { Notification } from "../../lib/types";
@@ -8,7 +7,6 @@ import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { ChatWindowRow } from "./ChatWindowRow";
 import { ChatMessageRow, type MessageRowHandlers } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
-import { ChatLiveOperation } from "./ChatLiveOperation";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
@@ -63,9 +61,6 @@ export interface ChatTranscriptRowProps {
   reports: readonly OutboundReportEntry[];
   asks: readonly Notification[];
   liveActivityLabel?: string;
-  hideMessage?: boolean;
-  /** The running turn's live operation, drawn above the send queued behind that turn. */
-  leadingLiveOperation?: NormalizedChatMessage | null;
   deliverySend?: DeliverySend;
   deliveryView?: DeliveryState;
   deliveryBehindTurn?: boolean;
@@ -93,7 +88,7 @@ export function OutboundReportRow({ entry, context }: { entry: OutboundReportEnt
       <MessageTimeFrame timestamp={entry.at == null ? undefined : String(entry.at)} side="left">
         <OutboundReportCard
           report={entry.descriptor}
-          onFocusTab={() => context.onFocusTab(entry.targetTabId)}
+          onFocusTab={entry.targetTabId ? () => context.onFocusTab(entry.targetTabId) : undefined}
           fontScale={context.uiFontScale}
           onOpenPlan={context.onOpenPlan}
           resolvePlanRef={context.resolvePlanRef}
@@ -130,7 +125,7 @@ function sameRowProps(left: ChatTranscriptRowProps, right: ChatTranscriptRowProp
 }
 
 /** One transcript row; it renders again only when its own message, rails, delivery or selection change. */
-export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel, hideMessage, leadingLiveOperation,
+export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel,
   deliverySend, deliveryView, deliveryBehindTurn, sourceOrdinal, selected, joinNext, selecting, cursor, streaming, latestFailedToolCall,
   forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
@@ -145,9 +140,8 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   const turnId = msg.toolFlowId;
   return (
     <ChatWindowRow message={msg} liveActivityLabel={liveActivityLabel}>
-      {leadingLiveOperation && <ChatLiveOperation message={leadingLiveOperation} />}
       <ChatDaySeparator label={daySeparator} />
-      {!hideMessage && <ChatHighlightRow id={msg.id}>
+      <ChatHighlightRow id={msg.id}>
         <ChatMessageRow
           msg={msg}
           timestamp={messageRowTime(msg, item, origin)?.timestamp}
@@ -199,7 +193,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             onJumpToMessage={context.onJumpToMessage}
           />
         </ChatMessageRow>
-      </ChatHighlightRow>}
+      </ChatHighlightRow>
       {reports.map((report) => <OutboundReportRow key={report.descriptor.reportId} entry={report} context={context} />)}
       {asks.map((ask) => <AskRow key={ask.id} ask={ask} context={context} />)}
     </ChatWindowRow>

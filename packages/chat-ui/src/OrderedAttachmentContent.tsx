@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { placedAttachmentSegments, type ChatAttachment } from "@codeterm/chat-core";
 import { InlineAttachmentText } from "./AttachmentCapsule";
 
-export function OrderedAttachmentContent({ content, attachments = [], renderText, renderInlineText }: {
+export function OrderedAttachmentContent({ content, attachments = [], renderText, renderInlineText, attachmentNames }: {
+  attachmentNames?: Readonly<Record<string, string>>;
   content: string;
   attachments?: ChatAttachment[];
   renderText: (text: string) => ReactNode;
@@ -10,6 +11,6 @@ export function OrderedAttachmentContent({ content, attachments = [], renderText
 }) {
   const segments = placedAttachmentSegments(content, attachments);
   return segments.some((segment) => "attachment" in segment)
-    ? <InlineAttachmentText segments={segments} renderText={renderInlineText} />
+    ? <InlineAttachmentText segments={segments} renderText={renderInlineText} attachmentNames={attachmentNames} />
     : <>{renderText(content)}</>;
 }

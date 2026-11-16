@@ -1,8 +1,10 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import plugin, { forward, parseOf } from "../src/plugin";
+import rawPlugin, { forward as forwardSteps, parseOf } from "../src/plugin";
+const {plugin, forward} = ioTestExport({plugin: rawPlugin, forward: forwardSteps});
 import { redactCredentials } from "../src/redaction";
 import redactionCases from "./redaction-cases.json";
 

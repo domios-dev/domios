@@ -23,15 +23,15 @@ matrix-created Tabs are gone. Refused cleanup commands print their error body.
 | Route | Command under test | Core observable |
 |-------|--------------------|-----------------|
 | **B** CLI pair | `team pair --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns two tab ids with no `plan_id`; no Plan exists before a first goal; `tab list` shows both; launch diagnostics confirm the Orchestrator prompt was supplied; **B.IDLE** verifies the Planner remains idle and no Plan appears before the first goal; the first Plan binds to the paired Planner |
-| **C** role spawn | `agent spawn claude --role Orchestrator --workspace <ws> --task …` | launch diagnostics confirm the Orchestrator prompt was supplied; exact prompt composition is covered by source tests; unpaired nudge fires next cycle |
+| **C** role spawn | `agent spawn claude --role orchestrator --workspace <ws> --task …` | launch diagnostics confirm the Orchestrator prompt was supplied; exact prompt composition is covered by source tests; unpaired nudge fires next cycle |
 | **D** promotion | `POST /api/tabs/{id}/make-orchestrator` (no CLI subcommand exists) | role becomes Manager with `role_profile=orchestrator`; **session survives**; launch diagnostics confirm the system prompt was supplied; unpaired nudge next cycle |
-| **E** planner bind | `agent spawn claude --role Planner --plan <id> --parent-tab <orch>` | plan planner ref binds to the new tab; launch diagnostics confirm the Planner system prompt was supplied; **nudge stops** |
+| **E** planner bind | `agent spawn claude --role planner --plan <id> --parent-tab <orch>` | plan planner ref binds to the new tab; launch diagnostics confirm the Planner system prompt was supplied; **nudge stops** |
 | **F** waiver | `plan update <plan> --planner none --note "solo test"` | waiver recorded (`planner.kind=waived` + note); nudge stops; `--planner none` **without** `--note` refused |
 | **G** doctor ladder | `plan doctor <plan> --kind quality` | `planner_unpaired` = WARNING while unpaired+planning; `plan approve` renders it as ERROR; a Planner waiver makes it silent |
 | **H** negatives | see below | actionable CLI error + **zero object leak** on every failure path |
 
 **H negatives:**
-1. `agent spawn --role Orchestrator` with **no** `--workspace` → actionable error, zero tabs.
+1. `agent spawn --role orchestrator` with **no** `--workspace` → actionable error, zero tabs.
 2. A Worker-attributed `team pair` without `--acknowledge-leaf` → refused by the hierarchy guard, with no Plan or Tab created. The focused product test covers both Worker and Manager callers. REST caller identity comes from the authenticated tab header, not a body claim.
 3. `team pair` with valid `claude` Orchestrator and unknown Planner provider →
    clean fail before any Tab or Plan is created.

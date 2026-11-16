@@ -134,7 +134,7 @@ fn chatbackend_context_owner_descriptor_native_js_parity() {
         r#"{
             "id":"context-owner-host-fixture",
             "version":"0.1.0",
-            "displayName":"Context Owner Host Fixture",
+            "hostIoJobs":true,"displayName":"Context Owner Host Fixture",
             "capabilities":{"chatBackend":{"contextOwner":"host"}}
         }"#,
         "module.exports.default = {};",
@@ -153,7 +153,7 @@ fn chatbackend_context_owner_descriptor_native_js_parity() {
         r#"{
             "id":"context-owner-absent-fixture",
             "version":"0.1.0",
-            "displayName":"Context Owner Absent Fixture",
+            "hostIoJobs":true,"displayName":"Context Owner Absent Fixture",
             "capabilities":{"chatBackend":{"spawnable":true}}
         }"#,
         "module.exports.default = {};",
@@ -178,7 +178,7 @@ fn chatbackend_send_turn_native_js_parity() {
         r#"{
             "id":"context-owner-send-turn-fixture",
             "version":"0.1.0",
-            "displayName":"Send Turn Fixture",
+            "hostIoJobs":true,"displayName":"Send Turn Fixture",
             "capabilities":{"chatBackend":{"contextOwner":"host"}}
         }"#,
         r#"let received = "";
@@ -228,7 +228,7 @@ fn chatbackend_send_turn_export_probe_native_js_parity() {
     let manifest = r#"{
         "id":"context-owner-probe-fixture",
         "version":"0.1.0",
-        "displayName":"Send Turn Probe Fixture",
+        "hostIoJobs":true,"displayName":"Send Turn Probe Fixture",
         "capabilities":{"chatBackend":{"contextOwner":"host"}}
     }"#;
 

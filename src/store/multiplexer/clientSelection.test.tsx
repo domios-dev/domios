@@ -102,7 +102,8 @@ async function mountClient() {
   mounted.push(root);
   await act(async () => root.render(createElement(store.MultiplexerProvider, null, createElement(Probe))));
   await settle();
-  return { selection: () => selectionOf(holder.state!), actions: () => holder.actions!, changes: () => holder.changes.length };
+  return { selection: () => selectionOf(holder.state!), actions: () => holder.actions!, changes: () => holder.changes.length,
+    tab: (id: string) => holder.state!.tabs[id] };
 }
 
 async function mountClients(daemon: ReturnType<typeof createDaemon>) {
@@ -150,27 +151,24 @@ describe("each client keeps its own selection", () => {
     expect(b.selection()).toEqual(before);
   });
 
-  it("an explicit focus request shows its tab in every client", async () => {
-    const daemon = createDaemon({ chatty: false });
-    const { a, b } = await mountClients(daemon);
-
-    await act(async () => { daemon.emit("tab-focus-requested", { tab_id: "b1", workspace_id: "ws-b" }); });
-    await settle();
-
-    expect(a.selection()).toEqual(["ws-b", "b1", "b1"]);
-    expect(b.selection()).toEqual(["ws-b", "b1", "b1"]);
-  });
-
-  it("an explicit workspace request opens that workspace in every client at its own tab there", async () => {
+  it("a focus request highlights its tab in every client and moves none, even when replayed late", async () => {
     const daemon = createDaemon({ chatty: false });
     const { a, b } = await mountClients(daemon);
     await act(async () => { a.actions().setActiveTab("ws-a", "a2"); });
-    await act(async () => { a.actions().setActiveTab("ws-b", "b1"); });
+    const before = [a.selection(), b.selection()];
+    const highlighted = snapshot(daemon.state.generation! + 1, "ws-b", { "ws-a": "a1" });
+    highlighted.tabs.b1 = { ...highlighted.tabs.b1, focus_requested: true };
+    daemon.state = highlighted;
 
-    await act(async () => { daemon.emit("tab-focus-requested", { tab_id: null, workspace_id: "ws-a" }); });
+    await act(async () => {
+      daemon.emit("mux-state-changed", daemon.state);
+      daemon.emit("tab-focused", { tab_id: "b1" });
+      daemon.emit("tab-focus-requested", { tab_id: "b1", workspace_id: "ws-b" });
+    });
     await settle();
 
-    expect(a.selection()).toEqual(["ws-a", "a2", "a2"]);
-    expect(b.selection()).toEqual(["ws-a", "a1", "a1"]);
+    expect([a.selection(), b.selection()]).toEqual(before);
+    expect(a.tab("b1")?.focus_requested).toBe(true);
+    expect(b.tab("b1")?.focus_requested).toBe(true);
   });
 });

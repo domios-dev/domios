@@ -9,6 +9,8 @@ for (const kind of ["managers", "workers", "agents", "utilities", "jobs", "servi
   assert.equal(active.activity, "4 working");
   assert.equal(active.accessibleName, `${idle.label}, 4 working`);
 }
+assert.equal(sidebarSectionModel("utilities", 3, 1, 2).accessibleName, "UTILITIES 3, 1 working, 2 needs attention");
+assert.equal(sidebarSectionModel("utilities", 3, 0, 9).attention, 3);
 assert.equal(sidebarSectionModel("workers", 2, 3).working, 2);
 assert.equal(sidebarSectionModel("workers", -1, -2).count, 0);
 assert.equal(sidebarSectionModel("workers", Number.NaN, Number.NaN).activity, null);

@@ -10,8 +10,8 @@ suffix plus the map-authoring checklist. Compose it before running, so the eval
 measures what the agent actually gets:
 
 ```bash
-cat src-tauri/prompts/worker_suffix.md src-tauri/prompts/cartographer_suffix.md \
-  > "$TMPDIR/cartographer_contract.md"
+domios role show cartographer --occasion launch_assignment --json \
+  | jq -r '.result.occasions[0].text' > "$TMPDIR/cartographer_contract.md"
 ```
 
 ## Run

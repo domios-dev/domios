@@ -6,25 +6,25 @@ export interface SavedSolution { id: string; workspaceId: string; when_to_use: s
 export interface SolutionDocument { title: string; body: string; tags: readonly string[] }
 export interface SolutionScope { workspace_id: string; team_id: string | null; id: string }
 export interface BlueprintSolutionsApi {
-  list(workspaceId: string): Promise<Omit<SavedSolution, "workspaceId">[]>;
+  list(workspaceId: string, signal?: AbortSignal): Promise<Omit<SavedSolution, "workspaceId">[]>;
   save(scope: SolutionScope, when: string, tags: readonly string[]): Promise<{ id: string; status: "saved" }>;
   archive(workspaceId: string, id: string): Promise<unknown>;
-  document(id: string): Promise<SolutionDocument>;
+  document(id: string, signal?: AbortSignal): Promise<SolutionDocument>;
   search(workspaceId: string, query: string): Promise<readonly string[]>;
 }
-async function request<T>(action: string, body: object, confirmation?: string): Promise<T> {
+async function request<T>(action: string, body: object, confirmation?: string, signal?: AbortSignal): Promise<T> {
   const response = await webFetch(`/api/automation/blueprints/solutions/${action}`, {
-    method: "POST", headers: { "Content-Type": "application/json", ...(confirmation ? { "X-CodeTerm-Blueprint-Confirmation": confirmation } : {}) }, body: JSON.stringify(body),
+    method: "POST", headers: { "Content-Type": "application/json", ...(confirmation ? { "X-CodeTerm-Blueprint-Confirmation": confirmation } : {}) }, body: JSON.stringify(body), signal,
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
 }
 export const blueprintSolutionsApi: BlueprintSolutionsApi = {
-  list: (workspaceId) => request("list", { workspace_id: workspaceId }),
+  list: (workspaceId, signal) => request("list", { workspace_id: workspaceId }, undefined, signal),
   save: (scope, when, tags) => request("save", { ...scope, when_to_use: when, tags }, scope.id),
   archive: (workspaceId, id) => request("archive", { workspace_id: workspaceId, team_id: null, id }, id),
-  document: async (id) => {
-    const response = await webFetch(`/api/mem/items/${encodeURIComponent(id)}`);
+  document: async (id, signal) => {
+    const response = await webFetch(`/api/mem/items/${encodeURIComponent(id)}`, { signal });
     if (!response.ok) throw new Error(await response.text());
     const item = await response.json() as { title: string; body: string; tags?: string[] };
     return { title: item.title, body: item.body, tags: item.tags ?? [] };

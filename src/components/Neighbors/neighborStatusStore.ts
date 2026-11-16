@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { listen } from "../../lib/bridge";
 import { SharedRead } from "../../lib/sharedRead";
 import { receiverState, type ChannelStatus, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { receiverLocation, receiverLocationFields } from "./neighborReceiverLocationModel";
 
 /** The runtime status every Neighbors surface shares: one read, then events keep it current. */
 export type NeighborStatusSnapshot = Omit<ChannelStatus, "concierges"> & { concierges?: Record<string, unknown> };
@@ -32,7 +33,13 @@ function keepNewerReceiver(fresh: NeighborStatusSnapshot, current: NeighborStatu
     const receivers = { ...next.friend_receivers };
     for (const [id, receiver] of Object.entries(current.friend_receivers ?? {})) {
       const observed = receivers[id];
-      if (observed && receiver.revision >= observed.revision) receivers[id] = receiver;
+      if (observed && receiver.revision >= observed.revision) {
+        const sameInstallation = receiverLocation(receiver).installationId !== null
+          && receiverLocation(receiver).installationId === receiverLocation(observed).installationId;
+        receivers[id] = receiver.revision === observed.revision && sameInstallation
+          ? { ...receiver, ...receiverLocationFields(observed), receiving_enabled: observed.receiving_enabled, not_receiving_reason: observed.not_receiving_reason }
+          : receiver;
+      }
     }
     next = { ...next, friend_receivers: receivers };
   }
@@ -64,7 +71,7 @@ class StatusStore extends SharedRead<NeighborStatusSnapshot> {
       const { receiving_here, receiver_machine_label, receiving_enabled, revision, is_me, not_receiving_reason } = event;
       this.write({ ...current, friend_receivers_version: event.friend_receivers_version ?? current.friend_receivers_version,
         friend_receivers: { ...current.friend_receivers,
-          [event.friendship_id]: { receiving_here, receiver_machine_label, receiving_enabled, revision, is_me, ...(not_receiving_reason ? { not_receiving_reason } : {}) } } });
+          [event.friendship_id]: { receiving_here, receiver_machine_label, receiving_enabled, revision, is_me, ...receiverLocationFields(event), ...(not_receiving_reason ? { not_receiving_reason } : {}) } } });
       reread();
     }).then(keep);
     void listen<unknown>("neighbor-concierge-status", event => {
@@ -77,6 +84,7 @@ class StatusStore extends SharedRead<NeighborStatusSnapshot> {
     void listen("neighbor-agent-changed", reread).then(keep);
     // Membership expiry and renewal change which machine may be shown receiving.
     void listen("account-mesh-changed", reread).then(keep);
+    void listen("mesh-state-changed", reread).then(keep);
     void listen("account-changed", () => { if (this.live) resetNeighborStatus(); }).then(keep);
     void this.read(load).catch(() => {});
   }

@@ -77,6 +77,7 @@ impl MultiplexerState {
             managed: None,
             role: None,
             role_profile: None,
+            role_label: None,
             team_id: None,
             watcher: None,
             parent_tab_id: None,
@@ -109,6 +110,7 @@ impl MultiplexerState {
             worker_id: None,
             frozen: false,
             has_checklist: false,
+            focus_requested: false,
             slept_at_ms: None,
             sleep_reason: None,
             last_active_at_ms: None,
@@ -256,6 +258,17 @@ impl MultiplexerState {
         match self.tabs.get_mut(tab_id) {
             Some(tab) if tab.has_checklist != present => {
                 tab.has_checklist = present;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Returns whether the highlight changed; an unknown tab changes nothing.
+    pub fn set_tab_focus_requested(&mut self, tab_id: &str, requested: bool) -> bool {
+        match self.tabs.get_mut(tab_id) {
+            Some(tab) if tab.focus_requested != requested => {
+                tab.focus_requested = requested;
                 true
             }
             _ => false,

@@ -1,3 +1,4 @@
+import { ioResolve, type HostIoSteps } from "@codeterm/plugin-sdk";
 export const registryBounds = {bytes: 2 * 1024 * 1024, agents: 512, string: 4096, args: 128} as const;
 export interface PackageDistribution {package: string; args: string[]; env: Record<string, string>}
 export interface BinaryDistribution {archive: string; cmd: string; args: string[]; env: Record<string, string>; sha256?: string}
@@ -95,14 +96,14 @@ export function decodeRegistry(text: string): RegistryIndex {
   });
   return {version: "1.0.0", agents};
 }
-export interface RegistryCachePort {read(): string | null; write(text: string): boolean}
-export function searchRegistryCache(cache: RegistryCachePort, query: string): RegistryAgent[] {
-  const text = cache.read();
+export interface RegistryCachePort {read(): string | null | HostIoSteps<string | null>; write(text: string): boolean | HostIoSteps<boolean>}
+export function* searchRegistryCache(cache: RegistryCachePort, query: string): HostIoSteps<RegistryAgent[]> {
+  const text = yield* ioResolve(cache.read());
   if (text === null) return [];
   const needle = query.trim().slice(0, 256).toLowerCase();
   return decodeRegistry(text).agents.filter(agent => `${agent.id} ${agent.name} ${agent.description}`.toLowerCase().includes(needle));
 }
-export function saveRegistryCache(cache: RegistryCachePort, text: string): void {
+export function* saveRegistryCache(cache: RegistryCachePort, text: string): HostIoSteps<void> {
   decodeRegistry(text);
-  if (!cache.write(text)) throw new Error("ACP registry cache could not be saved");
+  if (!(yield* ioResolve(cache.write(text)))) throw new Error("ACP registry cache could not be saved");
 }

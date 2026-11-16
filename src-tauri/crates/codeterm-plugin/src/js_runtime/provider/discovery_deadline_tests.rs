@@ -45,10 +45,9 @@ impl Drop for ReleaseOnDrop {
 
 fn manifest() -> PluginManifest {
     serde_json::from_value(json!({
-        "id": PLUGIN,
-        "version": "0.0.0",
-        "displayName": "Discovery deadline",
-        "hostIoJobs": true
+    "id": PLUGIN,
+    "version": "0.0.0",
+    "hostIoJobs":true,"displayName": "Discovery deadline",
     }))
     .expect("manifest")
 }

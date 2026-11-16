@@ -371,3 +371,20 @@ describe("mission control models card", () => {
     await unmount();
   });
 });
+
+it("shows unreported provider usage separately from measured models", async () => {
+  const spend = teamSpendFixture();
+  spend.usage_providers = [{provider:"claude",state:"reported"},{provider:"acp",state:"no_usage_reported"}];
+  const view = await mount(<ModelsCard teamSpend={spend} />);
+  expect(view.host.textContent).toContain("acp: no usage reported");
+  expect(modelCells(view.host).length).toBeGreaterThan(0);
+  await view.unmount();
+});
+
+it("shows no usage reported when the team has activity without token records", async () => {
+  const spend = {...teamSpendFixture(), state:"not_recording" as const, not_recording_reason:"no_rows_for_team", daily:[]};
+  const view = await mount(<SpendCard teamSpend={spend} />);
+  expect(view.host.textContent).toContain("no usage reported");
+  expect(view.host.querySelector('[data-testid="mc-board-spend-new-input"]')).toBeNull();
+  await view.unmount();
+});

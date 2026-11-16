@@ -1,5 +1,6 @@
 use super::*;
 use crate::notification::store::{Ask, NotificationProvenance, NotificationSeverity};
+use crate::plan::CuratorWindow;
 use codeterm_notification_core::contract::{NotificationAction, NotifyLevel};
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -132,7 +133,7 @@ fn owner_chat_keeps_questions_open_until_explicit_resolution_resumes_curator() {
         assert_eq!(state.suspended_reason, None, "{action}");
         assert_eq!(
             state.next_at,
-            Some(now + curator_delay(None) * 1000),
+            Some(now + CuratorWindow::HOST.delay(None) * 1000),
             "{action}"
         );
         let job = cron
@@ -162,7 +163,7 @@ fn owner_chat_keeps_questions_open_until_explicit_resolution_resumes_curator() {
                 .unwrap();
             assert_eq!(
                 service.control_loop_show(&id).unwrap().next_at,
-                Some(now + curator_delay(None) * 1000)
+                Some(now + CuratorWindow::HOST.delay(None) * 1000)
             );
         }
     }

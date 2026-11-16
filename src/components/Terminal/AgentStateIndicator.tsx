@@ -83,7 +83,8 @@ export function AgentStateIndicator({
   const animated = activity.active && !background;
   // One fixed-width slot: still dots beside a resting label, moving dots while working, the clock while starting.
   // With nothing to say there is no label to keep in place, so the slot goes too.
-  const restingWithoutLabel = !animated && activity.kind !== "starting" && !status;
+  // A failed tab is not resting: nothing will run until the owner acts, so it keeps no activity slot either.
+  const restingWithoutLabel = (!animated && activity.kind !== "starting" && !status) || activity.kind === "failed";
   const dots = channelLoadingLabel
     ? <BusyState inline hideLabel label={channelLoadingLabel} phase="work" />
     : !showActivity || compacting || restingWithoutLabel ? null : (
@@ -181,7 +182,7 @@ export function AgentStateIndicator({
           Open terminal
         </button>
       )}
-      {isQuestion && onCancel && (
+      {isQuestion && tab?.pending_prompt_kind !== "provider" && onCancel && (
         <button
           type="button"
           data-testid="agent-cancel-question"

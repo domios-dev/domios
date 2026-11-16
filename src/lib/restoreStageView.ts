@@ -48,7 +48,7 @@ export function restoreActivityVisible(tab: Partial<Tab>, wake: Partial<WakeRequ
 
 export function transcriptLoadingStageView(tab: Partial<Tab>): RestoreStageView {
   const view = restoreStageView(tab);
-  if (view.phase !== "ready") return { ...view, label: tab.frozen ? "Restoring…" : "Starting…" };
+  if (view.phase !== "ready") return view.phase === "restoring" ? { ...view, label: tab.frozen ? "Restoring…" : "Starting…" } : view;
   const current = Math.max(0, view.steps.length - 2);
   return { ...view, phase: "restoring", label: "Connecting…", current,
     steps: view.steps.map((step, index) => ({ ...step, state: index < current ? "complete" : index === current ? "current" : "pending" })) };
@@ -65,7 +65,7 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
   ] : [{ id: "backend", label: "Starting terminal" }, { id: "ready", label: "Ready" }];
   const stage = tab.boot_stage;
   const runtime = tab.agent_runtime_state;
-  const deadlinePending = runtimeResponseDeadlinePending(runtime, tab.boot_failure_reason);
+  const deadlinePending = stage !== "spawn_failed" && runtimeResponseDeadlinePending(runtime, tab.boot_failure_reason);
   const activeStage = Boolean(stage && (backendStages.has(stage) || sessionStages.has(stage) || connectingStages.has(stage)));
   const ready = !tab.frozen && stage !== "spawn_failed" && runtime?.state !== "degraded" && runtime?.state !== "loginPending" && !deadlinePending
     && (stage === "agent_ready" || lazyFirstTurnComposerIsLive(tab) || (!agent && (stage === "shell_ready" || stage === "pty_reattached"))
@@ -79,14 +79,14 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
   } else if (wake?.error) {
     phase = "failed";
     detail = wake.error;
+  } else if (stage === "spawn_failed") {
+    phase = "failed";
+    detail = tab.boot_failure_reason || runtime?.reason || "The session could not be restored.";
   } else if (tab.frozen) {
     phase = wake?.requested ? "restoring" : "sleeping";
     current = -1;
     detail = wake?.requested ? "Wake requested" : null;
-  } else if (wake?.pending && stage === "spawn_failed") {
-    current = -1;
-    detail = "Wake requested";
-  } else if (!deadlinePending && (stage === "spawn_failed" || (!activeStage && runtime?.state === "degraded"))) {
+  } else if (!deadlinePending && !activeStage && runtime?.state === "degraded") {
     phase = "failed";
     detail = tab.boot_failure_reason || runtime?.reason || "The session could not be restored.";
   } else if (runtime?.state === "loginPending" || stage === "awaiting_owner_prompt") {

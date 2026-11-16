@@ -1,6 +1,25 @@
 use super::*;
+
+fn role(value: &str) -> RoleName {
+    RoleName::parse(value).expect("fixture role name")
+}
 use crate::cmd::hints::unbound_worker_binding_hint;
 use crate::cmd::report_guard::worker_binding_resolved;
+
+#[test]
+fn spawn_hints_follow_the_host_resolved_role() {
+    for role in ["Manager", "Watcher"] {
+        let result = serde_json::json!({"role": role, "role_profile": "security_lead"});
+        assert!(resolved_spawn_hints(&result, false, false, false, false).is_empty());
+    }
+    let worker = serde_json::json!({"role": "Worker", "role_profile": "custom_worker"});
+    assert_eq!(
+        resolved_spawn_hints(&worker, false, false, false, false).len(),
+        3
+    );
+    assert!(resolved_spawn_hints(&worker, true, true, true, false).is_empty());
+    assert!(resolved_spawn_hints(&serde_json::json!({}), false, false, false, false).is_empty());
+}
 
 #[test]
 fn spawned_profile_model_uses_its_declared_name() {
@@ -30,7 +49,7 @@ fn spawned_profile_model_uses_its_declared_name() {
 
 fn worker(execution_intent: Option<&'static str>, has_plan: bool) -> SpawnContext<'static> {
     SpawnContext {
-        role: Some(&SpawnRole::Worker),
+        role: Some(role("worker")),
         has_plan,
         execution_intent,
         ..Default::default()
@@ -51,8 +70,7 @@ fn worker_kinds_default_to_mutating_and_support_task_bindings() {
         for has_plan_task in [false, true] {
             assert!(
                 validate_spawn_context(&SpawnContext {
-                    role: Some(&SpawnRole::Worker),
-                    kind: Some(kind),
+                    role: Some(role(kind)),
                     has_parent: true,
                     has_plan: true,
                     has_plan_task,
@@ -65,8 +83,7 @@ fn worker_kinds_default_to_mutating_and_support_task_bindings() {
         }
         assert!(
             validate_spawn_context(&SpawnContext {
-                role: Some(&SpawnRole::Worker),
-                kind: Some(kind),
+                role: Some(role(kind)),
                 has_parent: true,
                 has_authorized_gates: true,
                 execution_intent: Some(READ_ONLY),
@@ -75,20 +92,20 @@ fn worker_kinds_default_to_mutating_and_support_task_bindings() {
             .is_ok(),
             "{kind}"
         );
+        // The daemon owns the parent rule: it defaults a Worker's parent to the spawning tab
+        // and refuses a non-anchoring role without one (multiplexer `set_tab_role_kind`).
         assert!(
             validate_spawn_context(&SpawnContext {
-                role: Some(&SpawnRole::Worker),
-                kind: Some(kind),
+                role: Some(role(kind)),
                 execution_intent: Some(READ_ONLY),
                 ..Default::default()
             })
-            .is_err(),
-            "{kind} without parent"
+            .is_ok(),
+            "{kind} without parent is the daemon's to judge"
         );
         assert!(
             validate_spawn_context(&SpawnContext {
-                role: Some(&SpawnRole::Worker),
-                kind: Some(kind),
+                role: Some(role(kind)),
                 has_parent: true,
                 has_plan_task: true,
                 execution_intent: Some(READ_ONLY),
@@ -116,8 +133,7 @@ fn reviewer_kind_defaults_to_a_read_only_taskless_review() {
         Some(MUTATING)
     );
     let reviewer = SpawnContext {
-        role: Some(&SpawnRole::Worker),
-        kind: Some("reviewer"),
+        role: Some(role("reviewer")),
         has_parent: true,
         execution_intent: Some(READ_ONLY),
         ..Default::default()
@@ -211,7 +227,7 @@ fn declared_gates_belong_to_a_task_less_worker_only() {
         ..Default::default()
     })
     .expect_err("gates are a Worker concept");
-    assert!(roleless.contains("--role Worker"), "{roleless}");
+    assert!(roleless.contains("worker --role"), "{roleless}");
 
     let task_bound = validate_spawn_context(&SpawnContext {
         has_authorized_gates: true,
@@ -241,18 +257,18 @@ fn team_spawn_fields_reject_an_empty_team() {
         .contains("Team id"));
 }
 
-/// codeterm#418: `--team --role Orchestrator` is the recovery add and needs
+/// codeterm#418: `--team --role orchestrator` is the recovery add and needs
 /// no `--workspace`; the Team names the workspace.
 #[test]
 fn team_supplies_the_workspace_for_an_orchestrator_spawn() {
     assert!(validate_spawn_context(&SpawnContext {
-        role: Some(&SpawnRole::Orchestrator),
+        role: Some(role("orchestrator")),
         has_team: true,
         ..Default::default()
     })
     .is_ok());
     assert!(validate_spawn_context(&SpawnContext {
-        role: Some(&SpawnRole::Orchestrator),
+        role: Some(role("orchestrator")),
         ..Default::default()
     })
     .is_err());
@@ -261,21 +277,16 @@ fn team_supplies_the_workspace_for_an_orchestrator_spawn() {
 #[test]
 fn team_spawn_accepts_only_the_anchoring_role() {
     assert!(validate_team_spawn_role(None).is_ok());
-    assert!(validate_team_spawn_role(Some(&SpawnRole::Orchestrator)).is_ok());
-    for role in [
-        SpawnRole::Worker,
-        SpawnRole::Planner,
-        SpawnRole::Manager,
-        SpawnRole::Watcher,
-    ] {
+    assert!(validate_team_spawn_role(Some(&role("orchestrator"))).is_ok());
+    for role in ["worker", "planner", "qa", "watcher"].map(role) {
         let error = validate_team_spawn_role(Some(&role))
             .expect_err("a non-anchoring role takes its Team from its own binding");
         assert!(
             error.starts_with(team_codes::TEAM_SPAWN_ROLE_MUST_ANCHOR),
             "the refusal must lead with its code, got: {error}"
         );
-        if matches!(role, SpawnRole::Planner) {
-            assert!(error.contains("got Planner"));
+        if role.as_str() == "planner" {
+            assert!(error.contains("got planner"));
         }
     }
 }
@@ -285,16 +296,13 @@ fn team_spawn_accepts_only_the_anchoring_role() {
 #[test]
 fn only_an_anchoring_role_with_a_team_routes_to_team_staffing() {
     assert!(routes_to_team_staffing(
-        Some(&SpawnRole::Orchestrator),
+        Some(&role("orchestrator")),
         Some("team_alpha")
     ));
-    assert!(!routes_to_team_staffing(
-        Some(&SpawnRole::Orchestrator),
-        None
-    ));
+    assert!(!routes_to_team_staffing(Some(&role("orchestrator")), None));
     assert!(!routes_to_team_staffing(None, Some("team_alpha")));
     assert!(!routes_to_team_staffing(
-        Some(&SpawnRole::Worker),
+        Some(&role("worker")),
         Some("team_alpha")
     ));
 }

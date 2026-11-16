@@ -84,7 +84,7 @@ impl ServiceContext {
             tab.agent_booting,
         )?;
         self.require_background_work_safe(&tab.id, force)
-            .map_err(|error| format!("provider_switch_background_work: {error:?}"))?;
+            .map_err(|error| switch_restart_error("provider_switch_background_work", error))?;
         crate::service::spawn::validate_agent_model(
             &self.agent_registry,
             target,
@@ -118,8 +118,8 @@ impl ServiceContext {
         .map_err(switch_preflight_error)?;
         self.provider_switch_auth_preflight(target)?;
         let _claim = self
-            .claim_restart(&tab.id, false)
-            .map_err(|error| format!("provider_switch_in_progress: {error:?}"))?;
+            .claim_provider_switch(&tab.id)
+            .map_err(|error| switch_restart_error("provider_switch_in_progress", error))?;
         let nonce = tab
             .session_binding_nonce
             .as_deref()
@@ -437,12 +437,14 @@ impl ServiceContext {
                         (!snap.pty_id.is_empty()).then_some(snap.pty_id.as_str()),
                         std::time::Duration::from_secs(super::RESTART_READY_TIMEOUT_SECS),
                     )
-                    .map_err(|error| format!("provider_switch_launch_failed: {error:?}"))?;
+                    .map_err(|error| {
+                        switch_attempt_error("provider_switch_launch_failed", error)
+                    })?;
             }
         }
         let outcome = self
             .settle_restored_binding(outcome, snap, carry_required)
-            .map_err(|error| format!("provider_switch_binding_failed: {error:?}"))?;
+            .map_err(|error| switch_attempt_error("provider_switch_binding_failed", error))?;
         self.mux
             .read()
             .get_tab(&outcome.tab_id)
@@ -506,6 +508,31 @@ impl ServiceContext {
             }
         }
         Ok(())
+    }
+}
+
+fn switch_attempt_error(code: &str, error: super::RestartAttemptError) -> String {
+    match error {
+        super::RestartAttemptError::Request(error) => switch_restart_error(code, error),
+        super::RestartAttemptError::Failed { reason, .. } => format!("{code}: {reason}"),
+    }
+}
+
+fn switch_restart_error(code: &str, error: super::AgentRestartError) -> String {
+    use super::AgentRestartError;
+    match error {
+        AgentRestartError::BackgroundWork { items } => {
+            format!("provider_switch_background_work: {}", items.join(", "))
+        }
+        AgentRestartError::RuntimeProviderHandoffUnsupported => {
+            "runtime_provider_handoff_unsupported: this harness cannot transfer its session".into()
+        }
+        AgentRestartError::RateLimited { retry_after_secs } => {
+            format!("provider_switch_rate_limited: {retry_after_secs}")
+        }
+        AgentRestartError::NotFound(message)
+        | AgentRestartError::BadRequest(message)
+        | AgentRestartError::Internal(message) => format!("{code}: {message}"),
     }
 }
 

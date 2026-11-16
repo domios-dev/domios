@@ -97,13 +97,26 @@ fn record_lane_turn(
         log::debug!("[lane-turn-stats] repository watch unavailable: {error}");
     }
 
-    let deadline = Instant::now() + TURN_CAPTURE_DEADLINE;
     let mut stats = LaneTurnChangeStats {
         turn: target.turn,
         captured_at,
         transcript_turn_key,
         ..Default::default()
     };
+    capture_turn(&target, &mut stats, Instant::now() + TURN_CAPTURE_DEADLINE);
+    if mutate_attempt(store, &target, |turn_stats| {
+        if let Some(record) = turn_stats
+            .iter_mut()
+            .find(|record| record.turn == target.turn)
+        {
+            *record = stats;
+        }
+    }) {
+        crate::service::plan::change_events::emit_committed_plan_change(ui, store, &target.plan_id);
+    }
+}
+
+fn capture_turn(target: &LaneAttemptTarget, stats: &mut LaneTurnChangeStats, deadline: Instant) {
     match capture_change_stats(Path::new(&target.worktree_path), deadline) {
         Ok((numstat, staged_numstat, untracked_file_count)) => {
             stats.numstat = Some(numstat);
@@ -118,12 +131,21 @@ fn record_lane_turn(
             stats.checkpoint_refusal = Some(LaneCheckpointRefusal::GitFailure);
         }
     }
-    if stats.numstat.is_some() {
-        match create_checkpoint(
+    checkpoint_captured_turn(target, stats, |cwd, attempt_id, turn| {
+        create_checkpoint(cwd, attempt_id, turn, deadline)
+    });
+}
+
+fn checkpoint_captured_turn(
+    target: &LaneAttemptTarget,
+    stats: &mut LaneTurnChangeStats,
+    create: impl FnOnce(&Path, &str, u32) -> Result<CheckpointResult, CaptureFailure>,
+) {
+    if stats.numstat.is_some() && may_checkpoint(target) {
+        match create(
             Path::new(&target.worktree_path),
             &target.attempt_id,
             target.turn,
-            deadline,
         ) {
             Ok(CheckpointResult::Created(reference)) => stats.checkpoint_ref = Some(reference),
             Ok(CheckpointResult::Refused(reason)) => stats.checkpoint_refusal = Some(reason),
@@ -136,16 +158,18 @@ fn record_lane_turn(
             }
         }
     }
-    if mutate_attempt(store, &target, |turn_stats| {
-        if let Some(record) = turn_stats
-            .iter_mut()
-            .find(|record| record.turn == target.turn)
-        {
-            *record = stats;
-        }
-    }) {
-        crate::service::plan::change_events::emit_committed_plan_change(ui, store, &target.plan_id);
-    }
+}
+
+/// Checkpoint refs and objects are written only into a checkout Domios provisioned;
+/// a foreign or unverifiable checkout keeps its stats but gets nothing written.
+fn may_checkpoint(target: &LaneAttemptTarget) -> bool {
+    crate::service::plan::lane_ownership::unmanaged_lane_reason_git(
+        target.ownership,
+        &target.canonical_path,
+        Some(&target.worktree_path),
+        target.branch.as_deref(),
+    )
+    .is_none()
 }
 
 pub(crate) fn find_lane_attempt(

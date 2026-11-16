@@ -46,7 +46,7 @@ fn provider_compat_sqlite_gate_covers_raw_and_convenience_host_calls() {
         (Some("2.0.0"), false, true),
     ] {
         let json = serde_json::json!({
-            "id": "sqlite-gate-fixture", "version": "1.0.0", "displayName": "Fixture",
+            "id": "sqlite-gate-fixture", "version": "1.0.0", "hostIoJobs":true,"displayName": "Fixture",
             "cliCompatibility": {"supported": ["=1.0.0"], "directSqlite": enabled,
                 "breaking": [{"range": ">=2.0.0", "reasons": ["sqlite_schema_conversion"]}]}
         })
@@ -54,11 +54,18 @@ fn provider_compat_sqlite_gate_covers_raw_and_convenience_host_calls() {
         PluginManifest::from_json_str(&json).unwrap();
         let vm = crate::js_runtime::provider_observation::with_fixture_version(detected, || {
             PluginVm::from_source_with("sqlite-gate-fixture", r#"module.exports.default = {
-                raw: function(db) { return host.sqliteQueryAllJson(db, 'SELECT value FROM fixture', null); },
-                wrapped: function(db) { return host.fs.sqliteQuery(db, 'SELECT value FROM fixture'); },
-                awaited: function(db) { return host.fs.sqliteQueryAsync(db, 'SELECT value FROM fixture', null, function(rows) { return rows; }); },
-                buildLaunchCommand: function(value) { return value; }
-            };"#.into(), Some(json)).unwrap()
+    raw: function (db) {
+        return host.io.run((function* () { return ((rows) => rows === null ? null : JSON.stringify(rows))((yield { op: "sqliteQuery", db: db, sql: 'SELECT value FROM fixture', params: JSON.parse(null), nullable: true })); }).call(this));
+    },
+    wrapped: function (db) {
+        return host.io.run((function* () { return (yield { op: "sqliteQuery", db: db, sql: 'SELECT value FROM fixture', params: null }); }).call(this));
+    },
+    awaited: function (db) {
+        return host.io.run((function* () { return (function (rows) { return rows; })((yield { op: "sqliteQuery", db: db, sql: 'SELECT value FROM fixture', params: null })); }).call(this));
+    },
+    buildLaunchCommand: function (value) { return value; }
+};
+"#.into(), Some(json)).unwrap()
         });
         let raw: Option<String> = call_json(&vm, "raw", &[serde_json::json!(db)]).unwrap();
         let wrapped: Vec<serde_json::Value> =
@@ -198,18 +205,20 @@ fn host_sqlite_bound_breach_throws_range_error() {
         .unwrap();
     let vm = crate::js_runtime::vm::PluginVm::from_source(
         "test",
-        r#"
-            module.exports.default = {
-                run(p, bytes) {
-                    try {
-                        host.fs.sqliteQuery(p, "SELECT zeroblob(?1) AS z", [bytes]);
-                        return "returned";
-                    } catch (e) {
-                        return e instanceof RangeError ? "range_error" : "other";
-                    }
-                }
-            };
-        "#
+        r#"module.exports.default = {
+    run(p, bytes) {
+        return host.io.run((function* () {
+            try {
+                (yield { op: "sqliteQuery", db: p, sql: "SELECT zeroblob(?1) AS z", params: [bytes] });
+                return "returned";
+            }
+            catch (e) {
+                return e instanceof RangeError ? "range_error" : "other";
+            }
+        }).call(this));
+    }
+};
+"#
         .to_string(),
     )
     .expect("vm");
@@ -446,8 +455,11 @@ fn plugin_reload_drops_its_pooled_connections() {
     let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER);");
     let plugin = "sqlite-pool-reload-fixture";
     let source = r#"module.exports.default = {
-        run: function(db) { return host.sqliteQueryAllJson(db, 'SELECT v FROM t', null); }
-    };"#;
+    run: function (db) {
+        return host.io.run((function* () { return ((rows) => rows === null ? null : JSON.stringify(rows))((yield { op: "sqliteQuery", db: db, sql: 'SELECT v FROM t', params: JSON.parse(null), nullable: true })); }).call(this));
+    }
+};
+"#;
     let _lease = lease_plugin_sqlite(plugin);
     let vm = crate::js_runtime::vm::PluginVm::from_source(plugin, source.to_string()).unwrap();
     let _: Option<String> =

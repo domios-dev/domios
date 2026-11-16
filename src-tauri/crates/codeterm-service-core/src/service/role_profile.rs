@@ -6,8 +6,69 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::ExecutionIntent;
 use crate::service::SpawnIdentityProvenance;
 
+/// The wire `role` names a role of the Team; the structural pair derives from its registration
+/// (the default package as a whole for a Team with none), and an unlisted name is refused.
+pub fn role_type_pair(
+    team_id: Option<&str>,
+    value: Option<&str>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok((None, None));
+    };
+    let role_type = crate::service::team_roles::TeamRoleStore::global()
+        .role_type(team_id, value)
+        .map_err(|error| error.to_string())?;
+    let profile =
+        (role_type.kind_id != role_kind::builtins::WORKER).then(|| role_type.kind_id.clone());
+    Ok((Some(role_type.role.label().to_string()), profile))
+}
+
+impl crate::service::ServiceContext {
+    /// The Team a spawn request's `--role` resolves against: its `--team`, else the Team of its
+    /// parent or of the tab that asked for it.
+    pub fn spawn_role_team(
+        &self,
+        team_id: Option<&str>,
+        parent_tab_id: Option<&str>,
+        spawned_by_tab_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(team_id) = team_id {
+            return Some(team_id.to_string());
+        }
+        let mux = self.mux.read();
+        [parent_tab_id, spawned_by_tab_id]
+            .into_iter()
+            .flatten()
+            .find_map(|tab_id| mux.get_tab(tab_id).and_then(|tab| tab.team_id.clone()))
+    }
+
+    /// Spawn params from a JSON request, with `--role` resolved against the caller's Team.
+    pub fn spawn_params_from_json(
+        &self,
+        params: &serde_json::Value,
+    ) -> Result<SpawnAgentParams, String> {
+        let team = self.spawn_role_team(
+            json_str(params, "team_id").as_deref(),
+            json_str(params, "parent_tab_id")
+                .or_else(|| json_str(params, "parent"))
+                .as_deref(),
+            json_str(params, "spawned_by_tab_id").as_deref(),
+        );
+        SpawnAgentParams::from_json_in_team(params, team.as_deref())
+    }
+}
+
 impl SpawnAgentParams {
+    /// Parses a request whose `--role` resolves against `team_id` (or the default package).
     pub fn from_json(params: &serde_json::Value) -> Result<Self, String> {
+        Self::from_json_in_team(params, json_str(params, "team_id").as_deref())
+    }
+
+    pub fn from_json_in_team(
+        params: &serde_json::Value,
+        role_team: Option<&str>,
+    ) -> Result<Self, String> {
+        let (role, role_profile) = role_type_pair(role_team, json_str(params, "role").as_deref())?;
         let mut out = Self {
             agent: json_str(params, "agent"),
             agent_name: json_str(params, "agent_name"),
@@ -36,8 +97,8 @@ impl SpawnAgentParams {
                 .transpose()?
                 .flatten(),
             task_description_managed: false,
-            role: json_str(params, "role"),
-            role_profile: json_str(params, "role_profile"),
+            role,
+            role_profile,
             parent_tab_id: json_str(params, "parent_tab_id").or_else(|| json_str(params, "parent")),
             plan_id: json_str(params, "plan_id").or_else(|| json_str(params, "plan")),
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
@@ -212,25 +273,6 @@ pub fn builtin_worker_profile(executor_role: Option<&str>) -> Option<String> {
         .then(|| descriptor.id().to_string())
 }
 
-pub fn dispatch_worker_profile(
-    executor_role: Option<&str>,
-    selected_kind: Option<&str>,
-) -> Result<Option<String>, String> {
-    let Some(selected_kind) = selected_kind else {
-        return Ok(builtin_worker_profile(executor_role));
-    };
-    let selected_kind = selected_kind.trim().to_ascii_lowercase();
-    let Some(descriptor) = role_kind::builtin_kind(&selected_kind).filter(|descriptor| {
-        descriptor.is_taskless_worker()
-            && !descriptor.anchors_team()
-            && !descriptor.has_team_authority()
-            && !descriptor.manages()
-    }) else {
-        return Err("dispatch kind must name a built-in task-less Worker kind".into());
-    };
-    Ok(Some(descriptor.id().to_string()))
-}
-
 /// A Worker subtype narrows within leaf capability, so a subtype id is kept
 /// verbatim — overlay kinds are hyphenated and must still match their file.
 /// A managing kind's id is refused here rather than silently downgraded, so a
@@ -254,7 +296,9 @@ fn normalize_manager_profile(profile: &str) -> Result<String, String> {
     {
         return Err(format!("Invalid Manager role_profile '{profile}'"));
     }
-    if role_kind::builtin_kind(&normalized).is_some_and(|kind| kind.is_taskless_worker()) {
+    // A Domios worker kind is never a Manager profile; a Team role's kind comes from its
+    // registration through `--role`, never from a hand-built structural pair.
+    if role_kind::builtins::is_taskless_worker_kind(&normalized) {
         return Err(format!(
             "Worker-only role_profile '{profile}' cannot be used with Manager"
         ));
@@ -332,7 +376,7 @@ mod normalization_tests {
     fn authorized_gates_survive_the_spawn_wire_and_drop_empty_entries() {
         let params = SpawnAgentParams::from_json(&serde_json::json!({
             "agent": "codex",
-            "role": "Worker",
+            "role": "worker",
             "execution_intent": "read_only",
             "authorized_gates": ["  ./build.sh verify  ", "", 7, "./build.sh test-one app x"],
         }))
@@ -348,6 +392,29 @@ mod normalization_tests {
         let none = SpawnAgentParams::from_json(&serde_json::json!({"agent": "codex"}))
             .expect("a plain spawn parses");
         assert!(none.authorized_gates.is_empty());
+    }
+
+    #[test]
+    fn the_spawn_wire_role_is_a_type_and_manager_is_refused() {
+        let planner = SpawnAgentParams::from_json(&serde_json::json!({"role": "planner"}))
+            .expect("a planner type parses");
+        assert_eq!(planner.role.as_deref(), Some("Manager"));
+        assert_eq!(planner.role_profile.as_deref(), Some(PLANNER));
+        let qa = SpawnAgentParams::from_json(&serde_json::json!({"role": "qa"}))
+            .expect("a qa type parses");
+        assert_eq!(qa.role.as_deref(), Some("Worker"));
+        assert_eq!(qa.role_profile.as_deref(), Some("qa"));
+        for refused in ["Manager", "Worker", "general_agent", "unregistered_type"] {
+            assert!(
+                SpawnAgentParams::from_json(&serde_json::json!({"role": refused})).is_err(),
+                "{refused}"
+            );
+        }
+        let ignored = SpawnAgentParams::from_json(
+            &serde_json::json!({"role": "worker", "role_profile": "planner"}),
+        )
+        .expect("the removed role_profile key is ignored");
+        assert_eq!(ignored.role_profile, None);
     }
 
     /// The Cartographer is a Manager kind now, so a Worker naming it is refused
@@ -449,9 +516,13 @@ mod normalization_tests {
     fn dispatch_worker_kind_composes_the_selected_prompt_with_or_without_a_task() {
         for kind in [QA, RELEASE_MANAGER, REVIEWER] {
             for task_id in [None, Some("task-bound")] {
-                let profile = dispatch_worker_profile(Some("repository-integrator"), Some(kind))
-                    .expect("the selected builtin Worker kind is valid")
-                    .expect("the selected kind produces a profile");
+                let role_type = crate::service::team_roles::resolve_worker(
+                    &crate::service::builtin_roles::default_registrations("team_fixture"),
+                    Some(kind),
+                )
+                .expect("the default package lists the worker");
+                assert!(role_type.is_worker());
+                let profile = role_type.kind_id;
                 let mut params = SpawnAgentParams {
                     role: Some("Worker".into()),
                     role_profile: Some(profile),
@@ -472,22 +543,21 @@ mod normalization_tests {
 
                 assert_eq!(params.task_id.as_deref(), task_id);
                 assert_eq!(preset.kind_id, kind);
-                assert!(preset.fragments.iter().any(|fragment| {
-                    fragment.source == crate::service::role_preset::FragmentSource::Builtin
-                        && fragment.text == guidance
-                }));
+                assert_eq!(preset.fragments[0].source.label(), "builtin");
+                assert_eq!(preset.contract_guidance(), guidance);
             }
-            assert_eq!(
-                dispatch_worker_profile(Some(kind), None).expect("saved executor role resolves"),
-                Some(kind.into())
-            );
+            assert_eq!(builtin_worker_profile(Some(kind)), Some(kind.into()));
         }
     }
 
     #[test]
     fn dispatch_worker_kind_refuses_unknown_and_managing_profiles() {
-        for kind in ["unknown-kind", "planner", "cartographer"] {
-            assert!(dispatch_worker_profile(None, Some(kind)).is_err(), "{kind}");
+        let team = crate::service::builtin_roles::default_registrations("team_fixture");
+        for kind in ["unknown-kind", "unregistered", "planner", "cartographer"] {
+            assert!(
+                crate::service::team_roles::resolve_worker(&team, Some(kind)).is_err(),
+                "{kind}"
+            );
         }
     }
 

@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.72",
+  "version": "1.14.73",
   "minCodeterm": "1.19.2",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,

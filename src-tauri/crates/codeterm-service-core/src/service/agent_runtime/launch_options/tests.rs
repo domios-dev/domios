@@ -312,7 +312,7 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
                 );
                 assert_eq!(
                     super::restore(&fixture.service, &tab_id).unwrap_err(),
-                    codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+                    codeterm_neighbors::Error::RestoreGrantRequired.to_string()
                 );
                 fixture.load_neighbor_restore_settings("owner").await;
                 fixture
@@ -327,7 +327,7 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
                     .session_binding_nonce = Some("restored-nonce".into());
                 assert_eq!(
                     super::restore(&fixture.service, &tab_id).unwrap_err(),
-                    codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+                    codeterm_neighbors::Error::RestoreGrantRequired.to_string()
                 );
                 fixture
                     .service
@@ -430,11 +430,11 @@ fn contradictory_neighbor_bypass_records_require_current_root_grant_for_both_res
                         &launch
                     )
                     .unwrap_err(),
-                    codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+                    codeterm_neighbors::Error::RestoreGrantRequired.to_string()
                 );
                 assert_eq!(
                     super::restore(svc, id).unwrap_err(),
-                    codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+                    codeterm_neighbors::Error::RestoreGrantRequired.to_string()
                 );
                 assert!(svc
                     .mux

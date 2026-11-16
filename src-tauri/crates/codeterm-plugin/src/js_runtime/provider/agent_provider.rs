@@ -24,6 +24,7 @@ mod directory_trust;
 mod model_launch;
 mod session_detection;
 mod session_wire;
+#[macro_use]
 mod usage_sources;
 
 #[async_trait::async_trait]
@@ -554,9 +555,7 @@ impl AgentProvider for JsProvider {
         self.js_additional_usage_sources(session_file, session_id)
     }
 
-    fn usage_sources(&self, cwd: &str, session_id: &str) -> Vec<UsageSourceSpec> {
-        self.js_usage_sources(cwd, session_id)
-    }
+    js_usage_contract!();
 
     fn session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {
         if self.has_js("sessionExists") {

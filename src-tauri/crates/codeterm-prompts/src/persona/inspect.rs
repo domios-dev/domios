@@ -1,20 +1,22 @@
 //! Read-only view of the shared resolver: exactly the text a delivery occasion
 //! would emit, with the provenance of every fragment.
 
-use codeterm_types::agent::role_kind::builtins;
+use codeterm_team_package::{RoleKind, RoleStart, StartMode};
+use codeterm_types::agent::role_kind::{self, builtins, RoleType};
+use codeterm_types::agent::AgentRole;
+use codeterm_types::team::role_registration::{PinnedPackage, RoleProvenance, RoleRegistration};
 use serde::Serialize;
 
+use crate::builtin_roles;
 use crate::role_preset::{self, RolePreset};
-use codeterm_types::agent::AgentRole;
 
 use super::occasion::{self, Occasion};
-use super::overlay::{self, OverlayCatalog};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct FragmentView {
     pub source: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
+    pub package: Option<PinnedPackage>,
     pub text: String,
 }
 
@@ -31,54 +33,48 @@ pub struct OccasionView {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct PresetView {
+    #[serde(rename = "type")]
+    pub role_type: String,
     pub role: &'static str,
-    pub kind_id: String,
+    pub kind: RoleKind,
+    /// The Domios authority the name carries: a built-in manager's label, or `none`.
+    pub authority: &'static str,
     pub label: String,
-    pub origin: &'static str,
-    /// Every fragment joined — the kind's full guidance for this delivery.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<RoleProvenance>,
+    /// Every fragment joined — the role's full guidance for this delivery.
     pub guidance: String,
     pub fragments: Vec<FragmentView>,
     pub occasions: Vec<OccasionView>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct KindListing {
-    pub kind_id: String,
+pub struct RoleListing {
+    #[serde(rename = "type")]
+    pub role_type: String,
+    pub kind: RoleKind,
+    /// The Domios authority the name carries: a built-in manager's label, or `none`.
+    pub authority: &'static str,
     pub label: String,
-    pub origin: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub start: RoleStart,
+    pub provenance: RoleProvenance,
+    pub host_only: bool,
     pub anchors_team: bool,
     pub team_authority: bool,
     pub can_spawn: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RegistryView {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct RejectionView {
-    pub path: String,
-    pub reason: &'static str,
-    pub detail: String,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct CatalogView {
-    pub overlay_dir: String,
-    pub kinds: Vec<KindListing>,
-    pub rejected: Vec<RejectionView>,
+    pub team_id: Option<String>,
+    pub roles: Vec<RoleListing>,
 }
 
 /// Payload used so the rendered composition shows separators and ordering.
 pub const PROBE_PAYLOAD: &str = "<assignment>";
-
-pub fn origin_label(catalog: &OverlayCatalog, kind_id: &str) -> &'static str {
-    if builtins::is_builtin(kind_id) {
-        return "builtin";
-    }
-    if catalog.kinds().any(|kind| kind.id == kind_id) {
-        return "overlay";
-    }
-    "unregistered"
-}
 
 pub fn fragment_views(preset: &RolePreset) -> Vec<FragmentView> {
     preset
@@ -86,7 +82,7 @@ pub fn fragment_views(preset: &RolePreset) -> Vec<FragmentView> {
         .iter()
         .map(|fragment| FragmentView {
             source: fragment.source.label(),
-            path: fragment.source.disk_path().map(str::to_string),
+            package: fragment.source.package().cloned(),
             text: fragment.text.clone(),
         })
         .collect()
@@ -107,66 +103,96 @@ pub fn occasion_views(preset: &RolePreset) -> Vec<OccasionView> {
         .collect()
 }
 
-/// Render one `(role, kind, task persona)` triple through the shared resolver.
-/// `only` narrows the rendering to a single occasion.
+/// Render one role type through the shared resolver. `only` narrows the rendering to one occasion.
 pub fn show(
-    catalog: &OverlayCatalog,
-    role: AgentRole,
-    role_profile: Option<&str>,
+    team: &[RoleRegistration],
+    role_type: &RoleType,
     task_guidance: Option<&str>,
     only: Option<Occasion>,
 ) -> Option<PresetView> {
-    let preset = role_preset::resolve_in(catalog, Some(role), role_profile, task_guidance)?;
+    let preset = role_preset::resolve_in(
+        team,
+        Some(role_type.role),
+        Some(&role_type.kind_id),
+        task_guidance,
+    )?;
     let occasions = occasion_views(&preset)
         .into_iter()
         .filter(|view| only.map_or(true, |wanted| wanted.id() == view.occasion))
         .collect();
     Some(PresetView {
-        role: role.label(),
-        origin: origin_label(catalog, &preset.kind_id),
-        kind_id: preset.kind_id.clone(),
+        role_type: role_type.kind_id.clone(),
+        role: preset.role.label(),
+        kind: preset.role.package_kind(),
+        authority: role_preset::authority_label(preset.role, &role_type.kind_id),
         label: preset.label.clone(),
+        provenance: preset.provenance().cloned(),
         guidance: preset.guidance(),
         fragments: fragment_views(&preset),
         occasions,
     })
 }
 
-/// Every kind the resolver can reach, builtin and overlay, plus the overlay
-/// files that were refused and why.
-pub fn list(catalog: &OverlayCatalog) -> CatalogView {
-    let mut kinds: Vec<KindListing> = builtins::all()
+fn listing(
+    role_type: &str,
+    kind: RoleKind,
+    description: Option<String>,
+    start: RoleStart,
+    provenance: RoleProvenance,
+    label: String,
+) -> RoleListing {
+    let role = AgentRole::from(kind);
+    let capability = role_kind::registered_capability(role, role_type);
+    RoleListing {
+        role_type: role_type.to_string(),
+        kind,
+        authority: role_preset::authority_label(role, role_type),
+        label,
+        description,
+        start,
+        provenance,
+        host_only: role_type == builtins::WATCHER,
+        anchors_team: capability.anchors_team(),
+        team_authority: capability.has_team_authority(),
+        can_spawn: capability.can_spawn(),
+    }
+}
+
+/// Every role the Team has: exactly its registrations (the default package as a whole when it
+/// has none), then the host-only Watcher.
+pub fn list(team_id: Option<&str>, team: &[RoleRegistration]) -> RegistryView {
+    let (team, builtin) = role_preset::effective(team);
+    let mut roles: Vec<RoleListing> = team
         .iter()
-        .map(|descriptor| KindListing {
-            kind_id: descriptor.id().to_string(),
-            label: descriptor.label().to_string(),
-            origin: "builtin",
-            anchors_team: descriptor.anchors_team(),
-            team_authority: descriptor.has_team_authority(),
-            can_spawn: descriptor.can_spawn(),
-            path: None,
+        .map(|registration| {
+            let package = registration.package.clone();
+            listing(
+                &registration.name,
+                registration.kind,
+                registration.description.clone(),
+                registration.start.clone(),
+                if builtin {
+                    RoleProvenance::Builtin { package }
+                } else {
+                    RoleProvenance::Team { package }
+                },
+                registration.label.clone(),
+            )
         })
         .collect();
-    kinds.extend(catalog.kinds().map(|kind| KindListing {
-        kind_id: kind.id.clone(),
-        label: kind.label.clone(),
-        origin: "overlay",
-        anchors_team: false,
-        team_authority: false,
-        can_spawn: false,
-        path: Some(kind.path.clone()),
-    }));
-    CatalogView {
-        overlay_dir: overlay::overlay_dir().to_string_lossy().replace('\\', "/"),
-        kinds,
-        rejected: catalog
-            .rejected()
-            .iter()
-            .map(|rejection| RejectionView {
-                path: rejection.path.clone(),
-                reason: rejection.reason.code(),
-                detail: rejection.reason.detail(),
-            })
-            .collect(),
+    roles.push(listing(
+        builtins::WATCHER,
+        RoleKind::Manager,
+        None,
+        RoleStart::Mode(StartMode::OnDemand),
+        RoleProvenance::Builtin {
+            package: builtin_roles::default_identity(),
+        },
+        role_kind::builtin_kind(builtins::WATCHER)
+            .map_or(String::new(), |kind| kind.label().to_string()),
+    ));
+    RegistryView {
+        team_id: team_id.map(str::to_string),
+        roles,
     }
 }

@@ -29,6 +29,40 @@ fn registry() -> AgentRegistry {
     )
 }
 
+#[test]
+fn provider_question_is_answerable_and_stale_screen_is_refused() {
+    let screen = "Opaque file decision?\n❯ Decline opaque import\nAccept opaque import\nEnter to confirm · Esc to cancel";
+    let registry = bundled_registry(
+        r#"{"id":"opaque-harness","version":"0.0.0","displayName":"Opaque harness"}"#,
+        r#"module.exports.default = {
+            parsePrompt(screen) {
+                if (screen !== "Opaque file decision?\n❯ Decline opaque import\nAccept opaque import\nEnter to confirm · Esc to cancel") return null;
+                return {question: "Opaque file decision?", options: [["Decline opaque import", "1"], ["Accept opaque import", "2"]]};
+            },
+            buildPromptResponse(index) { return index === 1 ? ["ag==", "DQ=="] : ["DQ=="]; }
+        };"#,
+    );
+    let (prompt, kind) = registry
+        .parse_interactive_prompt("response-fixture", screen)
+        .unwrap();
+    assert_eq!(kind, PromptKind::Provider);
+    assert_eq!(prompt.question, "Opaque file decision?");
+    assert_eq!(prompt.options.len(), 2);
+    let identity = PromptIdentity::new(kind, &prompt);
+    assert_eq!(
+        respond(&registry, screen, Some(&identity)),
+        Ok(vec![b"j".to_vec(), b"\r".to_vec()])
+    );
+    assert_eq!(
+        respond(
+            &registry,
+            &format!("{screen}\n❯ Summarize the dialog"),
+            Some(&identity)
+        ),
+        Err(RespondPromptOutcome::StalePrompt)
+    );
+}
+
 fn respond(
     registry: &AgentRegistry,
     screen: &str,

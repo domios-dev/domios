@@ -41,12 +41,11 @@ impl ServiceContext {
             "receiving_elsewhere"
         } else if paused {
             "paused"
-        } else if missing {
-            "concierge_missing"
-        } else if !gateway.is_some_and(|tab| self.neighbor_gateway_ready(tab)) {
-            "concierge_starting"
         } else {
-            "ready"
+            self.neighbor_concierge_lifecycle(
+                settings.bindings.get(friendship).map(String::as_str),
+                settings.permissions.contains_key(friendship),
+            )
         };
         let count = if here && missing {
             self.neighbor_cell()
@@ -79,6 +78,89 @@ impl ServiceContext {
         }
     }
 
+    fn neighbor_concierge_lifecycle(
+        &self,
+        binding: Option<&str>,
+        has_permission: bool,
+    ) -> &'static str {
+        use codeterm_types::pty::BootStage;
+
+        let Some(tab_id) = binding else {
+            return "concierge_missing";
+        };
+        let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
+            return "concierge_closed";
+        };
+        if tab.team_id.is_some()
+            || tab.role.is_some()
+            || crate::service::general_agent::is_general_agent(&tab)
+        {
+            return "concierge_invalid";
+        }
+        if self.validate_neighbor_gateway(tab_id).is_err() {
+            return "concierge_crashed";
+        }
+        if !has_permission {
+            return "concierge_access_needed";
+        }
+        let runtime = tab.agent_runtime_state.as_ref();
+        let phase = runtime.and_then(|state| state["state"].as_str());
+        let code = runtime.and_then(|state| state["failureCode"].as_str());
+        if runtime.is_some_and(|state| state["accessFailure"] == "neighbor_restore_grant_required")
+        {
+            return "concierge_access_needed";
+        }
+        if phase == Some("loginPending")
+            || runtime.is_some_and(|state| state["auth"] == "signedOut")
+            || tab.provider_signals.access_lost()
+            || tab
+                .provider_signals
+                .auth
+                .as_ref()
+                .is_some_and(|auth| !auth.logged_in)
+            || code == Some("authentication_required")
+        {
+            return "concierge_auth_needed";
+        }
+        if matches!(phase, Some("degraded" | "unloaded")) {
+            return if code == Some("provider_refused") {
+                "concierge_provider_refused"
+            } else if phase == Some("unloaded") && tab.frozen && code.is_none() {
+                "concierge_starting"
+            } else {
+                "concierge_crashed"
+            };
+        }
+        if tab.boot_stage == Some(BootStage::SpawnFailed) {
+            return "concierge_provider_refused";
+        }
+        if tab.agent_type.is_none()
+            || tab.exit_suspected_at.is_some()
+            || tab.pty_id.as_ref().is_some_and(|pty| {
+                self.agent_tracker.lock().get_status(pty) == crate::agent::status::TabStatus::Dead
+            })
+        {
+            return "concierge_crashed";
+        }
+        if (runtime.is_some() || tab.boot_stage == Some(BootStage::AgentReady))
+            && tab.agent_type.as_ref().is_some_and(|provider| {
+                self.agent_registry
+                    .with_provider(provider, |_| ())
+                    .is_none()
+            })
+        {
+            return "concierge_provider_refused";
+        }
+        if self.neighbor_gateway_ready(tab_id) {
+            "ready"
+        } else if !tab.frozen && !tab.agent_booting && tab.boot_stage == Some(BootStage::AgentReady)
+        {
+            "concierge_crashed"
+        } else {
+            "concierge_starting"
+        }
+    }
+
     pub(super) fn neighbor_concierge_views(
         &self,
         settings: &Settings,
@@ -106,8 +188,79 @@ impl ServiceContext {
     }
 }
 
+pub(super) async fn watch_lifecycle(session: &listener::Session) {
+    if let Err(error) = watch_lifecycle_changes(session).await {
+        log::debug!("[neighbors] concierge lifecycle observation stopped: {error}");
+    }
+    session.stopped().await;
+}
+
+async fn watch_lifecycle_changes(session: &listener::Session) -> codeterm_neighbors::Result<()> {
+    let mut events = session.service.events.subscribe();
+    let settings = session.metadata.settings().await?;
+    let mut binding = settings.bindings.get(&session.friendship).cloned();
+    let present = |binding: Option<&String>| {
+        binding.is_some_and(|tab| session.service.mux.read().get_tab(tab).is_some())
+    };
+    let mut was_present = present(binding.as_ref());
+    let mut previous = Value::Null;
+    publish_projection(session, &settings, &mut previous)?;
+    loop {
+        let event = tokio::select! {
+            biased;
+            _ = session.stopped() => return Ok(()),
+            event = events.recv() => event,
+        };
+        let mux_changed = match event {
+            Ok(event) => {
+                let codeterm_events::SystemEvent::Generic { event_type, data } = event.event else {
+                    continue;
+                };
+                if event_type == "mux-state-changed" {
+                    true
+                } else if matches!(
+                    event_type.as_str(),
+                    "neighbor-permission-changed"
+                        | "neighbor-agent-changed"
+                        | "neighbor-friend-paused"
+                ) && data["friendship_id"].as_str() == Some(session.friendship.as_str())
+                {
+                    false
+                } else if !matches!(
+                    event_type.as_str(),
+                    "agent-runtime-state" | "tab-boot-stage" | "tab-status-changed"
+                ) || data["tab_id"].as_str() != binding.as_deref()
+                {
+                    continue;
+                } else {
+                    false
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => false,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+        };
+        let settings = session.metadata.settings().await?;
+        let current_binding = settings.bindings.get(&session.friendship).cloned();
+        let is_present = present(current_binding.as_ref());
+        if mux_changed && current_binding == binding && is_present == was_present {
+            continue;
+        }
+        binding = current_binding;
+        was_present = is_present;
+        publish_projection(session, &settings, &mut previous)?;
+    }
+}
+
 pub(super) async fn publish(session: &listener::Session) -> codeterm_neighbors::Result<()> {
     let settings = session.metadata.settings().await?;
+    publish_projection(session, &settings, &mut Value::Null)
+}
+
+fn publish_projection(
+    session: &listener::Session,
+    settings: &Settings,
+    previous: &mut Value,
+) -> codeterm_neighbors::Result<()> {
     session.current()?;
     let receiver = session
         .service
@@ -116,9 +269,15 @@ pub(super) async fn publish(session: &listener::Session) -> codeterm_neighbors::
     let mut view =
         session
             .service
-            .neighbor_concierge_view(&session.friendship, &settings, &receiver);
+            .neighbor_concierge_view(&session.friendship, settings, &receiver);
     view["friendship_id"] = json!(session.friendship);
-    session.service.ui.emit("neighbor-concierge-status", view);
+    if view != *previous {
+        session
+            .service
+            .ui
+            .emit("neighbor-concierge-status", view.clone());
+        *previous = view;
+    }
     Ok(())
 }
 

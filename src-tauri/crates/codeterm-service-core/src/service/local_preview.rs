@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+pub(crate) mod model_copies;
 pub mod reference_inventory;
 
 use crate::service::local_preview::html_preview::{
@@ -18,8 +19,8 @@ fn agent_pad_root(svc: &super::ServiceContext, tab_id: &str) -> Option<PathBuf> 
     (root.parent() == Some(pads.as_path()) && root.file_name()?.to_str()? == tab_id).then_some(root)
 }
 
-#[derive(Clone, PartialEq)]
-struct TabAuthority {
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(super) struct TabAuthority {
     backing: crate::multiplexer::types::TabBacking,
     provider: Option<String>,
     session: Option<String>,
@@ -43,16 +44,37 @@ fn tab_policy(
     svc: &super::ServiceContext,
     tab_id: &str,
     configured: &[String],
+    paths: &[String],
 ) -> Result<PreviewPolicy, String> {
     let started = std::time::Instant::now();
     let authority = tab_authority(svc, tab_id)?;
+    let mut generated = std::collections::HashSet::new();
+    for path in paths {
+        if model_copies::lookup(svc, tab_id, path, &authority)? {
+            generated.insert(references::path_key(std::path::Path::new(path)));
+        }
+    }
     let authority_us = started.elapsed().as_micros();
     let transcript_started = std::time::Instant::now();
-    let references = match reference_inventory::lookup(svc, tab_id)? {
-        Some(references) => references,
-        None => {
-            let (messages, _) = super::tab_chat::tab_chat_snapshot(svc, tab_id, 0)?;
-            references::referenced_paths(&messages, authority.cwd.as_deref()).into()
+    let references = if !generated.is_empty() && generated.len() == paths.len() {
+        generated.into()
+    } else {
+        match reference_inventory::lookup(svc, tab_id) {
+            Ok(Some(references)) if generated.is_empty() => references,
+            Ok(Some(references)) => {
+                generated.extend(references.iter().cloned());
+                generated.into()
+            }
+            Ok(None) => {
+                let (messages, _) = super::tab_chat::tab_chat_snapshot(svc, tab_id, 0)?;
+                generated.extend(references::referenced_paths(
+                    &messages,
+                    authority.cwd.as_deref(),
+                ));
+                generated.into()
+            }
+            Err(_) if !generated.is_empty() => generated.into(),
+            Err(error) => return Err(error),
         }
     };
     let transcript_us = transcript_started.elapsed().as_micros();
@@ -108,7 +130,12 @@ pub fn read(
     path: &str,
     kind: &str,
 ) -> Result<LocalPreviewFile, String> {
-    let result = tab_policy(svc, tab_id, configured).and_then(|policy| {
+    let result = tab_policy(svc, tab_id, configured, &[path.to_owned()]).and_then(|policy| {
+        if kind == "image" {
+            return super::image_attachments::preview(std::path::Path::new(path), || {
+                html_preview::read_artifact_file(path, &policy, 150 * 1024 * 1024)
+            });
+        }
         read_local_preview_file_guarded(path, kind, |path, canonical| {
             policy.authorize(path, canonical)
         })
@@ -134,7 +161,7 @@ pub fn check(
             Err("No preview paths".into())
         }));
     }
-    let policy = tab_policy(svc, tab_id, configured)?;
+    let policy = tab_policy(svc, tab_id, configured, &paths)?;
     let count = paths.len();
     let started = std::time::Instant::now();
     let result = check_local_preview_files_guarded(paths, |path, canonical| {

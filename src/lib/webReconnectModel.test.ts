@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { eventReconnectDelay, isLocalEventStream, LOCAL_EVENT_RETRY_MS, LOCAL_EVENT_RETRY_CAP_MS, nextEventReconnectBackoff } from "./webEventRecovery";
 import {
   HEALTHY_STREAM_MS,
   RECONNECT_CAP_MS,
@@ -57,3 +58,16 @@ function attemptsInWindow(windowMs: number, hidden: boolean): number {
 
 assert.ok(attemptsInWindow(60_000, false) <= 14, "an empty-EOF train is bounded over one minute");
 assert.ok(attemptsInWindow(60_000, true) <= 4, "hidden pages use the longer bounded schedule");
+
+for (const origin of ["http://localhost:7686", "http://127.0.0.1:7685", "http://[::1]:7686"]) {
+  assert.equal(isLocalEventStream(origin, false), true);
+  assert.equal(isLocalEventStream(origin, true), false, "relay streams keep remote outage bounds");
+}
+assert.equal(isLocalEventStream("http://192.0.2.1:7685", false), false);
+for (const hidden of [false, true]) {
+  assert.equal(eventReconnectDelay(LOCAL_EVENT_RETRY_MS, 0, hidden, true), 125);
+  assert.equal(eventReconnectDelay(60_000, 1, hidden, true), LOCAL_EVENT_RETRY_CAP_MS);
+  assert.equal(nextEventReconnectBackoff(60_000, hidden, true), LOCAL_EVENT_RETRY_CAP_MS);
+  assert.equal(eventReconnectDelay(RECONNECT_FIRST_MS, 0, hidden, false), reconnectDelay(RECONNECT_FIRST_MS, 0, hidden));
+}
+console.log("Local event recovery policy passed");

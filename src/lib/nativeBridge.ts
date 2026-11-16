@@ -8,6 +8,7 @@ import { TrayIcon } from "@tauri-apps/api/tray";
 import { open, save, type OpenDialogOptions, type SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 
 export type NativeUnsubscribe = () => void;
+export const TEAM_FILE_OPENED_EVENT = "team-file-opened";
 export type NotificationPermission = "granted" | "denied" | "prompt" | "unknown";
 export type LocalRecordingCommand =
   | "local_recording_status" | "local_recording_set_enabled"
@@ -20,7 +21,14 @@ export type FileDropEvent =
   | { type: "over"; position: { x: number; y: number } }
   | { type: "leave" };
 
+export type NativeOutputFlowUpdate =
+  | { action: "rendered"; tab_id: string; pty_id: string; attachment: string; offset: number; attach: boolean }
+  | { action: "detach"; pty_id: string; attachment: string }
+  | { action: "detach_all" };
+
 export interface NativeBridge {
+  terminalOutputFlow?: (update: NativeOutputFlowUpdate) => Promise<boolean>;
+  terminalOutputFocus?: (handler: (focused: boolean) => void) => NativeUnsubscribe;
   localRecording?: Record<LocalRecordingCommand, (args: Record<string, unknown>) => Promise<unknown>>;
   window: {
     minimize(): Promise<void>;
@@ -45,6 +53,8 @@ export interface NativeBridge {
     install(channel?: string): Promise<{ status: string }>;
   } | undefined;
   deepLinks: { subscribe(handler: (urls: string[]) => void): Promise<NativeUnsubscribe> } | undefined;
+  /** `.team` packages the OS opened Domios with, delivered once each, including one waiting from before the subscription. */
+  openedTeamFiles: { subscribe(handler: (path: string) => void): Promise<NativeUnsubscribe> } | undefined;
   clipboardFilePaths(): Promise<string[]>;
   materializeDroppedFiles(paths: string[]): Promise<string[]>;
   screenCapture: { capture(): Promise<MediaStream> } | undefined;
@@ -93,8 +103,10 @@ function nativeEventFanout<T>(name: string, register: (emit: (value: T) => void)
   };
 }
 
-export function createNativeBridge(native: boolean = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window): NativeBridge {
+export function createNativeBridge(native: boolean = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window, platform = typeof navigator === "undefined" ? "" : navigator.platform): NativeBridge {
+  const outputFlowEnabled = native && !platform.startsWith("Win");
   const unavailable = (name: string): never => { throw new NativeCapabilityUnavailable(name); };
+  const terminalFocus = nativeEventFanout<boolean>("terminal focus", emit => getCurrentWindow().onFocusChanged(event => emit(event.payload)));
   const fileDrop = nativeEventFanout<FileDropEvent>("file drop", (emit) => getCurrentWebview().onDragDropEvent((event) => emit(event.payload)));
   const resizeStart = nativeEventFanout<void>("resize", (emit) => listen("terminal-window-resize-start", () => emit()));
   const resizeCommit = nativeEventFanout<void>("resize", (emit) => listen("terminal-window-resize-commit", () => emit()));
@@ -103,6 +115,8 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
     return globalThis.navigator.clipboard;
   };
   return {
+    terminalOutputFlow: outputFlowEnabled ? (update) => invoke<boolean>("native_terminal_output_flow", { update }) : undefined,
+    terminalOutputFocus: outputFlowEnabled ? terminalFocus : undefined,
     localRecording: native ? {
       local_recording_status: (args) => invoke("local_recording_status", args),
       local_recording_set_enabled: (args) => invoke("local_recording_set_enabled", args),
@@ -141,6 +155,22 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
       install: (channel?: string) => invoke("install_app_update", { channel }),
     } : undefined,
     deepLinks: undefined,
+    openedTeamFiles: native ? {
+      async subscribe(handler) {
+        const take = () => invoke<string | null>("take_opened_team_file").then((path) => { if (path) handler(path); });
+        // Listening before the first take means a package that lands in between still wakes a take.
+        const unlisten = await listen(TEAM_FILE_OPENED_EVENT, () => {
+          take().catch((error: unknown) => console.warn("Opened team file could not be taken", error));
+        });
+        try {
+          await take();
+        } catch (error) {
+          unlisten();
+          throw error;
+        }
+        return unlisten;
+      },
+    } : undefined,
     async clipboardFilePaths() { if (!native) return unavailable("clipboard file paths"); return invoke("read_clipboard_files"); },
     async materializeDroppedFiles(paths) { if (!native) return unavailable("native file drop"); return invoke("materialize_dropped_files", { paths }); },
     screenCapture: typeof globalThis.navigator?.mediaDevices?.getDisplayMedia === "function" ? {

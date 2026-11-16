@@ -1,5 +1,51 @@
 use super::*;
 
+#[test]
+fn help_aliases_return_catalog_without_executing_plugin_code() {
+    let vm = vm_with(
+        "module.exports.default = { onAgentCommand() { throw new Error('must not run'); } };",
+    );
+    let catalog = AgentVerbCatalog::compose(
+        "fixture",
+        "Fixture",
+        None,
+        &["lookup <query>".into()],
+        None,
+        &[],
+    )
+    .with_guide(Some("opaque-guide-q7".into()));
+    let handler = JsAgentCommandHandler::new(vm, "fixture", true).with_catalog(catalog);
+    for verb in ["help", "--help", "-h"] {
+        let out = handler
+            .on_agent_command("session", verb, &[], None)
+            .unwrap();
+        assert_eq!(
+            out.result,
+            "domios plugin fixture <verb>\n\nlookup <query>\n\nopaque-guide-q7"
+        );
+        assert!(!out.catalogue_changed);
+    }
+}
+
+#[test]
+fn read_only_interruption_does_not_change_write_uncertainty() {
+    let handler =
+        JsAgentCommandHandler::new(vm_with("module.exports.default = {};"), "fixture", true)
+            .with_read_only_verbs(vec!["lookup".into()]);
+    let read = handler.command_error("lookup", super::super::vm::VmError::IoUnconfirmed);
+    assert_eq!(read, "plugin test-agent-commands onAgentCommand lookup failed: read-only command result unavailable after host I/O interruption");
+    for verb in ["send", "unknown"] {
+        let write = handler.command_error(verb, super::super::vm::VmError::IoUnconfirmed);
+        assert!(write.ends_with("plugin I/O may have started; the operation must not be replayed"));
+    }
+    assert!(handler
+        .command_error(
+            "lookup",
+            super::super::vm::VmError::Script("opaque-error".into())
+        )
+        .ends_with("plugin script error: opaque-error"));
+}
+
 fn vm_with(src: &str) -> Arc<PluginVm> {
     Arc::new(PluginVm::from_source("test-agent-commands", src.to_string()).expect("vm"))
 }

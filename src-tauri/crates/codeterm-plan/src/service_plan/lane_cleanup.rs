@@ -34,6 +34,8 @@ pub enum LaneCleanupOutcome {
     Cleaned,
     Refused(String),
     Partial(String),
+    /// A checkout Domios did not create; released from the task, never touched.
+    NotManaged(String),
 }
 
 impl LaneCleanupOutcome {
@@ -43,12 +45,15 @@ impl LaneCleanupOutcome {
             LaneCleanupOutcome::Cleaned => "cleaned",
             LaneCleanupOutcome::Refused(_) => "refused",
             LaneCleanupOutcome::Partial(_) => "partial",
+            LaneCleanupOutcome::NotManaged(_) => "not_managed",
         }
     }
 
     pub fn reason(&self) -> Option<&str> {
         match self {
-            LaneCleanupOutcome::Refused(r) | LaneCleanupOutcome::Partial(r) => Some(r.as_str()),
+            LaneCleanupOutcome::Refused(r)
+            | LaneCleanupOutcome::Partial(r)
+            | LaneCleanupOutcome::NotManaged(r) => Some(r.as_str()),
             _ => None,
         }
     }
@@ -153,6 +158,16 @@ where
 
     let worktree_exists = worktree_path.is_some_and(|path| Path::new(path).exists());
     let branch_is_present = branch.is_some_and(|name| branch_exists(project_path, name));
+    if worktree_exists || branch_is_present {
+        if let Some(reason) = super::lane_ownership::unmanaged_lane_reason_git(
+            task.lane.ownership,
+            project_path,
+            worktree_path,
+            branch,
+        ) {
+            return release_unmanaged_lane(store, plan, task, &reason, now_ms);
+        }
+    }
     let mut stale_references = TaskLaneUpdate::default();
     if already_done {
         stale_references.cleanup_status = Some(None);
@@ -270,6 +285,36 @@ where
                 Err(error) => LaneCleanupOutcome::Partial(error),
             }
         }
+    }
+}
+
+/// Nothing on disk is touched: the task stops pointing at a checkout Domios
+/// does not own and keeps the untouched path as a hint.
+fn release_unmanaged_lane(
+    store: &PlanStore,
+    plan: &ClosedTaskLaneCleanupRead,
+    task: &super::ClosedTaskLaneRead,
+    reason: &str,
+    now_ms: u64,
+) -> LaneCleanupOutcome {
+    let hint = format!(
+        "lane cleanup left worktree={} branch={} untouched: {reason}",
+        task.lane.worktree_path.as_deref().unwrap_or("<none>"),
+        task.lane.branch.as_deref().unwrap_or("<none>"),
+    );
+    let update = TaskLaneUpdate {
+        tab_id: Some(None),
+        workspace_id: Some(None),
+        workspace_name: Some(None),
+        worktree_path: Some(None),
+        branch: Some(None),
+        cleanup_status: Some(Some("done".into())),
+        cleanup_hints: Some(vec![hint]),
+        ..Default::default()
+    };
+    match update_task_lane(store, &plan.id, &task.id, update, now_ms) {
+        Ok(()) => LaneCleanupOutcome::NotManaged(reason.to_string()),
+        Err(error) => LaneCleanupOutcome::Partial(error),
     }
 }
 

@@ -1,8 +1,8 @@
 import { expect, it, vi } from "vitest";
-import { localFetch } from "../../lib/webApi";
+import { clearRelayTarget, localFetch, setRelayTarget, webFetch } from "../../lib/webApi";
 import { neighborRuntimeClient, runtimeCall } from "./neighborRuntimeClient";
 
-vi.mock("../../lib/webApi", () => ({ localFetch: vi.fn() }));
+vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), localFetch: vi.fn(), webFetch: vi.fn() }));
 vi.mock("../../lib/bridge", () => ({ listen: vi.fn() }));
 vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { window: undefined, openFolder: vi.fn() } }));
 
@@ -88,4 +88,18 @@ it("keeps pending key confirmation typed without replaying receiver selection", 
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "key_inventory_pending", message }), { status: 409 }));
   await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "key_inventory_pending", message });
   expect(localFetch).toHaveBeenCalledTimes(1);
+});
+
+it("reads the selected installation's history without touching the origin or its read receipts", async () => {
+  const { neighborConciergeClient, markNeighborRead } = await import("./neighborConciergeClient");
+  setRelayTarget("installation-a", "A");
+  vi.mocked(localFetch).mockClear();
+  vi.mocked(webFetch).mockResolvedValueOnce(new Response(JSON.stringify({ entries: [], next_before: "a-history", ended: false }), { status: 200 }));
+  try {
+    await expect(neighborConciergeClient.history("pair")).resolves.toMatchObject({ next_before: "a-history" });
+    expect(webFetch).toHaveBeenCalledWith("/api/neighbors/runtime", expect.objectContaining({ body: JSON.stringify({ operation: "history", friendship_id: "pair" }) }));
+    await markNeighborRead("pair", "a-message");
+    await expect((await import("./neighborsSwitch")).setNeighborsEnabled(false)).rejects.toThrow("Open this machine directly");
+    expect(localFetch).not.toHaveBeenCalled();
+  } finally { clearRelayTarget(); }
 });

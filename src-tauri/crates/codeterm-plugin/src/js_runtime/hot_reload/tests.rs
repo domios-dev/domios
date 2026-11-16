@@ -105,7 +105,7 @@ pub(super) fn set_mtime(path: &std::path::Path, mtime: std::time::SystemTime) {
 pub(super) fn manifest_for(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
-        r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+        r#"{{"id":"{id}","version":"0","hostIoJobs":true,"displayName":"{id}","hostApi":{HOST_API_VERSION},
             "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                      "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}},
             "entry":"plugin.js"}}"#
@@ -119,7 +119,7 @@ fn capability_manifest_for(id: &str, cap_field: &str) -> String {
 fn capability_manifest_full(id: &str, cap_field: &str, requires_reload: bool) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
-        r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+        r#"{{"id":"{id}","version":"0","hostIoJobs":true,"displayName":"{id}","hostApi":{HOST_API_VERSION},
             "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                      "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}},
             "capabilities":{{"{cap_field}":true}},"requiresReload":{requires_reload},
@@ -130,7 +130,7 @@ fn capability_manifest_full(id: &str, cap_field: &str, requires_reload: bool) ->
 fn webhook_manifest_for(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
-        r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+        r#"{{"id":"{id}","version":"0","hostIoJobs":true,"displayName":"{id}","hostApi":{HOST_API_VERSION},
             "capabilities":{{"webhookReceiver":{{"kind":"pebble"}}}},"entry":"plugin.js"}}"#
     )
 }
@@ -138,7 +138,7 @@ fn webhook_manifest_for(id: &str) -> String {
 pub(super) fn spawnable_chatbackend_manifest(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
-        r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+        r#"{{"id":"{id}","version":"0","hostIoJobs":true,"displayName":"{id}","hostApi":{HOST_API_VERSION},
             "capabilities":{{"chatBackend":{{"spawnable":true}}}},"entry":"plugin.js"}}"#
     )
 }
@@ -146,7 +146,7 @@ pub(super) fn spawnable_chatbackend_manifest(id: &str) -> String {
 fn capabilityless_manifest(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
-        r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+        r#"{{"id":"{id}","version":"0","hostIoJobs":true,"displayName":"{id}","hostApi":{HOST_API_VERSION},
             "capabilities":{{}},"entry":"plugin.js"}}"#
     )
 }
@@ -192,7 +192,7 @@ fn js_decision_model_registers_and_unregisters_by_capability() {
         r#"{
             "id":"decision-fixture",
             "version":"0",
-            "displayName":"Decision fixture",
+            "hostIoJobs":true,"displayName":"Decision fixture",
             "capabilities":{"decisionModel":true}
         }"#,
     )
@@ -313,7 +313,7 @@ fn pebble_audio_receiver_manifest_audio_flag_reaches_the_registered_receiver() {
     write(
         &dir.join("plugin.json"),
         &format!(
-            r#"{{"id":"pebble","version":"0","displayName":"pebble","hostApi":{HOST_API_VERSION},
+            r#"{{"id":"pebble","version":"0","hostIoJobs":true,"displayName":"pebble","hostApi":{HOST_API_VERSION},
             "capabilities":{{"webhookReceiver":{{"kind":"pebble","audio":true}}}},"entry":"plugin.js"}}"#
         ),
     );

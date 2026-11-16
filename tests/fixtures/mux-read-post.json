@@ -1,0 +1,18 @@
+[
+  { "path": "/api/essence-maps", "cancellable": true },
+  { "path": "/api/tabs/own/preview/read", "cancellable": true },
+  { "path": "/api/tabs/own/preview/check", "cancellable": true },
+  { "path": "/api/tabs/own/chat-raw/start", "cancellable": true },
+  { "path": "/api/tabs/own/chat-raw/history", "cancellable": true },
+  { "path": "/api/tabs/own/chat-raw/backfill", "cancellable": true },
+  { "path": "/api/tabs/own/chat-raw/resume", "cancellable": true },
+  { "path": "/api/automation/blueprints/solutions/list", "cancellable": true },
+  { "path": "/api/automation/blueprints/solutions/save", "cancellable": false },
+  { "path": "/api/automation/blueprints/solutions/archive", "cancellable": false },
+  { "path": "/api/automation/blueprints/solutions/list/extra", "cancellable": false },
+  { "path": "/api/tabs/own/chat-send", "cancellable": false },
+  { "path": "/api/tabs/own/send", "cancellable": false },
+  { "path": "/api/tabs/own/chat-raw/stop", "cancellable": false },
+  { "path": "/api/workspaces/own/focus", "cancellable": false },
+  { "path": "/api/secrets/backend", "cancellable": false }
+]

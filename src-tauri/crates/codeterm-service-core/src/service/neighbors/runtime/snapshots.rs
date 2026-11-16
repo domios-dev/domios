@@ -14,23 +14,22 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         let registry = self.neighbor_cell().registry_snapshot.lock().clone();
         let (receivers, _) = self.neighbor_friend_receiver_snapshot();
+        let names = self.neighbor_cell().names.lock().clone();
+        let friends = json!({"friends": names.keys().map(|id| json!({"friendship_id":id})).collect::<Vec<_>>()});
+        let concierges = self.neighbor_concierge_views(&settings, &friends);
         let projection = {
-            let names = self.neighbor_cell().names.lock();
             Value::Object(
                 names
                     .iter()
-                    .filter_map(|(friendship, name)| {
+                    .map(|(friendship, name)| {
                         let tab = settings.bindings.get(friendship);
                         let receiver = receivers.get(friendship);
-                        if tab.is_none() && receiver.is_none() {
-                            return None;
-                        }
                         let friend = registry.as_ref().and_then(|list| {
                             list["friends"].as_array()?.iter().find(|friend| {
                                 friend["friendship_id"].as_str() == Some(friendship.as_str())
                             })
                         });
-                        Some((
+                        (
                             friendship.clone(),
                             json!({
                                 "tab_id": tab,
@@ -39,8 +38,9 @@ impl ServiceContext {
                                 "paused": self.neighbor_effective_pause(&settings, friendship),
                                 "access": registry.as_ref().and_then(|list| list["access"].as_str()),
                                 "receiver": receiver,
+                                "concierge": concierges.get(friendship),
                             }),
-                        ))
+                        )
                     })
                     .collect(),
             )

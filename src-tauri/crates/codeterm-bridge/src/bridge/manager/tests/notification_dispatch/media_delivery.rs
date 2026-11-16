@@ -77,7 +77,7 @@ async fn file_with_default_text_type_uploads_document_and_caption() {
 #[tokio::test]
 async fn caption_only_file_send_propagates_telegram_rejection() {
     let file = tempfile::NamedTempFile::new().unwrap();
-    let (result, method, _) = deliver(
+    let (result, method, body) = deliver(
         serde_json::json!({
             "file": file.path(), "caption": "caption without text"
         }),
@@ -85,6 +85,8 @@ async fn caption_only_file_send_propagates_telegram_rejection() {
     )
     .await;
     assert_eq!(method, "/botFAKE/sendDocument");
+    assert!(body.contains("name=\"document\"; filename="));
+    assert!(body.contains("name=\"caption\"\r\n\r\ncaption without text"));
     assert_eq!(result, Err("sendDocument failed: upload rejected".into()));
 }
 

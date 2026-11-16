@@ -633,6 +633,9 @@ fn chat_start_inner(
     let msg_count = snap.messages.len();
     let mut messages = Vec::new();
     messages.extend(snap.messages.iter().cloned());
+    if let Some(held) = incarnation.as_ref().filter(|_| cursor.is_some()) {
+        codeterm_service_core::service::tab_chat::stamp_record_incarnation(&mut messages, &held.id);
+    }
 
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
@@ -769,11 +772,38 @@ pub fn chat_backfill_core(
         .flatten()
         .ok_or("no JSONL")?;
 
-    Ok(ChatBackfillResult {
-        source_session_id: Some(session_id),
-        session_binding_nonce,
-        ..backfill_page(&svc.agent_registry, &provider_id, &path, before_offset)?
-    })
+    let source = svc.chat_registry.jsonl_source(&tab_id);
+    let epoch = codeterm_service_core::service::tab_chat::resume_cursor::ChatEpoch {
+        source_session_id: session_id.clone(),
+        session_binding_nonce: session_binding_nonce.clone(),
+    };
+    let incarnation = codeterm_service_core::service::tab_chat::resume::capture_incarnation(
+        &source,
+        &epoch,
+        &path,
+        before_offset,
+        None,
+    );
+    let mut page = backfill_page(&svc.agent_registry, &provider_id, &path, before_offset)?;
+    if let Some(held) = incarnation {
+        let current = codeterm_service_core::service::tab_chat::resume::capture_incarnation(
+            &source,
+            &epoch,
+            &path,
+            page.end_offset,
+            Some(&held),
+        );
+        if current.as_ref() != Some(&held) {
+            return Err("Transcript changed while reading history".into());
+        }
+        codeterm_service_core::service::tab_chat::stamp_record_incarnation(
+            &mut page.messages,
+            &held.id,
+        );
+    }
+    page.source_session_id = Some(session_id);
+    page.session_binding_nonce = session_binding_nonce;
+    Ok(page)
 }
 
 /// One backfill page of `path` ending at `before_offset`, without session scope.

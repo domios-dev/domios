@@ -1,0 +1,2 @@
+trigger: { every: 1h, while: research_running }
+action: { notify: orchestrator, digest: progress }

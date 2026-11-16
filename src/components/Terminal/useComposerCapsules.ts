@@ -25,6 +25,7 @@ import {
 } from "./composerCapsules";
 
 export interface InlineAttachment {
+  displayName?: string;
   path: string;
   kind?: AttachmentKind;
   label?: string;

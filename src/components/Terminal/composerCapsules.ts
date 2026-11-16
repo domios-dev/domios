@@ -5,6 +5,7 @@ export interface ComposerCapsule {
   kind: AttachmentKind;
   path: string;
   uploadId?: number;
+  displayName?: string;
 }
 
 /** Capsules a draft may reference, keyed by label; entries outlive their token so undo can bring one back. */
@@ -17,6 +18,7 @@ export interface CapsuleSpan {
 }
 
 export interface CapsuleRequest {
+  displayName?: string;
   kind: AttachmentKind;
   path: string;
   label?: string;
@@ -149,21 +151,21 @@ export function addCapsule(registry: CapsuleRegistry, request: CapsuleRequest, d
   const label = preferred && !taken[preferred]
     ? preferred
     : uniqueLabel(taken, preferred && !NUMBERED_KINDS.has(request.kind) ? preferred : generatedLabel(taken, request));
-  const capsule: ComposerCapsule = { label, kind: request.kind, path: request.path };
+  const capsule: ComposerCapsule = { label, kind: request.kind, path: request.path, ...(request.displayName ? { displayName: request.displayName } : {}) };
   return { registry: { ...registry, [label]: capsule }, capsule };
 }
 
 /** Capsule tokens for paths, in order, separated by spaces. */
 export function capsulesForPaths(
   registry: CapsuleRegistry,
-  items: ReadonlyArray<{ path: string; kind?: AttachmentKind; label?: string; detail?: string }>,
+  items: ReadonlyArray<{ path: string; kind?: AttachmentKind; label?: string; detail?: string; displayName?: string }>,
   draft?: string,
 ): { registry: CapsuleRegistry; text: string } {
   let next = registry;
   let working = draft;
   const tokens: string[] = [];
   for (const item of items) {
-    const added = addCapsule(next, { kind: item.kind ?? attachmentKindForPath(item.path), path: item.path, label: item.label, detail: item.detail }, working);
+    const added = addCapsule(next, { kind: item.kind ?? attachmentKindForPath(item.path), path: item.path, label: item.label, detail: item.detail, displayName: item.displayName }, working);
     next = added.registry;
     const token = capsuleToken(added.capsule.label);
     tokens.push(token);
@@ -303,7 +305,8 @@ export function decodeCapsuleRegistry(raw: string): CapsuleRegistry {
     for (const item of parsed) {
       if (!item || typeof item.label !== "string" || typeof item.path !== "string") continue;
       const kind = ATTACHMENT_KINDS.find((candidate) => candidate === item.kind);
-      if (kind) registry[item.label] = { label: item.label, kind, path: item.path };
+      if (kind) registry[item.label] = { label: item.label, kind, path: item.path,
+        ...(typeof item.displayName === "string" ? { displayName: item.displayName } : {}) };
     }
     return registry;
   } catch {

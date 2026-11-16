@@ -109,6 +109,9 @@ pub struct AgentIdentitySnapshot {
     pub roleless_tracked: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub managed: Option<crate::multiplexer::types::ManagedTab>,
+    /// The registered role type's display name; kept so a restored tab shows the same name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_label: Option<String>,
     /// Lifecycle lineage this snapshot was written under. Recovery matches it
     /// against the journal; absent lineage is unproven, never permissive.
     #[serde(default, skip_serializing_if = "Option::is_none")]

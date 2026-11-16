@@ -8,7 +8,9 @@ mod retirement;
 use super::super::storage::ConciergeOptions;
 
 pub(super) fn launch_error(error: String) -> Error {
-    if error.starts_with("neighbor_machine_access_unsupported:") {
+    if error.starts_with("neighbor_restore_grant_required:") {
+        Error::RestoreGrantRequired
+    } else if error.starts_with("neighbor_machine_access_unsupported:") {
         Error::MachineAccessUnsupported
     } else if error.starts_with("receiver_status_unknown:") {
         Error::ReceiverStatusUnknown

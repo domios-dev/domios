@@ -145,7 +145,7 @@ pub enum Command {
         force: bool,
     },
 
-    /// Focus a tab (move keyboard focus).
+    /// Ask to show a tab: it is highlighted for the owner; no client moves.
     TabFocus {
         tab_id: String,
     },
@@ -735,6 +735,7 @@ pub fn build_tab_summary_json(
                 "has_checklist": tab.has_checklist,
                 "role": tab.role,
                 "role_profile": tab.role_profile,
+                "role_label": tab.role_label,
                 "ownership": tab.ownership,
                 "chat_view": tab.chat_view,
                 "backing": tab.backing,

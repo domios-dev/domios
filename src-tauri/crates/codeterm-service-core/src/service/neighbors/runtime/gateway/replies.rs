@@ -119,15 +119,12 @@ impl Gateway {
         message: &InboxMessage,
         plaintext: Zeroizing<String>,
     ) -> Result<GatewayReceipt> {
-        self.current()?;
-        if self
-            .service
-            .mux
-            .read()
-            .get_tab(&self.tab)
-            .and_then(|tab| tab.neighbor_authority.as_ref())
-            .is_some_and(|authority| authority.uid != message.doc.envelope.recipient_uid)
-        {
+        if self.tab.is_empty() && self.reply_target.is_none() {
+            self.scope_current()?;
+        } else {
+            self.current()?;
+        }
+        if !self.recipient_matches(&message.doc.envelope.recipient_uid) {
             return Err(Error::WrongPeer);
         }
         let plaintext = self

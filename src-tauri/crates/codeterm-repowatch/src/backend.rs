@@ -101,7 +101,7 @@ pub fn is_observation_only(event: &notify::Result<Event>) -> bool {
 pub struct RescanRelay<F: EventHandler> {
     inner: F,
     sink: Option<RescanSink>,
-    replacements: Option<Arc<dyn Fn(Vec<PathBuf>) + Send + Sync>>,
+    changes: Option<Arc<parking_lot::Mutex<crate::coverage::PendingChanges>>>,
 }
 
 impl<F: EventHandler> RescanRelay<F> {
@@ -109,7 +109,7 @@ impl<F: EventHandler> RescanRelay<F> {
         Self {
             inner,
             sink,
-            replacements: None,
+            changes: None,
         }
     }
 }
@@ -117,14 +117,8 @@ impl<F: EventHandler> RescanRelay<F> {
 impl<F: EventHandler> EventHandler for RescanRelay<F> {
     fn handle_event(&mut self, event: notify::Result<Event>) {
         if let Ok(event) = &event {
-            if matches!(
-                event.kind,
-                notify::EventKind::Remove(_)
-                    | notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
-            ) {
-                if let Some(replacements) = &self.replacements {
-                    replacements(event.paths.clone());
-                }
+            if let Some(changes) = &self.changes {
+                changes.lock().record(event);
             }
         }
         if is_rescan(&event) {
@@ -142,8 +136,8 @@ impl<F: EventHandler> EventHandler for RescanRelay<F> {
 thread_local! {
     /// Read by `RescanWatcher::new`, which the debouncer calls synchronously on
     /// this same thread while `build` is still on the stack.
-    pub(super) static RESCAN_SINK: RefCell<Option<RescanSink>> = RefCell::new(None);
-    pub(super) static REPLACEMENT_SINK: RefCell<Option<Arc<dyn Fn(Vec<PathBuf>) + Send + Sync>>> = RefCell::new(None);
+    pub(super) static RESCAN_SINK: RefCell<Option<RescanSink>> = const { RefCell::new(None) };
+    pub(super) static COVERAGE_CHANGES: RefCell<Option<Arc<parking_lot::Mutex<crate::coverage::PendingChanges>>>> = const { RefCell::new(None) };
 }
 
 pub(super) struct RescanWatcher {
@@ -154,7 +148,7 @@ impl Watcher for RescanWatcher {
     fn new<F: EventHandler>(event_handler: F, config: NotifyConfig) -> notify::Result<Self> {
         let sink = RESCAN_SINK.with(|slot| slot.borrow_mut().take());
         let mut relay = RescanRelay::new(event_handler, sink);
-        relay.replacements = REPLACEMENT_SINK.with(|slot| slot.borrow_mut().take());
+        relay.changes = COVERAGE_CHANGES.with(|slot| slot.borrow_mut().take());
         let inner = RecommendedWatcher::new(relay, admission_config(config))?;
         Ok(Self { inner })
     }
@@ -193,7 +187,7 @@ pub struct NotifyBackend;
 enum Command {
     Set(Vec<WatchSpec>, std::sync::mpsc::Sender<Result<(), String>>),
     Signal(WatchSignal),
-    Replaced(Vec<PathBuf>),
+    Batch(Vec<PathBuf>, Vec<crate::coverage::Change>),
     Stop,
 }
 
@@ -254,12 +248,10 @@ impl WatchBackend for NotifyBackend {
                 .name("repository-watch-set".into())
                 .spawn(move || {
                     let on_rescan = events.clone();
-                    let on_replacement = events.clone();
-                    REPLACEMENT_SINK.with(|slot| {
-                        *slot.borrow_mut() = Some(Arc::new(move |paths| {
-                            let _ = on_replacement.send(Command::Replaced(paths));
-                        }))
-                    });
+                    let changes = Arc::new(parking_lot::Mutex::new(
+                        crate::coverage::PendingChanges::default(),
+                    ));
+                    COVERAGE_CHANGES.with(|slot| *slot.borrow_mut() = Some(changes.clone()));
                     RESCAN_SINK.with(|slot| {
                         *slot.borrow_mut() = Some(Arc::new(move || {
                             let _ = on_rescan.send(Command::Signal(WatchSignal::Rescan));
@@ -268,21 +260,25 @@ impl WatchBackend for NotifyBackend {
                     let built = new_debouncer_opt::<_, RescanWatcher>(
                         DebouncerConfig::default().with_timeout(DEBOUNCE),
                         move |result: DebounceEventResult| {
-                            let signal = match result {
+                            let command = match result {
                                 Ok(events) => {
                                     let mut paths: Vec<_> =
                                         events.into_iter().map(|e| e.path).collect();
                                     paths.sort();
                                     paths.dedup();
-                                    WatchSignal::Batch(paths)
+                                    let changed = changes.lock().take(&paths);
+                                    Command::Batch(paths, changed)
                                 }
-                                Err(error) => WatchSignal::Failed(error.to_string()),
+                                Err(error) => {
+                                    changes.lock().clear();
+                                    Command::Signal(WatchSignal::Failed(error.to_string()))
+                                }
                             };
-                            let _ = events.send(Command::Signal(signal));
+                            let _ = events.send(command);
                         },
                     );
                     RESCAN_SINK.with(|slot| *slot.borrow_mut() = None);
-                    REPLACEMENT_SINK.with(|slot| *slot.borrow_mut() = None);
+                    COVERAGE_CHANGES.with(|slot| *slot.borrow_mut() = None);
                     let mut debouncer = match built {
                         Ok(value) => value,
                         Err(error) => {
@@ -292,8 +288,8 @@ impl WatchBackend for NotifyBackend {
                     };
                     let mut active = std::collections::BTreeMap::new();
                     let mut specs = initial;
-                    let result =
-                        super::subscriptions::reconcile(debouncer.watcher(), &mut active, &specs);
+                    let mut coverage = crate::coverage::Coverage::default();
+                    let result = coverage.reconcile(debouncer.watcher(), &mut active, &specs, &[]);
                     let failed = result.is_err();
                     if ready.send(result.map(|_| ())).is_err() || failed {
                         return;
@@ -302,10 +298,12 @@ impl WatchBackend for NotifyBackend {
                         match command {
                             Command::Stop => break,
                             Command::Set(updated, reply) => {
-                                let result = super::subscriptions::reconcile(
+                                coverage.invalidate();
+                                let result = coverage.reconcile(
                                     debouncer.watcher(),
                                     &mut active,
                                     &updated,
+                                    &[],
                                 );
                                 if result.is_ok() {
                                     specs = updated;
@@ -318,27 +316,38 @@ impl WatchBackend for NotifyBackend {
                                 }
                                 let _ = reply.send(result.map(|_| ()));
                             }
-                            Command::Replaced(paths) => {
-                                for signal in refresh_coverage(
+                            Command::Batch(paths, changes) => {
+                                match coverage.reconcile(
                                     debouncer.watcher(),
                                     &mut active,
                                     &specs,
-                                    &paths,
-                                    true,
+                                    &changes,
                                 ) {
-                                    let _ = dispatch.send(signal);
+                                    Ok(true) => {
+                                        let _ = dispatch.send(WatchSignal::CoverageChanged);
+                                    }
+                                    Ok(false) => {}
+                                    Err(error) => {
+                                        let _ = dispatch.send(WatchSignal::Failed(error));
+                                    }
                                 }
+                                let _ = dispatch.send(WatchSignal::Batch(paths));
                             }
                             Command::Signal(signal) => {
-                                if let WatchSignal::Batch(paths) = &signal {
-                                    for signal in refresh_coverage(
+                                if coverage.invalidate_on_signal(&signal) {
+                                    match coverage.reconcile(
                                         debouncer.watcher(),
                                         &mut active,
                                         &specs,
-                                        paths,
-                                        false,
+                                        &[],
                                     ) {
-                                        let _ = dispatch.send(signal);
+                                        Ok(true) => {
+                                            let _ = dispatch.send(WatchSignal::CoverageChanged);
+                                        }
+                                        Ok(false) => {}
+                                        Err(error) => {
+                                            let _ = dispatch.send(WatchSignal::Failed(error));
+                                        }
                                     }
                                 }
                                 let _ = dispatch.send(signal);
@@ -357,6 +366,7 @@ impl WatchBackend for NotifyBackend {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn refresh_coverage(
     watcher: &mut (impl Watcher + ?Sized),
     active: &mut std::collections::BTreeMap<PathBuf, bool>,

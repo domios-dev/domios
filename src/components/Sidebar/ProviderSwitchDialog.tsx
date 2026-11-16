@@ -1,42 +1,93 @@
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { Tab } from "../../lib/types";
-import { isProviderSelectable, providerAvailabilityLabel } from "../../lib/providerAvailability";
+import { isProviderSelectable } from "../../lib/providerAvailability";
+import { launchProviderInstaller } from "../../lib/providerInstall";
 import { useProviderSwitch } from "./useProviderSwitch";
+import { OrchestrationRoleRow } from "./OrchestrationPairForm";
+import { usePickerNavigation } from "../AgentPicker/pickerNavigation";
 import { Button } from "../shared/Button";
-import { DropdownSelect } from "../shared/DropdownMenu";
+import { SELECT_TRIGGER } from "../shared/DropdownMenu";
 import { FormDialog } from "../shared/FormDialog";
-import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { UI_INPUT } from "../shared/design";
+import { describeError } from "../../lib/describeError";
 
 export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab: Tab; initialProviderId: string; onClose(): void }) {
   const titleId = useId();
   const descriptionId = useId();
-  const { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort, efforts,
-    phase, setPhase, error, result, history, ready, activity, submit, showHistory } = useProviderSwitch(tab, initialProviderId);
+  const errorId = useId();
+  const { providers, providerId, setProviderId, provider, selectedModel, setModel, model, setEffort, effort,
+    phase, setPhase, error, retryAfterSeconds, result, history, ready, activity, submit, showHistory } = useProviderSwitch(tab, initialProviderId);
+  const navigation = usePickerNavigation();
+  const [installError, setInstallError] = useState<string | null>(null);
   const locked = phase !== "choosing";
+  // Same order as Start a session: launch-profile harnesses follow the direct ones.
+  const ordered = [...providers.filter((candidate) => !candidate.agent_runtime?.launchProfiles), ...providers.filter((candidate) => candidate.agent_runtime?.launchProfiles)];
+  const unavailableIds = useMemo(() => new Set(providers.filter((candidate) => !isProviderSelectable(candidate)).map((candidate) => candidate.id)), [providers]);
+  const freeModel = provider && provider.available_models.length === 0
+    ? <input aria-label="Agent model" placeholder="Model (optional)" className={SELECT_TRIGGER} value={selectedModel ?? ""} disabled={locked}
+      onChange={(event) => setModel(event.target.value || undefined)} />
+    : undefined;
+  async function install(id: string) {
+    setInstallError(null);
+    try {
+      const launch = await launchProviderInstaller(id);
+      onClose();
+      const workspaceId = launch.workspace_id ?? tab.workspace_id;
+      if (workspaceId) await navigation.show({ workspaceId, tabId: launch.tab_id });
+    } catch (failure) { setInstallError(failure instanceof Error ? failure.message : String(failure)); }
+  }
+  const failure = error ?? installError;
   return <FormDialog titleId={titleId} descriptionId={descriptionId} onCancel={() => { if (phase !== "switching") onClose(); }} onSubmit={(event) => { event.preventDefault(); if (ready) void submit(); }} className="max-w-lg">
     <h2 id={titleId} className="font-semibold">Switch harness</h2>
-    <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">This conversation continues on the new harness through a handoff. The full history is not transferred: recent messages and task context are sent, and the target harness builds a working summary. The tab, role and task stay the same.</p>
-    {phase !== "complete" && <>
-      <DropdownSelect aria-label="Target provider" value={providerId} options={providers.map((provider) => ({ value: provider.id, label: isProviderSelectable(provider) ? provider.display_name : `${provider.display_name} (${providerAvailabilityLabel(provider)})`, disabled: !isProviderSelectable(provider) }))} disabled={locked} onChange={(id) => { setProviderId(id); setModel(undefined); setEffort(undefined); }} />
-      {(provider?.available_models.length ?? 0) > 0 ? <DropdownSelect aria-label="Target model" value={model ?? ""} disabled={locked} options={(provider?.available_models ?? []).map((model) => ({ value: model.id, label: model.display_name, disabled: model.available === false }))} onChange={(model) => { setModel(model); setEffort(undefined); }} /> : <label className="text-sm">Model (optional)<input className={UI_INPUT.full} value={selectedModel ?? ""} disabled={locked} onChange={(event) => setModel(event.target.value || undefined)} /></label>}
-      {efforts.length > 0 && <DropdownSelect aria-label="Reasoning effort" value={effort ?? ""} options={efforts.map((effort) => ({ value: effort.id, label: effort.display_name }))} disabled={locked} onChange={setEffort} />}
-    </>}
-    {error && <InlineErrorNotice error={error} operation="switching the harness" actions={error.includes("provider_switch_auth_timeout") ? [{ label: "Retry", onClick: () => void submit(), disabled: !ready || !provider }] : []} />}
-    {phase === "switching" && <p role="status">Retiring the previous session, binding the target and delivering the handoff…</p>}
+    <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">{tab.title || "This tab"} continues on another harness using recent messages and task context. The full history stays here.</p>
+    {phase !== "complete" && <OrchestrationRoleRow
+      label="Agent"
+      providers={ordered}
+      providerId={providerId}
+      modelId={model ?? ""}
+      effortId={effort}
+      disabledProviderIds={unavailableIds}
+      disabled={locked}
+      providerDescribedBy={failure ? errorId : undefined}
+      modelSlot={freeModel}
+      onProviderChange={(id) => { setInstallError(null); setProviderId(id); setModel(undefined); setEffort(undefined); }}
+      onModelChange={(next) => { setModel(next); setEffort(undefined); }}
+      onEffortChange={setEffort}
+      onInstallProvider={(id) => void install(id)}
+    />}
+    {failure && <SwitchFailure error={failure} id={errorId} harnessName={provider?.display_name} operation={error ? "switching the harness" : "starting the installer"} />}
+    {phase === "switching" && <p role="status">Switching harness…</p>}
     {phase === "waiting" && <p role="status">Waiting for this tab to become idle. Cancel to keep the current harness.</p>}
-    {result && <div role="status" className="text-sm">Continued on {result.provider}. Handoff delivered and task binding preserved.</div>}
+    {result && <div role="status" className="text-sm">Continued on {result.provider}.</div>}
     {result && <Button size="sm" onClick={() => void showHistory()}>Previous harness: {result.previous_provider}</Button>}
     {history && <section aria-label="Previous harness transcript" className="max-h-72 overflow-auto text-sm">{history.map((row, index) => <article key={index}><strong>{row.kind}</strong><pre className="whitespace-pre-wrap">{row.content}</pre></article>)}</section>}
     <div className="flex justify-end gap-2">
       <Button size="sm" disabled={phase === "switching"} onClick={onClose}>{phase === "complete" ? "Close" : "Cancel"}</Button>
       {phase === "choosing" && !ready && <>
-        <Button size="sm" onClick={() => setPhase("waiting")} disabled={!provider}>Wait for idle</Button>
-        <Button size="sm" variant="danger" onClick={() => void submit(true)} disabled={!provider || activity.launching}>Stop and switch</Button>
+        <Button size="sm" onClick={() => setPhase("waiting")} disabled={!provider || retryAfterSeconds !== null}>Wait for idle</Button>
+        <Button size="sm" variant="danger" onClick={() => void submit(true)} disabled={!provider || activity.launching || retryAfterSeconds !== null}>Stop and switch</Button>
       </>}
-      {phase === "choosing" && ready && <Button size="sm" variant="primary" type="submit" disabled={!provider}>Switch harness</Button>}
+      {phase === "choosing" && ready && <Button size="sm" variant="primary" type="submit" disabled={!provider || retryAfterSeconds !== null}>{retryAfterSeconds !== null ? `Switch in ${retryAfterSeconds} s` : "Switch harness"}</Button>}
     </div>
   </FormDialog>;
+}
+
+function SwitchFailure({ error, id, harnessName, operation }: { error: string; id: string; harnessName?: string; operation: string }) {
+  const view = describeError(error, { operation, harnessName });
+  const [expanded, setExpanded] = useState(false);
+  const [copyState, setCopyState] = useState("");
+  const detailsId = useId();
+  async function copy() {
+    try { await navigator.clipboard.writeText(view.raw); setCopyState("Copied"); }
+    catch { setCopyState("Select the details to copy them."); }
+  }
+  return <section role="status" aria-live="polite" aria-label={view.title} className="space-y-2 text-sm">
+    <p id={id}>{view.title}; {view.cause ? view.cause[0].toLowerCase() + view.cause.slice(1) : "try again."}</p>
+    <div className="flex items-center gap-3 text-xs text-[var(--ct-muted-fg)]">
+      <button type="button" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)} className="hover:text-[var(--ct-fg)]">{expanded ? "Hide details" : "Details"}</button>
+      <button type="button" onClick={() => void copy()} className="hover:text-[var(--ct-fg)]">{copyState || "Copy"}</button>
+    </div>
+    <pre id={detailsId} hidden={!expanded} tabIndex={0} className="max-h-40 select-text overflow-auto whitespace-pre-wrap break-words text-xs text-[var(--ct-muted-fg)] [overflow-wrap:anywhere]">{view.raw}</pre>
+  </section>;
 }
 
 export function useProviderSwitchDialog(tab: Tab | null) {

@@ -594,6 +594,9 @@ pub enum RuntimeStep {
 pub struct TokenUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub response_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cost_micros: Option<u64>,
     pub input_tokens: u64,
     pub output_tokens: u64,

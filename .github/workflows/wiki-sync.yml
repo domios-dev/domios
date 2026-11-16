@@ -19,11 +19,13 @@ jobs:
   publish:
     name: publish essences to the wiki
     if: ${{ github.repository_owner == 'domios-dev' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master') }}
-    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
+    # Default-branch runs are outside the release-ref runner allowlist, so this stays hosted.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          persist-credentials: false
           fetch-depth: 1
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444

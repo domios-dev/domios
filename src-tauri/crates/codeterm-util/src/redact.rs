@@ -12,8 +12,9 @@ pub fn text(input: &str) -> String {
     ).expect("credential pattern")
     });
     let urls = URL.get_or_init(|| Regex::new(r"https?://[^\s<>\x22]+").expect("URL pattern"));
+    // A secret word may continue as an identifier (`SECRET_ACCESS_KEY`, `token_id`) before its value.
     let labels = SECRETS.get_or_init(|| Regex::new(
-        r#"(?im)(?:authorization|bearer|password|passwd|secret|token|api[_ -]?key|verification[_ -]?code|one[_ -]?time[_ -]?code|access[_ -]?code|device[_ -]?code|otp)["']?\s*[:= ]\s*[^\r\n]+"#
+        r#"(?im)(?:authorization|bearer|(?:password|passwd|secret|token|api[_ -]?key|access[_ -]?key|private[_ -]?key)(?:_[a-z0-9_]*)?|verification[_ -]?code|one[_ -]?time[_ -]?code|access[_ -]?code|device[_ -]?code|otp)["']?\s*[:= ]\s*[^\r\n]+"#
     ).expect("secret pattern"));
     let codes = CODE.get_or_init(|| {
         Regex::new(r"\b(?:[0-9]{6,8}|[A-Z0-9]{4}-[A-Z0-9]{4})\b").expect("code pattern")
@@ -36,3 +37,6 @@ pub fn text(input: &str) -> String {
     });
     labels.replace_all(&value, "[redacted]").into_owned()
 }
+
+#[cfg(test)]
+mod tests;

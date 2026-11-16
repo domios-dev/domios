@@ -172,7 +172,7 @@ fn durable_lookup_marker_survives_read_only_sqlite_continuation_and_denies_binar
             ),
     );
     let source = format!(
-        r#"module.exports.default={{mediaFile(){{const query=JSON.parse(host.sqliteQueryStart({},"SELECT value FROM observed",null));if(typeof query.jobId!=="string")throw Error("missing read query");return host.awaitJob(query.jobId,function(read){{if(!read.rows||read.rows[0].value!==1)throw Error("missing rows");const result=host.transfer.start({{url:"https://api.example/output",method:"GET",response:{{kind:"empty",statuses:[200]}}}});if(result.error!=="not_allowed")throw Error("lookup submitted work");return {{path:"clip.mp4",contentType:"video/mp4"}};}});}}}}"#,
+        r#"module.exports.default={{mediaFile(){{return host.io({{op:"sqliteQuery",db:{},sql:"SELECT value FROM observed",params:null}},function(rows){{if(!rows||rows[0].value!==1)throw Error("missing rows");if(typeof host.transfer!=="undefined")throw Error("legacy transfer exposed");return {{path:"clip.mp4",contentType:"video/mp4"}};}});}}}}"#,
         serde_json::to_string(&database.to_string_lossy()).unwrap()
     );
     let vm = PluginVm::from_source_sandboxed("run-lookup-marker", source, None, sandbox.clone())

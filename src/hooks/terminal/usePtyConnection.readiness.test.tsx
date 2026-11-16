@@ -12,6 +12,9 @@ interface Channel { channel: string; path: string }
 // The daemon behind the real stream mux: one carrier SSE, channel opens by POST, frames pushed by the test.
 function fakeDaemon() {
   const opened: Channel[] = [];
+  const rpcs: string[] = [];
+  const openWaiters = new Map<number, () => void>();
+  const rpcWaiters = new Map<number, () => void>();
   let wire!: (frame: unknown) => void;
   const heads = new Set<string>();
   const fetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -27,6 +30,18 @@ function fakeDaemon() {
     }
     if (method === "POST" && url.pathname.endsWith("/channels")) {
       opened.push(JSON.parse(String(init.body)) as Channel);
+      openWaiters.get(opened.length)?.();
+      return Response.json({ accepted: true }, { status: 202 });
+    }
+    if (method === "POST" && url.pathname.includes("/requests/")) {
+      const path = new Headers(init.headers).get("X-Domios-Mux-Path")!;
+      rpcs.push(path); rpcWaiters.get(rpcs.length)?.();
+      if (path === "/api/health") {
+        const channel = url.pathname.split("/").pop()!;
+        wire({ channel, open: true, status: 200, headers: [["content-type", "application/json"]] });
+        wire({ channel, chunk: "{}", enc: "utf8" });
+        wire({ channel, end: { reason: "eof" } });
+      }
       return Response.json({ accepted: true }, { status: 202 });
     }
     if (method === "DELETE") return Response.json({ ok: true, closed: true });
@@ -41,10 +56,13 @@ function fakeDaemon() {
     wire({ channel, chunk: "data: " + JSON.stringify(data) + "\n\n", enc: "utf8" });
   };
   const end = (channel: string, reason: unknown) => wire({ channel, end: reason });
-  return { fetch, outputChannels, send, end };
+  return { fetch, outputChannels, send, end,
+    openedAt: (count: number) => opened.length >= count ? Promise.resolve() : new Promise<void>(resolve => openWaiters.set(count, resolve)),
+    rpcAt: (count: number) => rpcs.length >= count ? Promise.resolve() : new Promise<void>(resolve => rpcWaiters.set(count, resolve)),
+  };
 }
 
-function cursorOf(channel: Channel): { boot: string; tabs: Record<string, number> } {
+function cursorOf(channel: Channel): { boot: string; tabs: Record<string, { offset: number; pty_id: string | null }> } {
   const since = new URL(channel.path, ORIGIN).searchParams.get("since")!;
   return JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")));
 }
@@ -95,7 +113,7 @@ async function boot() {
     render: (tabs) => act(async () => root.render(createElement(MuxStateStoreContext.Provider, { value: store },
       tabs.map(tab => createElement(Tab, { key: tab.tabId, ...tab }))))),
   };
-  return { daemon, output, probe };
+  return { daemon, output, probe, base: bootstrap.baseDaemonTransport() };
 }
 
 const roots: Root[] = [];
@@ -111,6 +129,47 @@ afterEach(async () => {
 const replayComplete = (tabId: string, offset = 0) => ({ tab_id: tabId, pty_id: `pty-${tabId}`, boot: "boot", offset, replay_complete: true });
 
 describe("terminal frame readiness over the shared output channel", () => {
+  it("finite read saturation does not refuse a terminal stream or its carrier proof", async () => {
+    const { daemon, probe, base } = await boot();
+    const { streamMuxDiagnostics } = await import("../../lib/streamMux");
+    for (let index = 0; index < 48; index++) void base.localJson("GET", `/api/held-${index}`).catch(() => {});
+    await daemon.rpcAt(48);
+    expect(streamMuxDiagnostics()[0]).toMatchObject({ requests: 48, streams: 0, connected: true });
+    await probe.render([{ tabId: "busy" }]);
+    await daemon.openedAt(1);
+    await act(async () => daemon.send(daemon.outputChannels()[0].channel, replayComplete("busy")));
+    expect(probe.frameReady.get("busy")).toBe("pty-busy");
+    expect(streamMuxDiagnostics()[0]).toMatchObject({ requests: 48, streams: 1, carrier: "trusted" });
+  });
+
+  it("a never-dispatched output stream waits for a stream slot without failing terminal readiness", async () => {
+    const { daemon, probe, base } = await boot();
+    const { streamMuxDiagnostics } = await import("../../lib/streamMux");
+    const { TERMINAL_READINESS_FAILURE_MS } = await import("./usePtyConnection");
+    const stops = Array.from({ length: 256 }, (_, index) => base.subscribe(`/api/tabs/held-${index}/output/stream`, () => {}, { onEnd() {} }));
+    await daemon.openedAt(256);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await probe.render([{ tabId: "waiting" }]);
+      await probe.render([{ tabId: "waiting" }, { tabId: "late" }]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(TERMINAL_READINESS_FAILURE_MS + 1); });
+      expect(daemon.outputChannels()).toHaveLength(0);
+      expect(streamMuxDiagnostics()[0].streams).toBe(256);
+      expect(probe.hook.get("waiting")!.readinessFailed).toBe(false);
+      expect(probe.hook.get("late")!.readinessFailed).toBe(false);
+      await act(async () => stops[0]());
+      await daemon.openedAt(257);
+      await act(async () => {
+        const channel = daemon.outputChannels()[0].channel;
+        daemon.send(channel, replayComplete("waiting"));
+        daemon.send(channel, replayComplete("late"));
+      });
+      expect(probe.frameReady.get("waiting")).toBe("pty-waiting");
+      expect(probe.frameReady.get("late")).toBe("pty-late");
+      expect(streamMuxDiagnostics()[0].streams).toBe(256);
+    } finally { stops.forEach(stop => stop()); }
+  });
+
   it("a capacity end of the output channel reopens it from the delivered cursor, so a waiting terminal becomes frame-ready", async () => {
     const { daemon, probe } = await boot();
     await probe.render([{ tabId: "serve" }, { tabId: "hugo" }]);
@@ -125,7 +184,10 @@ describe("terminal frame readiness over the shared output channel", () => {
 
     await vi.waitFor(() => expect(daemon.outputChannels()).toHaveLength(2));
     const resumed = daemon.outputChannels()[1];
-    expect(cursorOf(resumed)).toEqual({ boot: "boot", tabs: { serve: 2 } });
+    expect(cursorOf(resumed)).toEqual({ boot: "boot", tabs: {
+      serve: { offset: 2, pty_id: "pty-serve" }, hugo: { offset: 0, pty_id: "pty-hugo" },
+    } });
+    expect(probe.frameReady.has("hugo")).toBe(false);
     daemon.send(resumed.channel, replayComplete("hugo"));
     await vi.waitFor(() => expect(probe.frameReady.get("hugo")).toBe("pty-hugo"));
     expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
@@ -151,22 +213,34 @@ describe("terminal frame readiness over the shared output channel", () => {
     expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
   });
 
-  it("an output channel that keeps failing without progress parks, surfaces the failure, and Retry reopens it", async () => {
+  it("capacity retries without a first frame still reach the failure bound and Retry recovers", async () => {
     const { daemon, probe } = await boot();
+    const { TERMINAL_READINESS_FAILURE_MS } = await import("./usePtyConnection");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await probe.render([{ tabId: "hugo" }]);
-    await vi.waitFor(() => expect(daemon.outputChannels()).toHaveLength(1));
-    daemon.end(daemon.outputChannels()[0].channel, { reason: "capacity", bytes: 1 });
-    await vi.waitFor(() => expect(daemon.outputChannels()).toHaveLength(2));
-    daemon.end(daemon.outputChannels()[1].channel, { reason: "capacity", bytes: 1 });
-    await vi.waitFor(() => expect(probe.hook.get("hugo")!.readinessFailed).toBe(true));
-    expect(daemon.outputChannels()).toHaveLength(2);
+    await daemon.openedAt(1);
+    expect(cursorOf(daemon.outputChannels()[0]).tabs.hugo).toEqual({ offset: 0, pty_id: "pty-hugo" });
+    expect(probe.frameReady.has("hugo")).toBe(false);
+    for (const [index, delay] of [125, 250].entries()) {
+      await act(async () => daemon.end(daemon.outputChannels()[index].channel, { reason: "capacity", bytes: 1 }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+      await daemon.openedAt(index + 2);
+      expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
+      expect(probe.frameReady.has("hugo")).toBe(false);
+    }
+    expect(daemon.outputChannels()).toHaveLength(3);
+    await act(async () => { await vi.advanceTimersByTimeAsync(TERMINAL_READINESS_FAILURE_MS - 375 - 1); });
+    expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(probe.hook.get("hugo")!.readinessFailed).toBe(true);
+    expect(probe.frameReady.has("hugo")).toBe(false);
 
     await act(async () => probe.hook.get("hugo")!.retryConnection());
 
-    await vi.waitFor(() => expect(daemon.outputChannels()).toHaveLength(3));
+    await daemon.openedAt(4);
     expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
-    daemon.send(daemon.outputChannels()[2].channel, replayComplete("hugo"));
-    await vi.waitFor(() => expect(probe.frameReady.get("hugo")).toBe("pty-hugo"));
+    await act(async () => daemon.send(daemon.outputChannels()[3].channel, replayComplete("hugo")));
+    expect(probe.frameReady.get("hugo")).toBe("pty-hugo");
   });
 
   it("a live but silent output channel surfaces the failure at the bound and clears it when the frame arrives", async () => {
@@ -185,5 +259,27 @@ describe("terminal frame readiness over the shared output channel", () => {
     daemon.send(daemon.outputChannels()[0].channel, replayComplete("hugo"));
     await vi.waitFor(() => expect(probe.frameReady.get("hugo")).toBe("pty-hugo"));
     expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
+  });
+
+  it("exhausted no-progress capacity resumes park with a visible failure until Retry", async () => {
+    const { daemon, probe } = await boot();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await probe.render([{ tabId: "hugo" }]);
+    await daemon.openedAt(1);
+    for (const [index, delay] of [125, 250].entries()) {
+      await act(async () => daemon.end(daemon.outputChannels()[index].channel, { reason: "capacity", bytes: 1 }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+      await daemon.openedAt(index + 2);
+    }
+    await act(async () => daemon.end(daemon.outputChannels()[2].channel, { reason: "capacity", bytes: 1 }));
+    expect(probe.hook.get("hugo")!.readinessFailed).toBe(true);
+    expect(probe.frameReady.has("hugo")).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(daemon.outputChannels()).toHaveLength(3);
+    await act(async () => probe.hook.get("hugo")!.retryConnection());
+    await daemon.openedAt(4);
+    expect(probe.hook.get("hugo")!.readinessFailed).toBe(false);
+    await act(async () => daemon.send(daemon.outputChannels()[3].channel, replayComplete("hugo")));
+    expect(probe.frameReady.get("hugo")).toBe("pty-hugo");
   });
 });

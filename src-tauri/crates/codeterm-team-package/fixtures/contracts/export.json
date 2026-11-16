@@ -1,0 +1,20 @@
+{
+  "request": { "team_id": "team_3f2a", "format": "team" },
+  "result": {
+    "format": "team",
+    "check": {
+      "format": "team",
+      "valid": true,
+      "name": "com.example/research-desk",
+      "version": "2.2.0",
+      "diagnostics": []
+    },
+    "scrub": {
+      "machines_removed": 2,
+      "paths_generalized": 5,
+      "secret_values_removed": 1,
+      "secret_asks_added": 1,
+      "history_removed": 3
+    }
+  }
+}

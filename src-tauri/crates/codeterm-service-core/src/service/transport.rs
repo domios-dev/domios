@@ -124,7 +124,7 @@ impl AgentTransport for PtyTransport {
             ctx.tab_id,
             &cwd,
         );
-        let (role, role_profile) = svc
+        let (role, role_profile, team_id) = svc
             .mux
             .read()
             .get_tab(ctx.tab_id)
@@ -132,6 +132,7 @@ impl AgentTransport for PtyTransport {
                 (
                     tab.role.map(|role| format!("{role:?}")),
                     tab.role_profile.clone(),
+                    tab.team_id.clone(),
                 )
             })
             .unwrap_or_default();
@@ -141,6 +142,7 @@ impl AgentTransport for PtyTransport {
             None,
             role.as_deref(),
             role_profile.as_deref(),
+            team_id.as_deref(),
         );
         let mut params = AgentLaunchParams {
             context_files: None,

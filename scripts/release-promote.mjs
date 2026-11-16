@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { sourceRepository } from './source-repository.mjs';
 // Caller: CI release.yml (prepare, promote-evidence); skill github-release
-// Promotes a qualified release.yml dry run: its retained bytes become the release, nothing is rebuilt.
+// Promotes retained packaging from the qualified release push run without rebuilding.
 //
 //   release-promote.mjs check <run-id> <source-sha> <release-branch>
 //   release-promote.mjs publish <tag> <source-sha> <run-id> <work-dir>
-import { requireQualification } from './ci-qualification.mjs';
+import { requireQualification, isReleasePushRun } from './ci-qualification.mjs';
 import { execFile, execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
@@ -30,16 +30,10 @@ function refuse(message) {
   throw new Error('promotion refused: ' + message);
 }
 
-export function isReleasePushRun(run, sha) {
-  return run.event === 'pull_request' && run.head_sha === sha && /^release\/\d+\.\d+\.\d+$/.test(run.head_branch) &&
-    ['rollacode','domios-dev'].includes(run.repository?.owner?.login) &&
-    run.head_repository?.full_name === run.repository?.full_name &&
-    run.actor?.login === 'rollacode' && run.triggering_actor?.login === 'rollacode';
-}
+export { isReleasePushRun } from './ci-qualification.mjs';
 
 export function checkQualifiedRun({ run, jobs, sourceSha, branch }) {
-  const pushRun = run.path === '.github/workflows/tests.yml' && isReleasePushRun(run, sourceSha);
-  if (run.path !== '.github/workflows/release.yml' && !pushRun) refuse(`run ${run.id} is not a release.yml run`);
+  if (!isReleasePushRun(run, sourceSha, SOURCE_REPO)) refuse(`run ${run.id} is not an owner release tests.yml push run`);
   if (run.status !== 'completed' || run.conclusion !== 'success') refuse(`run ${run.id} is ${run.status}/${run.conclusion}`);
   if (run.head_sha !== sourceSha) refuse(`run ${run.id} built ${run.head_sha}, not ${sourceSha}`);
   if (run.head_branch !== branch) refuse(`run ${run.id} ran on ${run.head_branch}, not ${branch}`);
@@ -47,7 +41,7 @@ export function checkQualifiedRun({ run, jobs, sourceSha, branch }) {
     if (!['success', 'skipped'].includes(job.conclusion)) refuse(`${job.name} is ${job.conclusion}`);
   }
   for (const required of REQUIRED_JOBS) {
-    const prefix = pushRun ? 'Release packaging / ' + required : required;
+    const prefix = 'Release packaging / ' + required;
     const matching = jobs.filter(job => job.name.startsWith(prefix));
     if (!matching.length) refuse(`run ${run.id} has no ${required.replace(/ \/ $/, '')} job`);
     const unfinished = matching.find(job => job.conclusion !== 'success');
@@ -123,12 +117,12 @@ async function main([verb, ...args]) {
     const jobs = execFileSync('gh', ['api', '--paginate', '--jq', '.jobs[] | tojson', `repos/${SOURCE_REPO}/actions/runs/${runId}/jobs?per_page=100`],
       { encoding: 'utf8' }).split('\n').filter(Boolean).map(line => JSON.parse(line));
     checkQualifiedRun({ run, jobs, sourceSha, branch });
-    const receipt = requireQualification(sourceSha);
+    const receipt = requireQualification(sourceSha, { runId });
     if (run.path === '.github/workflows/tests.yml' && String(receipt.run_id) !== String(run.id)) refuse('qualification belongs to a different release push run');
     console.log(`run ${runId} qualifies ${sourceSha} on ${branch}`);
   } else if (verb === 'publish') {
     const [tag, sourceSha, runId, work] = args;
-    requireQualification(sourceSha);
+    requireQualification(sourceSha, { runId });
     const input = path.join(work, 'input');
     await fetchAndAggregate({ tag, sourceSha, runId, inputDirectory: input, outputDirectory: path.join(work, 'output') });
     const repositories = [[SOURCE_REPO, process.env.GH_TOKEN],

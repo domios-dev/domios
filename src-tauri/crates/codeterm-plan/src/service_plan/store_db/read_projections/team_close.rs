@@ -1,5 +1,5 @@
 use super::{column, decode, record_query};
-use crate::plan::{PlanStatus, TaskStatus};
+use crate::plan::{LaneOwnership, PlanStatus, TaskStatus};
 use crate::service_plan::store_db::{db_error, PlanDatabase};
 use crate::service_plan::{PlanError, PlanStore};
 
@@ -33,6 +33,8 @@ pub struct TeamCloseLaneRead {
     pub branch: Option<String>,
     pub base: Option<String>,
     pub destination: Option<String>,
+    #[serde(default)]
+    pub ownership: Option<LaneOwnership>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -41,6 +43,8 @@ pub struct TeamCloseAttemptRead {
     pub branch: Option<String>,
     pub base: Option<String>,
     pub destination: Option<String>,
+    #[serde(default)]
+    pub ownership: Option<LaneOwnership>,
 }
 
 impl PlanDatabase {
@@ -85,7 +89,8 @@ impl PlanDatabase {
                         json_extract(row_json,'$.lane.worktree_path') AS worktree_path,
                         json_extract(row_json,'$.lane.branch') AS branch,
                         json_extract(row_json,'$.lane.base') AS base,
-                        json_extract(row_json,'$.lane.destination') AS destination
+                        json_extract(row_json,'$.lane.destination') AS destination,
+                        json_extract(row_json,'$.lane.ownership') AS ownership
                     FROM plan_tasks WHERE plan_id=?1
                  ), remote_state AS MATERIALIZED (
                     SELECT task_id,max(json_type(row_json,'$.remote_worktree_path') NOT IN ('null','text')) AS invalid,
@@ -97,7 +102,8 @@ impl PlanDatabase {
                         'worktree_path',t.worktree_path,
                         'branch',t.branch,
                         'base',t.base,
-                        'destination',t.destination),
+                        'destination',t.destination,
+                        'ownership',t.ownership),
                     'has_remote_attempt',json(CASE WHEN (coalesce((SELECT invalid FROM remote_state WHERE task_id=t.task_id),0)>0) THEN 'null'
                         WHEN (coalesce((SELECT present FROM remote_state WHERE task_id=t.task_id),0)>0)
                         THEN 'true' ELSE 'false' END),
@@ -112,12 +118,17 @@ impl PlanDatabase {
                             ORDER BY a.position LIMIT 1) END,
                     'attempt_lanes',json((SELECT json_group_array(json(document)) FROM (
                         SELECT json_object('worktree_path',worktree_path,'branch',branch,
-                            'base',base,'destination',destination) AS document,min(position) AS first_position
+                            'base',base,'destination',destination,
+                            'ownership',CASE WHEN sum(ownership IS 'foreign_checkout')>0 THEN 'foreign_checkout'
+                                WHEN sum(ownership IS NULL)>0 THEN NULL ELSE ownership END) AS document,min(position) AS first_position
                         FROM (SELECT a.position,
                             coalesce(json_extract(a.row_json,'$.worktree_path'),t.worktree_path) AS worktree_path,
                             coalesce(json_extract(a.row_json,'$.branch'),t.branch) AS branch,
                             coalesce(json_extract(a.row_json,'$.base'),t.base) AS base,
-                            coalesce(json_extract(a.row_json,'$.destination'),t.destination) AS destination
+                            coalesce(json_extract(a.row_json,'$.destination'),t.destination) AS destination,
+                            CASE WHEN json_extract(a.row_json,'$.worktree_path') IS NOT NULL
+                                OR json_extract(a.row_json,'$.branch') IS NOT NULL
+                                THEN json_extract(a.row_json,'$.lane_ownership') ELSE t.ownership END AS ownership
                         FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
                         AND (?2 OR a.executor_tab_id IN (SELECT value FROM json_each(?3)))
                         AND NOT (coalesce((SELECT present FROM remote_state WHERE task_id=t.task_id),0)>0))

@@ -22,17 +22,28 @@ impl ServiceContext {
 
     #[cfg(test)]
     pub(super) fn receiver_view(status: &ReceiverStatus, lapsed: &BTreeSet<String>) -> Value {
-        json!(Self::receiver_state(status, lapsed))
+        json!(Self::receiver_state(status, lapsed, &[]))
     }
 
     pub(super) fn receiver_state(
         status: &ReceiverStatus,
         lapsed: &BTreeSet<String>,
+        installations: &[codeterm_mesh::types::AccountInstallation],
     ) -> codeterm_neighbors::responses::ReceiverState {
         let expired = Self::receiver_membership_expired(status, lapsed);
+        let installation = installations.iter().find(|row| {
+            Some(row.installation_id.as_str()) == status.receiver_installation_id.as_deref()
+        });
         codeterm_neighbors::responses::ReceiverState {
             receiving_here: status.receiving_here(),
             receiver_machine_label: status.receiver_machine_label.clone(),
+            receiver_installation_id: status.receiver_installation_id.clone(),
+            receiver_instance_id: installation.and_then(|row| row.instance_id.clone()),
+            receiver_online: if status.is_me {
+                Some(true)
+            } else {
+                installation.map(|row| row.online && row.active && !row.signed_out && !expired)
+            },
             receiving_enabled: status.receiving_enabled && !expired,
             revision: status.receiver_revision,
             is_me: status.is_me,
@@ -43,15 +54,20 @@ impl ServiceContext {
 
     /// The account installations `mesh peers` reports as Membership expired.
     pub(super) fn neighbor_lapsed_installations(&self) -> BTreeSet<String> {
-        let Some(mesh) = self.try_ext::<crate::MeshStateHandle>() else {
-            return BTreeSet::new();
-        };
-        let installations = mesh.lock().peers_response().installations;
+        let installations = self.neighbor_receiver_installations();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
         lapsed_installations(&installations, now)
+    }
+
+    pub(super) fn neighbor_receiver_installations(
+        &self,
+    ) -> Vec<codeterm_mesh::types::AccountInstallation> {
+        self.try_ext::<crate::MeshStateHandle>()
+            .map(|mesh| mesh.lock().peers_response().installations)
+            .unwrap_or_default()
     }
 }
 

@@ -183,10 +183,13 @@ pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64
     if let (Some(used), Some(window)) = (usage.used_tokens, usage.window_tokens) {
         context(svc, session, used, window, usage.cost_micros);
     }
+    let context = session.context.lock().clone();
+    if let Some(thread_id) = &context.thread_id {
+        svc.record_kpi_runtime_usage(&context.tab_id, &session.provider, thread_id, &usage, at);
+    }
     if !publishes_usage(svc, session) {
         return;
     }
-    let context = session.context.lock().clone();
     let mut readings = USAGE.lock();
     let reading = projection(&mut readings, &session.provider, &context);
     reading.captured_at = at;

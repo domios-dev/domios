@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Occluded pointer target</title>
+<style>
+  #target { position: fixed; left: 20px; top: 20px; width: 200px; height: 80px; }
+  #cover { position: fixed; inset: 0 auto 0 0; width: 400px; z-index: 10; }
+</style>
+<button id="target" onclick="targetClicks.value = Number(targetClicks.value) + 1"><span id="label">Intended target</span></button>
+<button id="cover" onclick="coverClicks.value = Number(coverClicks.value) + 1">Covering control</button>
+<output id="targetClicks">0</output>
+<output id="coverClicks">0</output>
+<button style="position:fixed;right:20px;top:20px" onclick="cover.remove()">Remove cover</button>
+</html>

@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+const compilationBatchSize = 8;
+
 function hashTree(hash, directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name === 'node_modules' || entry.name === 'dist') continue;
@@ -13,7 +15,7 @@ function hashTree(hash, directory) {
 }
 
 export async function prepareTestSources(root, tests, signal, env = process.env) {
-  const { context, transform, version } = await import('esbuild');
+  const { context, transform, stop, version } = await import('esbuild');
   const nodeEnvironment = env.NODE_ENV ?? 'development';
   const hash = createHash('sha256').update(version).update(JSON.stringify(tests))
     .update(nodeEnvironment)
@@ -35,64 +37,76 @@ export async function prepareTestSources(root, tests, signal, env = process.env)
   const directory = `${temporary}-ready`;
   const temporaryIndex = `${indexPath}-${randomUUID()}.tmp`;
   const started = performance.now();
-  const builder = await context({
-    absWorkingDir: root,
-    entryPoints: Object.fromEntries(tests.map((test, index) => [String(index), path.resolve(root, test)])),
-    outdir: temporary,
-    outExtension: { '.js': '.mjs' },
-    bundle: true,
-    splitting: false,
-    platform: 'node',
-    target: 'node22',
-    format: 'esm',
-    keepNames: true,
-    minify: true,
-    metafile: true,
-    jsx: 'automatic',
-    external: ['react', 'react/*', 'happy-dom'],
-    banner: { js: 'import {createRequire as __unitRequire} from "node:module"; const require = __unitRequire(import.meta.url);' },
-    plugins: [{
-      name: 'source-locations-and-assets',
-      setup(build) {
-        build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async args => {
-          const renderer = args.path.includes(`${path.sep}react-dom${path.sep}`)
-            || args.path.includes(`${path.sep}scheduler${path.sep}`);
-          if (args.path.includes(`${path.sep}node_modules${path.sep}`) && !renderer) return;
-          const contents = readFileSync(args.path, 'utf8');
-          if (!renderer && !/import\.meta|__dirname|__filename/.test(contents)) return;
-          const result = await transform(contents, {
-            loader: args.path.endsWith('x') ? 'tsx' : 'ts',
-            format: renderer ? 'cjs' : 'esm',
-            target: 'node22',
-            jsx: 'automatic',
-            sourcefile: args.path,
-            define: renderer ? { 'process.env.NODE_ENV': JSON.stringify(nodeEnvironment) } : {
-              'import.meta.url': JSON.stringify(pathToFileURL(args.path).href),
-              'import.meta.dirname': JSON.stringify(path.dirname(args.path)),
-              'import.meta.filename': JSON.stringify(args.path),
-              __dirname: JSON.stringify(path.dirname(args.path)),
-              __filename: JSON.stringify(args.path),
-            },
-          });
-          return { contents: result.code, loader: 'js', resolveDir: path.dirname(args.path) };
-        });
-        build.onLoad({ filter: /\.(png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|mp3|wav|css)$/i }, args => ({
-          contents: `export default ${args.path.endsWith('.css') ? '{}' : JSON.stringify(args.path)};`,
-          loader: 'js',
-        }));
-      },
-    }],
-  });
-  const cancel = () => void builder.cancel();
-  signal?.addEventListener('abort', cancel, { once: true });
+  const inputs = {};
   try {
-    signal?.throwIfAborted();
-    const result = await builder.rebuild();
-    signal?.throwIfAborted();
-    const inputs = Object.fromEntries(Object.keys(result.metafile.inputs).map(filename => {
-      const absolute = path.resolve(root, filename);
-      return [absolute, createHash('sha256').update(readFileSync(absolute)).digest('hex')];
-    }));
+    for (let offset = 0; offset < tests.length; offset += compilationBatchSize) {
+      signal?.throwIfAborted();
+      const batch = tests.slice(offset, offset + compilationBatchSize);
+      const builder = await context({
+        absWorkingDir: root,
+        entryPoints: Object.fromEntries(batch.map((test, index) => [String(offset + index), path.resolve(root, test)])),
+        outdir: temporary,
+        outExtension: { '.js': '.mjs' },
+        bundle: true,
+        splitting: false,
+        platform: 'node',
+        target: 'node22',
+        format: 'esm',
+        keepNames: true,
+        minify: true,
+        metafile: true,
+        jsx: 'automatic',
+        external: ['react', 'react/*', 'happy-dom'],
+        banner: { js: 'import {createRequire as __unitRequire} from "node:module"; const require = __unitRequire(import.meta.url);' },
+        plugins: [{
+          name: 'source-locations-and-assets',
+          setup(build) {
+            build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async args => {
+              const renderer = args.path.includes(`${path.sep}react-dom${path.sep}`)
+                || args.path.includes(`${path.sep}scheduler${path.sep}`);
+              if (args.path.includes(`${path.sep}node_modules${path.sep}`) && !renderer) return;
+              const contents = readFileSync(args.path, 'utf8');
+              if (!renderer && !/import\.meta|__dirname|__filename/.test(contents)) return;
+              const result = await transform(contents, {
+                loader: args.path.endsWith('x') ? 'tsx' : 'ts',
+                format: renderer ? 'cjs' : 'esm',
+                target: 'node22',
+                jsx: 'automatic',
+                sourcefile: args.path,
+                define: renderer ? { 'process.env.NODE_ENV': JSON.stringify(nodeEnvironment) } : {
+                  'import.meta.url': JSON.stringify(pathToFileURL(args.path).href),
+                  'import.meta.dirname': JSON.stringify(path.dirname(args.path)),
+                  'import.meta.filename': JSON.stringify(args.path),
+                  __dirname: JSON.stringify(path.dirname(args.path)),
+                  __filename: JSON.stringify(args.path),
+                },
+              });
+              return { contents: result.code, loader: 'js', resolveDir: path.dirname(args.path) };
+            });
+            build.onLoad({ filter: /\.(png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|mp3|wav|css)$/i }, args => ({
+              contents: `export default ${args.path.endsWith('.css') ? '{}' : JSON.stringify(args.path)};`,
+              loader: 'js',
+            }));
+          },
+        }],
+      });
+      const cancel = () => void builder.cancel();
+      signal?.addEventListener('abort', cancel, { once: true });
+      try {
+        signal?.throwIfAborted();
+        const result = await builder.rebuild();
+        signal?.throwIfAborted();
+        for (const filename of Object.keys(result.metafile.inputs)) {
+          const absolute = path.resolve(root, filename);
+          inputs[absolute] ??= createHash('sha256').update(readFileSync(absolute)).digest('hex');
+        }
+      } finally {
+        signal?.removeEventListener('abort', cancel);
+        await builder.dispose();
+        stop();
+      }
+      if (env.TS_UNIT_TRACE) process.stdout.write(`[ts-unit trace] compiled ${Math.min(offset + compilationBatchSize, tests.length)}/${tests.length} entries\n`);
+    }
     writeFileSync(path.join(temporary, 'inputs.json'), JSON.stringify(inputs));
     writeFileSync(path.join(temporary, 'complete'), '');
     renameSync(temporary, directory);
@@ -100,8 +114,7 @@ export async function prepareTestSources(root, tests, signal, env = process.env)
     renameSync(temporaryIndex, indexPath);
     process.stdout.write(`TS unit compilation: ${tests.length} entries, ${Math.round(performance.now() - started)}ms (outside execution budget)\n`);
   } finally {
-    signal?.removeEventListener('abort', cancel);
-    await builder.dispose();
+    stop();
     rmSync(temporary, { recursive: true, force: true });
     rmSync(temporaryIndex, { force: true });
   }

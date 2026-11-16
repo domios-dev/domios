@@ -189,16 +189,6 @@ const UNKNOWN_PROFILES: &[&str] = &[
     "planner_v2",
 ];
 
-const OVERLAY_IDS: &[&str] = &[
-    ORCHESTRATOR,
-    GENERAL_AGENT,
-    PLANNER,
-    REVIEWER,
-    "worker_gpu",
-    "../../escape",
-    "",
-];
-
 fn caps(capability: RoleKindCapability) -> Caps {
     (
         capability.anchors_team(),
@@ -281,7 +271,6 @@ fn only_the_reviewer_kind_launches_read_only_by_default() {
     for profile in [None, Some(QA), Some(RELEASE_MANAGER), Some("code-reviewer")] {
         assert!(!query::read_only_by_default(role, profile), "{profile:?}");
     }
-    assert!(!RoleKindDescriptor::overlay(REVIEWER, "Forged").is_read_only_by_default());
 }
 
 #[test]
@@ -513,22 +502,67 @@ fn unknown_kind_id_resolves_to_leaf_capability() {
     }
 }
 
+/// Any manager name outside the built-in set, a builtin worker name included, resolves to the
+/// one host-owned generic descriptor, whose authority matrix is the Cartographer's.
 #[test]
-fn unknown_manager_kind_resolves_to_leaf_through_the_query() {
+fn a_custom_manager_has_exactly_the_cartographer_authority_matrix() {
     let role = Some(AgentRole::Manager);
-    let leaf = Some(RoleKindCapability::LEAF);
-    for id in UNKNOWN_PROFILES.iter().copied() {
+    let cartographer = query::kind_capability(role, Some(CARTOGRAPHER)).expect("cartographer");
+    for id in UNKNOWN_PROFILES
+        .iter()
+        .copied()
+        .chain(["security_lead", QA, WORKER, REVIEWER])
+    {
         let profile = Some(id);
-        assert_eq!(query::kind_capability(role, profile), leaf, "{id}");
-        assert_eq!(query::kind_descriptor(role, profile), None, "{id}");
+        assert_eq!(
+            query::kind_capability(role, profile),
+            Some(cartographer),
+            "{id}"
+        );
+        let descriptor = query::kind_descriptor(role, profile).expect("generic descriptor");
+        assert_eq!(descriptor.id(), builtins::CUSTOM_MANAGER, "{id}");
+        assert_eq!(descriptor.origin(), RoleKindOrigin::Generic, "{id}");
+        assert!(!descriptor.is_builtin(), "{id}");
+        assert!(query::manages(role, profile), "{id}");
         assert!(!query::anchors_team(role, profile), "{id}");
         assert!(!query::can_spawn(role, profile), "{id}");
         assert!(!query::has_team_authority(role, profile), "{id}");
-        assert!(!query::manages(role, profile), "{id}");
         assert!(!query::plan_approval(role, profile), "{id}");
         assert!(!query::plan_edit(role, profile), "{id}");
         assert!(!query::release(role, profile), "{id}");
         assert!(query::requires_parent(role, profile), "{id}");
+        assert!(!query::taskless_worker(role, profile), "{id}");
+    }
+}
+
+/// Authority follows the registration's kind and the name only: a built-in manager name is
+/// honored for kind manager, and as a worker it is a plain leaf.
+#[test]
+fn a_built_in_manager_name_is_honored_only_for_kind_manager() {
+    for name in builtins::BUILTIN_MANAGERS {
+        let manager = query::registered_descriptor(AgentRole::Manager, name).expect("manager");
+        assert_eq!(manager.id(), name);
+        assert_eq!(
+            Some(manager),
+            builtins::lookup(name),
+            "{name} keeps its own descriptor"
+        );
+        assert_eq!(
+            query::registered_descriptor(AgentRole::Worker, name),
+            None,
+            "{name}"
+        );
+        assert_eq!(
+            query::registered_capability(AgentRole::Worker, name),
+            RoleKindCapability::LEAF,
+            "{name}"
+        );
+    }
+    for name in ["checker", WORKER, QA, "security_lead"] {
+        assert!(
+            !query::registered_capability(AgentRole::Worker, name).manages(),
+            "{name}"
+        );
     }
 }
 
@@ -546,34 +580,19 @@ fn capability_fallback_is_leaf_not_all_false() {
     assert!(!leaf.release());
 }
 
-// `overlay` is the only public constructor and takes no capability argument;
-// fields are private and the type is deliberately not `Deserialize`.
+// Descriptors are embedded only: fields are private and the type is not `Deserialize`,
+// so a kind outside the builtin table can only resolve to leaf capability.
 #[test]
-fn non_builtin_descriptors_are_leaf_by_construction() {
-    for id in OVERLAY_IDS.iter().copied() {
-        let descriptor = RoleKindDescriptor::overlay(id, "Overlay Kind");
-        assert!(!descriptor.anchors_team(), "{id}");
-        assert!(!descriptor.manages(), "{id}");
-        assert!(!descriptor.can_spawn(), "{id}");
-        assert!(!descriptor.has_team_authority(), "{id}");
-        assert!(!descriptor.plan_approval(), "{id}");
-        assert!(!descriptor.plan_edit(), "{id}");
-        assert!(!descriptor.release(), "{id}");
-        assert!(descriptor.requires_parent(), "{id}");
-        assert_eq!(descriptor.capability(), RoleKindCapability::LEAF);
-        assert_eq!(descriptor.origin(), RoleKindOrigin::Overlay, "{id}");
-        assert!(!descriptor.is_builtin(), "{id}");
-        assert_eq!(descriptor.id(), id);
+fn non_builtin_kinds_resolve_to_leaf_capability() {
+    for id in ["worker_gpu", "../../escape", ""] {
+        assert!(builtins::lookup(id).is_none(), "{id}");
+        assert_eq!(
+            builtins::capability_for(id),
+            RoleKindCapability::LEAF,
+            "{id}"
+        );
     }
-}
-
-#[test]
-fn an_overlay_kind_cannot_shadow_an_embedded_builtin() {
-    let forged = RoleKindDescriptor::overlay(ORCHESTRATOR, "Forged");
     let embedded = builtins::lookup(ORCHESTRATOR).expect("builtin");
-
-    assert_ne!(forged.capability(), embedded.capability());
-    assert!(!forged.is_builtin());
     assert!(embedded.anchors_team());
     assert!(embedded.can_spawn());
     assert_eq!(embedded.label(), "Orchestrator");

@@ -67,7 +67,7 @@ const SNAPSHOT: PluginSnapshot = {
   channels: [
     {
       name: "codeterm-plugins",
-      url: "https://github.com/rollacode/codeterm-plugins.git",
+      url: "https://github.com/domios-dev/domios-plugins.git",
       path: "/cache/codeterm-plugins",
       kind: "git",
       system: true,

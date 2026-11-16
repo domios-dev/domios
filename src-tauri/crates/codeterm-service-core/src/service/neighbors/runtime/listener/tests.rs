@@ -2,6 +2,31 @@ use super::*;
 use crate::service::neighbors::{history::Entry, storage::Settings};
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
+#[tokio::test]
+async fn lifecycle_watch_completion_cannot_cancel_a_claimed_delivery() {
+    let (claimed, claim_seen) = tokio::sync::oneshot::channel();
+    let (watch_finished, watch_seen) = tokio::sync::oneshot::channel();
+    let (release, held) = tokio::sync::oneshot::channel();
+    let (delivered, delivery_seen) = tokio::sync::oneshot::channel();
+    let reception = receive_while_watching(
+        async {
+            claim_seen.await.unwrap();
+            watch_finished.send(()).unwrap();
+        },
+        async {
+            claimed.send(()).unwrap();
+            held.await.unwrap();
+            delivered.send(()).unwrap();
+        },
+    );
+    let finish_delivery = async {
+        watch_seen.await.unwrap();
+        release.send(()).unwrap();
+        delivery_seen.await.unwrap();
+    };
+    tokio::join!(reception, finish_delivery);
+}
+
 struct Dropped(Option<tokio::sync::oneshot::Sender<()>>);
 impl Drop for Dropped {
     fn drop(&mut self) {

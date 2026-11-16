@@ -1,0 +1,87 @@
+# marketing-studio — Agentic Team Protocol (ATP) builtin package
+name: dev.domios/marketing-studio
+version: 1.1.0
+title: Marketing studio
+description: >-
+  Launches and grows a developer product: positioning and one-liner approved first, a dated
+  launch plan and channel calendar, per-channel copy, Product Hunt and directory listings,
+  site and README changes, inbox and thread replies, and metrics by channel. Agents prepare
+  everything up to the final click; every public post, reply, email, listing and spend waits
+  for the owner's OK, and nothing counts as done until it is checked live.
+icon: icon.svg
+authors:
+  - name: Domios
+    url: https://domios.dev
+license: Apache-2.0
+when:
+  - plan and run a Product Hunt launch for a developer product
+  - market and grow a developer tool after its launch
+  - write positioning, a one-liner and per-channel launch copy
+  - draft Show HN, Reddit, X and LinkedIn posts for the owner to approve
+  - submit the product to directories and track listings, badges and deadlines
+  - triage launch inbox replies, paid promotion offers and upvote sellers
+  - report launch metrics, stars, sign-ups and referrers by channel
+  - check the landing page's titles, link previews and search tags before a launch
+  - summarize what people say about the launch with a source for every claim
+
+project: required
+
+permissions:
+  network: true
+  repo_write: true
+  shell: true
+  browser: true
+
+files:
+  - path: docs/launch-playbook.md
+    description: The pipeline, the owner gates, internal reviews, sources of truth, failure modes, metrics and added guards
+  - path: docs/channel-specs.md
+    description: Per-channel rules and sizes for Product Hunt, the README, Show HN, Reddit, X, LinkedIn, directories and Discord, and the site and search checks
+
+roles:
+  orchestrator:
+    kind: manager
+    name: Lead
+    files: [docs/launch-playbook.md, docs/channel-specs.md]
+    instructions_file: managers/orchestrator.md
+
+  planner:
+    kind: manager
+    files: [docs/launch-playbook.md, docs/channel-specs.md]
+    instructions_file: managers/planner.md
+
+  messaging:
+    kind: worker
+    description: Owns positioning, the one-liner, banned words and every channel's copy drafts.
+    files: [docs/launch-playbook.md, docs/channel-specs.md]
+    instructions_file: workers/messaging.md
+
+  publisher:
+    kind: worker
+    description: Prepares listings up to the final click, then verifies them live.
+    files: [docs/launch-playbook.md, docs/channel-specs.md]
+    instructions_file: workers/publisher.md
+
+  inbox_triage:
+    kind: worker
+    description: Reads replies and offers, gives each a verdict and drafts answers.
+    files: [docs/launch-playbook.md]
+    instructions_file: workers/inbox_triage.md
+
+  site:
+    kind: worker
+    description: Changes the landing page and README by pull request, then checks them live.
+    files: [docs/launch-playbook.md, docs/channel-specs.md]
+    instructions_file: workers/site.md
+
+  community_responder:
+    kind: worker
+    description: Drafts replies in launch threads for the owner to post or approve.
+    files: [docs/launch-playbook.md, docs/channel-specs.md]
+    instructions_file: workers/community_responder.md
+
+  analyst:
+    kind: worker
+    description: Reports launch and growth metrics by channel with sources.
+    files: [docs/launch-playbook.md]
+    instructions_file: workers/analyst.md

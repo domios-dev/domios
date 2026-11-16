@@ -13,10 +13,10 @@ export interface ConciergeStatus {
   receiving_here: boolean;
   receiver_machine_label: string | null;
   /** "paused": you paused this friend while this machine receives for them. */
-  state: "ready" | "concierge_starting" | "concierge_missing" | "receiving_elsewhere" | "not_receiving" | "paused";
+  state: "ready" | "concierge_starting" | "concierge_missing" | "concierge_auth_needed" | "concierge_access_needed" | "concierge_provider_refused" | "concierge_invalid" | "concierge_crashed" | "concierge_closed" | "receiving_elsewhere" | "not_receiving" | "paused";
 }
 
-const STATES: readonly ConciergeStatus["state"][] = ["ready", "concierge_starting", "concierge_missing", "receiving_elsewhere", "not_receiving", "paused"];
+const STATES: readonly ConciergeStatus["state"][] = ["ready", "concierge_starting", "concierge_missing", "concierge_auth_needed", "concierge_access_needed", "concierge_provider_refused", "concierge_invalid", "concierge_crashed", "concierge_closed", "receiving_elsewhere", "not_receiving", "paused"];
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 export function parseConciergeStatus(value: unknown): ConciergeStatus | null {
@@ -54,4 +54,26 @@ export function missingConciergeLine(status: ConciergeStatus): string {
   if (status.pending_count === null || status.pending_count === 0) return "No concierge on this machine";
   const count = status.pending_count_capped || status.pending_count >= PENDING_CAP ? `${status.pending_count}+` : String(status.pending_count);
   return `No concierge on this machine — ${count} ${status.pending_count === 1 ? "message" : "messages"} waiting`;
+}
+
+export function conciergeNeedsAttention(status: ConciergeStatus | null | undefined): boolean {
+  return status !== null && status !== undefined && ["concierge_missing", "concierge_auth_needed", "concierge_access_needed", "concierge_provider_refused", "concierge_invalid", "concierge_crashed", "concierge_closed"].includes(status.state);
+}
+
+export function conciergeStatusLine(status: ConciergeStatus | null | undefined): string {
+  switch (status?.state) {
+    case "ready": return "connected";
+    case "concierge_starting": return "concierge starting";
+    case "concierge_auth_needed": return "concierge needs sign-in";
+    case "concierge_access_needed": return "concierge needs access review";
+    case "concierge_provider_refused": return "concierge provider unavailable";
+    case "concierge_invalid": return "concierge needs setup";
+    case "concierge_crashed": return "concierge stopped";
+    case "concierge_closed": return "concierge closed";
+    case "concierge_missing": return missingConciergeLine(status);
+    case "receiving_elsewhere": return status.receiver_machine_label ? `received on ${status.receiver_machine_label}` : "received elsewhere";
+    case "not_receiving": return "not receiving";
+    case "paused": return "disabled";
+    default: return "checking concierge";
+  }
 }

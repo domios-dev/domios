@@ -88,6 +88,7 @@ export interface TeamSpend {
     foreign_plan_rows_excluded: number;
   };
   daily: TeamSpendDaily[];
+  usage_providers?: {provider: string; state: "reported" | "no_usage_reported"}[];
   weekly_limit_points: TeamWeeklyLimitPoint[];
   weekly_limit_days: TeamWeeklyLimitDay[];
 }
@@ -111,6 +112,7 @@ export function teamSpendNote(spend: TeamSpend): string | null {
     return spend.enable_setting ? `not recording, enable ${spend.enable_setting}` : "not recording";
   }
   if (spend.not_recording_reason === "ledger_unreadable") return "ledger unavailable";
+  if (spend.metric === "tokens" && spend.not_recording_reason === "no_rows_for_team") return "no usage reported";
   return null;
 }
 

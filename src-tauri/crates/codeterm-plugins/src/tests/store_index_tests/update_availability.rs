@@ -151,6 +151,10 @@ fn system_sync_repairs_equal_versions_but_never_downgrades() {
 #[test]
 fn record_free_bundled_browser_updates_from_system_channel() {
     with_data_root(|root| {
+        let _context = enter_ctx(PluginCtx {
+            data_root: root.clone(),
+            version: Some("99.0.0".into()),
+        });
         let source = root.join("system-source");
         write_channel(&source, SYSTEM_CHANNEL_NAME, &[("browser", "browser")]);
         std::env::set_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", &source);

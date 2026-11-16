@@ -296,11 +296,17 @@ impl ModelSwitchLaunch {
             .resolved_reasoning_effort
             .clone()
             .or_else(|| launch.requested_reasoning_effort.clone());
+        let team_id = svc
+            .mux
+            .read()
+            .get_tab(&snap.tab_id)
+            .and_then(|tab| tab.team_id.clone());
         let (prompt_capable, task) = crate::service::restored_launch::restored_launch_task(
             registry,
             &snap.provider,
             snap.role.as_deref(),
             snap.role_profile.as_deref(),
+            team_id.as_deref(),
             &launch,
         );
         let system_prompt = prompt_capable.then(|| task.clone()).flatten();

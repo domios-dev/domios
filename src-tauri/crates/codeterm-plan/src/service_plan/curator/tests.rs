@@ -1,5 +1,5 @@
 use super::*;
-use crate::plan::{curator_delay, OrchestratorRef, CURATOR_IDLE_FLOOR_MS};
+use crate::plan::{CuratorWindow, OrchestratorRef, CURATOR_IDLE_FLOOR_MS};
 
 #[test]
 fn manual_round_requests_preserve_suspension_and_single_round_gates() {
@@ -28,7 +28,7 @@ fn curator_cadence_clamps_and_rearms_from_round_end() {
         (Some(3600), 3600),
         (Some(u64::MAX), 7200),
     ] {
-        assert_eq!(curator_delay(chosen), expected);
+        assert_eq!(CuratorWindow::HOST.delay(chosen), expected);
     }
     let mut plan = Plan::new("test".into(), "/tmp".into(), OrchestratorRef::default());
     append_round(
@@ -253,7 +253,7 @@ fn curator_round_outcomes_only_defer_and_preserve_owner_off() {
                 assert_eq!(
                     plan.control_loop.next_at,
                     (mode == ControlLoopMode::Curator)
-                        .then_some(NOW + curator_delay(Some(delay)) * 1000)
+                        .then_some(NOW + CuratorWindow::HOST.delay(Some(delay)) * 1000)
                 );
             }
         }

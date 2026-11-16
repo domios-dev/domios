@@ -244,7 +244,7 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     doc!(
         "ORCHESTRATION",
         "Team orchestration lifecycle",
-        "../../../prod-docs/ORCHESTRATION.md"
+        "../../../src-tauri/team-templates/default/managers/orchestrator.md"
     ),
     doc!(
         "ORCHESTRATION-TASKS",
@@ -269,7 +269,7 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     doc!(
         "PLANNER",
         "Planner responsibilities and workflow",
-        "../../../prod-docs/PLANNER.md"
+        "../../../src-tauri/team-templates/default/managers/planner.md"
     ),
     doc!(
         "BOUNCE",
@@ -285,6 +285,16 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "ESSENCE-MAP",
         "Source-backed essence map generation and validation",
         "../../../prod-docs/ESSENCE-MAP.md"
+    ),
+    doc!(
+        "TEAM-FORMAT",
+        "Agentic Team Protocol package format: forms, fields, roles and validation",
+        "../../../prod-docs/TEAM-FORMAT.md"
+    ),
+    doc!(
+        "TEAMS",
+        "Starting, previewing, baking and sharing Team templates",
+        "../../../prod-docs/TEAMS.md"
     ),
 ];
 

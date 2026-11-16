@@ -3,22 +3,37 @@ import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
 import { Button } from "../shared/Button";
 import { neighborIdentity, type NeighborRequest } from "./neighborModel";
-import { missingConciergeLine, type ConciergeStatus } from "./useConciergeStatus";
+import { conciergeNeedsAttention, missingConciergeLine, type ConciergeStatus } from "./useConciergeStatus";
 import { STATUS_LABEL, type NeighborNodeStatus } from "./neighborhoodModel";
 
-/** A friend whose messages wait because this machine has no concierge for them yet. */
-export function MissingConciergeNotice({ status, onSetUpWithGeneral, onEditPermissions }: {
-  status: ConciergeStatus; onSetUpWithGeneral: () => void; onEditPermissions: () => void;
+const RECOVERY_SENTENCES: Partial<Record<ConciergeStatus["state"], string>> = {
+  concierge_auth_needed: "Sign in to continue with this concierge.",
+  concierge_access_needed: "This concierge can't continue until you review its access.",
+  concierge_provider_refused: "This concierge's provider is unavailable.",
+  concierge_crashed: "This concierge has stopped.",
+};
+
+export function ConciergeRecoveryNotice({ status, friendName, onSetUpWithGeneral, onOpenConcierge, onReviewAccess }: {
+  status: ConciergeStatus; friendName: string; onSetUpWithGeneral: () => void; onOpenConcierge: (tabId: string) => void; onReviewAccess: () => void;
 }) {
-  return <div role="status" className="ct-card ct-card--static neighbor-missing">
+  if (!conciergeNeedsAttention(status)) return null;
+  const setup = status.state === "concierge_closed" || status.state === "concierge_missing" || status.state === "concierge_invalid" || !status.gateway_tab;
+  const reviewAccess = status.state === "concierge_access_needed";
+  const invalid = status.state === "concierge_invalid";
+  const closed = status.state === "concierge_closed";
+  const action = invalid || closed ? "Ask General to fix" : reviewAccess ? "Review access" : setup ? "Set up with General" : status.state === "concierge_auth_needed" ? "Open sign-in"
+    : status.state === "concierge_provider_refused" ? "Review provider" : "Open recovery";
+  return <div role="status" aria-label="Concierge needs attention" className="ct-card ct-card--static neighbor-missing">
     <div className="min-w-0 flex-1">
-      <p className="ct-card__title">{missingConciergeLine(status)}</p>
-      <p className="ct-card__meta">Set their permissions here and a concierge starts answering on this machine.</p>
+      <p className="ct-card__title">{closed ? `This concierge's tab was closed, so it can't answer ${friendName}.` : invalid ? `This concierge's tab now has another job, so it can't answer ${friendName}.` : RECOVERY_SENTENCES[status.state] ?? `${missingConciergeLine(status)}.`}</p>
     </div>
-    <div className="neighbor-confirm__actions">
-      <Button size="sm" variant="primary" onClick={onSetUpWithGeneral}>Set up with General</Button>
-      <Button size="sm" onClick={onEditPermissions}>Edit permissions</Button>
+    <div>
+      <Button size="sm" variant="ghost" className="text-xs text-[var(--ct-accent)]" onClick={() => reviewAccess ? onReviewAccess() : setup ? onSetUpWithGeneral() : onOpenConcierge(status.gateway_tab!)}>{action}</Button>
     </div>
+      <details className="ct-card__meta">
+        <summary>Details</summary>
+        <p>{reviewAccess ? "Domios can't confirm what this concierge is allowed to do. Check its saved permissions before it starts again." : setup ? "Messages stay pending until you set up a concierge here." : "Messages stay pending while you review this concierge."}</p>
+      </details>
   </div>;
 }
 

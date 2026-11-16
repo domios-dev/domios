@@ -258,6 +258,24 @@ function deferred<T>() {
 
 
 describe("SSE lifecycle", () => {
+  it("stops same-chunk delivery when aborted during an awaited handler", async () => {
+    const { client } = clientWith(new Response('id: boot:1\ndata: 1\n\nid: boot:2\ndata: 2\n\n'));
+    const first = deferred<void>();
+    const release = deferred<void>();
+    const ended = deferred<unknown>();
+    const abort = new AbortController();
+    const events: unknown[] = [];
+    client.subscribe("/api/events/stream?since=boot:0", async (_event, data) => {
+      events.push(data);
+      first.resolve();
+      await release.promise;
+    }, { signal: abort.signal, onEnd: ended.resolve });
+    await first.promise;
+    abort.abort();
+    release.resolve();
+    await ended.promise;
+    expect(events).toEqual([1]);
+  });
   it.each([200, 400])("reports the end once with status %s", async (status) => {
     const { client } = clientWith(status === 200 ? new Response(new ReadableStream({ start(c) { c.close(); } })) : new Response("", { status }));
     let resolve!: (end: unknown) => void;

@@ -26,6 +26,7 @@ impl ManagerBootstrapInputs {
     pub fn compose(&self) -> String {
         let role_guidance = crate::service::persona::guidance_for(
             crate::service::persona::Occasion::ManagerBootstrap,
+            &crate::service::team_roles::registrations(Some(&self.team_id)),
             Some(crate::multiplexer::types::AgentRole::Manager),
             Some(&self.role_kind),
             None,
@@ -74,9 +75,13 @@ mod tests {
             (
                 "Orchestrator",
                 "orchestrator",
-                crate::prompts::ORCHESTRATION_DOC,
+                crate::service::builtin_roles::builtin_prose("orchestrator").unwrap(),
             ),
-            ("Planner", "planner", crate::prompts::PLANNER_DOC),
+            (
+                "Planner",
+                "planner",
+                crate::service::builtin_roles::builtin_prose("planner").unwrap(),
+            ),
         ] {
             let rendered = ManagerBootstrapInputs {
                 role: role.into(),

@@ -84,6 +84,7 @@ export interface ChatSendDismissalIdentity {
   correlationId?: string;
   sourceSessionId?: string;
   sourceMessageId?: string;
+  sourceRecord?: NormalizedChatMessage["sourceRecord"];
   echoKey?: string;
 }
 
@@ -162,7 +163,11 @@ export function chatSendEchoKey(echo: ChatSend["echo"]): string {
 }
 
 export function dismissalMatchedRowKey(matchedRow: ChatSend["matchedRow"] | undefined): string | undefined {
-  if (!matchedRow || matchedRow.source.record.kind !== "structured"
+  if (!matchedRow) return;
+  const record = matchedRow.source.record;
+  if (record.kind === "jsonl") return JSON.stringify([matchedRow.source.source_session_id,
+    "jsonl", record.incarnation, record.record_start, record.record_row]);
+  if (matchedRow.source.record.kind !== "structured"
     || matchedRow.source.record.thread_id !== matchedRow.source.source_session_id) return;
   return JSON.stringify([matchedRow.source.source_session_id, matchedRow.source.record.item_id]);
 }
@@ -178,6 +183,7 @@ export function chatSendDismissalIdentity(row: NormalizedChatMessage): ChatSendD
     ...(row.correlationId !== undefined ? { correlationId: row.correlationId } : {}),
     ...(row.sourceSessionId !== undefined ? { sourceSessionId: row.sourceSessionId } : {}),
     ...(row.sourceMessageId !== undefined ? { sourceMessageId: row.sourceMessageId } : {}),
+    ...(row.sourceRecord !== undefined ? { sourceRecord: row.sourceRecord } : {}),
     echoKey: chatSendEchoKey({ content: row.content, timestampMs: timestampMs(row.timestamp) }),
   };
   dismissalIdentityCache.set(row, identity);
@@ -194,6 +200,8 @@ export function chatSendDismissalMatchesIdentity(
 
 export function chatSendDismissalMatchedRowKeys(identity: ChatSendDismissalIdentity): string[] {
   if (!identity.sourceSessionId) return [];
+  if (identity.sourceRecord?.kind === "jsonl") return [dismissalMatchedRowKey({ ordinal: 1,
+    source: { source_session_id: identity.sourceSessionId, record: identity.sourceRecord } })!];
   return [...new Set([identity.id, identity.sourceMessageId]
     .filter((id): id is string => typeof id === "string")
     .map((id) => JSON.stringify([identity.sourceSessionId, id])))];

@@ -7,11 +7,65 @@ pub(super) const ASSET_NOT_FOUND: &str = "release asset not found";
 pub(super) const ACCESS_DENIED: &str = "access denied";
 pub(super) const INTEGRITY_FAILED: &str = "download failed its integrity check";
 
-pub(super) fn channel_unavailable(cause: &str, url: &str) -> String {
-    format!(
-        "{CHANNEL_UNAVAILABLE_PREFIX}{cause} ({}). Domios will retry.",
-        source_label(url)
-    )
+/// What stopped a channel fetch, typed so each kind of channel words it for its own owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelFailureKind {
+    /// A local channel path that names no folder.
+    FolderNotFound,
+    /// The repository or release asset does not exist, or is hidden without access.
+    NotFound,
+    AccessDenied,
+    Unreachable,
+    Integrity,
+    /// The fetched channel failed the caller's own check; `cause` is that check's message.
+    Unusable,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChannelFailure {
+    pub kind: ChannelFailureKind,
+    /// Host detail for logs and plugin wording; it may name internal paths.
+    pub cause: String,
+    /// Host and path of the channel address, without credentials.
+    pub source: String,
+}
+
+impl ChannelFailure {
+    pub(super) fn fetch(cause: String, url: &str) -> Self {
+        let kind = match cause.as_str() {
+            REPOSITORY_NOT_FOUND | ASSET_NOT_FOUND => ChannelFailureKind::NotFound,
+            AUTHENTICATION_REQUIRED | ACCESS_DENIED => ChannelFailureKind::AccessDenied,
+            NETWORK_UNAVAILABLE => ChannelFailureKind::Unreachable,
+            cause if cause.starts_with(INTEGRITY_FAILED) => ChannelFailureKind::Integrity,
+            _ => ChannelFailureKind::Other,
+        };
+        Self::new(kind, cause, url)
+    }
+
+    pub(super) fn new(kind: ChannelFailureKind, cause: impl Into<String>, url: &str) -> Self {
+        Self {
+            kind,
+            cause: cause.into(),
+            source: source_label(url),
+        }
+    }
+}
+
+/// Plugin channel wording; local and validation failures keep their own message.
+impl std::fmt::Display for ChannelFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            ChannelFailureKind::FolderNotFound | ChannelFailureKind::Unusable => {
+                f.write_str(&self.cause)
+            }
+            _ => write!(
+                f,
+                "{CHANNEL_UNAVAILABLE_PREFIX}{} ({}). Domios will retry.",
+                self.cause, self.source
+            ),
+        }
+    }
 }
 
 pub(super) fn git_failure_cause(stderr: &str) -> String {

@@ -124,7 +124,17 @@ fn path_key(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+#[cfg(test)]
 pub(super) fn inspect_plan(path: &Path, plan: &Value, kind: &str) -> Vec<Finding> {
+    inspect_plan_with_planner_requirement(path, plan, kind, true)
+}
+
+pub(super) fn inspect_plan_with_planner_requirement(
+    path: &Path,
+    plan: &Value,
+    kind: &str,
+    planner_required: bool,
+) -> Vec<Finding> {
     let mut findings = Vec::new();
     if matches!(kind, "all" | "storage") {
         findings.extend(inspect_storage(path, plan));
@@ -133,7 +143,11 @@ pub(super) fn inspect_plan(path: &Path, plan: &Value, kind: &str) -> Vec<Finding
         findings.extend(inspect_structure(path, plan));
     }
     if matches!(kind, "all" | "quality") {
-        findings.extend(super::quality::inspect_quality(path, plan));
+        findings.extend(super::quality::inspect_quality(
+            path,
+            plan,
+            planner_required,
+        ));
     }
     if !matches!(kind, "all" | "storage" | "structure" | "quality") {
         findings.push(Finding {

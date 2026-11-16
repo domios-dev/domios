@@ -231,6 +231,13 @@ impl CdpConnection for Connection {
                     json!({"node":{"nodeName":"BUTTON"}})
                 }
             }
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("function domiosHitTest")) =>
+            {
+                json!({"result":{"value":"clear"}})
+            }
             "DOM.getContentQuads" => json!({"quads":[[0,0,20,0,20,20,0,20]]}),
             "Input.dispatchMouseEvent" if params["type"] == "mouseReleased" => {
                 let event = Arc::new(CdpEvent {

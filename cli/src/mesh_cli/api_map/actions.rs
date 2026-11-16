@@ -17,6 +17,7 @@ pub(super) fn team_pair_to_api(
     workspace: &Option<String>,
     title: &Option<String>,
     acknowledge_leaf: bool,
+    template: Option<&str>,
 ) -> (String, String, Option<String>) {
     let (orchestrator_agent, orchestrator_model) = split_provider_model(orchestrator);
     let (planner_agent, planner_model) = split_provider_model(planner);
@@ -39,6 +40,9 @@ pub(super) fn team_pair_to_api(
     // Inert today: `spawned_by_tab_id` stays local, so no remote leaf-gate check can ever consult it — carried anyway to keep the body shape in lockstep with the local `pair_params` contract.
     if acknowledge_leaf {
         body["leaf_creation_acknowledged"] = json!(true);
+    }
+    if let Some(template) = template {
+        body["template"] = crate::cmd::team::template_start::start_request(template);
     }
     (
         "POST".into(),
@@ -761,7 +765,6 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             task,
             task_file,
             role,
-            kind,
             parent,
             plan,
             report_to,
@@ -844,14 +847,8 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                     Err(e) => return unsupported(&e),
                 }
             }
-            if let Some(r) = role {
-                body["role"] = serde_json::json!(r.as_str());
-                if let Some(profile) = r.role_profile() {
-                    body["role_profile"] = serde_json::json!(profile);
-                }
-            }
-            if let Some(kind) = kind {
-                body["role_profile"] = serde_json::json!(kind);
+            if let Some(role) = role {
+                body["role"] = serde_json::json!(role.as_str());
             }
             if let Some(p) = parent {
                 body["parent_tab_id"] = serde_json::json!(p);
@@ -927,9 +924,12 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 body["plan_task"] = serde_json::json!(pt);
             }
             if let Some(sandbox) = sandbox { body["sandbox"] = serde_json::json!(sandbox); }
-            let execution_intent = execution_intent.as_deref().or_else(|| {
-                kind.as_ref().map(|_| "read_only")
-            });
+            let worker_type = role
+                .as_ref()
+                .is_some_and(|role| !role.is_manager_name() && role.as_str() != "worker");
+            let execution_intent = execution_intent
+                .as_deref()
+                .or_else(|| worker_type.then_some("read_only"));
             if let Some(intent) = execution_intent {
                 body["execution_intent"] = serde_json::json!(intent);
                 body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);

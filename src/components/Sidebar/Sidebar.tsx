@@ -20,7 +20,6 @@ import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
 import { MemoryGraphIcon, MeshIcon, NeighborsIcon, SidebarNavButton } from "./SidebarNavButton";
-import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { SidebarStructuralSection } from "./SidebarStructuralSection";
 import { SidebarNeighborsSection } from "../Neighbors/SidebarNeighborsSection";
 import { useNeighborsSwitch } from "../Neighbors/neighborsSwitch";
@@ -53,8 +52,7 @@ import { BlueprintOwnerCloseDialog } from "./BlueprintOwnerCloseDialog";
 import { WorkspaceCloseConfirmDialog } from "./WorkspaceCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
-import { NewSessionPicker } from "../Terminal/NewSessionPicker";
-import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
+import { openNewSessionPicker } from "../../lib/newSessionChoice";
 import { RemoteTabPicker } from "./RemoteTabPicker";
 import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
@@ -135,8 +133,6 @@ export const Sidebar = memo(function Sidebar({
     setActiveTab,
     renameTab,
     spawnAgentTab,
-    createOrchestrationPair,
-    selectTabByTab,
     upsertToast,
   } = useMultiplexer();
   const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
@@ -155,7 +151,6 @@ export const Sidebar = memo(function Sidebar({
     initialPath?: string | null;
     onSelect: (path: string) => void;
   } | null>(null);
-  const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
   const [pendingWorkspaceClose, setPendingWorkspaceClose] = useState<{
     id: string;
     name: string;
@@ -163,7 +158,6 @@ export const Sidebar = memo(function Sidebar({
     blueprints: string[];
     teams: TeamCloseResource[];
   } | null>(null);
-  const [sessionPicker, setSessionPicker] = useState<OpenNewSessionDetail | null>(null);
   const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex, refetch: refetchPlanIndex } = usePlanIndexOptional();
@@ -225,26 +219,10 @@ export const Sidebar = memo(function Sidebar({
     void spawnAgentTab(workspaceId, agentId, folder).catch(reportFailure);
   }, [spawnAgentTab, state.workspaces, upsertToast]);
 
-  const handleOrchestrationConfirm = useCallback((result: OrchestrationCreateResult) => {
-    if (!orchestrationModal) return;
-    const workspaceId = orchestrationModal.workspaceId;
-    setOrchestrationModal(null);
-    createOrchestrationPair({ ...result, workspaceId }).then((created) => {
-      void selectTabByTab(workspaceId, created.orchestrator_tab_id);
-    }).catch((e) => {
-      if (isFreeLimitRefusal(e)) return;
-      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
-        workspaceId: workspaceId,
-        title: "Orchestration pair failed",
-        detail: e instanceof Error ? e.message : String(e),
-        severity: "Error" });
-    });
-  }, [upsertToast, createOrchestrationPair, orchestrationModal, selectTabByTab]);
-
 
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
     if (firstRunActive) return;
-    setSessionPicker({ workspaceId, workspaceCwd });
+    openNewSessionPicker({ workspaceId, workspaceCwd });
   }, [firstRunActive]);
 
   const requestWorkspaceClose = useCallback(async (workspaceId: string) => {
@@ -290,21 +268,6 @@ export const Sidebar = memo(function Sidebar({
     const blueprints = blueprintSnapshots.filter((blueprint) => blueprint.state === "running" && blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && workspaceTabIds.has(blueprint.owner.tab_id) && !teamMemberIds.has(blueprint.owner.tab_id)).map((blueprint) => blueprint.name ?? blueprint.id);
     setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, blueprints, teams });
   }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces, planApi?.host, planApi?.port, planApi?.token]);
-
-  useEffect(() => {
-    const openRequestedSession = (event: Event) => {
-      if (firstRunActive) return;
-      const detail = (event as CustomEvent<OpenNewSessionDetail>).detail;
-      if (!detail?.workspaceId) return;
-      setSessionPicker(detail);
-    };
-    window.addEventListener(OPEN_NEW_SESSION_EVENT, openRequestedSession);
-    return () => window.removeEventListener(OPEN_NEW_SESSION_EVENT, openRequestedSession);
-  }, [firstRunActive]);
-
-  useEffect(() => {
-    if (firstRunActive) setSessionPicker(null);
-  }, [firstRunActive]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
@@ -880,24 +843,6 @@ export const Sidebar = memo(function Sidebar({
             setFolderPicker(null);
             folderPicker.onSelect(path);
           }}
-        />
-      )}
-      {sessionPicker && (
-        <NewSessionPicker
-          workspaceId={sessionPicker.workspaceId}
-          workspaceCwd={sessionPicker.workspaceCwd}
-          agentsConfig={agentsConfig}
-          initialProviderId={sessionPicker.initialProviderId}
-          section={sessionPicker.section ?? (state.workspaces.find((workspace) => workspace.id === sessionPicker.workspaceId)?.protected ? "general" : "workspace")}
-          onClose={() => setSessionPicker(null)}
-        />
-      )}
-
-      {orchestrationModal && (
-        <OrchestrationCreate
-          providers={visibleProviders}
-          onCancel={() => setOrchestrationModal(null)}
-          onConfirm={handleOrchestrationConfirm}
         />
       )}
 

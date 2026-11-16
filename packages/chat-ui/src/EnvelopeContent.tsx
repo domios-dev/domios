@@ -14,7 +14,8 @@ function segmentText(segment: Exclude<MessageSegment, { type: "frame" | "attachm
   return segment.body;
 }
 
-export function EnvelopeContent({ segments, attachments = [], renderText, renderInlineText, onJumpToMessage }: {
+export function EnvelopeContent({ segments, attachments = [], renderText, renderInlineText, onJumpToMessage, attachmentNames }: {
+  attachmentNames?: Readonly<Record<string, string>>;
   segments: readonly MessageSegment[];
   attachments?: ChatAttachment[];
   renderText: (text: string) => ReactNode;
@@ -34,11 +35,24 @@ export function EnvelopeContent({ segments, attachments = [], renderText, render
       placed.push({ attachment: { kind: "image", path: image.path ?? "" }, image });
     }
     return placed.some((part) => "attachment" in part)
-      ? <InlineAttachmentText segments={placed} renderText={renderInlineText} />
+      ? <InlineAttachmentText segments={placed} renderText={renderInlineText} attachmentNames={attachmentNames} />
       : <>{renderText(placed.map((part) => "text" in part ? part.text : "").join(""))}</>;
   }
+  const groups: MessageSegment[][] = [];
+  const special = (segment: MessageSegment) => segment.type === "frame" || (segment.type === "attachment" && (segment.kind === "voice" || !!segment.reference));
+  for (const segment of segments) {
+    const last = groups[groups.length - 1];
+    if (special(segment) || !last || special(last[0])) groups.push([segment]);
+    else last.push(segment);
+  }
   return <>
-    {segments.map((segment, index) => {
+    {groups.map((group, index) => {
+      const segment = group[0];
+      if (!special(segment)) {
+        const groupPaths = new Set(group.flatMap(part => part.type === "attachment" ? [part.path] : []));
+        return <EnvelopeContent key={index} segments={group} attachments={attachments.filter(image => image.path && groupPaths.has(image.path))}
+          renderText={renderText} renderInlineText={renderInlineText} attachmentNames={attachmentNames} />;
+      }
       if (segment.type === "frame") return null;
       if (segment.type !== "attachment") return <span key={index}>{renderText(segmentText(segment))}</span>;
       const reference = segment.reference;
@@ -53,9 +67,9 @@ export function EnvelopeContent({ segments, attachments = [], renderText, render
       return <InlineAttachmentText key={index} segments={[{
         attachment: { kind, path: segment.path, label: segment.label ?? undefined },
         image: attachments.find((attachment) => attachment.path === segment.path),
-      }]} />;
+      }]} attachmentNames={attachmentNames} />;
     })}
     {attachments.filter((attachment) => !attachment.path || !paths.has(attachment.path)).map((image) =>
-      <InlineAttachmentText key={image.id} segments={[{ attachment: { kind: "image", path: image.path ?? "" }, image }]} />)}
+      <InlineAttachmentText key={image.id} segments={[{ attachment: { kind: "image", path: image.path ?? "" }, image }]} attachmentNames={attachmentNames} />)}
   </>;
 }

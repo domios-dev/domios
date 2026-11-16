@@ -1,0 +1,9 @@
+name: dev.example/probe
+version: 1.0.0
+description: Probe package.
+icon: assets/icon.svg
+roles:
+  orchestrator:
+    kind: manager
+    instructions: |
+      Lead.

@@ -1,15 +1,4 @@
-//! Host API audit: `call` requires `surfaces` and a host-scoped caller: the agent of the running
-//! onAgentCommand, or the run owner (`request.context.owner`, the Blueprint creator tab stamped by
-//! the pipeline) while JsBlueprintStep runs `blueprintSubmit`. Reconcile, cancel and every other
-//! entry point have no caller. The plugin can never name the caller; core resolves ownership,
-//! declared verbs and attribution before returning a view dispatch.
-//! A step receives a separate surface on open; every later call supplies that exact tab and
-//! instance, checked against the host-owned submit scope. Owner surfaces are never adopted.
-//! `invalidate` needs the same grant plus an opted-in declaration and exact live instance.
-//! It accepts at most 1024 bytes of identity only, never FS paths, command data or credentials.
-
 use std::cell::RefCell;
-use std::sync::Arc;
 
 use rquickjs::function::Func;
 use rquickjs::Object;
@@ -74,20 +63,7 @@ pub(crate) fn surface_call(sandbox: &PluginSandbox, verb: &str, args_json: &str)
     }
 }
 
-pub(crate) fn surface_invalidate(sandbox: &PluginSandbox, identity_json: &str) -> String {
-    if !sandbox.surfaces_allowed() {
-        return err(SURFACE_DENIED);
-    }
-    if identity_json.len() > 1024 {
-        return err("surface invalidation exceeds 1024 bytes");
-    }
-    match sandbox.service() {
-        Some(service) => service.surface_invalidate_json(sandbox.plugin_id(), identity_json),
-        None => err("host service unavailable"),
-    }
-}
-
-pub(super) fn install(host: &Object<'_>, sandbox: &Arc<PluginSandbox>) -> Result<(), VmError> {
+pub(super) fn install(host: &Object<'_>) -> Result<(), VmError> {
     host.set(
         "awaitInvocationId",
         Func::new(crate::surface_invocation::root_identity),
@@ -100,32 +76,7 @@ pub(super) fn install(host: &Object<'_>, sandbox: &Arc<PluginSandbox>) -> Result
         }),
     )
     .map_err(|_| VmError::Script("set awaitTakeMode failed".into()))?;
-    host.set(
-        "surfaceInvocationBegin",
-        Func::new(|id: String| crate::surface_invocation::begin(&id)),
-    )
-    .map_err(|_| VmError::Script("set surfaceInvocationBegin failed".into()))?;
-    host.set(
-        "surfaceInvocationEnd",
-        Func::new(|id: String, suspended: bool| crate::surface_invocation::end(&id, suspended)),
-    )
-    .map_err(|_| VmError::Script("set surfaceInvocationEnd failed".into()))?;
-    let sb = sandbox.clone();
-    host.set(
-        "surfaceCall",
-        Func::new(move |verb: String, args_json: String| -> String {
-            surface_call(&sb, &verb, &args_json)
-        }),
-    )
-    .map_err(|e| VmError::Script(format!("set surfaceCall: {e}")))?;
-    let sb = sandbox.clone();
-    host.set(
-        "surfaceInvalidate",
-        Func::new(move |identity_json: String| -> String {
-            surface_invalidate(&sb, &identity_json)
-        }),
-    )
-    .map_err(|e| VmError::Script(format!("set surfaceInvalidate: {e}")))
+    Ok(())
 }
 
 #[cfg(test)]

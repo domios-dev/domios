@@ -1,4 +1,3 @@
-import { isImagePath } from "@codeterm/chat-core";
 import { authoredCause } from "../../lib/describeError";
 
 export interface FileTransfer {
@@ -32,6 +31,6 @@ export function imageUploadName(name: string, mime: string): string {
   const image = type.startsWith("image/") || /^public\.(jpeg|png|heic|heif|image)$/.test(type) || /\.(heic|heif)$/i.test(name);
   if (!image) return name;
   const suffix = extension ?? (type.startsWith("image/") ? type.slice(6).replace("jpeg", "jpg").replace("svg+xml", "svg") : "");
-  if (!suffix || !isImagePath(`image.${suffix}`)) throw new Error(`Unsupported image format: ${mime || name}. Use PNG, JPEG or WebP.`);
-  return isImagePath(name) ? name : `${name || "image"}.${suffix}`;
+  if (!suffix || !/^[a-z0-9]+$/.test(suffix)) return name;
+  return /\.[a-z0-9]+$/i.test(name) ? name : `${name || "image"}.${suffix}`;
 }

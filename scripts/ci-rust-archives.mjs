@@ -67,7 +67,7 @@ export function verifyArchiveBuilds(builds, receipts) {
 }
 
 const SHARED_JOB = 'tests-rust.yml:rust-tests';
-const NEXTEST_SCOPE = /^\.\/build\.sh nextest ([\w-]+)$/;
+const NEXTEST_SCOPE = /^\.\/build\.sh nextest ([\w,-]+)$/;
 const SAFE_NAME = /^[A-Za-z0-9_:.\/-]+$/;
 const HOST_PLATFORM = { win32: 'windows', darwin: 'macos', linux: 'linux' }[process.platform] ?? process.platform;
 

@@ -6,6 +6,7 @@ import { SidebarGeneralSection } from "./SidebarGeneralSection";
 import type { SidebarWorkspaceDetailActions, SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { SidebarDnd } from "./sortable";
 import { publishNeighborGateways } from "../Neighbors/neighborGateways";
+import { tabAttention, type TabAttention } from "./tabAttention";
 
 vi.mock("../../lib/bridge", async actual => ({ ...await actual<object>(), invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("../../hooks/useWorkspaceCrons", () => ({ useWorkspaceCrons: () => ({ jobs: [], refresh: () => {} }) }));
@@ -38,10 +39,10 @@ const actions: SidebarWorkspaceDetailActions = {
   closeWorkspace: noop, newTerminal: noop, newSession: noop, newAgent: noop, openRemoteTab: noop,
 };
 
-async function mount() {
+async function mount(attention: Record<string, TabAttention> = {}) {
   const tabs = Object.fromEntries([main, manager, agent, ...shells, surface].map((tab) => [tab.id, tab]));
   const data: SidebarWorkspaceDetailData = {
-    tabs, tabStatuses: {}, attention: {}, teams: [team], planIndex: [], plans: [], providers: [], providersLoading: false,
+    tabs, tabStatuses: {}, attention, teams: [team], planIndex: [], plans: [], providers: [], providersLoading: false,
     closingTabIds: new Set(), closingTeamIds: new Set(), activeTabIds: { general: main.id },
     activeWorkspaceId: "general", isWorkspaceMode: true, workspaceCanvasActive: false, touchMode: true, compact: false,
     sidebarActionText: "", orchestrators: [manager], newSessionDisabled: false,
@@ -134,4 +135,19 @@ it("keeps Neighbor concierge agents out of the General session rows", async () =
   const view = await mount();
   try { expect(view.host.querySelector('button[aria-label="Open tab Solo"]')).toBeNull(); }
   finally { await view.close(); }
+});
+
+it("collapsed Utilities carries a highlighted shell's mark on its header and hands it back to the row when expanded", async () => {
+  const requested = { ...shells[1], focus_requested: true };
+  const view = await mount({ [requested.id]: tabAttention(requested, null, []) });
+  try {
+    const toggle = view.host.querySelector<HTMLButtonElement>('button[aria-label="UTILITIES 3, 1 needs attention"]');
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle?.querySelector('[data-kind="requested"]')).not.toBeNull();
+    await act(async () => toggle!.click());
+    expect(toggle!.getAttribute("aria-label")).toBe("UTILITIES 3");
+    expect(toggle!.querySelector("[data-kind]")).toBeNull();
+    const row = view.host.querySelector('button[aria-label="Open tab qa shell, Probe"]')!;
+    expect(row.closest("li")?.querySelector('[data-kind="requested"]')).not.toBeNull();
+  } finally { await view.close(); }
 });

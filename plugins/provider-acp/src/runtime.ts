@@ -350,7 +350,7 @@ function promoteQueued(ctx:RuntimeContext, state:Negotiation):import("@codeterm/
     const settledQueued=settleStream(ctx,state.projection,queued.completed.cancelled ? "cancelled" : "end_turn");
     state.projection=settledQueued.state;
     state.inFlight=false;
-    if (queued.completed.usage) events.push({kind:"usage",threadId:sessionId,usage:queued.completed.usage});
+    if (queued.completed.usage) events.push({kind:"usage",threadId:sessionId,usage:accountedUsage(queued.completed.usage,queued.sendId)});
     events.push(...settledQueued.events);
   }
   return events;
@@ -514,7 +514,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const settled=settleStream(ctx,projected.state,value.stopReason);
     state.projection=settled.state;
     const mapped=usage(value.usage);
-    const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...sessionAuthentication(state),...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...projected.events,...settled.events];
+    const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...sessionAuthentication(state),...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:accountedUsage(mapped,op.sendId)}] : []),...projected.events,...settled.events];
     events.push(...promoteQueued(ctx,state));
     return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events};
 
@@ -565,4 +565,8 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   const bounded=fitTextReduction(projection,[...reduction.events,...prompts]);
   state.projection=bounded.state;
   return bounded;
+}
+
+function accountedUsage(usage:import("@codeterm/plugin-sdk").TokenUsage, responseId:string) {
+  return {...usage,response_id:responseId};
 }
