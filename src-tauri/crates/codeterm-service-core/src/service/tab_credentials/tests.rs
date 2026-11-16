@@ -403,6 +403,8 @@ fn actor_from_claims_still_refuse_foreign_tabs_and_bind_own_identity() {
         "plan.review.accept",
         "plan.review.bounce",
         "plan.review.hold",
+        "future.actor",
+        "mem.graph.relate",
     ] {
         let mut forged = Some(json!({"from": {"tab_id": other}}));
         assert_eq!(
@@ -410,7 +412,7 @@ fn actor_from_claims_still_refuse_foreign_tabs_and_bind_own_identity() {
             Err("Caller tab does not match its credential".into()),
             "{method}"
         );
-        let mut malformed = Some(json!({"from": "opaque_actor"}));
+        let mut malformed = Some(json!({"from": {"tab_id": 7}}));
         assert_eq!(
             svc.bind_local_rpc(&credential, method, &mut malformed),
             Err("Invalid actor reference".into()),
