@@ -45,9 +45,6 @@ importers:
       '@git-diff-view/react':
         specifier: ^0.1.8
         version: 0.1.8(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@sigma/edge-curve':
-        specifier: ^3.1.0
-        version: 3.1.0(sigma@4.0.6(graphology-types@0.24.8))
       '@tauri-apps/api':
         specifier: ^2.12.4
         version: 2.12.4
@@ -1658,11 +1655,6 @@ packages:
     resolution: {integrity: sha512-ADb1Uz2MNM0sxVpAlMNdQG16Hw4sgW1aqVL7NeqBMpcZeiHb192d7W6shZdMQs33D+w9ihDYBBPsYqqc4MlD8w==}
     cpu: [x64]
     os: [win32]
-
-  '@sigma/edge-curve@3.1.0':
-    resolution: {integrity: sha512-OFWkfAXEsm+X8l1K4K49cC0psB0gQ+gqxKA08HG5piNPdzrDZ5gG9Gza6htZ5AirOVwd/4/uq/gPpD5En+H+3Q==}
-    peerDependencies:
-      sigma: '>=3.0.0-beta.10'
 
   '@tailwindcss/browser@4.3.5':
     resolution: {integrity: sha512-jm+efl1BzNaCMLSd1gSApQjaXYbuiwUtJLVPA2JVEZqN1MluOlZLR2LVnWvokY9B6Di1uJKq4SGMS/rupr0kbg==}
@@ -4997,10 +4989,6 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.68.3':
     optional: true
-
-  '@sigma/edge-curve@3.1.0(sigma@4.0.6(graphology-types@0.24.8))':
-    dependencies:
-      sigma: 4.0.6(graphology-types@0.24.8)
 
   '@tailwindcss/browser@4.3.5': {}
 
