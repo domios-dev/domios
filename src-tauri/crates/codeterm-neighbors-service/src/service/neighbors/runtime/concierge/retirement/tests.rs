@@ -230,15 +230,17 @@ async fn regain(
                         assert!(!permission.allow_memory);
                         assert!(resume.is_none());
                         assert_eq!(options.reasoning_effort.as_deref(), Some("opaque-effort"));
-                        let mut mux = service.mux.write();
-                        let workspace = mux.find_workspace_for_tab(other).unwrap();
-                        let id = mux.create_tab(&workspace).unwrap();
-                        let tab = mux.get_tab_mut(&id).unwrap();
-                        tab.agent_type = provider;
-                        tab.agent_session_id = Some(format!("fresh-session-{id}"));
-                        tab.session_binding_nonce = Some(format!("fresh-nonce-{id}"));
-                        tab.cwd = Some(cwd);
-                        drop(mux);
+                        let id = {
+                            let mut mux = service.mux.write();
+                            let workspace = mux.find_workspace_for_tab(other).unwrap();
+                            let id = mux.create_tab(&workspace).unwrap();
+                            let tab = mux.get_tab_mut(&id).unwrap();
+                            tab.agent_type = provider;
+                            tab.agent_session_id = Some(format!("fresh-session-{id}"));
+                            tab.session_binding_nonce = Some(format!("fresh-nonce-{id}"));
+                            tab.cwd = Some(cwd);
+                            id
+                        };
                         persist_desk(service).await;
                         Ok(id)
                     },

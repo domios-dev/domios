@@ -34,19 +34,17 @@ pub fn message_envelope(
     message: &codeterm_neighbors::wire::InboxMessage,
 ) -> crate::service::messenger::MessageEnvelope {
     let envelope = &message.doc.envelope;
-    crate::service::messenger::MessageEnvelope {
-        from_label: envelope.sender_uid.clone(),
-        from_neighbor: Some(envelope.friendship_id.clone()),
-        neighbor_friend: Some(name.into()),
-        neighbor_message: Some(crate::service::messenger::NeighborMessage {
+    crate::service::messenger::MessageEnvelope::neighbor(
+        envelope.sender_uid.clone(),
+        envelope.friendship_id.clone(),
+        name.into(),
+        crate::service::messenger::NeighborMessage {
             message_id: envelope.message_id.clone(),
             kind: envelope.kind,
             in_reply_to: envelope.in_reply_to.clone(),
-        }),
-        id: Some(format!("neighbor:{}", message.id)),
-        context: Some("neighbor-request".into()),
-        ..Default::default()
-    }
+        },
+        format!("neighbor:{}", message.id),
+    )
 }
 
 #[cfg(test)]
