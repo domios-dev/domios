@@ -95,6 +95,10 @@ Standard envelope fields (separate from event properties):
 | `file_shared` | `count`: u32 |
 | `read_receipt_shown` | `count`: u32 |
 | `settings_viewed` | `section`: SettingsSection |
+| `chat_message_submitted` | None |
+| `memory_searched` | None |
+| `canvas_opened` | None |
+| `onboarding_completed` | None |
 
 - **Platform:** `macos`, `windows`, `linux`
 - **AuthProvider:** `local`, `fake`, `firebase`
@@ -140,4 +144,4 @@ Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"se
 
 Headless sign-in: `domios account login --no-browser` prints an authorization URL. Open it on another machine, then paste the whole redirected callback URL into stdin; it must include both code and state. A failed loopback navigation still leaves that URL in the browser's address bar. Bare codes are refused. EOF on stdin leaves the flow pending in the daemon until its normal timeout. In a Domios tab, `domios account login --no-browser --code-from-pad callback.txt` completes that pending flow from the calling tab's pad without replacing its state/verifier. Keep callback values out of logs and shell history. The existing timeout and single-use checks apply.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

@@ -165,6 +165,10 @@
     },
     "settings_viewed": {
       "section": "SettingsSection"
-    }
+    },
+    "chat_message_submitted": {},
+    "memory_searched": {},
+    "canvas_opened": {},
+    "onboarding_completed": {}
   }
 }

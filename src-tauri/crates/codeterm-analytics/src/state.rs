@@ -1,10 +1,6 @@
-use crate::{Config, Event, Feature};
+use crate::{Config, Event};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, VecDeque},
-    io::Write,
-    path::Path,
-};
+use std::{collections::VecDeque, io::Write, path::Path};
 use uuid::Uuid;
 
 pub const QUEUE_CAP: usize = 1000;
@@ -48,7 +44,9 @@ pub(crate) struct State {
     pub user_id: Option<String>,
     pub last_active_day: Option<chrono::NaiveDate>,
     pub first_run_recorded: bool,
-    pub feature_days: BTreeMap<Feature, chrono::NaiveDate>,
+    // Discard retired daily suppression without losing consent or the stable device identity.
+    #[serde(default, skip_serializing, rename = "feature_days")]
+    pub _retired_feature_days: serde::de::IgnoredAny,
     pub config: Config,
     pub queue: VecDeque<Queued>,
     pub counters: Counters,
@@ -61,7 +59,6 @@ impl State {
         self.user_id = None;
         self.queue.clear();
         self.last_active_day = None;
-        self.feature_days.clear();
     }
 
     pub fn read(path: &Path) -> Result<Self, String> {

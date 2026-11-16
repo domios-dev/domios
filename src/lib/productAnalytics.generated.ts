@@ -38,6 +38,10 @@ export type ProductEvent =
   | { event_type: "file_shared"; event_properties: { count: number } }
   | { event_type: "read_receipt_shown"; event_properties: { count: number } }
   | { event_type: "settings_viewed"; event_properties: { section: SettingsSection } }
+  | { event_type: "chat_message_submitted"; event_properties: Record<string, never> }
+  | { event_type: "memory_searched"; event_properties: Record<string, never> }
+  | { event_type: "canvas_opened"; event_properties: Record<string, never> }
+  | { event_type: "onboarding_completed"; event_properties: Record<string, never> }
 ;
 export const PRODUCT_EVENT_CATALOG = {
   "app_first_run": {
@@ -110,7 +114,11 @@ export const PRODUCT_EVENT_CATALOG = {
   },
   "settings_viewed": {
     "section": "SettingsSection"
-  }
+  },
+  "chat_message_submitted": {},
+  "memory_searched": {},
+  "canvas_opened": {},
+  "onboarding_completed": {}
 } as const;
 export const PRODUCT_EVENT_ENUMS = {
   "Platform": [

@@ -23,7 +23,9 @@ pub async fn mem_search(
         caller_tab_id: headers.local_tab_id(),
         ..p
     };
-    run_blocking_search(move || execute_search(&svc, p))
-        .await
-        .map(Json)
+    let result = run_blocking_search(move || execute_search(&svc, p)).await?;
+    state
+        .svc
+        .record_product_event(codeterm_analytics::Event::MemorySearched {});
+    Ok(Json(result))
 }

@@ -25,3 +25,27 @@ fn unavailable_metadata_never_defaults_on_or_replaces_off() {
     assert_eq!(fresh.consent, Consent::On);
     assert!(fresh.device_id.is_some());
 }
+
+#[test]
+fn retired_feature_days_preserves_consent_and_device_then_disappears_on_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let device = Uuid::parse_str("12345678-1234-4234-8234-123456789abc").unwrap();
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&serde_json::json!({
+            "consent":"on", "device_id":device,
+            "feature_days":{"memory_saved":"2026-10-13"}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let state = State::read(&path).unwrap();
+    assert_eq!(state.consent, Consent::On);
+    assert_eq!(state.device_id, Some(device));
+    state.save(&path).unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["consent"], "on");
+    assert_eq!(saved["device_id"], "12345678-1234-4234-8234-123456789abc");
+    assert!(saved.get("feature_days").is_none());
+}
