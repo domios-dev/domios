@@ -1942,7 +1942,9 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "hostname",
+ "libc",
  "log",
+ "md-5 0.10.6",
  "parking_lot 0.12.5",
  "rand 0.8.6",
  "reqwest 0.12.28",
@@ -1953,6 +1955,7 @@ dependencies = [
  "tower",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
  "workspace-hack",
  "zeroize",
 ]
