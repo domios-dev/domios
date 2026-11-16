@@ -16,7 +16,7 @@ pub(super) async fn launch(
         .get_tab(tab)
         .and_then(|target| target.team_id.clone())
         .ok_or("Terminal sign-in requires a Team utility shell")?;
-    claim(session)?;
+    claim(session, tab)?;
     let owner = svc.clone();
     let target = tab.to_string();
     let launched = tokio::task::spawn_blocking(move || {
