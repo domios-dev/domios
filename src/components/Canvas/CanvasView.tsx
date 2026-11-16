@@ -1,3 +1,4 @@
+import { useProductViewEvent } from "../../hooks/useProductViewEvent";
 import { useCanvasStage, CANVAS_ZOOM_STEP } from "@codeterm/chat-ui/useCanvasStage";
 import type { PlanView as Plan, PlanSectionView as Section } from "./planProjection";
 import { returnToOrigin } from "../../lib/returnTo";
@@ -880,6 +881,7 @@ export interface CanvasViewProps {
 }
 
 export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focusTabId, api, onClose }: CanvasViewProps) {
+  useProductViewEvent("canvas_opened");
   const { setFocusedTab, setActiveTab, selectTabByTab, deleteNotification } = useMultiplexer();
   const clearNotifications = useCallback(
     (ids: string[]) => ids.forEach((id) => deleteNotification(id)),

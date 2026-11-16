@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn built_envelope_identifies_app_and_retains_remote_location_lookup() {
+    for context in [
+        crate::Context::default(),
+        crate::Context::new("1.20.1", None, Some("en")),
+    ] {
+        for user_id in [None, Some("opaque-7f3".into())] {
+            let event = DeliveryEvent {
+                insert_id: uuid::Uuid::from_u128(1),
+                device_id: uuid::Uuid::from_u128(2),
+                user_id,
+                time: 123,
+                event: crate::Event::AppOpened {},
+            };
+            let value = build_event(&event, &context).unwrap();
+            assert_eq!(value["platform"], "app");
+            assert_eq!(value["ip"], "$remote");
+            assert!(value.get("country").is_none());
+            assert!(value.get("location").is_none());
+            assert_eq!(value["event_properties"], serde_json::json!({}));
+        }
+    }
+}
+
+#[test]
 fn payload_carries_standard_context_outside_catalog_properties() {
     let mut server = mockito::Server::new();
     let mut sink = Http::with_key(Config::default(), Some("test-key".into())).unwrap();
@@ -23,7 +47,7 @@ fn payload_carries_standard_context_outside_catalog_properties() {
                 "event_type": "app_opened", "event_properties": {},
                 "insert_id": event.insert_id, "device_id": event.device_id,
                 "user_id": "test-account", "time": 123, "ip": "$remote",
-                "platform": "Desktop", "os_name": if cfg!(windows) { "Windows" } else if cfg!(target_os = "macos") { "macOS" } else { "Linux" },
+                "platform": "app", "os_name": if cfg!(windows) { "Windows" } else if cfg!(target_os = "macos") { "macOS" } else { "Linux" },
                 "os_version": "10.0.26100", "app_version": "1.20.1", "language": "en",
                 "device_manufacturer": "Fixture manufacturer", "device_model": "Fixture model", "carrier": "none"
             }]

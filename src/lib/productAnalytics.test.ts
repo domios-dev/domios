@@ -77,3 +77,18 @@ test("Neighbor analytics sends counts and rejects names, emails and photos", asy
     assert.equal(calls.length, 1);
   }
 });
+
+test("activation actions have empty closed payloads and preserve repeated actions", async () => {
+  for (const event_type of ["chat_message_submitted", "memory_searched", "canvas_opened", "onboarding_completed"] as const) {
+    const calls: unknown[] = [];
+    const event = { event_type, event_properties: {} };
+    await emitProductEvent(async (...args) => { calls.push(args); }, "on", event);
+    await emitProductEvent(async (...args) => { calls.push(args); }, "on", event);
+    assert.equal(calls.length, 2);
+    for (const field of ["content", "path", "query", "secret", "model"]) {
+      assert.equal(isProductEvent({ event_type, event_properties: { [field]: "private" } }), false);
+    }
+    await emitProductEvent(async (...args) => { calls.push(args); }, "off", event);
+    assert.equal(calls.length, 2);
+  }
+});
