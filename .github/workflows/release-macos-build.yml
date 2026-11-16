@@ -102,9 +102,6 @@ jobs:
           toolchain: 1.99.1
           components: clippy,rustfmt
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - name: Hosted sccache
-        if: runner.environment == 'github-hosted'
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
       - name: Select hosted cache policy
         if: runner.environment == 'github-hosted'
         shell: bash
@@ -150,9 +147,15 @@ jobs:
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 1
+      - name: Enter stable physical CI checkout
+        run: node scripts/ci-stable-checkout.mjs enter
       - name: Discover installed runner tools
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
+      - name: Pinned CI sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+        with:
+          version: v0.19.0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -297,3 +300,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: node scripts/ci-workspace-cleanup.mjs
+
+      - name: Restore runner checkout
+        if: always()
+        run: node scripts/ci-stable-checkout.mjs leave
