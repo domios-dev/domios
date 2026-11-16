@@ -4,6 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use codeterm_neighbors_service::NeighborsNeighborsCapabilitiesSpawn1Ext;
 use serde::Deserialize;
 
 use crate::routes::AppState;

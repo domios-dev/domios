@@ -75,7 +75,6 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
         mesh::account_mesh::{AccountMeshState, AccountPresence},
         mesh::types::PairedPeer,
         multiplexer::state::MultiplexerState,
-        service::test_fixture::ServiceFixture,
     };
     use tower::ServiceExt;
 
@@ -685,7 +684,6 @@ fn service_push_rejected_on_tab_root() {
 #[test]
 fn instance_refuses_foreign_bearer_and_accepts_persisted_credential() {
     use codeterm_service_core::multiplexer::state::MultiplexerState;
-    use codeterm_service_core::service::test_fixture::ServiceFixture;
 
     let (mux, _) = MultiplexerState::new();
     let fixture = codeterm_neighbors_service::test_support::fixture(mux);
@@ -710,7 +708,6 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
     use codeterm_service_core::mesh::account_mesh::AccountMeshState;
     use codeterm_service_core::mesh::types::PairedPeer;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
-    use codeterm_service_core::service::test_fixture::ServiceFixture;
 
     let (mux, _) = MultiplexerState::new();
     let fixture = codeterm_neighbors_service::test_support::fixture(mux);

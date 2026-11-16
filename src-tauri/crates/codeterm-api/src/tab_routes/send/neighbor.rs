@@ -1,5 +1,4 @@
 use super::*;
-use codeterm_neighbors_service::prelude::*;
 
 pub(super) async fn authorize_message(
     state: &AppState,

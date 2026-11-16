@@ -1,5 +1,6 @@
 use super::*;
 use axum::{extract::State, http::HeaderValue, Json};
+use codeterm_neighbors_service::NeighborsFixtureExt;
 use codeterm_service_core::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
 
 #[tokio::test]

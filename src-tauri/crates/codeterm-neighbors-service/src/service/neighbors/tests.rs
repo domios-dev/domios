@@ -132,17 +132,15 @@ fn neighbor_frames_preserve_provenance_without_a_local_reply_route() {
     use crate::service::messenger::{MessageEnvelope, Messenger, NeighborMessage};
     let friendship = "1a".repeat(32);
     let message_id = "9b".repeat(16);
-    let envelope = MessageEnvelope {
-        from_neighbor: Some(friendship.clone()),
-        neighbor_friend: Some("opaque-friend".into()),
-        neighbor_message: Some(NeighborMessage {
-            message_id: message_id.clone(),
-            kind: codeterm_neighbors::wire::Kind::Question,
-            in_reply_to: None,
-        }),
-        from_label: "opaque-peer".into(),
-        ..Default::default()
-    };
+    let mut envelope = MessageEnvelope::default();
+    envelope.from_neighbor = Some(friendship.clone());
+    envelope.neighbor_friend = Some("opaque-friend".into());
+    envelope.neighbor_message = Some(NeighborMessage {
+        message_id: message_id.clone(),
+        kind: codeterm_neighbors::wire::Kind::Question,
+        in_reply_to: None,
+    });
+    envelope.from_label = "opaque-peer".into();
     let frame = Messenger::from(envelope).routed_frame("opaque-body");
     let message = codeterm_wire::domios::parse_message(&frame.to_message()).unwrap();
     assert_eq!(message.attr("from"), Some("neighbor"));

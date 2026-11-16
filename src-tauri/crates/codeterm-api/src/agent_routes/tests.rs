@@ -638,9 +638,7 @@ fn cwd_refusal_is_unprocessable_not_server_error() {
 
 #[tokio::test]
 async fn agent_routes_host_mcp_cannot_send_or_report_as_foreign_tab() {
-    use codeterm_service_core::{
-        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
-    };
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
     let (mux, tab) = MultiplexerState::new();
     let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::test_support::app_state(&fixture);

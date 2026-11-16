@@ -1,4 +1,3 @@
-use codeterm_neighbors_service::prelude::*;
 // ── Mesh commands ───────────────────────────────────────────────────
 
 /// Shared implementation behind the Tauri command and the web-mirror HTTP

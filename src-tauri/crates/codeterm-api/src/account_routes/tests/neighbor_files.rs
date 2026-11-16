@@ -1,5 +1,4 @@
 use super::*;
-use codeterm_neighbors_service::prelude::*;
 
 async fn bound_fixture() -> (
     codeterm_service_core::service::test_fixture::ServiceFixture,

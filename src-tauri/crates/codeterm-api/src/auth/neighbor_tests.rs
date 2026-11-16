@@ -1,5 +1,4 @@
 use super::*;
-use codeterm_neighbors_service::prelude::*;
 
 #[tokio::test]
 async fn granted_workspace_spawn_still_refuses_unsafe_launch_flags_before_creating_a_child() {
