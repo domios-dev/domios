@@ -223,7 +223,6 @@ impl NeighborsPort for RecordingNeighbors {
     fn neighbor_entitlements_changed(&self, changed: bool) {
         self.calls.lock().push("neighbor_entitlements_changed");
         let _ = changed;
-        ()
     }
     fn neighbor_friend_display_name(&self, friendship_id: &str) -> Option<String> {
         self.calls.lock().push("neighbor_friend_display_name");
@@ -301,7 +300,6 @@ impl NeighborsPort for RecordingNeighbors {
         self.calls.lock().push("observe_neighbor_pty_handling");
         let _ = tab;
         let _ = status;
-        ()
     }
     fn prepare_neighbor_restore_grant(
         &self,
@@ -349,7 +347,6 @@ impl NeighborsPort for RecordingNeighbors {
         self.calls
             .lock()
             .push("unlock_account_mesh_after_plan_change");
-        ()
     }
 }
 #[cfg(test)]
