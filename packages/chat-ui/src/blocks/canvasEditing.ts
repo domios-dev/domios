@@ -25,7 +25,21 @@ export interface CanvasItemEdit {
 }
 
 type Frame = { x: number; y: number; w: number; h: number };
-interface Gesture { id: string; mode: "move" | "resize"; startX: number; startY: number; scale: number; start: Frame; keepAspect: boolean; moved: boolean; release: (() => void) | null }
+export interface Gesture { id: string; mode: "move" | "resize"; startX: number; startY: number; scale: number; start: Frame; keepAspect: boolean; moved: boolean; release: (() => void) | null }
+
+/** The item's frame with the pointer at a screen point, from the gesture's own start. */
+export function gestureFrame(gesture: Gesture, clientX: number, clientY: number): Frame {
+  const dx = (clientX - gesture.startX) / gesture.scale, dy = (clientY - gesture.startY) / gesture.scale;
+  if (gesture.mode === "move") return { ...gesture.start, x: gesture.start.x + dx, y: gesture.start.y + dy };
+  return { ...gesture.start, ...resizeFrame(gesture.start, dx, dy, gesture.keepAspect) };
+}
+
+/** The edit a released gesture commits; a press that never passed the threshold commits nothing. */
+export function gestureEdit(gesture: Gesture, clientX: number, clientY: number): DsCanvasEdit | null {
+  if (!gesture.moved) return null;
+  const frame = gestureFrame(gesture, clientX, clientY);
+  return { kind: "frame", id: gesture.id, frame: gesture.mode === "move" ? { x: frame.x, y: frame.y } : { w: frame.w, h: frame.h } };
+}
 interface Draft { id: string; text: string; release: () => void }
 
 const typing = (target: EventTarget | null) => target instanceof Element && Boolean(target.closest("textarea, input, select, [contenteditable='true']"));
@@ -53,6 +67,7 @@ export function useCanvasEditing({ editor, canvas, layout, selected, select, roo
   const latest = useRef({ editor, layout, selected, draft, select });
   latest.current = { editor, layout, selected, draft, select };
   const gesture = useRef<Gesture | null>(null);
+  const stopGesture = useRef<(() => void) | null>(null);
 
   const placedOf = (id: string) => latest.current.layout.items.find((placed) => placed.item.id === id);
   const finishDraft = (commit: boolean) => {
@@ -81,38 +96,37 @@ export function useCanvasEditing({ editor, canvas, layout, selected, select, roo
     event.stopPropagation();
     const rect = event.currentTarget.closest<HTMLElement>("[data-canvas-item]")?.getBoundingClientRect();
     const scale = rect && rect.width > 0 ? rect.width / placed.w : 1;
-    gesture.current = { id: placed.item.id, mode, startX: event.clientX, startY: event.clientY, scale, start: { x: placed.x, y: placed.y, w: placed.w, h: placed.h }, keepAspect: placed.item.kind === "image", moved: false, release: null };
-    const frameAt = (clientX: number, clientY: number): Frame => {
-      const active = gesture.current!;
-      const dx = (clientX - active.startX) / active.scale, dy = (clientY - active.startY) / active.scale;
-      if (active.mode === "move") return { ...active.start, x: active.start.x + dx, y: active.start.y + dy };
-      return { ...active.start, ...resizeFrame(active.start, dx, dy, active.keepAspect) };
-    };
+    const active: Gesture = { id: placed.item.id, mode, startX: event.clientX, startY: event.clientY, scale, start: { x: placed.x, y: placed.y, w: placed.w, h: placed.h }, keepAspect: placed.item.kind === "image", moved: false, release: null };
+    gesture.current = active;
     const move = (next: PointerEvent) => {
-      const active = gesture.current;
-      if (!active) return;
       if (!active.moved && Math.hypot(next.clientX - active.startX, next.clientY - active.startY) < CANVAS_DRAG_THRESHOLD) return;
       if (!active.moved) { active.moved = true; active.release = latest.current.editor?.hold() ?? null; }
-      setPreview({ id: active.id, frame: frameAt(next.clientX, next.clientY) });
+      setPreview({ id: active.id, frame: gestureFrame(active, next.clientX, next.clientY) });
     };
-    const end = (last: PointerEvent) => {
+    /** Every way a gesture ends goes through here, so its hold is always released. */
+    const stop = (last: PointerEvent | null) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
-      const active = gesture.current;
-      gesture.current = null;
-      setPreview(null);
-      if (!active?.moved) return;
-      const frame = frameAt(last.clientX, last.clientY);
-      if (last.type !== "pointercancel") {
-        latest.current.editor?.commit({ kind: "frame", id: active.id, frame: active.mode === "move" ? { x: frame.x, y: frame.y } : { w: frame.w, h: frame.h } });
+      if (gesture.current === active) gesture.current = null;
+      stopGesture.current = null;
+      try {
+        const edit = last && last.type === "pointerup" ? gestureEdit(active, last.clientX, last.clientY) : null;
+        if (edit) latest.current.editor?.commit(edit);
+      } finally {
+        if (last) setPreview(null);
+        active.release?.();
+        active.release = null;
       }
-      active.release?.();
     };
+    const end = (last: PointerEvent) => stop(last);
+    stopGesture.current = () => stop(null);
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
   };
+
+  useEffect(() => () => stopGesture.current?.(), []);
 
   useEffect(() => {
     if (!editor) return;

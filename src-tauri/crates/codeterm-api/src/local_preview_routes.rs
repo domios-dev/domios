@@ -14,6 +14,7 @@ use serde::Deserialize;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::routes::AppState;
+use crate::auth::CallerIdentity;
 
 const WINDOW: Duration = Duration::from_secs(60);
 const REQUESTS_PER_WINDOW: usize = 120;
@@ -281,12 +282,28 @@ async fn canvas_respond<R: serde::Serialize + Send + 'static>(
     }
 }
 
+/// Canvas write-back and watches belong to the local owner: a tab credential, a relayed caller or a
+/// peer never acts on any tab's canvas, its own included. Reads keep the preview read rules.
+fn owner_refusal(caller: Option<&Extension<CallerIdentity>>) -> Option<Response> {
+    (!matches!(caller, Some(Extension(CallerIdentity::Local)))).then(|| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Canvas edits require the local owner"})),
+        )
+            .into_response()
+    })
+}
+
 pub(super) async fn canvas_write(
     State(state): State<AppState>,
     Path(tab): Path<String>,
     Extension(admission): Extension<Arc<Admission>>,
+    caller: Option<Extension<CallerIdentity>>,
     Json(body): Json<CanvasWriteBody>,
 ) -> Response {
+    if let Some(refusal) = owner_refusal(caller.as_ref()) {
+        return refusal;
+    }
     canvas_respond(&admission, "write", move || {
         let configured = state.config.lock().api.preview_secret_paths.clone();
         codeterm_service_core::service::local_preview::write_canvas(
@@ -305,8 +322,12 @@ pub(super) async fn canvas_watch(
     State(state): State<AppState>,
     Path(tab): Path<String>,
     Extension(admission): Extension<Arc<Admission>>,
+    caller: Option<Extension<CallerIdentity>>,
     Json(body): Json<CanvasWatchBody>,
 ) -> Response {
+    if let Some(refusal) = owner_refusal(caller.as_ref()) {
+        return refusal;
+    }
     canvas_respond(&admission, "watch", move || {
         let configured = state.config.lock().api.preview_secret_paths.clone();
         codeterm_service_core::service::local_preview::watch_canvas(

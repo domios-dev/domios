@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseDsCanvas, type DsCanvas } from "@codeterm/chat-core";
-import { CANVAS_LIVE_FRAME_BUDGET, canvasPagerLabel, canvasPagerTargets, canvasViewTarget, chooseLiveFrames, fitPreview, layoutCanvas, noteSpot, resizeFrame, sentenceCase, stepCanvasPager } from "./canvasBlockModel";
+import { CANVAS_LIVE_FRAME_BUDGET, canvasPagerLabel, canvasPagerTargets, canvasViewTarget, chooseLiveFrames, fitPreview, layoutCanvas, noteSpot, reconcilePager, resizeFrame, sentenceCase, stepCanvasPager } from "./canvasBlockModel";
+import { gestureEdit } from "./canvasEditing";
 
 function canvas(document: unknown): DsCanvas {
   const parsed = parseDsCanvas(JSON.stringify(document));
@@ -67,6 +68,25 @@ test("a new note goes to the view centre and steps aside from a note already the
   const placed = layoutCanvas(canvas({ items: [{ id: "a", kind: "note", markdown: "", x: 340, y: 210 }, { id: "b", kind: "image", src: "/a.png", x: 364, y: 234 }] })).items;
   assert.deepEqual(noteSpot({ x: 500, y: 300 }, placed), { x: 364, y: 234 }, "only notes push a new note aside");
   assert.deepEqual(noteSpot({ x: 0, y: 0 }, placed), { x: -160, y: -90 });
+});
+
+test("the pager keeps its view or item by identity and clamps when it disappears", () => {
+  const target = (key: string) => ({ key, label: key, bounds: { x: 0, y: 0, width: 1, height: 1 } });
+  const targets = ["item:a", "item:b", "item:c"].map(target);
+  assert.equal(reconcilePager(targets, { key: "item:c", index: 2 }), 2);
+  assert.equal(reconcilePager([target("item:c"), target("item:a")], { key: "item:c", index: 2 }), 0, "a moved target is followed");
+  assert.equal(reconcilePager([target("item:a"), target("item:b")], { key: "item:c", index: 2 }), 1, "a removed target clamps");
+  assert.equal(reconcilePager([], { key: "item:c", index: 2 }), null);
+  assert.equal(reconcilePager(targets, null), null);
+  const items = canvas({ items: [{ id: "x", kind: "note", markdown: "a" }], views: [{ name: "v", x: 0, y: 0, w: 1, h: 1 }] });
+  assert.deepEqual(canvasPagerTargets(items, layoutCanvas(items)).map((entry) => entry.key), ["view:v"]);
+});
+
+test("a released gesture commits its frame from its own start; a press below the threshold commits nothing", () => {
+  const gesture = { id: "a", mode: "move" as const, startX: 100, startY: 100, scale: 2, start: { x: 10, y: 20, w: 400, h: 200 }, keepAspect: false, moved: true, release: null };
+  assert.deepEqual(gestureEdit(gesture, 300, 50), { kind: "frame", id: "a", frame: { x: 110, y: -5 } });
+  assert.deepEqual(gestureEdit({ ...gesture, mode: "resize", keepAspect: true }, 300, 100), { kind: "frame", id: "a", frame: { w: 500, h: 250 } });
+  assert.equal(gestureEdit({ ...gesture, moved: false }, 300, 50), null);
 });
 
 test("a named view resolves to its pager index and rectangle", () => {

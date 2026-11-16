@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { LayoutDashboard, StickyNote, X } from "lucide-react";
 import type { DsCanvas } from "@codeterm/chat-core";
 import { CanvasHeader } from "../CanvasHeader";
@@ -10,7 +10,7 @@ import { CanvasNoticeBody } from "./CanvasNotice";
 import { CanvasItemView } from "./canvasItems";
 import { useCanvasEditing, type CanvasEditor, type CanvasItemEdit } from "./canvasEditing";
 import { useVisibleIds } from "./useVisibleIds";
-import { canvasPagerLabel, canvasPagerTargets, canvasViewTarget, chooseLiveFrames, isLiveFrameItem, stepCanvasPager, type CanvasLayout, type PlacedCanvasItem } from "./canvasBlockModel";
+import { canvasPagerLabel, canvasPagerTargets, canvasViewTarget, chooseLiveFrames, isLiveFrameItem, reconcilePager, stepCanvasPager, type CanvasLayout, type CanvasPagerPosition, type PlacedCanvasItem } from "./canvasBlockModel";
 
 /** Escape inside a selected item returns it to the canvas before the viewer may close. */
 function useSelectionEscape(selected: RefObject<string | null>, root: RefObject<HTMLDivElement | null>, release: () => void) {
@@ -84,13 +84,19 @@ export function CanvasViewer({ canvas, layout, title, view, editor, anchorRef, o
   const stageRef = useRef<HTMLDivElement>(null);
   const targets = useMemo(() => canvasPagerTargets(canvas, layout), [canvas, layout]);
   const [initial] = useState(() => canvasViewTarget(canvas, view));
-  const [active, setActive] = useState<number | null>(initial?.index ?? null);
+  const [position, setPosition] = useState<CanvasPagerPosition | null>(initial ? { key: `view:${view}`, index: initial.index } : null);
+  const active = reconcilePager(targets, position);
+  const activeKey = active === null ? null : targets[active].key;
+  // A clamped pager adopts its new target, so later reloads follow that one.
+  useLayoutEffect(() => {
+    if (active !== null && activeKey !== null && activeKey !== position?.key) setPosition({ key: activeKey, index: active });
+  }, [active, activeKey, position?.key]);
   const [focus, setFocus] = useState<{ request: number; bounds: CanvasLayout["bounds"] } | null>(initial ? { request: 1, bounds: initial.bounds } : null);
   const [selected, setSelected] = useState<string | null>(null);
   const editing = useCanvasEditing({ editor, canvas, layout, selected, select: setSelected, rootRef: stageRef });
   const navigate = (direction: number) => {
     const next = stepCanvasPager(active, targets.length, direction);
-    setActive(next);
+    setPosition(next === null ? null : { key: targets[next].key, index: next });
     setFocus((previous) => ({ request: (previous?.request ?? 0) + 1, bounds: next === null ? layout.bounds : targets[next].bounds }));
   };
   const release = () => {
