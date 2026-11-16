@@ -62,10 +62,13 @@ test("a canvas file renders through the preview loader, reads items through it, 
     files.text = "{";
     await act(async () => { files.change?.(); });
     await settle();
-    assert.equal(view.host.querySelector("[data-canvas-invalid] p")?.textContent, "This canvas could not be shown because its description is not valid.");
+    assert.equal(view.host.querySelector("[data-canvas-invalid] p")?.textContent, "This canvas file has an error, so this is its last good version.");
+    assert.match(view.host.querySelector("[data-canvas-invalid] details")?.textContent ?? "", /^DetailsThe JSON is invalid/);
     assert.ok(view.host.querySelector("[data-canvas-item='shot']"), "the last good board stays beside the error");
+    assert.ok(view.host.querySelector("[data-canvas-view-clip]"), "a card on a named view clips to that view");
     await click(view.host.querySelector("[aria-label^='Open canvas']"));
     const stage = viewer()!;
+    assert.equal(stage.querySelector("[data-canvas-strip='notice'] p")?.textContent, "This canvas file has an error, so this is its last good version.", "the opened board says why it cannot be edited");
     assert.equal(stage.querySelector("[aria-label='Add note']"), null, "a read-only canvas has no edit affordances");
     await click(stage.querySelector("[data-canvas-item='n'] [data-canvas-select]"));
     assert.equal(stage.querySelector("[data-canvas-resize]"), null);
@@ -84,6 +87,8 @@ test("the owner deletes and undoes in the viewer and every change writes the fil
     assert.ok(stage.querySelector("[aria-label='Add note']"));
     await click(stage.querySelector("[data-canvas-item='shot'] [data-canvas-select]"));
     assert.ok(stage.querySelector("[data-canvas-item='shot'] [data-canvas-resize]"), "the selected item shows its resize handle");
+    const layer = (id: string) => stage.querySelector<HTMLElement>(`[data-canvas-item='${id}']`)?.style.zIndex;
+    assert.deepEqual([layer("shot"), layer("n")], ["1", ""], "the selected item draws above its neighbours");
     await press("Delete");
     await settle();
     assert.equal(stage.querySelector("[data-canvas-item='shot']"), null);
@@ -113,6 +118,7 @@ test("a drag commits the moved frame on release, and a cancelled drag writes not
     await pointer(shot()?.querySelector("[data-canvas-select]"), "pointerdown", 100);
     await pointer(browser, "pointermove", 200);
     assert.equal(shot()?.style.left, "80px", "the item follows the pointer at the 800/640 screen scale");
+    assert.equal(shot()?.style.zIndex, "1", "a dragged item draws above its neighbours");
     await pointer(browser, "pointerup", 200);
     await settle();
     assert.equal(shotX(files.text), 80, "the release writes the move");

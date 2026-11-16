@@ -22,7 +22,16 @@ export interface CanvasPagerTarget { key: string; label: string; bounds: Viewpor
 export interface CanvasPagerPosition { key: string; index: number }
 
 export const isLiveFrameItem = (item: DsCanvasItem) => item.kind === "html" || item.kind === "page";
-export const canvasItemLabel = (item: DsCanvasItem) => item.title || ("src" in item ? item.src.split(/[\\/]/).pop() || item.src : item.kind === "html" ? "HTML" : "Note");
+const NOTE_LABEL_CHARS = 40;
+
+/** A note is named by its first line of text, without Markdown marks. */
+export function noteLabel(markdown: string): string {
+  const line = markdown.split("\n").map((text) => text.replace(/^\s*(?:#{1,6}\s+|[-*+>]\s+|\d+[.)]\s+)*/, "").replace(/[*_`~]/g, "").trim()).find(Boolean);
+  if (!line) return "Note";
+  return line.length > NOTE_LABEL_CHARS ? `${line.slice(0, NOTE_LABEL_CHARS - 1).trimEnd()}…` : line;
+}
+
+export const canvasItemLabel = (item: DsCanvasItem) => item.title || ("src" in item ? item.src.split(/[\\/]/).pop() || item.src : item.kind === "html" ? "HTML" : noteLabel(item.markdown));
 
 function union(boxes: ViewportBox[]): ViewportBox {
   const left = Math.min(...boxes.map((box) => box.x)), top = Math.min(...boxes.map((box) => box.y));

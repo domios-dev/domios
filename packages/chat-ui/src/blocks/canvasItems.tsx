@@ -104,7 +104,7 @@ function Markdown({ text }: { text: string }) {
 function TextBox({ children, scrolls, fill }: { children: ReactNode; scrolls: boolean; fill: boolean }) {
   const ref = useOwnWheel(scrolls);
   return (
-    <div ref={ref} className={`h-full w-full p-3 text-xs ${scrolls ? "overflow-auto" : "overflow-hidden"} ${fill ? "rounded-md" : "border border-[var(--ct-border)]"}`}
+    <div ref={ref} className={`h-full w-full p-3 text-xs [&_p+p]:mt-[0.5em] ${scrolls ? "overflow-auto" : "overflow-hidden"} ${fill ? "rounded-md" : "border border-[var(--ct-border)]"}`}
       style={{ background: fill ? "var(--ct-surface)" : "var(--ct-bg)", color: "var(--ct-fg)", pointerEvents: scrolls ? "auto" : "none" }}>
       {children}
     </div>
@@ -135,8 +135,11 @@ function ImageContent({ src, label }: { src: string; label: string }) {
 }
 
 const ITEM_RING = "outline-offset-[3px]";
+/** Items with their own hairline recolour it on hover instead of drawing a second line around it. */
+const HOVER_OUTSIDE = "hover:outline hover:outline-1 hover:outline-[var(--ct-border)]";
+const HOVER_ON_BORDER = "hover:outline hover:outline-1 hover:-outline-offset-1 hover:outline-[var(--ct-muted-fg)]";
+const hasOwnBorder = (item: DsCanvasItem) => item.kind === "html" || item.kind === "page" || item.kind === "document";
 
-/** One placed item; the viewer adds hover and selection, the inline preview never takes input. */
 /** A note in edit mode: its Markdown source on the same soft surface, with no extra border. */
 function NoteEditor({ text, edit }: { text: string; edit: CanvasItemEdit }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -179,6 +182,7 @@ function ResizeHandle({ edit }: { edit: CanvasItemEdit }) {
   );
 }
 
+/** One placed item; the viewer adds hover and selection, the inline preview never takes input. */
 export function CanvasItemView({ placed, live, selected = false, interactive, theme, onSelect, itemRef, edit }: {
   itemRef?: (element: HTMLDivElement | null) => void;
   placed: PlacedCanvasItem;
@@ -194,13 +198,15 @@ export function CanvasItemView({ placed, live, selected = false, interactive, th
   const label = canvasItemLabel(item);
   const takesInput = interactive && selected && !(edit && isLiveFrameItem(item));
   const outline = selected ? { outline: "2px solid var(--ct-accent)" } : {};
+  // The selected or moving item draws above its neighbours, so its ring and handle stay in sight; file order is unchanged.
+  const raised = selected || Boolean(edit?.dragging);
   const editing = edit?.draft !== null && edit?.draft !== undefined;
   const editStyle: CSSProperties = edit ? { cursor: edit.dragging ? "grabbing" : "grab", userSelect: "none", touchAction: "none" } : {};
   return (
     <div ref={itemRef} data-canvas-item={item.id} data-zoom-target={interactive ? placed.index : undefined} data-selected={selected || undefined}
       role={interactive ? "group" : undefined} aria-label={interactive ? label : undefined}
-      className={`${ITEM_RING} ${interactive && !selected ? "hover:outline hover:outline-1 hover:outline-[var(--ct-border)]" : ""}`}
-      style={{ position: "absolute", left: placed.x, top: placed.y, width: placed.w, height: placed.h, ...outline, ...editStyle }}
+      className={`${ITEM_RING} ${interactive && !selected ? (hasOwnBorder(item) ? HOVER_ON_BORDER : HOVER_OUTSIDE) : ""}`}
+      style={{ position: "absolute", left: placed.x, top: placed.y, width: placed.w, height: placed.h, zIndex: raised ? 1 : undefined, ...outline, ...editStyle }}
       onPointerDown={edit && !editing ? edit.onBodyPointerDown : undefined}
       onMouseDown={edit ? (event) => event.stopPropagation() : undefined}
       onDoubleClick={edit && item.kind === "note" ? (event) => { event.stopPropagation(); edit.onOpenNote(); } : undefined}

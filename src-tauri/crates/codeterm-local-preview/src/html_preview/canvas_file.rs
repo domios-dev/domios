@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use super::file::PreviewSource;
-use crate::artifact_directive::canvas_write_permitted;
+use crate::artifact_directive::{canvas_file_items, canvas_write_permitted, CanvasFileItem};
 
 /// A canvas file holds the same JSON as an inline `<ds-canvas>` body, so it shares its bound.
 pub const CANVAS_FILE_LIMIT: u64 = 200_000;
@@ -76,6 +76,43 @@ impl Drop for FileLock {
     }
 }
 
+const REMOVED_PER_FILE: usize = 64;
+const REMOVED_FILES: usize = 64;
+type RemovedItems = Mutex<HashMap<PathBuf, VecDeque<CanvasFileItem>>>;
+/// File items that owner writes removed from each file, so undo can put exactly them back.
+/// Bounded per file and in files; a dropped record only ends that undo's ability to save.
+static REMOVED: LazyLock<RemovedItems> = LazyLock::new(Default::default);
+
+fn restorable(file: &Path) -> HashSet<CanvasFileItem> {
+    REMOVED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(file)
+        .map(|items| items.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn remember_removed(file: &Path, before: &str, after: &str) {
+    let (Some(before), Some(after)) = (canvas_file_items(before), canvas_file_items(after)) else {
+        return;
+    };
+    let mut removed = REMOVED.lock().unwrap_or_else(PoisonError::into_inner);
+    if !removed.contains_key(file) && removed.len() >= REMOVED_FILES {
+        if let Some(evicted) = removed.keys().next().cloned() {
+            removed.remove(&evicted);
+        }
+    }
+    let items = removed.entry(file.to_path_buf()).or_default();
+    for item in before.into_iter().filter(|item| !after.contains(item)) {
+        if !items.contains(&item) {
+            if items.len() >= REMOVED_PER_FILE {
+                items.pop_front();
+            }
+            items.push_back(item);
+        }
+    }
+}
+
 /// Replaces the canvas atomically when it still holds `base`: write a sibling temp, then rename.
 /// A file changed underneath returns its current text instead, so the edit lands on top of it.
 ///
@@ -107,7 +144,7 @@ pub fn write_canvas_file(
     if current != base {
         return Ok(CanvasWrite::Conflict(current));
     }
-    canvas_write_permitted(&current, next).map_err(String::from)?;
+    canvas_write_permitted(&current, next, &restorable(&identity)).map_err(String::from)?;
     let parent = target.parent().ok_or("Canvas file has no directory")?;
     let name = target
         .file_name()
@@ -119,7 +156,9 @@ pub fn write_canvas_file(
         TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
     let result = replace(raw, &guard, base, next, &temp, &target);
-    if !matches!(result, Ok(CanvasWrite::Written)) {
+    if matches!(result, Ok(CanvasWrite::Written)) {
+        remember_removed(&identity, &current, next);
+    } else {
         let _ = std::fs::remove_file(&temp);
     }
     result

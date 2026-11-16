@@ -142,3 +142,54 @@ fn two_writers_from_one_base_yield_exactly_one_write_and_one_conflict_with_its_t
         "a file's lock goes with its last writer"
     );
 }
+
+#[test]
+fn undo_restores_a_deleted_file_item_exactly_while_new_file_items_stay_refused() {
+    let temp = tempfile::tempdir().unwrap();
+    let with = |items: &str| format!(r#"{{"format":"domios.canvas/1","items":[{items}]}}"#);
+    let note = r#"{"id":"n","kind":"note","markdown":"x"}"#;
+    let doc = r#"{"id":"b","kind":"document","src":"/work/b.md"}"#;
+    let full = with(&format!("{doc},{note}"));
+    let deleted = with(note);
+    let path = board(temp.path(), "board.canvas.json", &full);
+    let forged = |item: &str| with(&format!("{item},{note}"));
+    assert_eq!(
+        write_canvas_file(&path, open, &full, &deleted),
+        Ok(CanvasWrite::Written),
+        "delete"
+    );
+    assert_eq!(
+        write_canvas_file(
+            &path,
+            open,
+            &deleted,
+            &forged(r#"{"id":"b","kind":"document","src":"/work/other.md"}"#)
+        )
+        .unwrap_err(),
+        "Canvas edits cannot add files",
+        "a new path is refused"
+    );
+    assert_eq!(
+        write_canvas_file(
+            &path,
+            open,
+            &deleted,
+            &forged(r#"{"id":"c","kind":"document","src":"/work/b.md"}"#)
+        )
+        .unwrap_err(),
+        "Canvas edits cannot add files",
+        "the deleted path under another id is refused"
+    );
+    assert_eq!(
+        write_canvas_file(&path, open, &deleted, &full),
+        Ok(CanvasWrite::Written),
+        "undo puts back exactly the deleted item"
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), full);
+    let other = board(temp.path(), "other.canvas.json", &deleted);
+    assert_eq!(
+        write_canvas_file(&other, open, &deleted, &full).unwrap_err(),
+        "Canvas edits cannot add files",
+        "a removal from one canvas never admits the item into another"
+    );
+}
