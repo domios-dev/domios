@@ -70,9 +70,16 @@ pub fn weighted_average(neighbors: &[(Position, f64)]) -> Option<Position> {
     })
 }
 
-/// Normalize projected 2D points into `[-COORD_RANGE, COORD_RANGE]` on both
-/// axes, preserving aspect via a single shared scale. Returns points in input order.
 pub fn normalize(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    normalize_radial(points, 0.4)
+}
+
+#[cfg(any(feature = "embeddings", test))]
+pub fn normalize_seed(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    normalize_radial(points, 0.0)
+}
+
+fn normalize_radial(points: &[(f32, f32)], core_blend: f64) -> Vec<(f32, f32)> {
     if points.is_empty() {
         return Vec::new();
     }
@@ -80,19 +87,46 @@ pub fn normalize(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
     let mut ys: Vec<f32> = points.iter().map(|p| p.1).collect();
     xs.sort_unstable_by(f32::total_cmp);
     ys.sort_unstable_by(f32::total_cmp);
-    let trim = points.len() / 50;
-    let (min_x, max_x) = (xs[trim], xs[points.len() - 1 - trim]);
-    let (min_y, max_y) = (ys[trim], ys[points.len() - 1 - trim]);
-    let span = ((max_x - min_x).max(max_y - min_y)).max(1e-6);
-    let scale = (2.0 * COORD_RANGE) / span;
-    let cx = (min_x + max_x) / 2.0;
-    let cy = (min_y + max_y) / 2.0;
+    let middle = points.len() / 2;
+    let lower = (points.len() - 1) / 2;
+    let cx = (xs[lower] as f64 + xs[middle] as f64) / 2.0;
+    let cy = (ys[lower] as f64 + ys[middle] as f64) / 2.0;
+    let radii: Vec<f64> = points
+        .iter()
+        .map(|&(x, y)| (x as f64 - cx).hypot(y as f64 - cy))
+        .collect();
+    let mut sorted = radii.clone();
+    sorted.sort_unstable_by(f64::total_cmp);
+    let robust_index = (points.len() - 1) * 95 / 100;
+    let radius = sorted[robust_index];
+    let radius = if radius > 0.0 {
+        radius
+    } else {
+        sorted[points.len() - 1].max(f64::EPSILON)
+    };
+    let halo = 0.15 * radius;
+    let scale = COORD_RANGE as f64 / (radius + halo);
     points
         .iter()
-        .map(|&(x, y)| {
+        .zip(radii)
+        .map(|(&(x, y), r)| {
+            if r == 0.0 {
+                return (0.0, 0.0);
+            }
+            let opened = if r <= radius {
+                let lower = sorted.partition_point(|&value| value < r);
+                let upper = sorted.partition_point(|&value| value <= r);
+                let rank = (lower + upper - 1) as f64 / 2.0;
+                let target = radius * (rank / robust_index.max(1) as f64).min(1.0).sqrt();
+                r + core_blend * (target - r).max(0.0)
+            } else {
+                let excess = r - radius;
+                radius + halo * (excess / (halo + excess))
+            };
+            let radial_scale = opened / r * scale;
             (
-                (x.clamp(min_x, max_x) - cx) * scale,
-                (y.clamp(min_y, max_y) - cy) * scale,
+                ((x as f64 - cx) * radial_scale) as f32,
+                ((y as f64 - cy) * radial_scale) as f32,
             )
         })
         .collect()
