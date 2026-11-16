@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDsCanvas } from "./dsCanvas";
+import { parseDsCanvasFile } from "./dsCanvas";
 import { applyDsCanvasEdit, invertDsCanvasEdit, nextDsCanvasNoteId, reconcileDsCanvas, type DsCanvasEdit } from "./dsCanvasEdit";
 
 const board = JSON.stringify({
+  format: "domios.canvas/1",
   title: "Board",
   items: [
     { kind: "image", src: "/work/a.png", x: 0, y: 0, w: 640, h: 400 },
@@ -13,7 +14,7 @@ const board = JSON.stringify({
 });
 const items = (text: string) => (JSON.parse(text) as { items: Record<string, unknown>[] }).items;
 const canvas = (text: string) => {
-  const parsed = parseDsCanvas(text);
+  const parsed = parseDsCanvasFile(text);
   assert.ok(parsed.ok);
   return parsed.canvas;
 };
@@ -23,6 +24,8 @@ test("edits address items by id, pin the ids the board shows, and keep the rest 
   assert.ok(moved);
   assert.deepEqual(items(moved)[0], { id: "item-1", kind: "image", src: "/work/a.png", x: 40, y: -10, w: 640, h: 400 });
   assert.deepEqual(JSON.parse(moved).views, JSON.parse(board).views);
+  assert.deepEqual(Object.keys(JSON.parse(moved)), ["format", "title", "items", "views"], "the header stays first and the key order stays");
+  assert.equal(applyDsCanvasEdit(JSON.stringify({ items: [{ kind: "note", markdown: "x" }] }), { kind: "frame", id: "item-1", frame: { x: 1 } }), null, "a file without the header is never written");
   assert.equal(JSON.parse(moved).title, "Board");
   const flowed = applyDsCanvasEdit(moved, { kind: "frame", id: "item-1", frame: { x: null, y: null } });
   assert.deepEqual(items(flowed!)[0], { id: "item-1", kind: "image", src: "/work/a.png", w: 640, h: 400 });
@@ -67,5 +70,5 @@ test("a reload reuses unchanged item objects and the whole board when nothing ch
   assert.equal(after.items[0], before.items[0]);
   assert.notEqual(after.items[1], before.items[1]);
   assert.equal(after.views, before.views);
-  assert.equal(nextDsCanvasNoteId(canvas(JSON.stringify({ items: [{ id: "note-1", kind: "note", markdown: "" }] }))), "note-2");
+  assert.equal(nextDsCanvasNoteId(canvas(JSON.stringify({ format: "domios.canvas/1", items: [{ id: "note-1", kind: "note", markdown: "" }] }))), "note-2");
 });

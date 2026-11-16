@@ -6,6 +6,7 @@ import { CANVAS_GHOST_BUTTON } from "../CanvasToolbar";
 import { FullscreenOverlay } from "../FullscreenOverlay";
 import { ZoomCanvas } from "../ZoomCanvas";
 import { readThemeVars } from "../HtmlPreviewBlock";
+import { CanvasNoticeBody } from "./CanvasNotice";
 import { CanvasItemView } from "./canvasItems";
 import { useCanvasEditing, type CanvasEditor, type CanvasItemEdit } from "./canvasEditing";
 import { useVisibleIds } from "./useVisibleIds";
@@ -59,12 +60,11 @@ function CanvasStageItems({ layout, selected, onSelect, release, root, itemEdit 
   );
 }
 
+/** Overlays the top of the stage on the header's surface, so the board and camera never shift. */
 function SaveFailure({ reason, onRetry }: { reason: string; onRetry: () => void }) {
   return (
-    <div role="status" data-canvas-save-failure="" className="flex flex-wrap items-baseline gap-x-2 px-3 py-1 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
-      <span>Couldn't save this canvas.</span>
-      <button type="button" className="underline underline-offset-2" style={{ color: "var(--ct-fg)" }} onClick={onRetry}>Try again</button>
-      <details className="text-[11px] opacity-80"><summary className="cursor-pointer select-none">Details</summary><p className="m-0 mt-1 break-words">{reason}</p></details>
+    <div role="status" data-canvas-save-failure="" className="absolute inset-x-0 top-full z-10 border-b border-[var(--ct-border)] px-3 py-1 text-xs" style={{ color: "var(--ct-muted-fg)", background: "var(--ct-bg)" }}>
+      <CanvasNoticeBody text="Couldn't save this canvas." reason={reason} action={<button type="button" className={CANVAS_GHOST_BUTTON} onClick={onRetry}>Try again</button>} />
     </div>
   );
 }
@@ -104,7 +104,7 @@ export function CanvasViewer({ canvas, layout, title, view, editor, anchorRef, o
     <FullscreenOverlay panelRef={panelRef} closeButton={false} label={`Canvas ${title}`} onClose={onClose} returnFocusRef={anchorRef}>
       <div className="-m-2 flex min-h-0 flex-1 flex-col" data-testid="chat-canvas-viewer">
         <ZoomCanvas bounds={layout.bounds} focus={focus} onNavigate={targets.length > 1 ? navigate : undefined} onSelect={select} toolbar="header" followContent={!editor}
-          renderHeader={(controls) => <>
+          renderHeader={(controls) => <div className="relative">
             <CanvasHeader
               title={<><LayoutDashboard size={14} aria-hidden className="shrink-0 @max-[560px]:hidden" /><span className="min-w-0 truncate font-medium text-[var(--ct-fg)]">{title}</span></>}
               navigator={targets.length > 1 && <nav aria-label={`Canvas ${unit}`} className="flex shrink-0 items-center gap-0.5 @max-[560px]:gap-0">
@@ -124,7 +124,7 @@ export function CanvasViewer({ canvas, layout, title, view, editor, anchorRef, o
               close={<button type="button" className={CANVAS_GHOST_BUTTON} onClick={onClose} aria-label="Close canvas"><X size={13} aria-hidden /></button>}
             />
             {editor?.failure && <SaveFailure reason={editor.failure} onRetry={editor.retry} />}
-          </>}>
+          </div>}>
           <CanvasStageItems layout={editing.displayLayout} selected={selected} onSelect={setSelected} release={release} root={stageRef} itemEdit={editing.itemEdit} />
         </ZoomCanvas>
       </div>

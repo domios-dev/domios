@@ -1,4 +1,4 @@
-import { DS_CANVAS_ITEM_LIMIT, parseDsCanvas, type DsCanvas, type DsCanvasItem } from "./dsCanvas";
+import { DS_CANVAS_ITEM_LIMIT, parseDsCanvasFile, type DsCanvas, type DsCanvasItem } from "./dsCanvas";
 
 /**
  * One owner edit of a canvas file. `frame` sets x, y, w or h, and `null` returns that field to the
@@ -13,8 +13,9 @@ export type DsCanvasEdit =
 type RawItem = Record<string, unknown>;
 type RawCanvas = Record<string, unknown> & { items: RawItem[] };
 
+/** Edits apply to canvas files; their header and key order survive every write. */
 function readRaw(text: string): RawCanvas | null {
-  if (!parseDsCanvas(text).ok) return null;
+  if (!parseDsCanvasFile(text).ok) return null;
   return JSON.parse(text) as RawCanvas;
 }
 
@@ -61,7 +62,7 @@ export function applyDsCanvasEdit(text: string, edit: DsCanvasEdit): string | nu
   const next = raw && applyRaw(pinIds(raw), edit);
   if (!next) return null;
   const serialized = serialize(next);
-  return parseDsCanvas(serialized).ok ? serialized : null;
+  return parseDsCanvasFile(serialized).ok ? serialized : null;
 }
 
 /** The edit that undoes `edit` on `text`, read before it applies. */

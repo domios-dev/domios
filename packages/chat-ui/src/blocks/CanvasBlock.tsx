@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CanvasNotice } from "./CanvasNotice";
 import { parseDsCanvas, type DsCanvas } from "@codeterm/chat-core";
 import { readThemeVars } from "../HtmlPreviewBlock";
 import { CanvasItemView } from "./canvasItems";
@@ -20,14 +21,6 @@ export function CanvasBlock({ body }: { body: string }) {
   return <CanvasPreview canvas={parsed.canvas} />;
 }
 
-export function CanvasNotice({ text, reason }: { text: string; reason?: string }) {
-  return (
-    <div role="note" data-testid="chat-ds-canvas" data-canvas-invalid="" className="ct-card ct-card--quiet my-2 w-fit max-w-[34rem] px-3 py-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
-      <p className="m-0">{text}</p>
-      {reason && <details className="mt-1 text-[11px] opacity-80"><summary className="cursor-pointer select-none">Details</summary><p className="m-0 mt-1 break-words">{reason}</p></details>}
-    </div>
-  );
-}
 
 function usePreviewWidth() {
   const ref = useRef<HTMLDivElement>(null);

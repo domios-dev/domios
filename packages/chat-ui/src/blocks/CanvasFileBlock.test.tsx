@@ -9,7 +9,7 @@ globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => undefined;
 
 const SRC = "/work/board.canvas.json";
-const board = (note: string) => JSON.stringify({ title: "Board", items: [
+const board = (note: string) => JSON.stringify({ format: "domios.canvas/1", title: "Board", items: [
   { id: "shot", kind: "image", src: "/work/shot.png", x: 0, y: 0, w: 640, h: 400 },
   { id: "n", kind: "note", markdown: note, x: 0, y: 440, w: 320, h: 120 },
 ], views: [{ name: "notes", x: 0, y: 440, w: 320, h: 120 }] });

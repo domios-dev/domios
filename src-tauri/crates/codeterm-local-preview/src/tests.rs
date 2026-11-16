@@ -784,7 +784,7 @@ fn canvas_file_items_authorize_like_inline_items_and_write_back_skips_upload_buc
     for path in [&item, &hidden, &secret, &other] {
         std::fs::write(path, b"image").unwrap();
     }
-    let body = serde_json::json!({"items": [
+    let body = serde_json::json!({"format": "domios.canvas/1", "items": [
         {"kind": "image", "src": item.to_string_lossy()},
         {"kind": "image", "src": hidden.to_string_lossy()},
         {"kind": "image", "src": secret.to_string_lossy()},
@@ -808,7 +808,7 @@ fn canvas_file_items_authorize_like_inline_items_and_write_back_skips_upload_buc
         policy.authorize(&item, None).unwrap_err(),
         "Preview path is not referenced"
     );
-    let items = artifact_directive::canvas_paths(&body).unwrap();
+    let items = artifact_directive::canvas_file_paths(&body).unwrap();
     let policy = policy.with_canvas_items(items);
     assert!(policy.authorize(&item, Some(&item)).is_ok());
     for refused in [&hidden, &secret] {

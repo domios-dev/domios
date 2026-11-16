@@ -152,7 +152,7 @@ pub fn read_canvas_item(
         let file = read_local_preview_file_guarded(canvas, "canvas", |path, canonical| {
             policy.authorize(path, canonical)
         })?;
-        let items = codeterm_local_preview::artifact_directive::canvas_paths(&file.data)
+        let items = codeterm_local_preview::artifact_directive::canvas_file_paths(&file.data)
             .ok_or("Canvas file is not a valid canvas")?;
         Ok(policy.with_canvas_items(items))
     });

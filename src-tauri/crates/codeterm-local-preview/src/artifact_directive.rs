@@ -3,7 +3,9 @@ use std::collections::HashMap;
 mod canvas;
 mod html;
 mod scanner;
-pub use canvas::{canvas_paths, canvas_write_permitted, valid_view_name};
+pub use canvas::{
+    canvas_file_paths, canvas_paths, canvas_write_permitted, valid_view_name, CANVAS_FILE_FORMAT,
+};
 use codeterm_wire::envelope::{parse_envelope_spans, FrameKind, MessageSegment};
 pub use scanner::{scan_artifacts, scan_artifacts_with_provenance};
 

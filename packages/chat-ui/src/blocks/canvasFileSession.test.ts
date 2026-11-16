@@ -3,7 +3,7 @@ import test from "node:test";
 import { CanvasFileSession } from "./canvasFileSession";
 import type { CanvasWriteResult } from "./canvasFilePort";
 
-const board = (note: string, x = 0) => JSON.stringify({ items: [
+const board = (note: string, x = 0) => JSON.stringify({ format: "domios.canvas/1", items: [
   { id: "img", kind: "image", src: "/work/a.png", x, y: 0, w: 640, h: 400 },
   { id: "n", kind: "note", markdown: note },
 ] });

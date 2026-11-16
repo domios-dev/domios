@@ -344,12 +344,13 @@ fn canvas_src_tags_are_file_cards_that_keep_their_view_through_mesh_rewrites() {
 
 #[test]
 fn canvas_write_back_never_adds_a_file_the_author_did_not_reference() {
-    let current = r#"{"items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"n","kind":"note","markdown":"x"}]}"#;
-    let moved = r#"{"items":[{"id":"a","kind":"image","src":"/work/a.png","x":10,"y":20},{"id":"n","kind":"note","markdown":"y"},{"id":"m","kind":"note","markdown":""}]}"#;
+    let current = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"n","kind":"note","markdown":"x"}]}"#;
+    let moved = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png","x":10,"y":20},{"id":"n","kind":"note","markdown":"y"},{"id":"m","kind":"note","markdown":""}]}"#;
     assert_eq!(canvas_write_permitted(current, moved), Ok(()));
-    let removed = r#"{"items":[{"id":"n","kind":"note","markdown":"x"}]}"#;
+    let removed =
+        r#"{"format":"domios.canvas/1","items":[{"id":"n","kind":"note","markdown":"x"}]}"#;
     assert_eq!(canvas_write_permitted(current, removed), Ok(()));
-    let added = r#"{"items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"b","kind":"document","src":"/home/me/.ssh/config"}]}"#;
+    let added = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"b","kind":"document","src":"/home/me/.ssh/config"}]}"#;
     assert_eq!(
         canvas_write_permitted(current, added),
         Err("Canvas edits cannot add files")
@@ -361,5 +362,33 @@ fn canvas_write_back_never_adds_a_file_the_author_did_not_reference() {
     assert_eq!(
         canvas_write_permitted("{", moved),
         Err("Canvas file is not a valid canvas")
+    );
+}
+
+#[test]
+fn canvas_files_need_the_format_header_first_and_a_known_major_version() {
+    let items = r#""items":[{"kind":"image","src":"/work/a.png"}]"#;
+    assert_eq!(
+        canvas_file_paths(&format!(
+            "\n {{ \"format\": \"{CANVAS_FILE_FORMAT}\", {items} }}"
+        )),
+        Some(vec!["/work/a.png".to_string()])
+    );
+    assert!(canvas_file_paths(&format!(r#"{{"format":"domios.canvas/1.4",{items}}}"#)).is_some());
+    for refused in [
+        format!("{{{items}}}"),
+        format!(r#"{{{items},"format":"domios.canvas/1"}}"#),
+        format!(r#"{{"format":"domios.canvas/2",{items}}}"#),
+        format!(r#"{{"format":"domios.canvas/1.",{items}}}"#),
+        format!(r#"{{"format":"canvas/1",{items}}}"#),
+        format!(r#"{{"format":1,{items}}}"#),
+        format!(r#"{{"format":"domios.canvas/1","extra":true,{items}}}"#),
+    ] {
+        assert_eq!(canvas_file_paths(&refused), None, "{refused}");
+    }
+    assert_eq!(
+        canvas_paths(&format!("{{{items}}}")).map(|paths| paths.len()),
+        Some(1),
+        "inline bodies need no header"
     );
 }

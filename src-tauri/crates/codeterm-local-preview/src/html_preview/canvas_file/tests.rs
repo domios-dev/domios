@@ -1,8 +1,8 @@
 use super::*;
 use crate::html_preview::{preview_test_root, read_local_preview_file_guarded};
 
-const BOARD: &str = r#"{"items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"n","kind":"note","markdown":"agent"}]}"#;
-const MOVED: &str = r#"{"items":[{"id":"a","kind":"image","src":"/work/a.png","x":40,"y":0},{"id":"n","kind":"note","markdown":"agent"}]}"#;
+const BOARD: &str = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png"},{"id":"n","kind":"note","markdown":"agent"}]}"#;
+const MOVED: &str = r#"{"format":"domios.canvas/1","items":[{"id":"a","kind":"image","src":"/work/a.png","x":40,"y":0},{"id":"n","kind":"note","markdown":"agent"}]}"#;
 
 fn board(dir: &Path, name: &str, text: &str) -> String {
     let path = preview_test_root(dir).join(name);

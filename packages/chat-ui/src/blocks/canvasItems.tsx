@@ -144,8 +144,8 @@ function NoteEditor({ text, edit }: { text: string; edit: CanvasItemEdit }) {
   const stop = (event: { stopPropagation(): void }) => event.stopPropagation();
   return (
     <textarea ref={ref} value={text} aria-label="Note text" data-canvas-note-editor=""
-      className="block h-full w-full resize-none rounded-md border-0 p-3 font-mono text-xs outline-none"
-      style={{ background: "var(--ct-surface)", color: "var(--ct-fg)" }}
+      className="block h-full w-full resize-none rounded-md border-0 p-3 text-xs outline-none"
+      style={{ background: "var(--ct-surface)", color: "var(--ct-fg)", fontFamily: "inherit", letterSpacing: "inherit", margin: 0 }}
       onChange={(event) => edit.onDraft(event.target.value)}
       onBlur={() => edit.onDraftDone(true)}
       onKeyDown={(event) => {
@@ -155,12 +155,26 @@ function NoteEditor({ text, edit }: { text: string; edit: CanvasItemEdit }) {
   );
 }
 
-/** One 8px square on the bottom-right corner of the selected item, with a larger hit area. */
+/** World distance from the item edge to the centre line of its selection ring (3px offset + half of 2px). */
+const RING_CENTRE = 4;
+const coarsePointer = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+
+/**
+ * One 8px square centred on the selection ring's bottom-right corner, with a 16px hit area (24px
+ * for coarse pointers); counter-scaled so it keeps its screen size at every zoom.
+ */
 function ResizeHandle({ edit }: { edit: CanvasItemEdit }) {
+  const rest = useContext(CameraRestContext);
+  const lastScale = useRef(1);
+  if (rest !== null && rest > 0) lastScale.current = rest;
+  const inverse = 1 / lastScale.current;
+  const hit = (coarsePointer() ? 24 : 16) * inverse;
+  const square = 8 * inverse;
+  const offset = -(RING_CENTRE + hit / 2);
   return (
     <div aria-hidden data-canvas-resize="" onPointerDown={edit.onResizePointerDown} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}
-      className="absolute flex size-4 items-center justify-center pointer-coarse:size-6" style={{ right: -8, bottom: -8, cursor: "nwse-resize", touchAction: "none" }}>
-      <span className="block size-2" style={{ background: "var(--ct-accent)" }} />
+      className="absolute flex items-center justify-center" style={{ right: offset, bottom: offset, width: hit, height: hit, cursor: "nwse-resize", touchAction: "none" }}>
+      <span className="block" style={{ width: square, height: square, background: "var(--ct-accent)" }} />
     </div>
   );
 }

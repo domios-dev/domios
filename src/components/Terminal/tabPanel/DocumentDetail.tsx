@@ -12,7 +12,8 @@ import { SelectionBar, useReaderSelection } from "./SelectionBar";
 const renderMarkdown = (text: string) => <RichMarkdown text={text} />;
 
 export function DocumentDetail({ tabId, document, home, onBack }: { tabId: string; document: ChatDocument; home: string | null; onBack: () => void }) {
-  const [fullscreenRequest, setFullscreenRequest] = useState(0);
+  // A canvas opens straight onto its board; closing it leaves its preview in the panel.
+  const [fullscreenRequest, setFullscreenRequest] = useState(document.kind === "canvas" ? 1 : 0);
   const [source, setSource] = useState<LocalPreviewFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const readerRef = useRef<HTMLDivElement>(null);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { parseDsCanvas, reconcileDsCanvas, type DsCanvas, type DsCanvasParse } from "@codeterm/chat-core";
+import { parseDsCanvasFile, reconcileDsCanvas, type DsCanvas, type DsCanvasParse } from "@codeterm/chat-core";
 import { loadLocalArtifact } from "../localArtifactLoader";
 import { localArtifactMemory, localArtifactMemoryKey } from "../localArtifactMemory";
 import { canvasFilePort } from "./canvasFilePort";
@@ -84,7 +84,7 @@ export function useCanvasFile(path: string, tabId: string | undefined): CanvasFi
     };
   }, [path, tabId, memoryKey, session]);
 
-  const parsed = useMemo(() => state.text === null ? null : parseDsCanvas(state.text), [state.text]);
+  const parsed = useMemo(() => state.text === null ? null : parseDsCanvasFile(state.text), [state.text]);
   const previous = useRef<DsCanvas | null>(null);
   // A half-written or broken file keeps the last good board on screen beside the error.
   const canvas = useMemo(() => {

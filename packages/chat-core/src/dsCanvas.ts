@@ -73,16 +73,45 @@ function readView(value: unknown, index: number, names: Set<string>): DsCanvasVi
   return { name: value.name, x: value.x as number, y: value.y as number, w: value.w as number, h: value.h as number };
 }
 
-/** Reads a `<ds-canvas>` body; the reason is one sentence for the block's Details. */
-export function parseDsCanvas(body: string): DsCanvasParse {
-  if (bytes(body) > DS_CANVAS_BODY_LIMIT) return { ok: false, reason: `The canvas is larger than ${DS_CANVAS_BODY_LIMIT} bytes.` };
-  let document: unknown;
+function readJson(text: string): { ok: true; document: unknown } | { ok: false; reason: string } {
+  if (bytes(text) > DS_CANVAS_BODY_LIMIT) return { ok: false, reason: `The canvas is larger than ${DS_CANVAS_BODY_LIMIT} bytes.` };
   try {
-    document = JSON.parse(body, (key, value: unknown) => {
+    return { ok: true, document: JSON.parse(text, (key, value: unknown) => {
       if (LONE_SURROGATE.test(key) || typeof value === "string" && LONE_SURROGATE.test(value)) throw new SyntaxError("Text contains an unpaired surrogate escape");
       return value;
-    });
+    }) };
   } catch (error) { return { ok: false, reason: `The JSON is invalid: ${error instanceof Error ? error.message : String(error)}` }; }
+}
+
+/** Reads a `<ds-canvas>` body; the reason is one sentence for the block's Details. */
+export function parseDsCanvas(body: string): DsCanvasParse {
+  const json = readJson(body);
+  return json.ok ? readCanvas(json.document) : json;
+}
+
+/** A canvas file is named `NAME.canvas.json`; a bare `.canvas` belongs to another format. */
+export const isDsCanvasFilePath = (path: string) => /[^\\/]\.canvas\.json$/i.test(path);
+
+/** The header that opens every canvas file; the major version lets the format change later. */
+export const DS_CANVAS_FILE_FORMAT = "domios.canvas/1";
+const FILE_FORMAT = /^domios\.canvas\/(\d+)(?:\.\d+)?$/;
+
+/** Reads a `.canvas.json` file: `"format": "domios.canvas/1"` first, then exactly an inline body's fields. */
+export function parseDsCanvasFile(text: string): DsCanvasParse {
+  const json = readJson(text);
+  if (!json.ok) return json;
+  const document = json.document;
+  if (!isRecord(document) || Object.keys(document)[0] !== "format" || typeof document.format !== "string") {
+    return { ok: false, reason: `A canvas file starts with "format": "${DS_CANVAS_FILE_FORMAT}" as its first field.` };
+  }
+  const major = FILE_FORMAT.exec(document.format)?.[1];
+  if (major !== "1") return { ok: false, reason: `This canvas file uses the format "${document.format}", which this version cannot read.` };
+  const body: Record<string, unknown> = { ...document };
+  delete body.format;
+  return readCanvas(body);
+}
+
+function readCanvas(document: unknown): DsCanvasParse {
   try {
     if (!isRecord(document)) fail("The canvas must be a JSON object.");
     const extra = unknownField(document, ["title", "items", "views"]);

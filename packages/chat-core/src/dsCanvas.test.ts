@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { parseDsBlocks } from "./dsBlocks";
-import { dsCanvasFilePaths, parseDsCanvas } from "./dsCanvas";
+import { DS_CANVAS_FILE_FORMAT, dsCanvasFilePaths, isDsCanvasFilePath, parseDsCanvas, parseDsCanvasFile } from "./dsCanvas";
 
 const corpus = JSON.parse(readFileSync(new URL("./dsBlocks.fixtures.json", import.meta.url), "utf8")) as { fixtures: { name: string; expectedBlocks: { block: { kind: string; body?: string }; paths?: string[] }[] }[] };
 
@@ -57,4 +57,26 @@ test("a canvas keeps the ds-html byte bound and the 32-file preview bound", () =
   assert.equal(parseDsCanvas(files(33)).ok, false);
   const [segment] = parseDsBlocks(`<ds-canvas>${files(33)}</ds-canvas>`);
   assert.equal(segment.type, "block", "an over-limit canvas still renders its explanation");
+});
+
+test("a canvas file is NAME.canvas.json and opens with the format header as its first field", () => {
+  const items = `"items":[{"kind":"image","src":"/work/a.png"}]`;
+  const file = parseDsCanvasFile(`\n{ "format": "${DS_CANVAS_FILE_FORMAT}", ${items} }`);
+  assert.ok(file.ok && file.canvas.items.length === 1);
+  assert.ok(parseDsCanvasFile(`{"format":"domios.canvas/1.4",${items}}`).ok, "a minor version still reads");
+  for (const [text, reason] of [
+    [`{${items}}`, /first field/],
+    [`{${items},"format":"domios.canvas/1"}`, /first field/],
+    [`{"format":1,${items}}`, /first field/],
+    [`{"format":"domios.canvas/2",${items}}`, /"domios\.canvas\/2", which this version cannot read/],
+    [`{"format":"domios.canvas/1.",${items}}`, /cannot read/],
+    [`{"format":"domios.canvas/1","extra":true,${items}}`, /unknown field "extra"/],
+  ] as const) {
+    const parsed = parseDsCanvasFile(text);
+    assert.ok(!parsed.ok && reason.test(parsed.reason), text);
+  }
+  assert.ok(!parseDsCanvas(`{"format":"domios.canvas/1",${items}}`).ok, "an inline body has no header");
+  assert.ok(parseDsCanvas(`{${items}}`).ok);
+  for (const path of ["/work/board.canvas.json", "C:\\work\\Board.Canvas.JSON"]) assert.ok(isDsCanvasFilePath(path), path);
+  for (const path of ["/work/board.canvas", "/work/board.json", "/work/.canvas.json", "/work/board.dscanvas"]) assert.ok(!isDsCanvasFilePath(path), path);
 });

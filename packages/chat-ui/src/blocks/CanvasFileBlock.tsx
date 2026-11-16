@@ -1,7 +1,9 @@
 import { useContext, useEffect, useMemo } from "react";
+import { DS_CANVAS_FILE_FORMAT, isDsCanvasFilePath } from "@codeterm/chat-core";
 import { useLocalArtifactTabId } from "../LocalArtifactScope";
 import type { LocalPreviewFile } from "../localArtifactLoader";
-import { CanvasNotice, CanvasPreview } from "./CanvasBlock";
+import { CanvasPreview } from "./CanvasBlock";
+import { CanvasNotice } from "./CanvasNotice";
 import type { CanvasEditor } from "./canvasEditing";
 import { CanvasSourceContext } from "./canvasFilePort";
 import { DsRenderContext } from "./DsRenderContext";
@@ -11,7 +13,12 @@ import { useCanvasFile } from "./useCanvasFile";
  * A `<ds-canvas src>` file: the same board as an inline canvas, read through the local preview
  * guard, updated in place when the file changes, and editable in its viewer by its local owner.
  */
-export function CanvasFileBlock({ src, view, fullscreenRequest = 0, onLoaded }: { src: string; view?: string; fullscreenRequest?: number; onLoaded?: (file: LocalPreviewFile | null) => void }) {
+export function CanvasFileBlock(props: { src: string; view?: string; fullscreenRequest?: number; onLoaded?: (file: LocalPreviewFile | null) => void }) {
+  if (!isDsCanvasFilePath(props.src)) return <CanvasNotice text="This canvas file is not available." reason={`A canvas file is named NAME.canvas.json, and its first field is "format": "${DS_CANVAS_FILE_FORMAT}".`} />;
+  return <LoadedCanvasFile {...props} />;
+}
+
+function LoadedCanvasFile({ src, view, fullscreenRequest = 0, onLoaded }: { src: string; view?: string; fullscreenRequest?: number; onLoaded?: (file: LocalPreviewFile | null) => void }) {
   const tabId = useLocalArtifactTabId();
   const scope = useContext(DsRenderContext);
   const file = useCanvasFile(src, tabId);

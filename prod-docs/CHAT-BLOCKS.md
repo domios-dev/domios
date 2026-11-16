@@ -199,9 +199,24 @@ in a file:
 <ds-canvas src="/absolute/board.canvas.json" view="compare" />
 ```
 
-The file name ends in `.canvas.json`, and the file holds exactly the JSON of an
-inline body, up to 200,000 bytes. `view` is optional and opens the board on
-that named view. The file follows the same rules as `ds-document`: the tab
+Name the file `NAME.canvas.json`. Don't use a bare `.canvas`, which is another
+format. The file's first field is `"format": "domios.canvas/1"`, followed by
+exactly the fields of an inline body, up to 200,000 bytes in all:
+
+```json
+{
+  "format": "domios.canvas/1",
+  "title": "Header options",
+  "items": [
+    {"id": "a", "kind": "image", "src": "/absolute/a.png", "x": 0, "y": 0, "w": 640, "h": 400},
+    {"id": "n", "kind": "note", "markdown": "**A** is calmer.", "x": 0, "y": 440, "w": 640, "h": 120}
+  ]
+}
+```
+
+A file without the header first, or with another major version, shows one
+sentence with the reason under Details. An inline body takes no header.
+`view` is optional and opens the board on that named view. The file follows the same rules as `ds-document`: the tab
 must reference it, private paths stay refused, and mesh delivery copies the
 file itself but not its items. Its items need no reference of their own, but
 private paths still apply to them. The file also appears in the tab's file
@@ -210,8 +225,9 @@ list.
 Edit the file in place, for example with `jq` or by rewriting it whole. Open
 boards update as soon as the file changes, without moving the view. The owner
 can move, resize, delete and add notes, and edit note text, in the opened
-canvas. Each change is written back into the file at once. Ids you omit are
-written into the file, so give items an `id` and keep it. Owner edits never
+canvas. Each change is written back into the file at once, keeping the header
+and the field order. Ids you omit are written into the file, so give items an
+`id` and keep it. Owner edits never
 add file items. Read the file again before you rewrite it, because a change
 that lands while you rewrite it is lost.
 
@@ -250,4 +266,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
