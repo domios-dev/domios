@@ -1,13 +1,24 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
-import { offersTailscaleSetup, suggestsRemoteTailscale, tailnetName, tailscalePrompt, tailscaleSetupRequest, tailscaleState, type TailscaleState } from "./tailscaleSetup";
+import { offersTailscaleSetup, privateNetworkLabel, suggestsRemoteTailscale, tailnetName, tailscalePrompt, tailscaleSetupRequest, tailscaleState, type TailscaleState } from "./tailscaleSetup";
 import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
+import { LocalMachineFooter } from "./MachineFooter";
 import type { ServeStatus } from "../../lib/webAccess";
 
 const serve = (patch: Partial<ServeStatus> = {}): ServeStatus => ({ installed: true, active: false, ...patch });
 
 describe("Tailscale state on this machine", () => {
+  it("makes no private-network claim until the state is known", () => {
+    expect(privateNetworkLabel(undefined)).toBeNull();
+    expect(privateNetworkLabel({ kind: "checking" })).toBeNull();
+    expect(privateNetworkLabel({ kind: "unknown" })).toBeNull();
+    expect(privateNetworkLabel({ kind: "connected", tailnet: null })).toBe("Private network on");
+    for (const kind of ["not_installed", "not_running", "permission_needed", "signed_out", "not_connected"] as const) {
+      expect(privateNetworkLabel({ kind })).toBe("Private network off");
+    }
+  });
+
   it("reads connected from a Tailscale address and names the tailnet from MagicDNS", () => {
     expect(tailscaleState({ serve: serve({ self_dns: "studio.tail1234.ts.net." }), network: { tailscale_ip: "100.64.0.9" }, loading: false }))
       .toEqual({ kind: "connected", tailnet: "tail1234.ts.net" });
@@ -72,6 +83,20 @@ function fixture(state: TailscaleState) {
 const button = (host: HTMLElement, name: string) => [...host.querySelectorAll("button")].find((element) => (element.getAttribute("aria-label") ?? element.textContent) === name);
 
 describe("Tailscale on the Mesh canvas", () => {
+  it("keeps the local status empty while checking or unknown", async () => {
+    for (const state of [undefined, { kind: "checking" }, { kind: "unknown" }] as const) {
+      const view = await render(<LocalMachineFooter state={state} />);
+      try {
+        const status = view.host.querySelector('[role="status"]');
+        expect(status).not.toBeNull();
+        expect(status?.textContent).toBe("");
+        expect(status?.querySelector("svg")).toBeNull();
+      } finally {
+        await view.dispose();
+      }
+    }
+  });
+
   it("hands setup to the General agent and keeps a manual link when this machine needs it", async () => {
     const { tailscale, calls } = fixture({ kind: "not_installed" });
     const view = await render(<TailscaleFooter tailscale={tailscale} />);

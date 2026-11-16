@@ -277,7 +277,7 @@ export const MeshCanvas = memo(function MeshCanvas({
               <button type="button" disabled={!!account.busy || account.signingIn} onClick={account.onRejoin}>Sign in and rejoin</button>
             </div>}
             {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
-            <LocalMachineFooter networkOn={tailscale?.state.kind === "connected"} />
+            <LocalMachineFooter state={tailscale?.state} />
             {tailscale && tailscale.state.kind !== "connected" && <TailscaleFooter tailscale={tailscale} />}
           </> : peerFooter(p.id)}
           inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
