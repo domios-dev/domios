@@ -1,14 +1,16 @@
 //! A provider that declares an input-attach signal is input-ready only after its
-//! own input loop owns the PTY: earlier keystrokes become draft text, so a held
-//! send or restart continue written then sits unsubmitted. The attach is the
-//! provider's own terminal-mode event; a deadline only makes the wait visible.
+//! own input loop owns the PTY: earlier keystrokes become draft text, and a resumed
+//! REPL ignores Enter until its session-start hook has run, so a held send or
+//! restart continue written earlier sits unsubmitted. Readiness comes from the
+//! provider's own events; a deadline only makes the wait visible.
 
 use super::ServiceContext;
 use crate::agent::provider::InputAttachSignal;
 use crate::multiplexer::types::TabBacking;
 use crate::service::boot_stage::BootStage;
+use crate::service::integration_silence::{IntegrationFacts, IntegrationState};
 use crate::service::launch_readiness::LaunchAttempt;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
@@ -19,17 +21,66 @@ mod tests;
 static WATCHING: LazyLock<parking_lot::Mutex<HashSet<(String, String)>>> =
     LazyLock::new(Default::default);
 
-pub(crate) fn input_attached(signal: InputAttachSignal, bracketed_paste: Option<bool>) -> bool {
+/// What a launch has shown about its provider's own session start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionStart {
+    /// The launch's own session-start hook reported its binding nonce.
+    Reported,
+    /// The provider's hooks were not in place at launch, so no report can arrive.
+    HooksUnavailable,
+    Awaited,
+}
+
+/// Session-start evidence per tab, each value keyed to the launch nonce it proves.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct TabSessionStart {
+    reported_nonce: Option<String>,
+    hookless_nonce: Option<String>,
+}
+
+#[derive(Default)]
+pub(crate) struct SessionStartHooks {
+    tabs: parking_lot::Mutex<HashMap<String, TabSessionStart>>,
+}
+
+pub(crate) fn session_start(record: Option<&TabSessionStart>, launch_nonce: &str) -> SessionStart {
+    let Some(record) = record else {
+        return SessionStart::Awaited;
+    };
+    if record.reported_nonce.as_deref() == Some(launch_nonce) {
+        SessionStart::Reported
+    } else if record.hookless_nonce.as_deref() == Some(launch_nonce) {
+        SessionStart::HooksUnavailable
+    } else {
+        SessionStart::Awaited
+    }
+}
+
+/// A session-start report can arrive only when the provider registers sessions
+/// through hooks and its own install report says those hooks are in place.
+pub(crate) fn session_start_hooks_available(facts: &IntegrationFacts) -> bool {
+    facts.registers_sessions_via_hooks && facts.state == Some(IntegrationState::Installed)
+}
+
+pub(crate) fn input_ready(
+    signal: InputAttachSignal,
+    bracketed_paste: Option<bool>,
+    session_start: SessionStart,
+) -> bool {
+    let attached = bracketed_paste == Some(true);
     match signal {
         InputAttachSignal::None => true,
-        InputAttachSignal::BracketedPaste => bracketed_paste == Some(true),
+        InputAttachSignal::BracketedPaste => attached,
+        InputAttachSignal::SessionStartAndBracketedPaste => {
+            attached && session_start != SessionStart::Awaited
+        }
     }
 }
 
 pub(crate) fn input_not_attached_reason(tab_id: &str) -> String {
     format!(
-        "the agent has not attached its input to the terminal yet; queued input stays held. \
-         Open the tab to check it, or run `domios agent restart --tab {tab_id}`"
+        "the agent has not attached its input to the terminal or started its session yet; \
+         queued input stays held. Open the tab to check it, or run `domios agent restart --tab {tab_id}`"
     )
 }
 
@@ -86,14 +137,72 @@ impl ServiceContext {
                 )
             })
             .unwrap_or((InputAttachSignal::None, Duration::ZERO));
-        if input_attached(
-            signal,
-            self.screen_state.bracketed_paste_mode(&attempt.pty_id),
-        ) {
+        if self.launch_input_ready(&attempt, signal) {
             return false;
         }
-        self.watch_input_attach(attempt, signal, timeout);
+        self.watch_input_attach(attempt, agent, signal, timeout);
         true
+    }
+
+    /// The tab's provider ran its own session-start hook carrying this launch's
+    /// binding nonce. A launch held only for that report becomes ready now.
+    pub fn observe_session_start_hook(&self, tab_id: &str, binding_nonce: &str) {
+        self.session_start_hooks()
+            .tabs
+            .lock()
+            .entry(tab_id.to_string())
+            .or_default()
+            .reported_nonce = Some(binding_nonce.to_string());
+        let Some((attempt, _)) = self.input_attach_candidate(tab_id) else {
+            return;
+        };
+        let held = WATCHING
+            .lock()
+            .contains(&(attempt.tab_id.clone(), attempt.pty_id.clone()));
+        if attempt.binding_nonce == binding_nonce && held && self.attempt_awaits_ready(&attempt) {
+            self.emit_boot_stage(tab_id, BootStage::AgentReady, None);
+        }
+    }
+
+    fn session_start_hooks(&self) -> &SessionStartHooks {
+        self.extensions.get_or_init(SessionStartHooks::default)
+    }
+
+    fn launch_input_ready(&self, attempt: &LaunchAttempt, signal: InputAttachSignal) -> bool {
+        let started = session_start(
+            self.session_start_hooks().tabs.lock().get(&attempt.tab_id),
+            &attempt.binding_nonce,
+        );
+        input_ready(
+            signal,
+            self.screen_state.bracketed_paste_mode(&attempt.pty_id),
+            started,
+        )
+    }
+
+    /// Reads the provider's install report once for this launch; without hooks in
+    /// place no session-start report can come, so readiness follows the input attach.
+    fn settle_hookless_launch(&self, attempt: &LaunchAttempt, agent: &str) {
+        let available = crate::service::integration_silence::read_provider_facts(
+            &self.agent_registry,
+            agent,
+            false,
+        )
+        .is_some_and(|(facts, _)| session_start_hooks_available(&facts));
+        if available {
+            return;
+        }
+        log::info!(
+            "[launch-input-attach] tab={} pty={} session-start hooks unavailable at launch; readiness follows the input attach",
+            attempt.tab_id,
+            attempt.pty_id
+        );
+        self.session_start_hooks()
+            .tabs
+            .lock()
+            .entry(attempt.tab_id.clone())
+            .or_default()
+            .hookless_nonce = Some(attempt.binding_nonce.clone());
     }
 
     fn input_attach_candidate(&self, tab_id: &str) -> Option<(LaunchAttempt, String)> {
@@ -115,6 +224,7 @@ impl ServiceContext {
     fn watch_input_attach(
         &self,
         attempt: LaunchAttempt,
+        agent: String,
         signal: InputAttachSignal,
         timeout: Duration,
     ) {
@@ -132,6 +242,9 @@ impl ServiceContext {
         let spawned = std::thread::Builder::new()
             .name("input-attach".into())
             .spawn(move || {
+                if signal == InputAttachSignal::SessionStartAndBracketedPaste {
+                    service.settle_hookless_launch(&attempt, &agent);
+                }
                 let outcome = service.await_input_attach(&attempt, signal, timeout);
                 WATCHING.lock().remove(&key);
                 log::info!(
@@ -160,14 +273,12 @@ impl ServiceContext {
         await_attach(
             || {
                 generation.set(change.generation());
-                input_attached(
-                    signal,
-                    self.screen_state.bracketed_paste_mode(&attempt.pty_id),
-                )
+                self.launch_input_ready(attempt, signal)
             },
             || {
                 LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id).as_ref()
                     == Some(attempt)
+                    && self.attempt_awaits_ready(attempt)
             },
             |remaining| match remaining {
                 Some(left) => change.wait_after(generation.get(), left),

@@ -19,7 +19,7 @@
       "timeoutSecs": 30
     },
     "taskDelivery": "inline_flag",
-    "inputAttach": "bracketed_paste",
+    "inputAttach": "session_start_and_bracketed_paste",
     "paste": {
       "untrustedAboveLines": 0,
       "typedFollowUp": "\npasted by Domios",

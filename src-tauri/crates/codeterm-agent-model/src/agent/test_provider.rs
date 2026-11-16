@@ -63,6 +63,7 @@ pub struct MockProvider {
     session_starts_on_first_user_turn: bool,
     provider_readiness_strategy: ProviderReadinessStrategy,
     input_attach_signal: super::provider::InputAttachSignal,
+    integration_status: Option<serde_json::Value>,
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
@@ -141,6 +142,7 @@ impl MockProvider {
             session_starts_on_first_user_turn: false,
             provider_readiness_strategy: ProviderReadinessStrategy::default(),
             input_attach_signal: super::provider::InputAttachSignal::None,
+            integration_status: None,
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
             resume_context_log: None,
@@ -466,6 +468,12 @@ impl MockProvider {
         self.input_attach_signal = signal;
         self
     }
+
+    /// The provider's own opaque install report, as `check_integration` returns it.
+    pub fn with_integration_status(mut self, status: serde_json::Value) -> Self {
+        self.integration_status = Some(status);
+        self
+    }
 }
 
 impl AgentProvider for MockProvider {
@@ -637,6 +645,11 @@ impl AgentProvider for MockProvider {
     }
     fn input_attach_signal(&self) -> super::provider::InputAttachSignal {
         self.input_attach_signal
+    }
+    fn check_integration(&self) -> serde_json::Value {
+        self.integration_status
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({ "status": "ok" }))
     }
     fn system_prompt_delivery(&self) -> SystemPromptDelivery {
         self.system_prompt_delivery.clone()
