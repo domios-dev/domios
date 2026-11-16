@@ -575,12 +575,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
-name = "base64ct"
-version = "1.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
-
-[[package]]
 name = "bincode"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1197,7 +1191,7 @@ dependencies = [
  "base64 0.23.1",
  "codeterm-entitlements",
  "codeterm-util",
- "ed25519-dalek 3.0.0",
+ "ed25519-dalek",
  "log",
  "parking_lot 0.12.5",
  "rand 0.8.6",
@@ -1355,7 +1349,7 @@ dependencies = [
  "base64 0.23.1",
  "codeterm-account",
  "codeterm-entitlements",
- "ed25519-dalek 3.0.0",
+ "ed25519-dalek",
  "log",
  "parking_lot 0.12.5",
  "rand 0.8.6",
@@ -1468,7 +1462,7 @@ dependencies = [
  "codeterm-wire",
  "deunicode",
  "dirs 5.0.1",
- "ed25519-dalek 3.0.0",
+ "ed25519-dalek",
  "include_dir",
  "interprocess",
  "regex",
@@ -1637,7 +1631,7 @@ name = "codeterm-entitlements"
 version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
- "ed25519-dalek 2.2.0",
+ "ed25519-dalek",
  "rand 0.8.6",
  "serde",
  "serde_json",
@@ -1866,7 +1860,7 @@ dependencies = [
  "codeterm-types",
  "codeterm-util",
  "dirs 6.0.0",
- "ed25519-dalek 2.2.0",
+ "ed25519-dalek",
  "hostname",
  "if-addrs 0.15.0",
  "log",
@@ -1891,7 +1885,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "codeterm-wire",
- "ed25519-dalek 3.0.0",
+ "ed25519-dalek",
  "googleapis-tonic-google-firestore-v1",
  "hkdf 0.12.4",
  "libc",
@@ -2423,7 +2417,7 @@ dependencies = [
  "conpty",
  "cron",
  "dirs 6.0.0",
- "ed25519-dalek 3.0.0",
+ "ed25519-dalek",
  "fern",
  "filetime",
  "futures-core",
@@ -2817,12 +2811,6 @@ dependencies = [
 
 [[package]]
 name = "const-oid"
-version = "0.9.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
-
-[[package]]
-name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
@@ -3132,7 +3120,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
- "digest 0.10.7",
  "fiat-crypto 0.2.9",
  "rustc_version",
  "subtle",
@@ -3284,16 +3271,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "der"
-version = "0.7.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
-dependencies = [
- "const-oid 0.9.6",
- "zeroize",
-]
-
-[[package]]
 name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3379,7 +3356,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer 0.12.1",
- "const-oid 0.10.2",
+ "const-oid",
  "crypto-common 0.2.2",
  "ctutils",
 ]
@@ -3623,36 +3600,11 @@ checksum = "e1d926b4d407d372f141f93bb444696142c29d32962ccbd3531117cf3aa0bfa9"
 
 [[package]]
 name = "ed25519"
-version = "2.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
-dependencies = [
- "pkcs8",
- "signature 2.2.0",
-]
-
-[[package]]
-name = "ed25519"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29fcf32e6c73d1079f83ab4d782de2d81620346a5f38c6237a86a22f8368980a"
 dependencies = [
- "signature 3.0.0",
-]
-
-[[package]]
-name = "ed25519-dalek"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
-dependencies = [
- "curve25519-dalek 4.1.3",
- "ed25519 2.2.3",
- "rand_core 0.6.4",
- "serde",
- "sha2 0.10.9",
- "subtle",
- "zeroize",
+ "signature",
 ]
 
 [[package]]
@@ -3662,10 +3614,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
 dependencies = [
  "curve25519-dalek 5.0.0",
- "ed25519 3.0.0",
+ "ed25519",
  "rand_core 0.10.1",
  "sha2 0.11.1",
- "signature 3.0.0",
+ "signature",
  "subtle",
  "zeroize",
 ]
@@ -7228,16 +7180,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pkcs8"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f950b2377845cebe5cf8b5165cb3cc1a5e0fa5cfa3e1f7f55707d8fd82e0a7b7"
-dependencies = [
- "der",
- "spki",
-]
-
-[[package]]
 name = "pkg-config"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8830,15 +8772,6 @@ dependencies = [
 
 [[package]]
 name = "signature"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
-dependencies = [
- "rand_core 0.6.4",
-]
-
-[[package]]
-name = "signature"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
@@ -8990,16 +8923,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 dependencies = [
  "lock_api 0.4.14",
-]
-
-[[package]]
-name = "spki"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
-dependencies = [
- "base64ct",
- "der",
 ]
 
 [[package]]
@@ -11651,8 +11574,10 @@ dependencies = [
  "crc32fast",
  "crossbeam-utils",
  "crypto-common 0.1.7",
+ "crypto-common 0.2.2",
+ "curve25519-dalek 5.0.0",
  "digest 0.10.7",
- "ed25519-dalek 2.2.0",
+ "ed25519-dalek",
  "either",
  "errno",
  "fastrand",
@@ -11709,6 +11634,8 @@ dependencies = [
  "serde_core",
  "serde_json",
  "sha2 0.10.9",
+ "sha2 0.11.1",
+ "signature",
  "simd-adler32",
  "slab",
  "smallvec",
