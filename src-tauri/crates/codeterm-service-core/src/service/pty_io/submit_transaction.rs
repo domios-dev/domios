@@ -48,7 +48,7 @@ use runner::run_with_submit_key;
 #[cfg(test)]
 use runner::run_with_submit_key_and_follow_up;
 use runner::run_with_submit_key_and_payload;
-pub(crate) use shell::{shell_dispatch, submit_shell_dispatch};
+pub(crate) use shell::{shell_dispatch, submit_shell_dispatch, ShellSubmitKeys};
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = DEFAULT_SUBMIT_RETRY_OFFSETS.len() + 1;

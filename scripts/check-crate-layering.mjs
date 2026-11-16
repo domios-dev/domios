@@ -4,6 +4,7 @@ import path from "node:path";
 
 const root = path.resolve(process.argv[2] ?? path.join(import.meta.dirname, ".."));
 const hosts = new Set([
+  "codeterm-neighbors-service",
   "domios-server",
   "codeterm-service-core", "codeterm-api", "codeterm-commands",
   "codeterm-orchestration", "codeterm-sentinel-host", "codeterm-socket",

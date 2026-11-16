@@ -10,7 +10,6 @@ export function defaultConfig(): AppConfig {
   return {
     browser_upload_folders: {},
     restore: { active_window_hours: 48 },
-    tab_sleep: { enabled: true, idle_minutes: 60 },
     account: {},
     billing: {},
     plugins: {},

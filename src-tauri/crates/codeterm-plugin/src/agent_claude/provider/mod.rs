@@ -277,6 +277,12 @@ impl AgentProvider for ClaudeProvider {
         SystemPromptDelivery::CliFlag("--append-system-prompt-file".into())
     }
 
+    /// Claude buffers stdin as draft text until its REPL enables raw mode, which
+    /// is also when it enables bracketed paste.
+    fn input_attach_signal(&self) -> crate::provider::InputAttachSignal {
+        crate::provider::InputAttachSignal::BracketedPaste
+    }
+
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
         VerifySubmitStrategy::TuiInputDrained {
             // The composer swallows a submit key glued to a paste it is still

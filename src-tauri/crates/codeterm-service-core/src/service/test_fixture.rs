@@ -11,7 +11,7 @@ use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanStore;
 
-mod schema;
+pub mod schema;
 
 pub(crate) struct FixtureLimitGate(pub super::billing::LimitGate);
 
@@ -443,10 +443,8 @@ impl ServiceFixture {
         extensions.insert(crate::service::launch_credentials::Directory::reset(&data_dir).unwrap());
         extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
         extensions.insert_service_slots();
-        extensions.insert_late::<super::neighbors::runtime::logout::LogoutKeyPorts>();
         extensions.insert_late::<FixtureLimitGate>();
         extensions.insert(config);
-        extensions.insert(crate::service::account::AccountDataRoot(data_dir.clone()));
         let (private_key, public_key) = crate::mesh::crown::generate_peer_keypair();
         extensions.insert::<crate::MeshStateHandle>(Arc::new(Mutex::new(
             crate::mesh::MeshManager::in_memory(
@@ -463,7 +461,7 @@ impl ServiceFixture {
         extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
             Arc::new(parking_lot::Mutex::new(())),
         ));
-        extensions.insert(crate::service::account::AccountCell(Arc::new(
+        extensions.insert(crate::service::neighbor_account::AccountCell(Arc::new(
             tokio::sync::OnceCell::new(),
         )));
         extensions.insert(crate::service::billing::BillingCell(Arc::new(
@@ -475,6 +473,8 @@ impl ServiceFixture {
         extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(
             Mutex::new(HashMap::new()),
         )));
+        crate::ports::neighbors::register_fixture_extensions(&mut extensions);
+        extensions.insert(crate::ports::neighbors::InstalledNeighbors::default());
         crate::ports::orchestration::register_fixture_extensions(&mut extensions);
         extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
         crate::ports::lifecycle::register_fixture_extensions(&mut extensions);
@@ -726,8 +726,14 @@ impl ServiceFixture {
             extensions: Arc::new(extensions.finish()),
             host_extensions: Default::default(),
         };
+        assert!(service
+            .set_ext(crate::service::neighbor_account::AccountDataRoot(
+                data_dir.clone()
+            ))
+            .is_ok());
         let owner = Arc::new(service.clone());
         assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
+        crate::ports::neighbors::install_fixture(&owner);
         crate::ports::orchestration::install_fixture(&owner);
         crate::ports::lifecycle::install_fixture(&owner);
         Self {

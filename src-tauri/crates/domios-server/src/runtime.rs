@@ -114,6 +114,7 @@ pub fn run(
     crate::bundle::install();
     codeterm_orchestration::register_orchestration();
     codeterm_agent_lifecycle::register_agent_lifecycle();
+    codeterm_neighbors_service::register_neighbors();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;

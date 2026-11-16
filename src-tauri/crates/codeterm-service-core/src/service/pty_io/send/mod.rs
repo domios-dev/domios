@@ -717,6 +717,7 @@ impl ServiceContext {
                 text,
                 claim,
                 Some(&on_queued),
+                super::submit_transaction::ShellSubmitKeys::Send,
             );
             if result.is_ok()
                 || matches!(

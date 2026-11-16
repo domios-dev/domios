@@ -4,6 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_neighbors_service::prelude::*;
 use codeterm_service_core::mesh::{crown, presence_notice::PresenceNotice, MeshManager};
 
 pub async fn account_presence(

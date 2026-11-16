@@ -327,6 +327,30 @@ fn tab_summary_status_uses_the_resolved_tab_status() {
     assert_eq!(row["status"], TabStatus::Dead.label());
 }
 
+#[test]
+fn sleeping_tab_projection_says_it_is_asleep_and_how_to_wake_it() {
+    use crate::multiplexer::state::MultiplexerState;
+
+    let (mut state, tab_id) = MultiplexerState::new();
+    state.get_tab_mut(&tab_id).unwrap().agent_type = Some("opaque-provider".into());
+    let awake = state.snapshot();
+    let row = &build_tab_summary_json(&awake, None, None, false, false)[0];
+    assert!(row["asleep"].is_null());
+
+    state.get_tab_mut(&tab_id).unwrap().frozen = true;
+    let asleep = state.snapshot();
+    let summary = &build_tab_summary_json(&asleep, None, None, false, false)[0];
+    let inspected = &build_tab_projection_json(&asleep, true)[0];
+    for row in [summary, inspected] {
+        assert_eq!(row["asleep"]["reason"], "lazy_restore");
+        let wake = row["asleep"]["wake"].as_str().unwrap();
+        assert!(
+            wake.contains(&format!("agent restart --tab {tab_id}")),
+            "{wake}"
+        );
+    }
+}
+
 // ── Command enum round-trip tests ───────────────────────────────
 
 #[test]

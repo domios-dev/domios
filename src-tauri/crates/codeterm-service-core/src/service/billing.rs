@@ -20,7 +20,7 @@ impl ServiceContext {
         &self,
         operation: codeterm_billing::PlanOperation,
     ) -> Result<serde_json::Value, String> {
-        let account = self.account().await?;
+        let account = self.neighbors().account().await?;
         let session = account
             .current_session()
             .await
@@ -34,7 +34,7 @@ impl ServiceContext {
             .await;
         self.sync_limit_gate();
         if self.limit_gate().summary().mesh_machines != machine_limit {
-            self.unlock_account_mesh_after_plan_change();
+            self.neighbors().unlock_account_mesh_after_plan_change();
         }
         if account
             .session()
@@ -55,14 +55,14 @@ impl ServiceContext {
         }
         self.ext::<BillingCell>().0.get().map_or_else(
             || {
-                self.try_ext::<super::account::startup::StartupAccount>()
+                self.try_ext::<super::neighbor_account::StartupAccount>()
                     .filter(|account| account.is_valid())
                     .map_or_else(pending_limit_gate, |account| account.gate())
             },
             |billing| {
                 if billing.binding_generation() == 0 {
                     if let Some(account) = self
-                        .try_ext::<super::account::startup::StartupAccount>()
+                        .try_ext::<super::neighbor_account::StartupAccount>()
                         .filter(|account| account.is_valid())
                     {
                         return account.gate();
@@ -131,8 +131,8 @@ impl ServiceContext {
                     adapters::cloud::Cloud::configured(
                         config.get("endpoint").and_then(|v| v.as_str()),
                         installation_id.clone(),
-                        self.account_mesh().await?.mesh.clone(),
-                        self.session_revocations(),
+                        self.neighbors().account_mesh().await?,
+                        self.neighbors().session_revocations(),
                     )?;
                 let mut billing = Billing::new(adapter).with_grants(
                     &installation_id,
@@ -145,7 +145,7 @@ impl ServiceContext {
                         billing.with_observer(super::analytics::billing_observer(worker.clone()));
                 }
                 let billing = Arc::new(billing);
-                if let Some(session) = self.account().await?.session().await {
+                if let Some(session) = self.neighbors().account().await?.session().await {
                     let primer = billing.clone();
                     if let Err(error) =
                         tokio::task::spawn_blocking(move || primer.prime(&session)).await
@@ -190,7 +190,7 @@ impl ServiceContext {
         self.sync_limit_gate();
         result
     }
-    pub(super) async fn clear_account_plan(&self) -> Result<(), String> {
+    pub async fn clear_account_plan(&self) -> Result<(), String> {
         self.account_plan().await?;
         let root = self.account_data_root()?;
         tokio::task::spawn_blocking(move || {
@@ -209,10 +209,10 @@ impl ServiceContext {
             .0
             .get()
             .map(|billing| billing.binding_generation());
-        let session = self.account().await?.session().await;
+        let session = self.neighbors().account().await?.session().await;
         if session.is_none() {
             if let Some(snapshot) = self
-                .try_ext::<super::account::startup::StartupAccount>()
+                .try_ext::<super::neighbor_account::StartupAccount>()
                 .and_then(|account| account.snapshot())
             {
                 return Ok(snapshot);
@@ -235,7 +235,7 @@ impl ServiceContext {
             .0
             .get()
             .map(|billing| billing.binding_generation());
-        let account = self.account().await?;
+        let account = self.neighbors().account().await?;
         let session = account.session().await;
         if session.is_none() {
             if let (Some(billing), Some(binding)) = (self.ext::<BillingCell>().0.get(), binding) {
@@ -252,7 +252,7 @@ impl ServiceContext {
             .refresh(session.as_ref(), event, Instant::now())
             .await;
         if billing.limit_gate().summary().mesh_machines != machine_limit {
-            self.unlock_account_mesh_after_plan_change();
+            self.neighbors().unlock_account_mesh_after_plan_change();
         }
         let binding = billing.binding_generation();
         let current = account.session().await;
@@ -265,6 +265,7 @@ impl ServiceContext {
         theme: Option<codeterm_billing::CheckoutTheme>,
     ) -> Result<(), String> {
         let session = self
+            .neighbors()
             .account()
             .await?
             .session()
@@ -284,6 +285,7 @@ impl ServiceContext {
             None => (billing.portal_url(&session).await?, None),
         };
         if self
+            .neighbors()
             .account()
             .await?
             .session()
@@ -338,3 +340,6 @@ pub fn admit_new_team(gate: &LimitGate) -> impl FnOnce(usize) -> Result<(), Stri
             .map_err(|refusal| refusal.to_string())
     }
 }
+
+#[cfg(any(test, feature = "test-support"))]
+pub use locks::test_support as locks_test_support;

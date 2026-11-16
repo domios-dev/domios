@@ -2,13 +2,24 @@ use super::*;
 
 pub(super) fn carry_user_config(installed: &Path, staged: &Path) -> Result<(), String> {
     carry_file(installed, staged, codeterm_util::plugin_config::CONFIG_FILE)?;
-    if unchanged_permissions(installed, staged)? {
+    let staged_grants = staged.join("grants.yaml");
+    match fs::remove_file(&staged_grants) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "discard packaged {}: {error}",
+                staged_grants.display()
+            ))
+        }
+    }
+    if same_plugin(installed, staged)? {
         carry_file(installed, staged, "grants.yaml")?;
     }
     Ok(())
 }
 
-fn unchanged_permissions(installed: &Path, staged: &Path) -> Result<bool, String> {
+fn same_plugin(installed: &Path, staged: &Path) -> Result<bool, String> {
     let path = installed.join("plugin.json");
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -19,11 +30,7 @@ fn unchanged_permissions(installed: &Path, staged: &Path) -> Result<bool, String
     let after: serde_json::Value =
         serde_json::from_slice(&fs::read(staged.join("plugin.json")).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
-    Ok(before["id"].as_str().is_some()
-        && before["id"] == after["id"]
-        && before["permissions"] == after["permissions"]
-        && before["capabilities"]["localRecordingTrigger"].is_object()
-            == after["capabilities"]["localRecordingTrigger"].is_object())
+    Ok(before["id"].as_str().is_some() && before["id"] == after["id"])
 }
 
 fn carry_file(installed: &Path, staged: &Path, name: &str) -> Result<(), String> {

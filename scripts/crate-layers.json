@@ -19,6 +19,7 @@
     "codeterm-wire"
   ],
   "serverOnly": [
+    "codeterm-neighbors-service",
     "domios-server",
     "codeterm-service-core",
     "codeterm-socket",

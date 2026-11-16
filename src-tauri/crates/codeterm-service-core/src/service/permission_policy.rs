@@ -95,7 +95,7 @@ pub(crate) fn spawn_permission_bypass_for_params(
     )
 }
 
-pub(crate) fn spawn_permission_bypass_for_launch(
+pub fn spawn_permission_bypass_for_launch(
     svc: &super::ServiceContext,
     provider: &str,
     worker: bool,

@@ -70,16 +70,15 @@ fn tailnet_exemptions_are_only_existing_peer_handshakes_and_liveness() {
 #[tokio::test]
 async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy() {
     use axum::{body::Body, http::Request, routing::get, Router};
-    use codeterm_service_core::service::account_mesh::tailnet::TailnetListener;
+    use codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener;
     use codeterm_service_core::{
         mesh::account_mesh::{AccountMeshState, AccountPresence},
         mesh::types::PairedPeer,
         multiplexer::state::MultiplexerState,
-        service::test_fixture::ServiceFixture,
     };
     use tower::ServiceExt;
 
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     assert!(std::sync::Arc::ptr_eq(
         &state.mesh,
@@ -101,7 +100,8 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
             online: true,
             is_primary: false,
             access_level: AccessLevel::ReadOnly,
-            version: None,
+            domios_version: None,
+            domios_build: None,
             web_ui: None,
             relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
             consecutive_misses: 0,
@@ -449,7 +449,8 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
         online: true,
         is_primary: false,
         access_level: AccessLevel::Full,
-        version: None,
+        domios_version: None,
+        domios_build: None,
         web_ui: None,
         relay_protocol_version: 1,
         consecutive_misses: 0,
@@ -459,6 +460,8 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
         mesh.paired_peers["air"].relay_protocol_version
     };
     let announce = |relay_protocol_version| PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: "air".into(),
         instance_name: "air".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.7")],
@@ -685,10 +688,9 @@ fn service_push_rejected_on_tab_root() {
 #[test]
 fn instance_refuses_foreign_bearer_and_accepts_persisted_credential() {
     use codeterm_service_core::multiplexer::state::MultiplexerState;
-    use codeterm_service_core::service::test_fixture::ServiceFixture;
 
     let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::test_support::app_state(&fixture);
     let rotated = codeterm_util::instance_token::initialize_at(fixture.temp.path(), true)
         .unwrap()
@@ -710,10 +712,9 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
     use codeterm_service_core::mesh::account_mesh::AccountMeshState;
     use codeterm_service_core::mesh::types::PairedPeer;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
-    use codeterm_service_core::service::test_fixture::ServiceFixture;
 
     let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
     let admitted = {
@@ -729,7 +730,8 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
             online: true,
             is_primary: false,
             access_level: AccessLevel::Full,
-            version: None,
+            domios_version: None,
+            domios_build: None,
             web_ui: None,
             relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
             consecutive_misses: 0,

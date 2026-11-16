@@ -16,8 +16,6 @@ pub mod cli_local_admission;
 mod construct;
 mod provider_refresh;
 pub use construct::build_service_context;
-pub mod account;
-pub mod account_mesh;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
@@ -29,7 +27,6 @@ pub(crate) mod ai_helper_spawn;
 mod image_attachments;
 pub mod lazy_restore;
 pub mod tab_mutation_authority;
-pub mod tab_sleep_policy;
 pub mod tab_todos;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
@@ -41,8 +38,6 @@ pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub mod boot_wait;
 pub(crate) mod bridge_threads;
-pub mod gift_redemption;
-pub mod neighbors;
 pub use codeterm_browser as browser;
 pub(crate) mod capability_probe;
 pub use capability_probe::refresh as capability_probe_refresh;
@@ -78,6 +73,7 @@ mod pty_memory;
 mod shared_history;
 pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_input;
 pub mod launch_diagnostics;
+pub(crate) mod launch_input_attach;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
 #[cfg(any(test, feature = "test-support"))]
@@ -137,7 +133,7 @@ pub(crate) use orchestrator::role_onboarding_task;
 pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
 pub mod directory_pre_trust;
 pub(crate) mod directory_trust;
-pub(crate) mod execution_sandbox;
+pub mod execution_sandbox;
 pub use execution_sandbox::{
     enforce_delegation_ceiling as execution_sandbox_enforce_delegation_ceiling,
     refuse_confined_mesh_delegation as execution_sandbox_refuse_confined_mesh_delegation,
@@ -224,7 +220,7 @@ pub use spawn_title::validate_agent_tab_title as spawn_title_validate_agent_tab_
 pub mod startup_lease;
 pub(crate) mod startup_nudge;
 pub mod status_reconciliation;
-pub(crate) mod stop_execution;
+pub mod stop_execution;
 pub use stop_execution::stop_agent_turn as stop_execution_stop_agent_turn;
 mod tab_status_events;
 pub(crate) mod tab_stop;
@@ -287,7 +283,7 @@ mod persistence_roundtrip_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
 #[cfg(test)]
-mod tests;
+pub mod tests;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
@@ -454,7 +450,7 @@ pub struct ServiceContext {
 pub type ServiceState = Arc<ServiceContext>;
 
 impl ServiceContext {
-    pub(crate) fn weak_self(&self) -> std::sync::Weak<Self> {
+    pub fn weak_self(&self) -> std::sync::Weak<Self> {
         self.try_ext::<std::sync::Weak<Self>>()
             .cloned()
             .unwrap_or_default()
@@ -1018,3 +1014,12 @@ pub use skill_mirror::{mirror_skills_to_providers, seed_bundled_skills};
 pub use utility_deadline::restore as restore_utility_deadlines;
 
 pub use supporter_notify::record_launch as supporter_record_launch;
+
+pub mod neighbor_account;
+pub mod neighbor_state;
+
+impl ServiceContext {
+    pub fn neighbors(&self) -> &Arc<dyn crate::ports::neighbors::NeighborsPort> {
+        crate::ports::neighbors::installed(&self.extensions)
+    }
+}

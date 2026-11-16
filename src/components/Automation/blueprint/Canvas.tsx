@@ -1,3 +1,4 @@
+import { CANVAS_ZOOM_STEP } from "@codeterm/chat-ui/useCanvasStage";
 import { useCallback, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
 import { CircleAlert, Network, PauseCircle } from "lucide-react";
@@ -68,13 +69,12 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
       aria-describedby={hintId}
       data-replaying={historical ? "true" : undefined}
       onMouseDown={viewport.handlers.onMouseDown}
-      onKeyDown={viewport.onKeyDown}
       onScroll={(event) => { event.currentTarget.scrollTop = 0; event.currentTarget.scrollLeft = 0; }}
-      {...viewport.touchHandlers}
+      {...viewport.interactions}
       className="bp-canvas relative min-h-[14rem] min-w-0 flex-1 touch-none overflow-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
       style={{ cursor: viewport.isDragging ? "grabbing" : "grab" }}
     >
-      <CanvasToolbar label="Blueprint graph controls" onFit={viewport.showOverview} onZoomOut={() => viewport.zoom(-0.2)} onZoomIn={() => viewport.zoom(0.2)} extras={toolbar} />
+      <CanvasToolbar label="Blueprint graph controls" onFit={viewport.showOverview} onZoomOut={() => viewport.zoom(-CANVAS_ZOOM_STEP)} onZoomIn={() => viewport.zoom(CANVAS_ZOOM_STEP)} extras={toolbar} />
       {crumbs && <div className="bp-canvas-crumbs" onMouseDown={(event) => event.stopPropagation()}>{crumbs}</div>}
       <CanvasNotices>{notices}</CanvasNotices>
       <p id={hintId} className="sr-only">Arrow keys pan, plus and minus zoom, zero returns to a readable view. Tab moves between nodes.</p>

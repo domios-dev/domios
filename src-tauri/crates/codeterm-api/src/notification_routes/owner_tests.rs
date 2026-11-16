@@ -4,7 +4,6 @@ use axum::{body::Body, http::Request, routing::post, Router};
 use codeterm_service_core::{
     multiplexer::state::MultiplexerState,
     ports::daemon_question::{DaemonQuestionHandler, DaemonQuestions},
-    service::test_fixture::ServiceFixture,
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -23,7 +22,7 @@ async fn notify_resolve_route_closes_only_the_callers_question() {
     let (mut mux, asker) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&asker).unwrap();
     let other = mux.create_tab(&workspace).unwrap();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let question = fixture.service.notif.lock().add_ext(
         "opaque question".into(),
         None,
@@ -108,7 +107,7 @@ async fn daemon_question_route_refuses_every_non_owner_identity_before_handler()
         None,
     ] {
         let (mux, _) = MultiplexerState::new();
-        let fixture = ServiceFixture::new(mux);
+        let fixture = codeterm_neighbors_service::test_support::fixture(mux);
         let authorization = Arc::new(Authorization(AtomicUsize::new(0)));
         assert!(fixture
             .service
@@ -195,7 +194,7 @@ async fn daemon_question_route_refuses_every_non_owner_identity_before_handler()
 
 #[tokio::test]
 async fn tab_cannot_repackage_a_listed_daemon_answer_as_a_bridge_button() {
-    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::new().0);
     let handler = Arc::new(Authorization(AtomicUsize::new(0)));
     assert!(fixture
         .service

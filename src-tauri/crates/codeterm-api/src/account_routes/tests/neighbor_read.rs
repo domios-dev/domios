@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn owner_visibility_receipts_refuse_missing_or_tab_callers_before_service_access() {
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     let state = crate::transport_tabs::fixture::app_state(&fixture);

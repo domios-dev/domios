@@ -2,10 +2,10 @@ use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
 };
+use codeterm_neighbors_service::prelude::*;
 use codeterm_service_core::{
     mesh::types::{AccessLevel, PairedPeer, RELAY_PROTOCOL_VERSION},
     multiplexer::{state::MultiplexerState, types::AgentRole},
-    service::test_fixture::ServiceFixture,
 };
 use tower::ServiceExt;
 
@@ -32,7 +32,7 @@ async fn web_link_token_route_authority_matrix() {
     mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
     mux.get_tab_mut(&orchestrator).unwrap().role = Some(AgentRole::Manager);
     mux.get_tab_mut(&orchestrator).unwrap().role_profile = Some("orchestrator".into());
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     fixture
         .seed_neighbor_concierge(
             &concierge,
@@ -71,7 +71,8 @@ async fn web_link_token_route_authority_matrix() {
         online: true,
         is_primary: false,
         access_level: AccessLevel::Full,
-        version: None,
+        domios_version: None,
+        domios_build: None,
         web_ui: None,
         relay_protocol_version: RELAY_PROTOCOL_VERSION,
         consecutive_misses: 0,

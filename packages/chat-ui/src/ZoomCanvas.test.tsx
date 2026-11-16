@@ -1,3 +1,4 @@
+import { measureCanvas, checkStageGestures } from "./canvasStage.testdata";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import React, { act } from "react";
@@ -214,6 +215,17 @@ test("late image dimensions and resize preserve the first camera and a custom ca
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Fit all"]')!.click());
     assert.notEqual(layer.style.transform, custom);
     assert.equal(document.querySelector('[aria-label="Fit all"]')?.getAttribute("aria-pressed"), "true");
+    const fitted = layer.style.transform;
+    width = 1100;
+    await act(async () => resize());
+    assert.equal(layer.style.transform, fitted);
+    assert.equal(document.querySelector('[aria-label="Fit all"]')?.getAttribute("aria-pressed"), "false", "a preserved camera after resize no longer claims to fit");
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Reset to 100%"]')!.click());
+    const natural = layer.style.transform;
+    width = 1200;
+    await act(async () => resize());
+    assert.equal(layer.style.transform, natural);
+    assert.equal(document.querySelector('[aria-label="Reset to 100%"]')?.getAttribute("aria-pressed"), "true", "a preserved 100% camera still reports natural size");
   } finally {
     await act(async () => root.unmount()); host.remove();
     window.HTMLElement.prototype.getBoundingClientRect = originalRect;
@@ -267,7 +279,7 @@ test("plain Mermaid wheel pans, modified wheel zooms, and natural reset updates 
     assert.equal(host.querySelector('[aria-label="Zoom level"]')!.textContent, "100%");
     assert.equal(host.querySelector('[aria-label="Reset to 100%"]')!.getAttribute("aria-pressed"), "true");
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Zoom out"]')!.click());
-    assert.equal(host.querySelector('[aria-label="Zoom level"]')!.textContent, "80%");
+    assert.equal(host.querySelector('[aria-label="Zoom level"]')!.textContent, "75%");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -304,7 +316,7 @@ test("zoom keys work as soon as the image preview opens, without clicking the ca
     await act(async () => key("Digit0"));
     assert.equal(document.querySelector('[aria-label="Zoom level"]')!.textContent, "100%");
     await act(async () => key("Minus"));
-    assert.equal(document.querySelector('[aria-label="Zoom level"]')!.textContent, "80%");
+    assert.equal(document.querySelector('[aria-label="Zoom level"]')!.textContent, "75%");
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Fit all"]')!.click());
     assert.equal(document.querySelector('[aria-label="Fit all"]')!.getAttribute("aria-pressed"), "true");
   } finally { await act(async () => root.unmount()); host.remove(); }
@@ -355,10 +367,47 @@ test("image preview fit, 100% and zoom controls are the shared canvas toolbar", 
     await click("Zoom in");
     assert.equal(level(), "125%");
     await click("Zoom out");
-    assert.equal(level(), "100%");
+    assert.equal(level(), "94%");
     await click("Zoom out");
-    assert.equal(level(), "80%");
+    assert.equal(level(), "70%");
     await click("Fit all");
     assert.equal(toolbar.querySelector('[aria-label="Fit all"]')!.getAttribute("aria-pressed"), "true");
   } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+test("image header keeps actions in reading order, exposes only a path tooltip, and Escape restores focus", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const anchor = document.createElement("button"); host.append(anchor); anchor.focus();
+  const root = createRoot(host.appendChild(document.createElement("div")));
+  const images = [{ name: "header-first.png", path: "C:/images/header-first.png", src: "header-first.png" }, { name: "second.png", src: "header-second.png" }];
+  let closed = false;
+  try {
+    await act(async () => root.render(<ImageFullscreen image={images[0]} images={images} anchorRef={{ current: anchor }} onClose={() => { closed = true; root.render(null); }} />));
+    const header = document.querySelector("header")!;
+    assert.equal(header.querySelector('[title="C:/images/header-first.png"]')?.getAttribute("aria-label"), "Image header-first.png");
+    assert(!header.textContent?.includes("C:/images/"));
+    assert.deepEqual(Array.from(header.querySelectorAll("button, a")).map(node => node.getAttribute("aria-label")), [
+      "Previous image", "Next image", "Fit all", "Zoom out", "Reset to 100%", "Zoom in", "Save header-first.png", "Close image",
+    ]);
+    assert.equal(header.querySelectorAll('[title="Reset to 100%"]').length, 1);
+    const region = document.querySelector('[aria-label="Zoomable canvas"]')!;
+    await act(async () => region.dispatchEvent(new window.KeyboardEvent("keydown", { code: "ArrowRight", bubbles: true })));
+    assert.equal(header.querySelector('[aria-live="polite"]')?.textContent, "2 / 2");
+    await act(async () => region.dispatchEvent(new window.KeyboardEvent("keydown", { code: "Digit0", bubbles: true })));
+    assert.equal(header.querySelector('[aria-label="Reset to 100%"]')?.getAttribute("aria-pressed"), "true");
+    await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
+    assert(closed);
+    assert.equal(document.activeElement, anchor);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+test("ZoomCanvas stage fits, handles zoom keys and touch, and keeps the camera after resize", async () => {
+  const measurement = measureCanvas();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<ZoomCanvas bounds={{ x: 0, y: 0, width: 400, height: 300 }}><span>World</span></ZoomCanvas>));
+    const region = host.querySelector<HTMLElement>('[aria-label="Zoomable canvas"]')!;
+    await checkStageGestures(region, region.firstElementChild as HTMLElement, measurement.resize);
+  } finally { await act(async () => root.unmount()); host.remove(); measurement.restore(); }
 });

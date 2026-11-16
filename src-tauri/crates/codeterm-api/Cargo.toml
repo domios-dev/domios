@@ -11,6 +11,7 @@ workspace = true
 name = "codeterm_api"
 
 [dependencies]
+codeterm-neighbors-service = { path = "../codeterm-neighbors-service" }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-commands = { path = "../codeterm-commands" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
@@ -69,6 +70,7 @@ codeterm-paths = { path = "../codeterm-paths" }
 codeterm-plugins = { path = "../codeterm-plugins" }
 
 [dev-dependencies]
+codeterm-neighbors-service = { path = "../codeterm-neighbors-service", features = ["test-support"] }
 tokio = { version = "1", features = ["test-util"] }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-orchestration = { path = "../codeterm-orchestration", features = ["test-support"] }
@@ -79,4 +81,4 @@ codeterm-entitlements = { path = "../codeterm-entitlements" }
 codeterm-mesh = { path = "../codeterm-mesh", features = ["test-support"] }
 
 [features]
-test-support = ["codeterm-service-core/test-support"]
+test-support = ["codeterm-service-core/test-support", "codeterm-neighbors-service/test-support"]

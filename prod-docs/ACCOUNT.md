@@ -53,6 +53,22 @@ Managed app updates report only their kind after the requested app version is ru
 Versions contain numeric major, minor and patch only, without prerelease labels or build metadata. Counts are unsigned 32-bit integers. Provider IDs come from the bundled registry; runtime free-form provider names become `other`. Events with no properties carry an empty object. Feature adoption includes completed dreaming runs, saved crons and Blueprints, saved theme changes, confirmed Telegram sends or accepted inbound messages, accepted voice input, installed plugins, formed Teams, saved memory and opening the web interface.
 
 <!-- analytics-catalog:start -->
+Share feature usage, IP-derived country, region and city, platform, OS version, app version, language and device manufacturer/model with Amplitude. Prompts, paths, names and terminal output are never collected.
+
+Standard envelope fields (separate from event properties):
+
+| Field | Value |
+|---|---|
+| `ip` | $remote: Amplitude derives country, region and city from the upload IP |
+| `platform` | Desktop |
+| `os_name` | Windows, macOS, Linux or Other |
+| `os_version` | OS-reported version, when available |
+| `app_version` | Installed numeric product version, when available |
+| `language` | OS language code, or und when unavailable |
+| `device_manufacturer` | OS-reported hardware manufacturer, or Apple on macOS, when available |
+| `device_model` | OS-reported hardware model, when available |
+| `carrier` | none (desktop has no carrier context) |
+
 | Event | Properties |
 |---|---|
 | `app_first_run` | `version`: Version, `platform`: Platform |
@@ -91,7 +107,7 @@ Versions contain numeric major, minor and patch only, without prerelease labels 
 - **UpgradeSource:** `limit_dialog`, `account_settings`
 - **CheckoutOutcome:** `opened`, `returned`, `failed`
 - **SettingsSection:** `root`, `account`, `privacy`, `general`, `notifications`, `agents`, `secrets`, `jobs`, `logs`, `guide`, `about`, `agent_provider`
-- **ProviderId:** `claude`, `codex`, `cursor`, `opencode`, `other`
+- **ProviderId:** `acp`, `claude`, `codex`, `cursor`, `opencode`, `other`
 <!-- analytics-catalog:end -->
 
 ## Local API
@@ -124,4 +140,4 @@ Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"se
 
 Headless sign-in: `domios account login --no-browser` prints an authorization URL. Open it on another machine, then paste the whole redirected callback URL into stdin; it must include both code and state. A failed loopback navigation still leaves that URL in the browser's address bar. Bare codes are refused. EOF on stdin leaves the flow pending in the daemon until its normal timeout. In a Domios tab, `domios account login --no-browser --code-from-pad callback.txt` completes that pending flow from the calling tab's pad without replacing its state/verifier. Keep callback values out of logs and shell history. The existing timeout and single-use checks apply.
 
-<!-- revision: 24 -->
+<!-- revision: 26 -->

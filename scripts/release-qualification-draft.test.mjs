@@ -125,3 +125,12 @@ test('async downloads retain the one-time timeout recovery and refuse transport 
   await assert.rejects(storeAsync('get-prefix', 'key', 'out', { run: async () => { attempts++; throw new Error('denied'); } }), /denied/);
   assert.equal(attempts, 1);
 });
+
+test('waived publication cannot restore a missing hidden draft', async () => {
+  await assert.rejects(promoteQualifiedDrafts({ tag, sourceSha, runId, work: 'unused',
+    repositories: [['domios-dev/domios', 'token']], requireDraft: true,
+    drafts: { readDraft: async () => null, admitDraft, qualificationTag },
+    fetchEvidence: () => assert.fail('waiver must not fetch fallback bytes'),
+    run: () => assert.fail('waiver must not mutate a missing draft'),
+  }), /requires complete existing qualification drafts/);
+});

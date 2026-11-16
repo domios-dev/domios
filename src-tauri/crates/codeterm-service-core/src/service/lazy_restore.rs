@@ -13,8 +13,8 @@ mod policy;
 mod read_failure_tests;
 mod user_send;
 
-#[cfg(test)]
-pub(crate) mod test_boundary;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_boundary;
 
 struct WakeRequest(String);
 
@@ -177,7 +177,7 @@ impl ServiceContext {
             allow_failed,
             intent,
             |id, retry_started_agent| {
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 if let Some(result) = test_boundary::materialize(id) {
                     return result;
                 }
@@ -268,7 +268,8 @@ fn wake_with_intent(
         .read()
         .get_tab(&id)
         .is_some_and(|tab| tab.restorable_launch.permission_bypass_requested);
-    svc.require_neighbor_restore_grant(&id, bypass)?;
+    svc.neighbors()
+        .require_neighbor_restore_grant(&id, bypass)?;
     {
         let cwd = {
             let mux = svc.mux.read();
@@ -338,7 +339,7 @@ fn wake_with_intent(
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 #[cfg(test)]
 mod wake_readiness_tests;

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { publishConcurrently } from './release-promote.mjs';
 import { PLATFORMS } from './release-dry-run-manifest.mjs';
 import { loadPublicKey, verifyVersionBinding } from './verify-updater-manifest.mjs';
+import { validateTestWaiver } from './release-test-waiver.mjs';
 
 export function qualifiedMetadata(receipt, tag, sourceSha, runId) {
   if (receipt.schema !== 1 || receipt.mode !== 'local_dry_run' || receipt.tag !== tag ||
@@ -25,7 +26,8 @@ export function qualifiedMetadata(receipt, tag, sourceSha, runId) {
   return files;
 }
 
-export async function verifyServedMetadata({ receipt, tag, sourceSha, runId, repository, request = fetch, key }) {
+export async function verifyServedMetadata({ receipt, tag, sourceSha, runId, repository, request = fetch, key, waiver }) {
+  if (waiver && validateTestWaiver(waiver).run_id !== String(runId)) throw new Error('Foreign served metadata waiver');
   const files = qualifiedMetadata(receipt, tag, sourceSha, runId);
   const records = [];
   for (const name of ['domios-latest.json', 'domios-latest-deb.json']) {
@@ -45,7 +47,8 @@ export async function verifyServedMetadata({ receipt, tag, sourceSha, runId, rep
       verifyVersionBinding(entry.signature, manifest.version, key.keyId, key.publicKey);
     }
     records.push({ verified: true, mode: 'qualified_metadata', version: manifest.version, cache_busted: true,
-      manifest: url, platforms, failures: [], qualification: { source_sha: sourceSha, run_id: String(runId) },
+      manifest: url, platforms, failures: [], qualification: { source_sha: sourceSha, run_id: String(runId),
+        ...(waiver ? { test_waiver: waiver } : {}) },
       verified_at: new Date().toISOString() });
   }
   await publishConcurrently([...files.values()].filter(file => repository === 'domios-dev/domios' || !/^updater-.*\.json$/.test(file.name)), async file => {
@@ -67,7 +70,8 @@ async function main([verb, evidence, tag, sourceSha, runId, repository, output])
     return;
   }
   if (verb !== 'verify') throw new Error('Unknown served metadata operation');
-  const records = await verifyServedMetadata({ receipt, tag, sourceSha, runId, repository, key: await loadPublicKey({}) });
+  const waiver = process.env.RELEASE_TEST_WAIVER ? JSON.parse(process.env.RELEASE_TEST_WAIVER) : undefined;
+  const records = await verifyServedMetadata({ receipt, tag, sourceSha, runId, repository, key: await loadPublicKey({}), waiver });
   for (const [index, name] of ['manifest-verification.json', 'deb-manifest-verification.json'].entries()) {
     await writeFile(path.join(output, name), JSON.stringify(records[index], null, 2) + '\n');
   }

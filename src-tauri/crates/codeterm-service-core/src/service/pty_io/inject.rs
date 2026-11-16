@@ -102,6 +102,7 @@ impl ServiceContext {
             &expected,
             claim,
             Some(&on_queued),
+            super::submit_transaction::ShellSubmitKeys::UtilityCommand,
         );
         if result.is_ok()
             || matches!(

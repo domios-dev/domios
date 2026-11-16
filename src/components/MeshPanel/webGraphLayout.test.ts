@@ -1,5 +1,6 @@
+import { computeFitTransform } from "@codeterm/canvas-camera";
 import assert from "node:assert/strict";
-import { webGraphLayout, webGraphInitialView, MACHINE_CARD_WIDTH, MACHINE_CARD_HEIGHT } from "./webGraphLayout";
+import { webGraphLayout, MACHINE_CARD_WIDTH, MACHINE_CARD_HEIGHT } from "./webGraphLayout";
 
 type Rectangle = { x: number; y: number; width: number; height: number };
 const intersects = (a: Rectangle, b: Rectangle) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
@@ -33,16 +34,13 @@ const viewFor = (width: number, height: number, count: number) => {
   const x = Math.min(...nodes.map((node) => node.x));
   const y = Math.min(...nodes.map((node) => node.y));
   const bounds = { x, y, width: Math.max(...nodes.map((node) => node.x + node.width)) - x, height: Math.max(...nodes.map((node) => node.y + node.height)) - y };
-  const view = webGraphInitialView(width, height, bounds)!;
+  const view = computeFitTransform(bounds, width, height, { fitPadding: 24, minScale: 0.01, maxScale: 1 })!;
   assert.ok(view.scale * bounds.width <= width + 1e-8);
   assert.ok(view.scale * bounds.height <= height + 1e-8);
-  assert.deepEqual(view.bounds, bounds);
   return view;
 };
 for (const [width, height, count] of [[1440, 900, 2], [1440, 900, 15], [390, 844, 15]]) viewFor(width, height, count);
-assert.equal(webGraphInitialView(800, 600, { x: 0, y: 0, width: 1000, height: 900 }, true), null);
-assert.equal(webGraphInitialView(0, 600, { x: 0, y: 0, width: 1000, height: 900 }), null);
-console.log("Initial view fits all nodes and preserves user adjustments");
+console.log("Shared fit frames all Mesh nodes; mounted gestures prove user-camera preservation");
 
 const balanced = webGraphLayout(1600, 900, 4, 320, [160, 240, 180, 200]);
 assert.equal(balanced.web.x, 800);

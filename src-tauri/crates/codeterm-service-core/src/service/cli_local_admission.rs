@@ -23,13 +23,11 @@ pub async fn authorize(
             .unwrap_or(Value::Null),
     )
     .map_err(|_| "Unknown local CLI operation".to_string())?;
-    svc.authorize_neighbor_rpc_credential(credential, "cli.local.authorize", params)
+    svc.neighbors()
+        .authorize_neighbor_rpc_credential(credential, "cli.local.authorize", params)
         .await?;
     if matches!(operation, Operation::HostOwner) && caller.is_some() {
         return Err("Local CLI operation requires the local owner credential".into());
     }
     Ok(json!({"authorized":true}))
 }
-
-#[cfg(test)]
-mod tests;

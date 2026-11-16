@@ -55,11 +55,9 @@ impl AccountMeshAuthority for Authority {
 #[tokio::test]
 async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
     use axum::response::IntoResponse;
-    use codeterm_service_core::{
-        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
-    };
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
     crate::test_support::install_app_version();
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let (private, public) = codeterm_service_core::mesh::crown::generate_peer_keypair();
     {
@@ -112,6 +110,8 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         "renewed".parse().unwrap(),
     );
     let announce = PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: PEER.into(),
         instance_name: "Peer".into(),
         addresses: vec![PeerAddress::from_ip("192.0.2.9")],
@@ -201,6 +201,8 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         "renewed-again".parse().unwrap(),
     );
     let announce = PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: PEER.into(),
         instance_name: "Peer".into(),
         addresses: vec![PeerAddress::from_ip("192.0.2.9")],

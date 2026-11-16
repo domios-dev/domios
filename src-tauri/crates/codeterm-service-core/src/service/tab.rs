@@ -15,7 +15,7 @@ mod runtime_shutdown;
 pub use runtime_shutdown::RuntimeStopOverride;
 #[cfg(test)]
 #[path = "tab/tests.rs"]
-mod tests;
+pub mod tests;
 #[cfg(any(test, feature = "test-support"))]
 pub use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
 
@@ -378,7 +378,10 @@ impl ServiceContext {
             )
         };
         let role_policy = self.role_policy_for_tab(&canonical_tab_id);
-        let _neighbor_mutation = match self.prepare_neighbor_root_close(&canonical_tab_id) {
+        let _neighbor_mutation = match self
+            .neighbors()
+            .prepare_neighbor_root_close(&canonical_tab_id)
+        {
             Ok(mutation) => mutation,
             Err(error) => {
                 self.mux.write().abort_tab_close(&reservation);
@@ -656,7 +659,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn reconcile_authenticated_agent_input(&self, tab_id: &str) {
+    pub fn reconcile_authenticated_agent_input(&self, tab_id: &str) {
         if let Err(error) = self.bind_authenticated_durable_deliveries(tab_id) {
             log::error!(
                 "[agent-delivery] authenticated launch binding failed tab={tab_id}: {error}"

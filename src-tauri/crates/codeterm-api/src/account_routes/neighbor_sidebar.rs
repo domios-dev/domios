@@ -3,6 +3,7 @@ use crate::{
     routes::AppState,
 };
 use axum::{extract::State, http::StatusCode, Json};
+use codeterm_neighbors_service::prelude::*;
 
 fn admit(actor: &RequestActor) -> Result<(), (StatusCode, String)> {
     if matches!(actor, RequestActor::Owner) {

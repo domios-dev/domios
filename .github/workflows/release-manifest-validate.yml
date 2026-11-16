@@ -16,6 +16,10 @@ on:
         required: false
         default: ''
         type: string
+      test_waiver:
+        required: false
+        default: ''
+        type: string
       mirror:
         required: true
         type: boolean
@@ -37,6 +41,7 @@ jobs:
     runs-on: ${{ fromJSON(github.ref == 'refs/heads/master' && '"ubuntu-24.04"' || vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 30
     env:
+      RELEASE_TEST_WAIVER: ${{ inputs.test_waiver }}
       GH_TOKEN: ${{ github.token }}
       SOURCE_REPO: ${{ github.repository }}
       # 1.19 transition mirror: every MIRROR_REPO step serves 1.18.x fallback clients; delete after 1.19 ships.
@@ -52,13 +57,13 @@ jobs:
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
       - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
         if: runner.environment == 'github-hosted'
       - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
         if: runner.environment == 'github-hosted'
@@ -108,7 +113,8 @@ jobs:
             const {pathToFileURL} = require('node:url');
             const {requireQualificationWithGithub} = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci-workflow-api.mjs').href);
             const sha = process.env.QUALIFICATION_SHA || require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
-            await requireQualificationWithGithub(github, context, sha, {runId: process.env.PROMOTE_RUN_ID || undefined});
+            const evidence = await requireQualificationWithGithub(github, context, sha, {runId: process.env.PROMOTE_RUN_ID || undefined});
+            require('node:fs').writeFileSync(process.env.RUNNER_TEMP + '/release-admission.json', JSON.stringify(evidence, null, 2));
 
       - name: Fetch qualified manifest and digest metadata
         env:
@@ -162,6 +168,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/release-served-metadata.mjs prepare "$RUNNER_TEMP/qualified-release.json" "$TAG" "$SOURCE_SHA" "$PROMOTE_RUN_ID" "$SOURCE_REPO" .
+          gh release upload "$TAG" "$RUNNER_TEMP/release-admission.json" --repo "$SOURCE_REPO" --clobber
           node scripts/legacy-updater-refusal.mjs .
           gh release upload "$TAG" domios-latest.json domios-latest-deb.json latest.json latest-deb.json latest-rpm.json --repo "$SOURCE_REPO" --clobber
           if [ "$PUBLISH_MIRROR" = true ]; then
@@ -266,7 +273,7 @@ jobs:
             --slurpfile deb_verification "$RUNNER_TEMP/deb-manifest-verification.json" \
             '{version: $version, source_sha: $sha, public_mirror_verified: true,
               validator_run_id: ($run_id | tonumber), validator_repository: $repo,
-              validator_run_url: $run_url,
+              validator_run_url: $run_url, test_waiver: ($verification[0].qualification.test_waiver // null),
               manifest_verification: $verification[0], deb_manifest_verification: $deb_verification[0]}' \
             > "$RUNNER_TEMP/issue-closure-boundary.json"
           gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
