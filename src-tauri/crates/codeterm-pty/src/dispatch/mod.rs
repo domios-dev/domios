@@ -545,7 +545,7 @@ pub(crate) fn build_tab_list_json(
 /// A lazily restored tab has no terminal until something wakes it; say so and
 /// how, rather than leaving its restored launch stage to read as a stuck start.
 pub fn asleep_projection(tab: &crate::multiplexer::types::Tab) -> serde_json::Value {
-    if !tab.frozen {
+    if !tab.frozen || tab.pty_id.is_some() {
         return serde_json::Value::Null;
     }
     serde_json::json!({
