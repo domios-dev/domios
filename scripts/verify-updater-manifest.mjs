@@ -150,7 +150,7 @@ function decodeSignature(field) {
   };
 }
 
-function verifyVersionBinding(field, version, keyId, publicKey) {
+export function verifyVersionBinding(field, version, keyId, publicKey) {
   const decoded = decodeSignature(field);
   if (!decoded.keyId.equals(keyId)) {
     throw new Error(`signed by key ${decoded.keyId.toString('hex')}, manifest key is ${keyId.toString('hex')}`);
@@ -183,7 +183,7 @@ async function writeEvidence(target, record) {
 
 // Default to the key the shipped app verifies with, so a call site cannot check
 // the manifest against a key no client uses.
-async function loadPublicKey(args) {
+export async function loadPublicKey(args) {
   const raw = args.pubkey
     ? (args.pubkey.startsWith('@') ? await readFile(args.pubkey.slice(1), 'utf8') : args.pubkey)
     : JSON.parse(await readFile(TAURI_CONF, 'utf8')).plugins.updater.pubkey;
@@ -276,4 +276,4 @@ async function main() {
   console.log(`\nall ${record.platforms.length} platform signature(s) verify against the served bytes`);
 }
 
-await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

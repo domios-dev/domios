@@ -17,7 +17,7 @@ const SOURCE_REPO = sourceRepository();
 // 1.19 transition mirror: PUBLISH_MIRROR also writes this repository; delete after 1.19 ships.
 const MIRROR_REPO = 'rollacode/codeterm-releases';
 const exec = promisify(execFile);
-export const PUBLICATION_CONCURRENCY = 3;
+export const PUBLICATION_CONCURRENCY = 6;
 
 // Each name prefixes a release.yml job (reusable callers add " / <job>") that must have succeeded.
 export const REQUIRED_JOBS = [
@@ -108,6 +108,56 @@ export async function publishConcurrently(tasks, publish, limit = PUBLICATION_CO
   if (failure) throw failure;
 }
 
+export async function promoteQualifiedDrafts({ tag, sourceSha, runId, work, repositories,
+  fetchEvidence = fetchAndAggregate, publish = publishPlatform, run = gh, drafts,
+  readReceipt = async directory => JSON.parse(await readFile(path.join(directory, 'dry-run-evidence.json'), 'utf8')) }) {
+  for (const [repository, token] of repositories) {
+    if (!token) refuse(`no token for ${repository}`);
+  }
+  const { readDraft, admitDraft, qualificationTag, prepareDraft, sealDraft } = drafts ?? await import('./release-qualification-draft.mjs');
+  const missing = [];
+  for (const [repository, token] of repositories) {
+    const env = { ...process.env, GH_TOKEN: token };
+    const draft = await readDraft(qualificationTag(tag, runId), repository, env) ?? await readDraft(tag, repository, env);
+    if (draft) {
+      admitDraft(draft, tag, sourceSha, runId, repository);
+      if (!draft.body.includes('<!-- qualification-complete -->')) missing.push([repository, token]);
+      if (draft.tagName !== tag) await run(['api', '--method', 'PATCH', `repos/${repository}/releases/${draft.databaseId}`, '-f', `tag_name=${tag}`], env);
+    }
+    else missing.push([repository, token]);
+  }
+  if (!missing.length) {
+    console.log(`Admitted qualification drafts for ${sourceSha} from run ${runId}; no asset transfers`);
+    return;
+  }
+  const input = path.join(work, 'input');
+  await fetchEvidence({ tag, sourceSha, runId, inputDirectory: input, outputDirectory: path.join(work, 'output') });
+  for (const [repository, token] of missing) {
+    const env = { ...process.env, GH_TOKEN: token };
+    let draft = await readDraft(tag, repository, env);
+    if (!draft) {
+      await prepareDraft({ tag, sourceSha, runId, repository, env });
+      draft = await readDraft(qualificationTag(tag, runId), repository, env);
+    }
+    await run(['api', '--method', 'PATCH', `repos/${repository}/releases/${draft.databaseId}`, '-f', `tag_name=${tag}`], env);
+  }
+  const tasks = [];
+  for (const platform of PLATFORMS) {
+    const directory = path.join(input, platform);
+    const receipt = await readReceipt(directory);
+    for (const [repository, token] of missing) {
+      tasks.push({ tag, platform, directory, receipt, repository, env: { ...process.env, GH_TOKEN: token } });
+    }
+  }
+  const started = performance.now();
+  await publishConcurrently(tasks, async task => {
+    const names = await publish(task);
+    console.log(`${task.platform}: ${names.length} retained file(s) digest-verified on ${task.repository} draft ${tag}`);
+  });
+  for (const [repository, token] of missing) await sealDraft({ tag, sourceSha, runId, repository, env: { ...process.env, GH_TOKEN: token } });
+  console.log(`Digest-verified publication completed in ${((performance.now() - started) / 1000).toFixed(1)}s (concurrency ${PUBLICATION_CONCURRENCY})`);
+}
+
 async function main([verb, ...args]) {
   if (verb === 'check') {
     const [runId, sourceSha, branch] = args;
@@ -123,27 +173,9 @@ async function main([verb, ...args]) {
   } else if (verb === 'publish') {
     const [tag, sourceSha, runId, work] = args;
     requireQualification(sourceSha, { runId });
-    const input = path.join(work, 'input');
-    await fetchAndAggregate({ tag, sourceSha, runId, inputDirectory: input, outputDirectory: path.join(work, 'output') });
     const repositories = [[SOURCE_REPO, process.env.GH_TOKEN],
       ...(process.env.PUBLISH_MIRROR === 'true' ? [[MIRROR_REPO, process.env.MIRROR_TOKEN]] : [])];
-    for (const [repository, token] of repositories) {
-      if (!token) refuse(`no token for ${repository}`);
-    }
-    const tasks = [];
-    for (const platform of PLATFORMS) {
-      const directory = path.join(input, platform);
-      const receipt = JSON.parse(await readFile(path.join(directory, 'dry-run-evidence.json'), 'utf8'));
-      for (const [repository, token] of repositories) {
-        tasks.push({ tag, platform, directory, receipt, repository, env: { ...process.env, GH_TOKEN: token } });
-      }
-    }
-    const started = performance.now();
-    await publishConcurrently(tasks, async task => {
-      const names = await publishPlatform(task);
-      console.log(`${task.platform}: ${names.length} retained file(s) digest-verified on ${task.repository} draft ${tag}`);
-    });
-    console.log(`Digest-verified publication completed in ${((performance.now() - started) / 1000).toFixed(1)}s (concurrency ${PUBLICATION_CONCURRENCY})`);
+    await promoteQualifiedDrafts({ tag, sourceSha, runId, work, repositories });
   } else refuse('unknown operation');
 }
 

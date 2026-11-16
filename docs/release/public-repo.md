@@ -127,6 +127,11 @@ GH_TOKEN="$(gh auth token --user rollacode)" gh api --method PUT repos/domios-de
 
 Owner release pushes start the full tests.yml qualification graph and reusable release.yml dry-run
 packaging together in one push run, with per-branch concurrency and exact `github.sha` source.
+That push may upload signed assets only to its own hidden `qualification-vX.Y.Z-RUN_ID` drafts.
+The body records source SHA/run ID; completion receipts name finished platforms. Failed runs leave
+their partial drafts hidden; failed-job reruns clear only their platform. New runs supersede older
+hidden drafts of the same version, with uploads bound to immutable numeric draft IDs.
+No qualification push creates git tags or public releases.
 Only exact release/X.Y.Z pushes are admitted. All privileged reusable jobs reject PR events.
 Release PRs into master use hosted, secret-free light checks (`PR result`) and the hosted read-only
 Release qualification job of `release-pr.yml`. Open or refresh the PR only after the push run is completed green; the reader
@@ -138,12 +143,19 @@ It finds its merged PR and selects the green push run by exact SHA, branch, repo
 actors. `promote_run_id` pins receipt lookup and retained packaging to that run. Qualification,
 attempt provenance, expiry, warnings, all platform and Debian receipts, manifest validation, the
 protected `release` environment (branch policy `master`) and the publication switch remain required.
+The admitted run's draft source SHA/run ID are checked once; publication retargets that draft to
+`vX.Y.Z` and publishes it with the qualified manifests, without downloading or re-hashing assets.
+A missing/incomplete own-run draft uses the verified fetch path with parallel platform downloads
+and upload concurrency six; foreign metadata refuses. After publication, only manifests are read:
+signatures, URLs and sha256 fields must match qualification, signed version comments must verify,
+and HEAD requests must return HTTP 200 and the qualified asset sizes in source, Debian and mirror.
+This check plus the qualification evidence authorizes issue closure.
 Every master publication job runs on hosted Ubuntu. A failed publication is repaired by rerunning the
 failed jobs of that same master push run.
 
 Dispatches never publish an application release: a `release.yml` dispatch refuses unless
 `dry_run=true`, takes no `promote_run_id` and always builds the head of the dispatching release/X.Y.Z
-branch; `release-publish.yml` refuses unless `rehearsal=true`. Diagnostics cannot qualify a SHA, and
+branch, retaining only private evidence and creating no drafts; `release-publish.yml` refuses unless `rehearsal=true`. Diagnostics cannot qualify a SHA, and
 a `tests.yml` dispatch admits only a full 40-hex `source_ref` already reachable from master, develop
 or the dispatching release/X.Y.Z branch, so a contributor's PR head never runs on the farm.
 Tag-triggered plugin/SDK publication remains disabled. Plugin dispatch takes an existing plugin tag

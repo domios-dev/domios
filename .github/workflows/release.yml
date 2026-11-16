@@ -31,7 +31,7 @@ on:
         default: false
         type: boolean
       dry_run:
-        description: 'Required true: build and sign every platform without drafts, uploads, tags, or a manifest'
+        description: 'Required true: build and sign every platform without tags or public releases; dispatches do not upload drafts'
         required: false
         default: true
         type: boolean
@@ -277,34 +277,12 @@ jobs:
             echo "dry_run=false"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create draft releases before parallel uploads
-        if: steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'
+      - name: Prepare hidden qualification drafts
+        if: inputs.dry_run && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
-          SOURCE_REPO: ${{ github.repository }}
-          TAG: ${{ steps.release.outputs.tag }}
-          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
-          PUBLISH_MIRROR: ${{ steps.release.outputs.mirror }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
-            gh release create "$TAG" --repo "$SOURCE_REPO" --target "$SOURCE_SHA" --draft \
-              --title "Domios $TAG" --notes "See the assets to download this version and install."
-          fi
-          node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG"
-
-          # 1.19 transition mirror: rollacode/codeterm-releases draft; delete after 1.19 ships.
-          if [ "$PUBLISH_MIRROR" = true ]; then
-            export GH_TOKEN="$MIRROR_TOKEN"
-            if ! gh release view "$TAG" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
-              gh release create "$TAG" --repo rollacode/codeterm-releases \
-                --draft --title "Domios $TAG" \
-                --notes "Auto-mirrored from $GITHUB_REPOSITORY. See the source repo for full release notes."
-            fi
-            node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
-          fi
+        run: node scripts/release-qualification-draft.mjs prepare "${{ steps.release.outputs.tag }}" "${{ steps.release.outputs.source_sha }}" "$GITHUB_RUN_ID"
 
   # The platform-independent frontend is built once; every platform job installs these bytes by digest.
   frontend-dist:
@@ -509,7 +487,7 @@ jobs:
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs receipt
-      - name: Re-verify retained evidence and publish it to the drafts
+      - name: Admit qualification drafts or restore missing drafts
         env:
           GH_TOKEN: ${{ github.token }}
           # 1.19 transition mirror: rollacode/codeterm-releases write; delete after 1.19 ships.

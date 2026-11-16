@@ -110,6 +110,15 @@ jobs:
             const sha = process.env.QUALIFICATION_SHA || require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
             await requireQualificationWithGithub(github, context, sha, {runId: process.env.PROMOTE_RUN_ID || undefined});
 
+      - name: Fetch qualified manifest and digest metadata
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+          CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
+          CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
+          PROMOTE_RUN_ID: ${{ inputs.promote_run_id }}
+        run: bash scripts/ci-artifact.sh get "$PROMOTE_RUN_ID/manifest-dry-run/manifest-local-verification.json" "$RUNNER_TEMP/qualified-release.json"
+
       - name: Stamp the source release tag after all gates succeed
         env:
           TAG: ${{ steps.release.outputs.tag }}
@@ -142,93 +151,22 @@ jobs:
             echo "manifest=domios-latest.json" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Merge and upload final channel manifests
+      - name: Upload qualified channel manifests
         env:
           TAG: ${{ steps.release.outputs.tag }}
-          VER: ${{ steps.release.outputs.version }}
-          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PROMOTE_RUN_ID: ${{ inputs.promote_run_id }}
           PUBLISH_MIRROR: ${{ inputs.mirror }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          case "$MANIFEST" in
-            domios-latest.json) DEB_MANIFEST=domios-latest-deb.json ;;
-            domios-latest-rc.json) DEB_MANIFEST=domios-latest-rc-deb.json ;;
-            domios-latest-nightly.json) DEB_MANIFEST=domios-latest-nightly-deb.json ;;
-            *) echo "::error::unknown channel manifest $MANIFEST"; exit 1 ;;
-          esac
-          rm -rf "$RUNNER_TEMP/release-fragments" "$RUNNER_TEMP/release-base"
-          mkdir -p "$RUNNER_TEMP/release-fragments/raw" \
-            "$RUNNER_TEMP/release-fragments/main" "$RUNNER_TEMP/release-fragments/deb" \
-            "$RUNNER_TEMP/release-base"
-          gh release download "$TAG" --repo "$SOURCE_REPO" \
-            --pattern 'updater-*.json' --dir "$RUNNER_TEMP/release-fragments/raw"
-          main_count=0
-          deb_count=0
-          for fragment in "$RUNNER_TEMP"/release-fragments/raw/updater-*.json; do
-            [ -f "$fragment" ] || continue
-            name=$(basename "$fragment" .json)
-            if [[ "$name" == *-deb ]]; then
-              destination="$RUNNER_TEMP/release-fragments/deb/$name"
-              deb_count=$((deb_count + 1))
-            else
-              destination="$RUNNER_TEMP/release-fragments/main/$name"
-              main_count=$((main_count + 1))
-            fi
-            mkdir -p "$destination"
-            cp "$fragment" "$destination/domios-latest.json"
-          done
-          [ "$main_count" -gt 0 ] || { echo "::error::no platform updater fragments were published"; exit 1; }
-          [ "$deb_count" -gt 0 ] || { echo "::error::no Debian updater fragment was published"; exit 1; }
-
-          base_args=()
-          if gh release download "$TAG" --repo "$SOURCE_REPO" \
-              --pattern "$MANIFEST" --dir "$RUNNER_TEMP/release-base" 2>/dev/null; then
-            base_args=(--base "$RUNNER_TEMP/release-base/$MANIFEST")
-          fi
-          node scripts/merge-latest-json.js \
-            --in "$RUNNER_TEMP/release-fragments/main" --out "$MANIFEST" "${base_args[@]}"
-          node scripts/merge-latest-json.js \
-            --in "$RUNNER_TEMP/release-fragments/deb" --out "$DEB_MANIFEST"
-          jq -e --arg ver "$VER" '.version == $ver' "$MANIFEST" >/dev/null
-          for platform in darwin-aarch64 darwin-x86_64 windows-x86_64 windows-aarch64 linux-x86_64 linux-aarch64; do
-            jq -e --arg platform "$platform" \
-              '.platforms[$platform].signature | type == "string" and length > 0' \
-              "$MANIFEST" >/dev/null
-          done
-          jq -e --arg ver "$VER" \
-            '(.version == $ver) and (.platforms["linux-x86_64"].signature | type == "string" and length > 0)' \
-            "$DEB_MANIFEST" >/dev/null
-          node scripts/legacy-updater-refusal.mjs . "$MANIFEST"
-          LEGACY="${MANIFEST#domios-}"
-          gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" "$LEGACY" "${LEGACY%.json}-deb.json" "${LEGACY%.json}-rpm.json" \
-            --repo "$SOURCE_REPO" --clobber
-
-          # 1.19 transition mirror
+          node scripts/release-served-metadata.mjs prepare "$RUNNER_TEMP/qualified-release.json" "$TAG" "$SOURCE_SHA" "$PROMOTE_RUN_ID" "$SOURCE_REPO" .
+          node scripts/legacy-updater-refusal.mjs .
+          gh release upload "$TAG" domios-latest.json domios-latest-deb.json latest.json latest-deb.json latest-rpm.json --repo "$SOURCE_REPO" --clobber
           if [ "$PUBLISH_MIRROR" = true ]; then
-            export GH_TOKEN="$MIRROR_TOKEN"
-            gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" "$LEGACY" "${LEGACY%.json}-deb.json" "${LEGACY%.json}-rpm.json" \
-              --repo "$MIRROR_REPO" --clobber
+            GH_TOKEN="$MIRROR_TOKEN" gh release upload "$TAG" domios-latest.json domios-latest-deb.json latest.json latest-deb.json latest-rpm.json --repo "$MIRROR_REPO" --clobber
           fi
-
-      - name: Verify draft artifact signatures before publication
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-          VER: ${{ steps.release.outputs.version }}
-          MANIFEST: ${{ steps.channel.outputs.manifest }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          directory="$RUNNER_TEMP/draft-integrity"
-          rm -rf "$directory"
-          mkdir -p "$directory"
-          for manifest in "$MANIFEST" domios-latest-deb.json; do
-            jq -r '.platforms[].url | split("/")[-1]' "$manifest" | while IFS= read -r asset; do
-              gh release download "$TAG" --repo "$SOURCE_REPO" --pattern "$asset" --dir "$directory" --clobber
-            done
-            node scripts/verify-updater-manifest.mjs --manifest "$manifest" --local "$directory" --require-version "$VER"
-          done
 
       - name: Sync full release notes to the source release
         env:
@@ -272,107 +210,33 @@ jobs:
         env:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
-          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PROMOTE_RUN_ID: ${{ inputs.promote_run_id }}
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/legacy-updater-refusal.mjs verify "https://github.com/$SOURCE_REPO/releases/download/$TAG/${MANIFEST#domios-}" "$VER"
-          mkdir -p "$RUNNER_TEMP/public-mirror"
-          release=$(gh release view "$TAG" --repo "$SOURCE_REPO" \
-            --json isDraft,publishedAt,assets)
-          test "$(printf '%s' "$release" | jq -r .isDraft)" = false
-          test "$(printf '%s' "$release" | jq -r .publishedAt)" != null
-          printf '%s' "$release" | jq -e --arg manifest "$MANIFEST" \
-            '.assets | any(.name == $manifest)' >/dev/null
-          gh release download "$TAG" --repo "$SOURCE_REPO" \
-            --pattern "$MANIFEST" --dir "$RUNNER_TEMP/public-mirror" --clobber
-          jq -e --arg ver "$VER" '
-            (.version == $ver)
-            and (.platforms["darwin-aarch64"].signature | type == "string" and length > 0)
-            and (.platforms["darwin-aarch64"].url | endswith("/Domios_aarch64.app.tar.gz"))
-            and (.platforms["darwin-x86_64"].signature | type == "string" and length > 0)
-            and (.platforms["darwin-x86_64"].url | endswith("/Domios_x64.app.tar.gz"))
-            and (.platforms | has("windows-x86_64") and has("windows-aarch64"))
-            and (.platforms | has("linux-x86_64") and has("linux-aarch64"))
-          ' "$RUNNER_TEMP/public-mirror/$MANIFEST" >/dev/null
-          jq -r '.platforms[].url' "$RUNNER_TEMP/public-mirror/$MANIFEST" \
-            | while IFS= read -r url; do
-                case "$url" in
-                  https://github.com/"$SOURCE_REPO"/releases/download/"$TAG"/*) ;;
-                  *) echo "::error::non-versioned or non-public updater URL: $url"; exit 1 ;;
-                esac
-                curl --fail --silent --show-error --location --head "$url" >/dev/null
-              done
-          verification=0
-          node scripts/verify-updater-manifest.mjs \
-            --manifest "https://github.com/$SOURCE_REPO/releases/download/$TAG/$MANIFEST?cb=$(date +%s)" \
-            --require-version "$VER" \
-            --require-platform darwin-aarch64 \
-            --require-platform darwin-x86_64 \
-            --require-platform windows-x86_64 \
-            --require-platform windows-aarch64 \
-            --require-platform linux-x86_64 \
-            --require-platform linux-aarch64 \
-            --evidence "$RUNNER_TEMP/manifest-verification.json" || verification=$?
-          gh release upload "$TAG" "$RUNNER_TEMP/manifest-verification.json" \
-            --repo "$SOURCE_REPO" --clobber || true
-          if [ "$verification" -ne 0 ]; then
-            echo "::error::published manifest is not installable"; exit 1
-          fi
+          node scripts/legacy-updater-refusal.mjs verify "https://github.com/$SOURCE_REPO/releases/download/$TAG/latest.json" "$VER"
+          node scripts/release-served-metadata.mjs verify "$RUNNER_TEMP/qualified-release.json" "$TAG" "$SOURCE_SHA" "$PROMOTE_RUN_ID" "$SOURCE_REPO" "$RUNNER_TEMP"
+          gh release upload "$TAG" "$RUNNER_TEMP/manifest-verification.json" "$RUNNER_TEMP/deb-manifest-verification.json" --repo "$SOURCE_REPO" --clobber
 
       - name: Verify published Debian manifest
         env:
-          TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
-          MANIFEST: ${{ steps.channel.outputs.manifest }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "$MANIFEST" in
-            domios-latest.json) deb_manifest=domios-latest-deb.json ;;
-            domios-latest-rc.json) deb_manifest=domios-latest-rc-deb.json ;;
-            domios-latest-nightly.json) deb_manifest=domios-latest-nightly-deb.json ;;
-            *) echo "::error::unknown channel manifest $MANIFEST"; exit 1 ;;
-          esac
-          node scripts/verify-updater-manifest.mjs \
-            --manifest "https://github.com/$SOURCE_REPO/releases/download/$TAG/$deb_manifest?cb=$(date +%s)" \
-            --require-version "$VER" \
-            --require-platform linux-x86_64 \
-            --require-platform linux-aarch64 \
-            --evidence "$RUNNER_TEMP/deb-manifest-verification.json"
+        run: node scripts/check-release-closure.mjs --evidence "$RUNNER_TEMP/manifest-verification.json" --deb-evidence "$RUNNER_TEMP/deb-manifest-verification.json" --version "$VER"
 
       - name: Verify the published 1.19 transition mirror
         if: inputs.mirror
         env:
-          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
-          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PROMOTE_RUN_ID: ${{ inputs.promote_run_id }}
         shell: bash
         run: |
           set -euo pipefail
-          case "$MANIFEST" in
-            domios-latest.json) deb_manifest=domios-latest-deb.json ;;
-            domios-latest-rc.json) deb_manifest=domios-latest-rc-deb.json ;;
-            domios-latest-nightly.json) deb_manifest=domios-latest-nightly-deb.json ;;
-            *) echo "::error::unknown channel manifest $MANIFEST"; exit 1 ;;
-          esac
-          node scripts/legacy-updater-refusal.mjs verify "https://github.com/$MIRROR_REPO/releases/download/$TAG/${MANIFEST#domios-}" "$VER"
-          test "$(gh release view "$TAG" --repo "$MIRROR_REPO" --json isDraft --jq .isDraft)" = false
-          node scripts/verify-updater-manifest.mjs \
-            --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/$MANIFEST?cb=$(date +%s)" \
-            --require-version "$VER" \
-            --require-platform darwin-aarch64 \
-            --require-platform darwin-x86_64 \
-            --require-platform windows-x86_64 \
-            --require-platform windows-aarch64 \
-            --require-platform linux-x86_64 \
-            --require-platform linux-aarch64
-          node scripts/verify-updater-manifest.mjs \
-            --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/$deb_manifest?cb=$(date +%s)" \
-            --require-version "$VER" \
-            --require-platform linux-x86_64 \
-            --require-platform linux-aarch64
+          node scripts/legacy-updater-refusal.mjs verify "https://github.com/$MIRROR_REPO/releases/download/$TAG/latest.json" "$VER"
+          mkdir -p "$RUNNER_TEMP/mirror-verification"
+          node scripts/release-served-metadata.mjs verify "$RUNNER_TEMP/qualified-release.json" "$TAG" "$SOURCE_SHA" "$PROMOTE_RUN_ID" "$MIRROR_REPO" "$RUNNER_TEMP/mirror-verification"
 
       - name: Publish the verified core channel to the source repository
         env:
