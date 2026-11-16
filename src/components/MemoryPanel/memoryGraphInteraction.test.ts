@@ -20,4 +20,16 @@ assert.equal(fitFramedNodes([{ x: 0.35, y: 0.4 }], { x: 0, y: 0 }, { x: 1, y: 1 
 assert.equal(fitFramedNodes([], { x: 0, y: 0 }, { x: 1, y: 1 }), null);
 assert.equal(fitFramedNodes([{ x: NaN, y: Infinity }], { x: 0, y: 0 }, { x: 1, y: 1 }), null);
 assert.equal(fitFramedNodes(points, { x: 0, y: 0 }, { x: 0, y: 1 }), null);
-console.log("10 drag-threshold and framed-fit scenarios passed");
+const cloud = Array.from({ length: 200 }, (_, i) => ({ x: i / 200, y: i / 400 }));
+const viewportStart = { x: 0, y: 0 }, viewportEnd = { x: 1, y: 1 };
+const baseline = fitFramedNodes(cloud, viewportStart, viewportEnd)!;
+for (const outlier of [{ x: 1e9, y: -1e9 }, { x: -1e9, y: 1e9 }]) {
+  const contaminated = [...cloud, outlier];
+  const frame = fitFramedNodes(contaminated, viewportStart, viewportEnd)!;
+  assert.ok(Math.abs(frame.ratio / baseline.ratio - 1) < 0.02);
+  assert.ok(Math.abs(frame.x - baseline.x) < 0.01);
+  assert.ok(Math.abs(frame.y - baseline.y) < 0.01);
+  assert.deepEqual(fitFramedNodes(contaminated.reverse(), viewportStart, viewportEnd), frame);
+}
+assert.deepEqual(fitFramedNodes([...cloud, { x: NaN, y: Infinity }], viewportStart, viewportEnd), baseline);
+console.log("drag-threshold, framed-fit, and outlier-resilience scenarios passed");
