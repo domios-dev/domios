@@ -183,7 +183,7 @@ pub struct RecordingHierarchyReportDelivery {
     pub writes: Mutex<Vec<(String, String)>>,
 }
 
-impl super::hierarchy::HierarchyReportDelivery for RecordingHierarchyReportDelivery {
+impl super::report_delivery::HierarchyReportDelivery for RecordingHierarchyReportDelivery {
     fn deliver(
         &self,
         recipient_tab_id: &str,
@@ -202,7 +202,7 @@ pub struct FailFirstHierarchyReportDelivery {
     pub writes: Mutex<Vec<(String, String)>>,
 }
 
-impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDelivery {
+impl super::report_delivery::HierarchyReportDelivery for FailFirstHierarchyReportDelivery {
     fn deliver(
         &self,
         recipient_tab_id: &str,
@@ -588,7 +588,7 @@ impl ServiceFixture {
             ),
         )));
         extensions.insert(crate::service::mux_emitter::MuxEmitter::default());
-        extensions.insert(crate::service::hierarchy::PlannerReplayCoalescer::default());
+        extensions.insert(crate::service::planner_replay::PlannerReplayCoalescer::default());
         extensions.insert(crate::service::MuxEmitPending(Arc::new(AtomicBool::new(
             false,
         ))));
@@ -629,9 +629,8 @@ impl ServiceFixture {
         extensions.insert(crate::service::PlanStartupLoaded(Arc::new(
             AtomicBool::new(false),
         )));
-        extensions.insert::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(Arc::new(
-            Default::default(),
-        ));
+        extensions
+            .insert::<Arc<crate::service::heartbeat_gate::Gate>>(Arc::new(Default::default()));
         extensions.insert::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>(Arc::new(
             Default::default(),
         ));

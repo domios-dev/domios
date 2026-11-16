@@ -754,7 +754,7 @@ impl ServiceContext {
         };
         if changed {
             self.emit_state_changed(MuxEmitCause::TabStatus);
-            self.schedule_planner_replay(&tab_id);
+            self.orchestration().schedule_planner_replay(&tab_id);
             if resume_mark_changed {
                 self.schedule_session_persist_debounced();
             }
@@ -763,9 +763,9 @@ impl ServiceContext {
                 // The turn boundary, not a status value: the pass itself runs on the
                 // ledger thread, never here.
                 self.on_agent_turn_settled(&tab_id);
-                self.complete_worker_turn_without_report(
+                self.orchestration().complete_worker_turn_without_report(
                     &tab_id,
-                    crate::service::hierarchy::WorkerTurnSignal::IdleTransition,
+                    crate::service::orchestration_data::WorkerTurnSignal::IdleTransition,
                 );
             }
         }

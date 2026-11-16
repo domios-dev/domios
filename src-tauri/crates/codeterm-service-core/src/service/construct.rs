@@ -260,7 +260,7 @@ pub fn build_service_context(
         ),
     )));
     extensions.insert(crate::service::mux_emitter::MuxEmitter::default());
-    extensions.insert(crate::service::hierarchy::PlannerReplayCoalescer::default());
+    extensions.insert(crate::service::planner_replay::PlannerReplayCoalescer::default());
     extensions.insert(crate::service::MuxEmitPending(Arc::new(
         std::sync::atomic::AtomicBool::new(false),
     )));
@@ -301,9 +301,7 @@ pub fn build_service_context(
     extensions.insert(crate::service::PlanStartupLoaded(Arc::new(
         std::sync::atomic::AtomicBool::new(false),
     )));
-    extensions.insert::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(Arc::new(
-        Default::default(),
-    ));
+    extensions.insert::<Arc<crate::service::heartbeat_gate::Gate>>(Arc::new(Default::default()));
     extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(
         parking_lot::Mutex::new(crate::service::WorkerPersonaReservations::default()),
     )));

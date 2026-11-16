@@ -529,7 +529,10 @@ impl ServiceContext {
             }
             if role_str == "Worker" || role_str == "Manager" {
                 if let Some(ref parent) = spec.parent_tab_id {
-                    if let Err(e) = self.expect_spawn_parent_link(&tab_id, parent) {
+                    if let Err(e) = self
+                        .orchestration()
+                        .expect_spawn_parent_link(&tab_id, parent)
+                    {
                         if tab_created_by_spawn {
                             self.rollback_provisional_tab_via_close(&tab_id);
                         }

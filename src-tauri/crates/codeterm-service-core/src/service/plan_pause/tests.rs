@@ -10,9 +10,9 @@ use super::*;
 use crate::cron::store::{CronCreateParams, CronStore};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
-use crate::service::hierarchy::plan_reminder_nudge::timed_plan_reminder_targets;
 use crate::service::plan::pause_operation::{open_pause_operation, plan_notices_suppressed};
 use crate::service::plan::{NewTask, PlanStore};
+use crate::service::plan_reminder_model::timed_plan_reminder_targets;
 
 const FOREIGN_TEAM: &str = "team_foreign";
 
@@ -408,12 +408,10 @@ fn plan_pause_resume_second_pause_is_noop_and_keeps_original_record() {
 fn plan_pause_resume_paused_plan_suppresses_reminders_heartbeat_and_notices_only_for_it() {
     let w = world();
     let tabs = |plans: &[Plan]| -> HashSet<String> {
-        timed_plan_reminder_targets(
-            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(plans),
-        )
-        .into_iter()
-        .map(|target| target.tab_id)
-        .collect()
+        timed_plan_reminder_targets(&crate::service::plan_reminder_fixture::reads(plans))
+            .into_iter()
+            .map(|target| target.tab_id)
+            .collect()
     };
     let before = tabs(&w.store.all_plans_for_test());
     assert!(before.contains(&w.orchestrator));

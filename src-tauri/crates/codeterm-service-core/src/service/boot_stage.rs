@@ -521,7 +521,7 @@ impl ServiceContext {
                 crate::session::lifecycle::LifecycleTransition::LaunchReady,
             );
             crate::startup::boot_timing::mark(tab_id, None, "finish_journal_done");
-            self.schedule_planner_replay(tab_id);
+            self.orchestration().schedule_planner_replay(tab_id);
             crate::startup::boot_timing::mark(tab_id, None, "finish_planner_done");
             self.schedule_parked_user_send(tab_id);
             crate::startup::boot_timing::mark(tab_id, None, "finish_user_wake_done");

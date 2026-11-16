@@ -1,6 +1,7 @@
 //! Socket RPC surface for memory operations; validation is shared with HTTP routes.
 //! Plaintext-capable secret operations retain bearer-authenticated HTTP.
 
+use codeterm_orchestration::traits::CuratorSkillExt;
 mod embedder;
 mod graph;
 mod hygiene;

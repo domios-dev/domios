@@ -137,10 +137,10 @@ async fn fake_peer_mesh_calls_commit_exact_membership_and_keep_the_worker_sessio
     let mux = fixture.remote.service.mux.read();
     let after = mux.get_tab(&fixture.worker).unwrap();
     let (_, report_target) =
-        crate::service::hierarchy::resolve_report_target(&mux, &fixture.worker).unwrap();
+        crate::service::report_target::resolve_report_target(&mux, &fixture.worker).unwrap();
     assert_eq!(
         report_target,
-        Some(crate::service::hierarchy::ReportTarget::Mesh {
+        Some(crate::service::report_target::ReportTarget::Mesh {
             peer: "origin".into(),
             tab: fixture.destination.clone()
         })

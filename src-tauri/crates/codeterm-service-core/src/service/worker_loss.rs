@@ -356,7 +356,7 @@ impl ServiceContext {
             })
     }
 
-    pub(crate) fn worker_losses_for_tab(
+    pub fn worker_losses_for_tab(
         &self,
         tab_id: &str,
         cause: WorkerLossCause,

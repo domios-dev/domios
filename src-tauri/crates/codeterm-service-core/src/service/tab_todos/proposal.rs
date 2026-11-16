@@ -288,7 +288,8 @@ impl ServiceContext {
         let target = target.to_owned();
         let text = text.to_owned();
         crate::service::blocking_run(move || {
-            crate::service::hierarchy::deliver_tab_todo_recitation(&svc, &target, &text)
+            svc.orchestration()
+                .deliver_tab_todo_recitation(&target, &text)
         })
         .await
     }

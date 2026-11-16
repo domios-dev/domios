@@ -61,25 +61,25 @@ struct ResultEvent {
     result: Option<String>,
 }
 
-struct RunState {
+pub struct RunState {
     pty_id: String,
     tab_id: String,
     kind: AgentRunKind,
     scanner: Mutex<ResultEventScanner>,
     started_at: Instant,
     last_byte_at: Mutex<Instant>,
-    completed: AtomicBool,
+    pub completed: AtomicBool,
     armed: AtomicBool,
     saw_working: AtomicBool,
     saw_post_session_progress: AtomicBool,
     restart_count: AtomicU32,
     last_restart_at: Mutex<Instant>,
     resume_system_prompt: Option<String>,
-    cron_completion: Mutex<Option<cron_completion::PendingCompletion>>,
+    pub cron_completion: Mutex<Option<cron_completion::PendingCompletion>>,
 }
 
 pub struct RunWatcherRegistry {
-    runs: Mutex<HashMap<String, Arc<RunState>>>,
+    pub runs: Mutex<HashMap<String, Arc<RunState>>>,
     runtime_runs: Mutex<HashMap<String, runtime_runs::RuntimeRun>>,
 }
 
@@ -139,7 +139,7 @@ impl RunWatcherRegistry {
         runs.remove(pty_id);
     }
 
-    pub(crate) fn mark_tab_completed_externally(&self, tab_id: &str) {
+    pub fn mark_tab_completed_externally(&self, tab_id: &str) {
         self.runs.lock().retain(|_, state| {
             if state.tab_id != tab_id {
                 return true;

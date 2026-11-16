@@ -986,4 +986,4 @@ fn worker_brief_flagged(role: Option<crate::multiplexer::types::AgentRole>) -> b
 mod tests;
 
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) mod test_boundary;
+pub mod test_boundary;

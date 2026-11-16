@@ -61,7 +61,7 @@ impl ServiceContext {
         };
         let owner = if curator {
             id.and_then(|id| {
-                self.try_ext::<super::curator::CuratorTabs>()
+                self.try_ext::<super::curator_runtime::CuratorTabs>()
                     .and_then(|index| index.0.read().get(&id).cloned())
             })
             .and_then(|plan| self.plan_store.owner_of(&plan))

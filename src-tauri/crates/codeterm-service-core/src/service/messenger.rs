@@ -43,7 +43,7 @@ pub struct MessageEnvelope {
     pub every_ms: Option<u64>,
     pub next_at_ms: Option<u64>,
     pub skipped_ticks: Option<u64>,
-    pub(crate) delivery_observer: Option<DeliveryWriteObserver>,
+    pub delivery_observer: Option<DeliveryWriteObserver>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
@@ -102,7 +102,7 @@ pub enum Delivery {
 }
 
 impl Delivery {
-    pub(crate) fn is_written(&self) -> bool {
+    pub fn is_written(&self) -> bool {
         !matches!(self, Self::Pending { .. })
     }
 }

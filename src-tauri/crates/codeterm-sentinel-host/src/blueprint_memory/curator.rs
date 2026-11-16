@@ -58,11 +58,13 @@ pub(super) fn keep(
         mux.get_tab(&caller.tab)
             .and_then(|tab| tab.agent_session_id.clone())
     };
-    let identity = ctx.curator_identity(&AuthenticatedPlanCaller {
-        tab_id: Some(caller.tab.clone()),
-        session_id: session,
-        binding_nonce: caller.nonce.clone(),
-    })?;
+    let identity = ctx
+        .orchestration()
+        .curator_identity(&AuthenticatedPlanCaller {
+            tab_id: Some(caller.tab.clone()),
+            session_id: session,
+            binding_nonce: caller.nonce.clone(),
+        })?;
     let plan = ctx
         .plan_store
         .plan_identity_projection(&identity.plan_id)

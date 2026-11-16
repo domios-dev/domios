@@ -110,7 +110,7 @@ impl ServiceContext {
     }
 
     /// Blocks on Storage; callers must already run off the async runtime.
-    pub(crate) fn tab_todo_step_line_blocking(&self, tab_id: &str) -> Option<String> {
+    pub fn tab_todo_step_line_blocking(&self, tab_id: &str) -> Option<String> {
         let recitation = crate::async_runtime::block_on(self.tab_todo_recite(tab_id, Some(tab_id)))
             .ok()
             .flatten()?;
