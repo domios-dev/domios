@@ -83,8 +83,11 @@ export function CanvasViewer({ canvas, layout, title, anchorRef, onClose }: {
             title={<><LayoutDashboard size={14} aria-hidden className="shrink-0 @max-[560px]:hidden" /><span className="min-w-0 truncate font-medium text-[var(--ct-fg)]">{title}</span></>}
             navigator={targets.length > 1 && <nav aria-label={`Canvas ${unit}`} className="flex shrink-0 items-center gap-0.5 @max-[560px]:gap-0">
               <button type="button" className={CANVAS_GHOST_BUTTON} aria-label={`Previous ${unit === "views" ? "view" : "item"}`} onClick={() => navigate(-1)}>‹</button>
-              <span aria-live="polite" title={active === null ? `All ${unit}` : targets[active].label} className="max-w-[16ch] truncate text-center tabular-nums @max-[560px]:max-w-[8ch]">
-                {active === null ? canvasPagerLabel(active, targets.length) : `${targets[active].label} · ${canvasPagerLabel(active, targets.length)}`}
+              <span aria-live="polite" title={active === null ? `All ${unit}` : targets[active].label} className="flex min-w-0 max-w-[24ch] items-baseline gap-1.5 @max-[560px]:max-w-[12ch]">
+                {active === null ? canvasPagerLabel(active, targets.length) : <>
+                  <span className="min-w-0 truncate text-[var(--ct-fg)]">{targets[active].label}</span>{" "}
+                  <span className="shrink-0 tabular-nums text-[var(--ct-muted-fg)]">{canvasPagerLabel(active, targets.length)}</span>
+                </>}
               </span>
               <button type="button" className={CANVAS_GHOST_BUTTON} aria-label={`Next ${unit === "views" ? "view" : "item"}`} onClick={() => navigate(1)}>›</button>
             </nav>}

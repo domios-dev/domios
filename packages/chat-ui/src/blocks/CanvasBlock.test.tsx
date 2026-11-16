@@ -82,12 +82,12 @@ test("the opened canvas pages through views, selects an item, and Escape returns
     assert.equal(frames(view.host).length, 0, "the inline preview stops its frames while the canvas is open");
     const pager = () => stage.querySelector("nav[aria-label='Canvas views'] [aria-live]")?.textContent;
     assert.equal(pager(), "All");
-    for (const expected of ["compare · 1 / 2", "notes · 2 / 2", "All"]) {
+    for (const expected of ["Compare 1 / 2", "Notes 2 / 2", "All"]) {
       await click(stage.querySelector("[aria-label='Next view']"));
       assert.equal(pager(), expected);
     }
     await click(stage.querySelector("[aria-label='Previous view']"));
-    assert.equal(pager(), "notes · 2 / 2");
+    assert.equal(pager(), "Notes 2 / 2");
     const mock = () => stage.querySelector("[data-canvas-item='mock']");
     assert.equal(frames(stage)[0]?.style.pointerEvents, "none", "an unselected frame lets the canvas pan");
     await click(mock()?.querySelector("[data-canvas-select]"));

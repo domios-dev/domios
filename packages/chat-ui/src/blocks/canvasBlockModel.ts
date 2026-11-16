@@ -46,9 +46,15 @@ export function layoutCanvas(canvas: DsCanvas): CanvasLayout {
   return { items, bounds: union(items.map(placedBox)) };
 }
 
+/** A view name such as `side_by-side` reads as "Side by side"; written titles keep their case. */
+export function sentenceCase(name: string): string {
+  const words = name.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || name;
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** The pager steps through named views, or through items when a canvas names none. */
 export function canvasPagerTargets(canvas: DsCanvas, layout: CanvasLayout): CanvasPagerTarget[] {
-  if (canvas.views.length) return canvas.views.map((view) => ({ label: view.name, bounds: { x: view.x, y: view.y, width: view.w, height: view.h } }));
+  if (canvas.views.length) return canvas.views.map((view) => ({ label: sentenceCase(view.name), bounds: { x: view.x, y: view.y, width: view.w, height: view.h } }));
   return layout.items.map((placed) => ({ label: canvasItemLabel(placed.item), bounds: placedBox(placed) }));
 }
 

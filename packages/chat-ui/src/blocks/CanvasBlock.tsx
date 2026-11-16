@@ -58,8 +58,8 @@ function CanvasPreview({ canvas }: { canvas: DsCanvas }) {
   return (
     <figure data-testid="chat-ds-canvas" className="my-2 min-w-0 max-w-full">
       <div ref={previewRef} role="button" tabIndex={0} aria-label={`Open canvas ${title}, ${count}`} aria-haspopup="dialog"
-        className="relative w-full cursor-zoom-in overflow-hidden rounded-md border border-[var(--ct-border)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
-        style={{ height: CANVAS_INLINE_HEIGHT, ...DOTTED_GROUND }}
+        className="relative w-full cursor-zoom-in overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
+        style={{ height: CANVAS_INLINE_HEIGHT, border: "1px solid var(--ct-border)", borderRadius: 8, boxSizing: "border-box", ...DOTTED_GROUND }}
         onClick={() => setOpen(true)}
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(true); } }}>
         {fit.scale > 0 && <div aria-hidden data-canvas-preview-layer="" style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})`, pointerEvents: "none" }}>

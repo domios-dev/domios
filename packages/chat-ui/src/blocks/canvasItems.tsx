@@ -134,7 +134,7 @@ export function CanvasItemView({ placed, live, selected = false, interactive, th
   return (
     <div ref={itemRef} data-canvas-item={item.id} data-zoom-target={interactive ? placed.index : undefined} data-selected={selected || undefined}
       role={interactive ? "group" : undefined} aria-label={interactive ? label : undefined}
-      className={`${ITEM_RING} ${interactive && !selected ? "hover:outline hover:outline-1 hover:outline-[var(--ct-muted-fg)]" : ""}`}
+      className={`${ITEM_RING} ${interactive && !selected ? "hover:outline hover:outline-1 hover:outline-[var(--ct-border)]" : ""}`}
       style={{ position: "absolute", left: placed.x, top: placed.y, width: placed.w, height: placed.h, ...outline }}
       onClick={interactive ? (event) => { event.stopPropagation(); onSelect?.(item.id); } : undefined}>
       <ItemContent item={item} live={live && isLiveFrameItem(item)} active={takesInput} theme={theme} />

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseDsCanvas, type DsCanvas } from "@codeterm/chat-core";
-import { CANVAS_LIVE_FRAME_BUDGET, canvasPagerLabel, canvasPagerTargets, chooseLiveFrames, fitPreview, layoutCanvas, stepCanvasPager } from "./canvasBlockModel";
+import { CANVAS_LIVE_FRAME_BUDGET, canvasPagerLabel, canvasPagerTargets, chooseLiveFrames, fitPreview, layoutCanvas, sentenceCase, stepCanvasPager } from "./canvasBlockModel";
 
 function canvas(document: unknown): DsCanvas {
   const parsed = parseDsCanvas(JSON.stringify(document));
@@ -23,6 +23,7 @@ test("placed items keep their frame and the rest flow in wrapped rows below them
 test("the pager steps through views, or items without views, and returns to the whole canvas", () => {
   const withViews = canvas({ items: [{ kind: "note", markdown: "a" }], views: [{ name: "A", x: 0, y: 0, w: 10, h: 10 }, { name: "B", x: 20, y: 0, w: 10, h: 10 }] });
   assert.deepEqual(canvasPagerTargets(withViews, layoutCanvas(withViews)).map((target) => target.label), ["A", "B"]);
+  assert.deepEqual(["compare", "side_by-side", "Before and After"].map(sentenceCase), ["Compare", "Side by side", "Before and After"]);
   const items = canvas({ items: [{ kind: "note", markdown: "a", title: "First" }, { kind: "image", src: "C:\\shots\\after.png" }] });
   assert.deepEqual(canvasPagerTargets(items, layoutCanvas(items)).map((target) => target.label), ["First", "after.png"]);
   const walk = [null as number | null];
