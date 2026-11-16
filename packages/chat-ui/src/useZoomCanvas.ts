@@ -19,6 +19,7 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [mode, setMode] = useState<ViewMode>("fit");
   const modeRef = useRef<ViewMode>("fit");
+  const measuredViewport = useRef<{ width: number; height: number } | null>(null);
   const focusRequest = useRef<number | null>(null);
   const scaleOutput = useRef<HTMLOutputElement>(null);
   const [imageCamera] = useState(() => cameraKey === undefined ? null : createImageCanvasCamera(cameraKey));
@@ -57,6 +58,12 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     if (!el) return;
     const measure = () => {
       const rect = el.getBoundingClientRect();
+      const previous = measuredViewport.current;
+      if (imageCamera && previous && (previous.width !== rect.width || previous.height !== rect.height) && modeRef.current === "fit") {
+        modeRef.current = "custom";
+        setMode("custom");
+      }
+      measuredViewport.current = { width: rect.width, height: rect.height };
       setSize(previous => previous.width === rect.width && previous.height === rect.height ? previous : { width: rect.width, height: rect.height });
     };
     measure();
@@ -64,7 +71,7 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [containerRef]);
+  }, [containerRef, imageCamera]);
   useLayoutEffect(() => {
     if (imageCamera) {
       if (initialFit === "cancelled") imageCamera.takeControl(camera.transformRef.current);
