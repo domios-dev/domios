@@ -385,6 +385,10 @@ impl super::ServiceContext {
                     if field == "owner" && method != "plan.create" {
                         continue;
                     }
+                    if field == "from" && body.get(field).is_some_and(serde_json::Value::is_string)
+                    {
+                        continue;
+                    }
                     let selected = body.get(field).filter(|value| !value.is_null());
                     let derive_missing = if field == "owner" {
                         method == "plan.create"

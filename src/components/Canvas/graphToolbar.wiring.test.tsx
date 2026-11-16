@@ -22,11 +22,11 @@ vi.mock("../Automation/blueprint/viewport", async (original) => ({
 }));
 vi.mock("sigma", () => ({ default: class {
   on() {} off() {} kill() {} refresh() {}
-  getCamera() { return { ratio: 1, on() {}, off() {}, animate: fakes.animate, animatedZoom: fakes.zoomIn, animatedUnzoom: fakes.zoomOut }; }
+  getCamera() { return { ratio: 1, on() {}, off() {}, animate: fakes.animate, zoomIn: fakes.zoomIn, zoomOut: fakes.zoomOut }; }
   getDimensions() { return { width: 600, height: 400 }; }
   viewportToGraph() { return { x: 0, y: 0 }; }
 } }));
-vi.mock("@sigma/edge-curve", () => ({ default: class {} }));
+vi.mock("sigma/rendering", () => ({ pathCurved: () => ({ name: "curved" }) }));
 vi.mock("../MemoryPanel/memoryApi", () => ({ fetchLabels: async () => [], fetchGraphEdges: async () => [], setPinnedPosition: async () => {} }));
 vi.mock("../MeshPanel/PeerTerminal", () => ({ PeerTerminal: () => null }));
 vi.mock("../MeshPanel/ConnectionLine", () => ({ ConnectionLine: () => null }));

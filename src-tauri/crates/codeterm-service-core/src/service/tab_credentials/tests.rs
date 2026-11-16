@@ -350,6 +350,88 @@ fn credential_pins_the_first_attested_session_and_refuses_same_nonce_replacement
 }
 
 #[test]
+fn memory_graph_entity_from_survives_tab_credential_binding() {
+    let (fixture, tab, _) = fixture();
+    let svc = &fixture.service;
+    let credential = token(svc, &tab);
+    let mut params = Some(json!({
+        "from": "diary_opaque",
+        "rel": "belongs_to",
+        "to": "project_opaque"
+    }));
+    svc.bind_local_rpc(&credential, "mem.graph.relate", &mut params)
+        .unwrap();
+    let body = params.unwrap();
+    assert_eq!(body["caller_tab_id"], tab);
+    let relation: crate::mem_ops::graph::GraphRelateBody = serde_json::from_value(body).unwrap();
+    assert_eq!(relation.from, "diary_opaque");
+    assert_eq!(relation.rel, "belongs_to");
+    assert_eq!(relation.to, "project_opaque");
+
+    for method in [
+        "mem.graph.invalidate",
+        "mem.graph.traverse",
+        "mem.graph.path",
+        "mem.area.merge",
+        "effort.link",
+    ] {
+        let mut params = Some(json!({"from": "opaque_source"}));
+        svc.bind_local_rpc(&credential, method, &mut params)
+            .unwrap();
+        assert_eq!(params.unwrap()["from"], "opaque_source", "{method}");
+    }
+}
+
+#[test]
+fn actor_from_claims_still_refuse_foreign_tabs_and_bind_own_identity() {
+    let (fixture, tab, other) = fixture();
+    let svc = &fixture.service;
+    let credential = token(svc, &tab);
+    for method in [
+        "plan.milestone.add",
+        "plan.stride.add",
+        "plan.handoff.create",
+        "plan.pause",
+        "plan.retrospective",
+        "plan.groups.close",
+        "plan.qa.queue",
+        "plan.qa.next",
+        "plan.qa.override",
+        "plan.qa.pass",
+        "plan.qa.fail",
+        "plan.review.override",
+        "plan.review.accept",
+        "plan.review.bounce",
+        "plan.review.hold",
+        "future.actor",
+        "mem.graph.relate",
+    ] {
+        let mut forged = Some(json!({"from": {"tab_id": other}}));
+        assert_eq!(
+            svc.bind_local_rpc(&credential, method, &mut forged),
+            Err("Caller tab does not match its credential".into()),
+            "{method}"
+        );
+        let mut malformed = Some(json!({"from": {"tab_id": 7}}));
+        assert_eq!(
+            svc.bind_local_rpc(&credential, method, &mut malformed),
+            Err("Invalid actor reference".into()),
+            "{method}"
+        );
+        let mut own = Some(json!({"from": {"tab_id": tab, "title": "forged title"}}));
+        svc.bind_local_rpc(&credential, method, &mut own).unwrap();
+        let actor: crate::plan::AgentRef =
+            serde_json::from_value(own.unwrap()["from"].clone()).unwrap();
+        assert_eq!(actor.tab_id.as_deref(), Some(tab.as_str()), "{method}");
+        assert_eq!(
+            actor.title,
+            Some(svc.mux.read().get_tab(&tab).unwrap().title.clone()),
+            "{method}"
+        );
+    }
+}
+
+#[test]
 fn nested_batch_actor_claims_are_bound_and_foreign_claims_refuse() {
     let (fixture, tab, other) = fixture();
     let svc = &fixture.service;

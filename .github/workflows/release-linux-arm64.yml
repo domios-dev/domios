@@ -66,13 +66,13 @@ jobs:
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
       - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           package-manager-cache: false
           node-version: 22.22.0
         if: runner.environment == 'github-hosted'
       - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
         if: runner.environment == 'github-hosted'
@@ -96,7 +96,7 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Setup pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         with:
           version: 10.32.1
           run_install: false
@@ -104,6 +104,14 @@ jobs:
         if: runner.environment == 'github-hosted'
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs finalize
+      - name: Reset this platform in the run qualification draft
+        if: inputs.dry_run && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        shell: bash
+        run: node scripts/release-qualification-draft.mjs reset "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID" "linux-aarch64"
+
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
@@ -169,6 +177,9 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_ref }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART/out"
       - name: Retain private dry-run updater evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         if: ${{ inputs.dry_run }}
         run: node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID" "$ASSET_SCOPE" "$ART/out" "$ART/out" "$RUNNER_TEMP/dry-run-$ASSET_SCOPE"
       - name: Verify and publish platform assets and updater fragment

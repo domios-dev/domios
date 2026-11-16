@@ -24,9 +24,19 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn start(path: PathBuf, config: Config, secrets: SecretReader) -> Result<Self, String> {
+    pub fn start(
+        path: PathBuf,
+        config: Config,
+        secrets: SecretReader,
+        context: crate::Context,
+    ) -> Result<Self, String> {
         let mut engine = Engine::open(path, config)?;
-        engine.sink = crate::sinks::from_config(config, secrets)?;
+        engine.sink = match config.mode {
+            crate::Mode::Amplitude => {
+                Box::new(crate::sinks::local::Local::new(config, secrets).with_context(context))
+            }
+            _ => crate::sinks::from_config(config, secrets)?,
+        };
         Self::spawn(engine)
     }
 

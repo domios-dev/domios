@@ -26,7 +26,7 @@ export function useProvenanceRings(sigmaRef: RefObject<Sigma | null>, nodes?: Ma
       context.lineWidth = 1.5;
       for (const id of ids) {
         const data = sigma.getNodeDisplayData(id);
-        if (!data || data.hidden) continue;
+        if (!data || data.visibility === "hidden") continue;
         const point = sigma.framedGraphToViewport(data);
         if (point.x < 0 || point.y < 0 || point.x > width || point.y > height) continue;
         context.beginPath();
