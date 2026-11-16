@@ -404,7 +404,7 @@ fn assert_routed_runtime_envelope(curator: bool, host: bool) {
     if curator {
         let service = &fixture.service;
         service
-            .set_ext(crate::service::curator::CuratorTabs::default())
+            .set_ext(crate::service::curator_runtime::CuratorTabs::default())
             .ok()
             .unwrap();
         let mut plan = crate::plan::Plan::new(
@@ -414,7 +414,7 @@ fn assert_routed_runtime_envelope(curator: bool, host: bool) {
         );
         service.plan_store.save(&mut plan, 1).unwrap();
         service
-            .ext::<crate::service::curator::CuratorTabs>()
+            .ext::<crate::service::curator_runtime::CuratorTabs>()
             .0
             .write()
             .insert(tab_id.clone(), plan.id.clone());

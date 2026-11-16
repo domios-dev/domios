@@ -185,7 +185,7 @@ impl ServiceContext {
         super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
         let pad_result = self.revoke_agent_pad(tab_id);
-        self.clear_dead_planner_binding(tab_id);
+        self.orchestration().clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.settle_lanes_held_by_closed_tab(tab_id);
         self.prompt_detector.lock().remove_tab(tab_id);

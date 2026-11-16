@@ -8,10 +8,10 @@ type Finished = Arc<dyn Fn() + Send + Sync>;
 static BOUNDARIES: LazyLock<Mutex<HashMap<String, (Submit, Finished)>>> =
     LazyLock::new(Mutex::default);
 
-pub(crate) struct Boundary(String);
+pub struct Boundary(String);
 
 impl Boundary {
-    pub(crate) fn install(tab: &str, submit: Submit, finished: Finished) -> Self {
+    pub fn install(tab: &str, submit: Submit, finished: Finished) -> Self {
         assert!(BOUNDARIES
             .lock()
             .insert(tab.into(), (submit, finished))
@@ -26,7 +26,7 @@ impl Drop for Boundary {
     }
 }
 
-pub(crate) fn submit(tab: &str, payload: &AgentDeliveryPayload) -> Option<Result<(), String>> {
+pub fn submit(tab: &str, payload: &AgentDeliveryPayload) -> Option<Result<(), String>> {
     let (submit, _) = BOUNDARIES.lock().get(tab).cloned()?;
     Some(submit(payload))
 }

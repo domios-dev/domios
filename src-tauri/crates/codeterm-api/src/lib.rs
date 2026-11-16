@@ -54,6 +54,7 @@ pub mod mesh_attachment;
 pub mod mesh_inventory;
 pub mod mesh_routes;
 pub(crate) mod model_provider_routes;
+pub mod mux_team;
 pub mod network_routes;
 pub mod notification_routes;
 #[cfg(test)]

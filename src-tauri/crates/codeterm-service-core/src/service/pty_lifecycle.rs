@@ -542,7 +542,7 @@ fn handle_pty_death_with_cause(
         let watchdog = {
             let mux = svc.mux.read();
             let store = svc.report_store.lock();
-            crate::service::hierarchy::worker_death_report(&mux, &store, pid)
+            crate::service::report_target::worker_death_report(&mux, &store, pid)
         };
         if let Some((target_id, msg)) = watchdog {
             let role_tag = if msg.starts_with("MANAGER ") {
@@ -550,7 +550,10 @@ fn handle_pty_death_with_cause(
             } else {
                 "worker-death"
             };
-            match svc.submit_report(pid, &msg, Default::default(), None, None, None) {
+            match svc
+                .orchestration()
+                .submit_report(pid, &msg, Default::default(), None, None, None)
+            {
                 Ok(_) => log::info!(
                     "[{}] synthesized dead-report for {} -> {}",
                     role_tag,

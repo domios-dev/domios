@@ -56,7 +56,7 @@ impl ServiceContext {
         crate::pty::shell_profiles::select(&profiles, Some(id), None)
     }
 
-    pub(crate) fn spawn_visible_shell_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
+    pub fn spawn_visible_shell_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
         if let Some(timeout) = spec.timeout.as_deref() {
             super::utility_deadline_model::parse_timeout(timeout)?;
             let owner = spec

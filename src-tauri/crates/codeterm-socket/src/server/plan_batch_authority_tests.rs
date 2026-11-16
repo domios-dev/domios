@@ -11,12 +11,12 @@ use serde_json::{json, Value};
 use crate::server::plan::apply_batch_rpc;
 use codeterm_api::plan_routes::batch::apply_authorized_batch;
 use codeterm_service_core::plan::{OrchestratorRef, Plan, Task};
-use codeterm_service_core::service::hierarchy::report_plan_ctx::STALE_TASK_HINT_REFUSAL;
 use codeterm_service_core::service::plan::batch::{BatchOp, BatchRequest};
 use codeterm_service_core::service::plan::{NewTask, PlanStore};
 use codeterm_service_core::service::plan_batch_authority::{
     apply_batch_with_authority, BatchAuthority, BatchWriteError, STALE_TASK_BINDING_TYPE,
 };
+use codeterm_service_core::service::report_plan_ctx::STALE_TASK_HINT_REFUSAL;
 
 const OWNER: &str = "orch";
 const WORKER: &str = "worker";

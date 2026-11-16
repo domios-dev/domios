@@ -936,7 +936,8 @@ impl ServiceContext {
         }
         crate::service::team_roles::stamp_role_label(self, tab_id);
         if let Some(parent) = parent_tab_id {
-            self.expect_spawn_parent_link(tab_id, parent)?;
+            self.orchestration()
+                .expect_spawn_parent_link(tab_id, parent)?;
         }
         Ok(())
     }

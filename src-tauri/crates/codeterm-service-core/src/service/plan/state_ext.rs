@@ -21,7 +21,7 @@ impl ServiceContext {
             event_offset,
             include_events,
         )?;
-        let suspended = self.curator_suspended_reason_for_fields(
+        let suspended = self.orchestration().curator_suspended_reason_for_fields(
             &read.mode,
             &read.status,
             &read.team_id,
@@ -85,14 +85,15 @@ impl ServiceContext {
         );
         read.apply_history_facts(&mut snapshot, now_ms);
         snapshot.mission_control.kpi = super::mission_control_ext::plan_kpi(self, plan_id);
-        snapshot.control_loop.suspended_reason = self.curator_suspended_reason_for_fields(
-            &plan.mode,
-            &plan.status,
-            &plan.team_id,
-            snapshot.task_counts.total > 0
-                && snapshot.task_counts.done + snapshot.task_counts.cancelled
-                    == snapshot.task_counts.total,
-        );
+        snapshot.control_loop.suspended_reason =
+            self.orchestration().curator_suspended_reason_for_fields(
+                &plan.mode,
+                &plan.status,
+                &plan.team_id,
+                snapshot.task_counts.total > 0
+                    && snapshot.task_counts.done + snapshot.task_counts.cancelled
+                        == snapshot.task_counts.total,
+            );
         if snapshot.control_loop.suspended_reason.is_some() {
             snapshot.control_loop.next_at = None;
         }

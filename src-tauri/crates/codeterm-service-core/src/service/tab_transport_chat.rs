@@ -446,7 +446,7 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        self.bind_planner_session(tab_id)?;
+        self.orchestration().bind_planner_session(tab_id)?;
         Ok(nonce)
     }
 
@@ -542,7 +542,7 @@ impl ServiceContext {
                     new_session.into(),
                     config,
                 );
-                self.schedule_planner_replay(tab_id);
+                self.orchestration().schedule_planner_replay(tab_id);
                 Ok(())
             },
         )

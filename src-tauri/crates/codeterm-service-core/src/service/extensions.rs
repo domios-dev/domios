@@ -110,8 +110,8 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::agent_restart::ProviderSwitchOperations>();
         self.insert_late::<crate::CronState>();
         self.insert_late::<crate::CronWake>();
-        self.insert_late::<crate::service::curator::CuratorTabs>();
-        self.insert_late::<crate::service::curator::CuratorReconciliations>();
+        self.insert_late::<crate::service::curator_runtime::CuratorTabs>();
+        self.insert_late::<crate::service::curator_reconciliations::CuratorReconciliations>();
         self.insert_late::<crate::ports::sentinel::SentinelPorts>();
         self.insert_late::<crate::ports::rest::LocalApiRouter>();
         self.insert_late::<crate::startup::RestApiControlState>();
@@ -208,7 +208,7 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<crate::usage::poller::UsagePollerSlot>(),
         key::<LoadedPlanProjects>(),
         key::<PlanStartupLoaded>(),
-        key::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(),
+        key::<Arc<crate::service::heartbeat_gate::Gate>>(),
         key::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>(),
         key::<WorkerIdentityAllocator>(),
     ]

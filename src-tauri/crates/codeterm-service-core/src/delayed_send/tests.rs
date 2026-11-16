@@ -663,7 +663,7 @@ fn system_entry_refusal_does_not_change_user_messages() {
 
 #[test]
 fn system_projection_is_a_view_not_a_queue_row() {
-    use crate::service::hierarchy::plan_reminder_nudge::{ProjectedHeartbeat, ProjectedTick};
+    use crate::service::plan_reminder_projection::{ProjectedHeartbeat, ProjectedTick};
 
     let reason = "sent because tasks task_a are still in progress in plan pl";
     let message = super::system_entries::message_from_projection(ProjectedHeartbeat {

@@ -140,7 +140,7 @@ impl crate::service::ServiceContext {
         Ok(response)
     }
 
-    pub(crate) fn reserve_user_send(
+    pub fn reserve_user_send(
         &self,
         tab_id: &str,
         client_token: Option<String>,

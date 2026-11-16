@@ -1,0 +1,233 @@
+use super::*;
+use codeterm_events::SystemEvent;
+
+/// Active plans, and any plan whose control loop still holds a run, cron job or
+/// wake time to settle; other plans have no curator state to reconcile.
+
+impl CuratorEventsExt for ServiceContext {
+    #[cfg(any(test, feature = "test-support"))]
+    fn reconcile_curator_for_test(&self, id: &str, now: u64) {
+        self.reconcile_curator_id(id, now).unwrap();
+    }
+
+    fn start_curator_events(&self) -> Result<(), String> {
+        self.set_ext(CuratorTabs::default())
+            .map_err(|_| "Curator runtime could not be started".to_string())?;
+        let mut receiver = self.events.subscribe();
+        let service = self.clone();
+        self.rt.spawn(async move {
+            let bootstrap = service.clone();
+            let mut plans = match tokio::task::spawn_blocking(move || {
+                curator_bootstrap_ids(&bootstrap.plan_store)
+            })
+            .await
+            {
+                Ok(Ok(plans)) => plans,
+                Ok(Err(error)) => {
+                    log::error!("[curator] bootstrap read: {error}");
+                    return;
+                }
+                Err(error) => {
+                    log::debug!("[curator] bootstrap: {error}");
+                    return;
+                }
+            };
+            let mut pending = plans.clone();
+            loop {
+                if !pending.is_empty() {
+                    let worker = service.clone();
+                    let batch = std::mem::take(&mut pending);
+                    if let Err(error) = tokio::task::spawn_blocking(move || {
+                        let Ok(now) = worker.curator_now() else {
+                            return;
+                        };
+                        for id in batch {
+                            if let Err(error) = worker.reconcile_curator_id(&id, now) {
+                                log::error!("[curator] reconcile {id}: {error}");
+                            }
+                        }
+                    })
+                    .await
+                    {
+                        log::debug!("[curator] event reconciliation: {error}");
+                    }
+                }
+                match receiver.recv().await {
+                    Ok(event) => match event.event {
+                        SystemEvent::Generic { event_type, .. } if event_type == "plans-loaded" => {
+                            let bootstrap = service.clone();
+                            match tokio::task::spawn_blocking(move || {
+                                curator_bootstrap_ids(&bootstrap.plan_store)
+                            })
+                            .await
+                            {
+                                Ok(Ok(current)) => {
+                                    plans.extend(current);
+                                    pending.extend(plans.iter().cloned());
+                                }
+                                Ok(Err(error)) => {
+                                    log::error!("[curator] plan resync read: {error}")
+                                }
+                                Err(error) => log::debug!("[curator] plan resync: {error}"),
+                            }
+                        }
+                        SystemEvent::Generic { event_type, data }
+                            if event_type == "plan-changed"
+                                || event_type == "curator-reconcile" =>
+                        {
+                            if let Some(id) = data["plan_id"].as_str() {
+                                plans.insert(id.to_string());
+                                pending.insert(id.to_string());
+                            }
+                        }
+                        SystemEvent::MuxStateChanged
+                        | SystemEvent::TabClosed { .. }
+                        | SystemEvent::AgentStarted { .. }
+                        | SystemEvent::AgentIdle { .. }
+                        | SystemEvent::ConfigChanged { .. }
+                        | SystemEvent::ContributionsChanged { .. } => {
+                            pending.extend(plans.iter().cloned())
+                        }
+                        SystemEvent::Generic { event_type, .. }
+                            if event_type.starts_with("notification")
+                                || event_type == "cron-run-finished" =>
+                        {
+                            pending.extend(plans.iter().cloned())
+                        }
+                        SystemEvent::Generic { event_type, .. }
+                            if event_type == "provider-access-lost" =>
+                        {
+                            pending.extend(plans.iter().cloned())
+                        }
+                        _ => {}
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        pending.extend(plans.iter().cloned())
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Serializes one plan's curator transitions: a reconcile rebuilds the tab index from
+    /// its snapshot, so every writer of that index and the round claim runs under this gate.
+    fn with_curator_plan_gate<T>(&self, id: &str, run: impl FnOnce() -> T) -> T {
+        let gate = self
+            .ext_or_init(CuratorReconciliations::default)
+            .for_plan(id);
+        let _guard = match gate.try_lock() {
+            Some(guard) => guard,
+            None => {
+                #[cfg(test)]
+                super::reconciliation::test_boundary::observe(self, id, false);
+                gate.lock()
+            }
+        };
+        run()
+    }
+
+    fn reconcile_curator_id(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<(), codeterm_service_core::service::plan::PlanError> {
+        self.with_curator_plan_gate(id, || self.reconcile_curator_gated(id, now))
+    }
+
+    fn reconcile_curator_gated(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<(), codeterm_service_core::service::plan::PlanError> {
+        let Some(cron) = self.try_ext::<codeterm_service_core::CronState>() else {
+            return Ok(());
+        };
+        let read = match self.plan_store.curator_schedule_projection(id) {
+            Ok(read) => read,
+            Err(codeterm_service_core::service::plan::PlanError::NotFound) => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        let plan = read.metadata();
+        #[cfg(test)]
+        super::reconciliation::test_boundary::observe(self, id, true);
+        if let Some(index) = self.try_ext::<CuratorTabs>() {
+            let mut tabs = index.0.write();
+            tabs.retain(|_, plan| plan != id);
+            if let Some(tab) = plan
+                .control_loop
+                .running
+                .as_ref()
+                .and_then(|run| run.tab_id.as_ref())
+            {
+                tabs.insert(tab.clone(), id.to_string());
+            }
+        }
+        if let Some(tab) = plan
+            .control_loop
+            .running
+            .as_ref()
+            .and_then(|run| run.tab_id.as_deref())
+        {
+            let (missing, access_lost) = {
+                let mux = self.mux.read();
+                let current = mux.get_tab(tab);
+                (
+                    current.is_none(),
+                    current.is_some_and(|tab| {
+                        tab.provider_signals.access_lost()
+                            && plan.control_loop.running.as_ref().is_some_and(|run| {
+                                run.session_id.as_ref().is_none_or(|session| {
+                                    tab.agent_session_id.as_ref() == Some(session)
+                                }) && run.binding_nonce.as_ref().is_none_or(|nonce| {
+                                    tab.session_binding_nonce.as_ref() == Some(nonce)
+                                })
+                            })
+                    }),
+                )
+            };
+            if access_lost {
+                let tab = tab.to_string();
+                let run_id = plan
+                    .control_loop
+                    .running
+                    .as_ref()
+                    .and_then(|run| run.run_id.clone());
+                drop(read);
+                if let Some(run_id) = run_id {
+                    return self
+                        .fail_provider_blocked_curator(id, &tab, &run_id, now)
+                        .map_err(codeterm_service_core::service::plan::PlanError::Io);
+                }
+                return Ok(());
+            }
+            if missing {
+                let tab = tab.to_string();
+                drop(read);
+                return self
+                    .settle_closed_curator_tab(&tab)
+                    .map_err(codeterm_service_core::service::plan::PlanError::Io);
+            }
+        }
+        self.reconcile_curator_plan(cron, &read, now)
+            .map_err(codeterm_service_core::service::plan::PlanError::Io)
+    }
+}
+
+pub trait CuratorEventsExt {
+    #[cfg(any(test, feature = "test-support"))]
+    fn reconcile_curator_for_test(&self, id: &str, now: u64);
+    fn start_curator_events(&self) -> Result<(), String>;
+    fn with_curator_plan_gate<T>(&self, id: &str, run: impl FnOnce() -> T) -> T;
+    fn reconcile_curator_id(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<(), codeterm_service_core::service::plan::PlanError>;
+    fn reconcile_curator_gated(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<(), codeterm_service_core::service::plan::PlanError>;
+}
