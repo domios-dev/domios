@@ -17,6 +17,11 @@ export type TailscaleState =
 
 export const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
 
+export function privateNetworkLabel(state: TailscaleState | undefined): string | null {
+  if (!state || state.kind === "checking" || state.kind === "unknown") return null;
+  return state.kind === "connected" ? "Private network on" : "Private network off";
+}
+
 export interface TailscalePrompt { title: string; message: string }
 
 /** What this machine needs from the user, in plain words; null when nothing does (working, checking or unknown). */
