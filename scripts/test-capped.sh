@@ -178,44 +178,8 @@ detect_requested_filter() {
     done
 }
 
-run_has_passed_test() {
-    local line passed=0 stress_passed=0 stress_details=0
-    local ansi=$'\033''\[[0-9;]*m'
-    local libtest='^[[:space:]]*test result: [A-Za-z]+\. ([0-9]+) passed;'
-    local tests='^[[:space:]]*(Summary \[[^]]*\][[:space:]]+|Stress test \[[^]]*\] iteration [^:]+: )[0-9]+ tests? run: ([0-9]+) passed'
-    local iterations='^[[:space:]]*Summary \[[^]]*\][[:space:]]+[0-9]+(/[0-9]+)? stress run iterations?: ([0-9]+) passed'
-    while IFS= read -r line || [ -n "$line" ]; do
-        while [[ "$line" =~ $ansi ]]; do
-            line="${line//"${BASH_REMATCH[0]}"/}"
-        done
-        if [[ "$line" =~ $libtest ]]; then
-            [[ "${BASH_REMATCH[1]}" != *[1-9]* ]] || passed=1
-        elif [[ "$line" =~ $tests ]]; then
-            [[ "${BASH_REMATCH[2]}" != *[1-9]* ]] || passed=1
-            [[ "$line" != *'Stress test'* ]] || stress_details=1
-        elif [[ "$line" =~ $iterations ]]; then
-            [[ "${BASH_REMATCH[2]}" != *[1-9]* ]] || stress_passed=1
-        fi
-    done < "$1"
-    [ "$passed" = 1 ] || {
-        [ "${TEST_REQUIRE_EXECUTION:-0}" != 1 ] &&
-            [ "$stress_details" = 0 ] && [ "$stress_passed" = 1 ]
-    }
-}
-
-filtered_run_ran_nothing() {
-    if [ "${TEST_REQUIRE_EXECUTION:-0}" != 1 ]; then
-        [ -n "$REQUESTED_FILTER" ] || return 1
-        case "$NO_TESTS_MODE" in pass|warn) return 1 ;; esac
-    fi
-    ! run_has_passed_test "$1"
-}
-
 report_zero_match() {
     local context="${FILTER_PACKAGE:-${FILTER_MANIFEST:-unspecified crate}}"
-    if [ "${TEST_REQUIRE_EXECUTION:-0}" = 1 ]; then
-        printf 'error: test-one requires at least one passed test; zero executed tests or a missing runner summary cannot pass.\n' >&2
-    fi
     printf '\n'
     printf '══════════════════════════════════════════════════════════════════\n'
     printf '  ZERO MATCHES: filter %s selected no tests in %s.\n' "$REQUESTED_FILTER" "$context"
@@ -280,10 +244,13 @@ capture_test() {
     fi
 }
 if capture_test "$@"; then
-    if [ "$EXEC_MODE" -eq 0 ]; then
-        if filtered_run_ran_nothing "$TEST_LOG"; then
-            report_zero_match
-            exit "$ZERO_MATCH_EXIT"
+    if [ "$EXEC_MODE" -eq 0 ] && { [ "${TEST_REQUIRE_EXECUTION:-0}" = 1 ] || [ -n "$REQUESTED_FILTER" ]; }; then
+        if node "$ROOT/scripts/build-gateway-output.mjs" test-proof "$TEST_LOG" "$REQUESTED_FILTER" "$NO_TESTS_MODE"; then
+            :
+        else
+            proof_exit=$?
+            [ "$proof_exit" != "$ZERO_MATCH_EXIT" ] || report_zero_match
+            exit "$proof_exit"
         fi
     fi
     exit 0
