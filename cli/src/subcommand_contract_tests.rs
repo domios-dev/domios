@@ -10,6 +10,7 @@ use clap::{CommandFactory, Parser};
 mod agent;
 mod context;
 mod curator;
+mod mem_worker_report;
 mod plan_lane_clean;
 mod plan_project;
 mod radar;

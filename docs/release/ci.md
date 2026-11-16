@@ -59,8 +59,8 @@ cargo-nextest before preflight; cache fixtures set their own cache policy instea
 of inheriting the runner's settings.
 
 Normal CI uses triage mode: independent test jobs finish after a failure,
-nextest and platform matrices keep fail-fast off, and no failing qualification
-can start packaging. A newer commit can still supersede an older run.
+nextest and platform matrices keep fail-fast off, and packaging runs beside the test jobs, while no failing qualification
+can admit publication. A newer commit can still supersede an older run.
 CI result reads named failing/timed-out child jobs from the Actions API; timeouts remain failures rather than cancelling siblings. Hosted TS checks have 15-minute bounds; generated types and the private guard role have 20 minutes.
 
 The release push runs full qualification and dry-run packaging together from `github.sha`.
@@ -76,6 +76,20 @@ requires the merged PR and qualified head tree, selects its exact owner push run
 promote_run_id. Qualification and packaging must belong to that same run. The master merge commit
 is never built. Existing attempt provenance, expiry, warning, platform, Debian and manifest guards,
 release environment and publication switch remain required.
+
+Qualification pushes upload verified signed assets to hidden source and mirror drafts as each
+platform finishes. Each run has its own draft, recording source SHA/run ID and per-platform
+completion receipts. A failed run leaves its hidden partial draft; a rerun clears only that
+platform's old assets. A new run supersedes older hidden drafts of its version. Dispatch dry runs
+retain private evidence only and create no drafts or public artifacts.
+
+Promotion reads the admitted run's draft metadata, then publishes that draft and the recorded
+qualified manifests without downloading or re-hashing payloads. Missing or incomplete own-run
+drafts use parallel per-platform retained downloads and upload concurrency six; foreign drafts
+refuse. Public verification reads manifests, authenticates their signed version comments and
+compares signatures, URLs and sha256 metadata with qualification, then HEAD-checks every asset's
+status and size, including Debian and the mirror. Issue closure requires that evidence and the
+same qualification identity. Payload signature verification remains in qualification.
 
 Before the first push of each application release, the OWNER retargets every approved acquiring
 workflow in the runner-group payload to that exact release branch and reads the policy back.
@@ -105,7 +119,7 @@ Runner capacity switches (owner operation):
 | CI_LINUX_LIGHT_RUNNER | ubuntu-24.04 | Current private light labels per job |
 | CI_LINUX_RUST_COMPILE_RUNNER | unset or `private` | Clippy and CLI tests on hosted ubuntu-24.04 by default; `private` routes them to the ubunta linux-build runner |
 | CI_LINUX_RUST_FULL_RUNNER | unset or `hosted` | Full Rust suite on the ubunta linux-build runner by default; `hosted` routes it to ubuntu-24.04 |
-| CI_RELEASE_EVIDENCE_RUNNER | unset or `hosted` | Release evidence promotion on the ubunta linux-build runner by default; `hosted` routes it to ubuntu-24.04 over the public store edge |
+| CI_RELEASE_EVIDENCE_RUNNER | unset or `hosted` | Release evidence promotion; master always uses hosted ubuntu-24.04, with metadata-only admission and retained-byte fallback |
 | CI_MACOS_RUST_RUNNER | macos-15 | Air macOS platform tests |
 | CI_MACOS_EMBEDDINGS_RUNNER | macos-15 | Air embeddings after platform tests |
 

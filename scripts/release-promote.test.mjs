@@ -41,21 +41,21 @@ test('changed digests, sizes, states, or invalid receipt digests refuse publicat
   assert.throws(() => verifyAssetDigests([{ ...files[0], sha256: null }], [asset(files[0])], 'owner/repo'), /differs from its retained receipt/);
 });
 
-test('publication starts three concurrent tasks and starts another only when a slot is free', async () => {
+test('publication starts six concurrent tasks and starts another only when a slot is free', async () => {
   const started = [];
   const releases = [];
-  const fourthStarted = Promise.withResolvers();
-  const work = publishConcurrently([0, 1, 2, 3], async task => {
+  const seventhStarted = Promise.withResolvers();
+  const work = publishConcurrently([0, 1, 2, 3, 4, 5, 6], async task => {
     started.push(task);
     const gate = Promise.withResolvers();
     releases[task] = gate.resolve;
-    if (task === 3) fourthStarted.resolve();
+    if (task === 6) seventhStarted.resolve();
     await gate.promise;
   });
-  assert.deepEqual(started, [0, 1, 2]);
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5]);
   releases[1]();
-  await fourthStarted.promise;
-  assert.deepEqual(started, [0, 1, 2, 3]);
+  await seventhStarted.promise;
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6]);
   for (const release of releases) release();
   await work;
 });
