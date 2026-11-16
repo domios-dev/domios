@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 mod builder;
 mod metadata_input;
+mod recent_decisions;
 pub use builder::{is_activity_section, DigestBuilder};
 pub use metadata_input::{append_metadata_task_rows, MetadataTaskInput};
 
 pub const MAX_DIGEST_BYTES: usize = 8192;
-pub const SECTIONS: [(&str, usize); 18] = [
+pub const SECTIONS: [(&str, usize); 19] = [
+    ("recent decisions", 10),
     ("decisions", 10),
     ("owner questions", 10),
     ("waits", 10),
@@ -79,10 +81,17 @@ pub fn build_bounded(header: &str, rows: &BTreeMap<String, Vec<Row>>, limit: usi
             if name == "time in state" {
                 rows.sort_by(|a, b| b.summary.cmp(&a.summary).then_with(|| a.id.cmp(&b.id)));
             }
+            if name == "recent decisions" {
+                rows.sort_by(|a, b| b.state.cmp(&a.state).then_with(|| a.cmp(b)));
+            }
             (
                 name.clone(),
                 PreparedSection {
-                    total: rows.len(),
+                    total: if name == "recent decisions" {
+                        rows.len().min(10)
+                    } else {
+                        rows.len()
+                    },
                     rows,
                 },
             )
@@ -140,6 +149,7 @@ pub fn metadata_rows(plan: &Plan, since: u64) -> BTreeMap<String, Vec<Row>> {
 
 pub fn plan_rows(plan: &Plan, since: u64) -> BTreeMap<String, Vec<Row>> {
     let mut sections = metadata_rows(plan, since);
+    sections.insert("recent decisions".into(), recent_decisions::rows(plan));
     for task in &plan.tasks {
         for verdict in task.review_evidence.iter().filter(|r| r.at > since) {
             sections
