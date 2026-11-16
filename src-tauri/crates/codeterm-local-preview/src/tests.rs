@@ -767,3 +767,75 @@ fn pasted_attachment_markers_never_grant_references_with_or_without_provider_seg
         assert_eq!(referenced_paths(&[row], None), [path_key(&direct)].into());
     }
 }
+
+#[test]
+fn canvas_file_items_authorize_like_inline_items_and_write_back_skips_upload_buckets() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = crate::html_preview::preview_test_root(temp.path());
+    let private = root.join("private");
+    let uploads = root.join("uploads");
+    std::fs::create_dir_all(&private).unwrap();
+    std::fs::create_dir_all(&uploads).unwrap();
+    let board = root.join("board.canvas.json");
+    let item = root.join("shot.png");
+    let hidden = private.join("hidden.png");
+    let secret = root.join("token.png");
+    let other = root.join("other.png");
+    for path in [&item, &hidden, &secret, &other] {
+        std::fs::write(path, b"image").unwrap();
+    }
+    let body = serde_json::json!({"items": [
+        {"kind": "image", "src": item.to_string_lossy()},
+        {"kind": "image", "src": hidden.to_string_lossy()},
+        {"kind": "image", "src": secret.to_string_lossy()},
+    ]})
+    .to_string();
+    std::fs::write(&board, &body).unwrap();
+    let messages = vec![ChatMsg {
+        content: artifact_directive::serialize_file_card(
+            "canvas",
+            &[board.to_string_lossy().into()],
+            Some("compare"),
+        )
+        .unwrap(),
+        ..Default::default()
+    }];
+    let references = referenced_paths(&messages, None);
+    assert_eq!(references, [path_key(&board)].into());
+    let policy = PreviewPolicy::new(references, std::slice::from_ref(&private)).unwrap();
+    assert!(policy.authorize(&board, None).is_ok());
+    assert_eq!(
+        policy.authorize(&item, None).unwrap_err(),
+        "Preview path is not referenced"
+    );
+    let items = artifact_directive::canvas_paths(&body).unwrap();
+    let policy = policy.with_canvas_items(items);
+    assert!(policy.authorize(&item, Some(&item)).is_ok());
+    for refused in [&hidden, &secret] {
+        assert_eq!(
+            policy.authorize(refused, Some(refused)).unwrap_err(),
+            "Preview path is private"
+        );
+    }
+    assert_eq!(
+        policy.authorize(&other, None).unwrap_err(),
+        "Preview path is not referenced"
+    );
+    assert!(policy
+        .authorize_write(&board, Some(&board.canonicalize().unwrap()))
+        .is_ok());
+    let delivered = uploads.join("board.canvas.json");
+    std::fs::write(&delivered, &body).unwrap();
+    let buckets = PreviewPolicy::new(Default::default(), &[])
+        .unwrap()
+        .with_uploads(&uploads, &[])
+        .unwrap();
+    let canonical = delivered.canonicalize().unwrap();
+    assert!(buckets.authorize(&delivered, Some(&canonical)).is_ok());
+    assert_eq!(
+        buckets
+            .authorize_write(&delivered, Some(&canonical))
+            .unwrap_err(),
+        "Preview path is not writable"
+    );
+}

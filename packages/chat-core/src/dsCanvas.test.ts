@@ -7,7 +7,7 @@ import { dsCanvasFilePaths, parseDsCanvas } from "./dsCanvas";
 const corpus = JSON.parse(readFileSync(new URL("./dsBlocks.fixtures.json", import.meta.url), "utf8")) as { fixtures: { name: string; expectedBlocks: { block: { kind: string; body?: string }; paths?: string[] }[] }[] };
 
 test("canvas fixtures name exactly the file paths the native preview guard admits", () => {
-  const canvases = corpus.fixtures.flatMap((fixture) => fixture.expectedBlocks.filter((span) => span.block.kind === "canvas").map((span) => ({ name: fixture.name, span })));
+  const canvases = corpus.fixtures.flatMap((fixture) => fixture.expectedBlocks.filter((span) => span.block.kind === "canvas" && span.block.body !== undefined).map((span) => ({ name: fixture.name, span })));
   assert.ok(canvases.length >= 5);
   for (const { name, span } of canvases) assert.deepEqual(dsCanvasFilePaths(span.block.body!), span.paths, name);
 });

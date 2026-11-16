@@ -21,7 +21,7 @@ interface Candidate {
 }
 const HEADER_LIMIT = 16_384;
 const JSON_BODY_KINDS: readonly DsKind[] = ["tasks", "canvas"];
-const previewFileCount = (block: DsBlock) => block.kind === "image" ? block.sources.length : block.kind === "page" || block.kind === "document" ? 1 : block.kind === "canvas" ? dsCanvasFilePaths(block.body).length : 0;
+const previewFileCount = (block: DsBlock) => block.kind === "image" ? block.sources.length : block.kind === "page" || block.kind === "document" ? 1 : block.kind === "canvas" ? ("body" in block ? dsCanvasFilePaths(block.body).length : 1) : 0;
 const INERT_NAMES = ["context", "quoted-context", "quoted_context", "handoff", "provider-handoff", "provider_handoff", "environment_context", "system-reminder", "instructions", "INSTRUCTIONS", "previous_messages", "conversation_history", "tool_result", "tool_output", "transcript", "pasted_content"];
 
 const closesInert = (line: string, name: string) => new RegExp(`</${name}(?:\\s[^>]*)?>`).test(line);

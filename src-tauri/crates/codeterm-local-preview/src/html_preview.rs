@@ -1,7 +1,11 @@
 use base64::Engine as _;
 use serde::Serialize;
 
+mod canvas_file;
 mod file;
+pub use canvas_file::{
+    is_canvas_file, probe_canvas_file, write_canvas_file, CanvasWrite, CANVAS_FILE_LIMIT,
+};
 pub use file::checked_path;
 use file::PreviewSource;
 
@@ -59,6 +63,11 @@ fn extension(path: &std::path::Path) -> String {
 
 fn media(path: &std::path::Path, kind: &str) -> Result<(&'static str, u64), String> {
     let ext = extension(path);
+    if kind == "canvas" {
+        return is_canvas_file(path)
+            .then_some(("application/json", CANVAS_FILE_LIMIT))
+            .ok_or_else(|| "Canvas preview source must use .canvas.json".into());
+    }
     let result = match (kind, ext.as_str()) {
         ("page", "html" | "htm") => ("text/html", HTML_PREVIEW_FILE_LIMIT),
         ("document", "md" | "markdown") => ("text/markdown", DOCUMENT_PREVIEW_FILE_LIMIT),

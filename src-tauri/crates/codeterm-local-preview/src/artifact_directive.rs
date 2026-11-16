@@ -3,6 +3,7 @@ use std::collections::HashMap;
 mod canvas;
 mod html;
 mod scanner;
+pub use canvas::{canvas_paths, canvas_write_permitted, valid_view_name};
 use codeterm_wire::envelope::{parse_envelope_spans, FrameKind, MessageSegment};
 pub use scanner::{scan_artifacts, scan_artifacts_with_provenance};
 
@@ -30,6 +31,8 @@ pub struct FileCard {
     pub end: usize,
     pub kind: String,
     pub paths: Vec<String>,
+    /// The named view of a `<ds-canvas src>` card, kept when mesh delivery rewrites its path.
+    pub view: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -126,11 +129,16 @@ pub fn escape_attribute(value: &str) -> String {
 }
 
 pub fn serialize_artifact(kind: &str, paths: &[String]) -> Option<String> {
+    serialize_file_card(kind, paths, None)
+}
+
+pub fn serialize_file_card(kind: &str, paths: &[String], view: Option<&str>) -> Option<String> {
     let limit = if kind == "image" { 32 } else { 1 };
-    if !matches!(kind, "page" | "document" | "image")
+    if !matches!(kind, "page" | "document" | "image" | "canvas")
         || paths.is_empty()
         || paths.len() > limit
         || !paths.iter().all(|path| absolute(path))
+        || view.is_some_and(|view| kind != "canvas" || !valid_view_name(view))
     {
         return None;
     }
@@ -139,8 +147,11 @@ pub fn serialize_artifact(kind: &str, paths: &[String]) -> Option<String> {
     } else {
         ("src", paths[0].clone())
     };
+    let view = view
+        .map(|view| format!(" view=\"{}\"", escape_attribute(view)))
+        .unwrap_or_default();
     Some(format!(
-        "<ds-{kind} {attribute}=\"{}\" />",
+        "<ds-{kind} {attribute}=\"{}\"{view} />",
         escape_attribute(&value)
     ))
 }
@@ -219,15 +230,21 @@ fn attributes(header: &str, kind: &str) -> Option<HashMap<String, String>> {
     None
 }
 
-fn file_paths(header: &str, kind: &str) -> Option<Vec<String>> {
+/// The paths of a self-closing file tag, and the view a `<ds-canvas src>` names.
+fn file_paths(header: &str, kind: &str) -> Option<(Vec<String>, Option<String>)> {
     if !header.ends_with("/>") || header.encode_utf16().count() > HEADER_LIMIT {
         return None;
     }
     let values = attributes(header, kind)?;
-    if values
-        .keys()
-        .any(|name| name != "src" && !(kind == "image" && name == "sources"))
-    {
+    if values.keys().any(|name| {
+        name != "src"
+            && !(kind == "image" && name == "sources")
+            && !(kind == "canvas" && name == "view")
+    }) {
+        return None;
+    }
+    let view = values.get("view").cloned();
+    if view.as_deref().is_some_and(|view| !valid_view_name(view)) {
         return None;
     }
     let paths = match (values.get("src"), values.get("sources")) {
@@ -239,7 +256,7 @@ fn file_paths(header: &str, kind: &str) -> Option<Vec<String>> {
     };
     let limit = if kind == "image" { 32 } else { 1 };
     (!paths.is_empty() && paths.len() <= limit && paths.iter().all(|path| absolute(path)))
-        .then_some(paths)
+        .then_some((paths, view))
 }
 
 #[cfg(test)]

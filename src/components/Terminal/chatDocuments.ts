@@ -34,6 +34,7 @@ function directivesOf(message: TranscriptMessage): { kind: LocalArtifactKind; pa
     if (segment.type !== "block" || exclusions.some((range) => segment.start < range.end && range.start < segment.end)) return [];
     const block = segment.block;
     if (block.kind === "page" || block.kind === "document") return [{ kind: block.kind, path: block.src }];
+    if (block.kind === "canvas") return "src" in block ? [{ kind: "canvas" as const, path: block.src }] : [];
     return block.kind === "image" ? block.sources.map((path) => ({ kind: "image" as const, path })) : [];
   });
 }

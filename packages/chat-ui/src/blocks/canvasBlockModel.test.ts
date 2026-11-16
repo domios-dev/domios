@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseDsCanvas, type DsCanvas } from "@codeterm/chat-core";
-import { CANVAS_LIVE_FRAME_BUDGET, canvasPagerLabel, canvasPagerTargets, chooseLiveFrames, fitPreview, layoutCanvas, sentenceCase, stepCanvasPager } from "./canvasBlockModel";
+import { CANVAS_LIVE_FRAME_BUDGET, canvasPagerLabel, canvasPagerTargets, canvasViewTarget, chooseLiveFrames, fitPreview, layoutCanvas, noteSpot, resizeFrame, sentenceCase, stepCanvasPager } from "./canvasBlockModel";
 
 function canvas(document: unknown): DsCanvas {
   const parsed = parseDsCanvas(JSON.stringify(document));
@@ -53,4 +53,25 @@ test("the static preview fits and centres the whole canvas inside its padding wi
   assert.deepEqual(fitPreview({ x: -100, y: 0, width: 200, height: 100 }, 800, 320), { scale: 1, x: 400, y: 110 });
   assert.equal(fitPreview({ x: 0, y: 0, width: 10, height: 10 }, 0, 320).scale, 0);
   assert.equal(fitPreview({ x: 0, y: 0, width: 10, height: 10 }, 32, 320).scale, 0, "no room inside the padding");
+});
+
+test("resizing keeps the 120x80 minimum and the aspect ratio of images only", () => {
+  assert.deepEqual(resizeFrame({ w: 320, h: 180 }, 40, -500, false), { w: 360, h: 80 });
+  assert.deepEqual(resizeFrame({ w: 400, h: 200 }, 100, 0, true), { w: 500, h: 250 });
+  assert.deepEqual(resizeFrame({ w: 400, h: 200 }, 0, 50, true), { w: 500, h: 250 });
+  assert.deepEqual(resizeFrame({ w: 400, h: 100 }, -1000, 0, true), { w: 320, h: 80 }, "a wide image stops at the minimum height");
+  assert.deepEqual(resizeFrame({ w: 100, h: 400 }, -1000, 0, true), { w: 120, h: 480 }, "a tall image stops at the minimum width");
+});
+
+test("a new note goes to the view centre and steps aside from a note already there", () => {
+  const placed = layoutCanvas(canvas({ items: [{ id: "a", kind: "note", markdown: "", x: 340, y: 210 }, { id: "b", kind: "image", src: "/a.png", x: 364, y: 234 }] })).items;
+  assert.deepEqual(noteSpot({ x: 500, y: 300 }, placed), { x: 364, y: 234 }, "only notes push a new note aside");
+  assert.deepEqual(noteSpot({ x: 0, y: 0 }, placed), { x: -160, y: -90 });
+});
+
+test("a named view resolves to its pager index and rectangle", () => {
+  const board = canvas({ items: [{ kind: "note", markdown: "x" }], views: [{ name: "a", x: 0, y: 0, w: 10, h: 10 }, { name: "b", x: 5, y: 6, w: 7, h: 8 }] });
+  assert.deepEqual(canvasViewTarget(board, "b"), { index: 1, bounds: { x: 5, y: 6, width: 7, height: 8 } });
+  assert.equal(canvasViewTarget(board, "missing"), null);
+  assert.equal(canvasViewTarget(board, undefined), null);
 });

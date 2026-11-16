@@ -45,6 +45,29 @@ fn local_only_paths_are_denied_at_every_peer_access_level() {
 }
 
 #[test]
+fn canvas_write_back_and_watch_are_refused_to_every_peer() {
+    for suffix in ["write", "watch"] {
+        let path = format!("/api/tabs/owned/preview/canvas/{suffix}");
+        assert!(is_local_only_path(&path));
+        for access in [
+            AccessLevel::Full,
+            AccessLevel::ReadOnly,
+            AccessLevel::AgentIsolated,
+            AccessLevel::Custom(vec![Permission::Admin, Permission::WriteTabs]),
+        ] {
+            assert!(!peer_access_allowed(
+                &access,
+                "peer-a",
+                &Method::POST,
+                &path,
+                |_| Some("peer-a".into())
+            ));
+        }
+    }
+    assert!(!is_local_only_path("/api/tabs/owned/preview/read"));
+}
+
+#[test]
 fn local_preview_routes_follow_read_permissions_and_isolated_tab_ownership() {
     for suffix in ["read", "check", "prepare"] {
         let path = format!("/api/tabs/owned/preview/{suffix}");

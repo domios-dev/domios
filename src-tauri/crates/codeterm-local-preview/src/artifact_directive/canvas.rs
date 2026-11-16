@@ -90,8 +90,7 @@ fn valid_view(value: &Value, names: &mut HashSet<String>) -> bool {
         return false;
     };
     only(record, &["name", "x", "y", "w", "h"])
-        && !name.is_empty()
-        && name.len() <= VIEW_NAME_BYTES
+        && valid_view_name(name)
         && names.insert(name.to_string())
         && position(record.get("x"))
         && position(record.get("y"))
@@ -99,8 +98,28 @@ fn valid_view(value: &Value, names: &mut HashSet<String>) -> bool {
         && extent(record.get("h"))
 }
 
+/// A `view` name in a canvas body or in a `<ds-canvas src view>` tag.
+pub fn valid_view_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= VIEW_NAME_BYTES
+}
+
+/// An owner edit may move, resize, rewrite or remove items and add notes, but never adds a file:
+/// the files a canvas previews stay those its author referenced.
+pub fn canvas_write_permitted(current: &str, next: &str) -> Result<(), &'static str> {
+    let next = canvas_paths(next).ok_or("Canvas edit is not a valid canvas")?;
+    let current: HashSet<String> = canvas_paths(current)
+        .ok_or("Canvas file is not a valid canvas")?
+        .into_iter()
+        .collect();
+    if next.iter().all(|path| current.contains(path)) {
+        Ok(())
+    } else {
+        Err("Canvas edits cannot add files")
+    }
+}
+
 /// Mirrors `parseDsCanvas` in chat-core: the file paths of a canvas body that renders.
-pub(super) fn canvas_paths(body: &str) -> Option<Vec<String>> {
+pub fn canvas_paths(body: &str) -> Option<Vec<String>> {
     if body.len() > BODY_LIMIT {
         return None;
     }

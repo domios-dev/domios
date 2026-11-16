@@ -6,8 +6,9 @@ import { CameraRestContext } from "./canvasRest";
 import { useZoomCanvas, type CanvasFocus } from "./useZoomCanvas";
 import type { InitialCanvasFit } from "./imageCanvasCamera";
 
-export function ZoomCanvas({ bounds, focus, cameraKey, initialFit = "ready", children, onNavigate, onSelect, wheelBehavior = "zoom", fitLabel = "Fit all", resetLabel = "Reset to 100%", toolbar = "floating", renderHeader }: {
+export function ZoomCanvas({ bounds, focus, cameraKey, initialFit = "ready", children, onNavigate, onSelect, wheelBehavior = "zoom", fitLabel = "Fit all", resetLabel = "Reset to 100%", toolbar = "floating", renderHeader, followContent }: {
   toolbar?: "floating" | "header";
+  followContent?: boolean;
   renderHeader?: (controls: ReactNode) => ReactNode;
   bounds: ViewportBox;
   focus?: CanvasFocus | null;
@@ -20,7 +21,7 @@ export function ZoomCanvas({ bounds, focus, cameraKey, initialFit = "ready", chi
   fitLabel?: string;
   resetLabel?: string;
 }) {
-  const { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural } = useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect });
+  const { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural } = useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect, followContent });
   const controls = <CanvasToolbar appearance={toolbar === "header" ? "inline" : "floating"} floating={toolbar !== "header"} label="Canvas zoom controls" fitLabel={fitLabel} actualSizeLabel={resetLabel} fitPressed={mode === "fit"} actualSizePressed={mode === "natural"}
       onFit={fit} onActualSize={natural} onZoomOut={() => zoom(-CANVAS_ZOOM_STEP)} onZoomIn={() => zoom(CANVAS_ZOOM_STEP)}
       extras={<output ref={scaleOutput} aria-live="polite" aria-label="Zoom level" className={toolbar === "header" ? "block w-[4ch] text-center text-xs tabular-nums" : "px-1 font-mono text-xs tabular-nums"}>{Math.round(camera.transformRef.current.scale * 100)}%</output>} />;

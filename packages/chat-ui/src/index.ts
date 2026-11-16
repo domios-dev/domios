@@ -16,6 +16,7 @@ export { MarkdownLink, configureMarkdownLinkOpener, openMarkdownLink } from "./M
 export { GuideNavigationProvider, useGuideNavigation } from "./GuideDirective";
 export { HtmlPreviewBlock, buildHtmlPreviewDocument } from "./HtmlPreviewBlock";
 export { configureHtmlFileLoader } from "./htmlFileLoader";
+export { configureCanvasFilePort, type CanvasFilePort, type CanvasFileWatch, type CanvasWriteResult } from "./blocks/canvasFilePort";
 export type { HtmlFileLoader } from "./htmlFileLoader";
 export { configureLocalArtifactLoader, configureLocalArtifactOpener, openLocalArtifact } from "./localArtifactLoader";
 export { FileDiffCards } from "./toolcard/FileDiffCards";

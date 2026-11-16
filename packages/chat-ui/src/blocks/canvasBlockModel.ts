@@ -89,3 +89,36 @@ export function fitPreview(bounds: ViewportBox, width: number, height: number, p
   const scale = Math.min(innerWidth / bounds.width, innerHeight / bounds.height, 1);
   return { scale, x: (width - bounds.width * scale) / 2 - bounds.x * scale, y: (height - bounds.height * scale) / 2 - bounds.y * scale };
 }
+
+/** The pager index and rectangle of a named view, or `null` when the canvas names no such view. */
+export function canvasViewTarget(canvas: DsCanvas, name: string | undefined): { index: number; bounds: ViewportBox } | null {
+  const index = name === undefined ? -1 : canvas.views.findIndex((view) => view.name === name);
+  if (index < 0) return null;
+  const view = canvas.views[index];
+  return { index, bounds: { x: view.x, y: view.y, width: view.w, height: view.h } };
+}
+
+export const CANVAS_MIN_ITEM = { w: 120, h: 80 };
+export const CANVAS_DRAG_THRESHOLD = 4;
+export const CANVAS_NUDGE = { step: 8, fine: 1 };
+export const CANVAS_NOTE_SIZE = { w: 320, h: 180 };
+const NOTE_STACK_OFFSET = 24;
+
+/** A bottom-right resize by a world delta; images keep their aspect ratio, everything keeps the minimum size. */
+export function resizeFrame(start: { w: number; h: number }, dx: number, dy: number, keepAspect: boolean): { w: number; h: number } {
+  const w = Math.max(CANVAS_MIN_ITEM.w, start.w + dx);
+  const h = Math.max(CANVAS_MIN_ITEM.h, start.h + dy);
+  if (!keepAspect || start.w <= 0 || start.h <= 0) return { w: Math.round(w), h: Math.round(h) };
+  const ratio = start.w / start.h;
+  let width = Math.abs(dx) >= Math.abs(dy) ? w : h * ratio;
+  if (width / ratio < CANVAS_MIN_ITEM.h) width = CANVAS_MIN_ITEM.h * ratio;
+  width = Math.max(width, CANVAS_MIN_ITEM.w);
+  return { w: Math.round(width), h: Math.round(width / ratio) };
+}
+
+/** Where a new note goes: centred on the view, stepped by 24px while a note already sits exactly there. */
+export function noteSpot(center: { x: number; y: number }, placed: readonly PlacedCanvasItem[]): { x: number; y: number } {
+  let x = Math.round(center.x - CANVAS_NOTE_SIZE.w / 2), y = Math.round(center.y - CANVAS_NOTE_SIZE.h / 2);
+  while (placed.some((entry) => entry.item.kind === "note" && entry.x === x && entry.y === y)) { x += NOTE_STACK_OFFSET; y += NOTE_STACK_OFFSET; }
+  return { x, y };
+}
