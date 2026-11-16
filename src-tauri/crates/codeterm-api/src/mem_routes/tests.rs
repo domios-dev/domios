@@ -1,9 +1,7 @@
 use super::*;
 use axum::{extract::State, http::HeaderValue, Json};
-use codeterm_service_core::{
-    multiplexer::{state::MultiplexerState, types::NeighborAuthority},
-    service::test_fixture::ServiceFixture,
-};
+use codeterm_neighbors_service::NeighborsFixtureExt;
+use codeterm_service_core::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
 
 #[tokio::test]
 async fn actor_and_selected_tab_headers_cannot_forge_save_author() {
@@ -15,7 +13,7 @@ async fn actor_and_selected_tab_headers_cannot_forge_save_author() {
         friendship_id: "friendship".into(),
         root_tab_id: None,
     });
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     fixture.seed_neighbor_author("friend", "friendship", "remote-friend");
     let state = crate::test_support::app_state(&fixture);
     state.config.lock().api.token = Some("owner-secret".into());

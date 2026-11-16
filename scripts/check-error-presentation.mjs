@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
+import * as ts from "typescript/unstable/ast";
+import { parseTypeScriptSource, parseTypeScriptSources } from "./typescript-sources.mjs";
 
 export const fieldValidation = new Map([
   ["src/components/shared/FormRow.tsx:error", "A short validation hint belongs to the labelled input."],
@@ -37,10 +38,10 @@ function errorContext(node) {
   return false;
 }
 
-export function rawErrorRenders(source, filename, exemptions = fieldValidation) {
+export function rawErrorRenders(source, filename, exemptions = fieldValidation, parsed) {
   const file = filename.replaceAll("\\", "/");
   if (["src/components/shared/ErrorNotice.tsx", "src/components/shared/PaneState.tsx"].includes(file)) return [];
-  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const tree = parsed ?? parseTypeScriptSource(file, source);
   const jsxBindings = new Set();
   function hasJsx(node) {
     if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) return true;
@@ -48,7 +49,7 @@ export function rawErrorRenders(source, filename, exemptions = fieldValidation) 
   }
   function bindings(node) {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && hasJsx(node.initializer)) jsxBindings.add(node.name.text);
-    ts.forEachChild(node, bindings);
+    node.forEachChild(bindings);
   }
   bindings(tree);
   const setters = new Map();
@@ -57,14 +58,15 @@ export function rawErrorRenders(source, filename, exemptions = fieldValidation) 
     if (ts.isVariableDeclaration(node) && ts.isArrayBindingPattern(node.name)) {
       const [value, setter] = node.name.elements;
       if (value && setter && ts.isBindingElement(value) && ts.isBindingElement(setter)
+        && value.name && setter.name
         && ts.isIdentifier(value.name) && ts.isIdentifier(setter.name)) setters.set(setter.name.text, value.name.text);
     }
-    ts.forEachChild(node, stateBindings);
+    node.forEachChild(stateBindings);
   }
   function mentionsError(node, caught) {
     if (ts.isIdentifier(node) && (errorName(node.text) || caught.has(node.text))) return true;
     let found = false;
-    ts.forEachChild(node, child => { if (mentionsError(child, caught)) found = true; });
+    node.forEachChild(child => { if (mentionsError(child, caught)) found = true; });
     return found;
   }
   function rawState(node) {
@@ -79,7 +81,7 @@ export function rawErrorRenders(source, filename, exemptions = fieldValidation) 
     }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && setters.has(node.expression.text)
       && node.arguments.some(argument => mentionsError(argument, caught))) rawBindings.add(setters.get(node.expression.text));
-    ts.forEachChild(node, rawState);
+    node.forEachChild(rawState);
   }
   stateBindings(tree);
   rawState(tree);
@@ -91,7 +93,7 @@ export function rawErrorRenders(source, filename, exemptions = fieldValidation) 
       const expression = node.expression.getText(tree);
       if (!exemptions.has(`${file}:${expression}`)) found.push({ file, line: tree.getLineAndCharacterOfPosition(node.getStart()).line + 1, expression });
     }
-    ts.forEachChild(node, visit);
+    node.forEachChild(visit);
   }
   visit(tree);
   return found;
@@ -99,14 +101,16 @@ export function rawErrorRenders(source, filename, exemptions = fieldValidation) 
 
 export function checkErrorPresentation(root) {
   const found = [];
+  const sources = new Map();
   function scan(directory) {
     for (const entry of readdirSync(path.join(root, directory), { withFileTypes: true })) {
       const name = `${directory}/${entry.name}`;
       if (entry.isDirectory()) scan(name);
-      else if (name.endsWith(".tsx") && !/\.(?:test|testdata|harness)\./.test(name)) found.push(...rawErrorRenders(readFileSync(path.join(root, name), "utf8"), name));
+      else if (name.endsWith(".tsx") && !/\.(?:test|testdata|harness)\./.test(name)) sources.set(name, readFileSync(path.join(root, name), "utf8"));
     }
   }
   scan("src/components");
+  for (const [name, tree] of parseTypeScriptSources(sources)) found.push(...rawErrorRenders(sources.get(name), name, fieldValidation, tree));
   return found;
 }
 

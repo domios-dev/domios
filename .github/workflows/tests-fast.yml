@@ -107,7 +107,7 @@ jobs:
             const path = require('node:path');
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         id: ci-4
         with:
           package-manager-cache: false
@@ -201,14 +201,14 @@ jobs:
       CODETERM_SCCACHE_VERIFY_ONLY: "0"
       CI_ARTIFACT_STORAGE: github
     steps:
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         id: ci-2
         with:
           package-manager-cache: false
           node-version: 22.22.0
         if: runner.environment == 'github-hosted'
       - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
         if: runner.environment == 'github-hosted'
@@ -218,7 +218,7 @@ jobs:
           ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
       - name: Hosted pnpm prerequisite
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         with:
           version: 10.32.1
           run_install: false
@@ -291,7 +291,7 @@ jobs:
       CI_CANCEL_RUN: "false"
       CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         id: ci-2
         with:
           package-manager-cache: false
@@ -301,7 +301,7 @@ jobs:
         with:
           ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         id: ci-3
         with:
           version: 10.32.1
@@ -334,7 +334,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -345,7 +345,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-3
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.32.1
           run_install: false
@@ -388,7 +388,7 @@ jobs:
       CI_CANCEL_RUN: "false"
       CODETERM_SCCACHE_VERIFY_ONLY: "0"
     steps:
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         id: ci-2
         with:
           package-manager-cache: false
@@ -398,7 +398,7 @@ jobs:
         with:
           ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
         id: ci-3
         with:
           version: 10.32.1
@@ -431,7 +431,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-3
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -442,7 +442,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-4
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.32.1
           run_install: false
@@ -519,7 +519,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -530,7 +530,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-3
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.32.1
           run_install: false
@@ -562,7 +562,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -573,7 +573,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-3
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.32.1
           run_install: false
@@ -605,7 +605,7 @@ jobs:
     steps:
       - name: Setup Node.js
         id: ci-2
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -616,7 +616,7 @@ jobs:
           fetch-depth: 1
       - name: Setup pnpm
         id: ci-3
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10.32.1
           run_install: false

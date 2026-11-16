@@ -1,5 +1,4 @@
-#[cfg(test)]
-pub(in crate::service::agent_runtime) use super::tests::sync_send::{
+pub use super::sync_fixture::{
     runtime_fixture, runtime_fixture_host_approvals, runtime_fixture_host_approvals_with,
     runtime_fixture_turn_scoped, runtime_fixture_with,
 };
@@ -87,7 +86,7 @@ pub fn loaded_runtime(
     }
 }
 
-pub(super) fn stop_test(tab: &str) {
+pub fn stop_test(tab: &str) {
     let session = SESSIONS.lock().remove(tab);
     if let Some(session) = session {
         if let Some(process) = session.process.close() {

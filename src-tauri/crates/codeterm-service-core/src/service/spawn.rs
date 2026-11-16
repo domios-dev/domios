@@ -102,7 +102,7 @@ pub struct SpawnTabSpec {
 #[derive(Debug, Clone)]
 pub struct ChatBackendLaunchMetadata {
     pub(crate) agent: AgentSpawnSpec,
-    pub(crate) params: super::SpawnAgentParams,
+    pub params: super::SpawnAgentParams,
     pub(crate) owner_linkage: Option<RuntimeOwnerLinkage>,
     pub(crate) runtime_fork: Option<RuntimeForkLaunch>,
 }
@@ -256,7 +256,7 @@ impl ServiceContext {
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
         let _neighbor_launch = self.neighbor_tab_launch_guard(&spec)?;
-        self.prepare_neighbor_tab_spawn(&mut spec)?;
+        self.neighbors().prepare_neighbor_tab_spawn(&mut spec)?;
         if !matches!(&spec.command, TabCommand::Shell) {
             self.validate_request_cwd(
                 spec.workspace_id.as_deref(),
@@ -1180,7 +1180,7 @@ fn visible_agent_launch_command_for_service(
 
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
-mod tests;
+pub mod tests;
 
 #[cfg(test)]
 #[path = "spawn_tests_chatbackend.rs"]

@@ -304,7 +304,7 @@ fn remove_owned(policy: &RestrictedCliPolicy) {
     let _ = fs::remove_dir(directory);
 }
 
-fn sandbox(
+pub fn sandbox(
     svc: &ServiceContext,
     context: &RuntimeContext,
 ) -> Result<Option<ExecutionSandboxPolicy>, String> {
@@ -321,7 +321,8 @@ fn sandbox(
             return Err(DENIED.into());
         }
         drop(mux);
-        svc.require_neighbor_restore_grant(&context.tab_id, true)?;
+        svc.neighbors()
+            .require_neighbor_restore_grant(&context.tab_id, true)?;
         return Ok(None);
     }
     let policy = tab
@@ -515,5 +516,5 @@ pub(super) fn revoke(tab: &str) -> Result<(), String> {
     }
 }
 
-#[cfg(test)]
-mod tests;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests;

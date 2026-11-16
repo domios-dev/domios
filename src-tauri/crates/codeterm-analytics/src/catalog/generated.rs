@@ -289,6 +289,8 @@ impl SettingsSection {
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProviderId {
+    #[serde(rename = "acp")]
+    Acp,
     #[serde(rename = "claude")]
     Claude,
     #[serde(rename = "codex")]
@@ -303,6 +305,7 @@ pub enum ProviderId {
 impl ProviderId {
     pub fn from_catalog(value: &str) -> Option<Self> {
         match value {
+            "acp" => Some(Self::Acp),
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "cursor" => Some(Self::Cursor),

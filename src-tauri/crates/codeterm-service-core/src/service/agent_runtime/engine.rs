@@ -84,7 +84,7 @@ pub(super) fn login_pending_session(
     }
     Err(error)
 }
-pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
+pub fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
     let Some(session) = for_tab(&tab.id) else {
         return false;
     };
@@ -533,7 +533,7 @@ async fn ensure_with_fork(
     Ok(session)
 }
 
-async fn ensure_locked(
+pub async fn ensure_locked(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,
@@ -1190,4 +1190,10 @@ fn validate_restored_arguments(
 
 #[cfg(test)]
 #[path = "engine/tests.rs"]
-mod tests;
+pub mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod sync_fixture;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use publication::hold_publication_for_test;

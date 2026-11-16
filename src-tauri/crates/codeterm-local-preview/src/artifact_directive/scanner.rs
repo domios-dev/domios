@@ -1,5 +1,6 @@
 use super::{
-    file_paths, html::HtmlBoundary, space, ArtifactScan, FileCard, HostArtifactProvenance, KINDS,
+    attributes, canvas::canvas_paths, file_paths, html::HtmlBoundary, space, ArtifactScan,
+    FileCard, HostArtifactProvenance, HEADER_LIMIT, KINDS,
 };
 use codeterm_wire::envelope::{parse_envelope_spans, MessageSegment};
 use regex::Regex;
@@ -69,7 +70,7 @@ fn candidate(source: &str, start: usize, kind: &str) -> Option<(usize, Option<Ve
     let mut json_quote = false;
     let mut escaped = false;
     for (offset, c) in source[end..].char_indices() {
-        if kind == "tasks" {
+        if matches!(kind, "tasks" | "canvas") {
             if json_quote {
                 if escaped {
                     escaped = false;
@@ -86,10 +87,20 @@ fn candidate(source: &str, start: usize, kind: &str) -> Option<(usize, Option<Ve
             }
         }
         if boundary.feed(c) {
-            return Some((end + offset + c.len_utf8(), None));
+            let next = end + offset + c.len_utf8();
+            let paths = (kind == "canvas")
+                .then(|| canvas_header_paths(header, &source[end..next - "</ds-canvas>".len()]))
+                .flatten();
+            return Some((next, paths));
         }
     }
     None
+}
+
+fn canvas_header_paths(header: &str, body: &str) -> Option<Vec<String>> {
+    (header.encode_utf16().count() <= HEADER_LIMIT && attributes(header, "canvas")?.is_empty())
+        .then(|| canvas_paths(body))
+        .flatten()
 }
 
 fn frame_body_start(source: &str) -> usize {
@@ -317,7 +328,9 @@ fn scan(
                     {
                         if let Some(paths) = paths {
                             count += paths.len();
-                            if count <= 32 {
+                            if count <= 32 && kind == "canvas" {
+                                result.canvas_paths.extend(paths);
+                            } else if count <= 32 {
                                 result.cards.push(FileCard {
                                     start,
                                     end: next,

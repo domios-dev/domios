@@ -1,6 +1,6 @@
 use super::*;
 use crate::auth::{AgentHeaders, RequestActor};
-use codeterm_service_core::service::neighbors::{NeighborCommand, NeighborRuntimeCommand};
+use codeterm_neighbors_service::service::neighbors::{NeighborCommand, NeighborRuntimeCommand};
 
 fn admit(actor: &RequestActor) -> Result<(), Response> {
     if matches!(actor, RequestActor::Owner) {

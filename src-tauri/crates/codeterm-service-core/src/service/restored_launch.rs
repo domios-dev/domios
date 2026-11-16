@@ -14,7 +14,7 @@ pub fn restored_resume_session_id(
     session_id.filter(|_| resume_sessions_enabled)
 }
 
-pub(crate) fn restored_session_target(tab: &crate::multiplexer::types::Tab) -> Option<&str> {
+pub fn restored_session_target(tab: &crate::multiplexer::types::Tab) -> Option<&str> {
     tab.agent_session_id.as_deref().or_else(|| {
         crate::multiplexer::types::latest_prior_session(&tab.prior_session_binding_nonces)
     })
@@ -184,7 +184,8 @@ pub fn restore_permission_bypass_authorization(
     provider_id: &str,
     launch: &RestorableLaunchParameters,
 ) -> Result<Option<crate::service::permission_policy::PermissionBypassAuthorization>, String> {
-    svc.require_neighbor_restore_grant(tab_id, launch.permission_bypass_requested)?;
+    svc.neighbors()
+        .require_neighbor_restore_grant(tab_id, launch.permission_bypass_requested)?;
     if launch.captured && !launch.permission_bypass_requested {
         return Ok(None);
     }
@@ -368,7 +369,7 @@ impl RestoredFreshLaunchInput {
             ),
         })
     }
-    pub(crate) fn prepared_command(
+    pub fn prepared_command(
         &self,
         service: &crate::service::ServiceContext,
         tab_id: &str,

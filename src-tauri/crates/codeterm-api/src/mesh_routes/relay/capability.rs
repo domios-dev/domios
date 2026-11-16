@@ -1,5 +1,6 @@
 use crate::routes::AppState;
 use axum::http::StatusCode;
+use codeterm_neighbors_service::prelude::*;
 use codeterm_service_core::service::tab_credentials::TabCaller;
 
 pub(super) async fn authorize(
@@ -12,7 +13,7 @@ pub(super) async fn authorize(
         .svc
         .authorize_neighbor_capability(
             caller,
-            codeterm_service_core::service::neighbors::capabilities::Capability::Denied,
+            codeterm_neighbors_service::service::neighbors::capabilities::Capability::Denied,
         )
         .await
         .map_err(|message| (StatusCode::FORBIDDEN, message))

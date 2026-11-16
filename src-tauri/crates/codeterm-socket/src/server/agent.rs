@@ -1,5 +1,6 @@
 //! `agent.*` JSON-RPC handlers.
 
+use codeterm_neighbors_service::NeighborsNeighborsCapabilitiesSpawn1Ext;
 use codeterm_orchestration::traits::*;
 use serde_json::Value;
 

@@ -7,7 +7,8 @@ use axum::{
     Extension, Json, Router,
 };
 use codeterm_account::account_mesh::wire::MeshTarget;
-use codeterm_service_core::service::account_mesh::{
+use codeterm_neighbors_service::prelude::*;
+use codeterm_neighbors_service::service::account_mesh::{
     AccountMeshOutcome, AccountMeshSnapshot, RevokedResultView, UpdatedResultView,
 };
 use serde::Deserialize;

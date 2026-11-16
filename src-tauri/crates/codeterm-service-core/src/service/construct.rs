@@ -148,7 +148,7 @@ pub fn build_service_context(
     extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
         Arc::new(parking_lot::Mutex::new(())),
     ));
-    extensions.insert(crate::service::account::AccountCell(Arc::new(
+    extensions.insert(crate::service::neighbor_account::AccountCell(Arc::new(
         tokio::sync::OnceCell::new(),
     )));
     extensions.insert(crate::service::billing::BillingCell(Arc::new(
@@ -160,6 +160,8 @@ pub fn build_service_context(
     extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(
         parking_lot::Mutex::new(std::collections::HashMap::new()),
     )));
+    crate::ports::neighbors::register_extensions(&mut extensions);
+    extensions.insert(crate::ports::neighbors::InstalledNeighbors::default());
     crate::ports::orchestration::register_extensions(&mut extensions);
     extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
     extensions.insert::<crate::ShellCapabilityState>(Arc::new(parking_lot::Mutex::new(

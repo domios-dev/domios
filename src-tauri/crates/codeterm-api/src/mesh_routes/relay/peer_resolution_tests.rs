@@ -17,7 +17,8 @@ fn peer(id: &str, name: &str, online: bool) -> codeterm_service_core::mesh::type
         online,
         is_primary: false,
         access_level: codeterm_service_core::mesh::types::AccessLevel::Full,
-        version: None,
+        domios_version: None,
+        domios_build: None,
         web_ui: None,
         relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
         consecutive_misses: 0,
@@ -39,8 +40,10 @@ fn mesh_with(
 
 #[test]
 fn mesh_peer_resolution_table() {
+    let mut live = peer(LIVE_ID, "BLACKSTAR-peer [dev-meshpeer]", true);
+    live.domios_version = Some("1.20.1".into());
     let mesh = mesh_with(vec![
-        peer(LIVE_ID, "BLACKSTAR-peer [dev-meshpeer]", true),
+        live,
         peer("3b6e44a3-0000-0000-0000-000000000002", "OTHER", true),
     ]);
     for target in [
@@ -54,6 +57,7 @@ fn mesh_peer_resolution_table() {
             Err(error) => panic!("{target} must resolve, got {error:?}"),
         };
         assert_eq!(resolved.1, LIVE_ID, "{target}");
+        assert_eq!(resolved.3.as_deref(), Some("1.20.1"), "{target}");
     }
 }
 

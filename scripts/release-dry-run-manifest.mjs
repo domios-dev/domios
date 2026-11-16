@@ -2,9 +2,10 @@
 import {bashInterpreter} from './bash-interpreter.mjs';
 import { writeLegacyRefusals } from './legacy-updater-refusal.mjs';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,6 +70,28 @@ const PLATFORM_EVIDENCE_BYTES = 256 * 1024 * 1024;
 export function storeTimeoutMs(bytes = 0) {
   return STORE_BASE_MS + Math.ceil(bytes / STORE_FLOOR_BYTES_PER_SECOND) * 1000;
 }
+const execAsync = promisify(execFile);
+async function runStoreAsync(verb, key, destination, timeout) {
+  let result;
+  try { result = await execAsync(bashInterpreter(), ['scripts/ci-artifact.sh', verb, key, destination.replaceAll('\\', '/')],
+    { cwd: root, timeout, maxBuffer: 8 * 1024 * 1024 });
+  } catch (error) {
+    if (error.killed && error.signal === 'SIGTERM') error.code = 'ETIMEDOUT';
+    throw error;
+  }
+  const { stdout, stderr } = result;
+  if (stdout) process.stdout.write(stdout);
+  if (stderr) process.stderr.write(stderr);
+}
+export async function storeAsync(verb, key, destination, { bytes = 0, run = runStoreAsync, log = console.warn } = {}) {
+  const timeout = storeTimeoutMs(bytes);
+  for (let attempt = 1; ; attempt++) {
+    try { return await run(verb, key, destination, timeout); } catch (error) {
+      if (error?.code !== 'ETIMEDOUT' || attempt > 1) throw error;
+      log(`::warning::ci-artifact ${verb} ${key} timed out; retrying once`);
+    }
+  }
+}
 function runStore(verb, key, destination, timeout) {
   const bash = bashInterpreter();
   execFileSync(bash, ['scripts/ci-artifact.sh', verb, key, destination.replaceAll('\\', '/')],
@@ -112,7 +135,7 @@ export async function capture({ tag, platform, sourceSha, artifactDirectory, hea
     const fragment = expected.fragments[index];
     await writeFile(path.join(outputDirectory, fragment), JSON.stringify({ version, notes: `Domios ${version}`,
       pub_date: new Date().toISOString(), platforms: { [platform]: {
-        url: `https://github.com/domios-dev/domios/releases/download/${tag}/${name}`, signature,
+        url: `https://github.com/domios-dev/domios/releases/download/${tag}/${name}`, signature, ...await fingerprint(source),
       } } }));
     verify(path.join(outputDirectory, fragment), outputDirectory, version, [platform], pubkey);
     names.push(name, fragment);
@@ -200,20 +223,25 @@ export async function aggregate({ tag, sourceSha, inputDirectory, outputDirector
     await copyFile(latestDeb, path.join(outputDirectory, 'domios-latest-deb.json'));
     writeLegacyRefusals(outputDirectory);
     const retainedVia = evidence.some(entry => entry.retained_via === 'ci-artifact') ? 'ci-artifact' : 'private-store';
-    const result = { schema: 1, mode: 'local_dry_run', tag, source_sha: sourceSha, platforms: PLATFORMS, retained_via: retainedVia, evidence };
+    const manifests = Object.fromEntries(await Promise.all(['domios-latest.json', 'domios-latest-deb.json'].map(async name =>
+      [name, JSON.parse(await readFile(path.join(outputDirectory, name), 'utf8'))])));
+    const result = { manifests, schema: 1, mode: 'local_dry_run', tag, source_sha: sourceSha, platforms: PLATFORMS, retained_via: retainedVia, evidence };
     await writeFile(path.join(outputDirectory, 'manifest-local-verification.json'), JSON.stringify(result, null, 2) + '\n');
     return result;
   } finally { await rm(scratch, { recursive: true, force: true }); }
 }
 
-export async function fetchAndAggregate({ tag, sourceSha, runId, inputDirectory, outputDirectory, fetch = store }) {
+export async function fetchPlatformEvidence(runId, inputDirectory, fetch = storeAsync) {
+  await Promise.all(PLATFORMS.map(platform =>
+    fetch('get-prefix', `${runId}/release-dry-run/${platform}/`, path.join(inputDirectory, platform), { bytes: PLATFORM_EVIDENCE_BYTES })));
+}
+
+export async function fetchAndAggregate({ tag, sourceSha, runId, inputDirectory, outputDirectory, fetch = storeAsync }) {
   if (!/^[1-9]\d*$/.test(String(runId))) throw new Error('invalid CI evidence run ID');
   const sources = path.join(await mkdtemp(path.join(os.tmpdir(), 'dry-run-sources-')), 'sources.tsv');
   await writeFile(sources, '');
   process.env.CI_ARTIFACT_SOURCES = sources;
-  for (const platform of PLATFORMS) {
-    fetch('get-prefix', `${runId}/release-dry-run/${platform}/`, path.join(inputDirectory, platform), { bytes: PLATFORM_EVIDENCE_BYTES });
-  }
+  await fetchPlatformEvidence(runId, inputDirectory, fetch);
   return aggregate({ tag, sourceSha, inputDirectory, outputDirectory, locations: parseSources(await readFile(sources, 'utf8'), runId) });
 }
 
@@ -223,7 +251,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (!/^[1-9]\d*$/.test(runId)) throw new Error('invalid CI evidence run ID');
     if (verb === 'capture') {
       const [platform, artifactDirectory, headlessDirectory, outputDirectory] = args;
-      await capture({ tag, sourceSha, platform, artifactDirectory, headlessDirectory, outputDirectory });
+      const receipt = await capture({ tag, sourceSha, platform, artifactDirectory, headlessDirectory, outputDirectory });
+      if (process.env.GITHUB_EVENT_NAME === 'push' && process.env.GITHUB_REF === `refs/heads/release/${tag.slice(1)}`) {
+        const { uploadDraft, qualificationRepositories, requireQualificationPush } = await import('./release-qualification-draft.mjs');
+        requireQualificationPush(tag, sourceSha, runId);
+        await qualificationRepositories((repository, env) => uploadDraft({ tag, sourceSha, runId, directory: outputDirectory, receipt, repository, env }));
+      }
       const stored = (await readdir(outputDirectory)).sort((left, right) =>
         Number(left === 'dry-run-evidence.json') - Number(right === 'dry-run-evidence.json'));
       for (const file of stored) {

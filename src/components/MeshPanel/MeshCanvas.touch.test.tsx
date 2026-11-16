@@ -1,3 +1,4 @@
+import { measureCanvas, checkStageGestures } from "../../../packages/chat-ui/src/canvasStage.testdata";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it } from "vitest";
@@ -87,11 +88,19 @@ it("pinch zooms the graph and is kept from the page; a one-finger touch stays a 
   expect(scale()).toBeCloseTo(before * 2);
 });
 
-it("desktop is unchanged: graph only, no list toggle, and the fine zoom step", async () => {
+it("desktop keeps graph-only navigation and uses the shared zoom step", async () => {
   await mount(1200, false);
   expect(list()).toBeNull();
   expect(toggle()).toBeNull();
   const fitted = scale();
   await tap("canvas-zoom-in");
-  expect(scale()).toBeCloseTo(fitted * 1.06);
+  expect(scale()).toBeCloseTo(fitted * 1.25);
+});
+
+it("Mesh stage fits, handles zoom keys and touch, and keeps the camera after resize", async () => {
+  const measurement = measureCanvas();
+  try {
+    await mount(1200, true);
+    await checkStageGestures(layer()!.parentElement!, layer()!, measurement.resize);
+  } finally { measurement.restore(); }
 });

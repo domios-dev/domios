@@ -349,7 +349,7 @@ impl Messenger {
         mut envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
-        envelope = svc.stamp_neighbor_message(envelope);
+        envelope = svc.neighbors().stamp_neighbor_message(envelope);
         let kind = envelope.kind;
         if crate::paths::is_dev_instance() && envelope.id.is_none() {
             envelope.id = Some(uuid::Uuid::new_v4().to_string());
@@ -1163,4 +1163,4 @@ pub fn delivery_message(
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

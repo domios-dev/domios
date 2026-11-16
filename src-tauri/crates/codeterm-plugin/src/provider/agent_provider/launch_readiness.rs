@@ -43,6 +43,11 @@ macro_rules! agent_provider_launch_readiness {
             false
         }
 
+        /// Event that must follow session binding before launch input is ready.
+        fn input_attach_signal(&self) -> crate::provider::InputAttachSignal {
+            crate::provider::InputAttachSignal::None
+        }
+
         /// How to verify that submitted text was actually processed. Default is
         /// shell-prompt polling — providers running TUIs or non-observable flows
         /// override (TuiInputDrained / None).
