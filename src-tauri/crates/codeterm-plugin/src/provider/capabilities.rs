@@ -23,14 +23,17 @@ pub struct PasteCapability {
     pub marks_routed_messages: bool,
 }
 
-/// Terminal event proving the provider's own input loop owns its PTY. A TUI that
-/// binds its session before mounting input turns earlier keystrokes into draft text.
+/// Events proving the provider's own input loop owns its PTY. A TUI that binds
+/// its session before mounting input turns earlier keystrokes into draft text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum InputAttachSignal {
     #[default]
     None,
     BracketedPaste,
+    /// Also waits for this launch's own session-start hook, before which the
+    /// provider shows pasted text but ignores Enter.
+    SessionStartAndBracketedPaste,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

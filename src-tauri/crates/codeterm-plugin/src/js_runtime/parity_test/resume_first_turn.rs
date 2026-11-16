@@ -131,6 +131,10 @@ fn input_attach_capability_native_js_parity() {
         load(r#","inputAttach":"bracketed_paste""#).input_attach_signal(),
         InputAttachSignal::BracketedPaste
     );
+    assert_eq!(
+        load(r#","inputAttach":"session_start_and_bracketed_paste""#).input_attach_signal(),
+        InputAttachSignal::SessionStartAndBracketedPaste
+    );
 }
 
 #[test]
