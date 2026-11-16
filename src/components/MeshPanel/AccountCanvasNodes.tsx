@@ -125,9 +125,8 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
       onSignOut={row.canSignOut && actions.onSignOut ? () => actions.onSignOut!(row) : undefined}
       onRemove={target && actions.onRemove ? (alsoSignOut) => actions.onRemove!(row, target, alsoSignOut) : undefined}
       renderRow={(menu) => <MachineFooter label={label} secondary={secondary} tone={footer.tone} connecting={row.connecting}
-        version={peer?.domios_version} build={peer?.domios_build}>
+        version={peer?.domios_version} build={peer?.domios_build} menu={menu}>
         {footer.plans && <button type="button" onClick={() => actions.onPlans(footer.key)} aria-label={`${plansAction("See plans")} for ${name}`} className={COMPACT_ACCENT}>{plansAction("See plans")}</button>}
-        {menu}
       </MachineFooter>} />
     {helper && <p className="m-0 px-3.5 pb-2 text-[11px] text-[var(--ct-muted-fg)]">{helper}</p>}
     {(footer.callout || hint) && <div className="flex flex-col gap-2 px-3.5 pb-2.5">

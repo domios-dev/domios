@@ -88,7 +88,6 @@ interface Props {
   onOpenPeerWebUi?: (url: string) => void;
   webUiBaseUrl?: string | null;
   webUiToken?: string | null;
-  /** A touch screen: pinch and pan the graph, bigger +/- steps, and on a phone the stacked list first. */
   touch?: boolean;
 }
 

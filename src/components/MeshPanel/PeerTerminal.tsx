@@ -30,6 +30,7 @@ function PeerTerminalComponent({
   onRename,
   renameDisabledReason,
 }: Props) {
+  const hasResources = inventory && (inventory.services.length > 0 || inventory.crons.length > 0);
   const dim = offline ? "opacity-55 grayscale" : "";
   return (
     <div
@@ -70,14 +71,14 @@ function PeerTerminalComponent({
           Go online
         </button>
       )}
-      <div
+      {hasResources && <div
         className={`px-3.5 py-2 text-[12px] ${dim}`}
         style={{
           color: "var(--ct-muted-fg)",
         }}
       >
         {inventory && <PeerCapsuleSections inventory={inventory} />}
-      </div>
+      </div>}
       {footer}
     </div>
   );
