@@ -302,12 +302,15 @@ Self-link the diary (an orphaned diary is a failed run):
 
 Report, tying the run to its diary by identity:
 
-    domios mem worker report --diary <diary_id> --finalization succeeded \
-      "Hubs: decomposed N, skipped M. Islands: bridged X, deleted Y. Merged: <lesser> -> <keeper> (<why>), or none. Archived: <id> (<reason>), or none. Diary saved."
+    domios mem worker report "<summary of confirmed work>" --diary <diary_id> --finalization succeeded
 
+The positional summary is required for `mem worker report`. Include confirmed
+hub, island, merge and archive work and the diary outcome in that summary.
 If the final update or the self-link did not confirm, report the truth:
-`--finalization partial --reason "<what did not confirm>"`. The daemon checks
-your claim against the stored diary either way.
+
+    domios mem worker report "<summary of confirmed work>" --diary <diary_id> --finalization partial --reason "<what did not confirm>"
+
+The daemon checks your claim against the stored diary either way.
 
 ## RULES OF THUMB
 
@@ -317,3 +320,5 @@ your claim against the stored diary either way.
 - Every mutation carries a `dreamer-...` reason, so it can be audited and revived.
 - If a call needs more than five sub-decisions to justify, pick the simpler
   routing and move on.
+
+<!-- revision: 1 -->
