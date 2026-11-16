@@ -307,12 +307,11 @@ impl AgentProvider for JsProvider {
     }
 
     fn public_send_waits_for_startup_turn_completion(&self) -> bool {
-        self.manifest
-            .spawn
-            .public_send_waits_for_startup_turn_completion
-            || self
-                .native()
-                .is_some_and(|native| native.public_send_waits_for_startup_turn_completion())
+        delivery::public_send_waits_for_startup_turn_completion(self)
+    }
+
+    fn input_attach_signal(&self) -> provider::InputAttachSignal {
+        delivery::input_attach_signal(self)
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {

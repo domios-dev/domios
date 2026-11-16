@@ -78,6 +78,7 @@ mod pty_memory;
 mod shared_history;
 pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_input;
 pub(crate) mod launch_diagnostics;
+pub(crate) mod launch_input_attach;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
 #[cfg(any(test, feature = "test-support"))]
