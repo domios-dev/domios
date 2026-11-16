@@ -11,6 +11,6 @@ export function accountAuth(value:unknown): Extract<AgentEvent,{kind:"auth"}> {
 export function notificationAuth(value:unknown): Extract<AgentEvent,{kind:"auth"}> {
   const params=object(value);
   if (params.authMode === null) return {kind:"auth",state:"signedOut"};
-  if (text(params.authMode)) return {kind:"auth",state:"signedIn",billingMode:params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown"};
+  if (text(params.authMode)) return {kind:"auth",state:"signedIn",billingMode:params.authMode === "apikey" || params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown"};
   return {kind:"auth",state:"unknown"};
 }
