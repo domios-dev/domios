@@ -1,5 +1,10 @@
 use crate::stream_plan::StreamPort;
-use fsevent_sys::{self as fs, core_foundation as cf};
+use core_foundation_sys::{
+    array::{kCFTypeArrayCallBacks, CFArrayAppendValue, CFArrayCreateMutable, CFMutableArrayRef},
+    base::{kCFAllocatorDefault, CFIndex, CFRelease},
+    string::{kCFStringEncodingUTF8, CFStringCreateWithCString},
+};
+use fsevent_sys as fs;
 use std::ffi::{c_void, CStr, CString, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -32,15 +37,15 @@ extern "C" {
     fn FSEventStreamSetDispatchQueue(stream: fs::FSEventStreamRef, queue: *mut c_void);
 }
 
-struct Array(cf::CFArrayRef);
+struct Array(CFMutableArrayRef);
 
 impl Array {
     fn paths(paths: &[PathBuf]) -> Result<Self, String> {
         let array = unsafe {
-            cf::CFArrayCreateMutable(
-                cf::kCFAllocatorDefault,
-                paths.len() as cf::CFIndex,
-                &cf::kCFTypeArrayCallBacks,
+            CFArrayCreateMutable(
+                kCFAllocatorDefault,
+                paths.len() as CFIndex,
+                &kCFTypeArrayCallBacks,
             )
         };
         if array.is_null() {
@@ -51,18 +56,18 @@ impl Array {
             let bytes =
                 CString::new(path.as_os_str().as_bytes()).map_err(|error| error.to_string())?;
             let value = unsafe {
-                cf::CFStringCreateWithCString(
-                    cf::kCFAllocatorDefault,
+                CFStringCreateWithCString(
+                    kCFAllocatorDefault,
                     bytes.as_ptr(),
-                    cf::kCFStringEncodingUTF8,
+                    kCFStringEncodingUTF8,
                 )
             };
             if value.is_null() {
                 return Err(format!("FSEvents path is not UTF-8: {}", path.display()));
             }
             unsafe {
-                cf::CFArrayAppendValue(array, value);
-                cf::CFRelease(value);
+                CFArrayAppendValue(array, value.cast());
+                CFRelease(value.cast());
             }
         }
         Ok(result)
@@ -72,7 +77,7 @@ impl Array {
 impl Drop for Array {
     fn drop(&mut self) {
         unsafe {
-            cf::CFRelease(self.0);
+            CFRelease(self.0.cast());
         }
     }
 }
@@ -81,7 +86,7 @@ struct Context {
     callback: Callback,
 }
 
-extern "C" fn release_context(info: *const c_void) {
+extern "C" fn release_context(info: *mut c_void) {
     if !info.is_null() {
         unsafe {
             Arc::decrement_strong_count(info as *const Context);
@@ -89,7 +94,7 @@ extern "C" fn release_context(info: *const c_void) {
     }
 }
 
-extern "C" fn retain_context(info: *const c_void) -> *const c_void {
+extern "C" fn retain_context(info: *mut c_void) -> *mut c_void {
     if !info.is_null() {
         unsafe {
             Arc::increment_strong_count(info as *const Context);
@@ -210,7 +215,7 @@ impl StreamPort for NativePort {
         };
         let raw = unsafe {
             fs::FSEventStreamCreate(
-                cf::kCFAllocatorDefault,
+                kCFAllocatorDefault,
                 observe,
                 &context,
                 paths.0,

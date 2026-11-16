@@ -6,6 +6,7 @@
 use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
 const B64: base64::engine::general_purpose::GeneralPurpose =
@@ -60,7 +61,9 @@ pub struct SignedRequest {
 
 /// Generate Ed25519 keypair for peer identity.
 pub fn generate_peer_keypair() -> (String, String) {
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let mut seed = [0u8; 32];
+    OsRng.fill_bytes(&mut seed);
+    let signing_key = SigningKey::from_bytes(&seed);
     let verifying_key = signing_key.verifying_key();
     (
         B64.encode(signing_key.to_bytes()),

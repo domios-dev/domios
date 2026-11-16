@@ -98,7 +98,7 @@ futures-util = "0.3"
 futures-executor = "0.3"
 png = "0.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-cron = "0.13"
+cron = "0.17"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 vt100 = "0.16"
@@ -106,10 +106,9 @@ semver = "1"
 hostname = "0.4.2"
 notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.5"
-mdns-sd = "0.11"
 if-addrs = "0.15"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 aes-gcm = "0.10"
 url = "2"
 rand = "0.8.6"
