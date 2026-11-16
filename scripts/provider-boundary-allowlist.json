@@ -7523,28 +7523,28 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/hierarchy/lifecycle_delivery_tests.rs",
+      "file": "src-tauri/crates/codeterm-orchestration/src/hierarchy/lifecycle_delivery_tests.rs",
       "token": "claude",
       "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/hierarchy/report_attribution.rs",
+      "file": "src-tauri/crates/codeterm-orchestration/src/hierarchy/report_attribution.rs",
       "token": "claude",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/hierarchy/report_plan_ctx/tests.rs",
+      "file": "src-tauri/crates/codeterm-orchestration/src/hierarchy/report_plan_ctx_tests.rs",
       "token": "claude",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/hierarchy/tests.rs",
+      "file": "src-tauri/crates/codeterm-orchestration/src/hierarchy/tests.rs",
       "token": "claude",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
@@ -7936,7 +7936,7 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/message_gateway/ordering_tests.rs",
+      "file": "src-tauri/crates/codeterm-orchestration/src/hierarchy/ordering_tests.rs",
       "token": "claude",
       "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
@@ -10674,6 +10674,10 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/external_imports.rs",
       "reason": "Provider-owned native/JavaScript parity proof on captured external instruction import fixtures."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/input_attach.rs",
+      "reason": "Provider-owned native/JavaScript parity proof that the provider declares bracketed-paste input attach."
     }
   ]
 }

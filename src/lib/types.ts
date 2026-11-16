@@ -196,7 +196,7 @@ export type MeshStatus = Omit<import("../../gen/MeshStatus").MeshStatus, "build"
 
 export type PeerAddress = import("../../gen/PeerAddress").PeerAddress;
 
-export type PairedPeer = Pick<import("../../gen/PairedPeer").PairedPeer, "instance_id" | "instance_name" | "addresses" | "api_port" | "public_key" | "paired_at" | "last_seen" | "online" | "is_primary" | "access_level" | "version" | "relay_protocol_version"> & Partial<import("../../gen/PairedPeer").PairedPeer>;
+export type PairedPeer = Pick<import("../../gen/PairedPeer").PairedPeer, "instance_id" | "instance_name" | "addresses" | "api_port" | "public_key" | "paired_at" | "last_seen" | "online" | "is_primary" | "access_level" | "relay_protocol_version"> & Partial<import("../../gen/PairedPeer").PairedPeer> & { domios_version?: string | null; domios_build?: string | null };
 
 export const RELAY_PROTOCOL_VERSION = 3;
 

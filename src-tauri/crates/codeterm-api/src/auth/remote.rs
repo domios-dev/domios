@@ -16,7 +16,7 @@ pub(crate) async fn middleware(
 ) -> Response {
     if req
         .extensions()
-        .get::<codeterm_service_core::service::account_mesh::tailnet::TailnetListener>()
+        .get::<codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener>()
         .is_some()
     {
         return next.run(req).await;

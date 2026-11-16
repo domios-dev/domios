@@ -1,7 +1,8 @@
 use serde::Serialize;
 
-use crate::service::hierarchy::plan_reminder_nudge::{
-    current_epoch_secs, project_for_tab, ProjectedHeartbeat, ProjectedTick,
+use crate::service::plan_reminder_model::current_epoch_secs;
+use crate::service::plan_reminder_projection::{
+    project_for_tab, ProjectedHeartbeat, ProjectedTick,
 };
 use crate::service::ServiceContext;
 
@@ -49,7 +50,7 @@ pub(super) fn views_for_tab(
     let cfg = svc.configuration().orchestration;
     let read = svc
         .plan_store
-        .reminder_read_snapshot(crate::service::hierarchy::heartbeat_gate::scrubbed)
+        .reminder_read_snapshot(crate::service::heartbeat_gate::scrubbed)
         .map_err(|error| error.to_string())?;
     let plans = read
         .candidate_targets(Some(tab_id))
@@ -60,7 +61,7 @@ pub(super) fn views_for_tab(
         cfg.nudge_interval_secs,
         current_epoch_secs(),
         svc.plan_turn_counter.time_nudge_deadline(tab_id),
-        &svc.ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
+        &svc.ext::<std::sync::Arc<crate::service::heartbeat_gate::Gate>>()
             .ticks_for_tab(tab_id),
         cfg.plan_reminders,
     );
@@ -72,7 +73,7 @@ pub(super) fn views_for_tab(
                     .composition(&plan.id)
                     .map_err(|error| error.to_string())?
                     .ok_or_else(|| "reminder popup plan is missing".to_string())?;
-                item.text = svc.heartbeat_body_for_popup(
+                item.text = svc.orchestration().heartbeat_body_for_popup(
                     &composition,
                     tab_id,
                     item.id.starts_with("system:heartbeat:worker:"),

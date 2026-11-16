@@ -104,6 +104,36 @@ fn lazy_session_start_capability_native_js_parity() {
 }
 
 #[test]
+fn input_attach_capability_native_js_parity() {
+    use crate::provider::InputAttachSignal;
+    let load = |spawn_extra: &str| {
+        let manifest_json = format!(
+            r#"{{"id":"input-attach-fixture","version":"0.1.0","hostIoJobs":true,"displayName":"Input Attach Fixture",
+            "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},"taskDelivery":"pty_input",
+            "verifySubmit":{{"kind":"none"}}{spawn_extra}}}}}"#
+        );
+        let manifest: super::super::PluginManifest = serde_json::from_str(&manifest_json).unwrap();
+        let vm = super::super::PluginVm::from_source_with(
+            "input-attach-fixture",
+            "module.exports.default = {};".into(),
+            Some(manifest_json),
+        )
+        .unwrap();
+        JsProvider::new(manifest, std::sync::Arc::new(vm))
+    };
+
+    assert_eq!(
+        load("").input_attach_signal(),
+        ResumeFirstTurnNative.input_attach_signal()
+    );
+    assert_eq!(load("").input_attach_signal(), InputAttachSignal::None);
+    assert_eq!(
+        load(r#","inputAttach":"bracketed_paste""#).input_attach_signal(),
+        InputAttachSignal::BracketedPaste
+    );
+}
+
+#[test]
 fn session_exists_native_js_parity_preserves_unknown() {
     let manifest_json = r#"{"id":"resume-first-turn-fixture","version":"0.1.0","hostIoJobs":true,"displayName":"Presence Fixture"}"#;
     let manifest = super::super::PluginManifest::from_json_str(manifest_json).unwrap();

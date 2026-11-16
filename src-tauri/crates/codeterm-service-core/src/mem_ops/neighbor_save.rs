@@ -106,7 +106,10 @@ impl ServiceContext {
             return Err(Refusal::WriteNotAllowed.to_string());
         }
         let caller = caller.ok_or_else(|| Refusal::WriteNotAllowed.to_string())?;
-        let (authority, permission) = self.neighbor_memory_write_grant(&caller).await?;
+        let (authority, permission) = self
+            .neighbors()
+            .neighbor_memory_write_grant(&caller)
+            .await?;
         if author.friendship_id.as_deref() != Some(authority.friendship_id.as_str()) {
             return Err(Refusal::WriteNotAllowed.to_string());
         }
@@ -138,7 +141,7 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod matrix;

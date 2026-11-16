@@ -8,6 +8,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { bashInterpreter } from './bash-interpreter.mjs';
 import { nativeIdentity } from './build-gateway-guard.mjs';
+import { testExecutionResult } from './build-gateway-output.mjs';
 
 const unix = process.platform !== 'win32';
 const gateway = path.resolve('scripts/build-gateway.sh');
@@ -193,22 +194,23 @@ for (const code of [0, 23]) {
 }
 
 const cappedScript = `
-fake_nextest() { cat "$FAKE_OUTPUT"; return "\${FAKE_STATUS:-0}"; }
-export -f fake_nextest
-exec "$BASH" scripts/test-capped.sh "$@"
+fake_nextest() { printf '%s' "$FAKE_OUTPUT"; return "\${FAKE_STATUS:-0}"; }
+source scripts/test-capped.sh "$@"
 `;
 
 function capped(output, args, status = 0) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nextest-summary-'));
   try {
-    const file = path.join(directory, 'output.log');
-    fs.writeFileSync(file, output);
-    return spawnSync(bashInterpreter(), ['-c', cappedScript, 'capped', ...args], {
+    const result = spawnSync(bashInterpreter(), ['-c', cappedScript, 'capped', ...args], {
       encoding: 'utf8', timeout: 10000,
       env: { ...process.env, CARGO_TEST_CMD: 'fake_nextest', CARGO_TEST_BUILD_CMD: '',
         CODETERM_TEST_HOST_TRIPLE: 'x86_64-unknown-linux-gnu', TEST_CAP_SECS: '0',
-        CT_BUILD_ARTIFACT_DIR: '', FAKE_OUTPUT: file.replaceAll('\\', '/'), FAKE_STATUS: String(status) },
+        CT_BUILD_ARTIFACT_DIR: directory.replaceAll('\\', '/'), TEST_RAW_OUTPUT: '1',
+        CODETERM_BUILD_FINGERPRINTS: '0', TEST_REQUIRE_EXECUTION: '0', FAKE_OUTPUT: output, FAKE_STATUS: String(status) },
     });
+    assert.equal(result.error, undefined, result.stdout + result.stderr);
+    assert.equal(fs.readdirSync(directory).filter(file => /^test\..*\.log$/.test(file)).length, 1);
+    return result;
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
 
@@ -257,6 +259,68 @@ for (const output of ['', 'Summary [0.001s] 0 tests run: 0 passed\n',
 test('nextest explicit empty-run policy is recognized after a filter', () => {
   const result = capped('', ['owned_test', '--stress-count', '30', '--no-tests', 'pass']);
   assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+for (const output of ['', 'runner exited without a summary\n',
+  'Summary [0.001s] 0 tests run: 0 passed\n',
+  'Summary [0.001s] 1/1 stress run iterations: 1 passed\n',
+  'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n']) {
+  for (const args of [[], ['owned_test'], ['-E', 'test(owned_test)', '--no-tests=pass'],
+    ['owned_test', '--no-tests', 'warn']]) {
+    test(`test-one refuses zero execution: ${JSON.stringify({ output, args })}`, () => {
+      const result = testExecutionResult(output, {
+        requireExecution: true,
+        filter: args.includes('-E') ? 'test(owned_test)' : args[0],
+        noTestsMode: args.includes('--no-tests=pass') ? 'pass' : args.includes('warn') ? 'warn' : '',
+      });
+      assert.equal(result.status, 97, result.error);
+      assert.match(result.error, /test-one requires at least one passed test/);
+    });
+  }
+}
+
+for (const output of ['Summary [0.001s] 1 test run: 1 passed\n',
+  'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n', stressOutput,
+  '\x1b[32mSummary [0.001s] 1 test run: 1 passed\x1b[0m',
+  'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\nSummary [0.001s] 1 test run: 1 passed']) {
+  test(`test-one accepts executed tests: ${JSON.stringify(output.slice(-100))}`, () => {
+    const result = testExecutionResult(output, { requireExecution: true, filter: 'owned_test' });
+    assert.equal(result.status, 0, result.error);
+  });
+}
+
+test('test-one preserves a failed runner exit even without a summary', () => {
+  const result = testExecutionResult('', { status: 23, requireExecution: true, filter: 'owned_test' });
+  assert.equal(result.status, 23, result.error);
+});
+
+test('test-one proof preserves ordinary empty-run and stress policies', () => {
+  for (const [output, options, expected] of [
+    ['', {}, 0],
+    ['', { filter: 'owned_test', noTestsMode: 'pass' }, 0],
+    ['', { filter: 'owned_test', noTestsMode: 'warn' }, 0],
+    ['', { filter: 'owned_test' }, 97],
+    ['Summary [0.001s] 1/1 stress run iterations: 1 passed\n', { filter: 'owned_test' }, 0],
+    ['Stress test [0.001s] iteration 1/1: 0 tests run: 0 passed\nSummary [0.001s] 1/1 stress run iterations: 1 passed\n', { filter: 'owned_test' }, 97],
+  ]) {
+    assert.equal(testExecutionResult(output, options).status, expected);
+  }
+});
+
+test('test-one proof entrypoint reads the captured log, enforces the flag and exits 97', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'execution-proof-'));
+  try {
+    const file = path.join(directory, 'runner.log');
+    fs.writeFileSync(file, '');
+    const result = spawnSync(process.execPath, ['scripts/build-gateway-output.mjs', 'test-proof', file,
+      'test(owned_test)', 'pass'], {
+      encoding: 'utf8', timeout: 10000,
+      env: { ...process.env, TEST_REQUIRE_EXECUTION: '1' },
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 97, result.stdout + result.stderr);
+    assert.match(result.stderr, /test-one requires at least one passed test/);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
 const loggingJob = `set -eu

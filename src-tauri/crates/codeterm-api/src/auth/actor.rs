@@ -1,3 +1,4 @@
+use codeterm_orchestration::traits::CuratorSkillExt;
 use std::ops::Deref;
 
 use axum::{

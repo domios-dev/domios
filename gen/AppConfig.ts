@@ -17,7 +17,6 @@ import type { RestoreConfig } from "./RestoreConfig";
 import type { RunawayConfig } from "./RunawayConfig";
 import type { SocketConfig } from "./SocketConfig";
 import type { SupporterConfig } from "./SupporterConfig";
-import type { TabSleepConfig } from "./TabSleepConfig";
 import type { TerminalConfig } from "./TerminalConfig";
 import type { ThemeConfig } from "./ThemeConfig";
 import type { UpdaterConfig } from "./UpdaterConfig";
@@ -25,7 +24,7 @@ import type { UsageConfig } from "./UsageConfig";
 import type { UtilityTabsConfig } from "./UtilityTabsConfig";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type AppConfig = { browser_upload_folders: { [key in string]: Array<string> }, restore: RestoreConfig, tab_sleep: TabSleepConfig, account: JsonValue, billing: JsonValue, theme: ThemeConfig, font: FontConfig, terminal: TerminalConfig, utility_tabs: UtilityTabsConfig, diagnostics: DiagnosticsConfig, notifications: NotificationConfig, keybindings: KeybindingsConfig, socket: SocketConfig, agent: AgentConfig, api: ApiConfig, 
+export type AppConfig = { browser_upload_folders: { [key in string]: Array<string> }, restore: RestoreConfig, account: JsonValue, billing: JsonValue, theme: ThemeConfig, font: FontConfig, terminal: TerminalConfig, utility_tabs: UtilityTabsConfig, diagnostics: DiagnosticsConfig, notifications: NotificationConfig, keybindings: KeybindingsConfig, socket: SocketConfig, agent: AgentConfig, api: ApiConfig, 
 /**
  * Per-provider settings keyed by provider id.
  * Section header in TOML: `[agents.claude]`, `[agents.codex]`, etc.

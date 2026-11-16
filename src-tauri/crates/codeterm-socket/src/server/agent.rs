@@ -1,5 +1,7 @@
 //! `agent.*` JSON-RPC handlers.
 
+use codeterm_neighbors_service::NeighborsNeighborsCapabilitiesSpawn1Ext;
+use codeterm_orchestration::traits::{HierarchyExt, HierarchyReportDiagnosticsExt};
 use serde_json::Value;
 
 use codeterm_service_core::service::ServiceState;

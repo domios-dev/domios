@@ -1,7 +1,7 @@
 use super::*;
 use crate::agent::reports::ReportDetails;
-use crate::service::hierarchy::HierarchyReportDelivery;
 use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
+use crate::service::report_delivery::HierarchyReportDelivery;
 use crate::service::startup_lease::StartupHoldRejection;
 use serde_json::json;
 
@@ -392,7 +392,7 @@ impl ServiceContext {
         );
     }
 
-    pub(crate) fn publish_agent_startup_report_with_delivery(
+    pub fn publish_agent_startup_report_with_delivery(
         &self,
         supervisor_tab_id: &str,
         agent_tab_id: &str,

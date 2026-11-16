@@ -83,8 +83,7 @@ impl ServiceContext {
             incident.new_head,
             incident.cause,
         );
-        if let Err(error) = crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
-            self,
+        if let Err(error) = self.orchestration().deliver_orchestrator_notice_exact(
             &incident.plan_id,
             &owner,
             "plan",

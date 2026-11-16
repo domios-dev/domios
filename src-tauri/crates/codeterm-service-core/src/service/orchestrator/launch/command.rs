@@ -87,7 +87,7 @@ pub fn build_agent_command_with_launch_marker_for_service(
     .shell_command
 }
 
-pub(crate) fn prepare_agent_command_for_service(
+pub fn prepare_agent_command_for_service(
     service: &ServiceContext,
     tab_id: &str,
     agent_cmd: &str,
@@ -136,7 +136,10 @@ fn build_agent_command_inner(
     };
     let neighbor_tool_args = match notice_context {
         Some((service, tab_id)) => {
-            match service.neighbor_scoped_tool_launch_args(tab_id, agent_cmd, params) {
+            match service
+                .neighbors()
+                .neighbor_scoped_tool_launch_args(tab_id, agent_cmd, params)
+            {
                 Ok(args) => args,
                 Err(error) => {
                     log::error!("[neighbor-launch] scoped tool policy refused: {error}");
@@ -463,4 +466,4 @@ fn build_agent_command_inner(
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

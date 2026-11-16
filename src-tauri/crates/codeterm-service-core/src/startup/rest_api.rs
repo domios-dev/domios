@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
-pub(crate) mod listeners;
+pub mod listeners;
 mod restart;
 mod streams;
 pub use restart::RestartAcceptance;
@@ -503,7 +503,7 @@ fn probe_address(address: SocketAddr) -> SocketAddr {
     }
 }
 
-pub(crate) async fn prove_health(
+pub async fn prove_health(
     address: SocketAddr,
     bearer: Option<&str>,
     deadline: tokio::time::Instant,

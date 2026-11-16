@@ -23,6 +23,7 @@ pub struct Http {
     client: reqwest::blocking::Client,
     endpoint: String,
     key: Option<String>,
+    pub(crate) context: crate::Context,
 }
 
 impl Http {
@@ -44,6 +45,7 @@ impl Http {
             client,
             endpoint: config.zone.endpoint().into(),
             key,
+            context: crate::Context::default(),
         })
     }
 
@@ -69,6 +71,12 @@ impl AnalyticsSink for Http {
                 value["insert_id"] = serde_json::json!(event.insert_id);
                 value["device_id"] = serde_json::json!(event.device_id);
                 value["time"] = serde_json::json!(event.time);
+                value["ip"] = serde_json::json!("$remote");
+                if let serde_json::Value::Object(context) = serde_json::to_value(&self.context)? {
+                    for (key, field) in context {
+                        value[key] = field;
+                    }
+                }
                 if let Some(uid) = &event.user_id {
                     value["user_id"] = serde_json::json!(uid);
                 }

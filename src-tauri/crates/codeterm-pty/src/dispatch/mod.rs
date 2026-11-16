@@ -542,6 +542,21 @@ pub(crate) fn build_tab_list_json(
     build_tab_projection_json(snapshot, false)
 }
 
+/// A lazily restored tab has no terminal until something wakes it; say so and
+/// how, rather than leaving its restored launch stage to read as a stuck start.
+pub fn asleep_projection(tab: &crate::multiplexer::types::Tab) -> serde_json::Value {
+    if !tab.frozen || tab.pty_id.is_some() {
+        return serde_json::Value::Null;
+    }
+    serde_json::json!({
+        "reason": "lazy_restore",
+        "wake": format!(
+            "open the tab, send to it, or run `domios agent restart --tab {}`",
+            tab.id
+        ),
+    })
+}
+
 fn build_tab_projection_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
     include_hidden: bool,
@@ -568,6 +583,9 @@ fn build_tab_projection_json(
                     "focused".into(),
                     serde_json::Value::Bool(focused_id == Some(p.id.as_str())),
                 );
+                if p.frozen {
+                    obj.insert("asleep".into(), asleep_projection(p));
+                }
                 if let Some((tab_id, ws_id, ws_name)) = tab_index.get(&p.id) {
                     obj.insert("tab_id".into(), serde_json::Value::String(tab_id.clone()));
                     obj.insert(
@@ -754,6 +772,7 @@ pub fn build_tab_summary_json(
                     liveness,
                 ),
                 "focused": focused_id == Some(tab.id.as_str()),
+                "asleep": asleep_projection(tab),
             }))
         })
         .collect()
@@ -781,9 +800,23 @@ fn cmd_get_text(
     tab_id: &str,
     formatted: bool,
 ) -> Result<CommandResult, String> {
-    let json = ctx.read_tab_screen(tab_id, formatted)?;
-    Ok(CommandResult::Json(json))
+    ctx.read_tab_screen(tab_id, formatted)
+        .map(CommandResult::Json)
+        .map_err(|error| {
+            let asleep = ctx
+                .mux_snapshot()
+                .tabs
+                .get(tab_id)
+                .is_some_and(|tab| tab.frozen);
+            if asleep {
+                TAB_ASLEEP.to_string()
+            } else {
+                error
+            }
+        })
 }
+
+pub const TAB_ASLEEP: &str = "Tab is asleep: it was lazily restored and has no terminal yet. Open it, send to it, or run `domios agent restart --tab <ID>` to wake it";
 
 fn cmd_tab_close(
     ctx: &dyn CommandPort,

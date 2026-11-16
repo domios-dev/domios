@@ -122,7 +122,7 @@ mod tests {
     #[tokio::test]
     async fn missing_provider_is_refused_at_the_api_boundary() {
         let (mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+        let fixture = codeterm_neighbors_service::test_support::fixture(mux);
         let response = adopt_agent(
             AxumState(crate::transport_tabs::fixture::app_state(&fixture)),
             Path(tab_id),

@@ -2,10 +2,7 @@ use super::{now_secs, ServiceContext};
 use codeterm_types::agent::TabTodoState;
 
 impl ServiceContext {
-    pub(crate) async fn tab_todo_report_warning(
-        &self,
-        tab_id: &str,
-    ) -> Result<Option<String>, String> {
+    pub async fn tab_todo_report_warning(&self, tab_id: &str) -> Result<Option<String>, String> {
         let Some(store) = self.optional_todo_store() else {
             return Ok(None);
         };

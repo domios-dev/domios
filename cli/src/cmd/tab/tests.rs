@@ -168,6 +168,21 @@ fn rank_ids(needle: &str, tabs: &[serde_json::Value]) -> Vec<String> {
 }
 
 #[test]
+fn render_tree_marks_sleeping_tabs_and_says_how_to_wake_them() {
+    let awake = json!({"id":"aaaa","title":"Main","workspace_name":"General","workspace_id":"ws1","asleep":null});
+    let asleep = json!({"id":"bbbb","title":"Puccini","workspace_name":"General","workspace_id":"ws1",
+        "asleep":{"reason":"lazy_restore","wake":"open the tab"}});
+
+    let quiet = render_tab_tree(std::slice::from_ref(&awake));
+    assert!(!quiet.contains("asleep"), "{quiet}");
+
+    let out = render_tab_tree(&[awake, asleep]);
+    let row = out.lines().find(|line| line.contains("bbbb")).unwrap();
+    assert!(row.ends_with("(asleep)"), "{out}");
+    assert!(out.contains("agent restart --tab"), "{out}");
+}
+
+#[test]
 fn render_tree_groups_by_workspace_and_nests_children() {
     let tabs = vec![
         json!({"id":"aaaa","title":"MainX","agent_session_model":"Sonnet","workspace_name":"General","workspace_id":"ws1"}),

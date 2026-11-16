@@ -1,3 +1,4 @@
+import { measureCanvas, checkStageGestures } from "../../../packages/chat-ui/src/canvasStage.testdata";
 import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { throws } from "node:assert/strict";
 import { act, type ReactElement } from "react";
@@ -54,6 +55,7 @@ function setupDom() {
       disconnect() {}
     },
   });
+  Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
   for (const target of [globalThis, window]) {
@@ -276,6 +278,17 @@ test("fixture active: the fixture plan is admitted and a foreign-workspace plan 
 test("fixture plans that the shell did not receive contribute no owner binding", () => {
   const ownerIds = fixtureOwnerTabIds([FIXTURE_OWNED_PLAN], [FOREIGN_PLAN]);
   assert(ownerIds.length === 0, `unshown fixture plans bind nothing, got ${ownerIds.join(",")}`);
+});
+
+test("plans stage fits, handles zoom keys and touch, and keeps the camera after resize", async () => {
+  const measurement = measureCanvas();
+  const { host, root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[FIXTURE_PLAN]} />);
+  try {
+    const region = host.querySelector<HTMLElement>("[tabindex='0']")!;
+    const layer = host.querySelector<HTMLElement>("[data-testid='canvas-world-layer']") ?? host.querySelector<HTMLElement>("div[style*='transform-origin']");
+    assert(layer, "world layer is mounted");
+    await checkStageGestures(region, layer, measurement.resize);
+  } finally { await act(async () => root.unmount()); host.remove(); measurement.restore(); }
 });
 
 async function main() {

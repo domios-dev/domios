@@ -6,6 +6,7 @@ use axum::{
     Extension, Json,
 };
 use codeterm_account::Status;
+use codeterm_neighbors_service::prelude::*;
 mod login_paste;
 pub(crate) mod neighbor_remote;
 pub(crate) mod neighbor_sidebar;
@@ -34,13 +35,13 @@ pub async fn status(
         .await;
     let cached = state
         .svc
-        .try_ext::<codeterm_service_core::service::account::startup::StartupAccount>();
+        .try_ext::<codeterm_neighbors_service::service::account::startup::StartupAccount>();
     Ok(Json(project_status(status, cached)))
 }
 
 fn project_status(
     mut status: Status,
-    cached: Option<&codeterm_service_core::service::account::startup::StartupAccount>,
+    cached: Option<&codeterm_neighbors_service::service::account::startup::StartupAccount>,
 ) -> Status {
     let Some(cached) = cached else {
         return status;
@@ -289,15 +290,15 @@ pub async fn portal(
 pub async fn neighbors(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
-    Json(command): Json<codeterm_service_core::service::neighbors::NeighborCommand>,
+    Json(command): Json<codeterm_neighbors_service::service::neighbors::NeighborCommand>,
 ) -> Result<Json<serde_json::Value>, Error> {
     match caller.as_ref().map(|caller| &caller.0) {
         Some(CallerIdentity::Local) => {}
         Some(CallerIdentity::Tab(actor))
             if matches!(
                 &command,
-                codeterm_service_core::service::neighbors::NeighborCommand::List {}
-                    | codeterm_service_core::service::neighbors::NeighborCommand::SetLimit { .. }
+                codeterm_neighbors_service::service::neighbors::NeighborCommand::List {}
+                    | codeterm_neighbors_service::service::neighbors::NeighborCommand::SetLimit { .. }
             ) =>
         {
             state
@@ -324,7 +325,7 @@ pub async fn neighbor_runtime(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
     _headers: axum::http::HeaderMap,
-    Json(command): Json<codeterm_service_core::service::neighbors::NeighborRuntimeCommand>,
+    Json(command): Json<codeterm_neighbors_service::service::neighbors::NeighborRuntimeCommand>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let (tab, nonce) = match caller.as_ref().map(|caller| &caller.0) {
         Some(CallerIdentity::Tab(caller)) => (
@@ -557,7 +558,7 @@ pub async fn redeem_gift_key(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
     request: Result<
-        Json<codeterm_service_core::service::gift_redemption::GiftRedemption>,
+        Json<codeterm_neighbors_service::service::gift_redemption::GiftRedemption>,
         JsonRejection,
     >,
 ) -> Result<Json<serde_json::Value>, Error> {
