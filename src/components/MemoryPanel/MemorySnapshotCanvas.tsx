@@ -28,6 +28,8 @@ import {
 } from "./snapshotLogic";
 import type { SnapshotEdge, SnapshotNode } from "./snapshotTypes";
 import { fitFramedNodes, hasDragged } from "./memoryGraphInteraction";
+import { SettledEdgeUpdates } from "./memoryEdgePolicy";
+import { applyRealEdges, applyEgoEdges, settleMemoryEdges, synchronizeMemoryEgo } from "./memoryGraphEdges";
 
 interface Props {
   api: ApiConfig;
@@ -89,6 +91,8 @@ export function MemorySnapshotCanvas({
   const fetchedLabelsRef = useRef<Set<string>>(new Set());
   const edgesByNodeRef = useRef<Map<string, SnapshotEdge[]>>(new Map());
   const fetchedEdgesRef = useRef<Set<string>>(new Set());
+  const edgeUpdatesRef = useRef(new SettledEdgeUpdates());
+  const extraEgoNodesRef = useRef(new Set<string>());
   const paletteRef = useRef<MemoryGraphPalette | null>(null);
   const [labelTick, setLabelTick] = useState(0);
   const [egoEdges, setEgoEdges] = useState<SnapshotEdge[]>([]);
@@ -122,21 +126,44 @@ export function MemorySnapshotCanvas({
     sub: string;
   } | null>(null);
 
-  useEffect(() => {
-    sigmaRef.current?.refresh({ skipIndexation: true });
-  }, [selectedId, hoveredId]);
+  const synchronizeEdges = useCallback(() => {
+    edgeUpdatesRef.current.update(() => {
+      const graph = graphRef.current, sigma = sigmaRef.current, palette = paletteRef.current;
+      if (!graph || !sigma || !palette) return;
+      const active = selectedIdRef.current ?? hoveredIdRef.current;
+      const needed = new Set((active ? edgesByNodeRef.current.get(active) ?? [] : []).flatMap(edge => [edge.from, edge.to]));
+      for (const id of extraEgoNodesRef.current) {
+        if (needed.has(id)) continue;
+        if (graph.hasNode(id)) graph.dropNode(id);
+        extraEgoNodesRef.current.delete(id);
+      }
+      for (const id of needed) {
+        const node = indexRef.current.byId.get(id);
+        if (!node || graph.hasNode(id)) continue;
+        if (graph.order && !sigma.getCustomBBox()) sigma.setCustomBBox(sigma.getBBox());
+        addItemNode(graph, node, labelsRef.current.get(id) ?? "");
+        extraEgoNodesRef.current.add(id);
+      }
+      synchronizeMemoryEgo(graph, edgesByNodeRef.current, palette, selectedIdRef.current, hoveredIdRef.current);
+      sigma.refresh();
+    });
+  }, []);
+
+  useEffect(() => { synchronizeEdges(); }, [selectedId, hoveredId, synchronizeEdges]);
 
   // Sigma init — same options as the legacy canvas.
   useEffect(() => {
     if (!containerRef.current) return;
+    edgeUpdatesRef.current = new SettledEdgeUpdates();
     paletteRef.current = readMemoryGraphPalette();
-    const graph = new Graph({ multi: false });
+    const graph = new Graph({ multi: true });
     graphRef.current = graph;
     const palette = paletteRef.current;
 
     const sigma = new Sigma(graph, containerRef.current, {
       settings: {
         enableNodeDrag: false,
+        minEdgeThickness: 0.6,
         renderLabels: true,
         renderEdgeLabels: false,
         labelDensity: 0.6,
@@ -145,7 +172,7 @@ export function MemorySnapshotCanvas({
         minCameraRatio: 0.05,
         maxCameraRatio: 20,
       },
-      primitives: { edges: { paths: [pathCurved()], variables: { curvature: { type: "number", default: 0.25 } } } },
+      primitives: { edges: { paths: [{ ...pathCurved(), spread: undefined }], variables: { curvature: { type: "number", default: 0.15 } } } },
       styles: {
         nodes: {
           x: { attribute: "x" },
@@ -158,9 +185,11 @@ export function MemorySnapshotCanvas({
         },
         edges: {
           path: "curved",
-          curvature: { attribute: "curvature", defaultValue: 0.25 },
+          curvature: { attribute: "curvature", defaultValue: 0.15 },
           size: { attribute: "size" },
           color: { attribute: "color" },
+          visibility: { attribute: "visibility", defaultValue: "visible" },
+          zIndex: { attribute: "zIndex", defaultValue: 0 },
         },
       },
       nodeReducer: (node, data, attrs) => {
@@ -186,17 +215,6 @@ export function MemorySnapshotCanvas({
         }
         // Cluster aggregates keep their label; item labels appear only when fetched.
         return { ...data, label: attrs.isCluster ? label : "" };
-      },
-      edgeReducer: (edge, data) => {
-        const sel = selectedIdRef.current;
-        if (!sel || !egoSetRef.current) return data;
-        const g = graphRef.current;
-        if (!g) return data;
-        if (!g.extremities(edge).includes(sel)) return { ...data, visibility: "hidden" };
-        const palette = paletteRef.current;
-        if (!palette) return { ...data, zIndex: 1 };
-        const size = Math.max(data.size ?? 0, 1.2);
-        return { ...data, zIndex: 1, size, color: palette.edgeColor(palette.egoEdgeAlpha) };
       },
     });
     sigmaRef.current = sigma;
@@ -265,36 +283,49 @@ export function MemorySnapshotCanvas({
 
   const adapterNodes = useMemo(() => buildAdapterMap(index, labelsRef.current, metadataNodes, pinOverrides), [index, labelTick, metadataNodes, pinOverrides]);
 
-  const rebuildGraph = useCallback(() => {
-    const graph = graphRef.current;
-    const sigma = sigmaRef.current;
-    if (!graph || !sigma) return;
-    paletteRef.current = readMemoryGraphPalette();
-    const palette = paletteRef.current;
-    const idx = indexRef.current;
-    const ratio = sigma.getCamera().ratio;
-    const zoomedOut = isZoomedOut(ratio, idx.byId.size);
-    const hadExtent = graph.order > 0;
-
-    graph.clear();
-
-    if (zoomedOut) {
-      buildClusterView(graph, idx, palette);
-      sigma.refresh();
-      return;
-    }
-    // and on the first build, when viewportToGraph has nothing to map against.
-    const small = idx.byId.size <= SMALL_GRAPH_THRESHOLD;
-    const bounds = small || !hadExtent ? null : viewportBounds(sigma);
-    buildDetailView(graph, idx, bounds, labelsRef.current);
-    // Mass edges only when zoomed in deep — the overview stays a clean map;
-    // the selected node's ego edges are always visible.
-    const showEdges = ratio <= EDGE_DETAIL_RATIO;
-    if (showEdges) applyRealEdges(graph, edgesByNodeRef.current, palette);
-    applyEgoEdges(graph, selectedIdRef.current, edgesByNodeRef.current, palette);
+  const settleEdges = useCallback((cluster: boolean) => {
+    const graph = graphRef.current, sigma = sigmaRef.current, palette = paletteRef.current;
+    if (!graph || !sigma || !palette) return;
     sigma.refresh();
-    void fetchViewportData(api, idx, bounds ?? viewportBounds(sigma), showEdges);
-  }, [api.host, api.port, api.token]);
+    settleMemoryEdges(graph, edgesByNodeRef.current, palette, {
+      ratio: sigma.getCamera().ratio,
+      ...sigma.getDimensions(),
+      project: point => sigma.graphToViewport(point),
+    }, cluster);
+    synchronizeEdges();
+  }, [synchronizeEdges]);
+
+  const rebuildGraph = useCallback(() => {
+    edgeUpdatesRef.current.update(() => {
+      const graph = graphRef.current;
+      const sigma = sigmaRef.current;
+      if (!graph || !sigma) return;
+      paletteRef.current = readMemoryGraphPalette();
+      const palette = paletteRef.current;
+      const idx = indexRef.current;
+      const ratio = sigma.getCamera().ratio;
+      const zoomedOut = isZoomedOut(ratio, idx.byId.size);
+      const hadExtent = graph.order > 0;
+
+      graph.clear();
+      extraEgoNodesRef.current.clear();
+
+      if (zoomedOut) {
+        buildClusterView(graph, idx, palette);
+        settleEdges(true);
+        return;
+      }
+      // and on the first build, when viewportToGraph has nothing to map against.
+      const small = idx.byId.size <= SMALL_GRAPH_THRESHOLD;
+      const bounds = small || !hadExtent ? null : viewportBounds(sigma);
+      buildDetailView(graph, idx, bounds, labelsRef.current);
+      // Mass edges only when zoomed in deep — the overview stays a clean map;
+      // the selected node's ego edges are always visible.
+      const showEdges = ratio <= EDGE_DETAIL_RATIO;
+      settleEdges(false);
+      void fetchViewportData(api, idx, bounds ?? viewportBounds(sigma), showEdges);
+    });
+  }, [api.host, api.port, api.token, settleEdges]);
 
   // Lazy fetch for the viewport: labels + edges, dedupe, cache, max 500/req.
   const fetchViewportData = useCallback(
@@ -321,18 +352,16 @@ export function MemorySnapshotCanvas({
         try {
           const rows = await fetchGraphEdges(a, edgeIds);
           mergeEdges(edgesByNodeRef.current, rows);
-          applyRealEdges(
-            graphRef.current,
-            edgesByNodeRef.current,
-            paletteRef.current ?? readMemoryGraphPalette(),
-          );
-          sigmaRef.current?.refresh({ skipIndexation: true });
+          edgeUpdatesRef.current.update(() => {
+            const sigma = sigmaRef.current;
+            if (sigma) settleEdges(isZoomedOut(sigma.getCamera().ratio, idx.byId.size));
+          });
         } catch {
           /* retry on next LOD pass */
         }
       }
     },
-    [],
+    [settleEdges],
   );
 
   // A full snapshot can change any node's edges or title; drop the lazy caches before rebuilding.
@@ -354,14 +383,21 @@ export function MemorySnapshotCanvas({
     if (!sigma) return;
     let timer: number | null = null;
     const onMove = () => {
+      edgeUpdatesRef.current.beginGesture();
       if (timer != null) window.clearTimeout(timer);
-      timer = window.setTimeout(() => rebuildGraph(), LOD_DEBOUNCE_MS);
+      timer = window.setTimeout(() => edgeUpdatesRef.current.settle(rebuildGraph), LOD_DEBOUNCE_MS);
     };
     sigma.getCamera().on("updated", onMove);
     return () => {
       sigma.getCamera().off("updated", onMove);
       if (timer != null) window.clearTimeout(timer);
     };
+  }, [rebuildGraph]);
+
+  useEffect(() => {
+    const observer = new MutationObserver(rebuildGraph);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-ct-theme"] });
+    return () => observer.disconnect();
   }, [rebuildGraph]);
 
   // Selection + its 1-hop neighborhood; everything outside renders ghosted.
@@ -391,13 +427,7 @@ export function MemorySnapshotCanvas({
         if (!active) return;
         setEgoEdges(rows);
         mergeEdges(edgesByNodeRef.current, rows);
-        applyEgoEdges(
-          graphRef.current,
-          selectedId,
-          edgesByNodeRef.current,
-          paletteRef.current ?? readMemoryGraphPalette(),
-        );
-        sigmaRef.current?.refresh({ skipIndexation: true });
+        synchronizeEdges();
       })
       .catch(() => {});
     // Fetch the selected node's own label if missing.
@@ -411,7 +441,19 @@ export function MemorySnapshotCanvas({
         .catch(() => {});
     }
     return () => { active = false; };
-  }, [selectedId, api.host, api.port, api.token]);
+  }, [selectedId, api.host, api.port, api.token, synchronizeEdges]);
+
+  useEffect(() => {
+    if (selectedId || !hoveredId || fetchedEdgesRef.current.has(hoveredId)) return;
+    let active = true;
+    fetchGraphEdges(api, [hoveredId]).then(rows => {
+      if (!active) return;
+      fetchedEdgesRef.current.add(hoveredId);
+      mergeEdges(edgesByNodeRef.current, rows);
+      synchronizeEdges();
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [selectedId, hoveredId, api.host, api.port, api.token, synchronizeEdges]);
 
   // Pulse animation — same as legacy canvas.
   useEffect(() => {
@@ -655,9 +697,9 @@ function buildClusterView(graph: Graph, idx: NodeIndex, palette: MemoryGraphPale
     if (graph.hasEdge(key)) continue;
     try {
       graph.addEdgeWithKey(key, from, to, {
-        size: Math.min(2, 1 + Math.log10(e.weight + 1) * 0.3),
-        curvature: 0.25,
-        color: palette.edgeColor(palette.clusterEdgeAlpha),
+        size: 0.6,
+        curvature: 0.15,
+        color: palette.edgeColor(0.08),
       });
     } catch {
       /* dup */
@@ -692,56 +734,6 @@ function mergeEdges(store: Map<string, SnapshotEdge[]>, rows: SnapshotEdge[]) {
         list.push(e);
         store.set(end, list);
       }
-    }
-  }
-}
-
-function applyRealEdges(
-  graph: Graph | null,
-  store: Map<string, SnapshotEdge[]>,
-  palette: MemoryGraphPalette,
-) {
-  if (!graph) return;
-  const seen = new Set<string>();
-  for (const list of store.values()) {
-    for (const e of list) {
-      const key = `${e.from}→${e.to}→${e.rel}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (!graph.hasNode(e.from) || !graph.hasNode(e.to) || graph.hasEdge(key)) continue;
-      try {
-        const conf = e.confidence ?? 0.5;
-        graph.addEdgeWithKey(key, e.from, e.to, {
-          size: 1,
-          curvature: 0.25,
-          color: palette.edgeColor(palette.realEdgeAlpha(conf)),
-        });
-      } catch {
-        /* dup */
-      }
-    }
-  }
-}
-
-function applyEgoEdges(
-  graph: Graph | null,
-  selectedId: string | null,
-  store: Map<string, SnapshotEdge[]>,
-  palette: MemoryGraphPalette,
-) {
-  if (!graph || !selectedId) return;
-  const list = store.get(selectedId) ?? [];
-  for (const e of list) {
-    const key = `${e.from}→${e.to}→${e.rel}`;
-    if (!graph.hasNode(e.from) || !graph.hasNode(e.to) || graph.hasEdge(key)) continue;
-    try {
-      graph.addEdgeWithKey(key, e.from, e.to, {
-        size: 1.2,
-        curvature: 0.25,
-        color: palette.edgeColor(palette.egoEdgeAlpha),
-      });
-    } catch {
-      /* dup */
     }
   }
 }
