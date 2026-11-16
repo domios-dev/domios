@@ -1,4 +1,4 @@
-use codeterm_orchestration::traits::*;
+use codeterm_orchestration::traits::HierarchyPlanReminderNudgeExt;
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::AgentRef;

@@ -3,7 +3,7 @@ use axum::{
     http::HeaderMap,
     Json,
 };
-use codeterm_orchestration::traits::*;
+use codeterm_orchestration::traits::{HierarchyExt, HierarchyGateDeliveryExt};
 use serde::Deserialize;
 
 use crate::routes::AppState;

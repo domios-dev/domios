@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_orchestration::traits::*;
+use codeterm_orchestration::traits::{CuratorAuthorityExt, CuratorExt, CuratorManualExt};
 use codeterm_service_core::service::AuthenticatedPlanCaller;
 
 pub(super) fn dispatch(

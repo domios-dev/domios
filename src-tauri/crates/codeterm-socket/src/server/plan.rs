@@ -1,4 +1,4 @@
-use codeterm_orchestration::traits::*;
+use codeterm_orchestration::traits::HierarchyTeamPlanCreationExt;
 mod lane_cleanup;
 use super::plan_fields::{groups_from_csv, kinds_from_csv, tag_facets_field};
 use super::plan_linking::{owner_from_params, tags_field};

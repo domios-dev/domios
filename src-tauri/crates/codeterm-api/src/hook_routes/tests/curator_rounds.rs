@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_orchestration::traits::*;
+use codeterm_orchestration::traits::{CuratorAuthorityExt, CuratorEventsExt, CuratorExt};
 use codeterm_service_core::cron::store::{
     commit, CronChange, CronRunInfo, CronRunStatus, Prepared,
 };
