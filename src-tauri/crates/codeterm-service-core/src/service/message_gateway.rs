@@ -495,12 +495,12 @@ impl MessageGateway {
         self.worker_report_required.lock().remove(tab_id);
     }
 
-    pub(crate) fn take_worker_report_requirement(&self, tab_id: &str) -> bool {
+    pub fn take_worker_report_requirement(&self, tab_id: &str) -> bool {
         self.worker_report_required.lock().remove(tab_id)
     }
 
     /// Non-destructive probe of the obligation state.
-    pub(crate) fn worker_report_required(&self, tab_id: &str) -> bool {
+    pub fn worker_report_required(&self, tab_id: &str) -> bool {
         self.worker_report_required.lock().contains(tab_id)
     }
 
@@ -597,6 +597,3 @@ fn replay(
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod ordering_tests;

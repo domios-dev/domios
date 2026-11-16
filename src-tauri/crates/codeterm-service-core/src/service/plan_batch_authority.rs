@@ -9,9 +9,9 @@
 
 use serde_json::{json, Value};
 
-use crate::service::hierarchy::report_plan_ctx::STALE_TASK_HINT_REFUSAL;
 use crate::service::plan::batch::{BatchOp, BatchRequest, BatchResult};
 use crate::service::plan::{BatchTaskRefusalRead, PlanError, PlanStore};
+use crate::service::report_plan_ctx::STALE_TASK_HINT_REFUSAL;
 
 mod completion;
 

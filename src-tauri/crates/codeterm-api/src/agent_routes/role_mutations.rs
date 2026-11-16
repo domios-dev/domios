@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_orchestration::traits::*;
 use codeterm_service_core::multiplexer::types::AgentRole;
 use codeterm_service_core::service::tab_mutation_authority::TabMutationScope;
 use codeterm_types::agent::role_kind::builtins::PLANNER;

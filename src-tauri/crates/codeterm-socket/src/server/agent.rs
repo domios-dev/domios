@@ -1,5 +1,6 @@
 //! `agent.*` JSON-RPC handlers.
 
+use codeterm_orchestration::traits::*;
 use serde_json::Value;
 
 use codeterm_service_core::service::ServiceState;

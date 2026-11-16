@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_orchestration::traits::*;
 use codeterm_service_core::service::AuthenticatedPlanCaller;
 
 pub(super) fn dispatch(
@@ -59,7 +60,7 @@ pub(super) fn dispatch(
                 &id,
                 &caller,
                 &tab,
-                codeterm_service_core::service::curator::CuratorGrantScope {
+                codeterm_orchestration::curator::CuratorGrantScope {
                     blueprints,
                     plan_skills: skills,
                     saves,

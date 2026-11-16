@@ -21,7 +21,7 @@ impl ServiceContext {
 
     pub(in crate::service) fn reconcile_notification_questions(&self) {
         let Ok(now) = self.curator_now() else { return };
-        let ids = match crate::service::curator::curator_bootstrap_ids(&self.plan_store) {
+        let ids = match crate::service::curator_runtime::curator_bootstrap_ids(&self.plan_store) {
             Ok(ids) => ids,
             Err(error) => {
                 log::error!("[curator] notification selection: {error}");
@@ -29,7 +29,7 @@ impl ServiceContext {
             }
         };
         for id in ids {
-            if let Err(error) = self.reconcile_curator_id(&id, now) {
+            if let Err(error) = self.orchestration().reconcile_curator_id(&id, now) {
                 log::error!("[curator] notification reconciliation {id}: {error}");
             }
         }

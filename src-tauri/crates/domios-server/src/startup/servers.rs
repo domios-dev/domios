@@ -1,5 +1,6 @@
 //! Start socket server, REST API server, cron scheduler, GA, mesh, bridge.
 
+use codeterm_orchestration::traits::*;
 use codeterm_service_core::service::MuxEmitCause;
 use std::sync::Arc;
 

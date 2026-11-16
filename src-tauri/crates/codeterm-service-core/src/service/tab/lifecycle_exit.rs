@@ -473,7 +473,7 @@ impl ServiceContext {
         ) {
             log::error!("[worker-interruption] signal failed: {error}");
         }
-        self.clear_dead_planner_binding(tab_id);
+        self.orchestration().clear_dead_planner_binding(tab_id);
         self.prompt_detector.lock().clear(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
         self.emit_state_changed(MuxEmitCause::AgentIdentity);

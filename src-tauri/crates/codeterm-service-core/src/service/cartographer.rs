@@ -197,7 +197,7 @@ pub(crate) fn boundary_digest_lines(plan: &Plan, availability: MapAvailability) 
 #[path = "cartographer/tests.rs"]
 mod tests;
 
-pub(crate) fn digest_lines_from_input(
+pub fn digest_lines_from_input(
     input: &codeterm_plan::service_plan::NoticeDigestInput,
     enabled: bool,
 ) -> Vec<String> {

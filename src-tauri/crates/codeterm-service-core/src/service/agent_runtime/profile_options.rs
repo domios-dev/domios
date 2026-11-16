@@ -129,7 +129,7 @@ pub(crate) fn resolve(
 }
 
 impl crate::service::ServiceContext {
-    pub(crate) fn resolve_spawn_profile_options(
+    pub fn resolve_spawn_profile_options(
         &self,
         provider: &str,
         params: &mut crate::service::SpawnAgentParams,

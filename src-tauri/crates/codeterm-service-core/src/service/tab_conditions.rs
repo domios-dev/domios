@@ -1,6 +1,6 @@
-use super::hierarchy::{resolve_report_target, ReportTarget};
 use super::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use super::messenger::MessageEnvelope;
+use super::report_target::{resolve_report_target, ReportTarget};
 use super::ServiceContext;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, Tab, TabAudience};

@@ -2,12 +2,13 @@
 //! the replacement takes the plan over through the tab-gone recovery rebind.
 
 use super::*;
+use crate::traits::*;
 
 use codeterm_events::EventBroadcaster;
-use codeterm_service_core::plan::{OrchestratorRef, Plan, PlannerRef};
-use codeterm_service_core::service::hierarchy::plan_reminder_nudge::{
+use codeterm_orchestration::hierarchy::plan_reminder_nudge::{
     timed_plan_reminder_targets, PlanReminderTarget,
 };
+use codeterm_service_core::plan::{OrchestratorRef, Plan, PlannerRef};
 use codeterm_service_core::service::plan::PlanStore;
 
 /// An Orchestrator-anchored Team with a Planner and a Worker, where the anchor

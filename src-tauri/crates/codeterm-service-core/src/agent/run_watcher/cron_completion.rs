@@ -6,9 +6,9 @@ use crate::service::ServiceContext;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 #[derive(Default)]
-pub(super) struct CompletionBarrier {
-    pub(super) stopped: bool,
-    pub(super) assistant_ids: HashSet<String>,
+pub struct CompletionBarrier {
+    pub stopped: bool,
+    pub assistant_ids: HashSet<String>,
 }
 
 impl CompletionBarrier {
@@ -31,22 +31,22 @@ impl CompletionBarrier {
     }
 }
 
-pub(super) struct PendingCompletion {
-    barrier: CompletionBarrier,
+pub struct PendingCompletion {
+    pub barrier: CompletionBarrier,
     summary: String,
     provider: String,
     cwd: String,
     session: String,
     nonce: String,
-    _watcher: Option<RecommendedWatcher>,
+    pub _watcher: Option<RecommendedWatcher>,
     #[cfg(test)]
-    events: std::sync::Arc<parking_lot::Mutex<Vec<String>>>,
+    pub events: std::sync::Arc<parking_lot::Mutex<Vec<String>>>,
     #[cfg(test)]
-    source_path: Option<std::path::PathBuf>,
+    pub source_path: Option<std::path::PathBuf>,
 }
 
 impl RunWatcherRegistry {
-    pub(crate) fn ensure_cron_watcher(
+    pub fn ensure_cron_watcher(
         &self,
         svc: &ServiceContext,
         tab: &str,

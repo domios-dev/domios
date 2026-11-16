@@ -285,41 +285,6 @@ fn settle_lanes_held_by_closed_tab_never_loads_unmatched_plans() {
 }
 
 #[test]
-fn bind_planner_session_never_loads_unmatched_plans() {
-    let (fx, _) = fixture();
-    let planner_tab = {
-        let mut mux = fx.service.mux.write();
-        let workspace = mux.list_workspaces()[0].id.clone();
-        let tab_id = mux.create_tab(&workspace).unwrap();
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_session_id = Some("planner-session".into());
-        tab.session_binding_nonce = Some("planner-nonce".into());
-        tab.reported_session_binding_nonce = Some("planner-nonce".into());
-        tab_id
-    };
-    let store = &fx.service.plan_store;
-    let mut planned = execution_plan(&project(&fx), "planned", "owner", vec![]);
-    planned.planner = planner(&planner_tab);
-    let planned = seed(store, planned);
-    let mut other = execution_plan(&project(&fx), "other", "owner", vec![]);
-    other.planner = planner("other-planner");
-    let other = seed(store, other);
-    start(store);
-
-    fx.service.bind_planner_session(&planner_tab).unwrap();
-    let selected = store.planner_gate_context(&planned, None).unwrap().unwrap();
-    assert!(matches!(selected.planner,
-        Some(crate::plan::PlannerRef::Tab { tab_id, session_id: Some(session), .. })
-            if tab_id == planner_tab && session == "planner-session"));
-    let unmatched = store.planner_gate_context(&other, None).unwrap().unwrap();
-    assert!(matches!(unmatched.planner,
-        Some(crate::plan::PlannerRef::Tab { tab_id, session_id: Some(session), .. })
-            if tab_id == "other-planner" && session == "other-planner-session"));
-    assert!(store.plan_loads_for_test().is_empty());
-    assert_never_loaded(store, &[&other]);
-}
-
-#[test]
 fn signal_provider_exhaustion_never_loads_unmatched_plans() {
     let (fx, _) = fixture();
     let store = &fx.service.plan_store;
@@ -447,8 +412,12 @@ fn clear_planner_bindings_for_lifecycle_exit_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::hierarchy::clear_planner_bindings_for_lifecycle_exit(store, "planner-a", 5)
-            .unwrap(),
+        crate::service::planner_binding::clear_planner_bindings_for_lifecycle_exit(
+            store,
+            "planner-a",
+            5
+        )
+        .unwrap(),
         1
     );
     assert_never_loaded(store, &[&other]);
@@ -564,7 +533,7 @@ fn curator_bootstrap_ids_never_loads_unmatched_plans() {
     let quiet = seed(store, quiet);
     start(store);
 
-    let ids = crate::service::curator::curator_bootstrap_ids(store).unwrap();
+    let ids = crate::service::curator_runtime::curator_bootstrap_ids(store).unwrap();
     assert_eq!(ids, [active, scheduled].into_iter().collect());
     assert!(!ids.contains(&quiet));
     assert!(

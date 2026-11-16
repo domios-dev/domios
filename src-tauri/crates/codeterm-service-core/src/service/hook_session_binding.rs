@@ -75,7 +75,7 @@ pub async fn bind_planner_session_after_claim(
 ) -> Result<(), (StatusCode, String)> {
     let service = svc.clone();
     let bound_tab = tab_id.to_string();
-    tokio::task::spawn_blocking(move || service.bind_planner_session(&bound_tab))
+    tokio::task::spawn_blocking(move || service.orchestration().bind_planner_session(&bound_tab))
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
@@ -329,7 +329,7 @@ pub async fn finish_session_binding(
                 })
                 .await;
             }
-            svc.schedule_planner_replay(&tab_id);
+            svc.orchestration().schedule_planner_replay(&tab_id);
         }
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
     }
@@ -370,7 +370,7 @@ pub async fn finish_session_binding(
         svc.chat_registry
             .shutdown_session(tab_id, previous_session_id);
     }
-    svc.schedule_planner_replay(&tab_id);
+    svc.orchestration().schedule_planner_replay(&tab_id);
     let persist_svc = svc.clone();
     let bound_tab_id = tab_id.to_string();
     if let Ok(Err(error)) = tokio::task::spawn_blocking(move || {

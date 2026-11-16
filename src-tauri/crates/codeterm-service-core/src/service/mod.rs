@@ -55,12 +55,12 @@ pub use close_history::close_inventory_error_data;
 mod command_port_impl;
 pub mod context_feed;
 pub mod cron;
-pub mod curator;
+
 pub mod delivery_error;
 pub mod diagnostics;
 pub mod general_agent;
 pub mod health;
-pub mod hierarchy;
+
 pub mod hook_session_binding;
 pub mod inject_verify;
 pub mod input_parser;
@@ -143,7 +143,7 @@ pub use execution_sandbox::{
     refuse_confined_mesh_delegation as execution_sandbox_refuse_confined_mesh_delegation,
 };
 mod folder_trust_carryover;
-pub mod orchestrator_digests;
+
 mod output;
 mod output_feed;
 pub mod output_stream_activity;
@@ -337,12 +337,12 @@ pub use agent_transition::AgentPlacement;
 pub use agent_transition::AgentTransitionRequest;
 #[cfg(any(test, feature = "test-support"))]
 pub use agent_transition::{execute_transition_at, TransitionFailurePoint};
-pub use hierarchy::TabStatusInfo;
-pub use hierarchy::{TeamPlanCaller, TeamPlanCreationError, WorkerTurnSignal};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
 };
+pub use orchestration_data::TabStatusInfo;
+pub use orchestration_data::{TeamPlanCaller, TeamPlanCreationError, WorkerTurnSignal};
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::arm_provider_session_for_test;
 #[cfg(any(test, feature = "test-support"))]
@@ -523,7 +523,7 @@ fn wall_now_ms() -> u64 {
 }
 
 pub fn start_plan_reminder_scheduler(svc: ServiceState) {
-    hierarchy::start_plan_reminder_scheduler(svc);
+    svc.orchestration().start_plan_reminder_scheduler();
 }
 
 impl ServiceContext {
@@ -882,9 +882,9 @@ pub struct ReportSubmissionError {
     pub data: Option<serde_json::Value>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl ReportSubmissionError {
-    pub(crate) fn contains(&self, needle: &str) -> bool {
+    pub fn contains(&self, needle: &str) -> bool {
         self.message.contains(needle)
     }
 }
@@ -1019,3 +1019,32 @@ pub use skill_mirror::{mirror_skills_to_providers, seed_bundled_skills};
 pub use utility_deadline::restore as restore_utility_deadlines;
 
 pub use supporter_notify::record_launch as supporter_record_launch;
+
+pub mod orchestration_data;
+
+pub mod curator_runtime;
+
+pub mod curator_reconciliations;
+
+pub mod curator_policy;
+
+pub mod heartbeat_gate;
+
+pub mod planner_replay;
+
+pub mod planner_binding;
+
+pub mod report_target;
+
+pub mod report_plan_ctx;
+
+pub mod report_delivery;
+
+pub mod plan_reminder_model;
+
+pub mod plan_reminder_projection;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod plan_reminder_fixture;
+
+pub mod tab_status_info;
