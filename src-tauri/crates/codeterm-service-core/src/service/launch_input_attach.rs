@@ -164,6 +164,23 @@ impl ServiceContext {
         }
     }
 
+    /// Whether this tab's provider declares an input attach, so only `AgentReady`
+    /// proves its input is accepted. Read before any mux guard is held.
+    pub(crate) fn declares_input_attach(&self, tab_id: &str) -> bool {
+        let agent = {
+            let mux = self.mux.read();
+            mux.resolve_tab_id(tab_id)
+                .and_then(|id| mux.get_tab(&id))
+                .and_then(|tab| tab.agent_type.clone())
+        };
+        agent
+            .and_then(|agent| {
+                self.agent_registry
+                    .with_provider(&agent, |provider| provider.input_attach_signal())
+            })
+            .is_some_and(|signal| signal != InputAttachSignal::None)
+    }
+
     fn session_start_hooks(&self) -> &SessionStartHooks {
         self.extensions.get_or_init(SessionStartHooks::default)
     }

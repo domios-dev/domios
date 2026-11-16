@@ -238,3 +238,25 @@ fn routed_send_waits_for_restored_launch_authority_but_never_for_agent_work() {
     );
     assert!(queued_delivery_target(&tab, &payload).is_ok());
 }
+
+#[test]
+fn declared_input_attach_holds_queued_input_until_agent_ready() {
+    let mut tab = launching_tab();
+    tab.agent_booting = false;
+    tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    tab.agent_session_id = Some("own-session".into());
+    for stage in [BootStage::ProviderReady, BootStage::LaunchDeadlineElapsed] {
+        tab.boot_stage = Some(stage);
+        let payload = pinned(&tab);
+        assert!(
+            queued_delivery_target(&tab, &payload).is_ok(),
+            "an authenticated launch is admitted for an undeclared provider"
+        );
+        assert!(input_attach_hold(&tab, false).is_ok());
+        assert!(input_attach_hold(&tab, true).is_err(), "{stage:?}");
+    }
+    tab.boot_stage = Some(BootStage::AgentReady);
+    assert!(input_attach_hold(&tab, true).is_ok());
+    tab.boot_stage = None;
+    assert!(input_attach_hold(&tab, true).is_ok());
+}
