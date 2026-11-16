@@ -1,10 +1,12 @@
 pub(super) fn current() -> codeterm_analytics::Context {
     let locale = locale();
+    let (manufacturer, model) = super::hardware::device();
     codeterm_analytics::Context::new(
         codeterm_build_info::version(),
         sysinfo::System::os_version(),
         locale.as_deref(),
     )
+    .with_device(manufacturer, model)
 }
 
 #[cfg(windows)]

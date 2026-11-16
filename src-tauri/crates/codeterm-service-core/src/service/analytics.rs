@@ -3,6 +3,7 @@ use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Wor
 use std::sync::Arc;
 
 mod context;
+mod hardware;
 pub(crate) mod update_confirm;
 
 pub(crate) struct AnalyticsCell(pub(crate) Arc<tokio::sync::OnceCell<Worker>>);

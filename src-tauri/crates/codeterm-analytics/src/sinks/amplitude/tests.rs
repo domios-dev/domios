@@ -4,7 +4,11 @@ use super::*;
 fn payload_carries_standard_context_outside_catalog_properties() {
     let mut server = mockito::Server::new();
     let mut sink = Http::with_key(Config::default(), Some("test-key".into())).unwrap();
-    sink.context = crate::Context::new("1.20.1", Some("10.0.26100".into()), Some("en_US.UTF-8"));
+    sink.context = crate::Context::new("1.20.1", Some("10.0.26100".into()), Some("en_US.UTF-8"))
+        .with_device(
+            Some("Fixture manufacturer".into()),
+            Some("Fixture model".into()),
+        );
     sink.destination(format!("{}/2/httpapi", server.url()));
     let event = DeliveryEvent {
         insert_id: uuid::Uuid::new_v4(),
@@ -20,7 +24,8 @@ fn payload_carries_standard_context_outside_catalog_properties() {
                 "insert_id": event.insert_id, "device_id": event.device_id,
                 "user_id": "test-account", "time": 123, "ip": "$remote",
                 "platform": "Desktop", "os_name": if cfg!(windows) { "Windows" } else if cfg!(target_os = "macos") { "macOS" } else { "Linux" },
-                "os_version": "10.0.26100", "app_version": "1.20.1", "language": "en"
+                "os_version": "10.0.26100", "app_version": "1.20.1", "language": "en",
+                "device_manufacturer": "Fixture manufacturer", "device_model": "Fixture model", "carrier": "none"
             }]
         })))
         .with_status(200).expect(1).create();
@@ -36,6 +41,8 @@ fn unavailable_context_omits_versions_and_does_not_forward_arbitrary_locale_text
     assert!(value.get("app_version").is_none());
     assert!(value.get("os_version").is_none());
     assert!(value.get("device_model").is_none());
+    assert!(value.get("device_manufacturer").is_none());
+    assert_eq!(value["carrier"], "none");
 }
 
 #[test]

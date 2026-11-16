@@ -1,12 +1,15 @@
 {
-  "privacySummary": "Share feature usage, IP-derived country, region and city, platform, OS version, app version and language with Amplitude. Prompts, paths, names and terminal output are never collected.",
+  "privacySummary": "Share feature usage, IP-derived country, region and city, platform, OS version, app version, language and device manufacturer/model with Amplitude. Prompts, paths, names and terminal output are never collected.",
   "envelope": {
     "ip": "$remote: Amplitude derives country, region and city from the upload IP",
     "platform": "Desktop",
     "os_name": "Windows, macOS, Linux or Other",
     "os_version": "OS-reported version, when available",
     "app_version": "Installed numeric product version, when available",
-    "language": "OS language code, or und when unavailable"
+    "language": "OS language code, or und when unavailable",
+    "device_manufacturer": "OS-reported hardware manufacturer, or Apple on macOS, when available",
+    "device_model": "OS-reported hardware model, when available",
+    "carrier": "none (desktop has no carrier context)"
   },
   "enums": {
     "Platform": [

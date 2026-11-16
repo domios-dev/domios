@@ -9,6 +9,11 @@ pub struct Context {
     #[serde(skip_serializing_if = "Option::is_none")]
     app_version: Option<crate::Version>,
     language: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_manufacturer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_model: Option<String>,
+    carrier: &'static str,
 }
 
 impl Context {
@@ -30,7 +35,21 @@ impl Context {
                 })
                 .map(|value| value.to_ascii_lowercase())
                 .unwrap_or_else(|| "und".into()),
+            device_manufacturer: None,
+            device_model: None,
+            carrier: "none",
         }
+    }
+
+    pub fn with_device(mut self, manufacturer: Option<String>, model: Option<String>) -> Self {
+        fn reported(value: Option<String>) -> Option<String> {
+            value.map(|value| value.trim().to_owned()).filter(|value| {
+                !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+            })
+        }
+        self.device_manufacturer = reported(manufacturer);
+        self.device_model = reported(model);
+        self
     }
 }
 
