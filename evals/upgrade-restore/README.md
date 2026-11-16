@@ -87,6 +87,25 @@ that launches the daemon. An already running daemon retains its launch environme
 `prepare` rewrites replay working directories into its isolated project,
 recomputes leaf sizes and keeps the captured `history_bytes`.
 
+Plain utility shells use a fake shell process through an explicit shell profile.
+Their `not_applicable` transcript must identify PTY backing and contain no history
+or provider session. Preparation retains title, purpose and hierarchy, maps cwd
+into the isolated project as for agents, and records the captured cwd/profile in
+`replay_utilities`. It replaces sanitized shell executables rather than executing
+captured commands. The fake shell requires a real terminal, records its tab,
+launch nonce, cwd and PID in `shell-trace.jsonl`, and emits a shell readiness event.
+Verification requires the restored identity, matching shell profile, unfrozen
+`shell_ready` PTY and a still-live own-session process from that trace. It never
+requires a provider thread for a utility shell; agent checks remain unchanged.
+
+Captured surfaces with `not_applicable` empty histories replay as typed fixture
+surface backings with a unique instance per tab. Their original sanitized backing
+is retained in `replay_utilities`; plugin and surface identifiers are replaced
+because capture masks their field names and values. The oracle checks exact
+fixture backing, title, cwd, purpose, hierarchy, visibility and absence of a PTY
+or provider session. This proves persisted surface restoration, not plugin UI
+rendering or browser navigation. Chat backends remain unsupported.
+
 With that target DEV running, stage only through the dev wrapper:
 
 ```bash
