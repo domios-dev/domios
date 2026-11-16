@@ -167,6 +167,31 @@ fn remote_refusals_preserve_the_reason_across_routes() {
 }
 
 #[test]
+fn http_refusals_preserve_peer_reasons_in_human_and_json_output() {
+    for data in [
+        serde_json::json!("refusal-token-403"),
+        serde_json::json!({"error": "refusal-token-403"}),
+        serde_json::json!({"message": "refusal-token-403"}),
+        serde_json::json!({"code": "refused", "message": "refusal-token-403"}),
+        serde_json::json!({"error": {"code": "refused", "message": "refusal-token-403"}}),
+    ] {
+        for summary in [None, Some("HTTP 403"), Some("HTTP 403: refusal-token-403")] {
+            let failure = classify(
+                ("POST", "/api/update/install?method=auto"),
+                serde_json::json!({"ok": false, "status": 403, "error": summary, "data": data}),
+            )
+            .unwrap_err();
+            assert!(failure.reason.contains("refusal-token-403"));
+            assert!(failure.to_json()["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("refusal-token-403"));
+            assert_eq!(failure.class, Some(RefusalClass::Deterministic));
+        }
+    }
+}
+
+#[test]
 fn remote_rpc_error_is_not_success_data() {
     let failure = classify(
         ("POST", "/api/tabs"),

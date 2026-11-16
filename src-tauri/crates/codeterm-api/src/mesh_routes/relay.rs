@@ -791,7 +791,8 @@ async fn perform_relay_unredacted(
     };
 
     let status = resp.status().as_u16();
-    let mut data: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!(null));
+    let bytes = resp.bytes().await.unwrap_or_default();
+    let mut data = relay_response_data(&bytes);
     if let Some(peer_id) = isolated_peer {
         if status < 400 && is_tab_listing(&cmd.method, &cmd.path) {
             crate::tab_routes::retain_peer_owned_tab_rows(state, peer_id, &mut data);
@@ -835,21 +836,31 @@ async fn perform_relay_unredacted(
     })
 }
 
-/// Surface a structured delivery error (`tab_not_reachable_on_peer`,
-/// `tab_busy_refused`, `submit_unconfirmed`) across the relay boundary instead
-/// of a bare `HTTP <status>`. `bytes_written` is echoed so a caller can never
-/// read a failure as "nothing happened" when the payload already landed.
+fn relay_response_data(bytes: &[u8]) -> serde_json::Value {
+    serde_json::from_slice(bytes).unwrap_or_else(|_| {
+        let text = String::from_utf8_lossy(bytes);
+        if text.trim().is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(text.trim().to_owned())
+        }
+    })
+}
+
 fn relay_error_summary(status: u16, data: &serde_json::Value) -> String {
-    let Some(err) = data.get("error").filter(|e| e.is_object()) else {
-        return format!("HTTP {}", status);
-    };
-    let Some(code) = err.get("code").and_then(|v| v.as_str()) else {
-        return format!("HTTP {}", status);
-    };
+    let err = data.get("error").filter(|e| !e.is_null()).unwrap_or(data);
     let message = err
         .get("message")
         .and_then(|v| v.as_str())
-        .unwrap_or("delivery failed");
+        .or_else(|| err.as_str())
+        .filter(|message| !message.trim().is_empty());
+    let Some(code) = err.get("code").and_then(|v| v.as_str()) else {
+        return match message {
+            Some(message) => format!("HTTP {status}: {message}"),
+            None => format!("HTTP {status}"),
+        };
+    };
+    let message = message.unwrap_or("request refused");
     match err.get("bytes_written").and_then(|v| v.as_bool()) {
         Some(true) => format!("{code}: {message} (bytes reached the target PTY)"),
         Some(false) => format!("{code}: {message} (nothing written to the target PTY)"),
