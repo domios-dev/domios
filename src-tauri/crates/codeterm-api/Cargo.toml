@@ -16,6 +16,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-commands = { path = "../codeterm-commands" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-orchestration = { path = "../codeterm-orchestration" }
+codeterm-agent-lifecycle = { path = "../codeterm-agent-lifecycle" }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host" }
 codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-account = { path = "../codeterm-account" }
@@ -73,6 +74,7 @@ codeterm-neighbors-service = { path = "../codeterm-neighbors-service", features 
 tokio = { version = "1", features = ["test-util"] }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-orchestration = { path = "../codeterm-orchestration", features = ["test-support"] }
+codeterm-agent-lifecycle = { path = "../codeterm-agent-lifecycle", features = ["test-support"] }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host", features = ["test-support"] }
 mockito = "1"
 codeterm-entitlements = { path = "../codeterm-entitlements" }

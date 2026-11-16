@@ -13,7 +13,7 @@ mod tests;
 mod tool_diffs;
 
 pub(crate) use automatic_permission::Reply as AutomaticPermissionReply;
-pub(crate) use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
+pub use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};

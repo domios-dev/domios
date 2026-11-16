@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_agent_lifecycle::prelude::*;
 use codeterm_service_core::multiplexer::types::AgentRole;
 use codeterm_service_core::plan::{
     InterruptionCheckpoint, OrchestratorRef, Plan, TaskLaneMetadata,

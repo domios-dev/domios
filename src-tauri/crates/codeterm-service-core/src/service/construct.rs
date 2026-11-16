@@ -164,6 +164,8 @@ pub fn build_service_context(
     extensions.insert(crate::ports::neighbors::InstalledNeighbors::default());
     crate::ports::orchestration::register_extensions(&mut extensions);
     extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
+    crate::ports::lifecycle::register_extensions(&mut extensions);
+    extensions.insert(crate::ports::lifecycle::InstalledLifecycle::default());
     extensions.insert::<crate::ShellCapabilityState>(Arc::new(parking_lot::Mutex::new(
         Default::default(),
     )));
@@ -201,8 +203,8 @@ pub fn build_service_context(
             ),
         ),
     ));
-    extensions.insert::<crate::service::agent_restart::RestartTracker>(
-        crate::service::agent_restart::new_restart_tracker(),
+    extensions.insert::<crate::service::agent_lifecycle::RestartTracker>(
+        crate::service::agent_lifecycle::new_restart_tracker(),
     );
     extensions.insert::<crate::delayed_send::DelayedSendQueue>(delayed_send);
     extensions.insert::<Arc<crate::secrets::SecretRegistry>>(secret_registry.clone());

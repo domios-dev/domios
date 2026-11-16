@@ -9,7 +9,7 @@ use super::ServiceContext;
 /// What a restarted tab regained. Reported so restart callers can assert that
 /// binding was restored *before* readiness is handed back.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct RestoredCallerBinding {
+pub struct RestoredCallerBinding {
     pub tab_id: String,
     pub agent_session_id: Option<String>,
     pub owned_plan_ids: Vec<String>,
@@ -28,7 +28,7 @@ impl RestoredCallerBinding {
 /// Why a restore did not produce a binding. Branch on the discriminant,
 /// never on the formatted message — that's prose for logs/CLI output only.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum RestoreBindingError {
+pub enum RestoreBindingError {
     TabNotFound {
         tab_id: String,
     },
@@ -65,7 +65,7 @@ impl std::fmt::Display for RestoreBindingError {
 impl ServiceContext {
     /// A genuinely different session is refused as foreign; an unreported
     /// one (`None`) is not yet known, not wrong, so it settles untouched.
-    pub(crate) fn restore_caller_binding(
+    pub fn restore_caller_binding(
         &self,
         tab_id: &str,
         expected_session_id: Option<&str>,

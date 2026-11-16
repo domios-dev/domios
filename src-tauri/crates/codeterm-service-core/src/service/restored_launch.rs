@@ -137,7 +137,7 @@ pub(crate) fn launch_prompt_capable(registry: &AgentRegistry, provider_id: &str)
         .unwrap_or(false)
 }
 
-pub(crate) fn restored_launch_task(
+pub fn restored_launch_task(
     registry: &AgentRegistry,
     provider_id: &str,
     role: Option<&str>,

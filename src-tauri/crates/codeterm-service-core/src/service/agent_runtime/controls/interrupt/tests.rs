@@ -155,7 +155,17 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
     let (fixture, id) = super::super::tests::runtime_fixture();
     fixture
         .service
-        .agent_switch_model_with_options(&id, "target", None, false)
+        .agent_switch_model_with_restart_fallback(
+            &id,
+            "target",
+            None,
+            None,
+            crate::service::agent_runtime::model::ModelSwitchOptions {
+                service_tier: None,
+                force: false,
+                restart_resume: false,
+            },
+        )
         .unwrap();
     let session = engine::for_tab(&id).unwrap();
     let process = session.process.lock().clone().unwrap();

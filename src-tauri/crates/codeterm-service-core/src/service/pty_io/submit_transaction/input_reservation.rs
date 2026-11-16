@@ -65,7 +65,7 @@ struct InputOwner {
     state: Mutex<InputState>,
 }
 
-pub(crate) struct InputReservation {
+pub struct InputReservation {
     owner: Arc<InputOwner>,
     completion: Option<watch::Sender<bool>>,
     on_completion: Option<Box<dyn FnOnce() + Send + Sync>>,
@@ -110,7 +110,7 @@ impl InputOwner {
 }
 
 impl InputReservation {
-    pub(crate) fn on_completion(mut self, notify: impl FnOnce() + Send + Sync + 'static) -> Self {
+    pub fn on_completion(mut self, notify: impl FnOnce() + Send + Sync + 'static) -> Self {
         self.on_completion = Some(Box::new(notify));
         self
     }
@@ -158,7 +158,7 @@ pub(super) fn reserve_send_input(pty_id: &str) -> Result<InputReservation, Comma
     owner(pty_id).send()
 }
 
-pub(crate) fn reserve_command_input(
+pub fn reserve_command_input(
     pty_id: &str,
     deadline: Instant,
 ) -> Result<InputReservation, &'static str> {

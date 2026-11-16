@@ -5,6 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use codeterm_agent_lifecycle::prelude::*;
 
 #[derive(serde::Deserialize)]
 pub(crate) struct SwitchProviderBody {
@@ -66,7 +67,7 @@ pub(crate) async fn switch_provider(
     let result = tokio::task::spawn_blocking(move || {
         state.svc.accept_provider_switch(
             &tab,
-            codeterm_service_core::service::agent_restart::ProviderSwitchRequest {
+            codeterm_agent_lifecycle::service::agent_restart::ProviderSwitchRequest {
                 provider: body.provider,
                 model: body.model,
                 reasoning_effort: body.reasoning_effort,

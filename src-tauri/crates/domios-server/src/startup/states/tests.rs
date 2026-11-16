@@ -70,7 +70,9 @@ fn restore_contract_startup_flags_an_exited_member_and_journals_its_decision_onc
             serde_json::from_str(&raw).unwrap();
         let mut panes = snapshot_agent_panes(&snapshot);
         let restored = MultiplexerState::from_session_snapshot(&snapshot);
-        codeterm_service_core::service::apply_restore_decisions(&journal, &restored, &mut panes);
+        codeterm_agent_lifecycle::service::restore_exited_member::apply_restore_decisions(
+            &journal, &restored, &mut panes,
+        );
         let liveness: std::collections::BTreeMap<_, _> = [(tab_id.clone(), AgentLiveness::Absent)]
             .into_iter()
             .collect();

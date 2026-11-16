@@ -1228,6 +1228,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-agent-lifecycle"
+version = "0.0.0"
+dependencies = [
+ "codeterm-entitlements",
+ "codeterm-notification-core",
+ "codeterm-plugin",
+ "codeterm-pty",
+ "codeterm-service-core",
+ "codeterm-types",
+ "codeterm-util",
+ "codeterm-wire",
+ "log",
+ "notify 7.0.0",
+ "parking_lot 0.12.5",
+ "regex",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml 0.8.2",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "codeterm-agent-model"
 version = "0.0.0"
 dependencies = [
@@ -1288,6 +1313,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "codeterm-account",
+ "codeterm-agent-lifecycle",
  "codeterm-analytics",
  "codeterm-billing",
  "codeterm-blueprint-types",
@@ -2546,6 +2572,7 @@ dependencies = [
  "axum",
  "base64 0.23.1",
  "chrono",
+ "codeterm-agent-lifecycle",
  "codeterm-api",
  "codeterm-blueprint-types",
  "codeterm-bridge",
@@ -3554,6 +3581,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "codeterm-agent-lifecycle",
  "codeterm-api",
  "codeterm-billing",
  "codeterm-build-info",

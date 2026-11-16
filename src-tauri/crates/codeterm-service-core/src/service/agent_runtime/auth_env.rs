@@ -152,16 +152,18 @@ pub(super) async fn sign_in_with_key(
     .map_err(|_| "The API key could not be saved in the secret store")?;
     let owner = svc.clone();
     let tab_id = tab.to_owned();
-    crate::async_runtime::spawn_blocking(move || owner.agent_restart(&tab_id, false, 0))
-        .await
-        .map_err(|_| "Runtime restart failed")?
-        .map_err(restart_reason)?;
+    crate::async_runtime::spawn_blocking(move || {
+        owner.lifecycle_port().agent_restart(&tab_id, false, 0)
+    })
+    .await
+    .map_err(|_| "Runtime restart failed")?
+    .map_err(restart_reason)?;
     let session = engine::for_tab(tab).ok_or("Runtime binding unavailable")?;
     super::declared_controls::authenticate(svc, tab, &session, method).await
 }
 
-fn restart_reason(error: crate::service::agent_restart::AgentRestartError) -> String {
-    use crate::service::agent_restart::AgentRestartError;
+fn restart_reason(error: crate::service::agent_lifecycle::AgentRestartError) -> String {
+    use crate::service::agent_lifecycle::AgentRestartError;
     match error {
         AgentRestartError::BadRequest(reason)
         | AgentRestartError::NotFound(reason)

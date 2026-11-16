@@ -222,7 +222,7 @@ pub(crate) fn build_resume(
     build_resume_prepared(provider, params, skills, false).map(|command| command.shell_command)
 }
 
-pub(crate) fn build_resume_prepared(
+pub fn build_resume_prepared(
     provider: &dyn AgentProvider,
     params: &crate::agent::provider::AgentResumeParams,
     skills: Option<&str>,

@@ -53,7 +53,7 @@ impl LaunchOwnership {
     }
 }
 
-pub(crate) fn owns_main(mux: &MultiplexerState, tab: &Tab) -> bool {
+pub fn owns_main(mux: &MultiplexerState, tab: &Tab) -> bool {
     super::is_general_agent(tab)
         && mux.resolve_tab_id(super::GENERAL_ALIAS).as_deref() == Some(tab.id.as_str())
 }

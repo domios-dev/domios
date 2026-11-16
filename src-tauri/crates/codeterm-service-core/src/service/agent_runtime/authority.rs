@@ -50,7 +50,7 @@ pub(super) fn record_spawn(
     Ok(())
 }
 
-pub(crate) fn verifies(svc: &ServiceContext, tab: &str, provider: &str, nonce: &str) -> bool {
+pub fn verifies(svc: &ServiceContext, tab: &str, provider: &str, nonce: &str) -> bool {
     let (exact, restored) = svc
         .mux
         .read()
@@ -104,7 +104,7 @@ pub fn rotate_restart(
     Ok(nonce)
 }
 
-pub(crate) fn authorize_failed_start_restart(
+pub fn authorize_failed_start_restart(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,

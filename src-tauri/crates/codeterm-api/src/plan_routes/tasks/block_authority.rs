@@ -4,6 +4,7 @@ use serde_json::Value;
 use codeterm_service_core::service::{PlanAuthorityError, ServiceState};
 
 use super::{epoch_ms, plan_authority_err, plan_err, text_err};
+use codeterm_agent_lifecycle::prelude::*;
 
 /// REST twin of the socket gate's recovery classification: only these verbs may
 /// be widened for the live Plan owner. `task_rm` is deliberately excluded.

@@ -368,7 +368,7 @@ impl ServiceContext {
         Ok(losses)
     }
 
-    pub(crate) fn worker_loss_for_task(
+    pub fn worker_loss_for_task(
         &self,
         plan_id: &str,
         task_id: &str,

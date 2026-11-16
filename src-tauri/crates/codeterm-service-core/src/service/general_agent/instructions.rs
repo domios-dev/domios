@@ -141,7 +141,7 @@ fn cli_without_memory_section() -> String {
     format!("{}{}", &cli[..memory_start], &cli[platform_start..])
 }
 
-pub(crate) fn render_system_prompt(
+pub fn render_system_prompt(
     capability_hints: bool,
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,

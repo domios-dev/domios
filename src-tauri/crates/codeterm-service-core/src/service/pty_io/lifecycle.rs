@@ -954,7 +954,7 @@ impl ServiceContext {
         )
     }
 
-    pub(crate) fn pty_child_is_live(&self, pty_id: &str) -> bool {
+    pub fn pty_child_is_live(&self, pty_id: &str) -> bool {
         let session = { self.pty.lock().get_session(pty_id) };
         let Some(session) = session else {
             return false;

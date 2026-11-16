@@ -19,7 +19,7 @@ pub(super) fn spawn_backend_pty(
             .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?,
     );
     env_vars.extend(svc.tab_env(tab_id).map_err(LaunchFailure::PtySpawn)?);
-    crate::service::agent_restart::timing::stage(tab_id, "pending", "relaunch-pty-request");
+    crate::service::agent_lifecycle::timing::stage(tab_id, "pending", "relaunch-pty-request");
     let (pty_id, _) = {
         let gate = svc.pty.lock().spawn_gate();
         let built = match direct {
@@ -76,7 +76,7 @@ pub(super) fn spawn_backend_pty(
         })
     }
     .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?;
-    crate::service::agent_restart::timing::stage(tab_id, &pty_id, "relaunch-pty-created");
+    crate::service::agent_lifecycle::timing::stage(tab_id, &pty_id, "relaunch-pty-created");
     crate::service::pty_resize::resize(&svc.pty, &svc.screen_state, &pty_id, None)
         .map_err(LaunchFailure::PtySpawn)?;
     if direct.is_some() {
@@ -157,7 +157,10 @@ pub(super) fn reader_finished(svc: &ServiceContext, pty_id: &str) {
         return;
     }
     drop(claim);
-    if let Err(error) = svc.recover_exited_provider_after_launch_exit(&attempt) {
+    if let Err(error) = svc
+        .lifecycle_port()
+        .recover_exited_provider_after_launch_exit(&attempt)
+    {
         log::warn!(
             "[direct-launch] exit recovery refused tab={} pty={}: {error:?}",
             attempt.tab_id,
