@@ -347,7 +347,8 @@ impl super::ServiceContext {
         }
         match self.authenticate_local_credential(token)? {
             Some(caller) => {
-                self.authorize_neighbor_secret_rpc(&caller, method, params.as_ref())?;
+                self.neighbors()
+                    .authorize_neighbor_secret_rpc(&caller, method, params.as_ref())?;
                 if matches!(method, "mem.worker.report" | "mem.worker.progress") {
                     let worker_id = params
                         .as_ref()
@@ -493,7 +494,7 @@ impl super::ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn mint_tab_credential(&self, tab_id: &str, expected_nonce: &str) -> Option<String> {
+    pub fn mint_tab_credential(&self, tab_id: &str, expected_nonce: &str) -> Option<String> {
         let mux = self.mux.read();
         let tab = mux.get_tab(tab_id)?;
         let binding_nonce = tab
@@ -538,10 +539,10 @@ impl super::ServiceContext {
         self.tab_credentials.session_changed(tab_id, next);
     }
 
-    pub(crate) fn revoke_tab_credential(&self, tab_id: &str) {
+    pub fn revoke_tab_credential(&self, tab_id: &str) {
         self.tab_credentials.revoke(tab_id);
     }
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

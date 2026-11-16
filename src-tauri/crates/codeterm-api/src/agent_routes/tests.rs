@@ -642,7 +642,7 @@ async fn agent_routes_host_mcp_cannot_send_or_report_as_foreign_tab() {
         multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
     };
     let (mux, tab) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::test_support::app_state(&fixture);
     let credential = state
         .svc

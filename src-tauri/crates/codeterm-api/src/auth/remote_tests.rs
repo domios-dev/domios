@@ -71,7 +71,7 @@ fn router(state: &AppState) -> Router {
 
 #[tokio::test]
 async fn presence_address_and_credential_matrix() {
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let peer = signed_peer(&state);
     let admitted = state.mesh.lock().account_state().presence.clone();
@@ -121,7 +121,7 @@ async fn presence_address_and_credential_matrix() {
 
 #[tokio::test]
 async fn signed_out_remote_routes_stay_closed_except_tailnet_web_access() {
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     apply(&state, AccountPresence::SignedOut);
     for (path, method) in [
@@ -134,8 +134,9 @@ async fn signed_out_remote_routes_stay_closed_except_tailnet_web_access() {
             let mut req = request(path, "100.64.0.2:9000", "preview-test-token");
             *req.method_mut() = method.clone();
             if peer_listener {
-                req.extensions_mut()
-                    .insert(codeterm_service_core::service::account_mesh::tailnet::TailnetListener);
+                req.extensions_mut().insert(
+                    codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener,
+                );
             }
             assert_eq!(
                 router(&state).oneshot(req).await.unwrap().status(),
@@ -157,7 +158,7 @@ async fn signed_out_remote_routes_stay_closed_except_tailnet_web_access() {
 
 #[tokio::test]
 async fn remote_access_waits_for_persisted_account_state() {
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     state.mesh.lock().await_account_state();
     assert_eq!(
@@ -188,7 +189,7 @@ async fn remote_access_waits_for_persisted_account_state() {
 
 #[tokio::test]
 async fn signed_out_closes_open_remote_bodies_but_preserves_loopback() {
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let peer = signed_peer(&state);
     let admitted = state.mesh.lock().account_state().presence.clone();
@@ -252,7 +253,7 @@ async fn signed_out_closes_open_remote_bodies_but_preserves_loopback() {
 
 #[tokio::test]
 async fn remote_preflights_are_fenced_before_cors() {
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     for signed_out in [false, true] {
         apply(
@@ -286,7 +287,7 @@ async fn remote_preflights_are_fenced_before_cors() {
 
 #[tokio::test]
 async fn sign_out_cancels_pending_remote_handlers() {
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let entered = std::sync::Arc::new(tokio::sync::Notify::new());
     let handler_entered = entered.clone();
@@ -332,14 +333,15 @@ async fn tailnet_bound_signed_out_web_api_requires_instance_token_and_refuses_me
     use codeterm_service_core::startup::rest_api::{self, RestApiControl, RestApiPhase};
     use std::sync::Arc;
 
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let peer = signed_peer(&state);
     apply(&state, AccountPresence::SignedOut);
     let router = router(&state).layer(axum::middleware::from_fn(
         |mut req: Request, next: axum::middleware::Next| async move {
-            req.extensions_mut()
-                .insert(codeterm_service_core::service::account_mesh::tailnet::TailnetListener);
+            req.extensions_mut().insert(
+                codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener,
+            );
             next.run(req).await
         },
     ));
@@ -388,7 +390,7 @@ async fn tailnet_bound_signed_out_web_api_requires_instance_token_and_refuses_me
 
 #[tokio::test]
 async fn tailnet_sign_out_closes_peer_stream_but_preserves_instance_token_stream() {
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let peer = signed_peer(&state);
     let admitted = state.mesh.lock().account_state().presence.clone();
@@ -418,7 +420,7 @@ async fn tailnet_sign_out_closes_peer_stream_but_preserves_instance_token_stream
             ));
         let mut req = request("/api/stream", "100.64.0.2:9000", token);
         req.extensions_mut()
-            .insert(codeterm_service_core::service::account_mesh::tailnet::TailnetListener);
+            .insert(codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener);
         let response = streaming.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let mut stream = response.into_body().into_data_stream();

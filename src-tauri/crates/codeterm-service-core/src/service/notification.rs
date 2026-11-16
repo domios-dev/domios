@@ -57,7 +57,7 @@ fn create_notification_announcing_resolution(
 }
 
 impl ServiceContext {
-    pub(super) fn create_in_app_notice(
+    pub fn create_in_app_notice(
         &self,
         title: String,
         actions: Vec<codeterm_notification_core::contract::NotificationAction>,
@@ -74,7 +74,7 @@ impl ServiceContext {
         })
     }
 
-    pub(in crate::service) fn create_in_app_notice_record(&self, notice: InAppNotice) -> String {
+    pub fn create_in_app_notice_record(&self, notice: InAppNotice) -> String {
         let plan = self.resolve_push_plan(if notice.include_push {
             notice.intent.clone()
         } else {

@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_neighbors_service::prelude::*;
 use codeterm_service_core::{
     multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
 };
@@ -14,7 +15,7 @@ fn fixture() -> (ServiceFixture, String, String) {
     tab.agent_session_id = Some("own-session".into());
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.reported_session_binding_nonce = Some("own-nonce".into());
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     codeterm_service_core::async_runtime::block_on(
         fixture.seed_neighbor_concierge(
             &concierge,
@@ -389,26 +390,24 @@ fn secret_cli_preflight_refuses_neighbor_credentials_without_entering_the_secret
 
 fn neighbor_save_matrix(case: &str) {
     let (fixture, concierge, token) = fixture();
-    codeterm_service_core::async_runtime::block_on(
-        codeterm_service_core::mem_ops::neighbor_save::matrix::run(
-            case,
-            &fixture,
-            &concierge,
-            |method, body| {
-                let service = fixture.service.clone();
-                let token = token.clone();
-                async move {
-                    tokio::task::spawn_blocking(move || {
+    codeterm_service_core::async_runtime::block_on(codeterm_neighbors_service::memory_matrix::run(
+        case,
+        &fixture,
+        &concierge,
+        |method, body| {
+            let service = fixture.service.clone();
+            let token = token.clone();
+            async move {
+                tokio::task::spawn_blocking(move || {
                 let (method, token) = if method == "owner" { ("mem.neighbor_save".to_string(), "owner-secret".to_string()) } else { (method, token) };
                 let req: JsonRpcRequest = serde_json::from_value(json!({"jsonrpc":"2.0","id":1,"method":method,"params":body,"credential":token,"protocol_version":protocol::PROTOCOL_VERSION})).unwrap();
                 let svc = Arc::new(service);
                 let response = respond_to_request(req, 0, &svc.mux, &svc.pty, &svc.notif, &svc.output_buf, &svc);
                 match response.error { Some(error) => { assert_eq!(error.code, -32003); Err((403, error.message)) }, None => Ok(response.result.unwrap()) }
             }).await.unwrap()
-                }
-            },
-        ),
-    );
+            }
+        },
+    ));
 }
 
 #[test]

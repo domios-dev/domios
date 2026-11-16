@@ -42,5 +42,5 @@ impl<T> ProcessSlot<T> {
     }
 }
 
-#[cfg(test)]
-mod tests;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests;

@@ -14,7 +14,7 @@ mod read_failure_tests;
 mod user_send;
 
 #[cfg(test)]
-pub(crate) mod test_boundary;
+pub mod test_boundary;
 
 struct WakeRequest(String);
 
@@ -267,7 +267,8 @@ fn wake_with_intent(
         .read()
         .get_tab(&id)
         .is_some_and(|tab| tab.restorable_launch.permission_bypass_requested);
-    svc.require_neighbor_restore_grant(&id, bypass)?;
+    svc.neighbors()
+        .require_neighbor_restore_grant(&id, bypass)?;
     {
         let cwd = {
             let mux = svc.mux.read();
@@ -337,7 +338,7 @@ fn wake_with_intent(
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 #[cfg(test)]
 mod wake_readiness_tests;

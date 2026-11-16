@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_neighbors_service::prelude::*;
 
 async fn bound_fixture() -> (
     codeterm_service_core::service::test_fixture::ServiceFixture,
@@ -14,7 +15,7 @@ async fn bound_fixture() -> (
     tab.agent_session_id = Some("own-session".into());
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.reported_session_binding_nonce = Some("own-nonce".into());
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     fixture
         .seed_neighbor_concierge(
             &concierge,
@@ -196,7 +197,7 @@ async fn file_refusals_preserve_quota_fields_and_http_status() {
 #[tokio::test]
 async fn file_endpoint_rejects_nonlocal_callers_before_dispatch() {
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let input = serde_json::json!({"operation":"list","friendship_id":"a".repeat(64)});
     let response = crate::account_routes::neighbor_files(State(state), None, Json(input))

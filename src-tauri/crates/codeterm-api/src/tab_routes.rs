@@ -4,6 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_neighbors_service::prelude::*;
 use serde::Deserialize;
 
 use crate::routes::{resolve_tab, AppState};

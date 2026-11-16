@@ -71,7 +71,7 @@ fn remote_peer(
 async fn mesh_rpc_remote_lifecycle_rejects_unauthenticated_unpaired_and_read_only_peers() {
     codeterm_service_core::ports::socket::register_test_stub();
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     for method in ["plan.task.remote_ack", "plan.task.remote_report"] {
         for (case, paired_peer, authorization, expected) in [
             (
@@ -140,7 +140,7 @@ async fn mesh_rpc_remote_lifecycle_rejects_unauthenticated_unpaired_and_read_onl
 async fn relayed_remote_lifecycle_uses_the_verified_sender_access() {
     codeterm_service_core::ports::socket::register_test_stub();
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     for (access, full) in [
         (codeterm_service_core::mesh::types::AccessLevel::Full, true),
         (

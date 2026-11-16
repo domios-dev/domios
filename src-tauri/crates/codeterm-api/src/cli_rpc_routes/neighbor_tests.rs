@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_neighbors_service::prelude::*;
 use codeterm_service_core::{
     multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
 };
@@ -122,7 +123,7 @@ async fn fixture() -> (ServiceFixture, AppState, String, String) {
     tab.agent_session_id = Some("own-session".into());
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.reported_session_binding_nonce = Some("own-nonce".into());
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     fixture
         .seed_neighbor_concierge(
             &concierge,
@@ -284,31 +285,26 @@ async fn loopback_secret_preflight_refuses_concierge_before_rpc_or_secret_dispat
 async fn neighbor_save_matrix(case: &str) {
     let (fixture, state, concierge, token) = fixture().await;
     codeterm_service_core::ports::socket::register_test_stub();
-    codeterm_service_core::mem_ops::neighbor_save::matrix::run(
-        case,
-        &fixture,
-        &concierge,
-        |method, body| {
-            let state = state.clone();
-            let token = token.clone();
-            async move {
-                let (method, token) = if method == "owner" {
-                    ("mem.neighbor_save".to_string(), "owner-secret".to_string())
-                } else {
-                    (method, token)
-                };
-                call(state, &token, &method, Some(body))
-                    .await
-                    .map(|Json(value)| value["result"].clone())
-                    .map_err(|(status, Json(error))| {
-                        (
-                            status.as_u16(),
-                            error["error"]["message"].as_str().unwrap().to_string(),
-                        )
-                    })
-            }
-        },
-    )
+    codeterm_neighbors_service::memory_matrix::run(case, &fixture, &concierge, |method, body| {
+        let state = state.clone();
+        let token = token.clone();
+        async move {
+            let (method, token) = if method == "owner" {
+                ("mem.neighbor_save".to_string(), "owner-secret".to_string())
+            } else {
+                (method, token)
+            };
+            call(state, &token, &method, Some(body))
+                .await
+                .map(|Json(value)| value["result"].clone())
+                .map_err(|(status, Json(error))| {
+                    (
+                        status.as_u16(),
+                        error["error"]["message"].as_str().unwrap().to_string(),
+                    )
+                })
+        }
+    })
     .await;
 }
 

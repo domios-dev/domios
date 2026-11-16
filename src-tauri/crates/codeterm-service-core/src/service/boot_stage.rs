@@ -565,7 +565,7 @@ impl ServiceContext {
     /// The output deadline elapsed: provisional evidence about one PTY and one
     /// launch attempt, never a verdict. The reason rides along so the deadline
     /// stays diagnosable whichever way recovery goes.
-    pub(crate) fn record_launch_output_deadline(
+    pub fn record_launch_output_deadline(
         &self,
         attempt: &crate::service::launch_readiness::LaunchAttempt,
         reason: &str,
@@ -798,9 +798,8 @@ mod in_tab_launch_tests;
 
 #[cfg(test)]
 mod first_turn_tests;
-#[cfg(test)]
-mod late_binding_tests;
+
 #[cfg(test)]
 mod publish_tests;
 #[cfg(test)]
-mod tests;
+pub mod tests;

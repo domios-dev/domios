@@ -4,6 +4,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use codeterm_neighbors_service::prelude::*;
 use std::net::SocketAddr;
 
 mod actor;
@@ -594,7 +595,7 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
     let method = req.method().clone();
     let tailnet_listener = req
         .extensions()
-        .get::<codeterm_service_core::service::account_mesh::tailnet::TailnetListener>()
+        .get::<codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener>()
         .is_some();
     if tailnet_listener
         && path != "/api/health"

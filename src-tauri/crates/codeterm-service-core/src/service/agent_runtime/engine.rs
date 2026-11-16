@@ -84,7 +84,7 @@ pub(super) fn login_pending_session(
     }
     Err(error)
 }
-pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
+pub fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
     let Some(session) = for_tab(&tab.id) else {
         return false;
     };
@@ -115,9 +115,9 @@ mod launch;
 mod resume;
 use launch::{require_launch_authority, validate_loaded_settings};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "engine/test_support.rs"]
-pub(crate) mod test_support;
+pub mod test_support;
 
 pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     stop_blocking_with(svc, tab, None)
@@ -1190,4 +1190,10 @@ fn validate_restored_arguments(
 
 #[cfg(test)]
 #[path = "engine/tests.rs"]
-mod tests;
+pub mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod sync_fixture;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use publication::hold_publication_for_test;

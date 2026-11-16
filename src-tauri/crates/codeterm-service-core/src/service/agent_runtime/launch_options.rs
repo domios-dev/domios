@@ -81,7 +81,7 @@ fn authorized_mode(requested: Option<bool>, authorized: bool) -> Result<&'static
 }
 
 impl ServiceContext {
-    pub(crate) fn prepare_agent_runtime_launch_options(
+    pub fn prepare_agent_runtime_launch_options(
         &self,
         tab_id: &str,
         params: &SpawnAgentParams,
@@ -129,7 +129,8 @@ impl ServiceContext {
         {
             return Err("Runtime launch capability or provider changed".into());
         }
-        self.prepare_neighbor_restore_grant(tab_id, &provider, params)?;
+        self.neighbors()
+            .prepare_neighbor_restore_grant(tab_id, &provider, params)?;
         let policy =
             crate::service::execution_sandbox::for_launch(self, tab_id, &provider, params, true)?;
         let granted = policy.is_none() && params.permission_bypass_requested(&provider);
@@ -319,7 +320,8 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
             tab.restorable_launch.structured_runtime_mode.clone(),
         )
     };
-    svc.require_neighbor_restore_grant(tab_id, requested)?;
+    svc.neighbors()
+        .require_neighbor_restore_grant(tab_id, requested)?;
     let sandbox = svc.mux.read().get_tab(tab_id).and_then(|tab| {
         tab.restorable_launch
             .execution_sandbox
@@ -372,4 +374,4 @@ pub(super) fn restore_ctx(
 
 #[cfg(test)]
 #[path = "launch_options/tests.rs"]
-mod tests;
+pub mod tests;

@@ -59,7 +59,7 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
     };
     crate::test_support::install_app_version();
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let (private, public) = codeterm_service_core::mesh::crown::generate_peer_keypair();
     {

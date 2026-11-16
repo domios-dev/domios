@@ -9,7 +9,7 @@ async fn assert_container_api_refusal(method: axum::http::Method, path: &str) {
     use tower::ServiceExt;
 
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let update = state.update_state.clone();
     let cached = codeterm_update::update_state::UpdateInfo {
@@ -113,7 +113,7 @@ async fn auto_install_without_native_host_returns_actionable_typed_refusal() {
     use tower::ServiceExt;
 
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     assert!(codeterm_commands::application_host::require(&state.svc).is_err());
     let update = state.update_state.clone();
@@ -167,7 +167,7 @@ async fn auto_install_with_native_host_reaches_the_registered_updater() {
         }
     }
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let (sender, received) = tokio::sync::oneshot::channel();
     assert!(fixture
         .service

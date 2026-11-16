@@ -70,7 +70,7 @@ fn tailnet_exemptions_are_only_existing_peer_handshakes_and_liveness() {
 #[tokio::test]
 async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy() {
     use axum::{body::Body, http::Request, routing::get, Router};
-    use codeterm_service_core::service::account_mesh::tailnet::TailnetListener;
+    use codeterm_neighbors_service::service::account_mesh::tailnet::TailnetListener;
     use codeterm_service_core::{
         mesh::account_mesh::{AccountMeshState, AccountPresence},
         mesh::types::PairedPeer,
@@ -79,7 +79,7 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
     };
     use tower::ServiceExt;
 
-    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     assert!(std::sync::Arc::ptr_eq(
         &state.mesh,
@@ -688,7 +688,7 @@ fn instance_refuses_foreign_bearer_and_accepts_persisted_credential() {
     use codeterm_service_core::service::test_fixture::ServiceFixture;
 
     let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::test_support::app_state(&fixture);
     let rotated = codeterm_util::instance_token::initialize_at(fixture.temp.path(), true)
         .unwrap()
@@ -713,7 +713,7 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
     use codeterm_service_core::service::test_fixture::ServiceFixture;
 
     let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
     let admitted = {

@@ -1,4 +1,5 @@
 //! JSON-RPC v2 server over named pipe (Windows) / Unix socket.
+use codeterm_neighbors_service::prelude::*;
 
 mod agent;
 mod agent_commands;
@@ -762,7 +763,7 @@ mod tests {
             codeterm_service_core::multiplexer::state::MultiplexerState::new();
         let workspace = mux.find_workspace_for_tab(&initial_tab).unwrap();
         let tab_id = mux.create_tab(&workspace).unwrap();
-        let fixture = ServiceFixture::new(mux);
+        let fixture = codeterm_neighbors_service::test_support::fixture(mux);
         let mut store = CronStore::new_with_path(fixture.temp.path().join("crons.json"));
         let job_id = store
             .create(CronCreateParams {

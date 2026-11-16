@@ -6,7 +6,7 @@ use std::time::Duration;
 
 #[tokio::test]
 async fn oversized_theme_is_rejected_before_parsing_or_writing() {
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     let state = crate::test_support::app_state(&fixture);

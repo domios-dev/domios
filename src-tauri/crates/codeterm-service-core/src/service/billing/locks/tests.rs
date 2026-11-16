@@ -278,7 +278,7 @@ async fn broken_billing_configuration_never_disables_startup_enforcement() {
     account.refresh().await.unwrap();
     assert!(account.session().await.is_some());
     assert!(svc
-        .ext::<crate::service::account::AccountCell>()
+        .ext::<crate::service::neighbor_account::AccountCell>()
         .0
         .set(account)
         .is_ok());
