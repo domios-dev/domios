@@ -47,7 +47,9 @@ else
     CARGO_TEST_CMD_DEFAULT=1
 fi
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
+[ "$SCRIPT_DIR" != "${BASH_SOURCE[0]}" ] || SCRIPT_DIR=.
+ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 # No awk `exit`: it closes the pipe, SIGPIPEs rustc, and pipefail then aborts the
 # whole script at exit 141 with zero output.
 HOST_TRIPLE=""
@@ -176,23 +178,29 @@ detect_requested_filter() {
     done
 }
 
-# Sums passed tests across libtest result lines and nextest summaries; an
-# all-ignored or unmatched selection sums to zero.
-passed_test_count() {
-    awk '
-        { gsub(/\033\[[0-9;]*m/, "") }
-        /^[[:space:]]*test result: [A-Za-z]+\. [0-9]+ passed;/ {
-            line = $0; sub(/.*test result: [A-Za-z]+\. /, "", line); total += line + 0
-        }
-        /^[[:space:]]*(Summary \[[^]]*\][[:space:]]+|Stress test \[[^]]*\] iteration [^:]+: )[0-9]+ tests? run: [0-9]+ passed/ {
-            if ($0 ~ /Stress test/) stress_details = 1
-            line = $0; sub(/.* tests? run: /, "", line); total += line + 0
-        }
-        /^[[:space:]]*Summary \[[^]]*\][[:space:]]+[0-9]+(\/[0-9]+)? stress run iterations?: [0-9]+ passed/ {
-            line = $0; sub(/.* stress run iterations?: /, "", line); stress_passes += line + 0
-        }
-        END { print total + (stress_details || ENVIRON["TEST_REQUIRE_EXECUTION"] == "1" ? 0 : stress_passes) }
-    ' "$1"
+run_has_passed_test() {
+    local line passed=0 stress_passed=0 stress_details=0
+    local ansi=$'\033''\[[0-9;]*m'
+    local libtest='^[[:space:]]*test result: [A-Za-z]+\. ([0-9]+) passed;'
+    local tests='^[[:space:]]*(Summary \[[^]]*\][[:space:]]+|Stress test \[[^]]*\] iteration [^:]+: )[0-9]+ tests? run: ([0-9]+) passed'
+    local iterations='^[[:space:]]*Summary \[[^]]*\][[:space:]]+[0-9]+(/[0-9]+)? stress run iterations?: ([0-9]+) passed'
+    while IFS= read -r line || [ -n "$line" ]; do
+        while [[ "$line" =~ $ansi ]]; do
+            line="${line//"${BASH_REMATCH[0]}"/}"
+        done
+        if [[ "$line" =~ $libtest ]]; then
+            [[ "${BASH_REMATCH[1]}" != *[1-9]* ]] || passed=1
+        elif [[ "$line" =~ $tests ]]; then
+            [[ "${BASH_REMATCH[2]}" != *[1-9]* ]] || passed=1
+            [[ "$line" != *'Stress test'* ]] || stress_details=1
+        elif [[ "$line" =~ $iterations ]]; then
+            [[ "${BASH_REMATCH[2]}" != *[1-9]* ]] || stress_passed=1
+        fi
+    done < "$1"
+    [ "$passed" = 1 ] || {
+        [ "${TEST_REQUIRE_EXECUTION:-0}" != 1 ] &&
+            [ "$stress_details" = 0 ] && [ "$stress_passed" = 1 ]
+    }
 }
 
 filtered_run_ran_nothing() {
@@ -200,7 +208,7 @@ filtered_run_ran_nothing() {
         [ -n "$REQUESTED_FILTER" ] || return 1
         case "$NO_TESTS_MODE" in pass|warn) return 1 ;; esac
     fi
-    [ "$(passed_test_count "$1")" -eq 0 ]
+    ! run_has_passed_test "$1"
 }
 
 report_zero_match() {
@@ -255,7 +263,7 @@ if [ "$EXEC_MODE" -eq 0 ]; then
 fi
 
 TEST_RAW_OUTPUT="${TEST_RAW_OUTPUT:-0}"
-if [ "$EXEC_MODE" = 0 ] && [ "$TEST_RAW_OUTPUT" != 1 ] && [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then
+if [ "$EXEC_MODE" = 0 ] && [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then
     TEST_LOG=$(mktemp "$CT_BUILD_ARTIFACT_DIR/test.XXXXXX.log")
 else
     TEST_LOG=$(mktemp)
@@ -267,7 +275,7 @@ capture_test() {
     else
         local status=0
         run_test "$@" > "$TEST_LOG" 2>&1 || status=$?
-        node "$(dirname "${BASH_SOURCE[0]}")/build-gateway-output.mjs" test-summary "$TEST_LOG" "$status" || true
+        node "$ROOT/scripts/build-gateway-output.mjs" test-summary "$TEST_LOG" "$status" || true
         return "$status"
     fi
 }

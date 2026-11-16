@@ -193,22 +193,23 @@ for (const code of [0, 23]) {
 }
 
 const cappedScript = `
-fake_nextest() { cat "$FAKE_OUTPUT"; return "\${FAKE_STATUS:-0}"; }
-export -f fake_nextest
-exec "$BASH" scripts/test-capped.sh "$@"
+fake_nextest() { printf '%s' "$FAKE_OUTPUT"; return "\${FAKE_STATUS:-0}"; }
+source scripts/test-capped.sh "$@"
 `;
 
 function capped(output, args, status = 0, env = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nextest-summary-'));
   try {
-    const file = path.join(directory, 'output.log');
-    fs.writeFileSync(file, output);
-    return spawnSync(bashInterpreter(), ['-c', cappedScript, 'capped', ...args], {
+    const result = spawnSync(bashInterpreter(), ['-c', cappedScript, 'capped', ...args], {
       encoding: 'utf8', timeout: 10000,
       env: { ...process.env, CARGO_TEST_CMD: 'fake_nextest', CARGO_TEST_BUILD_CMD: '',
         CODETERM_TEST_HOST_TRIPLE: 'x86_64-unknown-linux-gnu', TEST_CAP_SECS: '0',
-        CT_BUILD_ARTIFACT_DIR: '', FAKE_OUTPUT: file.replaceAll('\\', '/'), FAKE_STATUS: String(status), ...env },
+        CT_BUILD_ARTIFACT_DIR: directory.replaceAll('\\', '/'), TEST_RAW_OUTPUT: '1',
+        CODETERM_BUILD_FINGERPRINTS: '0', FAKE_OUTPUT: output, FAKE_STATUS: String(status), ...env },
     });
+    assert.equal(result.error, undefined, result.stdout + result.stderr);
+    assert.equal(fs.readdirSync(directory).filter(file => /^test\..*\.log$/.test(file)).length, 1);
+    return result;
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
 
@@ -274,7 +275,9 @@ for (const output of ['', 'runner exited without a summary\n',
 }
 
 for (const output of ['Summary [0.001s] 1 test run: 1 passed\n',
-  'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n', stressOutput]) {
+  'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n', stressOutput,
+  '\x1b[32mSummary [0.001s] 1 test run: 1 passed\x1b[0m',
+  'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\nSummary [0.001s] 1 test run: 1 passed']) {
   test(`test-one accepts executed tests: ${JSON.stringify(output.slice(-100))}`, () => {
     const result = capped(output, ['owned_test'], 0, { TEST_REQUIRE_EXECUTION: '1' });
     assert.equal(result.status, 0, result.stdout + result.stderr);
