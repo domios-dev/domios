@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 #[test]
 fn taskless_evidence_report_cannot_carry_a_task_transition_status() {

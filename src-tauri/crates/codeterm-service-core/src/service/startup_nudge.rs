@@ -49,13 +49,13 @@ impl StartupNudge {
 
 /// What the tab's own terminal currently shows. `None` for a tab backed by a
 /// chat transport, which has no terminal for a paste to collide with.
-pub struct AgentTerminal<'a> {
+pub(crate) struct AgentTerminal<'a> {
     pub trust: &'a TrustDecision,
     pub modal_on_screen: bool,
 }
 
 /// The whole rule, as a pure decision over the tab's own state.
-pub fn nudge_for(
+pub(crate) fn nudge_for(
     attached: bool,
     session_authenticated: bool,
     terminal: Option<AgentTerminal<'_>>,

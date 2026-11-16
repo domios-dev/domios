@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 #[test]
 fn owner_rebound_invalidates_its_prior_reporter_grants() {

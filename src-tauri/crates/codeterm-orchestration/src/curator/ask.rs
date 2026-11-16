@@ -1,4 +1,4 @@
-use super::ServiceContext;
+use super::{CuratorTabs, ServiceContext};
 
 pub(super) fn command(owner: &str) -> String {
     format!("domios send --tab {owner} --from-pad ask.md")

@@ -1,5 +1,5 @@
 use crate::test_fixture::ServiceFixture;
-use crate::traits::*;
+use crate::traits::HierarchyPlannerDeliveryExt;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::service::plan::load_audit::{
     assert_never_loaded, execution_plan, planner, seed, start,

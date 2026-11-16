@@ -1,4 +1,4 @@
-use crate::traits::*;
+use crate::CuratorExt;
 use std::io::Write;
 use std::sync::atomic::Ordering;
 #[test]

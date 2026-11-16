@@ -2,7 +2,7 @@
 //! follow-ups, acknowledgements, and provider-stop events.
 
 use crate::test_fixture::ServiceFixture;
-use crate::traits::*;
+use crate::traits::{HierarchyExt, HierarchyWorkerHandoffExt};
 use codeterm_service_core::agent::reports::{ReportDetails, ReportStatus};
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::AgentRole;

@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 #[test]
 fn authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without_task_mutation() {

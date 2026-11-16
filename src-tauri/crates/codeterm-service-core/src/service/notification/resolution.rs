@@ -19,7 +19,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(in crate::service) fn reconcile_notification_questions(&self) {
+    pub fn reconcile_notification_questions(&self) {
         let Ok(now) = self.curator_now() else { return };
         let ids = match crate::service::curator_runtime::curator_bootstrap_ids(&self.plan_store) {
             Ok(ids) => ids,

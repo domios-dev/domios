@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 #[test]
 fn planner_shaped_tab_without_capability_is_refused() {

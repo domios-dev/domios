@@ -1,5 +1,4 @@
 use super::*;
-use crate::traits::*;
 
 #[test]
 fn plan_evidence_resolves_absent_session_from_attested_nonce() {

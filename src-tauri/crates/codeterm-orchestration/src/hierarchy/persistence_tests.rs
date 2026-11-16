@@ -1,4 +1,4 @@
-use crate::traits::*;
+use crate::traits::HierarchyTeamPlanCreationExt;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::persistence_test_support::close;
 use codeterm_service_core::service::TeamPlanCaller;

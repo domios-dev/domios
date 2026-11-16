@@ -1,5 +1,4 @@
 use crate::test_fixture::ServiceFixture;
-use crate::traits::*;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::service::startup_nudge::StartupNudge;
 use codeterm_service_core::service::test_fixture::{

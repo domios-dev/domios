@@ -27,7 +27,6 @@ pub use codeterm_service_core::service::orchestration_data::{
 };
 pub(crate) use codeterm_service_core::service::planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub(crate) use codeterm_service_core::service::planner_replay::PlannerReplayCoalescer;
-pub(crate) use codeterm_service_core::service::report_delivery::HierarchyReportDelivery;
 pub use codeterm_service_core::service::report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
 };
