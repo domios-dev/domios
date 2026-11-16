@@ -101,6 +101,17 @@ const results = await Promise.all(active.map(async tab => {
   }
 }));
 const trace = readFileSync(join(root, 'provider-trace.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+const shellTrace = readFileSync(join(root, 'shell-trace.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+for (const tab of active.filter(tab => !tab.agent_type && !tab.surface)) {
+  const actual = await daemon.inspect(tab.tab_id);
+  const launches = shellTrace.filter(row => row.tab_id === tab.tab_id && row.cwd === actual.cwd
+    && row.nonce && row.nonce === actual.session_binding_nonce);
+  let live = false;
+  for (const launch of launches) {
+    try { process.kill(launch.pid, 0); live = true; } catch {}
+  }
+  if (!live) results.push({tab_id: tab.tab_id, ready: false, reason: 'fixture shell has no live own-session PTY process'});
+}
 for (const tab of active.filter(tab => tab.agent_type)) {
   const session = tab.claude_session_id ?? tab.agent_session_id;
   if (!trace.some(row => row.thread_id === session && row.method === 'thread/turns/list')) {
