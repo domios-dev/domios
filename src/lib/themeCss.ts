@@ -4,6 +4,20 @@ import { blendColor, deriveColor, parseHex } from "./colors";
 const THEME_CACHE_KEY = "codeterm-theme-v1";
 const THEME_VARS_CACHE_KEY = "codeterm-theme-css-v1";
 
+function luminance(hex: string): number {
+  const [r, g, b] = parseHex(hex).map(channel => {
+    const value = channel / 255;
+    return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+  });
+  return .2126 * r + .7152 * g + .0722 * b;
+}
+
+function mentionTextColor(theme: ThemeConfig, light: boolean): string {
+  const text = luminance(theme.blue), surface = luminance(blendColor(theme.background, theme.blue, .12));
+  const contrast = (Math.max(text, surface) + .05) / (Math.min(text, surface) + .05);
+  return light && contrast < 4.5 ? "color-mix(in srgb, var(--ct-accent) 80%, var(--ct-fg))" : "var(--ct-accent)";
+}
+
 function contrastTextColor(background: string): "#000000" | "#ffffff" {
   const [r, g, b] = parseHex(background).map((channel) => {
     const value = channel / 255;
@@ -67,6 +81,7 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-muted": theme.bright_black,
     "--ct-muted-fg": blendColor(theme.bright_black, theme.foreground, 0.45),
     "--ct-accent": theme.blue,
+    "--ct-mention-text": mentionTextColor(theme, isLight),
     "--ct-red": theme.red,
     "--ct-green": theme.green,
     "--ct-yellow": theme.yellow,

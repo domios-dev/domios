@@ -97,7 +97,9 @@ export function MentionChip({ mention }: { mention: CanonicalMention }) {
   const key = JSON.stringify([host.mentionTabId ?? "", mention.kind, mention.id]);
   const value = useLiveBinding(host.mentions?.binding, key, null);
   return <ReferenceChip kind={mention.kind} label={value?.title ?? mention.id} fullRef={mention.id}
-    planId={value?.planId} targetId={value?.targetId} disabled={!value || value.state === "loading"} state={value?.state ?? (value ? "resolved" : "missing")}
+    presentation={mention.kind === "tab" ? "mention" : "reference"}
+    participant={value ? { ...value, avatar: host.mentions?.renderAvatar?.(value) } : undefined}
+    planId={value?.planId} targetId={value?.targetId} disabled={!value || !!value.state} state={value?.state ?? (value ? "resolved" : "missing")}
     onOpen={() => host.mentions?.open(key)} />;
 }
 

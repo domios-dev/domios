@@ -12,17 +12,24 @@ import type { TasksBlockState } from "./tasksBlockModel";
 import type { CanonicalMentionKind } from "../codeterm/canonicalMentions";
 
 export interface ChatMentionValue {
-  state?: "loading";
+  state?: "loading" | "closed";
   title: string;
   kind: CanonicalMentionKind;
   id: string;
   planId?: string;
   targetId?: string;
   teamId?: string | null;
+  tabKind?: "agent" | "shell" | "browser" | "surface";
+  providerId?: string | null;
+  providerName?: string;
+  role?: string;
+  workspaceName?: string;
+  activity?: "working" | "waiting" | "error" | "idle";
 }
 export interface ChatMentionHost {
   binding: LiveBindingSource<ChatMentionValue | null>;
   open(key: string): void;
+  renderAvatar?(value: ChatMentionValue): React.ReactNode;
 }
 
 /** Host services the plugin block reads and acts through; every mutation runs only from a user click. */

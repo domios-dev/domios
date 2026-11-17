@@ -10,6 +10,9 @@ import type { MentionScope } from "../composerMentions";
 import type { ScopedPlanBlockRead } from "./scopedPlanBlockRead";
 import type { ValueFeed } from "./valueFeed";
 import { watchMentionState } from "../mentionSources/live";
+import { tabActivity } from "../tabActivity";
+import { surfaceBacking } from "../surfaceTab";
+import { isBrowserSurface } from "../../components/Surface/surfaceIcon";
 
 export function createMentionHost(ports: {
   mux: Pick<MuxStateStore, "getState" | "subscribe">;
@@ -20,10 +23,13 @@ export function createMentionHost(ports: {
   openPlan(target: PlanTarget): void;
   openTab(workspaceId: string, tabId: string): void;
   openBlueprint(workspaceId: string, teamId: string | null, id: string): void;
+  providerName?(id: string | null | undefined): string | undefined;
+  renderAvatar?: ChatMentionHost["renderAvatar"];
 }): ChatMentionHost {
   const graphs = new Map<string, AutomationGraph>();
   const pending = new Map<string, Promise<void>>();
   const values = new Map<string, ChatMentionValue | null>();
+  const knownTabs = new Map<string, ChatMentionValue>();
   const listeners = new Set<() => void>();
   const graphWatches = new Map<string, Promise<() => void>>();
   let stopSources: (() => void) | null = null;
@@ -40,7 +46,18 @@ export function createMentionHost(ports: {
     let value: ChatMentionValue | null = null;
     if (scope.workspaceId && kind === "tab") {
       const tab = state.tabs[id];
-      if (tab) value = { title: tab.title, kind, id };
+      if (tab) {
+        const activity = tabActivity(tab, state.tabStatuses[id]);
+        const surface = surfaceBacking(tab);
+        value = { title: tab.title, kind, id, tabKind: surface ? isBrowserSurface(surface) ? "browser" : "surface" : tab.agent_type ? "agent" : "shell",
+          providerId: tab.agent_type, providerName: ports.providerName?.(tab.agent_type), role: tab.role ?? undefined,
+          workspaceName: state.workspaces.find(ws => ws.id === tab.workspace_id || ws.tabs.includes(id))?.name,
+          activity: activity.kind === "working" ? "working" : activity.kind === "waiting-on-user" ? "waiting" : activity.kind === "failed" ? "error" : "idle" };
+        knownTabs.set(id, value);
+      } else {
+        const known = knownTabs.get(id);
+        if (known) value = { ...known, state: "closed", activity: "idle" };
+      }
     } else if (kind === "task" && ports.taskReferences) {
       const requested=ports.taskReferences.read(key);
       const found=requested.data;
@@ -79,6 +96,7 @@ export function createMentionHost(ports: {
     return value;
   };
   const host: ChatMentionHost = {
+    renderAvatar: ports.renderAvatar,
     binding: {
       read,
       retain(key){
@@ -89,7 +107,7 @@ export function createMentionHost(ports: {
         listeners.add(listener);
         if (!stopSources) {
           const offReferences=ports.taskReferences?.subscribe(notify);
-          const offMux = watchMentionState(ports.mux, notify);
+          const offMux = watchMentionState(ports.mux, notify, true);
           const offPlans = ports.plans.subscribe(() => { indexes.clear(); planSnapshot = ports.plans.get(); notify(); });
           stopSources = () => { offMux(); offPlans(); offReferences?.(); };
         }
@@ -124,7 +142,7 @@ export function createMentionHost(ports: {
     },
     open(key) {
       const value = read(key);
-      if (!value || value.state === "loading") return;
+      if (!value || value.state) return;
       const [tabId] = JSON.parse(key) as [string];
       const state = ports.mux.getState();
       const scope = mentionScopeForTab(state, tabId);

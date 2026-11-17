@@ -110,3 +110,18 @@ it("ignores another tab's insertion and drains context queued before the compose
   expect(labels(textarea)).toEqual(["queued.md"]);
   expect(composerInsertionStore.take("someone-else")).toEqual([{ kind: "document", path: "/q/other.md" }]);
 });
+
+it("displays a pasted mention as a token and submits its exact original marker once", async () => {
+  const { textarea, calls } = await renderComposer("mention-send");
+  const marker = '<domios id="mention-send" type="tab" />';
+  const clipboardData = new DataTransfer(); clipboardData.setData("text/plain", marker);
+  await act(async () => {
+    textarea.focus();
+    textarea.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+  });
+  expect(textarea.value).toBe("@Composer ");
+  await act(async () => textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true })));
+  await act(async () => { await Promise.resolve(); });
+  expect(sends(calls).map(call => call.args.text)).toEqual([marker]);
+  expect(textarea.value).toBe("");
+});

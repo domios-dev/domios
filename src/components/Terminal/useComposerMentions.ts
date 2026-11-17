@@ -1,8 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import { activeMentionQuery, applyComposerMention, mentionDismissed, type ComposerMention, type MentionDismissal, type MentionScope, type createMentionRegistry } from "../../lib/composerMentions";
+import { activeMentionQuery, applyComposerMention, mentionDismissed, type ComposerMention, type MentionQuery, type MentionDismissal, type MentionScope, type createMentionRegistry } from "../../lib/composerMentions";
 
 export function useComposerMentions(input: string, setInput: (next: string) => void, onPicked: () => void,
-  textarea: RefObject<HTMLTextAreaElement | null>, registry: ReturnType<typeof createMentionRegistry>, scope: MentionScope | (() => MentionScope)) {
+  textarea: RefObject<HTMLTextAreaElement | null>, registry: ReturnType<typeof createMentionRegistry>, scope: MentionScope | (() => MentionScope),
+  onInsert?: (mention: ComposerMention, query: MentionQuery) => void, tokens?: readonly { start: number; end: number }[]) {
   const currentScope = typeof scope === "function" ? scope() : scope;
   const scopeRef = useRef(currentScope);
   scopeRef.current = currentScope;
@@ -13,7 +14,8 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
   const [dismissed, setDismissed] = useState<MentionDismissal | null>(null);
   const [result, setResult] = useState<{ session: string; key: string; registry: typeof registry; rows: ComposerMention[]; loading?: boolean; error?: boolean } | null>(null);
   const pendingCaret = useRef<number | null>(null);
-  const query = activeMentionQuery(input, selection.start, selection.end);
+  const candidate = activeMentionQuery(input, selection.start, selection.end);
+  const query = candidate && !tokens?.some(token => token.start < candidate.end && token.end > candidate.start) ? candidate : null;
   const partial = query ? input.slice(query.start + 1, query.end) : undefined;
   const queryStart = query?.start;
   const hidden = query && mentionDismissed(dismissed, input, selection.start, query);
@@ -94,8 +96,13 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
       || JSON.stringify(liveScope) !== JSON.stringify(currentScope) || !mentions.includes(mention)) return;
     const editor = textarea.current;
     if (editor && (editor.value !== input || editor.selectionStart !== selection.start || editor.selectionEnd !== selection.end)) return;
-    pendingCaret.current = query.start + mention.insertText.length + 1;
-    setInput(applyComposerMention(input, query, mention));
+    if (onInsert) {
+      onInsert(mention, query);
+      if (editor) syncSelection(editor);
+    } else {
+      pendingCaret.current = query.start + mention.insertText.length + 1;
+      setInput(applyComposerMention(input, query, mention));
+    }
     onPicked();
   };
   const handleKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
