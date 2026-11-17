@@ -1,5 +1,6 @@
 import { listen } from "../../lib/bridge";
 import { neighborFetch } from "./neighborFetch";
+import type { ReceiverGrantDecision, ReceiverGrantPreview } from "./neighborReceiverGrants";
 
 export type NeighborDeliveryStatus = import("../../../gen/DeliveryStatus").DeliveryStatus;
 export type NeighborListenerState = import("../../../gen/ListenerState").ListenerState;
@@ -31,7 +32,8 @@ export interface NeighborReceipt {
 }
 export interface NeighborRuntimeClient {
   status(signal?: AbortSignal): Promise<ChannelStatus>;
-  receiveFriend(friendship: string, revision: number, operation?: "set" | "reset"): Promise<void>;
+  receiveFriend(friendship: string, revision: number, operation?: "set" | "reset", decision?: ReceiverGrantDecision): Promise<void>;
+  receiverGrants(friendship: string, signal?: AbortSignal): Promise<ReceiverGrantPreview>;
   rotate(): Promise<void>;
   permission(friendship: string, signal?: AbortSignal): Promise<NeighborPermission>;
   send(friendship: string, body: string): Promise<NeighborReceipt>;
@@ -72,7 +74,7 @@ export async function runtimeCall(command: Record<string, unknown>, signal?: Abo
     const failure: unknown = (() => {
       try { return JSON.parse(detail); } catch { return null; }
     })();
-    const reason = record(failure) && (["key_inventory_pending", "key_limit", "key_not_found", "key_revoked", "invalid_key", "entitlements_unavailable", "message_too_large", "tab_requests_not_allowed", "neighbor_permission_denied", "friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving", "reply_target_stopped", "receiving_elsewhere", "receiver_not_chosen", "receiver_status_unknown"] as const).find(reason => reason === failure.code);
+    const reason = record(failure) && (["key_inventory_pending", "key_limit", "key_not_found", "key_revoked", "invalid_key", "entitlements_unavailable", "message_too_large", "tab_requests_not_allowed", "neighbor_permission_denied", "friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "receiver_grant_confirmation_required", "receiver_grant_stale", "receiver_grant_invalid", "receiver_move_unconfirmed", "not_receiver", "recipient_not_receiving", "reply_target_stopped", "receiving_elsewhere", "receiver_not_chosen", "receiver_status_unknown"] as const).find(reason => reason === failure.code);
     const message = (record(failure) && typeof failure.message === "string" ? failure.message : detail);
     const limit = record(failure) && typeof failure.limit === "number" ? failure.limit : undefined;
     // A sending limit (HTTP 429) names its delivery reason and reset, which the conversation explains like a refused receipt.
@@ -85,7 +87,7 @@ export async function runtimeCall(command: Record<string, unknown>, signal?: Abo
   return response.json();
 }
 
-export type ReceiverRefusal = "key_inventory_pending" | "key_limit" | "key_not_found" | "key_revoked" | "invalid_key" | "entitlements_unavailable" | "message_too_large" | "tab_requests_not_allowed" | "neighbor_permission_denied" | "friendship_ended" | "neighbor_forbidden" | "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "reply_target_stopped"
+export type ReceiverRefusal = "key_inventory_pending" | "key_limit" | "key_not_found" | "key_revoked" | "invalid_key" | "entitlements_unavailable" | "message_too_large" | "tab_requests_not_allowed" | "neighbor_permission_denied" | "friendship_ended" | "neighbor_forbidden" | "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "receiver_grant_confirmation_required" | "receiver_grant_stale" | "receiver_grant_invalid" | "receiver_move_unconfirmed" | "not_receiver" | "recipient_not_receiving" | "reply_target_stopped"
   /** Bind, Apply, ensure and create on a machine that is not this friendship's effective receiver (HTTP 409). */
   | "receiving_elsewhere" | "receiver_not_chosen" | "receiver_status_unknown" | "unavailable";
 /** Proven pre-send refusals that sending the same thing again cannot change, so no Retry is offered:
@@ -120,7 +122,14 @@ export const neighborRuntimeClient: NeighborRuntimeClient = {
       || typeof value.friend_receivers_version !== "number" || !Number.isSafeInteger(value.friend_receivers_version) || value.friend_receivers_version < 0)) throw new Error("Invalid Neighbor friend receiver status");
     return value as unknown as ChannelStatus;
   },
-  receiveFriend: async (friendship, revision, operation = "set") => { await runtimeCall({ operation: "set_friend_receiver", friendship_id: friendship, receiver_operation: operation, takeover_confirmed: true, expected_receiver_revision: revision }); },
+  receiveFriend: async (friendship, revision, operation = "set", decision) => { await runtimeCall({ operation: "set_friend_receiver", friendship_id: friendship, receiver_operation: operation, takeover_confirmed: true, expected_receiver_revision: revision, ...(decision ? { grant_decision: decision } : {}) }); },
+  receiverGrants: async (friendship, signal) => {
+    const value = await runtimeCall({ operation: "receiver_grants", friendship_id: friendship }, signal);
+    if (!record(value) || typeof value.revision !== "number" || typeof value.digest !== "string"
+      || typeof value.different !== "boolean" || typeof value.unavailable !== "boolean"
+      || !record(value.local) || !(value.previous === null || record(value.previous))) throw new Error("Invalid receiver grant comparison");
+    return value as unknown as ReceiverGrantPreview;
+  },
   rotate: async () => { await runtimeCall({ operation: "rotate" }); },
   permission: async (friendship, signal) => {
     const value = await runtimeCall({ operation: "permission", friendship_id: friendship }, signal);
