@@ -1,4 +1,45 @@
 use super::*;
+
+#[test]
+fn pending_login_ownership_is_scoped_to_the_account() {
+    let (_first, first_tab, _peer_a, _cleanup_a) = engine::test_support::runtime_fixture();
+    let (_second, second_tab, _peer_b, _cleanup_b) = engine::test_support::runtime_fixture();
+    let first = engine::for_tab(&first_tab).unwrap();
+    let second = engine::for_tab(&second_tab).unwrap();
+    *first.account.lock() = "claim-fixture-a".into();
+    *second.account.lock() = "claim-fixture-b".into();
+    let pending =
+        serde_json::from_value(json!({"status":"pending","loginId":"claim-fixture"})).unwrap();
+    first.login.lock().login = Some(pending);
+    claim(&first, &first_tab).unwrap();
+    claim(&second, &second_tab).unwrap();
+    forget(&second);
+    *second.account.lock() = "claim-fixture-a".into();
+    assert!(claim(&second, &second_tab).is_err());
+    forget(&first);
+    claim(&second, &second_tab).unwrap();
+    forget(&second);
+}
+
+#[test]
+fn account_mismatch_rejects_the_old_runtime_with_an_unchanged_nonce() {
+    let (fixture, tab, _peer, _cleanup) = engine::test_support::runtime_fixture();
+    let session = engine::for_tab(&tab).unwrap();
+    engine::validate_binding(&fixture.service, &session).unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .restorable_launch
+        .account_id = Some("different-account".into());
+    assert!(matches!(
+        engine::validate_binding(&fixture.service, &session),
+        Err(RuntimeFailure::Superseded)
+    ));
+}
+
 #[test]
 fn completion_requires_exact_pending_login_and_canceled_cannot_resume() {
     let pending = RuntimeLoginState {

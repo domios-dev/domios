@@ -3,7 +3,9 @@ use codeterm_types::pty::PendingPrompt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use codeterm_provider_signals::{RuntimeErrorSignal, RuntimeRetryableErrorKind};
+pub use codeterm_provider_signals::{
+    RuntimeAccountLimit, RuntimeErrorSignal, RuntimeRetryableErrorKind,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(untagged)]

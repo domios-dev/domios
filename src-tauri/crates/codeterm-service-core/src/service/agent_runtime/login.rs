@@ -22,7 +22,8 @@ pub(crate) fn close_cli(tab: &str) {
 #[path = "login/terminal.rs"]
 mod terminal;
 
-static OWNERS: LazyLock<Mutex<HashMap<String, Weak<Session>>>> = LazyLock::new(Default::default);
+static OWNERS: LazyLock<Mutex<HashMap<(String, String), Weak<Session>>>> =
+    LazyLock::new(Default::default);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -113,16 +114,17 @@ pub(super) fn validate_declared_witness(
 }
 
 pub fn forget(session: &Arc<Session>) {
+    let key = (session.provider.clone(), session.account.lock().clone());
     let mut owners = OWNERS.lock();
     if owners
-        .get(&session.provider)
+        .get(&key)
         .and_then(Weak::upgrade)
         .is_some_and(|owner| Arc::ptr_eq(&owner, session))
     {
-        owners.remove(&session.provider);
+        owners.remove(&key);
     }
 }
-/// One provider sign-in may be pending across tabs; a finished or expired claim no longer blocks a new one.
+/// One account sign-in may be pending across tabs; a finished or expired claim no longer blocks a new one.
 fn claim_refusal(
     owner_tab: Option<&str>,
     owner_login: Option<&RuntimeLoginState>,
@@ -144,8 +146,9 @@ fn claim_refusal(
     })
 }
 fn claim(session: &Arc<Session>, tab: &str) -> Result<(), String> {
+    let key = (session.provider.clone(), session.account.lock().clone());
     let mut owners = OWNERS.lock();
-    if let Some(owner) = owners.get(&session.provider).and_then(Weak::upgrade) {
+    if let Some(owner) = owners.get(&key).and_then(Weak::upgrade) {
         let owner_tab = owner.context.lock().tab_id.clone();
         let owner_login = owner.login.lock().login.clone();
         if let Some(refusal) = claim_refusal(Some(&owner_tab), owner_login.as_ref(), tab, now_ms())
@@ -153,7 +156,7 @@ fn claim(session: &Arc<Session>, tab: &str) -> Result<(), String> {
             return Err(refusal);
         }
     }
-    owners.insert(session.provider.clone(), Arc::downgrade(session));
+    owners.insert(key, Arc::downgrade(session));
     Ok(())
 }
 /// Login failures reach the card and the log; a submitted key never does, and provider text stays bounded.

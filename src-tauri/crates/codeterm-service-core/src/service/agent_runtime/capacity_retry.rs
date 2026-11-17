@@ -176,6 +176,7 @@ pub(super) async fn observe(
                             serde_json::from_value::<RuntimeErrorSignal>(value.clone()).ok()
                         })
                         .unwrap_or(RuntimeErrorSignal {
+                            account_limit: None,
                             retryable: false,
                             retryable_kind: None,
                             retry_at_ms: None,

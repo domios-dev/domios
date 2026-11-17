@@ -23,6 +23,7 @@ fn failure(id: &str, offset: u64) -> RichMessage {
         record_start: Some(offset),
         provider_observations: Some(SessionObservations {
             retry_error: Some(RuntimeErrorSignal {
+                account_limit: None,
                 retryable: false,
                 retryable_kind: Some(RuntimeRetryableErrorKind::Transient),
                 retry_at_ms: None,

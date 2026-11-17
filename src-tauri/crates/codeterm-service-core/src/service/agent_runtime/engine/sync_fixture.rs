@@ -164,6 +164,7 @@ pub fn attach_runtime_peer(
     let epoch = state.begin();
     assert!(state.load(epoch, &thread));
     let session = Arc::new(Session {
+        account: Mutex::new("default".into()),
         update_generation: std::sync::atomic::AtomicU64::new(0),
         update_recovery_available: std::sync::atomic::AtomicBool::new(false),
         provider,

@@ -39,11 +39,15 @@ for (const code of codes) {
     assert.equal(result.retryableKind, classification[code] === "transient" ? "transient" : classification[code] === "rate" ? "rate_limited_until" : undefined, code);
     assert.equal(result.retryAtMs, classification[code] === "rate" ? 2_000_000 : undefined, code);
     assert.equal(result.retryable, false);
+    const quota = code === "usageLimitExceeded" || code === "rateLimitExceeded";
+    assert.equal(Boolean(result.accountLimit), quota);
+    assert.equal(result.accountLimit?.resetsAtMs, quota ? 2_000_000 : undefined);
   }
 }
 for (const code of ["httpConnectionFailed","responseStreamConnectionFailed","responseStreamDisconnected","responseTooManyFailedAttempts"]) {
   for (const status of [400,401,403,404,408,429,500,503,504]) {
     const result = signal({[code]:{httpStatusCode:status}},limits);
+    assert.equal(result.accountLimit, undefined);
     assert.equal(result.retryableKind, status === 429 ? "rate_limited_until" : status === 408 || status >= 500 ? "transient" : undefined);
   }
 }
@@ -76,6 +80,7 @@ for (const method of ["account/updated", "account/login/completed"]) {
   const error = result.events.find(event => event.kind === "chatItem");
   if (error?.kind !== "chatItem") throw new Error("Expected error");
   assert.equal((error.item.toolInput as RuntimeErrorSignal).retryableKind,undefined);
+  assert.equal((error.item.toolInput as RuntimeErrorSignal).accountLimit,undefined);
   checks++;
 }
 console.log(`runtime retry signals: ${checks + 4} fixture checks passed; all ${codes.length} named schema variants classified`);

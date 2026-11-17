@@ -21,44 +21,9 @@ use std::{
     time::Duration,
 };
 
-pub struct OutstandingRequest {
-    pub request: PendingRuntimeRequest,
-    pub prompt: Option<codeterm_types::pty::PendingPrompt>,
-    pub permission: Option<codeterm_plugin::agent_runtime::RuntimePermission>,
-}
+mod session;
+pub use session::{OutstandingRequest, Session};
 
-pub struct Session {
-    pub(super) capacity_retry: Mutex<super::capacity_retry::RetryState>,
-    pub(super) update_generation: std::sync::atomic::AtomicU64,
-    pub(super) update_recovery_available: std::sync::atomic::AtomicBool,
-    pub provider: String,
-    pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
-    pub context: Mutex<RuntimeContext>,
-    pub(super) controls_confirmation: Mutex<Option<RuntimeSettings>>,
-    pub control_changes: tokio::sync::watch::Sender<()>,
-    pub(super) reverted_thread: Mutex<Option<String>>,
-    pub(super) completions: Mutex<super::completions::Completions>,
-    pub state: Mutex<RuntimeState>,
-    pub cache: Mutex<ItemCache>,
-    pub auth: Mutex<RuntimeAuthState>,
-    pub(super) login: Mutex<super::login::LoginState>,
-    pub thread_loaded: std::sync::atomic::AtomicBool,
-    pub hook_state: Mutex<Value>,
-    pub(super) stream_progress: tokio::sync::watch::Sender<u64>,
-    pub(super) turn_requests: Mutex<HashMap<String, Arc<super::turn_requests::PendingTurn>>>,
-    pub maps: Mutex<super::events::RuntimeMaps>,
-    pub(super) provider_operation_failures: std::sync::atomic::AtomicU32,
-    pub(super) bookkeeping_warning_emitted: std::sync::atomic::AtomicBool,
-    pub(super) transcript_io: super::transcript::TranscriptIo,
-    pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
-    pub(super) prompts_cancelled: std::sync::atomic::AtomicBool,
-    pub process: ProcessSlot<Arc<Process>>,
-    pub gate: tokio::sync::Semaphore,
-    pub(super) initialization: super::initialize::Initialization,
-    pub(super) compaction: Mutex<super::subscriber::CompactionState>,
-    pub(super) abort_note: Mutex<Option<String>>,
-    pub(super) history_retry: Mutex<Option<backfill::FailedReplay>>,
-}
 static SESSIONS: LazyLock<Mutex<HashMap<String, Arc<Session>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -95,7 +60,13 @@ pub fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
         .lock()
         .as_ref()
         .is_some_and(|process| process.ended.borrow().is_none());
-    session.provider == tab.agent_type.as_deref().unwrap_or_default()
+    *session.account.lock()
+        == tab
+            .restorable_launch
+            .account_id
+            .as_deref()
+            .unwrap_or("default")
+        && session.provider == tab.agent_type.as_deref().unwrap_or_default()
         && context.tab_id == tab.id
         && Some(context.binding_nonce.as_str()) == tab.session_binding_nonce.as_deref()
         && context.thread_id == tab.agent_session_id
@@ -383,7 +354,7 @@ async fn ensure_with_fork(
     .await
     .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
     .map_err(RuntimeFailure::Refused)?;
-    let (provider, thread, nonce, config, cwd, saved_state) = {
+    let (provider, account, thread, nonce, config, cwd, saved_state) = {
         let mux = svc.mux.read();
         let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
         (
@@ -391,6 +362,7 @@ async fn ensure_with_fork(
                 .agent_type
                 .clone()
                 .ok_or(RuntimeFailure::Superseded)?,
+            target.restorable_launch.account_id.clone().unwrap_or_else(|| "default".into()),
             target.agent_session_id.clone(),
             target
                 .session_binding_nonce
@@ -417,7 +389,9 @@ async fn ensure_with_fork(
             .map_err(RuntimeFailure::Refused)?;
         let mut sessions = SESSIONS.lock();
         if sessions.get(tab).is_some_and(|session| {
-            session.context.lock().binding_nonce != nonce || session.provider != provider
+            session.context.lock().binding_nonce != nonce
+                || session.provider != provider
+                || *session.account.lock() != account
         }) {
             if let Some(old) = sessions.remove(tab) {
                 retired_cli = true;
@@ -434,6 +408,7 @@ async fn ensure_with_fork(
                     update_generation: std::sync::atomic::AtomicU64::new(0),
                     update_recovery_available: std::sync::atomic::AtomicBool::new(false),
                     provider: provider.clone(),
+                    account: Mutex::new(account.clone()),
                     adapter: Mutex::new(None),
                     controls_confirmation: Mutex::new(None),
                     control_changes: tokio::sync::watch::channel(()).0,

@@ -109,6 +109,7 @@ impl SpawnTabSpec {
         let task_launch_env = params.task_launch_env();
         let agent = AgentSpawnSpec {
             provider: params.agent.clone().unwrap_or_default(),
+            account_id: params.account_id.clone(),
             remote_task_bound: crate::service::orchestrator::remote_task_binding_matches_authority(
                 params.remote_task_binding.as_ref(),
                 params.task_launch_authority.as_ref(),
@@ -271,6 +272,7 @@ impl SpawnTabSpec {
                 .and_then(|metadata| metadata.params.neighbor_machine_access.clone()),
             context_skills: None,
             agent: Some(agent.provider.clone()),
+            account_id: agent.account_id.clone(),
             agent_name: agent.agent_name.clone(),
             args: if args.is_empty() { None } else { Some(args) },
             cwd: self.cwd.clone(),
@@ -843,6 +845,7 @@ mod tests {
     #[test]
     fn team_attach_is_rejected_alongside_a_role_or_plan_task_binding() {
         let attach = |role: Option<&str>, plan_task: Option<&str>| SpawnAgentParams {
+            account_id: Some("account-selected".into()),
             team_id: Some("team_alpha".into()),
             creator_tab_id: Some("tab_manager".into()),
             role: role.map(str::to_string),
@@ -879,6 +882,7 @@ mod tests {
         assert_eq!(spec.team_id.as_deref(), Some("team_alpha"));
         assert_eq!(spec.creator_tab_id.as_deref(), Some("tab_manager"));
         let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.account_id.as_deref(), Some("account-selected"));
         assert_eq!(params.team_id.as_deref(), Some("team_alpha"));
         assert_eq!(params.creator_tab_id.as_deref(), Some("tab_manager"));
     }
