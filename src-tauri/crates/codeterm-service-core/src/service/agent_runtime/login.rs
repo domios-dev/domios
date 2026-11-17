@@ -223,11 +223,22 @@ pub async fn operate(
 ) -> Result<Value, String> {
     let label = request_label(&request);
     let secret = request.api_key.clone().or_else(|| request.code.clone());
-    operate_unlogged(svc, tab, request).await.map_err(|reason| {
-        let reason = safe_reason(&reason, secret.as_deref());
-        log::warn!("[agent_runtime.login] tab={tab} request={label} refused: {reason}");
-        reason
+    cli::cleanup(svc);
+    let owner = svc.clone();
+    let target = tab.to_owned();
+    let requested = request.provider_id.clone();
+    let invocation = codeterm_plugin::js_runtime::spawn_blocking(move || {
+        cli::invocation(&owner, &target, requested.as_deref())
     })
+    .await
+    .map_err(|error| error.to_string())??;
+    codeterm_plugin::provider_account::scope(invocation, operate_unlogged(svc, tab, request))
+        .await
+        .map_err(|reason| {
+            let reason = safe_reason(&reason, secret.as_deref());
+            log::warn!("[agent_runtime.login] tab={tab} request={label} refused: {reason}");
+            reason
+        })
 }
 
 async fn operate_unlogged(

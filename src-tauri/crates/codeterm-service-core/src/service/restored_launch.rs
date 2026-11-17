@@ -286,7 +286,12 @@ pub fn restored_fresh_launch_input(
                 && params.permission_bypass_authorization.is_some(),
         );
     }
-    params.account_id = launch_parameters.account_id.clone();
+    params.account_id = Some(
+        launch_parameters
+            .account_id
+            .clone()
+            .unwrap_or_else(|| "default".into()),
+    );
     params.context_files = launch_parameters.context_files.clone();
     params.context_skills = launch_parameters.context_skills.clone();
     params.task = None;
@@ -337,6 +342,21 @@ impl RestoredFreshLaunchInput {
         service: &crate::service::ServiceContext,
         tab_id: &str,
     ) -> Option<String> {
+        let invocation = crate::service::provider_accounts::invocation(
+            service,
+            self.params.agent.as_deref()?,
+            self.params.account_id.as_deref(),
+        )
+        .ok()?;
+        codeterm_plugin::provider_account::with_context(invocation, || {
+            self.command_scoped(service, tab_id)
+        })
+    }
+    fn command_scoped(
+        &self,
+        service: &crate::service::ServiceContext,
+        tab_id: &str,
+    ) -> Option<String> {
         let provider_id = self.params.agent.as_deref()?;
         let registry = &service.agent_registry;
         let resumable = registry.with_provider(provider_id, |provider| {
@@ -375,6 +395,21 @@ impl RestoredFreshLaunchInput {
         })
     }
     pub fn prepared_command(
+        &self,
+        service: &crate::service::ServiceContext,
+        tab_id: &str,
+    ) -> Option<crate::service::orchestrator::PreparedAgentCommand> {
+        let invocation = crate::service::provider_accounts::invocation(
+            service,
+            self.params.agent.as_deref()?,
+            self.params.account_id.as_deref(),
+        )
+        .ok()?;
+        codeterm_plugin::provider_account::with_context(invocation, || {
+            self.prepared_command_scoped(service, tab_id)
+        })
+    }
+    fn prepared_command_scoped(
         &self,
         service: &crate::service::ServiceContext,
         tab_id: &str,

@@ -72,105 +72,111 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
     if let Err(error) = std::thread::Builder::new()
         .name("background-transcript-watch".into())
         .spawn(move || {
-            let path = svc
-                .agent_registry
-                .with_provider(&provider, |provider| {
-                    provider.session_jsonl_path(&cwd, &session)
-                })
-                .flatten();
-            let Some(path) = path else {
+            let Ok(invocation) = super::provider_accounts::for_tab(&svc, &tab) else {
                 return;
             };
-            let (tx, rx) = mpsc::sync_channel(1);
-            let Ok(watcher) = file_events::watch(&path, tx.clone()) else {
-                return;
-            };
-            {
-                let mut watches = watches().lock();
-                let Some(entry) = watches
-                    .get_mut(&tab)
-                    .filter(|watch| watch.identity == (session.clone(), nonce.clone()))
-                else {
+            codeterm_plugin::provider_account::with_context(invocation, || {
+                let path = svc
+                    .agent_registry
+                    .with_provider(&provider, |provider| {
+                        provider.session_jsonl_path(&cwd, &session)
+                    })
+                    .flatten();
+                let Some(path) = path else {
                     return;
                 };
-                super::agent_runtime::capacity_retry::transcript::register(
-                    &svc, &tab, &session, &nonce, &path,
-                );
-                entry._watcher = Some(watcher);
-            }
-            let _ = tx.try_send(());
-            drop(tx);
-            let mut offset = 0;
-            let mut incomplete_history = false;
-            while rx.recv().is_ok() {
-                let current = svc
-                    .mux
-                    .read()
-                    .get_tab(&tab)
-                    .filter(|tab| {
-                        tab.agent_session_id.as_deref() == Some(&session)
-                            && tab.session_binding_nonce.as_deref() == Some(&nonce)
-                    })
-                    .map(|tab| {
-                        (
-                            tab.fork_source_session_id.is_some(),
-                            tab.provider_signals.background.history_initialized,
-                        )
-                    });
-                let Some((fork, initialized)) = current else {
-                    break;
+                let (tx, rx) = mpsc::sync_channel(1);
+                let Ok(watcher) = file_events::watch(&path, tx.clone()) else {
+                    return;
                 };
-                match read(&svc, &provider, &path, offset) {
-                    Ok((mut records, end, incomplete, partial)) => {
-                        records.retain(|row| {
-                            row.provider_session_id
-                                .as_deref()
-                                .is_none_or(|id| id == session)
-                                && (!fork || row.provider_session_id.as_deref() == Some(&session))
+                {
+                    let mut watches = watches().lock();
+                    let Some(entry) = watches
+                        .get_mut(&tab)
+                        .filter(|watch| watch.identity == (session.clone(), nonce.clone()))
+                    else {
+                        return;
+                    };
+                    super::agent_runtime::capacity_retry::transcript::register(
+                        &svc, &tab, &session, &nonce, &path,
+                    );
+                    entry._watcher = Some(watcher);
+                }
+                let _ = tx.try_send(());
+                drop(tx);
+                let mut offset = 0;
+                let mut incomplete_history = false;
+                while rx.recv().is_ok() {
+                    let current = svc
+                        .mux
+                        .read()
+                        .get_tab(&tab)
+                        .filter(|tab| {
+                            tab.agent_session_id.as_deref() == Some(&session)
+                                && tab.session_binding_nonce.as_deref() == Some(&nonce)
+                        })
+                        .map(|tab| {
+                            (
+                                tab.fork_source_session_id.is_some(),
+                                tab.provider_signals.background.history_initialized,
+                            )
                         });
-                        if incomplete {
-                            mark_unavailable(&svc, &tab, &session, &nonce);
-                        }
-                        super::background_work::apply_observed(
-                            &svc,
-                            &tab,
-                            &session,
-                            &nonce,
-                            &records,
-                            initialized && !incomplete && !partial,
-                        );
-                        super::provider_signals::apply(&svc, &tab, &session, &nonce, &records);
-                        if !incomplete {
-                            super::agent_runtime::capacity_retry::transcript::observe(
-                                &svc, &tab, &session, &nonce, &records,
-                            );
-                        }
-                        if let Some(context) = records
-                            .iter()
-                            .rev()
-                            .find_map(|record| record.context_usage.as_ref())
-                        {
-                            crate::service::context_feed::apply_snapshot(
+                    let Some((fork, initialized)) = current else {
+                        break;
+                    };
+                    match read(&svc, &provider, &path, offset) {
+                        Ok((mut records, end, incomplete, partial)) => {
+                            records.retain(|row| {
+                                row.provider_session_id
+                                    .as_deref()
+                                    .is_none_or(|id| id == session)
+                                    && (!fork
+                                        || row.provider_session_id.as_deref() == Some(&session))
+                            });
+                            if incomplete {
+                                mark_unavailable(&svc, &tab, &session, &nonce);
+                            }
+                            super::background_work::apply_observed(
                                 &svc,
                                 &tab,
                                 &session,
-                                Some(&nonce),
-                                Some(context),
+                                &nonce,
+                                &records,
+                                initialized && !incomplete && !partial,
                             );
+                            super::provider_signals::apply(&svc, &tab, &session, &nonce, &records);
+                            if !incomplete {
+                                super::agent_runtime::capacity_retry::transcript::observe(
+                                    &svc, &tab, &session, &nonce, &records,
+                                );
+                            }
+                            if let Some(context) = records
+                                .iter()
+                                .rev()
+                                .find_map(|record| record.context_usage.as_ref())
+                            {
+                                crate::service::context_feed::apply_snapshot(
+                                    &svc,
+                                    &tab,
+                                    &session,
+                                    Some(&nonce),
+                                    Some(context),
+                                );
+                            }
+                            offset = end;
+                            incomplete_history |= incomplete;
+                            if partial {
+                                mark_unavailable(&svc, &tab, &session, &nonce);
+                            } else {
+                                set_initialized(&svc, &tab, &session, &nonce, !incomplete_history);
+                            }
                         }
-                        offset = end;
-                        incomplete_history |= incomplete;
-                        if partial {
+                        Err(_) => {
                             mark_unavailable(&svc, &tab, &session, &nonce);
-                        } else {
-                            set_initialized(&svc, &tab, &session, &nonce, !incomplete_history);
                         }
-                    }
-                    Err(_) => {
-                        mark_unavailable(&svc, &tab, &session, &nonce);
                     }
                 }
-            }
+            });
         })
     {
         log::warn!("[background-work] watcher could not start: {error}");

@@ -35,7 +35,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::sync::broadcast;
 
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
@@ -105,12 +104,6 @@ struct CatalogFile {
 pub struct RegisteredDefaults {
     pub models: Vec<ModelInfo>,
     pub default: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-pub struct ModelCatalogueChanged {
-    pub provider: String,
-    pub version: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -293,103 +286,12 @@ fn effort_registry() -> &'static RwLock<HashMap<String, RegisteredEfforts>> {
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-#[derive(Default)]
-struct PublishedCatalogue {
-    version: u64,
-    digest: Option<[u8; 32]>,
-}
-
-fn versions(
-) -> &'static crate::provider_account::cache::ScopedCache<HashMap<String, PublishedCatalogue>> {
-    static CACHE: crate::provider_account::cache::ScopedCache<HashMap<String, PublishedCatalogue>> =
-        crate::provider_account::cache::ScopedCache::new();
-    &CACHE
-}
-
-fn change_sender() -> &'static broadcast::Sender<ModelCatalogueChanged> {
-    static CHANGES: OnceLock<broadcast::Sender<ModelCatalogueChanged>> = OnceLock::new();
-    CHANGES.get_or_init(|| broadcast::channel(256).0)
-}
-
-pub fn subscribe_changes() -> broadcast::Receiver<ModelCatalogueChanged> {
-    change_sender().subscribe()
-}
-
-pub fn current_version(provider_id: &str) -> u64 {
-    versions()
-        .read()
-        .get(provider_id)
-        .map(|published| published.version)
-        .unwrap_or_default()
-}
-
-pub fn version_snapshot() -> Vec<ModelCatalogueChanged> {
-    let mut changes = versions()
-        .read()
-        .iter()
-        .map(|(provider, published)| ModelCatalogueChanged {
-            provider: provider.clone(),
-            version: published.version,
-        })
-        .collect::<Vec<_>>();
-    changes.sort_by(|left, right| left.provider.cmp(&right.provider));
-    changes
-}
-
-fn advance_version(versions: &mut HashMap<String, u64>, provider_id: &str) -> u64 {
-    let version = versions.entry(provider_id.to_string()).or_default();
-    *version = version.saturating_add(1);
-    *version
-}
-
-fn publish_digest(
-    versions: &mut HashMap<String, PublishedCatalogue>,
-    provider_id: &str,
-    digest: [u8; 32],
-) -> Option<ModelCatalogueChanged> {
-    let published = versions.entry(provider_id.to_string()).or_default();
-    if published.digest == Some(digest) {
-        return None;
-    }
-    published.version = published.version.saturating_add(1);
-    published.digest = Some(digest);
-    Some(ModelCatalogueChanged {
-        provider: provider_id.to_string(),
-        version: published.version,
-    })
-}
-
-fn catalogue_digest(provider_id: &str) -> [u8; 32] {
-    let catalogue = serde_json::json!({
-        "available_models": resolve_models(provider_id),
-        "default_model": resolve_default(provider_id),
-        "reasoning_efforts": resolve_reasoning_efforts(provider_id),
-        "default_reasoning_effort": resolve_default_reasoning_effort(provider_id),
-    });
-    Sha256::digest(serde_json::to_vec(&catalogue).expect("model catalogue serializes")).into()
-}
-
-pub fn invalidate(provider_id: &str) -> ModelCatalogueChanged {
-    let digest = catalogue_digest(provider_id);
-    let change = {
-        let mut versions = versions().write();
-        publish_digest(&mut versions, provider_id, digest)
-    };
-    if let Some(change) = change {
-        log::debug!(
-            "[model_catalog] published changed catalogue provider={} version={}",
-            change.provider,
-            change.version
-        );
-        let _ = change_sender().send(change.clone());
-        change
-    } else {
-        ModelCatalogueChanged {
-            provider: provider_id.to_string(),
-            version: current_version(provider_id),
-        }
-    }
-}
+mod publication;
+use publication::{advance_version, versions};
+pub use publication::{
+    all_version_snapshots, current_version, invalidate, subscribe_changes, version_snapshot,
+    ModelCatalogueChanged,
+};
 
 pub fn reject_model(provider: &str, model: &str) {
     let snapshot = {

@@ -180,9 +180,13 @@ pub(super) async fn handle(
     if let Some(trace) = trace {
         trace.batch(&reducible, &state);
     }
-    let result = tokio::time::timeout(
-        RUNTIME_HOOK_DEADLINE,
-        adapter.runtime_reduce(&context, &state, &reducible),
+    let invocation = session.invocation.lock().clone();
+    let result = codeterm_plugin::provider_account::scope(
+        invocation,
+        tokio::time::timeout(
+            RUNTIME_HOOK_DEADLINE,
+            adapter.runtime_reduce(&context, &state, &reducible),
+        ),
     )
     .await;
     if let Some(trace) = trace {

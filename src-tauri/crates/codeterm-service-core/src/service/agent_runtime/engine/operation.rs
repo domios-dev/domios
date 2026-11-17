@@ -136,12 +136,16 @@ async fn run_tracked(
     operation: RuntimeOperation,
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        run_inner(svc, session, process, operation, handed_off),
-    )
+    let invocation = session.invocation.lock().clone();
+    codeterm_plugin::provider_account::scope(invocation, async {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            run_inner(svc, session, process, operation, handed_off),
+        )
+        .await
+        .map_err(|_| RuntimeFailure::Deadline)?
+    })
     .await
-    .map_err(|_| RuntimeFailure::Deadline)?
 }
 
 async fn run_inner(

@@ -13,6 +13,8 @@ pub struct Session {
     pub(in crate::service::agent_runtime) update_recovery_available: std::sync::atomic::AtomicBool,
     pub provider: String,
     pub(in crate::service::agent_runtime) account: Mutex<String>,
+    pub(in crate::service::agent_runtime) invocation:
+        Mutex<Option<Arc<codeterm_plugin::provider_account::InvocationContext>>>,
     pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
     pub context: Mutex<RuntimeContext>,
     pub(in crate::service::agent_runtime) controls_confirmation: Mutex<Option<RuntimeSettings>>,

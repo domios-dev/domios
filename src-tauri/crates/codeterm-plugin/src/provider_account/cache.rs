@@ -50,6 +50,13 @@ impl<T: Default> ScopedCache<T> {
         RwLockReadGuard::map(entries, |entries| &entries[&key])
     }
 
+    pub(crate) fn snapshots(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        self.entries().read().values().cloned().collect()
+    }
+
     pub(crate) fn write(&self) -> MappedRwLockWriteGuard<'_, T> {
         let key = Self::key();
         let mut entries = self.entries().write();

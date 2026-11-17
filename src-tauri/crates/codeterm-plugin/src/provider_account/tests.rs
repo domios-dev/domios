@@ -15,6 +15,30 @@ fn context(account: &str) -> Arc<InvocationContext> {
 }
 
 #[test]
+fn account_home_environment_removals_cover_platform_case_aliases() {
+    let account = context("a");
+    let mut environment = std::collections::HashMap::from([
+        ("PATH".into(), "must-remove".into()),
+        ("path".into(), "case-alias".into()),
+        ("account_fixture".into(), "foreign".into()),
+    ]);
+    account.apply_environment(&mut environment);
+    assert!(!environment.contains_key("PATH"));
+    assert_eq!(environment["ACCOUNT_FIXTURE"], "a");
+    if cfg!(windows) {
+        assert!(!environment.contains_key("path"));
+        assert!(!environment.contains_key("account_fixture"));
+        with_context(Some(account), || {
+            assert!(environment_is_selected("path"));
+            assert!(super::environment("path").is_none());
+            assert_eq!(super::environment("account_fixture"), Some("a".into()));
+        });
+    } else {
+        assert_eq!(environment["path"], "case-alias");
+    }
+}
+
+#[test]
 fn account_home_nested_scope_restores_after_unwind_and_explicit_removal() {
     let a = context("a");
     with_context(Some(a.clone()), || {

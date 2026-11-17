@@ -52,6 +52,14 @@ fn validate_binding_inner(
     require_thread: bool,
 ) -> Result<(), RuntimeFailure> {
     let context = session.context.lock().clone();
+    let account = session.account.lock().clone();
+    if !crate::service::provider_accounts::invocation_matches(
+        session.invocation.lock().as_deref(),
+        &session.provider,
+        &account,
+    ) {
+        return Err(RuntimeFailure::Superseded);
+    }
     if session.adapter.lock().is_none()
         || svc.agent_registry.provider_arc(&session.provider).is_none()
     {

@@ -360,9 +360,8 @@ pub fn launch_agent_in_background_with_env(
     crate::service::boot_wait::notify_boot_changed();
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
     std::thread::spawn(move || {
-        let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
-        let pty_claim = match svc.pty_ownership.acquire(&tab_id) {
-            Ok(claim) => claim,
+        let invocation = match crate::service::provider_accounts::for_tab(&svc, &tab_id) {
+            Ok(invocation) => invocation,
             Err(error) => {
                 launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
                 if let Some(tx) = ready_tx {
@@ -371,403 +370,407 @@ pub fn launch_agent_in_background_with_env(
                 return;
             }
         };
-        crate::service::agent_lifecycle::timing::stage(&tab_id, "pending", "relaunch-worker");
-        let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
-        if !launch.emit(&svc, BootStage::PtyStarting) {
-            return;
-        }
-        let set_booting = |launch: &LaunchGeneration, value: bool| {
-            launch.commit_if_current(|| {
-                if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
-                    p.agent_booting = value;
-                }
-            });
-            crate::service::boot_wait::notify_boot_changed();
-        };
-        let existing_pty = existing_live_pty(&svc, &tab_id);
-        let direct = direct_spec.is_some();
-        let mut reserved_nonce = reserved_nonce;
-        let mut readiness_registration = None;
-        let direct_pty_id = if direct {
-            match backend_spawn::arm_direct_launch(
-                &svc,
-                &mut launch,
-                &pty_claim,
-                existing_pty.as_deref(),
-                task_identity.as_ref(),
-                public_send_key,
-                origin,
-                resume_session_id.as_deref(),
-                reserved_nonce.take(),
-            ) {
-                Ok((pty_id, registration)) => {
-                    readiness_registration = Some(registration);
-                    Some(pty_id)
-                }
-                Err(failure) => {
-                    let error = failure.reason();
-                    launch.fail(&svc, failure);
-                    set_booting(&launch, false);
+        codeterm_plugin::provider_account::with_context(invocation, || {
+            let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
+            let pty_claim = match svc.pty_ownership.acquire(&tab_id) {
+                Ok(claim) => claim,
+                Err(error) => {
+                    launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
                     }
                     return;
                 }
+            };
+            crate::service::agent_lifecycle::timing::stage(&tab_id, "pending", "relaunch-worker");
+            let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
+            if !launch.emit(&svc, BootStage::PtyStarting) {
+                return;
             }
-        } else {
-            None
-        };
-        let fresh_pty = direct || svc.model_provider_requires_fresh_pty(&agent_cmd);
-        let reusable_pty = existing_pty.clone().filter(|_| !fresh_pty);
-        let (backend_pty, reused_live_pty) = match reusable_pty {
-            Some(pty_id) => match start_backend_reader(&svc, &pty_id) {
-                Ok(reader) => (BackendPty { id: pty_id, reader }, true),
-                Err(failure) => {
-                    let error = failure.reason();
-                    launch.fail(&svc, failure);
-                    set_booting(&launch, false);
-                    if let Some(tx) = ready_tx {
-                        let _ = tx.send(Err(error));
+            let set_booting = |launch: &LaunchGeneration, value: bool| {
+                launch.commit_if_current(|| {
+                    if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
+                        p.agent_booting = value;
                     }
-                    return;
-                }
-            },
-            None => match spawn_backend_pty(
-                &svc,
-                &tab_id,
-                &launch_env,
-                &agent_cmd,
-                direct_pty_id.as_deref().zip(direct_spec.as_ref()),
-            ) {
-                Ok(backend_pty) => (backend_pty, false),
-                Err(failure) => {
-                    let error = failure.reason();
-                    log::error!(
-                        "launch_agent: backend PTY spawn failed for Tab {}: {}",
-                        tab_id,
-                        error
-                    );
-                    launch.fail(&svc, failure);
-                    let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
-                    set_booting(&launch, false);
-                    if let Some(tx) = ready_tx {
-                        let _ = tx.send(Err(format!("backend PTY spawn failed: {}", error)));
+                });
+                crate::service::boot_wait::notify_boot_changed();
+            };
+            let existing_pty = existing_live_pty(&svc, &tab_id);
+            let direct = direct_spec.is_some();
+            let mut reserved_nonce = reserved_nonce;
+            let mut readiness_registration = None;
+            let direct_pty_id = if direct {
+                match backend_spawn::arm_direct_launch(
+                    &svc,
+                    &mut launch,
+                    &pty_claim,
+                    existing_pty.as_deref(),
+                    task_identity.as_ref(),
+                    public_send_key,
+                    origin,
+                    resume_session_id.as_deref(),
+                    reserved_nonce.take(),
+                ) {
+                    Ok((pty_id, registration)) => {
+                        readiness_registration = Some(registration);
+                        Some(pty_id)
                     }
-                    return;
+                    Err(failure) => {
+                        let error = failure.reason();
+                        launch.fail(&svc, failure);
+                        set_booting(&launch, false);
+                        if let Some(tx) = ready_tx {
+                            let _ = tx.send(Err(error));
+                        }
+                        return;
+                    }
                 }
-            },
-        };
-        let BackendPty {
-            id: candidate_pty_id,
-            reader: reader_readiness,
-        } = backend_pty;
-        let selection = if direct {
-            crate::service::pty_ownership::PtySelection {
-                pty_id: candidate_pty_id,
-                linked: true,
-                retained_candidate: true,
-            }
-        } else {
-            svc.link_provider_launch_pty(
-                &pty_claim,
-                &tab_id,
-                candidate_pty_id,
-                existing_pty.as_deref(),
-                fresh_pty,
-            )
-        };
-        if !selection.linked {
-            let error = LaunchFailure::TabClosed.reason();
-            launch.fail(&svc, LaunchFailure::TabClosed);
-            set_booting(&launch, false);
-            let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(error));
-            }
-            return;
-        }
-        let mut pty_id = selection.pty_id;
-        if !direct && !launch.replace(pty_id.clone()) {
-            return;
-        }
-        if !launch.emit(&svc, BootStage::PtySpawned) {
-            return;
-        }
-        crate::service::agent_lifecycle::timing::stage(&tab_id, &pty_id, "relaunch-spawn");
-        // Off the boot critical path: reading the provider's install report
-        // touches disk, and the tab is already up by here.
-        svc.announce_integration_silence(&tab_id, &agent_cmd);
-
-        let mut reader_monitor = match reader_readiness.wait(std::time::Duration::from_secs(10)) {
-            Ok(monitor) => monitor,
-            Err(failure) => {
-                let error = failure.reason();
-                launch.fail(&svc, failure);
+            } else {
+                None
+            };
+            let fresh_pty = direct || svc.model_provider_requires_fresh_pty(&agent_cmd);
+            let reusable_pty = existing_pty.clone().filter(|_| !fresh_pty);
+            let (backend_pty, reused_live_pty) = match reusable_pty {
+                Some(pty_id) => match start_backend_reader(&svc, &pty_id) {
+                    Ok(reader) => (BackendPty { id: pty_id, reader }, true),
+                    Err(failure) => {
+                        let error = failure.reason();
+                        launch.fail(&svc, failure);
+                        set_booting(&launch, false);
+                        if let Some(tx) = ready_tx {
+                            let _ = tx.send(Err(error));
+                        }
+                        return;
+                    }
+                },
+                None => match spawn_backend_pty(
+                    &svc,
+                    &tab_id,
+                    &launch_env,
+                    &agent_cmd,
+                    direct_pty_id.as_deref().zip(direct_spec.as_ref()),
+                ) {
+                    Ok(backend_pty) => (backend_pty, false),
+                    Err(failure) => {
+                        let error = failure.reason();
+                        log::error!(
+                            "launch_agent: backend PTY spawn failed for Tab {}: {}",
+                            tab_id,
+                            error
+                        );
+                        launch.fail(&svc, failure);
+                        let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                        set_booting(&launch, false);
+                        if let Some(tx) = ready_tx {
+                            let _ = tx.send(Err(format!("backend PTY spawn failed: {}", error)));
+                        }
+                        return;
+                    }
+                },
+            };
+            let BackendPty {
+                id: candidate_pty_id,
+                reader: reader_readiness,
+            } = backend_pty;
+            let selection = if direct {
+                crate::service::pty_ownership::PtySelection {
+                    pty_id: candidate_pty_id,
+                    linked: true,
+                    retained_candidate: true,
+                }
+            } else {
+                svc.link_provider_launch_pty(
+                    &pty_claim,
+                    &tab_id,
+                    candidate_pty_id,
+                    existing_pty.as_deref(),
+                    fresh_pty,
+                )
+            };
+            if !selection.linked {
+                let error = LaunchFailure::TabClosed.reason();
+                launch.fail(&svc, LaunchFailure::TabClosed);
                 set_booting(&launch, false);
+                let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Err(error));
                 }
                 return;
             }
-        };
-        if !launch.emit(&svc, BootStage::ReaderReady) {
-            return;
-        }
-        if direct && !backend_spawn::mark_direct_reader_ready(&mut launch, &svc, &mut delivery_gate)
-        {
-            return;
-        }
+            let mut pty_id = selection.pty_id;
+            if !direct && !launch.replace(pty_id.clone()) {
+                return;
+            }
+            if !launch.emit(&svc, BootStage::PtySpawned) {
+                return;
+            }
+            crate::service::agent_lifecycle::timing::stage(&tab_id, &pty_id, "relaunch-spawn");
+            // Off the boot critical path: reading the provider's install report
+            // touches disk, and the tab is already up by here.
+            svc.announce_integration_silence(&tab_id, &agent_cmd);
 
-        let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
-        let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_input(
-            &svc,
-            &agent_cmd,
-            has_startup_task_turn,
-        );
+            let mut reader_monitor = match reader_readiness.wait(std::time::Duration::from_secs(10))
+            {
+                Ok(monitor) => monitor,
+                Err(failure) => {
+                    let error = failure.reason();
+                    launch.fail(&svc, failure);
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(error));
+                    }
+                    return;
+                }
+            };
+            if !launch.emit(&svc, BootStage::ReaderReady) {
+                return;
+            }
+            if direct
+                && !backend_spawn::mark_direct_reader_ready(&mut launch, &svc, &mut delivery_gate)
+            {
+                return;
+            }
 
-        let (tab_agent_type, existing_binding_nonce) = {
-            let mux = svc.mux.read();
-            mux.get_tab(&tab_id)
-                .map(|tab| {
-                    let binding_nonce = tab
-                        .launch_session_authenticated()
-                        .then(|| tab.session_binding_nonce.clone())
-                        .flatten();
-                    (tab.agent_type.clone(), binding_nonce)
-                })
-                .unwrap_or_default()
-        };
-        let screen = svc
-            .screen_state
-            .get_screen_text(&pty_id)
-            .unwrap_or_default();
-        let provider_tui_visible = registry
-            .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
-            .unwrap_or(false);
-        // An exited provider's frame can outlive it on screen; recovery still writes its command.
-        let exited_provider_recovery = matches!(
-            origin,
-            crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
-                | crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery
-        );
-        if !exited_provider_recovery
-            && startup_readiness::reused_provider_tui_owns_launch(
-                reused_live_pty,
-                existing_binding_nonce.is_some(),
-                tab_agent_type.as_deref(),
+            let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
+            let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_input(
+                &svc,
                 &agent_cmd,
-                provider_tui_visible,
-            )
-        {
-            log::info!(
+                has_startup_task_turn,
+            );
+
+            let (tab_agent_type, existing_binding_nonce) = {
+                let mux = svc.mux.read();
+                mux.get_tab(&tab_id)
+                    .map(|tab| {
+                        let binding_nonce = tab
+                            .launch_session_authenticated()
+                            .then(|| tab.session_binding_nonce.clone())
+                            .flatten();
+                        (tab.agent_type.clone(), binding_nonce)
+                    })
+                    .unwrap_or_default()
+            };
+            let screen = svc
+                .screen_state
+                .get_screen_text(&pty_id)
+                .unwrap_or_default();
+            let provider_tui_visible = registry
+                .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
+                .unwrap_or(false);
+            // An exited provider's frame can outlive it on screen; recovery still writes its command.
+            let exited_provider_recovery = matches!(
+                origin,
+                crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
+                    | crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery
+            );
+            if !exited_provider_recovery
+                && startup_readiness::reused_provider_tui_owns_launch(
+                    reused_live_pty,
+                    existing_binding_nonce.is_some(),
+                    tab_agent_type.as_deref(),
+                    &agent_cmd,
+                    provider_tui_visible,
+                )
+            {
+                log::info!(
                 "launch_agent: Tab {} already owns live {} TUI on PTY {}; preserving ready state",
                 tab_id,
                 agent_cmd,
                 pty_id
             );
-            let Some(binding_nonce) = existing_binding_nonce else {
-                unreachable!("a reused provider TUI owns an authenticated binding")
-            };
-            if !launch.adopt_authenticated_binding(binding_nonce.clone()) {
-                let failure = LaunchFailure::SessionBindingNotObserved(
-                    "the authenticated session could not be adopted".into(),
-                );
-                let error = failure.reason();
-                launch.fail(&svc, failure);
+                let Some(binding_nonce) = existing_binding_nonce else {
+                    unreachable!("a reused provider TUI owns an authenticated binding")
+                };
+                if !launch.adopt_authenticated_binding(binding_nonce.clone()) {
+                    let failure = LaunchFailure::SessionBindingNotObserved(
+                        "the authenticated session could not be adopted".into(),
+                    );
+                    let error = failure.reason();
+                    launch.fail(&svc, failure);
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(error));
+                    }
+                    return;
+                }
+                if let Err(error) = svc.activate_agent_startup_supervision(
+                    &tab_id,
+                    &launch.pty_id,
+                    &binding_nonce,
+                    task_identity.as_ref(),
+                ) {
+                    let failure = LaunchFailure::StartupSupervision(error.clone());
+                    launch.fail(&svc, failure);
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(error));
+                    }
+                    return;
+                }
+                launch.reuse();
+                if !launch.emit(&svc, launch.stage) {
+                    let failure = LaunchFailure::SessionBindingNotObserved(
+                        "the reused launch lost its authenticated session".into(),
+                    );
+                    let error = failure.reason();
+                    launch.fail(&svc, failure);
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(error));
+                    }
+                    return;
+                }
                 set_booting(&launch, false);
+                LAUNCH_REGISTRY.lock().finish(&launch);
                 if let Some(tx) = ready_tx {
-                    let _ = tx.send(Err(error));
+                    let _ = tx.send(Ok(()));
                 }
                 return;
             }
-            if let Err(error) = svc.activate_agent_startup_supervision(
-                &tab_id,
-                &launch.pty_id,
-                &binding_nonce,
-                task_identity.as_ref(),
-            ) {
-                let failure = LaunchFailure::StartupSupervision(error.clone());
-                launch.fail(&svc, failure);
-                set_booting(&launch, false);
-                if let Some(tx) = ready_tx {
-                    let _ = tx.send(Err(error));
+            crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_enter");
+            crate::service::task_files::retire_settings_for_launch(&svc, &tab_id, &launch_cmd);
+            if !direct {
+                if let Err(error) = launch.capture_binding_nonce(
+                    &svc,
+                    task_identity.as_ref(),
+                    public_send_key,
+                    origin,
+                    resume_session_id.as_deref(),
+                    reserved_nonce,
+                ) {
+                    let failure = LaunchFailure::StartupSupervision(error.clone());
+                    launch.fail(&svc, failure);
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(error));
+                    }
+                    return;
                 }
-                return;
+                readiness_registration = Some(generation::ReadinessRegistration::new(
+                    launch.attempt().expect("launch binding nonce"),
+                ));
             }
-            launch.reuse();
-            if !launch.emit(&svc, launch.stage) {
-                let failure = LaunchFailure::SessionBindingNotObserved(
-                    "the reused launch lost its authenticated session".into(),
-                );
-                let error = failure.reason();
-                launch.fail(&svc, failure);
-                set_booting(&launch, false);
-                if let Some(tx) = ready_tx {
-                    let _ = tx.send(Err(error));
-                }
-                return;
-            }
-            set_booting(&launch, false);
-            LAUNCH_REGISTRY.lock().finish(&launch);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Ok(()));
-            }
-            return;
-        }
-        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_enter");
-        crate::service::task_files::retire_settings_for_launch(&svc, &tab_id, &launch_cmd);
-        if !direct {
-            if let Err(error) = launch.capture_binding_nonce(
+            drop(pty_claim);
+            crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_done");
+            let mut wrapped_launch_cmd = match credentials::wrap_command(
                 &svc,
-                task_identity.as_ref(),
-                public_send_key,
-                origin,
-                resume_session_id.as_deref(),
-                reserved_nonce,
+                &tab_id,
+                &launch_cmd,
+                launch
+                    .binding_nonce
+                    .as_deref()
+                    .expect("launch binding nonce"),
+                &launch.pty_id,
+                direct,
             ) {
-                let failure = LaunchFailure::StartupSupervision(error.clone());
-                launch.fail(&svc, failure);
-                set_booting(&launch, false);
-                if let Some(tx) = ready_tx {
-                    let _ = tx.send(Err(error));
+                Ok(command) => command,
+                Err(error) => {
+                    launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(error));
+                    }
+                    return;
                 }
-                return;
-            }
-            readiness_registration = Some(generation::ReadinessRegistration::new(
-                launch.attempt().expect("launch binding nonce"),
-            ));
-        }
-        drop(pty_claim);
-        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_done");
-        let mut wrapped_launch_cmd = match credentials::wrap_command(
-            &svc,
-            &tab_id,
-            &launch_cmd,
-            launch
-                .binding_nonce
-                .as_deref()
-                .expect("launch binding nonce"),
-            &launch.pty_id,
-            direct,
-        ) {
-            Ok(command) => command,
-            Err(error) => {
-                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
-                set_booting(&launch, false);
-                if let Some(tx) = ready_tx {
-                    let _ = tx.send(Err(error));
-                }
-                return;
-            }
-        };
+            };
 
-        let shell_ready_from_exit =
-            exited_provider_recovery_has_shell_ready_evidence(origin, reused_live_pty, || {
-                svc.ext::<crate::ShellCapabilityState>()
-                    .lock()
-                    .prompt_idle_after_command(&pty_id)
-            });
-        if shell_ready_from_exit {
-            log::info!(
+            let shell_ready_from_exit =
+                exited_provider_recovery_has_shell_ready_evidence(origin, reused_live_pty, || {
+                    svc.ext::<crate::ShellCapabilityState>()
+                        .lock()
+                        .prompt_idle_after_command(&pty_id)
+                });
+            if shell_ready_from_exit {
+                log::info!(
                 "launch_agent: Tab {} exit recovery reuses the shell proven available by provider exit on PTY {}",
                 tab_id,
                 pty_id
             );
-        }
-        if !direct
-            && !shell_ready_from_exit
-            && !crate::service::pty_io::await_bare_shell_prompt(
-                &svc.screen_state,
-                &pty_id,
-                std::time::Duration::from_secs(30),
-            )
-        {
-            let error = LaunchFailure::ShellReadyTimeout.reason();
-            launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
-            set_booting(&launch, false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(error));
             }
-            return;
-        }
-        if !direct && !launch.emit(&svc, BootStage::ShellReady) {
-            return;
-        }
-        delivery_gate.mark_shell_ready();
-
-        let delivery = registry
-            .with_provider(&agent_cmd, |provider| {
-                crate::service::launch_delivery::mode_for_descriptor(
-                    &provider.system_prompt_delivery(),
-                )
-            })
-            .unwrap_or(crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback);
-        if !direct && !launch.emit(&svc, BootStage::AgentLaunching) {
-            return;
-        }
-        if reader_monitor.closed() {
-            let error = LaunchFailure::PtyEof.reason();
-            launch.fail(&svc, LaunchFailure::PtyEof);
-            set_booting(&launch, false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(error));
-            }
-            return;
-        }
-        // (#93 — keeps shell-level launch off the bracketed-paste path).
-        let mut dispatched_authority = svc.user_send_authority(&tab_id).ok();
-        let first_launch = match launch.write_if_current(|| {
-            if direct {
-                Ok(())
-            } else {
-                wrapped_launch_cmd.send(&svc, &pty_id)
-            }
-        }) {
-            Some(result) => result,
-            None => return,
-        };
-        let launch_result = match first_launch {
-            Err(error) => {
-                match await_replacement_pty(
-                    &svc,
-                    &tab_id,
+            if !direct
+                && !shell_ready_from_exit
+                && !crate::service::pty_io::await_bare_shell_prompt(
+                    &svc.screen_state,
                     &pty_id,
-                    std::time::Duration::from_secs(10),
-                ) {
-                    Some(replacement) => {
-                        log::warn!(
+                    std::time::Duration::from_secs(30),
+                )
+            {
+                let error = LaunchFailure::ShellReadyTimeout.reason();
+                launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
+                set_booting(&launch, false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
+            if !direct && !launch.emit(&svc, BootStage::ShellReady) {
+                return;
+            }
+            delivery_gate.mark_shell_ready();
+
+            let delivery = registry
+                .with_provider(&agent_cmd, |provider| {
+                    crate::service::launch_delivery::mode_for_descriptor(
+                        &provider.system_prompt_delivery(),
+                    )
+                })
+                .unwrap_or(crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback);
+            if !direct && !launch.emit(&svc, BootStage::AgentLaunching) {
+                return;
+            }
+            if reader_monitor.closed() {
+                let error = LaunchFailure::PtyEof.reason();
+                launch.fail(&svc, LaunchFailure::PtyEof);
+                set_booting(&launch, false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
+            // (#93 — keeps shell-level launch off the bracketed-paste path).
+            let mut dispatched_authority = svc.user_send_authority(&tab_id).ok();
+            let first_launch = match launch.write_if_current(|| {
+                if direct {
+                    Ok(())
+                } else {
+                    wrapped_launch_cmd.send(&svc, &pty_id)
+                }
+            }) {
+                Some(result) => result,
+                None => return,
+            };
+            let launch_result = match first_launch {
+                Err(error) => {
+                    match await_replacement_pty(
+                        &svc,
+                        &tab_id,
+                        &pty_id,
+                        std::time::Duration::from_secs(10),
+                    ) {
+                        Some(replacement) => {
+                            log::warn!(
                             "launch_agent: retrying launch for Tab {} on replacement pty {} after pty {} closed",
                             tab_id, replacement, pty_id
                         );
-                        pty_id = replacement;
-                        let replacement_claim = match svc.pty_ownership.acquire(&tab_id) {
-                            Ok(claim) => claim,
-                            Err(error) => {
-                                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
-                                if let Some(tx) = ready_tx {
-                                    let _ = tx.send(Err(error));
+                            pty_id = replacement;
+                            let replacement_claim = match svc.pty_ownership.acquire(&tab_id) {
+                                Ok(claim) => claim,
+                                Err(error) => {
+                                    launch.fail(
+                                        &svc,
+                                        LaunchFailure::StartupSupervision(error.clone()),
+                                    );
+                                    if let Some(tx) = ready_tx {
+                                        let _ = tx.send(Err(error));
+                                    }
+                                    return;
                                 }
+                            };
+                            if !launch.replace(pty_id.clone()) {
                                 return;
                             }
-                        };
-                        if !launch.replace(pty_id.clone()) {
-                            return;
-                        }
-                        let replacement_reader = match start_backend_reader(&svc, &pty_id) {
-                            Ok(reader) => reader,
-                            Err(failure) => {
-                                let error = failure.reason();
-                                launch.fail(&svc, failure);
-                                set_booting(&launch, false);
-                                if let Some(tx) = ready_tx {
-                                    let _ = tx.send(Err(error));
-                                }
-                                return;
-                            }
-                        };
-                        reader_monitor =
-                            match replacement_reader.wait(std::time::Duration::from_secs(10)) {
-                                Ok(monitor) => monitor,
+                            let replacement_reader = match start_backend_reader(&svc, &pty_id) {
+                                Ok(reader) => reader,
                                 Err(failure) => {
                                     let error = failure.reason();
                                     launch.fail(&svc, failure);
@@ -778,178 +781,201 @@ pub fn launch_agent_in_background_with_env(
                                     return;
                                 }
                             };
-                        if let Err(error) = launch.capture_binding_nonce(
-                            &svc,
-                            task_identity.as_ref(),
-                            public_send_key,
-                            origin,
-                            resume_session_id.as_deref(),
-                            None,
-                        ) {
-                            let failure = LaunchFailure::StartupSupervision(error.clone());
-                            launch.fail(&svc, failure);
-                            set_booting(&launch, false);
-                            if let Some(tx) = ready_tx {
-                                let _ = tx.send(Err(error));
-                            }
-                            return;
-                        }
-                        readiness_registration = Some(generation::ReadinessRegistration::new(
-                            launch.attempt().expect("replacement launch binding nonce"),
-                        ));
-                        drop(replacement_claim);
-                        wrapped_launch_cmd = match credentials::wrap_command(
-                            &svc,
-                            &tab_id,
-                            &launch_cmd,
-                            launch
-                                .binding_nonce
-                                .as_deref()
-                                .expect("replacement launch binding nonce"),
-                            &launch.pty_id,
-                            false,
-                        ) {
-                            Ok(command) => command,
-                            Err(error) => {
-                                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                            reader_monitor =
+                                match replacement_reader.wait(std::time::Duration::from_secs(10)) {
+                                    Ok(monitor) => monitor,
+                                    Err(failure) => {
+                                        let error = failure.reason();
+                                        launch.fail(&svc, failure);
+                                        set_booting(&launch, false);
+                                        if let Some(tx) = ready_tx {
+                                            let _ = tx.send(Err(error));
+                                        }
+                                        return;
+                                    }
+                                };
+                            if let Err(error) = launch.capture_binding_nonce(
+                                &svc,
+                                task_identity.as_ref(),
+                                public_send_key,
+                                origin,
+                                resume_session_id.as_deref(),
+                                None,
+                            ) {
+                                let failure = LaunchFailure::StartupSupervision(error.clone());
+                                launch.fail(&svc, failure);
                                 set_booting(&launch, false);
                                 if let Some(tx) = ready_tx {
                                     let _ = tx.send(Err(error));
                                 }
                                 return;
                             }
-                        };
-                        if !launch.emit(&svc, BootStage::PtySpawned)
-                            || !launch.emit(&svc, BootStage::ReaderReady)
-                            || !crate::service::pty_io::await_bare_shell_prompt(
-                                &svc.screen_state,
-                                &pty_id,
-                                std::time::Duration::from_secs(30),
-                            )
-                        {
-                            let error = LaunchFailure::ShellReadyTimeout.reason();
-                            launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
-                            set_booting(&launch, false);
-                            if let Some(tx) = ready_tx {
-                                let _ = tx.send(Err(error));
+                            readiness_registration = Some(generation::ReadinessRegistration::new(
+                                launch.attempt().expect("replacement launch binding nonce"),
+                            ));
+                            drop(replacement_claim);
+                            wrapped_launch_cmd = match credentials::wrap_command(
+                                &svc,
+                                &tab_id,
+                                &launch_cmd,
+                                launch
+                                    .binding_nonce
+                                    .as_deref()
+                                    .expect("replacement launch binding nonce"),
+                                &launch.pty_id,
+                                false,
+                            ) {
+                                Ok(command) => command,
+                                Err(error) => {
+                                    launch.fail(
+                                        &svc,
+                                        LaunchFailure::StartupSupervision(error.clone()),
+                                    );
+                                    set_booting(&launch, false);
+                                    if let Some(tx) = ready_tx {
+                                        let _ = tx.send(Err(error));
+                                    }
+                                    return;
+                                }
+                            };
+                            if !launch.emit(&svc, BootStage::PtySpawned)
+                                || !launch.emit(&svc, BootStage::ReaderReady)
+                                || !crate::service::pty_io::await_bare_shell_prompt(
+                                    &svc.screen_state,
+                                    &pty_id,
+                                    std::time::Duration::from_secs(30),
+                                )
+                            {
+                                let error = LaunchFailure::ShellReadyTimeout.reason();
+                                launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
+                                set_booting(&launch, false);
+                                if let Some(tx) = ready_tx {
+                                    let _ = tx.send(Err(error));
+                                }
+                                return;
                             }
-                            return;
+                            if !launch.emit(&svc, BootStage::ShellReady)
+                                || !launch.emit(&svc, BootStage::AgentLaunching)
+                            {
+                                return;
+                            }
+                            dispatched_authority = svc.user_send_authority(&tab_id).ok();
+                            match launch.write_if_current(|| wrapped_launch_cmd.send(&svc, &pty_id))
+                            {
+                                Some(result) => result,
+                                None => return,
+                            }
                         }
-                        if !launch.emit(&svc, BootStage::ShellReady)
-                            || !launch.emit(&svc, BootStage::AgentLaunching)
-                        {
-                            return;
-                        }
-                        dispatched_authority = svc.user_send_authority(&tab_id).ok();
-                        match launch.write_if_current(|| wrapped_launch_cmd.send(&svc, &pty_id)) {
-                            Some(result) => result,
-                            None => return,
-                        }
+                        None => Err(error),
                     }
-                    None => Err(error),
                 }
+                result => result,
+            };
+            if let Err(e) = launch_result {
+                log::error!(
+                    "launch_agent: launch_cmd failed for Tab {} (pty {}): {}",
+                    tab_id,
+                    pty_id,
+                    e
+                );
+                let failure = LaunchFailure::LaunchWrite(e.to_string());
+                let error = failure.reason();
+                launch.fail(&svc, failure);
+                set_booting(&launch, false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
             }
-            result => result,
-        };
-        if let Err(e) = launch_result {
-            log::error!(
-                "launch_agent: launch_cmd failed for Tab {} (pty {}): {}",
-                tab_id,
-                pty_id,
-                e
-            );
-            let failure = LaunchFailure::LaunchWrite(e.to_string());
-            let error = failure.reason();
-            launch.fail(&svc, failure);
-            set_booting(&launch, false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(error));
+            if !direct && !launch.emit(&svc, BootStage::LaunchWritten) {
+                log::warn!(
+                    "[provider-readiness-stage] tab={} pty={} ownership_lost_after_launch_write",
+                    tab_id,
+                    pty_id,
+                );
+                return;
             }
-            return;
-        }
-        if !direct && !launch.emit(&svc, BootStage::LaunchWritten) {
-            log::warn!(
-                "[provider-readiness-stage] tab={} pty={} ownership_lost_after_launch_write",
-                tab_id,
-                pty_id,
-            );
-            return;
-        }
-        if let Some(authority) = dispatched_authority.as_ref().filter(|authority| {
-            authority.binding_nonce == launch.binding_nonce.as_deref().unwrap_or_default()
-                && authority.pty_id.as_deref() == Some(launch.pty_id.as_str())
-        }) {
-            svc.note_user_launch_dispatched(authority);
-        }
-        if let Some(tree) = svc.observe_provider_process_tree(&tab_id, &pty_id) {
-            log::info!(
+            if let Some(authority) = dispatched_authority.as_ref().filter(|authority| {
+                authority.binding_nonce == launch.binding_nonce.as_deref().unwrap_or_default()
+                    && authority.pty_id.as_deref() == Some(launch.pty_id.as_str())
+            }) {
+                svc.note_user_launch_dispatched(authority);
+            }
+            if let Some(tree) = svc.observe_provider_process_tree(&tab_id, &pty_id) {
+                log::info!(
                 "[launch-readiness] observed verdict_source=launch-written tree_evidence={} tab={} pty={}",
                 tree.evidence(),
                 tab_id,
                 pty_id,
             );
-        } else {
-            log::info!(
+            } else {
+                log::info!(
                 "[launch-readiness] observed verdict_source=launch-written tree_evidence=provider_tree_unavailable tab={} pty={}",
                 tab_id,
                 pty_id,
             );
-        }
-
-        if reader_monitor.closed() {
-            let error = LaunchFailure::PtyEof.reason();
-            launch.fail(&svc, LaunchFailure::PtyEof);
-            set_booting(&launch, false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(error));
             }
-            return;
-        }
 
-        let readiness_attempt = crate::service::launch_readiness::LaunchAttempt {
-            tab_id: tab_id.clone(),
-            pty_id: pty_id.clone(),
-            binding_nonce: launch.binding_nonce.clone().expect("launch binding nonce"),
-        };
-        if launch.await_provider_ack(std::time::Duration::ZERO) {
-            crate::service::launch_readiness::note_acknowledged(
-                &readiness_attempt.tab_id,
-                &readiness_attempt.pty_id,
-                &readiness_attempt.binding_nonce,
+            if reader_monitor.closed() {
+                let error = LaunchFailure::PtyEof.reason();
+                launch.fail(&svc, LaunchFailure::PtyEof);
+                set_booting(&launch, false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
+
+            let readiness_attempt = crate::service::launch_readiness::LaunchAttempt {
+                tab_id: tab_id.clone(),
+                pty_id: pty_id.clone(),
+                binding_nonce: launch.binding_nonce.clone().expect("launch binding nonce"),
+            };
+            if launch.await_provider_ack(std::time::Duration::ZERO) {
+                crate::service::launch_readiness::note_acknowledged(
+                    &readiness_attempt.tab_id,
+                    &readiness_attempt.pty_id,
+                    &readiness_attempt.binding_nonce,
+                );
+            }
+            let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
+            let readiness_receiver = svc.observe_launch_readiness(
+                readiness_attempt.clone(),
+                startup_binding_deadline,
+                session_starts_on_first_turn,
             );
-        }
-        let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
-        let readiness_receiver = svc.observe_launch_readiness(
-            readiness_attempt.clone(),
-            startup_binding_deadline,
-            session_starts_on_first_turn,
-        );
-        readiness_registration
-            .as_mut()
-            .expect("launch readiness registered")
-            .handoff();
-        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "readiness_observer_scheduled");
+            readiness_registration
+                .as_mut()
+                .expect("launch readiness registered")
+                .handoff();
+            crate::startup::boot_timing::mark(
+                &tab_id,
+                Some(&pty_id),
+                "readiness_observer_scheduled",
+            );
 
-        let (provider_readiness, composer_cursor_position) = svc
-            .agent_registry
-            .with_provider(&agent_cmd, |provider| {
-                (
-                    provider.provider_readiness_strategy(),
-                    provider.composer_cursor_position(),
-                )
-            })
-            .unwrap_or_default();
-        let input_readiness_timeout = provider_readiness.timeout();
-        log::info!(
-            "[provider-readiness-stage] tab={} pty={} strategy={:?} require_composer={}",
-            tab_id,
-            pty_id,
-            provider_readiness,
-            provider_readiness.requires_composer(),
-        );
-        let user_composer_required = user_input::requires_composer(&svc, &agent_cmd, &tab_id);
-        let launch_input_readiness =
-            if fallback_spec.is_some() || session_starts_on_first_turn || user_composer_required {
+            let (provider_readiness, composer_cursor_position) = svc
+                .agent_registry
+                .with_provider(&agent_cmd, |provider| {
+                    (
+                        provider.provider_readiness_strategy(),
+                        provider.composer_cursor_position(),
+                    )
+                })
+                .unwrap_or_default();
+            let input_readiness_timeout = provider_readiness.timeout();
+            log::info!(
+                "[provider-readiness-stage] tab={} pty={} strategy={:?} require_composer={}",
+                tab_id,
+                pty_id,
+                provider_readiness,
+                provider_readiness.requires_composer(),
+            );
+            let user_composer_required = user_input::requires_composer(&svc, &agent_cmd, &tab_id);
+            let launch_input_readiness = if fallback_spec.is_some()
+                || session_starts_on_first_turn
+                || user_composer_required
+            {
                 let readiness = owner_prompt_wait::await_input_readiness(
                     &svc,
                     &tab_id,
@@ -976,36 +1002,19 @@ pub fn launch_agent_in_background_with_env(
             } else {
                 None
             };
-        if let Some(readiness) = launch_input_readiness {
-            log::info!(
-                "[launch-input-readiness] tab={} pty={} evidence={:?}",
-                tab_id,
-                pty_id,
-                readiness,
-            );
-            user_input::observe(&svc, &agent_cmd, &readiness_attempt, readiness);
-        }
-        if session_starts_on_first_turn && launch_input_readiness.is_none() {
-            let failure = LaunchFailure::ProviderInputNotReady(
-                "provider composer evidence was not observed before the readiness deadline".into(),
-            );
-            launch.fail(&svc, failure.clone());
-            set_booting(&launch, false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(failure.reason()));
+            if let Some(readiness) = launch_input_readiness {
+                log::info!(
+                    "[launch-input-readiness] tab={} pty={} evidence={:?}",
+                    tab_id,
+                    pty_id,
+                    readiness,
+                );
+                user_input::observe(&svc, &agent_cmd, &readiness_attempt, readiness);
             }
-            return;
-        }
-        if session_starts_on_first_turn {
-            if !launch.await_provider_ack(std::time::Duration::ZERO)
-                && !crate::service::launch_readiness::note_first_turn_input_ready(
-                    &readiness_attempt.tab_id,
-                    &readiness_attempt.pty_id,
-                    &readiness_attempt.binding_nonce,
-                )
-            {
+            if session_starts_on_first_turn && launch_input_readiness.is_none() {
                 let failure = LaunchFailure::ProviderInputNotReady(
-                    "launch readiness no longer owns the first-turn composer evidence".into(),
+                    "provider composer evidence was not observed before the readiness deadline"
+                        .into(),
                 );
                 launch.fail(&svc, failure.clone());
                 set_booting(&launch, false);
@@ -1014,113 +1023,135 @@ pub fn launch_agent_in_background_with_env(
                 }
                 return;
             }
-            set_booting(&launch, false);
-            if !launch.emit_first_turn_input_ready(&svc) {
-                return;
-            }
-        }
-        delivery_gate.mark_provider_ready();
-
-        let mut bootstrap_consumed = fallback_spec.is_none();
-        let bootstrap_draft = fallback_spec.as_ref().map(|spec| spec.payload.clone());
-        if let Some(spec) = fallback_spec {
-            set_booting(&launch, false);
-            let delivery_error = match bootstrap::consume(
-                &svc,
-                &readiness_attempt,
-                &agent_cmd,
-                spec,
-                &delivery_gate,
-                launch_input_readiness,
-            ) {
-                Ok(consumed) => {
-                    bootstrap_consumed = consumed;
-                    None
+            if session_starts_on_first_turn {
+                if !launch.await_provider_ack(std::time::Duration::ZERO)
+                    && !crate::service::launch_readiness::note_first_turn_input_ready(
+                        &readiness_attempt.tab_id,
+                        &readiness_attempt.pty_id,
+                        &readiness_attempt.binding_nonce,
+                    )
+                {
+                    let failure = LaunchFailure::ProviderInputNotReady(
+                        "launch readiness no longer owns the first-turn composer evidence".into(),
+                    );
+                    launch.fail(&svc, failure.clone());
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(failure.reason()));
+                    }
+                    return;
                 }
-                Err(error) => Some(error),
-            };
-            if let Some(e) = delivery_error {
-                let (title, body) = worker_brief_delivery_incident(&tab_id, &e);
-                svc.log_system_notice(title, Some(body), Some("error"));
-                log::error!(
-                    "launch_agent: task delivery failed for Tab {} (pty {}): {}",
-                    tab_id,
-                    pty_id,
-                    e
-                );
-                launch.fail(&svc, LaunchFailure::TaskDelivery(e.to_string()));
                 set_booting(&launch, false);
-                if let Some(tx) = ready_tx {
-                    let _ = tx.send(Err(format!("task delivery failed: {}", e)));
-                }
-                return;
-            }
-        } else if task.is_some() {
-            let _ = crate::service::launch_delivery::dispatch_initial_delivery::<(), fn()>(
-                delivery, &svc, &tab_id, None,
-            );
-        }
-
-        set_booting(&launch, false);
-        let readiness = readiness_receiver.recv().unwrap_or_else(|_| {
-            crate::service::launch_readiness::LaunchSettlement::Provisional {
-                stage: BootStage::LaunchDeadlineElapsed,
-                reason: "launch readiness observer stopped before session binding".into(),
-            }
-        });
-        if let Some(finished) =
-            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc, origin)
-        {
-            if finished {
-                public_send_guard.complete();
-                if let Some(tx) = ready_tx {
-                    let _ = tx.send(Ok(()));
-                }
-            } else if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(
-                    "launch did not establish its authenticated session binding".into(),
-                ));
-            }
-            return;
-        }
-        if let Some(draft) = bootstrap_draft.as_deref() {
-            if bootstrap::unconfirmed_draft_nudge_due(
-                bootstrap_consumed,
-                session_starts_on_first_turn,
-                &readiness,
-                launch.await_provider_ack(std::time::Duration::ZERO),
-            ) {
-                bootstrap::nudge_unconfirmed_draft(&svc, &readiness_attempt, draft, |wait| {
-                    launch.await_provider_ack(wait)
-                });
-            }
-        }
-        if !session_starts_on_first_turn {
-            let session_authenticated = launch.reconcile_authenticated_binding(&svc);
-            if let Some(stage) =
-                startup_readiness::provider_ready_stage(&readiness, session_authenticated)
-            {
-                if !launch.emit(&svc, stage) {
+                if !launch.emit_first_turn_input_ready(&svc) {
                     return;
                 }
             }
-        }
-        if let Err(error) = startup_readiness::emit_agent_ready(&mut launch, &svc, readiness) {
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(error));
+            delivery_gate.mark_provider_ready();
+
+            let mut bootstrap_consumed = fallback_spec.is_none();
+            let bootstrap_draft = fallback_spec.as_ref().map(|spec| spec.payload.clone());
+            if let Some(spec) = fallback_spec {
+                set_booting(&launch, false);
+                let delivery_error = match bootstrap::consume(
+                    &svc,
+                    &readiness_attempt,
+                    &agent_cmd,
+                    spec,
+                    &delivery_gate,
+                    launch_input_readiness,
+                ) {
+                    Ok(consumed) => {
+                        bootstrap_consumed = consumed;
+                        None
+                    }
+                    Err(error) => Some(error),
+                };
+                if let Some(e) = delivery_error {
+                    let (title, body) = worker_brief_delivery_incident(&tab_id, &e);
+                    svc.log_system_notice(title, Some(body), Some("error"));
+                    log::error!(
+                        "launch_agent: task delivery failed for Tab {} (pty {}): {}",
+                        tab_id,
+                        pty_id,
+                        e
+                    );
+                    launch.fail(&svc, LaunchFailure::TaskDelivery(e.to_string()));
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(format!("task delivery failed: {}", e)));
+                    }
+                    return;
+                }
+            } else if task.is_some() {
+                let _ = crate::service::launch_delivery::dispatch_initial_delivery::<(), fn()>(
+                    delivery, &svc, &tab_id, None,
+                );
             }
-            return;
-        }
-        LAUNCH_REGISTRY.lock().finish(&launch);
-        public_send_guard.complete();
-        log::info!(
-            "launch_agent: agent ready in Tab {} after {}ms",
-            tab_id,
-            launch_started.elapsed().as_millis()
-        );
-        if let Some(tx) = ready_tx {
-            let _ = tx.send(Ok(()));
-        }
+
+            set_booting(&launch, false);
+            let readiness = readiness_receiver.recv().unwrap_or_else(|_| {
+                crate::service::launch_readiness::LaunchSettlement::Provisional {
+                    stage: BootStage::LaunchDeadlineElapsed,
+                    reason: "launch readiness observer stopped before session binding".into(),
+                }
+            });
+            if let Some(finished) = startup_readiness::finish_waiting_for_first_turn(
+                &mut launch,
+                &readiness,
+                &svc,
+                origin,
+            ) {
+                if finished {
+                    public_send_guard.complete();
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Ok(()));
+                    }
+                } else if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(
+                        "launch did not establish its authenticated session binding".into(),
+                    ));
+                }
+                return;
+            }
+            if let Some(draft) = bootstrap_draft.as_deref() {
+                if bootstrap::unconfirmed_draft_nudge_due(
+                    bootstrap_consumed,
+                    session_starts_on_first_turn,
+                    &readiness,
+                    launch.await_provider_ack(std::time::Duration::ZERO),
+                ) {
+                    bootstrap::nudge_unconfirmed_draft(&svc, &readiness_attempt, draft, |wait| {
+                        launch.await_provider_ack(wait)
+                    });
+                }
+            }
+            if !session_starts_on_first_turn {
+                let session_authenticated = launch.reconcile_authenticated_binding(&svc);
+                if let Some(stage) =
+                    startup_readiness::provider_ready_stage(&readiness, session_authenticated)
+                {
+                    if !launch.emit(&svc, stage) {
+                        return;
+                    }
+                }
+            }
+            if let Err(error) = startup_readiness::emit_agent_ready(&mut launch, &svc, readiness) {
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
+            LAUNCH_REGISTRY.lock().finish(&launch);
+            public_send_guard.complete();
+            log::info!(
+                "launch_agent: agent ready in Tab {} after {}ms",
+                tab_id,
+                launch_started.elapsed().as_millis()
+            );
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Ok(()));
+            }
+        });
     });
     launch_nonce
 }

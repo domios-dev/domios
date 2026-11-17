@@ -157,6 +157,7 @@ pub enum TabCommand {
     },
 }
 
+mod accounts;
 mod agent_spec;
 pub use agent_spec::AgentSpawnSpec;
 
@@ -209,6 +210,18 @@ impl ServiceContext {
     ) -> Result<TabHandle, String> {
         let _neighbor_launch = self.neighbor_tab_launch_guard(&spec)?;
         self.neighbors().prepare_neighbor_tab_spawn(&mut spec)?;
+        let context = accounts::prepare(self, &mut spec)?;
+        codeterm_plugin::provider_account::with_context(context, || {
+            self.spawn_tab_prepared(spec, ready_tx, emit_state_change)
+        })
+    }
+
+    fn spawn_tab_prepared(
+        &self,
+        mut spec: SpawnTabSpec,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        emit_state_change: bool,
+    ) -> Result<TabHandle, String> {
         if !matches!(&spec.command, TabCommand::Shell) {
             self.validate_request_cwd(
                 spec.workspace_id.as_deref(),
@@ -819,6 +832,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance, &gate)?;
             if let Some(tab) = mux.get_tab_mut(&result) {
+                tab.restorable_launch.account_id = agent.account_id.clone();
                 tab.hidden = true;
                 tab.show_in_tabbar = false;
                 tab.audience = spec.audience;

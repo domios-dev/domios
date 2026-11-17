@@ -1,6 +1,85 @@
 use super::*;
 use codeterm_types::agent::capability_probe::*;
 use serde_json::json;
+
+#[test]
+fn initialize_probe_cache_keeps_account_namespaces_separate() {
+    let mut cache = ProbeCache::default();
+    let a = ("fixture@account-a-context".into(), PathBuf::from("project"));
+    let b = ("fixture@account-b-context".into(), PathBuf::from("project"));
+    let Start::Run(first) = cache.begin(a.clone(), identity(1), "a", false) else {
+        panic!("first account should probe");
+    };
+    let Start::Run(second) = cache.begin(b.clone(), identity(1), "b", false) else {
+        panic!("second account should probe");
+    };
+    let unavailable = ProbeSnapshot::Unavailable {
+        reason: ProbeFailure::Protocol,
+    };
+    assert!(cache.finish(&a, first, unavailable.clone()));
+    assert!(matches!(
+        cache.begin(b.clone(), identity(1), "b", false),
+        Start::Cached(ProbeSnapshot::Pending)
+    ));
+    assert!(cache.finish(
+        &b,
+        second,
+        ProbeSnapshot::Unavailable {
+            reason: ProbeFailure::Unsupported
+        }
+    ));
+    assert!(
+        matches!(cache.begin(a, identity(1), "a", false), Start::Cached(value) if value == unavailable)
+    );
+    assert_eq!(cache.invalidate("fixture").len(), 2);
+}
+
+#[test]
+fn initialize_probe_completion_cannot_publish_after_account_context_changes() {
+    struct ScopedHost {
+        invocation: Mutex<Option<Arc<codeterm_plugin::provider_account::InvocationContext>>>,
+        published: Mutex<usize>,
+    }
+    impl CapabilityProbeHost for ScopedHost {
+        fn validate(&self, _: &str) -> Result<ProbeTarget, ProbeFailure> {
+            Ok(ProbeTarget {
+                provider: "fixture".into(),
+                project: "project".into(),
+                invocation: self.invocation.lock().clone(),
+            })
+        }
+        fn cli_binary(&self, _: &str) -> Option<String> {
+            panic!("no process is needed");
+        }
+        fn matching_tabs(&self, _: &str, _: Option<&Path>) -> Vec<String> {
+            Vec::new()
+        }
+        fn publish(&self, _: &str, _: Option<&Path>, _: Option<&ProbeSnapshot>) {
+            *self.published.lock() += 1;
+        }
+    }
+    let context = |account: &str| {
+        codeterm_plugin::provider_account::InvocationContext::new(
+            "fixture".into(),
+            account.into(),
+            Default::default(),
+            vec![],
+            vec![],
+        )
+        .unwrap()
+    };
+    let host = Arc::new(ScopedHost {
+        invocation: Mutex::new(Some(context("a"))),
+        published: Mutex::new(0),
+    });
+    let old = request(host.clone(), "tab").unwrap();
+    *host.invocation.lock() = Some(context("b"));
+    publish(&old, &ProbeSnapshot::Pending);
+    assert_eq!(*host.published.lock(), 0);
+    let current = request(host.clone(), "tab").unwrap();
+    publish(&current, &ProbeSnapshot::Pending);
+    assert_eq!(*host.published.lock(), 1);
+}
 fn identity(len: u64) -> model_catalog::BinaryFingerprint {
     model_catalog::BinaryFingerprint {
         path: "fixture".into(),
@@ -200,6 +279,7 @@ impl CapabilityProbeHost for HostFixture {
             return Err(ProbeFailure::Disabled);
         }
         Ok(ProbeTarget {
+            invocation: None,
             provider: "fixture".into(),
             project: "project".into(),
         })

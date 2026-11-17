@@ -43,7 +43,13 @@ impl InvocationContext {
         crate::plugin_id::validate(&account)?;
         if environment.iter().any(|(name, value)| {
             name.is_empty()
-                || name.contains(['=', '\0'])
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                || !name
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
                 || value
                     .as_ref()
                     .is_some_and(|value| value.is_empty() || value.contains('\0'))
@@ -141,6 +147,7 @@ impl InvocationContext {
 
     pub fn apply_environment(&self, env: &mut std::collections::HashMap<String, String>) {
         for (key, value) in &self.environment {
+            env.retain(|existing, _| !environment_name_matches(existing, key));
             match value {
                 Some(value) => {
                     env.insert(key.clone(), value.clone());
@@ -228,12 +235,25 @@ pub async fn scope<F: Future>(context: Option<Arc<InvocationContext>>, work: F) 
 }
 
 pub fn environment_is_selected(name: &str) -> bool {
-    current().is_some_and(|context| context.environment.contains_key(name))
+    current().is_some_and(|context| {
+        context
+            .environment
+            .keys()
+            .any(|key| environment_name_matches(key, name))
+    })
+}
+
+fn environment_name_matches(left: &str, right: &str) -> bool {
+    left == right || (cfg!(windows) && left.eq_ignore_ascii_case(right))
 }
 
 pub fn environment(name: &str) -> Option<OsString> {
     if let Some(context) = current() {
-        if let Some(value) = context.environment.get(name) {
+        if let Some((_, value)) = context
+            .environment
+            .iter()
+            .find(|(key, _)| environment_name_matches(key, name))
+        {
             return value.as_ref().map(OsString::from);
         }
     }

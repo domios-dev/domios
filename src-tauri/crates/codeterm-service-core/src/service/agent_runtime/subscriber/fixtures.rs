@@ -266,6 +266,7 @@ pub(super) fn scene() -> Scene {
     state.load(epoch, "thread");
     let session = Arc::new(Session {
         account: Mutex::new("default".into()),
+        invocation: Mutex::new(None),
         update_generation: std::sync::atomic::AtomicU64::new(0),
         update_recovery_available: std::sync::atomic::AtomicBool::new(false),
         provider: "runtime-subscriber-fixture".into(),
