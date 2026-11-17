@@ -287,7 +287,9 @@ fn effort_registry() -> &'static RwLock<HashMap<String, RegisteredEfforts>> {
 }
 
 mod publication;
-use publication::{advance_version, versions};
+use publication::advance_version;
+#[cfg(test)]
+use publication::versions;
 pub use publication::{
     all_version_snapshots, current_version, invalidate, subscribe_changes, version_snapshot,
     ModelCatalogueChanged,
