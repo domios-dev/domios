@@ -113,3 +113,50 @@ async fn rest_respawn_profile_refusal_is_typed_and_leaves_no_reservation_attempt
         .unwrap();
     drop(reservation);
 }
+
+#[tokio::test]
+async fn rest_respawn_unknown_or_manager_role_leaves_source_and_tabs_unchanged() {
+    let (fixture, plan, task, _, _, owner) = update_fixture();
+    fixture
+        .service
+        .plan_store
+        .assign_task(&plan, &task, "source-worker", None, 5)
+        .unwrap();
+    let mut approved = fixture.service.plan_store.get(&plan).unwrap();
+    approved.mode = codeterm_service_core::plan::PlanMode::Approved;
+    approved.planning_state = codeterm_service_core::plan::PlanningState::Approved;
+    fixture.service.plan_store.save(&mut approved, 6).unwrap();
+    let source = fixture
+        .service
+        .plan_store
+        .list_task_attempts(&plan, &task)
+        .unwrap()[0]
+        .attempt_id
+        .clone();
+    let before = full_task_record(&fixture, &plan, &task);
+    let tabs = fixture.service.mux.read().snapshot().tabs.len();
+    for role in ["unknown_worker", "planner"] {
+        let (status, _) = task_respawn(
+            AxumState(crate::test_support::app_state(&fixture)),
+            crate::auth::ActorHeaders::for_owner_test(owner_headers(&owner)),
+            Path((plan.clone(), task.clone())),
+            Json(TaskRespawnRequest {
+                attempt_id: source.clone(),
+                role: Some(role.into()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(full_task_record(&fixture, &plan, &task), before);
+        assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), tabs);
+        drop(
+            fixture
+                .service
+                .plan_store
+                .reserve_task_respawn_startup(&plan, &task, &source, "probe")
+                .unwrap(),
+        );
+    }
+}

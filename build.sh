@@ -2462,7 +2462,13 @@ prepare_release_bundle_inputs() {
   if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
     node scripts/release-stage.mjs stage-build-resources --target "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
   fi
-  cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
+  local release_packages=(-p codeterm-cli) release_features=()
+  if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
+    release_packages=(-p codeterm-cli -p domios-server)
+    release_features=(--no-default-features --features domios-server/embeddings,domios-server/mem-postgres)
+  fi
+  (cd src-tauri && cargo build --release --timings --manifest-path Cargo.toml "${cargo_target_args[@]}" \
+    "${release_packages[@]}" "${release_features[@]}" --bin codeterm)
   node scripts/bundle-cli.js
   if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
     local release_target release_sha release_logs
@@ -2479,9 +2485,9 @@ prepare_release_bundle_inputs() {
     mkdir -p "$release_logs"
     CODETERM_SERVER_CLI_SHA256="$(node scripts/release-stage.mjs cli-digest --target "$release_target")"
     export CODETERM_SERVER_CLI_SHA256
-    cargo build --release --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
-      --no-default-features --features domios-server/embeddings,domios-server/mem-postgres --target "$release_target" \
-      --message-format=json-render-diagnostics > "$release_logs/server.jsonl"
+    (cd src-tauri && cargo build --release --timings --manifest-path Cargo.toml "${release_packages[@]}" --bin domios-server \
+      "${release_features[@]}" --target "$release_target" \
+      --message-format=json-render-diagnostics) > "$release_logs/server.jsonl"
     cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --target "$release_target" \
       --no-default-features --features domios-server/embeddings,domios-server/mem-postgres --edges normal,build --prefix none \
       --format '{p}' > "$release_logs/closure.txt"

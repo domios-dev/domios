@@ -140,6 +140,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             Some("xhigh".into()),
             None,
             None,
+            None,
             false,
             true,
             3,

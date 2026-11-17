@@ -634,7 +634,20 @@ pub(super) fn create_router_with_preview_admission(
             get(updater_routes::availability),
         )
         .route("/api/update/status", get(updater_routes::update_status))
+        .route("/api/update/wait", get(updater_routes::wait_update_status))
+        .route(
+            "/api/update/holders",
+            post(updater_routes::describe_holders),
+        )
         .route("/api/update/install", post(updater_routes::install_update))
+        .route(
+            "/api/update/reserve",
+            post(updater_routes::reserve_shutdown),
+        )
+        .route(
+            "/api/update/release",
+            post(updater_routes::release_shutdown),
+        )
         .route(
             "/api/update/channel",
             get(updater_routes::get_channel).post(updater_routes::set_channel),

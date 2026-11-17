@@ -19,6 +19,7 @@ import { acceptReview, journeyThree, journeyThreeAfterRestart } from "./journeys
 import { restartCheck, restoredSends, restoredTabsReady, snapshotBeforeRestart } from "./journeys/restore.mjs";
 import { journeyOne, restoreFixtures } from "./journeys/spawn.mjs";
 import { apiNoContext, uiContext } from "./journeys/team.mjs";
+import { journeyFive } from "./journeys/neighbors.mjs";
 
 export function parseArgs(argv) {
   const [mode, ...rest] = argv;
@@ -29,6 +30,7 @@ export function parseArgs(argv) {
     const flag = rest[index], value = rest[index + 1];
     if (takeSelectionFlag(options.selection, flag, value)) index += 1;
     else if (flag === "--out") { options.out = resolve(value); index += 1; }
+    else if (flag === "--neighbors-config") { options.neighborsConfig = resolve(value); index += 1; }
     else if (flag === "--model") { modelEntries.push(value); index += 1; }
     else if (flag === "--providers") { options.providers = value.split(",").map((id) => id.trim()).filter(Boolean); index += 1; }
     else if (flag === "--history-kb") { options.historyBytes = Number(value) * 1024; index += 1; }
@@ -76,6 +78,10 @@ async function provisionWorkspace(ctx) {
 export async function setup(ctx) {
   ctx.state.run ??= runId();
   Object.assign(ctx.state, { tabs: ctx.state.tabs ?? [], teams: ctx.state.teams ?? [], plans: ctx.state.plans ?? [] });
+  if (!["J1", "J2", "J3", "J4"].some(id => runs(ctx.selection, id))) {
+    await journeyFive(ctx);
+    return;
+  }
   ctx.policy = await preparePolicy(ctx, { configure: true, readRecord: (id, signal) => readTab(ctx.api, id, signal) });
   const selected = ctx.policy.roster;
   const pty = preferred(selected.run, false), runtime = preferred(selected.run, true);
@@ -107,6 +113,7 @@ export async function setup(ctx) {
       if (bounced && !selectedJourney("J4")) await acceptReview(ctx);
     })(),
   ]);
+  if (selectedJourney("J5")) await journeyFive(ctx);
   if (selectedJourney("J4")) await ctx.check("J4", "pre_restart_snapshot", ctx.state.run, async () => {
     await snapshotBeforeRestart(ctx);
     return `${ctx.state.before_restart.tabs.length} agent tabs recorded`;
@@ -171,7 +178,7 @@ export async function main(argv) {
     if (options.mode === "verify") await verify(ctx);
     if (options.mode === "cleanup" && !options.keep) await cleanup(ctx);
   } catch (error) {
-    if (options.mode === "setup" && !ctx.policy) ctx.state.model_policy_refusal = error.message;
+    if (options.mode === "setup" && !ctx.policy && ["J1", "J2", "J3", "J4"].some(id => runs(selection, id))) ctx.state.model_policy_refusal = error.message;
     await ctx.check("HARNESS", options.mode, null, async () => { throw error; });
   } finally {
     phase.wall_ms = Math.round(performance.now() - started);

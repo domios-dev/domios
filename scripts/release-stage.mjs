@@ -129,15 +129,45 @@ export function checkReleaseServerFeatures(buildScript) {
   const inputs = buildScript.replaceAll('\r\n', '\n')
     .match(/^prepare_release_bundle_inputs\(\) \{\n[\s\S]*?^\}/m)?.[0];
   if (!inputs) fail('release server build function is missing');
-  const commands = inputs.replace(/\\\n\s*/g, ' ');
-  for (const operation of ['build', 'tree']) {
-    const rows = commands.split('\n').filter(line =>
-      new RegExp(`^\\s*cargo ${operation} .* -p domios-server(?: |$)`).test(line));
-    if (rows.length !== 1) fail(`expected one release server cargo ${operation} command`);
-    const features = rows[0].match(/--features ([^\s]+)/)?.[1].split(',');
-    if (!rows[0].includes('--no-default-features') || !features ||
+  const selection = inputs.match(/^  if \[ "\$\{CODETERM_RELEASE_COMMON_STAGE:-0\}" = 1 \]; then\n    release_packages=\(([^)]+)\)\n    release_features=\(([^)]+)\)\n  fi$/m);
+  if (!selection) fail('release common-stage package and feature selection is missing');
+  const initial = '  local release_packages=(-p codeterm-cli) release_features=()';
+  const unbound = inputs.replace(initial, '').replace(selection[0], '')
+    .replaceAll('"${release_packages[@]}"', '').replaceAll('"${release_features[@]}"', '');
+  if (!inputs.includes(initial) || /\brelease_(?:packages|features)\b/.test(unbound)) {
+    fail('release package or feature arrays have unexpected assignments or references');
+  }
+  if (inputs.indexOf(initial) > selection.index ||
+      ['release_packages', 'release_features'].some(name =>
+        inputs.indexOf('"${' + name + '[@]}"') < selection.index + selection[0].length)) {
+    fail('release common-stage selection must precede both Cargo builds');
+  }
+  if (selection[1].trim() !== '-p codeterm-cli -p domios-server') {
+    fail('release common-stage packages must be exactly CLI and server');
+  }
+  if (!/^--no-default-features --features [\w/,-]+$/.test(selection[2])) {
+    fail('release common-stage features require explicit isolated features');
+  }
+  const commands = inputs.replace(/\\\n\s*/g, ' ')
+    .replaceAll('"${release_packages[@]}"', selection[1])
+    .replaceAll('"${release_features[@]}"', selection[2]).split('\n');
+  const selectors = [
+    ['CLI build', /^\s*\(cd src-tauri && cargo build .* --bin codeterm(?:\s|\))/, ['codeterm-cli', 'domios-server']],
+    ['server build', /^\s*\(cd src-tauri && cargo build .* --bin domios-server(?:\s|\))/, ['codeterm-cli', 'domios-server']],
+    ['server tree', /^\s*cargo tree .* -p domios-server(?: |$)/, ['domios-server']],
+  ];
+  for (const [operation, selector, expectedPackages] of selectors) {
+    const rows = commands.filter(line => selector.test(line));
+    if (rows.length !== 1) fail(`expected one release ${operation} command`);
+    const row = rows[0];
+    const packages = [...row.matchAll(/(?:^|\s)(?:-p|--package) ([\w-]+)/g)].map(match => match[1]).sort();
+    const featureFlags = [...row.matchAll(/--features ([^\s)]+)/g)];
+    const features = featureFlags[0]?.[1].split(',');
+    if (JSON.stringify(packages) !== JSON.stringify(expectedPackages) ||
+        /--(?:all-features|workspace)|(?:^|\s)-F/.test(row) ||
+        !row.includes('--no-default-features') || featureFlags.length !== 1 ||
         features.some(feature => !feature.startsWith('domios-server/'))) {
-      fail(`release server cargo ${operation} requires explicit isolated features`);
+      fail(`release ${operation} requires the reviewed packages and isolated features`);
     }
     assertReleaseServerFeatures(features.map(feature => feature.slice('domios-server/'.length)));
   }

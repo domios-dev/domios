@@ -42,7 +42,7 @@ export function useFriendReceiveRequest() {
 export function FriendReceiveConfirm({ request, receiver, friendName, targetMachine, client, onClose }: {
   request: FriendReceiveRequest; receiver: ReceiverState; friendName: string; targetMachine?: string; client: NeighborRuntimeClient; onClose: () => void;
 }) {
-  return <NeighborReceiveHere key={`${request.friendship}:${request.operation}`} receiver={receiver} friendName={friendName} targetMachine={targetMachine}
+  return <NeighborReceiveHere key={`${request.friendship}:${request.operation}`} friendship={request.friendship} client={client} receiver={receiver} friendName={friendName} targetMachine={targetMachine}
     operation={request.operation} initiallyOpen onClose={onClose}
-    onReceive={revision => client.receiveFriend(request.friendship, revision, request.operation)} />;
+    onReceive={(revision, decision) => decision ? client.receiveFriend(request.friendship, revision, request.operation, decision) : client.receiveFriend(request.friendship, revision, request.operation)} />;
 }

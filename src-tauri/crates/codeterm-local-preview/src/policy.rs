@@ -6,7 +6,7 @@ use crate::html_preview::checked_path;
 
 pub struct PreviewPolicy {
     references: std::sync::Arc<HashSet<String>>,
-    /// Items of a referenced `<ds-canvas src>` file count as referenced, like inline items.
+    /// Items of a referenced `<ds-canvas src>` file count as referenced through that board.
     canvas_items: HashSet<String>,
     denied: Vec<String>,
     uploads: Vec<PathBuf>,

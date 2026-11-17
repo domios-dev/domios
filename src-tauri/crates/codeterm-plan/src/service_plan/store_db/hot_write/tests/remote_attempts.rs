@@ -20,6 +20,7 @@ fn remote_dispatch_transactions_are_bounded_and_peer_failures_roll_back() {
                 "peer",
                 "Peer",
                 "provider",
+                None,
                 "base",
                 "destination",
                 30,

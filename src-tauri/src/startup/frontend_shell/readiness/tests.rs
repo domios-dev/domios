@@ -18,7 +18,7 @@ fn deterministic_store_failure_reaches_the_starting_window_verbatim() {
     );
     assert_eq!(
         StartupEvents::default().push(event.as_bytes()),
-        Err(error.into())
+        Err(ReadinessFailure::Refused(error.into()))
     );
 }
 

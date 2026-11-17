@@ -105,7 +105,7 @@ function Surfaces() {
   const ordinary = state.workspaces.filter((workspace) => !workspace.protected);
   return createElement(SidebarDnd, { onReorder: () => {} } as never,
     createElement(WorkspaceCardGrid, {
-      workspaces: ordinary, selectedWorkspaceId: null, statuses: {}, sortIds: ordinary.map((workspace) => workspace.id),
+      workspaces: ordinary, selectedWorkspaceId: null, statuses: {}, workingByWorkspace: {}, sortIds: ordinary.map((workspace) => workspace.id),
       onSelect: () => {}, onCreate: () => {},
     }),
     createElement(TabLockMark, { tab: state.tabs["tab-0"] ?? null }));

@@ -46,6 +46,13 @@ fn path(service: &ServiceContext, tab_id: &str) -> std::path::PathBuf {
 }
 
 impl ServiceContext {
+    pub(crate) fn running_utility_command(&self, tab_id: &str) -> Option<String> {
+        COMMANDS
+            .lock()
+            .get(tab_id)
+            .and_then(|(command, _)| command.clone())
+    }
+
     pub(crate) fn utility_deadline_snapshot(&self, tab_id: &str) -> Option<serde_json::Value> {
         ARMED
             .lock()

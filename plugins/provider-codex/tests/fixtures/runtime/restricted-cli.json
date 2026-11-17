@@ -154,6 +154,7 @@
               "sandbox_workspace_write.network_access": false,
               "model_reasoning_effort": "high",
               "windows.sandbox": "mxc",
+              "project_root_markers": [],
               "projects": {
                 "/work/project": {
                   "trust_level": "trusted"
@@ -254,6 +255,7 @@
               "sandbox_workspace_write.network_access": false,
               "model_reasoning_effort": "high",
               "windows.sandbox": "mxc",
+              "project_root_markers": [],
               "projects": {
                 "/work/project": {
                   "trust_level": "trusted"

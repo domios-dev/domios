@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Check, Loader2, MessageCircleQuestionMark } from "lucide-react";
 import { ChatBlockFrame, type ChatBlockStatus } from "./ChatBlockFrame";
-import { useChatBlockHost, useChatBlockMessageId } from "./ChatBlockHost";
+import { useChatBlockHost, useChatBlockMessageId, observeBlockInteraction } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 import { choiceOutcome, type ChoiceOutcome } from "./choiceBlockModel";
 
@@ -25,7 +25,8 @@ function summaryFor(outcome: ChoiceOutcome): string {
 }
 
 export function ChoiceBlock({ options, source }: { options: string[]; source: string }) {
-  const host = useChatBlockHost().choice;
+  const blockHost = useChatBlockHost();
+  const host = blockHost.choice;
   const messageId = useChatBlockMessageId();
   const bound = host && messageId ? host : undefined;
   const state = useLiveBinding(bound?.binding, messageId ?? "", null);
@@ -42,6 +43,7 @@ export function ChoiceBlock({ options, source }: { options: string[]; source: st
     setSending(label);
     try {
       if (!(await bound.choose(messageId, label))) setError("This question was already answered.");
+      else observeBlockInteraction(blockHost, "choice", "submit");
     } catch (failure) {
       claimed.current = false;
       setSending(null);

@@ -10,6 +10,8 @@ pub mod contracts;
 pub mod debian;
 pub mod discovery_policy;
 pub mod headless;
+pub mod holders;
+pub mod installer_evidence;
 pub mod manifest;
 pub mod native_handoff;
 pub mod receipt;

@@ -84,6 +84,7 @@ pub(in crate::server) fn respawn_worker_params(
         description: Some(task_tab_description(task_name, None)),
         task_description_managed: true,
         role: Some("Worker".into()),
+        role_profile: draft.role_profile.clone(),
         execution_intent: Some(draft.execution_intent.clone()),
         parent_tab_id: Some(parent_tab_id.to_string()),
         task: Some(super::canonical_writer::compose_dispatch_brief(
@@ -185,6 +186,7 @@ mod tests {
     #[test]
     fn respawn_launch_inherits_source_identity_and_task_execution_intent() {
         let draft = TaskRespawnDraft {
+            role_profile: Some("reviewer".into()),
             launch_profile: Some("selected".into()),
             plan_id: "pl_opaque".into(),
             task_id: "task_opaque".into(),
@@ -210,6 +212,8 @@ mod tests {
         let params = respawn_worker_params(&draft, "opaque task", None, "tab_parent");
 
         assert_eq!(params.launch_profile.as_deref(), Some("selected"));
+        assert_eq!(params.role_profile.as_deref(), Some("reviewer"));
+        assert_eq!(params.role.as_deref(), Some("Worker"));
         assert_eq!(params.speed.as_deref(), Some("opaque-tier"));
         assert_eq!(params.execution_intent, Some(ExecutionIntent::Mutating));
         assert_eq!(params.agent.as_deref(), Some("fixture-agent"));

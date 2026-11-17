@@ -121,7 +121,6 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       .finally(() => setChecking(null));
   };
   const concierge = useConciergeStatus(runtimeClient, enabled)[friendship] ?? null;
-  // The runtime's handling state says when the concierge works; until a runtime reports it, the bound tab's activity stands in.
   const tabStatuses = useMuxSelector(state => state.tabStatuses);
   const gatewayId = useNeighborGateway(friendship) ?? concierge?.gateway_tab ?? friend.gateway_tab ?? null;
   const conciergeTab: Tab | undefined = gatewayId ? tabs[gatewayId] : undefined;
@@ -207,7 +206,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const shown: HistoryEntry[] = [...(entries ?? []), ...pendingSends.map((item): HistoryEntry =>
     ({ direction: "out", kind: "question", author: "me", body: item.body, at: item.at, message_id: item.key }))];
   const work = conciergeWork(entries ?? [], { working: tabWorking, missing: enabled && concierge?.concierge_missing === true && !conciergeTab });
-  const conciergeWorking = enabled && [...work.values()].some(entry => activeWork(entry.work));
+  const conciergeWorking = tabWorking && [...work.values()].some(entry => activeWork(entry.work));
   // The calm view of that standing: outcomes on their messages, the work under way once, "no reply needed" nowhere.
   const shownStanding = shownWork(work, (entries ?? []).map(entry => entry.message_id));
   const scrollTo = (messageId: string) => document.getElementById(`neighbor-msg-${messageId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });

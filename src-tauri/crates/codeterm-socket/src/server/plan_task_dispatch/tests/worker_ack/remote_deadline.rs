@@ -30,6 +30,7 @@ fn remote_dispatch_attempt(
             "peer-origin",
             "Origin peer",
             "codex",
+            None,
             "base-sha",
             "main",
             3,

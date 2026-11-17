@@ -58,6 +58,13 @@ ct_select_build_dir() {
   local checkout target cache directory
   checkout="$(git rev-parse --show-toplevel)" || return $?
   target="${1:-${CARGO_TARGET_DIR:-$checkout/src-tauri/target}}"
+  if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${CODETERM_CI_STABLE_CHECKOUT:-0}" = 1 ]; then
+    directory="$(ct_abs_path "$target")/.build"
+    mkdir -p "$directory" || return $?
+    export CARGO_BUILD_BUILD_DIR="$directory" CODETERM_CACHE_BUILD_DIRECTORY="$directory"
+    echo "[cache-policy] CI CARGO_BUILD_BUILD_DIR=$directory target=$target"
+    return 0
+  fi
   cache="$(ct_cache_home)" || return $?
   if command -v cygpath >/dev/null 2>&1; then
     checkout="$(cygpath -m "$checkout")"
@@ -95,24 +102,17 @@ ct_forbid_mutable_cache_dir() {
   done
 }
 
-# SCCACHE_BASEDIRS makes sccache strip a path prefix from source paths before
-# hashing, so two builds under different absolute roots can hit the same cache
-# entry. That is unsafe for this repo: parallel worktrees share one
-# SCCACHE_DIR/server but each has its own (possibly diverged) sources at the
-# same relative paths, so a stripped basedir can return an artifact built from
-# a different worktree's sources (codeterm#327). Never derive or forward it —
-# see .agents/skills/build/SKILL.md.
+# Local worktrees keep absolute cache keys to prevent the artifact mix-up in codeterm#327.
 ct_reject_basedir_rewriting() {
+  if [ "${GITHUB_ACTIONS:-}" = true ] && [ -n "${GITHUB_WORKSPACE:-}" ]; then
+    export SCCACHE_BASEDIRS="$(dirname "$(cd "$GITHUB_WORKSPACE" && pwd -P)")"
+    return 0
+  fi
   if [ -n "${SCCACHE_BASEDIRS:-}" ]; then
     echo "[cache-policy] WARNING: SCCACHE_BASEDIRS='${SCCACHE_BASEDIRS}' inherited from environment; unsetting." >&2
     echo "[cache-policy] Basedir rewriting is disallowed for this repo: it can hand back a cache hit built from a different worktree's sources. See .agents/skills/build/SKILL.md." >&2
   fi
   unset SCCACHE_BASEDIRS
-  # A GitHub-hosted job holds exactly one checkout, so the worktree mix-up cannot occur there; stripping
-  # the runner's work root lets C/C++ and Rust keys match across hosted jobs.
-  if [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ] && [ -n "${GITHUB_WORKSPACE:-}" ]; then
-    export SCCACHE_BASEDIRS="$(dirname "$GITHUB_WORKSPACE")"
-  fi
 }
 
 # Cache-key-relevant path scope once basedir rewriting is disabled: sccache
@@ -281,7 +281,10 @@ ct_sccache_status_locked() {
   fi
 }
 
-ct_sccache_verify() {
+ct_sccache_verify() { ct_sccache_with_lock ct_sccache_verify_locked; }
+
+ct_sccache_verify_locked() {
+  export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
   if [ "${CODETERM_SCCACHE_JOB_LOCAL:-0}" = 1 ]; then
     ct_sccache_job_local_verify
     return $?
@@ -290,6 +293,21 @@ ct_sccache_verify() {
   if [ -n "${GITHUB_ENV:-}" ] && ! ct_ci_store_reachable; then
     ct_sccache_start_job_local
     return $?
+  fi
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then
+    ct_reject_basedir_rewriting || return $?
+    ct_sccache_storage
+    if [ "${CODETERM_SCCACHE_CI_PREPARED:-0}" != 1 ]; then
+      ct_sccache_handover_idle_local_ci_server || return $?
+      ct_sccache_restart ci_job_configuration || return $?
+    else
+      ct_sccache_start_shared_if_absent || return $?
+    fi
+    ct_sccache_server_live || return 2
+    ct_sccache_storage_matches "$(sccache --show-stats | sed -n 's/^Cache location[[:space:]]*//p')" || return 2
+    export CODETERM_SCCACHE_CI_PREPARED=1
+    printf '%s\n' "SCCACHE_BASEDIRS=$SCCACHE_BASEDIRS" CODETERM_SCCACHE_CI_PREPARED=1 >> "$GITHUB_ENV"
+    return 0
   fi
   ct_sccache_handover_idle_local_ci_server || return $?
   ct_sccache_start_shared_if_absent

@@ -103,3 +103,12 @@ it("reads the selected installation's history without touching the origin or its
     expect(localFetch).not.toHaveBeenCalled();
   } finally { clearRelayTarget(); }
 });
+
+it.each(["keep", "adopt"] as const)("submits the reviewed %s decision in the receiver Apply", async choice => {
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+  const decision = { choice, expected_digest: "reviewed-snapshot", ...(choice === "adopt" ? { scope: "Full access for the joint project" } : {}) };
+  await neighborRuntimeClient.receiveFriend("f".repeat(64), 3, "set", decision);
+  const [, init] = vi.mocked(localFetch).mock.calls[vi.mocked(localFetch).mock.calls.length - 1]!;
+  expect(JSON.parse(String(init?.body))).toEqual({ operation: "set_friend_receiver", friendship_id: "f".repeat(64),
+    receiver_operation: "set", takeover_confirmed: true, expected_receiver_revision: 3, grant_decision: decision });
+});

@@ -1,5 +1,6 @@
 pub mod bounds;
 mod load;
+pub mod product_observer;
 pub mod schema;
 
 use std::collections::{BTreeSet, HashMap};
@@ -405,7 +406,7 @@ fn commit_config(
     owner_expected_folders: Option<&std::collections::BTreeMap<String, Vec<String>>>,
     persist: impl FnOnce(&AppConfig) -> Result<(), String>,
 ) -> Result<AppConfig, ConfigCommitError> {
-    let _writer = CONFIG_WRITER.lock();
+    let writer = CONFIG_WRITER.lock();
     {
         let current = state.lock();
         if let Some(expected) = owner_expected_folders {
@@ -418,8 +419,11 @@ fn commit_config(
         config.api.token = current.api.token.clone();
     }
     persist(&config).map_err(ConfigCommitError::Save)?;
+    let changes = product_observer::enabled_changes(&state.lock(), &config);
     let applied = config.clone();
     *state.lock() = applied;
+    drop(writer);
+    product_observer::publish(state, changes);
     Ok(config)
 }
 
