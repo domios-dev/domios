@@ -1087,6 +1087,8 @@ fn restorable_launch_parameters_round_trip_in_snapshot() {
     let (mut state, tab_id) = MultiplexerState::new();
     let launch = crate::multiplexer::types::RestorableLaunchParameters {
         account_id: Some("account-snapshot".into()),
+        account_namespace: None,
+        account_notices: Vec::new(),
         execution_mode: Some("fixture-cloud".into()),
         execution_sandbox: Some(codeterm_types::plan::ExecutionSandboxPolicy {
             intent: codeterm_types::plan::ExecutionIntent::ReadOnly,

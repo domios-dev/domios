@@ -179,7 +179,10 @@ fn parity_account_home_claude_selected_session_roots_and_storage_declarations() 
             );
             let messages = native.parse_session_messages(&expected).unwrap();
             assert_eq!(messages.len(), 1);
-            assert_eq!(js.parse_session_messages(&expected).unwrap(), messages);
+            assert_eq!(
+                serde_json::to_value(js.parse_session_messages(&expected).unwrap()).unwrap(),
+                serde_json::to_value(messages).unwrap()
+            );
         });
     }
 }
