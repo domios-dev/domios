@@ -168,7 +168,7 @@ With consent recorded, daemon start and provider plugin reload reconcile a missi
 | GET | `/api/crons` | `?workspace_id=ID` | List all cron jobs (optionally filter by workspace) |
 | POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?, tz?, timeout_seconds?}` | Create cron job |
 | GET | `/api/crons/:id` | — | Get cron job by ID |
-| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?, agent?, model?, jitter_max_ms?, tz?, timeout_seconds?}` | Update cron job (prefer over delete+recreate). `tz: ""` clears back to UTC; `timeout_seconds: 0` clears the per-cron override. |
+| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?, agent?, model?, report_target_tab_id?, jitter_max_ms?, tz?, timeout_seconds?}` | Update cron job (prefer over delete+recreate). `tz: ""` clears back to UTC; `timeout_seconds: 0` clears the per-cron override. |
 | DELETE | `/api/crons/:id` | — | Delete cron job |
 | POST | `/api/crons/:id/enable` | — | Enable cron job |
 | POST | `/api/crons/:id/disable` | — | Disable cron job |
@@ -190,6 +190,8 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 **Placement and lifecycle:** Cron placement resolves caller workspace, validated workspace environment, then focus; live Team callers inherit their Team unless `--no-team`. Override with `--workspace` or membership-checked `--team`. Edit via `PUT /api/crons/:id` to preserve identity/history. Deleting a job kills its active tabs and removes logs; closing its workspace deletes its jobs and history. See `domios docs CONFIG`.
 
+**Report target:** `domios cron edit <name-or-id> --tab <tab-id>` sets the report destination; `--clear-tab` removes it. Omit both flags to leave it unchanged. The REST/socket patch uses `report_target_tab_id: ""` to clear and a live tab id to set, validated as on create. These edits preserve the job id and history. They change only report routing; creator and Team membership, including Team cleanup ownership, stay the same.
+
 **CLI:** Use `domios cron create <name> --schedule S --task T`, then `cron list|edit|enable|disable|trigger|cancel|history|delete ID`. Each run receives its completion instruction. Success is silent; spawn failures, second consecutive failures and auto-disable notify. Finished runs open their logs from the sidebar.
 
 **Tauri events:** `cron-state-changed` on any cron CRUD operation; `cron-fired` when a cron fires, payload `{cron_id, run_id, tab_id, tab_id}`.
@@ -205,4 +207,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `domios docs API-SERVICES`. Notifications and webhooks: `domios docs API-TABS`. Secret storage and updates: `domios docs API-STATE`.
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->

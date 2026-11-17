@@ -634,3 +634,235 @@ fn worker_transfer_unbound_worker_cross_parent_transition_keeps_the_existing_ser
     );
     assert_eq!(moved_worker.role_profile.as_deref(), Some(builtins::WORKER));
 }
+
+#[test]
+fn worker_transfer_recovers_a_stranded_worker_after_source_team_became_forming() {
+    let fixture = TransferFixture::new();
+    {
+        let mut mux = fixture.fixture.service.mux.write();
+        let team = mux
+            .get_tab(&fixture.source)
+            .unwrap()
+            .team_id
+            .clone()
+            .unwrap();
+        mux.set_team_lifecycle(&team, TeamLifecycle::Forming)
+            .unwrap();
+    }
+    assert_refused_without_changes(&fixture, |service| {
+        service
+            .transfer_task_bound_worker(
+                &caller(&fixture.destination, "destination"),
+                &fixture.worker,
+                &fixture.destination,
+            )
+            .map(|_| ())
+    });
+    let before_plan = fixture
+        .fixture
+        .service
+        .plan_store
+        .get(&fixture.plan_id)
+        .unwrap();
+    let before_worker = fixture
+        .fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.worker)
+        .unwrap()
+        .clone();
+    fixture
+        .fixture
+        .service
+        .transfer_task_bound_worker(&fixture.caller(), &fixture.worker, &fixture.destination)
+        .unwrap();
+    assert_eq!(
+        fixture
+            .fixture
+            .service
+            .plan_store
+            .get(&fixture.plan_id)
+            .unwrap(),
+        before_plan
+    );
+    let mux = fixture.fixture.service.mux.read();
+    let worker = mux.get_tab(&fixture.worker).unwrap();
+    assert_eq!(
+        worker.parent_tab_id.as_deref(),
+        Some(fixture.destination.as_str())
+    );
+    assert_eq!(
+        worker.team_id,
+        mux.get_tab(&fixture.destination).unwrap().team_id
+    );
+    assert_eq!(worker.task_binding, before_worker.task_binding);
+    assert_eq!(worker.pty_id, before_worker.pty_id);
+    assert_eq!(worker.agent_session_id, before_worker.agent_session_id);
+}
+
+#[test]
+fn worker_transfer_plan_rebind_moves_all_bound_workers_atomically_and_preserves_attempts() {
+    use crate::plan::TaskStatus;
+    for status in [
+        TaskStatus::InProgress,
+        TaskStatus::Paused,
+        TaskStatus::InReview,
+    ] {
+        let fixture = TransferFixture::new();
+        let source_team = fixture
+            .fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&fixture.source)
+            .unwrap()
+            .team_id
+            .clone()
+            .unwrap();
+        fixture
+            .fixture
+            .service
+            .plan_store
+            .edit_plan_fixture(&fixture.plan_id, 5, |plan| {
+                plan.owner = OrchestratorRef::from_tab(&fixture.source);
+                plan.team_id = Some(source_team.clone());
+                plan.tasks[0].status = status;
+                Ok(())
+            })
+            .unwrap();
+        let before_plan = fixture
+            .fixture
+            .service
+            .plan_store
+            .get(&fixture.plan_id)
+            .unwrap();
+        let before_worker = fixture
+            .fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&fixture.worker)
+            .unwrap()
+            .clone();
+        let destination_team = fixture
+            .fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&fixture.destination)
+            .unwrap()
+            .team_id
+            .clone()
+            .unwrap();
+        let request = super::super::plan_owner_request(
+            OrchestratorRef::from_tab(&fixture.destination),
+            &fixture.plan_id,
+            &destination_team,
+            "Team merge",
+            false,
+            Some((fixture.plan_id.clone(), None)),
+            true,
+        )
+        .unwrap();
+        assert_refused_without_changes(&fixture, |service| {
+            service
+                .transition_agent_prepared_at(
+                    6,
+                    |_, _| Ok(request.clone()),
+                    TransitionFailurePoint::AfterPlanCommit,
+                )
+                .map(|_| ())
+        });
+        fixture
+            .fixture
+            .service
+            .transition_agent_prepared_at(
+                7,
+                |_, _| Ok(request.clone()),
+                TransitionFailurePoint::None,
+            )
+            .unwrap();
+        let after_plan = fixture
+            .fixture
+            .service
+            .plan_store
+            .get(&fixture.plan_id)
+            .unwrap();
+        assert_eq!(after_plan.tasks, before_plan.tasks);
+        assert_eq!(
+            after_plan.owner.tab_id.as_deref(),
+            Some(fixture.destination.as_str())
+        );
+        assert_eq!(
+            after_plan.team_id.as_deref(),
+            Some(destination_team.as_str())
+        );
+        let mux = fixture.fixture.service.mux.read();
+        let worker = mux.get_tab(&fixture.worker).unwrap();
+        assert_eq!(
+            worker.parent_tab_id.as_deref(),
+            Some(fixture.destination.as_str())
+        );
+        assert_eq!(worker.team_id.as_deref(), Some(destination_team.as_str()));
+        assert_eq!(
+            worker.report_target_tab_id.as_deref(),
+            Some(fixture.destination.as_str())
+        );
+        assert_eq!(worker.task_binding, before_worker.task_binding);
+        assert_eq!(worker.agent_session_id, before_worker.agent_session_id);
+        assert_eq!(
+            worker.session_binding_nonce,
+            before_worker.session_binding_nonce
+        );
+        assert_eq!(worker.pty_id, before_worker.pty_id);
+        assert_eq!(worker.cwd, before_worker.cwd);
+        assert_eq!(worker.spawned_by_tab_id, before_worker.spawned_by_tab_id);
+        assert_eq!(worker.depth, 2);
+    }
+}
+
+#[test]
+fn worker_transfer_plan_rebind_refuses_remote_or_conflicting_bindings_without_mutation() {
+    for remote in [true, false] {
+        let fixture = TransferFixture::new();
+        {
+            let mut mux = fixture.fixture.service.mux.write();
+            let worker = mux.get_tab_mut(&fixture.worker).unwrap();
+            if remote {
+                worker.report_target_mesh_peer = Some("other-machine".into());
+            } else {
+                worker.task_binding.as_mut().unwrap().plan_id = Some("other-plan".into());
+            }
+        }
+        let team = fixture
+            .fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&fixture.destination)
+            .unwrap()
+            .team_id
+            .clone()
+            .unwrap();
+        let request = super::super::plan_owner_request(
+            OrchestratorRef::from_tab(&fixture.destination),
+            &fixture.plan_id,
+            &team,
+            "reconcile placement",
+            false,
+            None,
+            true,
+        )
+        .unwrap();
+        assert_refused_without_changes(&fixture, |service| {
+            service
+                .transition_agent_prepared_at(
+                    6,
+                    |_, _| Ok(request.clone()),
+                    TransitionFailurePoint::None,
+                )
+                .map(|_| ())
+        });
+    }
+}

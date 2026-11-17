@@ -86,6 +86,7 @@ fn create_params(name: &str, effort: Option<&str>) -> CronCreateParams {
 
 fn effort_patch(effort: &str) -> CronUpdateParams {
     CronUpdateParams {
+        report_target_tab_id: None,
         name: None,
         description: None,
         schedule: None,
@@ -106,6 +107,7 @@ fn effort_patch(effort: &str) -> CronUpdateParams {
 
 fn empty_patch() -> CronUpdateParams {
     CronUpdateParams {
+        report_target_tab_id: None,
         name: None,
         description: None,
         schedule: None,
@@ -909,4 +911,74 @@ fn runtime_cron_owner_binding_is_exact_and_idempotent_before_launch() {
         "run-exact"
     )
     .is_err());
+}
+
+#[test]
+fn cron_update_report_target_sets_clears_and_rejects_missing_tabs_without_losing_identity() {
+    let (fixture, cron, wake, path) = fixture();
+    let (first, second) = {
+        let mut mux = fixture.service.mux.write();
+        let first = mux.all_tabs().next().unwrap().id.clone();
+        let workspace = mux.find_workspace_for_tab(&first).unwrap();
+        let second = mux.create_tab(&workspace).unwrap();
+        (first, second)
+    };
+    let mut params = create_params("retarget-job", None);
+    params.report_target_tab_id = Some(first.clone());
+    let original = fixture.service.cron_create(&cron, &wake, params).unwrap();
+    for target in [Some(second.as_str()), None, Some(""), Some(first.as_str())] {
+        let updated = fixture
+            .service
+            .cron_update(
+                &cron,
+                &wake,
+                &original.name,
+                CronUpdateParams {
+                    report_target_tab_id: target.map(str::to_string),
+                    ..empty_patch()
+                },
+            )
+            .unwrap();
+        let expected = match target {
+            Some("") => None,
+            None => Some(second.as_str()),
+            value => value,
+        };
+        assert_eq!(updated.report_target_tab_id.as_deref(), expected);
+        assert_eq!(updated.id, original.id);
+        assert_eq!(updated.creator_tab_id, original.creator_tab_id);
+        assert_eq!(updated.team_id, original.team_id);
+        let persisted = CronStore::new_with_path(path.clone());
+        assert_eq!(
+            persisted
+                .get(&original.id)
+                .unwrap()
+                .report_target_tab_id
+                .as_deref(),
+            expected
+        );
+    }
+    let before = fs::read(&path).unwrap();
+    let error = fixture
+        .service
+        .cron_update(
+            &cron,
+            &wake,
+            &original.id,
+            CronUpdateParams {
+                report_target_tab_id: Some("missing-tab".into()),
+                ..empty_patch()
+            },
+        )
+        .unwrap_err();
+    assert!(error.starts_with("report_target_tab_id:"), "{error}");
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(
+        cron.lock()
+            .get(&original.id)
+            .unwrap()
+            .report_target_tab_id
+            .as_deref(),
+        Some(first.as_str())
+    );
 }

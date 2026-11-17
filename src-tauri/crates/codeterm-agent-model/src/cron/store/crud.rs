@@ -409,6 +409,13 @@ impl CronStore {
             codeterm_blueprint_types::automation_name::validate_cron_name(&name)?;
             job.name = name;
         }
+        if let Some(target) = patch.report_target_tab_id {
+            job.report_target_tab_id = if target.trim().is_empty() {
+                None
+            } else {
+                Some(target)
+            };
+        }
         if let Some(desc) = patch.description {
             job.description = Some(desc);
         }

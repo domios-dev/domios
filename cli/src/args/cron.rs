@@ -70,7 +70,7 @@ pub enum CronAction {
     },
     /// Edit a cron job
     Edit {
-        /// Cron job ID
+        /// Cron job name or ID
         id: String,
         #[arg(long, value_parser = parse_cron_name)]
         name: Option<String>,
@@ -86,6 +86,12 @@ pub enum CronAction {
         skill: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         description: Option<String>,
+        /// Tab to receive reports. Omit to leave unchanged.
+        #[arg(long = "tab", conflicts_with = "clear_tab")]
+        report_tab: Option<String>,
+        /// Clear the report target, keeping runs private to the cron.
+        #[arg(long, conflicts_with = "report_tab")]
+        clear_tab: bool,
         /// Agent provider override (e.g. "claude", "codex")
         #[arg(long)]
         agent: Option<String>,
@@ -233,45 +239,61 @@ pub fn cron_create_body(
     body
 }
 
-#[cfg(test)]
-mod tests {
-    use clap::Parser;
-
-    #[test]
-    fn cron_create_requires_a_meaningful_name() {
-        let valid = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "cron",
-            "create",
-            "build-result-notify",
-            "--schedule",
-            "0 * * * *",
-            "--task",
-            "check build",
-        ]);
-        assert!(valid.is_ok());
-        for name in ["ab", "cron_5d22889a8898"] {
-            assert!(crate::args::cli::Cli::try_parse_from([
-                "codeterm",
-                "cron",
-                "create",
-                name,
-                "--schedule",
-                "0 * * * *",
-                "--task",
-                "check build",
-            ])
-            .is_err());
+impl CronAction {
+    pub fn update_request(&self) -> Option<(&str, serde_json::Value)> {
+        let Self::Edit {
+            id,
+            name,
+            schedule,
+            task,
+            cwd,
+            skill,
+            description,
+            report_tab,
+            clear_tab,
+            agent,
+            model,
+            reasoning_effort,
+            jitter_max_ms,
+            tz,
+            timeout_secs,
+        } = self
+        else {
+            return None;
+        };
+        let mut body = serde_json::json!({"id": id});
+        for (key, value) in [
+            ("name", name),
+            ("schedule", schedule),
+            ("task", task),
+            ("cwd", cwd),
+            ("skill", skill),
+            ("description", description),
+            ("agent", agent),
+            ("model", model),
+            ("reasoning_effort", reasoning_effort),
+            ("tz", tz),
+        ] {
+            if let Some(value) = value {
+                body[key] = serde_json::json!(value);
+            }
         }
-        assert!(crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "cron",
-            "create",
-            "--schedule",
-            "0 * * * *",
-            "--task",
-            "check build",
-        ])
-        .is_err());
+        for (key, value) in [
+            ("jitter_max_ms", jitter_max_ms),
+            ("timeout_seconds", timeout_secs),
+        ] {
+            if let Some(value) = value {
+                body[key] = serde_json::json!(value);
+            }
+        }
+        if *clear_tab {
+            body["report_target_tab_id"] = serde_json::json!("");
+        } else if let Some(target) = report_tab {
+            body["report_target_tab_id"] = serde_json::json!(target);
+        }
+        Some((id, body))
     }
 }
+
+#[cfg(test)]
+mod tests;
