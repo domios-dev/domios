@@ -37,9 +37,8 @@ impl super::ServiceContext {
                     ));
                 }
                 let workspace = mux
-                    .workspaces
-                    .iter()
-                    .find(|ws| ws.tabs.contains(&tab_id))
+                    .find_workspace_for_tab(&tab_id)
+                    .and_then(|id| mux.get_workspace(&id))
                     .map(|ws| ws.name.clone())
                     .unwrap_or_else(|| "Unknown workspace".into());
                 let busy = holder_is_busy(
@@ -102,8 +101,7 @@ impl super::ServiceContext {
         let mux = self.mux.read();
         let pty_id = self.pty.lock().owning_pty(handle.as_raw_handle())?;
         Ok(pty_id.and_then(|id| {
-            mux.tabs
-                .values()
+            mux.all_tabs()
                 .find(|tab| tab.pty_id.as_ref() == Some(&id))
                 .map(|tab| tab.id.clone())
         }))

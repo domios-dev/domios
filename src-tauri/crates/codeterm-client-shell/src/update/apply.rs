@@ -293,7 +293,14 @@ async fn stop_pair_server(
     holders: super::install_holders::PreparedHolders,
 ) -> Result<(), String> {
     log::info!("[updater] stopping the attached server before installing the pair");
-    let result = stop_reserved_server(stop, holders.reserve_shutdown(stop)).await;
+    let request = holders.shutdown_reservation_request();
+    let reservation = async move {
+        match request {
+            Some(request) => stop.reserve_install_shutdown(request).await.map(Some),
+            None => Ok(None),
+        }
+    };
+    let result = stop_reserved_server(stop, reservation).await;
     if server_stop_owes_relaunch(&result) {
         stopped.store(true, std::sync::atomic::Ordering::SeqCst);
     }
