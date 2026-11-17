@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.76",
+  "version": "1.14.77",
   "minCodeterm": "1.20.2",
   "hostApi": 2,
   "accounts": {
@@ -598,7 +598,16 @@
   "defaultModel": "gpt-6.1-sol",
   "modelCatalogue": {
     "authority": "authoritative",
-    "liveDiscoveryRequired": true
+    "liveDiscoveryRequired": true,
+    "configFiles": [
+      "~/.codex/models_cache.json"
+    ],
+    "configFileEnvironments": [
+      {
+        "variable": "CODEX_HOME",
+        "subdir": "models_cache.json"
+      }
+    ]
   },
   "reasoningEfforts": [
     {
