@@ -1,7 +1,9 @@
 use codeterm_client_shell::app_runtime::WebviewWindow;
 #[cfg(debug_assertions)]
 mod assets;
+mod failure;
 pub(crate) mod initial_document;
+pub(crate) use failure::FailureCode;
 mod main_thread;
 mod readiness;
 mod reconnect;
@@ -10,8 +12,8 @@ mod surfaces;
 use main_thread::run_on_main_thread;
 pub(crate) use reconnect::cancel as cancel_recovery;
 pub(crate) use recovery::{recover_for_attachment, retry};
-use surfaces::show_unavailable;
 pub(crate) use surfaces::{reveal_main, show_start_failure};
+use surfaces::{show_unavailable, show_unavailable_recorded};
 
 pub fn application_context(
     context: tauri::Context<codeterm_client_shell::app_runtime::Runtime>,
@@ -600,7 +602,11 @@ pub(crate) fn server_disconnected(
     process: Arc<codeterm_process_identity::PinnedProcess>,
 ) {
     if let Some(window) = app.get_webview_window("main") {
-        show_unavailable(&window);
+        show_unavailable(
+            &window,
+            FailureCode::NativeDisconnect,
+            "Native server connection closed",
+        );
     }
     if !crate::crash::exit::is_client_exit_pending() {
         reconnect::start(app, ready, process);
@@ -809,7 +815,7 @@ fn observe_navigation(
                 if let Err(error) = reveal {
                     log::error!("[frontend-shell] root reveal failed: {error}");
                     if let Some(window) = app.get_webview_window("starting") {
-                        show_start_failure(&window, &error);
+                        show_start_failure(&window, FailureCode::RootRevealFailed, &error);
                     }
                 }
                 return;
@@ -830,6 +836,7 @@ fn observe_navigation(
             log::debug!("[frontend-shell] stale boot failure ignored: navigation={current_navigation}, server_epoch={server_epoch}");
             return;
         }
+        FailureCode::RootAckDeadline.record("Root render acknowledgement deadline exceeded");
         match unrendered {
             UnrenderedRoot::KeepDocument => {
                 log::debug!("[frontend-shell] page-initiated document kept: navigation={current_navigation}");
@@ -837,7 +844,11 @@ fn observe_navigation(
             }
             UnrenderedRoot::Unavailable => {
                 log::warn!("[frontend-shell] packaged root render was not acknowledged");
-                show_unavailable(&window);
+                show_unavailable_recorded(
+                    &window,
+                    &FailureCode::RootAckDeadline
+                        .detail("Root render acknowledgement deadline exceeded"),
+                );
                 return;
             }
             UnrenderedRoot::PackagedFallback => {}
@@ -849,12 +860,12 @@ fn observe_navigation(
             Ok(fallback) => {
                 if let Err(error) = navigate_frontend(&app, &window, fallback) {
                     log::error!("[frontend-shell] packaged fallback navigation failed: {error}");
-                    show_unavailable(&window);
+                    show_unavailable(&window, FailureCode::FallbackNavigationFailed, &error);
                 }
             }
             Err(error) => {
                 log::error!("[frontend-shell] packaged fallback URL failed: {error}");
-                show_unavailable(&window);
+                show_unavailable(&window, FailureCode::FallbackUnavailable, &error);
             }
         }
     });
@@ -950,18 +961,22 @@ pub fn start(app: codeterm_client_shell::app_runtime::AppHandle) {
                             log::debug!("[frontend-shell] navigating after server readiness: epoch={server_epoch}, url={}", navigation_identity(&url));
                             if let Err(error) = navigate_frontend(&app, &window, url) {
                                 log::error!("[frontend-shell] navigation failed: {error}");
-                                show_unavailable(&window);
+                                show_unavailable(&window, FailureCode::NavigationFailed, &error);
                             }
                         }
                         Ok(_) => {}
                         Err(error) => {
                             log::error!("[frontend-shell] frontend unavailable: {error}");
-                            show_unavailable(&window);
+                            show_unavailable(&window, FailureCode::StartupStreamFailed, &error);
                         }
                     }
                 } else {
                     log::error!("[frontend-shell] frontend has no authenticated server attachment");
-                    show_unavailable(&window);
+                    show_unavailable(
+                        &window,
+                        FailureCode::NoServerAttachment,
+                        "No authenticated server attachment",
+                    );
                 }
             }
             if windows.changed().await.is_err() {
@@ -998,3 +1013,13 @@ fn same_server_attachment(
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn quit_surface() -> &'static str {
+    if !ON_RECOVERY_SURFACE.load(Ordering::Acquire) {
+        "normal"
+    } else if ON_START_FAILURE.load(Ordering::Acquire) {
+        "failure_page"
+    } else {
+        "recovery_page"
+    }
+}

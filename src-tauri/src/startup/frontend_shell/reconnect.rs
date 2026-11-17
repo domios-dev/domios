@@ -282,7 +282,7 @@ pub(super) fn start(
                         .get_webview_window("starting")
                         .or_else(|| handle.get_webview_window("main"))
                     {
-                        show_start_failure(&window, &reason);
+                        show_start_failure(&window, FailureCode::ReconnectFailed, &reason);
                     }
                 }
                 Ok(())

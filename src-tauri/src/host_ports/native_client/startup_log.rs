@@ -60,7 +60,7 @@ struct Trail {
 impl Trail {
     fn new() -> Self {
         Self {
-            file: log_path().and_then(|path| open_at(&path, true)),
+            file: log_path().and_then(|path| open_session_at(&path)),
             model: TrailModel::default(),
         }
     }
@@ -71,6 +71,19 @@ static TRAIL: Mutex<Option<Trail>> = Mutex::new(None);
 fn log_path() -> Option<std::path::PathBuf> {
     let paths = codeterm_paths::instance_identity::ResolvedInstancePaths::current().ok()?;
     Some(paths.data().join("logs/client-startup.log"))
+}
+
+fn open_session_at(path: &std::path::Path) -> Option<File> {
+    let previous = path.with_file_name("client-startup.prev.log");
+    if path.exists() {
+        match std::fs::remove_file(&previous) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return None,
+        }
+        std::fs::rename(path, previous).ok()?;
+    }
+    open_at(path, true)
 }
 
 fn open_at(path: &std::path::Path, truncate: bool) -> Option<File> {

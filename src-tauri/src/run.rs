@@ -156,6 +156,7 @@ pub fn run(
                                 if let Some(window) = handle.get_webview_window("starting") {
                                     startup::frontend_shell::show_start_failure(
                                         &window,
+                                    startup::frontend_shell::FailureCode::FrontendInitializationFailed,
                                         &error.to_string(),
                                     );
                                 }
@@ -173,6 +174,7 @@ pub fn run(
                             if let Some(window) = app_handle.get_webview_window("starting") {
                                 startup::frontend_shell::show_start_failure(
                                     &window,
+                                    startup::frontend_shell::FailureCode::FrontendSchedulingFailed,
                                     &error.to_string(),
                                 );
                             }
@@ -191,6 +193,7 @@ pub fn run(
                             {
                                 startup::frontend_shell::show_start_failure(
                                     &window,
+                                    startup::frontend_shell::FailureCode::ServerAttachmentFailed,
                                     error.message(),
                                 );
                             }
@@ -332,7 +335,10 @@ pub(crate) fn request_client_quit_exact(
             &result,
             || crash::exit::confirm_client_exit(ticket),
             |resolution| match resolution {
-                QuitResolution::ExitClient => app.exit(0),
+                QuitResolution::ExitClient => {
+                    crate::host_ports::native_client::record_client_quit("server_exit_confirmed");
+                    app.exit(0);
+                }
                 QuitResolution::CloseClientOnly => close_client_only(&app),
                 QuitResolution::Feedback(feedback) => show_quit_feedback(&app, feedback),
             },

@@ -37,7 +37,7 @@ async fn reinitialize_client(app: codeterm_client_shell::app_runtime::AppHandle)
                     .get_webview_window("starting")
                     .or_else(|| app.get_webview_window("main"))
                 {
-                    show_start_failure(&window, &error);
+                    show_start_failure(&window, FailureCode::AttachmentRecoveryFailed, &error);
                 }
             }
         }
@@ -50,7 +50,7 @@ async fn reinitialize_client(app: codeterm_client_shell::app_runtime::AppHandle)
                 .get_webview_window("starting")
                 .or_else(|| app.get_webview_window("main"))
             {
-                show_start_failure(&window, error.message());
+                show_start_failure(&window, FailureCode::ClientRetryFailed, error.message());
             }
         }
     }
@@ -70,7 +70,7 @@ pub(crate) fn retry(app: &codeterm_client_shell::app_runtime::AppHandle) {
                 .get_webview_window("starting")
                 .or_else(|| app.get_webview_window("main"))
             {
-                show_start_failure(&window, &error);
+                show_start_failure(&window, FailureCode::RetryCancellationFailed, &error);
             }
             return;
         }
@@ -109,7 +109,7 @@ pub(crate) fn retry(app: &codeterm_client_shell::app_runtime::AppHandle) {
             Ok(url) => {
                 if let Err(error) = navigate_frontend(&app, &window, url) {
                     log::error!("[frontend-shell] native frontend retry failed: {error}");
-                    show_unavailable(&window);
+                    show_unavailable(&window, FailureCode::RetryNavigationFailed, &error);
                 }
             }
             Err(error) => {
