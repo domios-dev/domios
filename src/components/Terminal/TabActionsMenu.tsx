@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { Tab } from "../../lib/types";
 import { BusyState } from "../shared/BusyState";
 import { KebabGlyph } from "../shared/RowMenuButton";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
@@ -6,16 +7,18 @@ import { TabMenu } from "./TabMenu";
 import type { TabMenuAction, TabMenuEntry } from "./tabMenuModel";
 
 interface TabActionsMenuProps {
+  tab?: Tab;
   entries: TabMenuEntry[];
   busy: boolean;
   onAction: (action: TabMenuAction) => void;
   onOpen?: () => void;
 }
 
-export function TabActionsMenu({ entries, busy, onAction, onOpen }: TabActionsMenuProps) {
+export function TabActionsMenu({ tab, entries, busy, onAction, onOpen }: TabActionsMenuProps) {
   const [open, setOpen] = useState(false);
   return (
     <TabMenu
+      tab={tab}
       entries={entries}
       onAction={onAction}
       menuTestId="tab-actions-menu"

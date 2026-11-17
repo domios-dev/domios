@@ -359,6 +359,7 @@ export function TabTopBar({
       </div>
         {entries.length > 0 && (
           <TabActionsMenu
+            tab={menuTab ?? undefined}
             entries={entries}
             busy={reconnecting || restarting}
             onAction={runMenuAction}
