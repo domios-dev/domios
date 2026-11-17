@@ -6,7 +6,7 @@ import type { RestorableRuntimeLaunchOptions } from "./RestorableRuntimeLaunchOp
 import type { TaskFiles } from "./TaskFiles";
 import type { WorkerRestartState } from "./WorkerRestartState";
 
-export type RestorableLaunchParameters = { account_notices?: Array<AccountContinuationNotice>, account_id?: string, account_namespace?: string | null, execution_mode?: string, execution_sandbox?: ExecutionSandboxPolicy, failed_provider?: string, structured_runtime_mode?: string, context_files?: TaskFiles, context_skills?: string, worker_restart?: WorkerRestartState, captured: boolean, requested_model?: string, model?: string, requested_reasoning_effort?: string, resolved_reasoning_effort?: string, args?: Array<string>, agent_name?: string, identity_instructions?: string, permission_bypass_requested: boolean, runtime_launch_options?: RestorableRuntimeLaunchOptions, 
+export type RestorableLaunchParameters = { account_notices?: Array<AccountContinuationNotice>, account_id?: string, account_namespace?: string | null, execution_mode?: string, execution_sandbox?: ExecutionSandboxPolicy, failed_provider?: string, structured_runtime_mode?: string, context_files?: TaskFiles, context_skills?: string, worker_restart?: WorkerRestartState, captured: boolean, requested_model?: string, model?: string, requested_reasoning_effort?: string, resolved_reasoning_effort?: string, args?: Array<string>, agent_name?: string, identity_instructions?: string, permission_bypass_requested: boolean, runtime_launch_options?: RestorableRuntimeLaunchOptions,
 /**
  * Absent means the owner never chose; a false launch record alone is not an owner choice.
  */

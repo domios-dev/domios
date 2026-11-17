@@ -15,11 +15,11 @@ import type { RuntimeRegistryDefaults } from "./RuntimeRegistryDefaults";
 import type { RuntimeServiceTier } from "./RuntimeServiceTier";
 import type { RuntimeThreadHistoryCapability } from "./RuntimeThreadHistoryCapability";
 
-export type AgentRuntimeCapability = { httpSse?: RuntimeHttpSse, localImagePaths?: boolean, hostMcp?: RuntimeHostMcpDeclaration, envelope?: AgentRuntimeEnvelope, interrupt?: RuntimeInterruptCapability, clientBridges?: RuntimeClientBridges, launchProfiles?: { [key in string]: RuntimeLaunchProfile }, 
+export type AgentRuntimeCapability = { httpSse?: RuntimeHttpSse, localImagePaths?: boolean, hostMcp?: RuntimeHostMcpDeclaration, envelope?: AgentRuntimeEnvelope, interrupt?: RuntimeInterruptCapability, clientBridges?: RuntimeClientBridges, launchProfiles?: { [key in string]: RuntimeLaunchProfile },
 /**
  * Declarations a profile installed from this registry id inherits unless it declares its own.
  */
-registryDefaults?: { [key in string]: RuntimeRegistryDefaults }, restrictedCli?: RestrictedCliCapability, runtimeModes?: Array<RuntimeModeDescriptor>, 
+registryDefaults?: { [key in string]: RuntimeRegistryDefaults }, restrictedCli?: RestrictedCliCapability, runtimeModes?: Array<RuntimeModeDescriptor>,
 /**
  * Agent permission requests carry declared option kinds, so the host answers them from the
  * launch policy and a full-access launch needs no command-line flag.

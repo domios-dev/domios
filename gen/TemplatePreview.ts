@@ -6,11 +6,11 @@ import type { TemplatePayloadItem } from "./TemplatePayloadItem";
 import type { TemplateStartForm } from "./TemplateStartForm";
 import type { TemplateWhere } from "./TemplateWhere";
 
-export type TemplatePreview = { form: TemplateStartForm, where_needed?: TemplateWhere | null, 
+export type TemplatePreview = { form: TemplateStartForm, where_needed?: TemplateWhere | null,
 /**
  * The package's `requires.harnesses`, whether or not this machine has them.
  */
-requires_harnesses?: Array<string>, asks?: Array<TemplateAsk>, payload?: Array<TemplatePayloadItem>, warnings?: Array<PackageDiagnostic>, consent?: TemplateConsent | null, 
+requires_harnesses?: Array<string>, asks?: Array<TemplateAsk>, payload?: Array<TemplatePayloadItem>, warnings?: Array<PackageDiagnostic>, consent?: TemplateConsent | null,
 /**
  * The package works in an existing project checkout, so a fresh empty workspace cannot host it.
  */

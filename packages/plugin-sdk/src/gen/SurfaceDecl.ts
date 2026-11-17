@@ -6,23 +6,23 @@ import type { JsonValue } from "./serde_json/JsonValue";
 /**
  * A plugin-declared app tab (`capabilities.surfaces[]`).
  */
-export type SurfaceDecl = { id: string, title: string, renderer: SurfaceRenderer, agentBound?: boolean, restore: SurfaceRestore, 
+export type SurfaceDecl = { id: string, title: string, renderer: SurfaceRenderer, agentBound?: boolean, restore: SurfaceRestore,
 /**
  * The core surface runtime a `stream` surface runs on; core branches on it, never on the plugin id.
  */
-runtime?: string, 
+runtime?: string,
 /**
  * Toolbar spec core passes through to the frontend untouched.
  */
-chrome?: JsonValue, 
+chrome?: JsonValue,
 /**
  * Lucide-style icon name for the surface's tab; an invalid name is dropped at load.
  */
-icon?: string, 
+icon?: string,
 /**
  * View verbs callable through the authenticated host surface bridge.
  */
-agentVerbs?: Array<string>, 
+agentVerbs?: Array<string>,
 /**
  * Allows identity-only state invalidations for this view's live instances.
  */

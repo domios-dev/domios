@@ -28,22 +28,22 @@ import type { SystemPromptDelivery } from "./SystemPromptDelivery";
  * `schema_version` lets us evolve the wire format without silently
  * breaking external consumers. Bump it when fields are added/removed.
  */
-export type ProviderDescriptor = { accounts?: AccountCapability, general_agent_offer_when_absent?: boolean, attachments: AttachmentCapabilities, remote_task?: RemoteTaskCapability, agent_runtime?: AgentRuntimeCapability, cli_login?: CliLoginCapability, supports_session_fork: boolean, supports_initial_prompt_update_on_resume: boolean, neighbor_concierge: NeighborConciergeCapability, schema_version: number, cli_status?: ProviderCliStatus, id: string, catalogue_version: number, display_name: string, icon_hint?: string, icon_svg?: string, icon_color?: string, available_models: Array<ModelInfo>, model_catalogue: ModelCatalogueCapability, 
+export type ProviderDescriptor = { accounts?: AccountCapability, general_agent_offer_when_absent?: boolean, attachments: AttachmentCapabilities, remote_task?: RemoteTaskCapability, agent_runtime?: AgentRuntimeCapability, cli_login?: CliLoginCapability, supports_session_fork: boolean, supports_initial_prompt_update_on_resume: boolean, neighbor_concierge: NeighborConciergeCapability, schema_version: number, cli_status?: ProviderCliStatus, id: string, catalogue_version: number, display_name: string, icon_hint?: string, icon_svg?: string, icon_color?: string, available_models: Array<ModelInfo>, model_catalogue: ModelCatalogueCapability,
 /**
  * Provider-owned groupings of `available_models` (for example the upstream
  * company a routed model belongs to). Empty ⇒ one flat list. Core never
  * maps a vendor id to a label; the provider declares both.
  */
-model_groups: Array<ModelGroup>, default_model?: string, 
+model_groups: Array<ModelGroup>, default_model?: string,
 /**
  * Reasoning-effort levels this provider supports at launch. Empty ⇒ the
  * provider exposes no effort selector and callers must not offer one.
  */
-reasoning_efforts: Array<ReasoningEffortInfo>, 
+reasoning_efforts: Array<ReasoningEffortInfo>,
 /**
  * Default effort id (must match one of `reasoning_efforts` when non-None).
  */
-default_reasoning_effort?: string, settings_schema: Array<SettingField>, 
+default_reasoning_effort?: string, settings_schema: Array<SettingField>,
 /**
  * Schema rendered into the global Settings → Notifications tab,
  * next to (not inside) the per-provider settings tab. Lets a
@@ -52,86 +52,86 @@ default_reasoning_effort?: string, settings_schema: Array<SettingField>,
  * Default empty — providers without notification integration
  * (e.g. Codex today) simply contribute nothing.
  */
-notifications_schema: Array<SettingField>, supports_lazy_skills: boolean, has_hooks: boolean, 
+notifications_schema: Array<SettingField>, supports_lazy_skills: boolean, has_hooks: boolean,
 /**
  * Provider writes custom model endpoints into its own config (`model_provider_config`).
  */
-supports_model_endpoints: boolean, 
+supports_model_endpoints: boolean,
 /**
  * Provider supplies its own explicit permission/sandbox bypass flags.
  */
-supports_permission_bypass: boolean, 
+supports_permission_bypass: boolean,
 /**
  * Optional CLI installation metadata used by install surfaces. PTY launch
  * availability is observed from `AgentProvider::binary_name()` instead.
  */
-cli_binary?: string, 
+cli_binary?: string,
 /**
  * Shell command for installing the CLI on the current platform. Frontend
  * pipes it into a fresh terminal tab when the user clicks Install.
  */
-install_command?: string, 
+install_command?: string,
 /**
  * Short provider-declared note picker surfaces render beside the name,
  * e.g. a free-tier offer. Keeps the claim with the provider that owns it.
  */
-badge?: string, 
+badge?: string,
 /**
  * Shell command for updating the CLI on the current platform.
  */
-update_command?: string, 
+update_command?: string,
 /**
  * How a live tab of this provider switches model; `unsupported` means the
  * model is chosen only at spawn.
  */
-model_switch: ModelSwitchMode, 
+model_switch: ModelSwitchMode,
 /**
  * Provider-declared command that starts a fresh context in the same tab.
  */
-fresh_context_command?: string, 
+fresh_context_command?: string,
 /**
  * Provider-declared in-agent command that compacts (summarizes) context.
  * Consumed capability-keyed by the orchestrator refresh cycle — never a
  * provider-id literal. Absent means no compact capability (mode-B fallback).
  */
-compact_command?: string, 
+compact_command?: string,
 /**
  * Optional `integration.trust_grant` capability. Absent ⇒ integration
  * install needs no provider-owned trust grant step.
  */
-integration_trust_grant?: IntegrationTrustGrantCapability, 
+integration_trust_grant?: IntegrationTrustGrantCapability,
 /**
  * `true` when this provider declares a stop sequence — UI shows
  * a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
  */
-supports_stop: boolean, supports_subagent_visibility: boolean, 
+supports_stop: boolean, supports_subagent_visibility: boolean,
 /**
  * `true` when the provider can render a tab as chat — either it
  * stores sessions as tailable JSONL or serves structured chat from
  * its own store. The UI gates the chat/terminal toggle on this
  * instead of a hardcoded provider list.
  */
-supports_chat_ui: boolean, 
+supports_chat_ui: boolean,
 /**
  * `true` when the provider exposes a structured prompt source in its
  * current interactive run mode (claude AskUserQuestion in the JSONL
  * transcript, opencode SSE bus). Core builds `pending_prompt` from the
  * structured handle first and only falls back to PTY scraping otherwise.
  */
-supports_structured_prompts: boolean, supports_prompt_answers: boolean, 
+supports_structured_prompts: boolean, supports_prompt_answers: boolean,
 /**
  * `true` when the provider can recognize its own permission prompts.
  */
-supports_permission_auto_confirm: boolean, 
+supports_permission_auto_confirm: boolean,
 /**
  * `true` when a chatBackend plugin implements watcher mode (manifest
  * `chatBackend: { watcher: true }`). Always `false` for PTY transports.
  */
-supports_watcher: boolean, 
+supports_watcher: boolean,
 /**
  * Maximum text body size accepted as an inline paste, when declared.
  */
-paste_limit_bytes?: number, 
+paste_limit_bytes?: number,
 /**
  * Trust status of the bundle backing this provider. `system` =
  * shipped by CodeTerm, hash matched the build-time table, or was
@@ -141,29 +141,29 @@ paste_limit_bytes?: number,
  * `third_party` = plugin id not in the system table.
  * `unknown` = native (Rust-side) provider, no hash to check.
  */
-trust: ProviderTrust, 
+trust: ProviderTrust,
 /**
  * Runtime backing this provider — the spawn discriminant (was the `kind` string).
  */
-transport: ProviderTransport, 
+transport: ProviderTransport,
 /**
  * Behavior surface the provider exposes for configuration.
  */
-behavior_config: BehaviorConfig, 
+behavior_config: BehaviorConfig,
 /**
  * Named presets the provider offers (chat backends); agents default empty.
  */
-presets: Array<PresetInfo>, 
+presets: Array<PresetInfo>,
 /**
  * How a system prompt reaches the provider.
  */
-system_prompt_delivery: SystemPromptDelivery, 
+system_prompt_delivery: SystemPromptDelivery,
 /**
  * Who composes this provider's conversational context. Skipped on the wire
  * while `Plugin`, so a provider that never declares it serializes exactly
  * as it did before the field existed.
  */
-context_owner?: ContextOwner, 
+context_owner?: ContextOwner,
 /**
  * What enumeration observed about `binary_name()` on this machine.
  * Defaults to `unknown` so a descriptor nobody probed cannot claim more

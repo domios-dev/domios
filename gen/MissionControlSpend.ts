@@ -9,11 +9,11 @@ import type { SpendScope } from "./SpendScope";
  * sum over `token_usage` rows; the provider percentages beside them are a separate
  * provider/window allowance reading and are never apportioned across models.
  */
-export type MissionControlSpend = { scope: SpendScope, state: KpiLedgerState, not_recording_reason: KpiNotRecordingReason | null, 
+export type MissionControlSpend = { scope: SpendScope, state: KpiLedgerState, not_recording_reason: KpiNotRecordingReason | null,
 /**
  * `Some` exactly when recording is off because of the opt-out.
  */
-enable_setting: string | null, 
+enable_setting: string | null,
 /**
  * Denominator behind every `token_share_pct`: uncached input over all rows, the
  * part that costs; cache reads would otherwise swamp every share.

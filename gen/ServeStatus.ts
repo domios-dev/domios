@@ -4,23 +4,23 @@ import type { ServeReconcileSnapshot } from "./ServeReconcileSnapshot";
 /**
  * Snapshot the UI uses to decide which Web Access affordance to show.
  */
-export type ServeStatus = { 
+export type ServeStatus = {
 /**
  * Tailscale CLI present and responding on this machine.
  */
-installed: boolean, 
+installed: boolean,
 /**
  * Tailscale Serve already terminates HTTPS and proxies to THIS daemon.
  */
-active: boolean, 
+active: boolean,
 /**
  * The live HTTPS base URL when `active`, else None.
  */
-https_url: string | null, 
+https_url: string | null,
 /**
  * This node's MagicDNS name used by the serve URL.
  */
-self_dns: string | null, 
+self_dns: string | null,
 /**
  * Host OS (`std::env::consts::OS`) — the UI needs it to show the macOS-only
  * `tailscale cert` step in the exact-command confirmation preview.

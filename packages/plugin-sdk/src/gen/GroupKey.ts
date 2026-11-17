@@ -2,11 +2,11 @@
 import type { Dimension } from "./Dimension";
 import type { KeyReason } from "./KeyReason";
 
-export type GroupKey = { dimension: Dimension, id: string | null, 
+export type GroupKey = { dimension: Dimension, id: string | null,
 /**
  * Set on model keys only: a model id is scoped to the provider that reported it.
  */
-provider?: string, 
+provider?: string,
 /**
  * Why the id is null, or why a present id has no record behind it.
  */

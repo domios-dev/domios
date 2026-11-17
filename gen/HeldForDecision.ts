@@ -2,7 +2,7 @@
 import type { HeldReview } from "./HeldReview";
 import type { OpenDecisionGate } from "./OpenDecisionGate";
 
-export type HeldForDecision = { held_reviews: Array<HeldReview>, open_gates: Array<OpenDecisionGate>, 
+export type HeldForDecision = { held_reviews: Array<HeldReview>, open_gates: Array<OpenDecisionGate>,
 /**
  * Age of the oldest held review, measured from its newest review milestone.
  */

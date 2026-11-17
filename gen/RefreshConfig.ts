@@ -5,7 +5,7 @@
  * `after_reflection` stays OFF until the drill series passes — the manual
  * `domios orchestrator refresh` trigger is always available regardless.
  */
-export type RefreshConfig = { 
+export type RefreshConfig = {
 /**
  * Auto-run a refresh after a reflection block records its learning. OFF by default.
  */

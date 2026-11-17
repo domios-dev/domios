@@ -3,31 +3,31 @@
 /**
  * One remote worker, as last seen by the orchestrator it reports to.
  */
-export type RemoteWorker = { 
+export type RemoteWorker = {
 /**
  * Paired peer (instance name) the worker runs on.
  */
-peer: string, 
+peer: string,
 /**
  * The worker's tab id on that peer (its `CODETERM_TAB_ID`).
  */
-remote_tab: string, 
+remote_tab: string,
 /**
  * Display label (worker title), as reported.
  */
-title: string, 
+title: string,
 /**
  * Model family, when the report carried one.
  */
-model: string | null, 
+model: string | null,
 /**
  * Last reported lifecycle status: `working` | `done` | `blocked` | `partial`.
  */
-status: string, 
+status: string,
 /**
  * Last report body (trimmed for display).
  */
-last_message: string, 
+last_message: string,
 /**
  * Wall-clock of the last report (ms since epoch), stamped by the caller.
  */

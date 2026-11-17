@@ -13,17 +13,17 @@ import type { TaskExecutionReportSnapshot } from "./TaskExecutionReportSnapshot"
 import type { TaskExecutorTermination } from "./TaskExecutorTermination";
 import type { WorkerPlacement } from "./WorkerPlacement";
 
-export type TaskExecutionAttempt = { role_profile?: string, id: string, executor_tab_id: string, executor_title: string | null, provider: string | null, agent_type: string | null, model: string | null, requested_model?: string, launch_profile?: string, provider_resolved_model?: string, reasoning_effort: string | null, actual_reasoning_effort: string | null, session_model: string | null, model_identity_mismatch?: AttemptModelIdentityMismatch, session_id: string | null, session_binding_nonce: string | null, binding_restorations?: Array<AttemptBindingRestorationReceipt>, role: string | null, parent_tab_id: string | null, orchestrator_tab_id: string | null, mesh_peer: string | null, remote_dispatch_state?: RemoteDispatchState, remote_worktree_path?: string, remote_lane_tip?: string, remote_merge_commit?: string, branch: string | null, worktree_path: string | null, lane_ownership?: LaneOwnership, checkout_path?: string, shared_start_sha?: string, 
+export type TaskExecutionAttempt = { role_profile?: string, id: string, executor_tab_id: string, executor_title: string | null, provider: string | null, agent_type: string | null, model: string | null, requested_model?: string, launch_profile?: string, provider_resolved_model?: string, reasoning_effort: string | null, actual_reasoning_effort: string | null, session_model: string | null, model_identity_mismatch?: AttemptModelIdentityMismatch, session_id: string | null, session_binding_nonce: string | null, binding_restorations?: Array<AttemptBindingRestorationReceipt>, role: string | null, parent_tab_id: string | null, orchestrator_tab_id: string | null, mesh_peer: string | null, remote_dispatch_state?: RemoteDispatchState, remote_worktree_path?: string, remote_lane_tip?: string, remote_merge_commit?: string, branch: string | null, worktree_path: string | null, lane_ownership?: LaneOwnership, checkout_path?: string, shared_start_sha?: string,
 /**
  * Content hashes of the declared edit files at dispatch; present only for
  * a shared attempt in a project folder without git history.
  */
-shared_start_files?: { [key in string]: string }, base: string | null, destination: string | null, 
+shared_start_files?: { [key in string]: string }, base: string | null, destination: string | null,
 /**
  * `Some` means this attempt came from the gate-aware dispatch path. An
  * empty list is deliberate: that dispatch granted no gate permission.
  */
-authorized_gates?: Array<string>, 
+authorized_gates?: Array<string>,
 /**
  * Reserved by dispatch; never inferred from a Worker's checkout path.
  */

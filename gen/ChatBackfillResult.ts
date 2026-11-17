@@ -2,7 +2,7 @@
 import type { ChatMsg } from "./ChatMsg";
 import type { ChatOffsetKind } from "./ChatOffsetKind";
 
-export type ChatBackfillResult = { text: string, offset_kind: ChatOffsetKind, start_offset: number, end_offset: number, 
+export type ChatBackfillResult = { text: string, offset_kind: ChatOffsetKind, start_offset: number, end_offset: number,
 /**
  * Window parsed with the tab's own provider parser — same normalized
  * shape as `ChatStartResult::messages`, ready to merge client-side.

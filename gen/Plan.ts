@@ -30,7 +30,7 @@ import type { Task } from "./Task";
 import type { TaskGroup } from "./TaskGroup";
 import type { TransferRecord } from "./TransferRecord";
 
-export type Plan = { id: string, title: string, sections: Array<Section>, status: PlanStatus, mode: PlanMode, paused_from_mode: PlanMode | null, pause_operations?: Array<PlanPauseOperation>, owner: OrchestratorRef, 
+export type Plan = { id: string, title: string, sections: Array<Section>, status: PlanStatus, mode: PlanMode, paused_from_mode: PlanMode | null, pause_operations?: Array<PlanPauseOperation>, owner: OrchestratorRef,
 /**
  * Optional 1:1 team binding; None keeps legacy plans teamless.
  */

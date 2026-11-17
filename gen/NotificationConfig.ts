@@ -2,25 +2,25 @@
 import type { AgentLevelChoice } from "./AgentLevelChoice";
 import type { PushChannelConfig } from "./PushChannelConfig";
 
-export type NotificationConfig = { desktop: boolean, 
+export type NotificationConfig = { desktop: boolean,
 /**
  * The chime's master mute. Which levels chime is each level's own answer
  * on its row; this silences all of them at once without destroying those
  * answers, and is the one gesture the browser's audio permission hangs off.
  */
-sound: boolean, toast_duration: number, 
+sound: boolean, toast_duration: number,
 /**
  * Whether the bell surface is rendered at all. Presentation, not routing:
  * off hides the indicator while every record is still kept, which is why
  * it stays distinguishable from every row having its bell column off.
  */
-show_bell: boolean, 
+show_bell: boolean,
 /**
  * Per-channel push opt-in, keyed by the channel's service id. Core keeps
  * the map and never a channel's name; a channel whose audience lives in
  * its own integration config simply has no entry here.
  */
-channels: { [key in string]: PushChannelConfig }, 
+channels: { [key in string]: PushChannelConfig },
 /**
  * One row per level of the shared set, each naming where that level may
  * go. A fresh install names the bell and nothing else, at every level; an

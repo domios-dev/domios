@@ -3,7 +3,7 @@
 /**
  * Provider-authoritative top-level turn completion, including all automatic continuations.
  */
-export type ReplyRelayTurn = { userTurnId: string, 
+export type ReplyRelayTurn = { userTurnId: string,
 /**
  * UTF-8 byte start of the original user record in this session history.
  */

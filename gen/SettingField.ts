@@ -15,12 +15,12 @@ import type { JsonValue } from "./serde_json/JsonValue";
  * **Schema completeness rule:** if a real plugin needs a UI pattern not
  * covered here, ADD A NEW VARIANT — never carve out an escape hatch.
  */
-export type SettingField = { "kind": "section", title: string, description?: string, fields: Array<SettingField>, } | { "kind": "toggle", 
+export type SettingField = { "kind": "section", title: string, description?: string, fields: Array<SettingField>, } | { "kind": "toggle",
 /**
  * Config path relative to the plugin's namespace
  * (e.g. `"resume_sessions"` → `agents.<id>.resume_sessions`).
  */
-key: string, label: string, default: boolean, description?: string, } | { "kind": "text", key: string, label: string, default?: string, placeholder?: string, description?: string, } | { "kind": "number", key: string, label: string, default?: number, min?: number, max?: number, description?: string, } | { "kind": "select", key: string, label: string, 
+key: string, label: string, default: boolean, description?: string, } | { "kind": "text", key: string, label: string, default?: string, placeholder?: string, description?: string, } | { "kind": "number", key: string, label: string, default?: number, min?: number, max?: number, description?: string, } | { "kind": "select", key: string, label: string,
 /**
  * `(value, display)` pairs.
  */

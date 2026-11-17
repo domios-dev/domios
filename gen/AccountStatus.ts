@@ -3,11 +3,11 @@ import type { AccountIdentity } from "./AccountIdentity";
 import type { SignInFailure } from "./SignInFailure";
 import type { TargetMismatch } from "./TargetMismatch";
 
-export type AccountStatus = { server_stop_unconfirmed?: boolean, session_revoked?: boolean, provider: string, identity: AccountIdentity | null, pending: boolean, session_only: boolean, last_sign_in_failure: SignInFailure | null, 
+export type AccountStatus = { server_stop_unconfirmed?: boolean, session_revoked?: boolean, provider: string, identity: AccountIdentity | null, pending: boolean, session_only: boolean, last_sign_in_failure: SignInFailure | null,
 /**
  * Signed out because the saved sign-in belongs to another account target; the credential is kept.
  */
-target_mismatch?: TargetMismatch, 
+target_mismatch?: TargetMismatch,
 /**
  * The remote purchase switch; false unless the last fetch said exactly "true".
  */

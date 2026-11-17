@@ -5,26 +5,26 @@ import type { ReasoningEffortInfo } from "./ReasoningEffortInfo";
 /**
  * Single model offered by an agent provider.
  */
-export type ModelInfo = { id: string, display_name: string, description?: string, 
+export type ModelInfo = { id: string, display_name: string, description?: string,
 /**
  * Account-can-select-this-now. `None` (common) ⇒ no info, treat as available;
  * `Some(false)` greys it out in the picker. Set by live discovery; usually `None` in static seeds.
  */
-available?: boolean, 
+available?: boolean,
 /**
  * The probe's own three-state verdict. `None` ⇒ nothing probed this model,
  * so `available` alone decides; `Some(Unknown)` ⇒ the probe could not run.
  */
-availability?: ModelAvailability, primary?: boolean, 
+availability?: ModelAvailability, primary?: boolean,
 /**
  * `Some(true)` ⇒ the catalog lists this model ahead of the rest, preserving
  * catalog order within each group. `None`/`Some(false)` ⇒ ordinary order.
  */
-featured?: boolean, 
+featured?: boolean,
 /**
  * Short chip rendered beside the label in the spawn model picker.
  */
-badge?: string, 
+badge?: string,
 /**
  * Provider-declared picker section. Models sharing a `group` render together
  * under that heading; `None` models stay in the flat list. Core never derives

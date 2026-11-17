@@ -3,11 +3,11 @@
 /**
  * Bounds for one `read_session_content` call.
  */
-export type SessionContentQuery = { 
+export type SessionContentQuery = {
 /**
  * Newest-first ceiling on stored bytes the provider may scan for this session.
  */
-maxBytes: number, 
+maxBytes: number,
 /**
  * ASCII-lowercased terms; a message missing any of them may be omitted.
  * Core still matches every returned message itself.

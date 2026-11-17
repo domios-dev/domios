@@ -3,26 +3,26 @@ import type { ChatMsg } from "./ChatMsg";
 import type { ChatOffsetKind } from "./ChatOffsetKind";
 import type { ChatStartKind } from "./ChatStartKind";
 
-export type ChatStartResult = { kind: ChatStartKind, file_length?: number, 
+export type ChatStartResult = { kind: ChatStartKind, file_length?: number,
 /**
  * Vestigial raw-text channel; chat_start returns parsed `messages` today.
  */
-text: string, offset_kind: ChatOffsetKind, start_offset: number, offset: number, 
+text: string, offset_kind: ChatOffsetKind, start_offset: number, offset: number,
 /**
  * Agent provisioning is in flight; the tab boot state supplies its visible
  * progress until the mux reports a session id.
  */
-pending: boolean, 
+pending: boolean,
 /**
  * Structured providers (sqlite-backed, e.g. opencode) return parsed
  * messages here instead of raw `text`; the frontend renders them directly
  * and listens on `tab-chat-msg-{id}` for deltas. `None` = JSONL provider.
  */
-messages?: Array<ChatMsg>, 
+messages?: Array<ChatMsg>,
 /**
  * Read-only rows from prior provider sessions, ordered before this session.
  */
-archived_messages?: Array<ChatMsg>, cursor?: string, source_session_id: string | null, session_binding_nonce: string | null, subscription_id?: string, 
+archived_messages?: Array<ChatMsg>, cursor?: string, source_session_id: string | null, session_binding_nonce: string | null, subscription_id?: string,
 /**
  * The provider named no transcript source for this bound session, so
  * nothing is loading one: the chat view reports unavailable, never waits.

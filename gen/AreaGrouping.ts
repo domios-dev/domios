@@ -3,7 +3,7 @@ import type { AreaFacetState } from "./AreaFacetState";
 import type { AreaGroup } from "./AreaGroup";
 import type { RoleGroup } from "./RoleGroup";
 
-export type AreaGrouping = { state: AreaFacetState, facet_key: string | null, facet_label: string | null, groups: Array<AreaGroup>, untagged_task_count: number, 
+export type AreaGrouping = { state: AreaFacetState, facet_key: string | null, facet_label: string | null, groups: Array<AreaGroup>, untagged_task_count: number,
 /**
  * Populated only in the `no_facet` state: grouping by the stored executor role.
  */

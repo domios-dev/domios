@@ -4,7 +4,7 @@ import type { LaunchProcess } from "./LaunchProcess";
 /**
  * Everything core knows about one launch, and nothing about any other.
  */
-export type LaunchSessionEvidence = { cwd: string, 
+export type LaunchSessionEvidence = { cwd: string,
 /**
  * Inert token CodeTerm wrote into this launch's own provider-visible text.
  */

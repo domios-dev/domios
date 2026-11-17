@@ -5,11 +5,11 @@ import type { TemplateStartResult } from "./TemplateStartResult";
 /**
  * What became of a peer start; a started Team names its managers on the peer.
  */
-export type TemplatePeerStartOutcome = { request_id: string, peer_id: string, peer_name: string, state: TemplatePeerOutcomeState, origin_workspace_id?: string | null, workspace_id?: string | null, orchestrator_tab_id?: string | null, planner_tab_id?: string | null, 
+export type TemplatePeerStartOutcome = { request_id: string, peer_id: string, peer_name: string, state: TemplatePeerOutcomeState, origin_workspace_id?: string | null, workspace_id?: string | null, orchestrator_tab_id?: string | null, planner_tab_id?: string | null,
 /**
  * A typed refusal from the peer's start rail.
  */
-refusal?: TemplateStartResult | null, 
+refusal?: TemplateStartResult | null,
 /**
  * A plain reason for any other failure.
  */

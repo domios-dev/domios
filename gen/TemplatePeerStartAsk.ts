@@ -4,7 +4,7 @@ import type { TemplateStartRequest } from "./TemplateStartRequest";
 /**
  * What an origin asks a peer Main to start; the pair fields are the peer's own choices.
  */
-export type TemplatePeerStartAsk = { template: TemplateStartRequest, 
+export type TemplatePeerStartAsk = { template: TemplateStartRequest,
 /**
  * The peer's own workspace for the Team; the peer never falls back to, or focuses, another.
  */

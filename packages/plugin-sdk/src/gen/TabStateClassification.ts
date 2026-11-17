@@ -6,7 +6,7 @@ import type { TabStateData } from "./TabStateData";
 /**
  * The generic classification verdict returned by a provider.
  */
-export type TabStateClassification = { state: TabState, 
+export type TabStateClassification = { state: TabState,
 /**
  * Ensemble vote score in `0.0..=1.0`.
  */

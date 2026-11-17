@@ -4,7 +4,7 @@
  * One detected shell command. Built incrementally from prompt/command/finished
  * marks; finalized (pushed to the list) at `CommandEnd`.
  */
-export type ShellCommand = { commandLine?: string, exitCode?: number, cwd?: string, 
+export type ShellCommand = { commandLine?: string, exitCode?: number, cwd?: string,
 /**
  * Pre-exec `C` (output start) was observed. False in A/D-only degraded mode
  * (e.g. Windows PSReadLine under WIN32_INPUT_MODE) — boundary+exit still valid.

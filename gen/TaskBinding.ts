@@ -5,7 +5,7 @@
  * pane was launched with so a supervisor can match on identity, not on the
  * mutable display title. Written once at spawn; never overwritten by rename.
  */
-export type TaskBinding = { plan_id?: string, task_id?: string, attempt_id?: string, 
+export type TaskBinding = { plan_id?: string, task_id?: string, attempt_id?: string,
 /**
  * Stable digest of the `--task` handle for ad-hoc lanes with no plan task.
  */

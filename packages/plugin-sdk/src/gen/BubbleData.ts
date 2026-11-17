@@ -4,7 +4,7 @@ import type { Tone } from "./Tone";
 /**
  * A status pill. `tone` reuses the shared [`Tone`] token set.
  */
-export type BubbleData = { label: string, tone: Tone, icon?: string, tooltip?: string, 
+export type BubbleData = { label: string, tone: Tone, icon?: string, tooltip?: string,
 /**
  * Click behaviour. Reserved ids (`openPanel:<id>`, `settings`) open a host
  * view directly; absent ⇒ the bubble opens the plugin's glance popover.

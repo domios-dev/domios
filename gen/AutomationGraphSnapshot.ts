@@ -7,7 +7,7 @@ import type { AutomationScenario } from "./AutomationScenario";
 import type { BlueprintSnapshot } from "./BlueprintSnapshot";
 import type { QuarantinedBlueprint } from "./QuarantinedBlueprint";
 
-export type AutomationGraphSnapshot = { workspace_id: string, team_id: string | null, all_teams: boolean, revision: string, scenarios: Array<AutomationScenario>, nodes: Array<AutomationNode>, runs: Array<AutomationRun>, blueprints: Array<BlueprintSnapshot>, edges: Array<AutomationEdge>, truncated: boolean, configured_fallback: AutomationConfiguredFallback | null, 
+export type AutomationGraphSnapshot = { workspace_id: string, team_id: string | null, all_teams: boolean, revision: string, scenarios: Array<AutomationScenario>, nodes: Array<AutomationNode>, runs: Array<AutomationRun>, blueprints: Array<BlueprintSnapshot>, edges: Array<AutomationEdge>, truncated: boolean, configured_fallback: AutomationConfiguredFallback | null,
 /**
  * Committed Blueprints refused at load, with their typed reasons; they never run.
  */

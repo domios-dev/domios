@@ -2,23 +2,23 @@
 import type { AvailabilityItem } from "./AvailabilityItem";
 import type { InstallMethod } from "./InstallMethod";
 
-export type UpdateInfo = { availability: AvailabilityItem, current_version: string, latest_version: string, update_available: boolean, install_method: InstallMethod, 
+export type UpdateInfo = { availability: AvailabilityItem, current_version: string, latest_version: string, update_available: boolean, install_method: InstallMethod,
 /**
  * Command to run for package manager installs
  */
-update_command: string | null, 
+update_command: string | null,
 /**
  * Direct download URL for the platform-specific asset
  */
-download_url: string | null, 
+download_url: string | null,
 /**
  * GitHub release page URL
  */
-release_url: string, 
+release_url: string,
 /**
  * Release notes (markdown body)
  */
-release_notes: string | null, published_at: string | null, 
+release_notes: string | null, published_at: string | null,
 /**
  * Which path served this check: `direct` or `github_api`; absent when none was needed.
  */

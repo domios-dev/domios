@@ -16,7 +16,7 @@ import type { TeamRole } from "./TeamRole";
 /**
  * One Agentic Team Protocol package document: the typed form of `team.yaml`, in protocol field order.
  */
-export type TeamDocument = { name: string, version: string, title?: string | null, description: string, icon?: string | null, authors?: Array<PackageAuthor>, links?: PackageLinks | null, license?: string | null, when?: Array<string>, derived_from?: PackageLineage | null, project?: ProjectNeed | null, requires?: PackageRequires | null, inputs?: { [key in string]: PackageInput }, permissions?: PackagePermissions | null, secrets?: Array<PackageSecret>, files?: Array<PackageFile>, memory?: Array<PackageMemory>, skills?: Array<PackageSkill>, automation?: Array<PackageAutomation>, 
+export type TeamDocument = { name: string, version: string, title?: string | null, description: string, icon?: string | null, authors?: Array<PackageAuthor>, links?: PackageLinks | null, license?: string | null, when?: Array<string>, derived_from?: PackageLineage | null, project?: ProjectNeed | null, requires?: PackageRequires | null, inputs?: { [key in string]: PackageInput }, permissions?: PackagePermissions | null, secrets?: Array<PackageSecret>, files?: Array<PackageFile>, memory?: Array<PackageMemory>, skills?: Array<PackageSkill>, automation?: Array<PackageAutomation>,
 /**
  * Every team role by name, in package order; exactly one is `orchestrator`.
  */

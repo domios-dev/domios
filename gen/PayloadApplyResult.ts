@@ -4,12 +4,12 @@ import type { PayloadItemFailure } from "./PayloadItemFailure";
 /**
  * Start applies the opted-in payload; bake collects it back through the same mapping.
  */
-export type PayloadApplyResult = { applied: Array<string>, skipped?: Array<string>, 
+export type PayloadApplyResult = { applied: Array<string>, skipped?: Array<string>,
 /**
  * Accepted items that land later: Blueprints once the Orchestrator is live, skills once
  * the Team's plan binds.
  */
-deferred?: Array<string>, 
+deferred?: Array<string>,
 /**
  * Items that failed; every other item was still applied.
  */
