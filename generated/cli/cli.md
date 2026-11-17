@@ -134,8 +134,12 @@ Read a Neighbor's local permission policy
 
 General Agent: receive one named friend's messages here; confirm an existing receiver move with the owner
 
+- `--adopt-scope-from-pad` — Reconciled sharing scope for adoption, read from this tab's pad
+- `--expected-grant-digest`
 - `--expected-receiver-revision`
 - `<friendship_id>`
+- `--grant-choice` — Owner-confirmed grant decision after reviewing --preview
+- `--preview` — Read both local and previous receiver grants without moving receiving
 - `--takeover-confirmed` — Pass only after the owner explicitly agrees to move receiving from the named machine
 
 #### `domios account neighbors revoke`
