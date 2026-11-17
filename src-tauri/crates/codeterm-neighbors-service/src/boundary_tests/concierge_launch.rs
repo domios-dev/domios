@@ -9,12 +9,12 @@ const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
     const method = {initialize:'fixture/initialize',openThread:'fixture/open',readHistory:'fixture/history'}[op.kind];
-    return {action:{kind:'request',call:{method,params:{settings:op.settings,policy:ctx.restrictedCli}}},state:null};
+    return {action:{kind:'request',call:{method,params:{settings:op.settings ?? ctx.settings,policy:ctx.restrictedCli}}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
     if (op.kind === 'initialize') return {kind:'complete',result:{kind:'initialized'}};
     if (op.kind === 'openThread') return {kind:'complete',result:{kind:'threadLoaded',threadId:'fresh-thread',settings:reply.value.settings}};
-    return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:[],openItems:[],order:op.order}};
+    return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:[],openItems:[],...(op.order ? {order:op.order} : {})}};
   },
   runtimeReduce() { return {state:null,events:[]}; }
 };
