@@ -219,9 +219,8 @@ async fn run(
                 })?;
             recovery::retry_once(app.clone(), attempt == MAX_AUTOMATIC_ATTEMPTS)
                 .await
-                .map_err(|error| {
+                .inspect_err(|error| {
                     error.code.record(&error.reason);
-                    error
                 })?;
             root_outcome(&mut events).await
         };
