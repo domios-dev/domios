@@ -50,6 +50,21 @@ check("selects capabilities from authenticated shape, independent of version tex
   const legacy={...ctx,tabId:"v1-capability"};
   assert.equal(call(continued(response(legacy,op,runtimePlan(legacy,op),{version:"opaque-v1",healthy:true}))).method,"provider.list");
 });
+check("model selection on resume updates the same session before loading it",()=>{
+  const manifest=JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
+  assert.equal(manifest.commands.modelSwitch,"restart_resume");
+  assert.ok(manifest.defaultModel);
+  const ctx=initialized("v2-model-selection","opencode/selected"), op:Operation={kind:"resumeThread",threadId:ctx.threadId!,instructions:"opaque model selection",settings:ctx.settings};
+  let plan=runtimePlan(ctx,op);
+  assert.equal(call(plan).method,"v2.session.get");
+  plan=continued(response(ctx,op,plan,fixture.session));
+  assert.equal(call(plan).method,"v2.session.model");
+  assert.deepEqual(call(plan).params,{path:{sessionID:ctx.threadId},body:{model:{providerID:"opencode",id:"selected"}}});
+  plan=continued(response(ctx,op,plan,null));
+  const step=response(ctx,op,plan,null);
+  assert.equal(step.kind,"complete");
+  if(step.kind === "complete") assert.deepEqual(step.result,{kind:"threadLoaded",threadId:ctx.threadId,settings:ctx.settings});
+});
 check("recorded stream maps delivery, tool lifecycle, text, forms and usage",()=>{
   const {ctx,frames}=prepared("v2-stream"), reduced=runtimeReduce(ctx,null,frames), events=reduced.events;
   assert.equal(events.filter(e=>e.kind === "sendEvidence").length,1);

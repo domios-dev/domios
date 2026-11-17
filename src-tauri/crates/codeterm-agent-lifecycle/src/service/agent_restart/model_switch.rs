@@ -20,6 +20,7 @@ pub mod first_turn;
 pub(in crate::service::agent_restart) use first_turn::SessionlessTeardownError;
 pub mod live_command;
 pub mod next_turn;
+mod runtime;
 pub mod staging;
 
 /// Deadline for the relaunched session to report its model before returning pending.
@@ -422,6 +423,9 @@ impl ModelSwitchExt for ServiceContext {
         staged: Option<&staging::SwitchRequest>,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab_id) {
+            if crate::service::agent_runtime::controls::restart_resume_tab(self, &tab) {
+                return runtime::switch(self, &tab, requested, requested_effort, force);
+            }
             return crate::service::agent_runtime::controls::switch(
                 self,
                 &tab,

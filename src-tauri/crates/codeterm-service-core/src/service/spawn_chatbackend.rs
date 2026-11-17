@@ -283,6 +283,11 @@ impl ServiceContext {
             if config.is_null() {
                 config = serde_json::json!({});
             }
+            let resume = spec
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|launch| launch.agent.resume_session_id.as_deref());
+            launch_options::apply_model(self, &plugin_id, &mut config, resume)?;
             config
                 .as_object_mut()
                 .ok_or("Runtime spawn config must be an object")?
