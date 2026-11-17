@@ -1,5 +1,7 @@
 use codeterm_update::holders::{HolderProcess, HolderTab};
 
+mod reservation;
+
 impl super::ServiceContext {
     pub fn describe_update_holders(
         &self,
@@ -8,11 +10,32 @@ impl super::ServiceContext {
         let mut tabs = Vec::new();
         for process in processes {
             if let Some(tab_id) = self.update_holder_tab(&process)? {
+                let (pty_id, session) = {
+                    let mux = self.mux.read();
+                    let tab = mux
+                        .get_tab(&tab_id)
+                        .ok_or("update holder tab disappeared")?;
+                    let pty_id = tab.pty_id.clone().ok_or("update holder PTY disappeared")?;
+                    let session = self
+                        .pty
+                        .lock()
+                        .get_session(&pty_id)
+                        .ok_or("update holder PTY disappeared")?;
+                    (pty_id, session)
+                };
+                let input_revision = session.write_queue.input_revision();
                 let command = self.running_utility_command(&tab_id);
+                let unsettled = self.chat_send_ledger.has_unsettled_update_input(&tab_id);
                 let mux = self.mux.read();
                 let Some(tab) = mux.get_tab(&tab_id) else {
                     continue;
                 };
+                if tab.pty_id.as_deref() != Some(pty_id.as_str()) {
+                    return Err(format!(
+                        "Update blocked: {} changed its PTY; retry the update",
+                        tab.title
+                    ));
+                }
                 let workspace = mux
                     .workspaces
                     .iter()
@@ -23,8 +46,10 @@ impl super::ServiceContext {
                     tab.agent_type.is_some(),
                     tab.agent_state.as_ref().map(|state| state.state),
                     tab.shell_command_state.activity,
-                );
-                tabs.push(HolderTab {
+                ) || tab.utility_command_pending
+                    || tab.pending_delivery.is_some()
+                    || unsettled;
+                let holder = HolderTab {
                     process,
                     tab_id: tab_id.clone(),
                     title: tab.title.clone(),
@@ -39,7 +64,11 @@ impl super::ServiceContext {
                         .or_else(|| tab.agent_type.clone())
                         .unwrap_or_else(|| "shell (activity unknown)".into()),
                     busy,
-                });
+                    pty_id,
+                    pty_generation: session.generation,
+                    input_revision,
+                };
+                tabs.push(holder);
             }
         }
         Ok(tabs)

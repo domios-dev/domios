@@ -14,6 +14,15 @@ pub struct HolderTab {
     pub workspace: String,
     pub command: String,
     pub busy: bool,
+    pub pty_id: String,
+    pub pty_generation: u64,
+    pub input_revision: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReserveHolders {
+    pub tabs: Vec<HolderTab>,
+    pub initiating_tab: Option<String>,
 }
 
 pub const REFUSAL_PREFIX: &str = "Update blocked by busy tabs: ";

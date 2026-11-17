@@ -8,9 +8,27 @@ pub(super) struct PreparedHolders {
     owned_server: windows::OwnedServerHolders,
     #[cfg(windows)]
     tabs: Vec<codeterm_update::holders::HolderTab>,
+    #[cfg(windows)]
+    initiating_tab: Option<String>,
 }
 
 impl PreparedHolders {
+    pub(super) async fn reserve_shutdown(
+        &self,
+        _stop: &dyn crate::application_host::ServerStop,
+    ) -> Result<Option<String>, String> {
+        #[cfg(windows)]
+        return _stop
+            .reserve_install_shutdown(codeterm_update::holders::ReserveHolders {
+                tabs: self.tabs.clone(),
+                initiating_tab: self.initiating_tab.clone(),
+            })
+            .await
+            .map(Some);
+        #[cfg(not(windows))]
+        Ok(None)
+    }
+
     pub(super) async fn confirm_exited(self) -> Result<(), String> {
         #[cfg(windows)]
         return tokio::task::spawn_blocking(move || {
@@ -43,9 +61,13 @@ pub(super) async fn preflight(
         if let Some(refusal) = codeterm_update::holders::refusal(&blocking) {
             return Err(refusal);
         }
+        let initiating_tab = _initiating_tab.map(str::to_owned);
         return tokio::task::spawn_blocking(move || {
-            windows::preflight_with_tabs(_server, &tabs)
-                .map(|owned_server| PreparedHolders { owned_server, tabs })
+            windows::preflight_with_tabs(_server, &tabs).map(|owned_server| PreparedHolders {
+                owned_server,
+                tabs,
+                initiating_tab,
+            })
         })
         .await
         .map_err(|error| format!("install-holder preflight task failed: {error}"))?;

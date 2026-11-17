@@ -184,6 +184,8 @@ the change instead — `domios notify send --offer <surface> --offer-accept <lab
 | GET | `/api/update/status` | — | Updater progress plus durable `native_update` operation ID, sequence and outcome when readable. Unreadable handoffs are logged and omitted. |
 | GET | `/api/update/wait` | `?after_phase=applying` | Wait for a phase change, bounded to five minutes. Disconnection and timeout do not confirm installation. |
 | POST | `/api/update/holders` | Array of `{pid, created}` | Local-only Windows PTY ownership lookup for install holders; bounded to 256 identities. Returns owning tabs, workspaces, command and busy state. |
+| POST | `/api/update/reserve` | `{tabs, initiating_tab}` | Native owner credential only. Revalidates the holder snapshot and freezes new work admission and PTY writes before shutdown; activity or identity changes refuse without teardown. |
+| POST | `/api/update/release` | Reservation ID as a JSON string | Native owner credential only. Releases that exact reservation after a stop refusal before dispatch. |
 
 Native auto-install uses stable, requires an attached application-host updater, returns `{"status":"updating"}` immediately and reports progress through status:
 1. Discover the release with a no-cache GitHub request and pin its immutable manifest. `manifest_url` overrides it; HTTPS is required.
@@ -216,4 +218,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

@@ -14,6 +14,42 @@ use codeterm_update::UpdatePhase;
 #[derive(Clone)]
 pub struct InstalledExecutable(pub std::path::PathBuf);
 
+pub async fn reserve_shutdown(
+    AxumState(state): AxumState<AppState>,
+    headers: crate::auth::ActorHeaders,
+    Json(request): Json<codeterm_update::holders::ReserveHolders>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    if !matches!(headers.actor, crate::auth::RequestActor::Owner) || request.tabs.len() > 256 {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "native owner credential and bounded holder snapshot required".into(),
+        ));
+    }
+    tokio::task::spawn_blocking(move || state.svc.reserve_update_shutdown(request))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
+pub async fn release_shutdown(
+    AxumState(state): AxumState<AppState>,
+    headers: crate::auth::ActorHeaders,
+    Json(id): Json<String>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    if !matches!(headers.actor, crate::auth::RequestActor::Owner) || id.len() > 64 {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "native owner credential required".into(),
+        ));
+    }
+    state
+        .svc
+        .release_update_shutdown(&id)
+        .map(Json)
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
 pub async fn describe_holders(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

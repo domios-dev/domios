@@ -60,6 +60,50 @@ struct AttachedServerStop {
 
 #[async_trait::async_trait]
 impl ServerStop for AttachedServerStop {
+    async fn reserve_install_shutdown(
+        &self,
+        request: codeterm_update::holders::ReserveHolders,
+    ) -> Result<String, String> {
+        let api = self
+            .app
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
+            .ok_or("the server attachment is unavailable")?;
+        let response = api
+            .client
+            .post(format!("{}/api/update/reserve", api.api_origin()))
+            .bearer_auth(api.token())
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if !response.status().is_success() {
+            return Err(response.text().await.map_err(|e| e.to_string())?);
+        }
+        response.json().await.map_err(|e| e.to_string())
+    }
+
+    async fn release_install_shutdown(&self, id: &str) -> Result<(), String> {
+        let api = self
+            .app
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
+            .ok_or("the server attachment is unavailable")?;
+        let response = api
+            .client
+            .post(format!("{}/api/update/release", api.api_origin()))
+            .bearer_auth(api.token())
+            .json(id)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(response.text().await.map_err(|e| e.to_string())?)
+        }
+    }
+
     async fn describe_install_holders(
         &self,
         processes: Vec<codeterm_update::holders::HolderProcess>,

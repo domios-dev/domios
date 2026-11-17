@@ -1,6 +1,41 @@
 use super::{validate_after_update_enabled, validate_initiating_tab};
 
 #[tokio::test]
+async fn tab_credentials_cannot_reserve_or_release_update_shutdown() {
+    use axum::{extract::State, http::HeaderMap, Json};
+    let (mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let identity = crate::auth::CallerIdentity::Tab(
+        codeterm_service_core::service::tab_credentials::TabCaller {
+            tab_id: tab,
+            binding_nonce: "nonce".into(),
+        },
+    );
+    let headers = || {
+        crate::auth::ActorHeaders::authenticated(
+            &identity,
+            crate::auth::AuthenticatedOrigin::Agent,
+            HeaderMap::new(),
+        )
+        .unwrap()
+    };
+    let reserved = super::reserve_shutdown(
+        State(state.clone()),
+        headers(),
+        Json(codeterm_update::holders::ReserveHolders {
+            tabs: Vec::new(),
+            initiating_tab: None,
+        }),
+    )
+    .await;
+    assert_eq!(reserved.unwrap_err().0, axum::http::StatusCode::FORBIDDEN);
+    let released =
+        super::release_shutdown(State(state), headers(), Json("other-operation".to_string())).await;
+    assert_eq!(released.unwrap_err().0, axum::http::StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn holder_inspection_rejects_unbounded_process_lists_before_os_access() {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;

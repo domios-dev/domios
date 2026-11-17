@@ -9,6 +9,17 @@ use crate::app_runtime::AppHandle;
 /// The native client stops its attached server before an installer replaces the pair.
 #[async_trait::async_trait]
 pub trait ServerStop: Send + Sync {
+    async fn reserve_install_shutdown(
+        &self,
+        _request: codeterm_update::holders::ReserveHolders,
+    ) -> Result<String, String> {
+        Err("server-owned update shutdown reservation is unavailable".into())
+    }
+
+    async fn release_install_shutdown(&self, _id: &str) -> Result<(), String> {
+        Err("server-owned update shutdown reservation release is unavailable".into())
+    }
+
     async fn describe_install_holders(
         &self,
         processes: Vec<codeterm_update::holders::HolderProcess>,

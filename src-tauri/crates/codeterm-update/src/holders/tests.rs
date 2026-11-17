@@ -12,6 +12,9 @@ fn refusal_names_busy_tabs_and_preserves_idle_tabs() {
         workspace: "Project".into(),
         command: "node long-task.js".into(),
         busy: true,
+        pty_id: "pty-1".into(),
+        pty_generation: 1,
+        input_revision: 0,
     }];
     let message = refusal(&tabs).unwrap();
     assert!(message.contains("Build in Project: node long-task.js"));
