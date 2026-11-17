@@ -8,6 +8,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { invoke, listen } from "../lib/bridge";
 import {
   pluginDisplayName,
+  pluginCatalogChanged,
   pluginProviderMetaFromSnapshot,
   pluginProviderMetaRecord,
   setPluginProviderMeta,
@@ -27,7 +28,9 @@ export function usePluginProviderMetaSync(): void {
     };
     refresh();
     let unlisten: (() => void) | undefined;
-    void listen("contributions-changed", refresh).then((un) => {
+    void listen<{ kind: string }>("contributions-changed", ({ payload }) => {
+      if (pluginCatalogChanged(payload.kind)) refresh();
+    }).then((un) => {
       if (alive) unlisten = un;
       else un();
     });

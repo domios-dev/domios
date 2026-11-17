@@ -50,7 +50,7 @@ pub(super) fn record_spawn(
     Ok(())
 }
 
-pub(crate) fn verifies(svc: &ServiceContext, tab: &str, provider: &str, nonce: &str) -> bool {
+pub fn verifies(svc: &ServiceContext, tab: &str, provider: &str, nonce: &str) -> bool {
     let (exact, restored) = svc
         .mux
         .read()
@@ -79,8 +79,8 @@ pub(crate) fn verifies(svc: &ServiceContext, tab: &str, provider: &str, nonce: &
     exact && (retained || restored) && super::engine::requested(svc, provider)
 }
 
-#[cfg(test)]
-pub(crate) fn record_spawn_for_test(svc: &ServiceContext, tab: &str, provider: &str, nonce: &str) {
+#[cfg(any(test, feature = "test-support"))]
+pub fn record_spawn_for_test(svc: &ServiceContext, tab: &str, provider: &str, nonce: &str) {
     record_spawn(svc, tab, provider, nonce).unwrap();
 }
 
@@ -88,7 +88,7 @@ pub(super) fn revoke(tab: &str) {
     LAUNCHES.lock().retain(|key, _| key.tab != tab);
 }
 
-pub(crate) fn rotate_restart(
+pub fn rotate_restart(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,
@@ -98,12 +98,13 @@ pub(crate) fn rotate_restart(
         return Err("Runtime restart authority changed".into());
     }
     let nonce = svc.rotate_session_binding_nonce(tab);
-    svc.carry_neighbor_restore_grant(tab, old_nonce, &nonce)?;
+    svc.neighbors()
+        .carry_neighbor_restore_grant(tab, old_nonce, &nonce)?;
     record_spawn(svc, tab, provider, &nonce)?;
     Ok(nonce)
 }
 
-pub(crate) fn authorize_failed_start_restart(
+pub fn authorize_failed_start_restart(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,

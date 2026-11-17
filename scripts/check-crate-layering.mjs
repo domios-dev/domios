@@ -4,9 +4,11 @@ import path from "node:path";
 
 const root = path.resolve(process.argv[2] ?? path.join(import.meta.dirname, ".."));
 const hosts = new Set([
+  "codeterm-neighbors-service",
   "domios-server",
   "codeterm-service-core", "codeterm-api", "codeterm-commands",
   "codeterm-orchestration", "codeterm-sentinel-host", "codeterm-socket",
+  "codeterm-agent-lifecycle",
 ]);
 // Process layers: the native window links only client and shared crates, shared crates never reach
 // the server layer, and no other crate depends on the client. Every unlisted crate is server layer.

@@ -298,7 +298,7 @@ impl ServiceContext {
         } else {
             "worker_report"
         };
-        if let Err(error) = self.submit_report(
+        if let Err(error) = self.orchestration().submit_report(
             target,
             &report.body,
             details,
@@ -311,7 +311,7 @@ impl ServiceContext {
                 task.plan_id,
                 task.task_id
             );
-            let _ = self.send_refused_report_diagnostic(
+            let _ = self.orchestration().send_refused_report_diagnostic(
                 target,
                 &format!("Tool-less Worker host report failed: {error}"),
             );

@@ -812,3 +812,51 @@ fn authoritative_live_provider_refuses_removed_seed_model_before_launch() {
     assert!(validate_agent_model(&registry, provider_id, Some("router/working")).is_ok());
     crate::agent::model_catalog::unregister(provider_id);
 }
+
+#[test]
+fn explicit_dispatch_provider_and_model_override_role_and_task_defaults() {
+    let registry = registry_with(
+        ModelProvider::new("launch-choice", &["special"]).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative(),
+        ),
+    );
+    for recommendation in ["other:recommended", "launch-choice:removed", "removed"] {
+        let selected = resolve_agent_model_selection_with_default(
+            &registry,
+            Some("launch-choice"),
+            None,
+            Some(recommendation),
+            "other",
+        )
+        .unwrap();
+        assert_eq!(selected.provider_id, "launch-choice");
+        assert_eq!(selected.model, None);
+        let selected = resolve_agent_model_selection_with_default(
+            &registry,
+            Some("launch-choice"),
+            Some("special"),
+            Some(recommendation),
+            "other",
+        )
+        .unwrap();
+        assert_eq!(selected.model.as_deref(), Some("special"));
+    }
+    let selected = resolve_agent_model_selection_with_default(
+        &registry,
+        None,
+        None,
+        Some("launch-choice:special"),
+        "other",
+    )
+    .unwrap();
+    assert_eq!(selected.provider_id, "launch-choice");
+    assert_eq!(selected.model.as_deref(), Some("special"));
+    assert!(resolve_agent_model_selection_with_default(
+        &registry,
+        Some("launch-choice"),
+        Some("unknown"),
+        Some("launch-choice:special"),
+        "other",
+    )
+    .is_err());
+}

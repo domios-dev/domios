@@ -166,10 +166,7 @@ pub(crate) fn marked_prepared_agent_command_for_service(
 }
 
 /// Gives hand-built fresh launch params a marker minted and registered for this tab.
-pub(crate) fn mark_fresh_launch(
-    tab_id: &str,
-    params: &mut crate::agent::provider::AgentLaunchParams,
-) {
+pub fn mark_fresh_launch(tab_id: &str, params: &mut crate::agent::provider::AgentLaunchParams) {
     params.launch_marker = Some(mint_launch_marker(tab_id));
 }
 
@@ -242,7 +239,7 @@ pub(crate) fn marked_provider_launch_command_for_service(
 }
 
 /// A sandboxed agent still writes its report through its own AgentPad.
-pub(crate) fn append_sandbox_agent_pad_arg(
+pub fn append_sandbox_agent_pad_arg(
     registry: &crate::agent::registry::AgentRegistry,
     provider_id: &str,
     skip_permissions: bool,
@@ -354,7 +351,7 @@ fn combine_host_writable_roots(
         .collect()
 }
 
-pub(crate) fn append_sandbox_linux_network_args(
+pub fn append_sandbox_linux_network_args(
     registry: &crate::agent::registry::AgentRegistry,
     provider_id: &str,
     skip_permissions: bool,
@@ -469,7 +466,7 @@ mod sandbox_network_tests {
     }
 }
 
-pub(crate) fn append_sandbox_git_metadata_args(
+pub fn append_sandbox_git_metadata_args(
     registry: &crate::agent::registry::AgentRegistry,
     provider_id: &str,
     skip_permissions: bool,
@@ -634,7 +631,7 @@ pub(crate) fn marked_launch_command_for_tab(
     )
 }
 
-pub(crate) fn canonical_project_for_tab(
+pub fn canonical_project_for_tab(
     plan_store: &crate::service::plan::PlanStore,
     tab_id: &str,
     cwd: &str,

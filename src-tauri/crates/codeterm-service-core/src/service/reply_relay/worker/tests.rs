@@ -1,44 +1,6 @@
+use super::fixture::{completed, pending, source};
 use super::*;
-use crate::agent::provider::{
-    ReplyRelayEndedTurn, ReplyRelayOutcome, ReplyRelayTurn, ReplyRelayUnavailable,
-};
-
-fn pending() -> PendingReplyRelay {
-    PendingReplyRelay {
-        sender_tab: "dispatcher".into(),
-        delivery_id: "delivery".into(),
-        provider_id: "fixture".into(),
-        session_id: "own-session".into(),
-        binding_nonce: "nonce".into(),
-        after_offset: 100,
-        user_text: "opaque task".into(),
-        turn_normalization: Default::default(),
-        hops: 0,
-        task: Some(WorkerTaskBinding {
-            plan_id: "plan".into(),
-            task_id: "task".into(),
-            attempt_id: "attempt".into(),
-            owner_epoch: 1,
-        }),
-    }
-}
-fn source() -> RelaySource<'static> {
-    RelaySource {
-        provider_id: "fixture",
-        session_id: "own-session",
-        binding_nonce: "nonce",
-    }
-}
-fn completed() -> ReplyRelayEvidence {
-    ReplyRelayEvidence::Answered(ReplyRelayTurn {
-        user_turn_id: "user-100".into(),
-        user_record_start: 100,
-        user_text: "opaque task".into(),
-        assistant_turn_id: "assistant-150".into(),
-        answer: "<domios type=\"report\" status=\"in_review\">\nopaque result".into(),
-        complete: true,
-    })
-}
+use crate::agent::provider::{ReplyRelayEndedTurn, ReplyRelayOutcome, ReplyRelayUnavailable};
 
 #[test]
 fn unsupported_tool_less_workers_refuse_before_a_cli_ack_timeout() {
@@ -205,9 +167,6 @@ fn foreign_session_or_mismatched_payload_cannot_publish_a_task_report() {
         .observe_completion(&pending, source(), Some(&completed()))
         .is_none());
 }
-
-#[path = "integration.rs"]
-mod integration;
 
 #[test]
 fn worker_report_tracking_survives_closed_sender_and_cancellation_removes_it() {

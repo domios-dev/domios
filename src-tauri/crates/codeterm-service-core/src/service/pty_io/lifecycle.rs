@@ -195,6 +195,7 @@ pub fn claim_restored_pty_boot(
     let tab = mux
         .get_tab_mut(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found or has no PTY"))?;
+    end_restore_sleep(tab);
     let Some(provider_id) = tab.agent_type.clone() else {
         return Ok(None);
     };
@@ -203,6 +204,14 @@ pub fn claim_restored_pty_boot(
     }
     tab.agent_booting = true;
     Ok(Some(restored_launch(tab, provider_id)))
+}
+
+/// A terminal now backs this restored tab, so its lazy-restore sleep is over;
+/// a Neighbors pause also freezes live tabs and stays owned by the pause state.
+fn end_restore_sleep(tab: &mut crate::multiplexer::types::Tab) {
+    if tab.neighbor_authority.is_none() {
+        tab.frozen = false;
+    }
 }
 
 fn matches_restore_observation(
@@ -290,6 +299,7 @@ fn claim_restored_tab(
     tab.reported_session_binding_nonce = None;
     tab.restored_from_snapshot = false;
     tab.agent_booting = true;
+    end_restore_sleep(tab);
     let mut launch = restored_launch(tab, provider_id);
     launch.session_id = session_id;
     Ok(Some(launch))
@@ -944,7 +954,7 @@ impl ServiceContext {
         )
     }
 
-    pub(crate) fn pty_child_is_live(&self, pty_id: &str) -> bool {
+    pub fn pty_child_is_live(&self, pty_id: &str) -> bool {
         let session = { self.pty.lock().get_session(pty_id) };
         let Some(session) = session else {
             return false;

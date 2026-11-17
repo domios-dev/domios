@@ -14,7 +14,7 @@ use crate::multiplexer::types::TabBacking;
 
 /// What a startup deadline may do with a tab that has not acknowledged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StartupNudge {
+pub enum StartupNudge {
     /// An agent is attached and nothing modal owns its terminal.
     Deliver,
     /// This launch has no authenticated provider session to receive the reminder.
@@ -31,11 +31,11 @@ pub(crate) enum StartupNudge {
 }
 
 impl StartupNudge {
-    pub(crate) fn delivers(self) -> bool {
+    pub fn delivers(self) -> bool {
         matches!(self, Self::Deliver)
     }
 
-    pub(crate) fn reason(self) -> &'static str {
+    pub fn reason(self) -> &'static str {
         match self {
             Self::Deliver => "the agent terminal is free",
             Self::UnboundSession => "the provider session has not authenticated its launch",
@@ -50,8 +50,8 @@ impl StartupNudge {
 /// What the tab's own terminal currently shows. `None` for a tab backed by a
 /// chat transport, which has no terminal for a paste to collide with.
 pub(crate) struct AgentTerminal<'a> {
-    pub(crate) trust: &'a TrustDecision,
-    pub(crate) modal_on_screen: bool,
+    pub trust: &'a TrustDecision,
+    pub modal_on_screen: bool,
 }
 
 /// The whole rule, as a pure decision over the tab's own state.
@@ -81,11 +81,11 @@ pub(crate) fn nudge_for(
 
 impl ServiceContext {
     /// Classify a tab before writing agent-directed prose into its terminal.
-    pub(crate) fn classify_startup_nudge(&self, tab_id: &str) -> StartupNudge {
+    pub fn classify_startup_nudge(&self, tab_id: &str) -> StartupNudge {
         self.classify_startup_nudge_with_trust_response(tab_id, true, true)
     }
 
-    pub(crate) fn classify_startup_nudge_for_hierarchy_report(&self, tab_id: &str) -> StartupNudge {
+    pub fn classify_startup_nudge_for_hierarchy_report(&self, tab_id: &str) -> StartupNudge {
         self.classify_startup_nudge_with_trust_response(tab_id, false, false)
     }
 

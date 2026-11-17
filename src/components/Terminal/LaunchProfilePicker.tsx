@@ -159,7 +159,7 @@ export function LaunchProfilePicker({provider, profiles, selected, onSelect, onR
         <Button size="compact" variant="primary" disabled={!confirmed || (localCommand && !binary.trim())} loading={busy} onClick={() => {void setup();}}>Confirm setup</Button>
       </div>
     </div>}
-    {noneReady && <p className="m-0 text-[12px] text-[var(--ct-muted-fg)]">No ACP agents set up yet. ACP connects almost any coding agent.</p>}
+    {noneReady && <p role="status" className="m-0 text-[12px] text-[var(--ct-muted-fg)]">No launch profile is ready. Select a profile to set it up, or open Settings &gt; Providers.</p>}
     <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 text-[12px]">
       <span className="flex items-center gap-1.5">
         {profile && !busy && (profile.canInstall || profile.ownerConfigured) && !confirming && (!ready(profile) || localCommand) && (!localCommand || localCommandForm) &&

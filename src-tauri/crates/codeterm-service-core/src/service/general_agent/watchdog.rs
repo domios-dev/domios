@@ -211,7 +211,10 @@ impl ServiceContext {
                     },
                 );
                 if shell {
-                    match service.recover_general_agent_provider_exit(&tab) {
+                    match service
+                        .lifecycle_port()
+                        .recover_general_agent_provider_exit(&tab)
+                    {
                         Ok(outcome) => {
                             let reason = outcome.session_action();
                             let _ = crate::service::supporter::runtime().try_action(

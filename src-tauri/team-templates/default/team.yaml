@@ -1,6 +1,6 @@
 # default.team.yaml — Agentic Team Protocol (ATP)
 name: dev.domios/default
-version: 1.0.0
+version: 1.0.1
 title: Default team
 description: Orchestrator and Planner; every built-in worker available on demand.
 icon: icon.svg

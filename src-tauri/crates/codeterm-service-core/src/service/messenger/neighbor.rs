@@ -8,6 +8,26 @@ pub struct NeighborMessage {
     pub in_reply_to: Option<String>,
 }
 
+impl MessageEnvelope {
+    pub fn neighbor(
+        from_label: String,
+        friendship: String,
+        friend: String,
+        message: NeighborMessage,
+        id: String,
+    ) -> Self {
+        Self {
+            from_label,
+            from_neighbor: Some(friendship),
+            neighbor_friend: Some(friend),
+            neighbor_message: Some(message),
+            id: Some(id),
+            context: Some("neighbor-request".into()),
+            ..Default::default()
+        }
+    }
+}
+
 pub(super) fn opening(envelope: &MessageEnvelope) -> Option<String> {
     let message = envelope.neighbor_message.as_ref()?;
     let friendship = envelope.from_neighbor.as_ref()?;

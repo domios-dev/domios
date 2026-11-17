@@ -99,7 +99,7 @@ impl UnattendedLaunch<'_> {
 }
 
 impl crate::service::spawn::AgentSpawnSpec {
-    pub(crate) fn unattended_launch<'a>(
+    pub fn unattended_launch<'a>(
         &'a self,
         provider_id: &'a str,
         model: Option<&'a str>,

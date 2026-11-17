@@ -604,7 +604,7 @@ pub fn restart_general_agent(
     restart_general_agent_with_force(svc, mux, pty, screen_state, config, false);
 }
 
-pub(crate) fn restart_general_agent_with_force(
+pub fn restart_general_agent_with_force(
     svc: &crate::ServiceState,
     mux: &crate::MuxState,
     pty: &crate::PtyState,
@@ -621,7 +621,7 @@ pub(crate) fn restart_general_agent_with_force(
     restart_general_agent_inner(svc, mux, pty, screen_state, config, force);
 }
 
-pub(crate) fn restart_general_agent_fresh_after_exit(
+pub fn restart_general_agent_fresh_after_exit(
     svc: &crate::ServiceState,
     mux: &crate::MuxState,
     pty: &crate::PtyState,

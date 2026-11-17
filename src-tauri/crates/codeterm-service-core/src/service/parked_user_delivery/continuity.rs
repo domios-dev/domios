@@ -2,7 +2,7 @@ use super::*;
 use crate::service::chat_send_transaction::{ChatSendState, ChatSendStatus};
 
 impl super::super::ServiceContext {
-    pub(crate) fn end_held_user_sends_for_fresh_restart(&self, tab_id: &str) -> Result<(), String> {
+    pub fn end_held_user_sends_for_fresh_restart(&self, tab_id: &str) -> Result<(), String> {
         let store = &self.pending_delivery_payloads.user_sends;
         let possibly_written = store
             .records(tab_id)?

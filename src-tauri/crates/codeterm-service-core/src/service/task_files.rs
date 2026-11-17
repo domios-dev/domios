@@ -7,11 +7,7 @@ pub(crate) struct LaunchTaskFiles(
     pub(crate) std::sync::Arc<parking_lot::Mutex<std::collections::HashMap<String, Vec<PathBuf>>>>,
 );
 
-pub(crate) fn capture<T>(
-    service: &ServiceContext,
-    tab_id: &str,
-    operation: impl FnOnce() -> T,
-) -> T {
+pub fn capture<T>(service: &ServiceContext, tab_id: &str, operation: impl FnOnce() -> T) -> T {
     let root = service.agent_pad_data_dir.join("runtime/task-files");
     let previous = codeterm_util::task_files::owned_paths(&root, tab_id);
     let (result, mut paths) = codeterm_util::task_files::capture_in(&root, tab_id, operation);
@@ -60,7 +56,7 @@ fn superseded_settings(path: &std::path::Path, command: &str) -> bool {
         .is_some_and(|name| name.ends_with(".ct-settings.json") && !command.contains(name))
 }
 
-pub(crate) fn release_tab(service: &ServiceContext, tab_id: &str) -> Vec<PathBuf> {
+pub fn release_tab(service: &ServiceContext, tab_id: &str) -> Vec<PathBuf> {
     // Live-tab cleanup can race another launch's task-file read.
     if service.mux.read().get_tab(tab_id).is_some() {
         return Vec::new();

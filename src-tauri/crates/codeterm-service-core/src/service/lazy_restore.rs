@@ -13,8 +13,8 @@ mod policy;
 mod read_failure_tests;
 mod user_send;
 
-#[cfg(test)]
-pub(crate) mod test_boundary;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_boundary;
 
 struct WakeRequest(String);
 
@@ -154,7 +154,7 @@ fn initialize_with_continuing(
 }
 
 impl ServiceContext {
-    pub(crate) fn thaw_tab_for_restart(&self, tab_id: &str) -> Result<(), String> {
+    pub fn thaw_tab_for_restart(&self, tab_id: &str) -> Result<(), String> {
         wake_with_intent(self, tab_id, false, WakeIntent::Restart, |_, _| Ok(()))
     }
 
@@ -177,18 +177,19 @@ impl ServiceContext {
             allow_failed,
             intent,
             |id, retry_started_agent| {
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 if let Some(result) = test_boundary::materialize(id) {
                     return result;
                 }
                 if retry_started_agent {
                     return self
-                        .agent_restart(id, false, super::agent_restart::DEFAULT_GRACE_SECS)
+                        .lifecycle_port()
+                        .agent_restart(id, false, super::agent_lifecycle::DEFAULT_GRACE_SECS)
                         .map(|_| ())
                         .map_err(|reason| match reason {
-                            super::agent_restart::AgentRestartError::NotFound(reason)
-                            | super::agent_restart::AgentRestartError::BadRequest(reason)
-                            | super::agent_restart::AgentRestartError::Internal(reason) => reason,
+                            super::agent_lifecycle::AgentRestartError::NotFound(reason)
+                            | super::agent_lifecycle::AgentRestartError::BadRequest(reason)
+                            | super::agent_lifecycle::AgentRestartError::Internal(reason) => reason,
                             other => format!("{other:?}"),
                         });
                 }
@@ -236,14 +237,14 @@ fn wake_with_intent(
         if let Some(tab) = mux.get_tab_mut(&resolved) {
             tab.record_activity();
         }
-        super::agent_restart::sleep_transition::request_wake(
-            svc.ext::<super::agent_restart::RestartTracker>(),
+        super::agent_lifecycle::sleep_transition::request_wake(
+            svc.ext::<super::agent_lifecycle::RestartTracker>(),
             &resolved,
         )
     };
-    super::agent_restart::sleep_transition::wait_for_retirement(
+    super::agent_lifecycle::sleep_transition::wait_for_retirement(
         retirement,
-        super::agent_restart::sleep_transition::wake_deadline(),
+        super::agent_lifecycle::sleep_transition::wake_deadline(),
     )?;
     let id = {
         let mux = svc.mux.read();
@@ -267,7 +268,8 @@ fn wake_with_intent(
         .read()
         .get_tab(&id)
         .is_some_and(|tab| tab.restorable_launch.permission_bypass_requested);
-    svc.require_neighbor_restore_grant(&id, bypass)?;
+    svc.neighbors()
+        .require_neighbor_restore_grant(&id, bypass)?;
     {
         let cwd = {
             let mux = svc.mux.read();
@@ -337,7 +339,7 @@ fn wake_with_intent(
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 #[cfg(test)]
 mod wake_readiness_tests;

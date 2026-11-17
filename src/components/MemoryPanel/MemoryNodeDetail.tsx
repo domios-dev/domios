@@ -18,6 +18,7 @@ interface Props {
   edges: MemEdge[];
   nodes: Map<string, MemNode>;
   onSelectNode: (id: string) => void;
+  onUnpinPosition?: (id: string) => Promise<void>;
 }
 
 interface Neighbor {
@@ -55,6 +56,7 @@ export function MemoryNodeDetail({
   edges,
   nodes,
   onSelectNode,
+  onUnpinPosition,
 }: Props) {
   const [loadedItem, setLoadedItem] = useState<Pick<MemItemFull, "id" | "author" | "created_at" | "updated_at"> | null>(null);
   const node = loadedItem?.id === initialNode.id ? { ...loadedItem, ...initialNode, author: initialNode.author ?? loadedItem.author, created_at: initialNode.created_at ?? loadedItem.created_at, updated_at: initialNode.updated_at ?? loadedItem.updated_at } : initialNode;
@@ -456,6 +458,11 @@ export function MemoryNodeDetail({
             <button onClick={() => setEditing(true)} className={btnClass} data-testid="memory-node-edit">
               Edit
             </button>
+            {node.pinned && onUnpinPosition && (
+              <button onClick={() => { void onUnpinPosition(node.id).catch(error => setSaveError(String(error))); }} className={btnClass}>
+                Unpin position
+              </button>
+            )}
             <button
               onClick={handleDelete}
               data-testid="memory-node-delete"

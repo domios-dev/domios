@@ -167,7 +167,7 @@ pub(super) fn host_approvals_view(
 
 impl ServiceContext {
     /// The tab's effective full access now, from its live session when it has one.
-    pub(crate) fn effective_full_access(&self, tab_id: &str) -> bool {
+    pub fn effective_full_access(&self, tab_id: &str) -> bool {
         let settings =
             engine::for_tab(tab_id).map(|session| session.context.lock().settings.clone());
         self.full_access_with_settings(tab_id, settings.as_ref())

@@ -2,6 +2,22 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum RoleAction {
+    /// Preview a shipped manager's instructions or ask the owner to approve their sync
+    #[command(group = clap::ArgGroup::new("sync_mode").required(true).args(["preview", "apply"]))]
+    Sync {
+        role: String,
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        preview: bool,
+        /// Request the owner's notification choice; this flag never grants approval
+        #[arg(long, requires_all = ["current_hash", "replacement_hash"])]
+        apply: bool,
+        #[arg(long, requires = "apply")]
+        current_hash: Option<String>,
+        #[arg(long, requires = "apply")]
+        replacement_hash: Option<String>,
+    },
     /// List exactly the roles a Team has, with kind, Domios authority (a built-in manager's, or none) and package
     List {
         /// Team whose registrations to list; without it (or for a Team with none), the builtin default package
@@ -31,6 +47,10 @@ pub enum RoleAction {
         team: Option<String>,
     },
 }
+
+#[cfg(test)]
+#[path = "role/sync_tests.rs"]
+mod sync_tests;
 
 #[cfg(test)]
 mod tests {

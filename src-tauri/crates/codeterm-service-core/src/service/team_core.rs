@@ -132,3 +132,9 @@ pub fn valid_live_plan_team(svc: &ServiceContext, plan_id: &str) -> Result<Strin
     }
     Ok(team_id)
 }
+
+impl ServiceContext {
+    pub fn orchestration(&self) -> &dyn crate::ports::orchestration::OrchestrationPort {
+        crate::ports::orchestration::installed(&self.extensions).as_ref()
+    }
+}

@@ -43,7 +43,7 @@ impl Fixture {
             tab.session_binding_nonce = Some(format!("nonce-{id}"));
             tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
         }
-        let service = ServiceFixture::new(mux);
+        let service = codeterm_neighbors_service::test_support::fixture(mux);
         service.set_limit_gate(codeterm_service_core::service::billing::LimitGate::dormant());
         let state = crate::test_support::app_state(&service);
         state.config.lock().api.token = Some("host-fixture".into());
@@ -490,7 +490,8 @@ async fn standalone_self_promotion_refuses_peer_and_missing_auth() {
             online: true,
             is_primary: false,
             access_level: AccessLevel::Full,
-            version: None,
+            domios_version: None,
+            domios_build: None,
             web_ui: None,
             relay_protocol_version: RELAY_PROTOCOL_VERSION,
             consecutive_misses: 0,

@@ -64,7 +64,7 @@ impl ServiceContext {
     /// chain, which outranks the tab's raw binding. `report_id` is the ledger's own
     /// stable identity for this report (already used to guard its delivery state), so
     /// reusing it as the KPI dedup key makes a retried `submit_report` a no-op here too.
-    pub(crate) fn record_kpi_report(
+    pub fn record_kpi_report(
         &self,
         tab_id: &str,
         plan_id: Option<&str>,
@@ -164,7 +164,7 @@ impl ServiceContext {
             .record(attribution.into_event_with_dedup(verdict, bytes as u64, dedup_key));
     }
 
-    pub(crate) fn record_kpi_event(&self, tab_id: &str, kind: KpiEventKind, bytes: usize) {
+    pub fn record_kpi_event(&self, tab_id: &str, kind: KpiEventKind, bytes: usize) {
         if !self.kpi.is_enabled() {
             return;
         }
@@ -182,7 +182,7 @@ impl ServiceContext {
     /// provider log grew. Bound to the turn boundary itself and never to a tab
     /// status value: a tab whose status never flips still finishes turns.
     pub fn on_agent_turn_settled(&self, tab_id: &str) {
-        self.curator_turn_settled(tab_id);
+        self.orchestration().curator_turn_settled(tab_id);
         self.request_kpi_usage_ingest(tab_id);
         self.record_lane_turn_boundary(tab_id);
     }

@@ -5,10 +5,10 @@ use std::sync::{Arc, LazyLock};
 type Materialize = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 static MATERIALIZERS: LazyLock<Mutex<HashMap<String, Materialize>>> = LazyLock::new(Mutex::default);
 
-pub(crate) struct Boundary(String);
+pub struct Boundary(String);
 
 impl Boundary {
-    pub(crate) fn install(tab: &str, materialize: Materialize) -> Self {
+    pub fn install(tab: &str, materialize: Materialize) -> Self {
         assert!(MATERIALIZERS
             .lock()
             .insert(tab.into(), materialize)

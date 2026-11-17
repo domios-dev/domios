@@ -94,6 +94,17 @@ describe("useSurfaceDecl", () => {
     expect(latest.status === "ready" && latest.declared?.runtime).toBe("browser");
   });
 
+  it("does not refetch surface declarations when status bubbles complete", async () => {
+    fetchMock.mockResolvedValue(json([browserRow]));
+    await mount();
+    const previous = latest;
+    await act(async () => {
+      for (let i = 0; i < 100; i++) listeners.get("contributions-changed")!({ payload: { kind: "status_bubble:fixture" } });
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(latest).toBe(previous);
+  });
+
   it("keeps a rendering surface through a failed refetch", async () => {
     fetchMock.mockResolvedValueOnce(json([browserRow])).mockRejectedValueOnce(new Error("HTTP 502"));
     await mount();

@@ -133,6 +133,12 @@ for (const stage of ["agent_ready", "spawn_failed"] as const) {
       expect(mesh.disabled).toBe(false);
       await act(async () => events.get("tab-boot-stage")!({ payload: { tab_id: "unrelated", stage } satisfies TabBootStageEvent }));
       expect(confirm.disabled).toBe(true);
+      for (const pending of ["launch_binding_unconfirmed", "launch_deadline_elapsed"] as const) {
+        await act(async () => events.get("tab-boot-stage")!({ payload: { tab_id: "general", stage: pending, reason: "opaque pending binding" } satisfies TabBootStageEvent }));
+        expect(confirm.disabled).toBe(true);
+        expect(host.textContent).not.toContain("opaque pending binding");
+        expect(events.has("tab-boot-stage")).toBe(true);
+      }
       await act(async () => events.get("tab-boot-stage")!({ payload: { tab_id: "general", stage, reason: "opaque launch error" } satisfies TabBootStageEvent }));
       expect(confirm.disabled).toBe(false);
       expect(mesh.disabled).toBe(false);
@@ -144,6 +150,30 @@ for (const stage of ["agent_ready", "spawn_failed"] as const) {
     }
   });
 }
+
+it("bounds pending first-run readiness and releases its event listener on timeout", async () => {
+  vi.useFakeTimers();
+  const state = snapshot();
+  state.tabs.general.boot_stage = "launch_binding_unconfirmed";
+  vi.mocked(invoke).mockImplementation(async command => command === "mux_get_state" ? state : undefined);
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<FirstRunGeneralPicker providers={[provider("fixture", "pty")]} />));
+    const confirm = host.querySelector<HTMLButtonElement>("[data-testid=agent-picker-confirm]")!;
+    await act(async () => confirm.click());
+    expect(confirm.disabled).toBe(true);
+    expect(events.has("tab-boot-stage")).toBe(true);
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(confirm.disabled).toBe(false);
+    expect(host.textContent).toContain("Timed out waiting for the General agent");
+    expect(events.has("tab-boot-stage")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.useRealTimers();
+  }
+});
 
 it("observes readiness from the accepted snapshot when the ready event has already passed", async () => {
   const ready = snapshot();

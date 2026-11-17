@@ -9,9 +9,11 @@ import { ChecklistBlock } from "./ChecklistBlock";
 import { ChoiceBlock } from "./ChoiceBlock";
 import { JobBlock } from "./JobBlock";
 import { TasksBlock } from "./TasksBlock";
+import { CanvasBlock } from "./CanvasBlock";
+import { CanvasFileBlock } from "./CanvasFileBlock";
 import { DS_TASK_GROUP_ALIASES } from "../codeterm/dsTasksBlock";
 
-export const CHAT_BLOCKS = ["guide", "plugin", "connect", "setting", "choice", "agent", "job", "checklist", "tasks"] as const;
+export const CHAT_BLOCKS = ["guide", "plugin", "connect", "setting", "choice", "agent", "job", "checklist", "tasks", "canvas"] as const;
 export interface ParsedChatBlock { name: DsBlock["kind"]; source: string; render(): React.ReactNode }
 
 export function renderDsCard(block: DsBlock): React.ReactNode {
@@ -25,6 +27,7 @@ export function renderDsCard(block: DsBlock): React.ReactNode {
     case "agent": return <AgentBlock tabRef={block.tab} source={source} />;
     case "job": return <JobBlock jobRef={block.ref} source={source} />;
     case "checklist": return <ChecklistBlock checklistId={block.id} source={source} renderBlock={renderNestedBlock} />;
+    case "canvas": return "body" in block ? <CanvasBlock body={block.body} /> : <CanvasFileBlock src={block.src} view={block.view} />;
     case "tasks": return <TasksBlock spec={{ planId: block.plan, refs: block.refs, groups: [...new Set(block.statuses.flatMap((status) => DS_TASK_GROUP_ALIASES[status] ?? []))], items: block.snapshot?.items ?? null, planTitle: block.snapshot?.title }} source={source} />;
     default: return null;
   }

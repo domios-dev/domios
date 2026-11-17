@@ -234,12 +234,12 @@ test('tab presence alone cannot pass shell or surface readiness', () => {
   assert.equal(verdict(tab, ready(tab)).ready, false);
 });
 
-test('shell metadata can be captured while replay refuses its missing fake backing', () => {
+test('utility replay refuses a provider history disguised as a shell', () => {
   const document = fixture();
   document.snapshot.workspaces[0].tabs[2].split_tree.agent_type = null;
   document.measurements = measurements(document.snapshot, document.histories);
   assert.equal(validateCapture(document).length, 6);
-  assert.throws(() => requireBackings(document), /fixture-long-history.*fake shell\/surface backing missing/);
+  assert.throws(() => requireBackings(document), /fixture-long-history.*unsupported utility backing evidence/);
 });
 
 test('readiness requires an actual daemon restart and the exact staged fixture', () => {

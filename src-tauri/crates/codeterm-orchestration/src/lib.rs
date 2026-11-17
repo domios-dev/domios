@@ -34,3 +34,11 @@ pub use team::{
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use team::{close_team_with_state_change, rename_team_core, rename_team_with_state_change};
+
+pub mod curator;
+pub mod hierarchy;
+pub mod orchestrator_digests;
+pub use curator::CuratorExt;
+pub use hierarchy::HierarchyExt;
+
+pub mod traits;

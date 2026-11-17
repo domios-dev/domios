@@ -84,6 +84,7 @@ fn outside_catalogue(svc: &ServiceContext, name: &str, pick: &OwnerPick) -> Resu
     let params = SpawnAgentParams {
         agent: Some(pick.provider.clone()),
         model: pick.model.clone(),
+        launch_profile: pick.launch_profile.clone(),
         reasoning_effort: pick.effort.clone(),
         role: Some(role.to_string()),
         role_profile,
@@ -108,16 +109,19 @@ fn owner_picks(params: &OrchestrationPairParams) -> BTreeMap<String, OwnerPick> 
             &params.orchestrator_agent,
             &params.orchestrator_model,
             &params.orchestrator_reasoning_effort,
+            &params.orchestrator_launch_profile,
         ),
         (
             PLANNER,
             &params.planner_agent,
             &params.planner_model,
             &params.planner_reasoning_effort,
+            &params.planner_launch_profile,
         ),
     ];
-    for (name, provider, model, effort) in pair_fields {
-        if let Some(pick) = OwnerPick::new(provider, model.as_deref(), effort.as_deref()) {
+    for (name, provider, model, effort, profile) in pair_fields {
+        if let Some(mut pick) = OwnerPick::new(provider, model.as_deref(), effort.as_deref()) {
+            pick.launch_profile = profile.clone();
             picks.insert(name.to_string(), pick);
         }
     }
@@ -149,11 +153,14 @@ pub(crate) async fn prepare(
     .await?;
     remember_consent(&admitted).await;
     let mut picks = owner_picks(params);
-    for (name, pick) in picks.iter_mut() {
-        pick.outside_catalogue = outside_catalogue(svc, name, pick)?;
-    }
     let target_svc = svc.clone();
-    let target = blocking::run(move || Ok(TargetCatalogue::local(&target_svc))).await?;
+    let (picks, target) = blocking::run(move || {
+        for (name, pick) in picks.iter_mut() {
+            pick.outside_catalogue = outside_catalogue(&target_svc, name, pick)?;
+        }
+        Ok((picks, TargetCatalogue::local(&target_svc)))
+    })
+    .await?;
     match plan_seats(&admitted.resolved, &picks, &target, &seats::local_endpoints) {
         SeatPlan::Seats(seats) => Ok(TemplateRail {
             opt_out: request

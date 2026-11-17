@@ -10,7 +10,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | Id | Kind | Lang | Tier | Instance | Live agent | Budget (s) | Discovery | Runner | Owner doc |
 |---|---|---|---|---|---|---|---|---|---|
 | `ci-build-cancellation` | integration | js | manual | no | no | 90 | glob `scripts/ci-build-cancellation.test.mjs` | `node --test scripts/ci-build-cancellation.test.mjs` | `.agents/skills/github-release/SKILL.md` |
-| `release-promotion` | unit | js | manual | no | no | 30 | glob `scripts/release-promote.test.mjs` | `node --test scripts/release-promote.test.mjs` | `.agents/skills/github-release/SKILL.md` |
+| `release-promotion` | unit | js | pr | no | no | 30 | glob `scripts/release-promote.test.mjs` `scripts/release-qualification-draft.test.mjs` `scripts/release-served-metadata.test.mjs` | `node --test scripts/release-promote.test.mjs scripts/release-qualification-draft.test.mjs scripts/release-served-metadata.test.mjs` | `.agents/skills/github-release/SKILL.md` |
 | `windows-installer-preflight` | integration | mixed | manual | no | no | 90 | glob `tests/windows/*.Tests.ps1` | `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows/installer-preflight.Tests.ps1` | `.agents/skills/testing/SKILL.md` |
 | `qualification-receipt` | guard | js | release | no | no | 300 | single | `node scripts/ci-qualification.mjs record "$SOURCE_SHA" qualification-rust` | `.agents/skills/github-release/SKILL.md` |
 | `eval-bubble-geometry` | eval | mixed | manual | yes | no | 60 | single | `bash evals/bubble-geometry/run.sh` | `evals/bubble-geometry/README.md` |
@@ -86,6 +86,8 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-commands` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-commands` | `.agents/skills/gates/SKILL.md` |
 | `rust-sentinel-host` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-sentinel-host` | `.agents/skills/gates/SKILL.md` |
 | `rust-orchestration` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-orchestration` | `.agents/skills/gates/SKILL.md` |
+| `rust-neighbors-service` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-neighbors-service` | `.agents/skills/gates/SKILL.md` |
+| `rust-agent-lifecycle` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-agent-lifecycle` | `.agents/skills/gates/SKILL.md` |
 | `rust-agent-detect` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest agent-detect` | `.agents/skills/gates/SKILL.md` |
 | `rust-notifications` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-notifications` | `.agents/skills/gates/SKILL.md` |
 | `rust-notification-core` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest notification-core` | `.agents/skills/gates/SKILL.md` |

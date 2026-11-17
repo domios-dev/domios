@@ -6,6 +6,8 @@ use crate::html_preview::checked_path;
 
 pub struct PreviewPolicy {
     references: std::sync::Arc<HashSet<String>>,
+    /// Items of a referenced `<ds-canvas src>` file count as referenced, like inline items.
+    canvas_items: HashSet<String>,
     denied: Vec<String>,
     uploads: Vec<PathBuf>,
     upload_denied: Vec<String>,
@@ -59,6 +61,7 @@ impl PreviewPolicy {
         }
         Ok(Self {
             references: references.into(),
+            canvas_items: HashSet::new(),
             denied: roots,
             uploads: Vec::new(),
             upload_denied: Vec::new(),
@@ -74,6 +77,45 @@ impl PreviewPolicy {
     pub fn with_reference_inventory(mut self, references: std::sync::Arc<HashSet<String>>) -> Self {
         self.references = references;
         self
+    }
+
+    /// Admits the item paths of a canvas file this policy already authorized; every other rule,
+    /// such as private roots and secret names, still applies to them.
+    pub fn with_canvas_items(mut self, items: impl IntoIterator<Item = String>) -> Self {
+        self.canvas_items.extend(
+            items
+                .into_iter()
+                .filter_map(|item| checked_path(&item).ok())
+                .map(|path| path_key(&path)),
+        );
+        self
+    }
+
+    fn referenced(&self, requested: &Path) -> bool {
+        let key = path_key(requested);
+        self.references.contains(&key) || self.canvas_items.contains(&key)
+    }
+
+    /// Owner write-back: a readable file outside the upload and attachment buckets, which hold
+    /// pasted files and mesh-delivered copies rather than files the owner works on.
+    pub fn authorize_write(
+        &self,
+        requested: &Path,
+        canonical: Option<&Path>,
+    ) -> Result<(), String> {
+        self.authorize(requested, canonical)?;
+        let buckets = self.uploads.iter().chain(&self.referenced_uploads);
+        let resolved = canonical
+            .map(Path::to_path_buf)
+            .or_else(|| requested.canonicalize().ok());
+        let inside = |path: &Path| buckets.clone().any(|root| path.starts_with(root));
+        if std::iter::once(requested)
+            .chain(resolved.as_deref())
+            .any(inside)
+        {
+            return Err("Preview path is not writable".into());
+        }
+        Ok(())
     }
 
     pub fn with_uploads(mut self, uploads: &Path, denied: &[PathBuf]) -> Result<Self, String> {
@@ -156,7 +198,7 @@ impl PreviewPolicy {
     }
 
     pub fn authorize(&self, requested: &Path, canonical: Option<&Path>) -> Result<(), String> {
-        if self.references.contains(&path_key(requested)) {
+        if self.referenced(requested) {
             let scoped = [
                 (&self.own_pad, &self.pad_denied),
                 (&self.workspace, &self.workspace_denied),
@@ -170,7 +212,7 @@ impl PreviewPolicy {
                 }
             }
         }
-        if self.references.contains(&path_key(requested)) {
+        if self.referenced(requested) {
             for uploads in &self.referenced_uploads {
                 let direct_child = requested
                     .parent()
@@ -216,7 +258,7 @@ impl PreviewPolicy {
                 return Ok(());
             }
         }
-        if !self.references.contains(&path_key(requested)) {
+        if !self.referenced(requested) {
             return Err("Preview path is not referenced".into());
         }
         for path in std::iter::once(requested).chain(canonical) {

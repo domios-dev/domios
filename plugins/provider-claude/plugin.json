@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.31",
-  "minCodeterm": "1.19.2",
+  "version": "1.14.32",
+  "minCodeterm": "1.20.1",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Claude Code",
@@ -19,6 +19,7 @@
       "timeoutSecs": 30
     },
     "taskDelivery": "inline_flag",
+    "inputAttach": "session_start_and_bracketed_paste",
     "paste": {
       "untrustedAboveLines": 0,
       "typedFollowUp": "\npasted by Domios",

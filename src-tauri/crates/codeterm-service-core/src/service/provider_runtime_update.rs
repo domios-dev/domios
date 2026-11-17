@@ -1,6 +1,6 @@
 use super::{agent_runtime, ServiceContext};
 
-pub(crate) fn completed(svc: &ServiceContext, provider: &str, old: &str, new: &str) {
+pub fn completed(svc: &ServiceContext, provider: &str, old: &str, new: &str) {
     if old == new || !agent_runtime::engine::requested(svc, provider) {
         return;
     }

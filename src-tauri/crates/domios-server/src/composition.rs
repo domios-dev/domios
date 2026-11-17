@@ -55,7 +55,9 @@ pub(crate) fn compose_observed(
     let states = startup::init_states(prepared.config, prepared.control);
     drop(phase);
     api.complete("states");
-    let local_account = service::account::startup::load(&codeterm_service_core::paths::data_dir());
+    let local_account = codeterm_neighbors_service::service::account::startup::load(
+        &codeterm_service_core::paths::data_dir(),
+    );
     if let Some(account) = &local_account {
         states.mux.write().set_limit_gate(account.gate());
         api.complete_subsystem("account");
@@ -433,6 +435,8 @@ pub(crate) fn compose_observed(
     );
     drop(phase);
     let phase = startup::StartupStep::debug("service wiring");
+    // Startup wiring may already restart or recover agents through the lifecycle port.
+    codeterm_service_core::ports::lifecycle::install(&svc_ctx);
     if let Some(account) = local_account {
         assert!(svc_ctx.set_ext(account).is_ok());
     }
@@ -450,6 +454,7 @@ pub(crate) fn compose_observed(
     }
     codeterm_service_core::mem_ops::embedder::start(&service_state);
     codeterm_service_core::ports::orchestration::install(&service_state);
+    codeterm_service_core::ports::neighbors::install(&service_state);
     register_peer_hosting(&service_state, &states.keepawake);
     service_state
         .chat_send_ledger
@@ -521,7 +526,7 @@ pub(crate) fn compose_observed(
         Err(_) => {
             api.fail_subsystem("billing");
             if service_state
-                .ext::<service::account::AccountCell>()
+                .ext::<codeterm_neighbors_service::service::account::AccountCell>()
                 .0
                 .get()
                 .is_some()

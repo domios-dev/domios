@@ -22,7 +22,7 @@ export function useFullscreenKeyboard(open: boolean, ref: RefObject<HTMLDivEleme
     if (fullscreenDepth === 0) previousBodyOverflow = document.body.style.overflow;
     fullscreenDepth += 1;
     document.body.style.overflow = "hidden";
-    (ref.current?.querySelector<HTMLElement>("[data-fullscreen-autofocus]") ?? ref.current?.querySelector<HTMLElement>("button"))?.focus();
+    (ref.current?.querySelector<HTMLElement>("[data-fullscreen-autofocus]") ?? ref.current?.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
     const handle = (event: KeyboardEvent) => {
       if (dialog && (event.code === "Escape" || event.key === "Escape") && ref.current?.querySelector("[data-anchored-popover]")) return;
       const focusedDialog = document.activeElement?.closest('[role="dialog"][aria-modal="true"]');

@@ -34,7 +34,7 @@ pub fn notify_boot_changed() {
     }
 }
 
-pub(super) fn observe_boot_changes(observer: &Arc<crate::pty::screen_state::ScreenChangeSignal>) {
+pub fn observe_boot_changes(observer: &Arc<crate::pty::screen_state::ScreenChangeSignal>) {
     signal().observers.lock().push(Arc::downgrade(observer));
 }
 

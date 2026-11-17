@@ -68,6 +68,17 @@ Good to know:
 
 ## Roles at run time
 
+To update a pinned built-in manager's instructions from this binary's shipped default:
+
+```
+domios role sync curator --team <team-id> --preview
+domios role sync curator --team <team-id> --apply --current-hash <current-hash> --replacement-hash <replacement-hash>
+```
+
+Preview shows the diff, SHA-256 hashes (base64url), source package and effective time. Apply asks the owner to choose **Sync** or **Cancel** in a host notification; a flag or agent reply cannot approve it. The owner approves exactly that Team, role and both hashes. A changed pinned or shipped instruction body requires a fresh preview. An already-synced body is a no-op. Custom packages, workers and unregistered roles are refused.
+
+Sync changes only instructions, atomically saves them and then refreshes the cache. Model, reasoning, schedule, files, skills and other roles stay pinned. The next fresh launch, including the next Curator round, receives the new instructions; running sessions retain their current prompt. The Team keeps a bounded per-manager approval record with source identity and hashes; approval alone does not claim a successful write. Updates remain explicit, with no automatic sync.
+
 - **Managers** are started by the Orchestrator with `domios agent spawn --role <name>`: built-in or custom, one live instance per name per Team (a second is refused with `team_role_already_live`). A manager is a Team member parented to the Orchestrator and never takes a task binding.
 - **Workers** are dispatched with `domios plan task dispatch <plan> <task> --role <name>`. Only workers the Team lists are accepted; a manager name or an unlisted name, built-in or not, is refused with the Team's worker names. Without `--role` dispatch uses `worker` only when the Team lists it.
 - **Authority** follows the built-in manager names only: `orchestrator`, `planner`, `cartographer` and `curator` of kind manager keep their Domios duties. A custom manager has none: it cannot spawn, approve or edit plans, accept or release tasks, or staff the Team. It advises, does what the Orchestrator asks, and asks the Orchestrator for anything else. Package text never grants authority.
@@ -121,4 +132,4 @@ The bake writes the `roles` map with `kind` first in each role and keeps each ro
 
 Operations a build does not provide yet answer `template_unavailable` and change nothing.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

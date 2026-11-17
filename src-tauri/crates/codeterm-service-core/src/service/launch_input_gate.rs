@@ -697,7 +697,7 @@ impl ServiceContext {
             };
             if composer_ready && !composer_logged {
                 composer_logged = true;
-                crate::service::agent_restart::timing::stage(
+                crate::service::agent_lifecycle::timing::stage(
                     &attempt.tab_id,
                     &attempt.pty_id,
                     "first-composer",

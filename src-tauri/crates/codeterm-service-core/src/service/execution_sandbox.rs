@@ -73,7 +73,7 @@ pub(crate) fn requested_intent(sandbox: Option<&str>) -> Result<Option<Execution
     }
 }
 
-pub(crate) fn resolve_requested(
+pub fn resolve_requested(
     registry: &AgentRegistry,
     provider: &str,
     params: &SpawnAgentParams,
@@ -356,7 +356,7 @@ pub(crate) fn environment(
         .unwrap_or_default()
 }
 
-pub(crate) fn validate_runtime_settings(
+pub fn validate_runtime_settings(
     policy: &ExecutionSandboxPolicy,
     settings: &codeterm_plugin::agent_runtime::RuntimeSettings,
     cwd: &str,

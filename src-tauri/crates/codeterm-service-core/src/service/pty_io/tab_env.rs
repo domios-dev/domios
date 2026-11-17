@@ -295,7 +295,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn tab_env(&self, tab_id: &str) -> Result<HashMap<String, String>, String> {
+    pub fn tab_env(&self, tab_id: &str) -> Result<HashMap<String, String>, String> {
         Ok(compose_launch_env(
             &InstanceEnv::from_api_config(self.configuration().api),
             Some(&self.tab_launch_env(tab_id)?),

@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from "react";
 import {invoke} from "../../lib/bridge";
 import {nativeBridge} from "../../lib/nativeBridge";
 import type {AgentRuntimeState} from "../../lib/agentRuntimeState";
+import {runtimeLoginErrorMessage} from "./runtimeLoginError";
 
 export function useRuntimeLogin(tabId:string, providerId?:string) {
   const [busy,setBusy]=useState(false);
@@ -16,7 +17,7 @@ export function useRuntimeLogin(tabId:string, providerId?:string) {
       const result=await invoke<{login?:AgentRuntimeState["login"]}>("agent_runtime_login",{tabId,request:{...request,...(providerId ? {providerId} : {})}});
       if (current.current && request.method === "browser" && result.login?.url && !tabId.startsWith("mesh:")) await nativeBridge.openUrl(result.login.url);
       return true;
-    } catch {if(current.current)setError(request.action === "notify" ? "Phone notification unavailable. Check your notification channels." : "Sign-in failed. Try again."); return false;}
+    } catch (failure) {if(current.current)setError(runtimeLoginErrorMessage(failure,request.action)); return false;}
     finally {pending.current=false;if(current.current)setBusy(false);}
   }
   return {busy,error,operate};

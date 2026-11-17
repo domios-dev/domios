@@ -1,3 +1,4 @@
+use crate::traits::*;
 use codeterm_service_core::service::MuxEmitCause;
 use std::sync::mpsc;
 use std::time::Duration;

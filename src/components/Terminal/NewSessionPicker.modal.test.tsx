@@ -421,11 +421,11 @@ it("creates a Team with independent ready profiles, models and efforts through t
   };
   const orchestrator = dialog().querySelector('[data-testid="orchestration-role-orchestrator"]')!;
   const planner = dialog().querySelector('[data-testid="orchestration-role-planner"]')!;
-  expect(start().disabled).toBe(true);
+  expect(start().disabled).toBe(false);
   expect(buttonNamed("Orchestrator provider")?.textContent).toContain("Runtime");
   expect(buttonNamed("Planner provider")?.textContent).toContain("Runtime");
   await pick(orchestrator, "picker-profile-orchestrator", "alpha");
-  expect(start().disabled).toBe(true);
+  expect(start().disabled).toBe(false);
   await pick(planner, "picker-profile-planner", "missing");
   expect(start().disabled).toBe(true);
   await act(async () => start().click());
@@ -466,7 +466,7 @@ describe("NewSessionPicker launch profiles", () => {
     await choose("Agent provider","ACP");
     // The profile is a pill in the model's place in the Agent row, listing each profile with its state word.
     const pill = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-profile-single"]');
-    expect(pill?.getAttribute("aria-label")).toBe("Agent profile: Choose a profile");
+    expect(pill?.getAttribute("aria-label")).toBe("Agent profile: deepseek-harness");
     expect(dialog().querySelector('[role="radiogroup"]')).toBeNull();
     await act(async () => { pill!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
     const options = [...document.body.querySelectorAll<HTMLElement>('[data-testid^="picker-profile-single-option-"]')];
@@ -514,4 +514,37 @@ describe("NewSessionPicker launch profiles", () => {
     await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
     expect(fixture.actions.spawnAgentTab).toHaveBeenCalledWith("workspace","opaque-acp","/workspace","pro","low",undefined,undefined,undefined,"deepseek-harness");
   });
+});
+
+it("starts a provider-only Team with its first ready declared profile", async () => {
+  fixture.providers.providers = [{id: "profile-runtime", display_name: "Runtime", transport: "chat_backend", available_models: [],
+    agent_runtime: {launchProfiles: {missing: {binary: "missing", args: []}, ready: {binary: "ready", args: []}}}}] as never[];
+  vi.mocked(invoke).mockImplementation(async command => command === "provider_launch_profiles" ? [
+    {id: "missing", install: "not_installed", auth: "unknown", canInstall: false, ownerConfigured: false},
+    {id: "ready", install: "detected", auth: "unknown", canInstall: false, ownerConfigured: false},
+  ] : undefined);
+  await renderPicker();
+  await act(async () => buttonNamed("Team")!.click());
+  const start = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!;
+  expect(start.disabled).toBe(false);
+  await act(async () => start.click());
+  expect(fixture.actions.createOrchestrationPair).toHaveBeenCalledExactlyOnceWith({
+    orchestratorAgent: "profile-runtime", orchestratorLaunchProfile: "ready", orchestratorModel: undefined, orchestratorReasoningEffort: undefined,
+    plannerAgent: "profile-runtime", plannerLaunchProfile: "ready", plannerModel: undefined, plannerReasoningEffort: undefined, workspaceId: "workspace",
+  });
+});
+
+it("explains how to configure a Team provider with no ready profiles and prevents submission", async () => {
+  fixture.providers.providers = [{id: "profile-runtime", display_name: "Runtime", transport: "chat_backend", available_models: [],
+    agent_runtime: {launchProfiles: {missing: {binary: "missing", args: []}}}}] as never[];
+  vi.mocked(invoke).mockImplementation(async command => command === "provider_launch_profiles" ? [
+    {id: "missing", install: "not_installed", auth: "unknown", canInstall: false, ownerConfigured: false},
+  ] : undefined);
+  await renderPicker();
+  await act(async () => buttonNamed("Team")!.click());
+  expect(dialog().querySelector('[role="status"]')?.textContent).toContain("Settings > Providers");
+  const start = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!;
+  expect(start.disabled).toBe(true);
+  await act(async () => start.click());
+  expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
 });

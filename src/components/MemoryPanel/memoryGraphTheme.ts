@@ -1,28 +1,35 @@
 export interface MemoryGraphPalette {
-  edgeRgb: string;
   labelColor: string;
-  clusterEdgeAlpha: number;
-  egoEdgeAlpha: number;
-  realEdgeAlpha: (confidence: number) => number;
-  edgeColor: (alpha: number) => string;
+  hoverEdgeColor: string;
+  selectedEdgeColor: string;
+  edgeColor: (strength: number, long?: boolean) => string;
 }
 
-export function deriveMemoryGraphPalette(background: string, foreground: string): MemoryGraphPalette {
+export function deriveMemoryGraphPalette(background: string, foreground: string, mutedForeground: string): MemoryGraphPalette {
   const bg = parseCssRgb(background) ?? [13, 17, 23];
   const fg = parseCssRgb(foreground) ?? [201, 209, 217];
-  const light = brightness(bg) > 180;
-
+  const muted = parseCssRgb(mutedForeground) ?? [139, 148, 158];
+  const lightAdjustment = brightness(bg) > 150 ? 0.04 : 0;
+  const colors = new Map<string, string>();
+  for (const strength of [0.08, 0.1, 0.14, 0.18]) {
+    for (const long of [false, true]) {
+      colors.set(`${strength}:${long}`, mixRgb(bg, muted, (strength + lightAdjustment) * (long ? 0.5 : 1)));
+    }
+  }
   return {
-    edgeRgb: fg.join(","),
-    edgeColor: (alpha: number) => premultipliedRgba(fg, alpha),
     labelColor: foreground,
-    clusterEdgeAlpha: light ? 0.16 : 0.18,
-    egoEdgeAlpha: light ? 0.35 : 0.55,
-    realEdgeAlpha: (confidence: number) => {
-      const conf = Math.max(0, Math.min(1, confidence));
-      return light ? 0.1 + conf * 0.11 : 0.035 + conf * 0.055;
+    hoverEdgeColor: mixRgb(bg, fg, 0.45),
+    selectedEdgeColor: mixRgb(bg, fg, 0.65),
+    edgeColor: (strength, long = false) => {
+      const color = colors.get(`${strength}:${long}`);
+      if (!color) throw new Error(`Unsupported memory edge strength: ${strength}`);
+      return color;
     },
   };
+}
+
+function mixRgb(background: [number, number, number], foreground: [number, number, number], strength: number): string {
+  return `rgb(${background.map((channel, index) => Math.round(channel + (foreground[index] - channel) * strength)).join(",")})`;
 }
 
 export function readMemoryGraphPalette(root: HTMLElement = document.documentElement): MemoryGraphPalette {
@@ -30,13 +37,8 @@ export function readMemoryGraphPalette(root: HTMLElement = document.documentElem
   return deriveMemoryGraphPalette(
     style.getPropertyValue("--ct-bg").trim() || "#0d1117",
     style.getPropertyValue("--ct-fg").trim() || "#c9d1d9",
+    style.getPropertyValue("--ct-muted-fg").trim() || "#8b949e",
   );
-}
-
-// Sigma blends with ONE, ONE_MINUS_SRC_ALPHA, so a straight rgba() draws at full brightness.
-function premultipliedRgba([r, g, b]: [number, number, number], alpha: number): string {
-  const a = Math.max(0, Math.min(1, alpha));
-  return `rgba(${Math.round(r * a)},${Math.round(g * a)},${Math.round(b * a)},${a})`;
 }
 
 function parseCssRgb(color: string): [number, number, number] | null {

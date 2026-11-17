@@ -158,7 +158,7 @@ impl ServiceContext {
         route_loss(&self.gateway, self, pending_worker_losses(), owner, loss)
     }
 
-    pub(crate) fn replay_pending_worker_losses_if_routable(&self, tab_id: &str) {
+    pub fn replay_pending_worker_losses_if_routable(&self, tab_id: &str) {
         let routed = replay_losses(
             &self.gateway,
             self,

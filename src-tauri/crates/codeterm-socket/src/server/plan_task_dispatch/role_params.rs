@@ -23,14 +23,7 @@ fn requested_role(params: Option<&Value>) -> Option<&str> {
 
 fn preferred_model(registration: &RoleRegistration) -> Option<String> {
     match registration.model.as_ref()? {
-        ModelPreference::List(models) => models
-            .first()
-            .map(|model| {
-                model
-                    .split_once(':')
-                    .map_or(model.as_str(), |(_, model)| model)
-            })
-            .map(str::to_string),
+        ModelPreference::List(models) => models.first().cloned(),
         ModelPreference::SameAs { .. } => None,
     }
 }

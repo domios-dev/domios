@@ -1,6 +1,6 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useRef, useState } from "react";
-import { FileCode, FileText, Film, FolderOpen, Image } from "lucide-react";
+import { FileCode, FileText, Film, FolderOpen, Image, LayoutDashboard } from "lucide-react";
 import { ChatBlockHostProvider, RichMarkdown, localArtifactOpeningAvailable, openLocalArtifact } from "@codeterm/chat-ui";
 import { formatCompact } from "../../lib/formatCompact";
 import { planSidePanelStore, usePlanSidePanelEntry } from "../Canvas/planSidePanelStore";
@@ -26,7 +26,7 @@ export function DocumentsButton({ tabId }: { tabId: string }) {
   </button>;
 }
 
-const DOCUMENT_ICON = { image: Image, video: Film, page: FileCode, document: FileText } as const;
+const DOCUMENT_ICON = { image: Image, video: Film, page: FileCode, document: FileText, canvas: LayoutDashboard } as const;
 
 function documentTitle(document: ChatDocument): string {
   return `${document.path}${document.shownAt == null ? "" : `\nLast shown: ${new Date(document.shownAt).toLocaleString()}`}`;

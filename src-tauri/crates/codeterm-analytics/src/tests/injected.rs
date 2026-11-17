@@ -399,3 +399,32 @@ async fn new_funnel_events_keep_the_local_device_and_uid_and_obey_withdrawal() {
     assert!(!engine.enqueue(events[0].clone(), 2).unwrap());
     assert!(engine.state.device_id.is_none());
 }
+
+#[test]
+fn activation_actions_keep_exact_payloads_frequency_and_consent() {
+    let dir = tempfile::tempdir().unwrap();
+    let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = recording_engine(dir.path().join("settings.json"), recording.clone());
+    engine.consent(Consent::On).unwrap();
+    for (event, name) in [
+        (Event::ChatMessageSubmitted {}, "chat_message_submitted"),
+        (Event::MemorySearched {}, "memory_searched"),
+        (Event::CanvasOpened {}, "canvas_opened"),
+        (Event::OnboardingCompleted {}, "onboarding_completed"),
+    ] {
+        assert_eq!(
+            serde_json::to_value(&event).unwrap(),
+            serde_json::json!({"event_type":name,"event_properties":{}})
+        );
+        assert!(engine.enqueue(event.clone(), 0).unwrap());
+        assert!(engine.enqueue(event, 0).unwrap());
+    }
+    engine.deliver(0).unwrap();
+    assert_eq!(
+        recording.lock().unwrap().batches.iter().flatten().count(),
+        8
+    );
+    engine.consent(Consent::Off).unwrap();
+    assert!(!engine.enqueue(Event::ChatMessageSubmitted {}, 1).unwrap());
+    assert!(engine.state.queue.is_empty());
+}

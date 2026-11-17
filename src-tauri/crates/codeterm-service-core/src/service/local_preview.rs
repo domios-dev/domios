@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+pub mod canvas_watch;
 pub(crate) mod model_copies;
 pub mod reference_inventory;
 
@@ -130,7 +131,40 @@ pub fn read(
     path: &str,
     kind: &str,
 ) -> Result<LocalPreviewFile, String> {
-    let result = tab_policy(svc, tab_id, configured, &[path.to_owned()]).and_then(|policy| {
+    read_with(
+        tab_policy(svc, tab_id, configured, &[path.to_owned()]),
+        path,
+        kind,
+    )
+}
+
+/// Reads an item of a `<ds-canvas src>` file: the tab must reference the canvas, and the item
+/// must be one the canvas names, exactly as an inline canvas item must be named by its message.
+pub fn read_canvas_item(
+    svc: &super::ServiceContext,
+    tab_id: &str,
+    configured: &[String],
+    canvas: &str,
+    path: &str,
+    kind: &str,
+) -> Result<LocalPreviewFile, String> {
+    let policy = tab_policy(svc, tab_id, configured, &[canvas.to_owned()]).and_then(|policy| {
+        let file = read_local_preview_file_guarded(canvas, "canvas", |path, canonical| {
+            policy.authorize(path, canonical)
+        })?;
+        let items = codeterm_local_preview::artifact_directive::canvas_file_paths(&file.data)
+            .ok_or("Canvas file is not a valid canvas")?;
+        Ok(policy.with_canvas_items(items))
+    });
+    read_with(policy, path, kind)
+}
+
+fn read_with(
+    policy: Result<PreviewPolicy, String>,
+    path: &str,
+    kind: &str,
+) -> Result<LocalPreviewFile, String> {
+    let result = policy.and_then(|policy| {
         if kind == "image" {
             return super::image_attachments::preview(std::path::Path::new(path), || {
                 html_preview::read_artifact_file(path, &policy, 150 * 1024 * 1024)
@@ -174,4 +208,69 @@ pub fn check(
         started.elapsed().as_micros()
     );
     Ok(result)
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum CanvasWriteResponse {
+    Written,
+    Conflict { current: String },
+}
+
+/// Owner write-back of a referenced canvas file, refused for upload and mesh-delivered copies.
+pub fn write_canvas(
+    svc: &super::ServiceContext,
+    tab_id: &str,
+    configured: &[String],
+    path: &str,
+    base: &str,
+    document: &str,
+) -> Result<CanvasWriteResponse, String> {
+    let policy = tab_policy(svc, tab_id, configured, &[path.to_owned()])?;
+    let outcome = html_preview::write_canvas_file(
+        path,
+        |path, canonical| policy.authorize_write(path, canonical),
+        base,
+        document,
+    )?;
+    Ok(match outcome {
+        html_preview::CanvasWrite::Written => CanvasWriteResponse::Written,
+        html_preview::CanvasWrite::Conflict(current) => CanvasWriteResponse::Conflict { current },
+    })
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CanvasWatchResponse {
+    pub writable: bool,
+    /// `false` when every watch slot is held by an open viewer: the board shows without live updates.
+    pub watching: bool,
+}
+
+/// Starts change events for a canvas file the tab may read, and says whether the owner may write
+/// it; `watch: false` releases this viewer's hold.
+pub fn watch_canvas(
+    svc: &super::ServiceContext,
+    tab_id: &str,
+    configured: &[String],
+    path: &str,
+    watch: bool,
+) -> Result<CanvasWatchResponse, String> {
+    if !watch {
+        canvas_watch::watches().release(tab_id, path);
+        return Ok(CanvasWatchResponse {
+            writable: false,
+            watching: false,
+        });
+    }
+    let policy = tab_policy(svc, tab_id, configured, &[path.to_owned()])?;
+    html_preview::probe_canvas_file(path, |path, canonical| policy.authorize(path, canonical))?;
+    let writable = html_preview::probe_canvas_file(path, |path, canonical| {
+        policy.authorize_write(path, canonical)
+    })
+    .is_ok();
+    let canonical = html_preview::checked_path(path)?
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve preview file: {error}"))?;
+    let watching = canvas_watch::watches().watch(svc.ui.clone(), tab_id, path, &canonical)?;
+    Ok(CanvasWatchResponse { writable, watching })
 }

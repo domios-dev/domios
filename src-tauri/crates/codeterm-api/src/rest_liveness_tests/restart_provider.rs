@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_agent_lifecycle::prelude::*;
 use codeterm_plugin::provider::{
     AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
 };

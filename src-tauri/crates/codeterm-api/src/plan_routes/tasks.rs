@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_orchestration::traits::HierarchyExt;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -21,6 +22,7 @@ use super::{
     authorize_draft_structure_mutation_http, authorize_execution_action_http, emit_plan_changed,
     epoch_ms, optional_string_field, plan_authority_err, plan_err, text_err, PlanRouteResult,
 };
+use codeterm_agent_lifecycle::prelude::*;
 
 mod block_authority;
 pub mod history;

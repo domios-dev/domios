@@ -15,7 +15,7 @@ struct Desktop {
     config: ConfigState,
     events: codeterm_events::EventBroadcasterState,
     storage_error: Option<String>,
-    account: Option<codeterm_service_core::service::account::startup::StartupAccount>,
+    account: Option<codeterm_neighbors_service::service::account::startup::StartupAccount>,
 }
 
 pub fn serves(path: &str) -> bool {
@@ -37,7 +37,7 @@ pub fn router(
     states: &codeterm_service_core::startup::AppStates,
     dist: Option<PathBuf>,
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
-    account: Option<codeterm_service_core::service::account::startup::StartupAccount>,
+    account: Option<codeterm_neighbors_service::service::account::startup::StartupAccount>,
 ) -> Router {
     let desktop = Desktop {
         desk: states.startup_desk.clone(),

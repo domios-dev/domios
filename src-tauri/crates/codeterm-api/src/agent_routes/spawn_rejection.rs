@@ -55,6 +55,14 @@ impl From<String> for SpawnRejection {
         if let Some((code, _)) = message.split_once(':') {
             if matches!(
                 code,
+                "launch_profile_required"
+                    | "unknown_launch_profile"
+                    | "launch_profile_not_installed"
+            ) {
+                return Self::new(StatusCode::UNPROCESSABLE_ENTITY, code, message.clone());
+            }
+            if matches!(
+                code,
                 "neighbor_capability_denied"
                     | "neighbor_forbidden"
                     | "neighbor_paused"

@@ -11,6 +11,10 @@ mod ignore_plan;
 #[cfg(target_os = "macos")]
 mod macos_backend;
 #[cfg(target_os = "macos")]
+#[allow(
+    deprecated,
+    reason = "Required fsevent-sys 5.2 bindings are deprecated upstream."
+)]
 mod macos_stream;
 mod registry;
 #[cfg(any(target_os = "macos", test))]

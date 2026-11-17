@@ -225,7 +225,7 @@ pub struct SpawnAgentParams {
 }
 
 impl SpawnAgentParams {
-    pub(crate) fn permission_bypass_requested(&self, provider_id: &str) -> bool {
+    pub fn permission_bypass_requested(&self, provider_id: &str) -> bool {
         self.sandbox.is_none()
             && self.skip_permissions == Some(true)
             && self

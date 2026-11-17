@@ -72,6 +72,16 @@ describe("webEvents boot-changed detail", () => {
     latest().emit(bootChanged("daemon-build"));
     expect(details).toEqual([{ boot: "boot-2", build: "daemon-build", relayed: false }]);
   });
+
+  it("checkpoints the latest applied cursor on pagehide without per-event storage", () => {
+    sessionStorage.clear();
+    const write = vi.spyOn(sessionStorage, "setItem");
+    for (let seq = 1; seq <= 100; seq++) latest().emit({ boot: "checkpoint", seq, event_type: "tab-focused", data: {} });
+    expect(write).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(write).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("codeterm-web-events-cursor:"), "checkpoint:100");
+    write.mockRestore();
+  });
   it("omits the build when the frame carries none", () => {
     latest().emit(bootChanged());
     expect(details).toEqual([{ boot: "boot-2", relayed: false }]);

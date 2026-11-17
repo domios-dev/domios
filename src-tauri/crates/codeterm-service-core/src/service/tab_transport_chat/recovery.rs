@@ -290,7 +290,7 @@ impl ServiceContext {
                 }
             };
             let failure = if decision == Decision::Restart {
-                match svc.agent_restart(&tab_id, false, 0) {
+                match svc.lifecycle_port().agent_restart(&tab_id, false, 0) {
                     Ok(result)
                         if result.agent_ready
                             && result.session_action() == "resumed"

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { verifyReceipts, readReceipts } from './ci-rust-receipts.mjs';
 import { readQualificationArchive } from './ci-qualification-archive.mjs';
+import { testWaiverEvidence, validateTestWaiver } from './release-test-waiver.mjs';
 
 export const QUALIFICATION_JOBS = [
   'Repository guards', 'CI result', 'Fast checks / script tests and rustfmt',
@@ -23,12 +24,14 @@ export function isReleasePushRun(run, sha, repository = sourceRepository()) {
     run.actor?.login === 'rollacode' && run.triggering_actor?.login === 'rollacode';
 }
 
-export function selectReleasePushRun(runs, sha, branch, repository = sourceRepository()) {
+export function selectReleasePushRun(runs, sha, branch, repository = sourceRepository(), waiver) {
   if (!/^release\/\d+\.\d+\.\d+$/.test(branch) || !/^[a-f0-9]{40}$/.test(sha))
     throw new Error('Invalid release qualification source');
   const run = runs.filter(run => isReleasePushRun(run, sha, repository) && run.head_branch === branch)
     .sort((a, b) => b.id - a.id)[0];
-  if (!run || run.status !== 'completed' || run.conclusion !== 'success')
+  if (waiver) validateTestWaiver(waiver);
+  if (!run || run.status !== 'completed' || (run.conclusion !== 'success' &&
+      !(waiver && String(run.id) === waiver.run_id && run.conclusion === 'failure')))
     throw new Error('No completed green release push run for the exact head');
   return run;
 }
@@ -195,7 +198,15 @@ export function recordQualification(sha, rust, results, { repository, run_id, ru
 }
 
 const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
-const api = route => JSON.parse(gh(['api', route]));
+const api = (route, { raw = false, optional = false } = {}) => {
+  try {
+    const value = gh(['api', ...(raw ? ['-H', 'Accept: application/octet-stream'] : []), route]);
+    return raw ? value : JSON.parse(value);
+  } catch (error) {
+    if (optional && /HTTP 404/.test(error.stderr?.toString() ?? '')) return null;
+    throw error;
+  }
+};
 
 export function selectQualificationArtifact(artifacts, sha, now = Date.now(), runId) {
   const name = `qualification-${sha}`;
@@ -219,10 +230,20 @@ export function qualificationJobs(run, repository, request) {
 }
 
 export function requireQualification(sha, { repository = sourceRepository(), request = api, runId,
+  waiver = process.env.RELEASE_TEST_WAIVER ? JSON.parse(process.env.RELEASE_TEST_WAIVER) : undefined,
   download = args => execFileSync('gh', args, { timeout: 120_000, maxBuffer: 16 * 1024 * 1024 }),
   readArchive = readQualificationArchive, retain = retainQualificationEvidence } = {}) {
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid qualification SHA');
   if (runId !== undefined && !/^[1-9]\d*$/.test(String(runId))) throw new Error('Invalid qualification run ID');
+  if (waiver) {
+    if (String(runId) !== waiver.run_id) throw new Error('Waiver belongs to a different run');
+    const publicationRecovery = process.env.GITHUB_EVENT_NAME === 'push' && process.env.GITHUB_REF === 'refs/heads/master' &&
+      process.env.GITHUB_ACTOR === 'rollacode' && process.env.GITHUB_TRIGGERING_ACTOR === 'rollacode';
+    const reader = testWaiverEvidence(sha, waiver, repository, publicationRecovery);
+    let next = reader.next();
+    while (!next.done) next = reader.next(request(next.value.route, next.value));
+    return retain(next.value);
+  }
   const name = `qualification-${sha}`;
   const artifacts = request(`repos/${repository}/actions/${runId === undefined ? "artifacts" : `runs/${runId}/artifacts`}?name=${name}&per_page=100`).artifacts;
   const artifact = selectQualificationArtifact(artifacts, sha, Date.now(), runId);

@@ -25,7 +25,7 @@ pub(crate) enum LaunchDeliveryMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LaunchContent {
+pub struct LaunchContent {
     pub system_prompt: Option<String>,
     pub fallback: Option<String>,
 }
@@ -235,7 +235,7 @@ pub(crate) fn mode_for_descriptor(descriptor: &SystemPromptDelivery) -> LaunchDe
     }
 }
 
-pub(crate) fn content_for_descriptor(
+pub fn content_for_descriptor(
     descriptor: &SystemPromptDelivery,
     content: Option<&str>,
 ) -> LaunchContent {
@@ -364,7 +364,7 @@ pub(crate) fn pending_record_for_spec(spec: FallbackDeliverySpec) -> PendingDeli
     PendingDeliveryRecord::new(pending_delivery(&spec.payload).digest, spec.channel)
 }
 
-pub(crate) fn next_attempt() -> DeliveryAttemptProvenance {
+pub fn next_attempt() -> DeliveryAttemptProvenance {
     let started_at_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

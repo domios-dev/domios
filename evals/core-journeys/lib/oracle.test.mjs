@@ -36,16 +36,19 @@ test("readiness accepts a bound session and, before first send, a nonce-only laz
   assert.ok(readiness(lazy).done);
   assert.ok(readiness(lazy, { requireSession: true }).pending);
   assert.ok(readiness({ agent_type: "claude", boot_stage: "agent_launching" }).pending);
+  for (const boot_stage of ["launch_binding_unconfirmed", "launch_deadline_elapsed"]) {
+    assert.ok(readiness({ ...ready, boot_stage }, { requireSession: true }).pending);
+  }
 });
 
 test("first-turn admission requires current PTY and nonce evidence and never substitutes for a bound session", () => {
   const record = { agent_type: "fixture", boot_stage: "launch_binding_unconfirmed", pty_id: "pty", session_binding_nonce: "nonce",
     provisional_launch: { pty_id: "pty", binding_nonce: "nonce", first_turn_input_ready: true, first_turn_payload_written: false } };
   assert.equal(readiness(record, { allowFirstTurn: true }).done, record);
-  assert.ok(readiness(record).fail);
-  assert.ok(readiness(record, { allowFirstTurn: true, requireSession: true }).fail);
+  assert.ok(readiness(record).pending);
+  assert.ok(readiness(record, { allowFirstTurn: true, requireSession: true }).pending);
   for (const patch of [{ pty_id: "old" }, { binding_nonce: "old" }, { first_turn_input_ready: false }, { first_turn_payload_written: true }]) {
-    assert.ok(readiness({ ...record, provisional_launch: { ...record.provisional_launch, ...patch } }, { allowFirstTurn: true }).fail);
+    assert.ok(readiness({ ...record, provisional_launch: { ...record.provisional_launch, ...patch } }, { allowFirstTurn: true }).pending);
   }
   assert.ok(readiness({ ...record, pending_prompt: { kind: "auth" } }, { allowFirstTurn: true }).fail);
   const probe = { messages: [{ id: "a", type: "assistant", content: "marker" }], baselineIds: new Set(), marker: "marker" };

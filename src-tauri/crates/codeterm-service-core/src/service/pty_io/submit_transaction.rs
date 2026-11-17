@@ -12,7 +12,7 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 mod cycle;
 mod input_reservation;
-pub(crate) use input_reservation::reserve_command_input;
+pub use input_reservation::reserve_command_input;
 mod evidence_watcher;
 #[cfg(test)]
 mod exit_tests;
@@ -20,7 +20,7 @@ mod line_mode;
 mod paste_encoding;
 mod payload_write;
 mod readiness;
-pub(crate) use paste_encoding::live_command_input;
+pub use paste_encoding::live_command_input;
 use paste_encoding::PasteEncodingCapability;
 #[cfg(test)]
 use paste_encoding::{
@@ -31,7 +31,7 @@ use readiness::{exact_session_turn_source_available, pty_owner_guard};
 mod recovery_guard;
 mod runner;
 mod shell;
-pub(crate) use cycle::{
+pub use cycle::{
     claim_command_submit_cycle, claim_exit_submit_cycle, claim_submit_cycle,
     notify_submit_cycle_provider_exit, wake_submit_cycle, wake_submit_cycle_output,
     SubmitCycleClaim,
@@ -48,7 +48,7 @@ use runner::run_with_submit_key;
 #[cfg(test)]
 use runner::run_with_submit_key_and_follow_up;
 use runner::run_with_submit_key_and_payload;
-pub(crate) use shell::{shell_dispatch, submit_shell_dispatch};
+pub(crate) use shell::{shell_dispatch, submit_shell_dispatch, ShellSubmitKeys};
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = DEFAULT_SUBMIT_RETRY_OFFSETS.len() + 1;
@@ -496,9 +496,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         let callback = self.payload_queued.clone();
         let trace = self.trace.clone();
         self.svc.replace_switch_confirmation(self.pty_id, None);
-        let switch_confirmation = self
-            .svc
-            .prepare_switch_confirmation(self.pty_id, text, None);
+        let switch_confirmation =
+            self.svc
+                .lifecycle_port()
+                .prepare_switch_confirmation(self.pty_id, text, None);
         let queued = Cell::new(false);
         let queued_ref = &queued;
         let on_enqueued = move || {

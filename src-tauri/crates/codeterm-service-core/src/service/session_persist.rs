@@ -785,7 +785,7 @@ pub fn persist_session_after_mutation(
 }
 
 impl super::ServiceContext {
-    pub(crate) fn schedule_session_persist_debounced(&self) {
+    pub fn schedule_session_persist_debounced(&self) {
         if let Err(error) =
             submit_session_snapshot_with_intent(self, &self.mux, SaveIntent::PreserveDesk)
         {

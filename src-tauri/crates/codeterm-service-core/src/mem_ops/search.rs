@@ -45,8 +45,9 @@ pub fn execute_search(
             tab_id: tab_id.clone(),
             binding_nonce,
         };
-        if let Some(areas) = crate::async_runtime::block_on(svc.neighbor_memory_areas(&caller))
-            .map_err(SearchError::Internal)?
+        if let Some(areas) =
+            crate::async_runtime::block_on(svc.neighbors().neighbor_memory_areas(&caller))
+                .map_err(SearchError::Internal)?
         {
             return restricted_search(&**svc, p, &areas).map_err(SearchError::Internal);
         }
@@ -105,4 +106,4 @@ fn search_status(mut result: serde_json::Value, degraded: bool) -> serde_json::V
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

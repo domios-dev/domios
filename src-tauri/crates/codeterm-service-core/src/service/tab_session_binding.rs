@@ -101,7 +101,7 @@ impl ServiceContext {
                 ),
             }
         }
-        if let Err(error) = self.bind_planner_session(tab_id) {
+        if let Err(error) = self.orchestration().bind_planner_session(tab_id) {
             log::warn!("[hierarchy] planner session bind lookup failed for {tab_id}: {error}");
         }
         self.heal_recovery_state_if_ready();

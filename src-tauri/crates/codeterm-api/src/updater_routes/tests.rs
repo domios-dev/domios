@@ -9,7 +9,7 @@ async fn assert_container_api_refusal(method: axum::http::Method, path: &str) {
     use tower::ServiceExt;
 
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let update = state.update_state.clone();
     let cached = codeterm_update::update_state::UpdateInfo {
@@ -105,6 +105,88 @@ fn auto_update_initiating_tab_must_match_authenticated_caller() {
 }
 
 #[tokio::test]
+async fn mesh_auto_install_obeys_peer_access_without_claiming_local_continuation() {
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+    };
+    use codeterm_service_core::mesh::{
+        crown,
+        types::{AccessLevel, PairedPeer, Permission},
+    };
+    use tower::ServiceExt;
+
+    for (access, query, expected, reason) in [
+        (
+            AccessLevel::Full,
+            "",
+            StatusCode::CONFLICT,
+            "native_capability_unavailable",
+        ),
+        (
+            AccessLevel::Custom(vec![Permission::Admin]),
+            "",
+            StatusCode::CONFLICT,
+            "native_capability_unavailable",
+        ),
+        (
+            AccessLevel::ReadOnly,
+            "",
+            StatusCode::FORBIDDEN,
+            "Access denied",
+        ),
+        (
+            AccessLevel::AgentIsolated,
+            "",
+            StatusCode::FORBIDDEN,
+            "Access denied",
+        ),
+        (
+            AccessLevel::Full,
+            "&continue_tab=target-tab",
+            StatusCode::BAD_REQUEST,
+            "not_caller_tab",
+        ),
+    ] {
+        let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+        let state = crate::transport_tabs::fixture::app_state(&fixture);
+        let (private_key, public_key) = crown::generate_peer_keypair();
+        state.mesh.lock().insert_account_peer_for_test(PairedPeer {
+            instance_id: "update-peer".into(),
+            instance_name: "Update peer".into(),
+            addresses: vec![],
+            api_port: 7685,
+            public_key,
+            paired_at: "now".into(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: access,
+            domios_version: None,
+            domios_build: None,
+            web_ui: None,
+            relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
+            consecutive_misses: 0,
+            last_active_ms: None,
+        });
+        let token = crown::sign_request(&private_key, "update-peer").unwrap();
+        let response = crate::routes::create_router(state)
+            .oneshot(
+                Request::post(format!("/api/update/install?method=auto{query}"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains(reason));
+    }
+}
+
+#[tokio::test]
 async fn auto_install_without_native_host_returns_actionable_typed_refusal() {
     use axum::{
         body::{to_bytes, Body},
@@ -113,7 +195,7 @@ async fn auto_install_without_native_host_returns_actionable_typed_refusal() {
     use tower::ServiceExt;
 
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     assert!(codeterm_commands::application_host::require(&state.svc).is_err());
     let update = state.update_state.clone();
@@ -167,7 +249,7 @@ async fn auto_install_with_native_host_reaches_the_registered_updater() {
         }
     }
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
     let (sender, received) = tokio::sync::oneshot::channel();
     assert!(fixture
         .service

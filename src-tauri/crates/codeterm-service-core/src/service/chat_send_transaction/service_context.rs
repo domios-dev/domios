@@ -136,11 +136,12 @@ impl crate::service::ServiceContext {
                 );
             }
         });
+        self.record_product_event(codeterm_analytics::Event::ChatMessageSubmitted {});
         self.record_product_activity();
         Ok(response)
     }
 
-    pub(crate) fn reserve_user_send(
+    pub fn reserve_user_send(
         &self,
         tab_id: &str,
         client_token: Option<String>,
@@ -364,6 +365,7 @@ impl crate::service::ServiceContext {
             held_before_readiness,
         )?;
         let status = self.chat_send_ledger.admit_user(&record);
+        self.record_product_event(codeterm_analytics::Event::ChatMessageSubmitted {});
         self.record_product_activity();
         let mut status = if held_before_readiness {
             self.chat_send_ledger
@@ -441,6 +443,7 @@ impl crate::service::ServiceContext {
             serde_json::to_value(&status).unwrap_or_default(),
         );
         drop(reservation);
+        self.record_product_event(codeterm_analytics::Event::ChatMessageSubmitted {});
         self.record_product_activity();
         self.wake_user_owner(
             &tab,

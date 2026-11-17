@@ -115,6 +115,49 @@ fn curator_digest_is_bounded_stable_and_does_not_treat_waiting_as_activity() {
 }
 
 #[test]
+fn curator_recent_decisions_keep_ten_newest_one_line_notes_across_rounds() {
+    let mut plan = Plan::new(
+        "fixture".into(),
+        "/tmp".into(),
+        OrchestratorRef::from_tab("owner"),
+    );
+    for index in 0..15 {
+        plan.strides.push(
+            serde_json::from_value(serde_json::json!({
+                "id": format!("stride-{:02}", 14 - index),
+                "from": {"tab_id": "owner"}, "kind": "status_update",
+                "text": format!("opaque-{index}\nexcluded-{index}"), "ts": index + 1
+            }))
+            .unwrap(),
+        );
+    }
+    plan.strides.push(
+        serde_json::from_value(serde_json::json!({
+            "id": "worker-marker", "from": {"tab_id": "worker"},
+            "kind": "status_update", "text": "excluded-worker", "ts": 100
+        }))
+        .unwrap(),
+    );
+    let rows = digest::plan_rows(&plan, 200);
+    let built = digest::build("opaque-header", &rows);
+    assert!(built.body.contains("\nrecent decisions:\n"));
+    assert_eq!(
+        built
+            .body
+            .lines()
+            .filter(|line| line.starts_with("stride-"))
+            .count(),
+        10
+    );
+    assert!(built.body.contains("opaque-5\n"));
+    assert!(!built.body.contains("opaque-4\n"));
+    assert!(built.body.find("stride-00").unwrap() < built.body.find("stride-09").unwrap());
+    assert!(!built.body.contains("excluded"));
+    assert!(!built.activity);
+    assert!(built.body.len() <= digest::MAX_DIGEST_BYTES);
+}
+
+#[test]
 fn curator_note_validates_contract_and_drops_ungrounded_learnings() {
     let input="NEXT: 2h | quiet window\nMOVE: inspect [task_1]\nRETRO:\n+ useful [task_1]\n- no evidence\nLEARN: when retry fails -> inspect cause [task_1 task_2] (confidence low)\nNEXT-CHECK: verify result [task_1]\nASKED: none";
     let parsed = note::parse(input, 7200).unwrap();

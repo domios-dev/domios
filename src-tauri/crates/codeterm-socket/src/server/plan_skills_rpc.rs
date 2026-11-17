@@ -1,3 +1,4 @@
+use codeterm_orchestration::traits::CuratorAuthorityExt;
 use serde_json::{json, Value};
 use sha2::Digest;
 

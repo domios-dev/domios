@@ -1,5 +1,28 @@
 use super::*;
 
+#[test]
+fn relay_refusal_preserves_text_and_json_reasons() {
+    for body in [
+        "refusal-token-403",
+        r#""refusal-token-403""#,
+        r#"{"message":"refusal-token-403"}"#,
+        r#"{"error":"refusal-token-403"}"#,
+        r#"{"code":"refused","message":"refusal-token-403"}"#,
+        r#"{"error":{"code":"refused","message":"refusal-token-403"}}"#,
+    ] {
+        let data = relay_response_data(body.as_bytes());
+        assert!(relay_error_summary(403, &data).contains("refusal-token-403"));
+    }
+    for body in [b"".as_slice(), b"  ", b"null", b"{}"] {
+        assert_eq!(
+            relay_error_summary(403, &relay_response_data(body)),
+            "HTTP 403"
+        );
+    }
+    let success = serde_json::json!({"status": "updating"});
+    assert_eq!(relay_response_data(success.to_string().as_bytes()), success);
+}
+
 /// The receiving hop's classification must still lead with its delivery code,
 /// independent of the sender hop's transport classification.
 #[test]
