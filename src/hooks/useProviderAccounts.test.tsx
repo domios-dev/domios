@@ -105,6 +105,6 @@ it("an old rendered cancel cannot target a replacement sign-in attempt", async (
     await act(async()=>{await expect(oldCancel({action:"cancelAdd"})).rejects.toThrow("account list changed");});
     expect(fixture.json.mock.calls.filter(([method])=>method==="POST")).toHaveLength(0);
     await act(async()=>{await mounted.value.onAction({action:"cancelAdd"});});
-    expect(fixture.json.mock.calls.at(-1)?.[2]).toEqual({revision:"one",signInId:"replacement",operation:{action:"cancelAdd"}});
+    expect(fixture.json.mock.calls[fixture.json.mock.calls.length - 1]?.[2]).toEqual({revision:"one",signInId:"replacement",operation:{action:"cancelAdd"}});
   } finally {await mounted.close();}
 });

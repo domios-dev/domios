@@ -27,6 +27,7 @@ import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards } from "./NewSessionPickerParts";
 import { useAnimatedHeight } from "../shared/useAnimatedHeight";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
 import { FolderPaneState } from "../shared/FolderPaneState";
@@ -285,8 +286,10 @@ export function NewSessionPicker({
         modelId,
         effortId,
         preset,
-        ...(accountId ? [section === "general" ? "fresh_general" as const : undefined, undefined, undefined, accountId] as const
-          : section === "general" ? ["fresh_general" as const] : [] as const),
+        section === "general" ? "fresh_general" : undefined,
+        undefined,
+        undefined,
+        accountId,
       ),
     );
   }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd, section]);

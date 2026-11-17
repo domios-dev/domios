@@ -93,17 +93,17 @@ export function useSpawnAccounts(providerId: string | null, workspaceId: string)
 export function useTabAccounts(tab: Tab) {
   const catalogue = useAgentProviders();
   const descriptor = catalogue.providers.find(provider => provider.id === tab.agent_type);
-  const accounts = useProviderAccounts(descriptor?.accounts && !tab.remote_peer_id ? tab.agent_type : null);
-  const transition=useAccountTransition(descriptor?.accounts && !tab.remote_peer_id ? tab.id:null,tab.agent_type,`${tab.session_binding_nonce}:${tab.agent_runtime_state?.epoch}:${tab.agent_runtime_state?.active_turn_started_at_ms}`);
+  const accounts = useProviderAccounts(descriptor?.accounts && !tab.remote_peer_id ? tab.agent_type ?? null : null);
+  const transition=useAccountTransition(descriptor?.accounts && !tab.remote_peer_id ? tab.id:null,tab.agent_type ?? null,`${tab.session_binding_nonce}:${tab.agent_runtime_state?.epoch}:${tab.agent_runtime_state?.active_turn_started_at_ms}`);
   const turnActive=transition.turnActive || tab.agent_runtime_state?.active_turn_started_at_ms!=null;
   useEffect(()=>{if(accounts.snapshot)transition.onRefresh();},[accounts.snapshot?.revision,transition.onRefresh]);
-  const currentAccountId = tab.restorable_launch?.account_id ?? "default";
+  const currentAccountId = tab.account?.id ?? "default";
   const row = accounts.snapshot?.accounts.find(account => account.id === currentAccountId);
   const currentIdentity = row?.name ?? row?.identity ?? null;
   const [pending, setPending] = useState<string | null>(null);
   const inFlight=useRef(false);
   const [failure, setFailure] = useState<{binding:string;reason:string} | null>(null);
-  const binding = `${tab.id}:${tab.agent_type}:${tab.session_binding_nonce}:${tab.agent_runtime_state?.epoch}:${currentAccountId}:${tab.restorable_launch?.account_namespace}`;
+  const binding = `${tab.id}:${tab.agent_type}:${tab.session_binding_nonce}:${tab.agent_runtime_state?.epoch}:${currentAccountId}:${tab.account?.namespace}`;
   const latest = useRef(binding);
   latest.current = binding;
   const blockedReason = accounts.snapshot && accounts.snapshot.continuation !== "proven"
@@ -124,12 +124,12 @@ export function useTabAccounts(tab: Tab) {
     try {
       await selectedDaemonTransport.json("POST", `/api/tabs/${encodeURIComponent(tab.id)}/account${verifying?"/verify":""}`, {
         providerId: tab.agent_type, accountId, previousAccountId: currentAccountId,
-        accountNamespace:tab.restorable_launch?.account_namespace ?? null,
+        accountNamespace:tab.account?.namespace ?? null,
         ...(resume?{resumeWork:true,turnId:resume.turnId}:{}),
         nonce: tab.session_binding_nonce, epoch: tab.agent_runtime_state?.epoch ?? null, revision: snapshot.revision,
       });
     } catch (failure) { if (latest.current === binding) setFailure({binding,reason:String(failure)}); throw failure; }
     finally { inFlight.current=false;setPending(current => current === binding ? null : current); }
-  }, [accounts.snapshot, binding, blockedReason, pending, currentAccountId, tab.id, tab.agent_type, tab.session_binding_nonce, tab.agent_runtime_state?.epoch,tab.restorable_launch?.account_namespace,transition.canVerify,turnActive]);
+  }, [accounts.snapshot, binding, blockedReason, pending, currentAccountId, tab.id, tab.agent_type, tab.session_binding_nonce, tab.agent_runtime_state?.epoch,tab.account?.namespace,transition.canVerify,turnActive]);
   return { canVerify:transition.canVerify,turnActive,snapshot: accounts.snapshot, currentAccountId, currentIdentity, transition:transition.transition,switching: pending === binding || transition.transition?.status==="waiting" || transition.transition?.status==="switching", blockedReason, error: (failure?.binding===binding?failure.reason:null) ?? accounts.error ?? transition.error, choose,continueOn:(accountId:string,turnId:string)=>choose(accountId,{turnId}) };
 }

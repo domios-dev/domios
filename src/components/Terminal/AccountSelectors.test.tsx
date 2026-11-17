@@ -28,7 +28,7 @@ import { TabActionsMenu } from "./TabActionsMenu";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
 import { tabAccountSubmenu } from "./tabMenuModel";
 
-const ownTab = { id: "own-tab", agent_type: "opaque-harness", pty_id: "own-pty", title: "Agent", agent_session_model: "model", restorable_launch: { account_id: "default" } } as Tab;
+const ownTab: Tab = { tab_type: "terminal", cwd: null, id: "own-tab", agent_type: "opaque-harness", pty_id: "own-pty", title: "Agent", agent_session_model: "model", account: { id: "default", notices: [] } };
 const workspace = { id: "own-workspace", name: "Project", tabs: [], active_tab_id: null, cwd: "/project" } as Workspace;
 function snapshot(): ProviderAccountsSnapshot {
   return { providerId: "opaque-harness", revision: "rev", continuation: "proven", automaticSwitch: true, workspaceOverrides: [], accounts: [
@@ -42,8 +42,8 @@ let host: HTMLDivElement;
 let root: Root;
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 beforeEach(() => {
-  fixture.descriptor = { id: "opaque-harness", display_name: "Fixture", accounts: {}, model_switch: "next_turn",
-    available_models: [{ id: "model", display_name: "Model" }], reasoning_efforts: [] } as unknown as ProviderDescriptor;
+  fixture.descriptor = { schema_version:1, transport:"pty", system_prompt_delivery:"external", settings_schema:[], notifications_schema:[], supports_lazy_skills:false, has_hooks:false, id: "opaque-harness", display_name: "Fixture", accounts: {homeEnvironment:"FIXTURE_HOME",defaultHome:"~/.fixture",secretEnvironment:[],isolatedPaths:[],sharedPaths:[],continuation:"unverified"}, model_switch: "next_turn",
+    available_models: [{ id: "model", display_name: "Model" }], reasoning_efforts: [] } satisfies ProviderDescriptor;
   Object.assign(fixture.tabAccounts, { snapshot: snapshot(), currentAccountId: "default", currentIdentity: "usual@example.test", switching: false, canVerify: false, turnActive: true, blockedReason: null, error: null });
   fixture.tabAccounts.choose.mockReset().mockResolvedValue(undefined);
   fixture.workspaceAccounts.providers = [{ providerId: "opaque-harness", displayName: "Fixture", snapshot: snapshot() }];
