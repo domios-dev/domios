@@ -46,8 +46,7 @@ say a plugin is installed when its card shows otherwise.
 | `<ds-job ref="JOB_ID_OR_NAME" />` | Show a Cron or Blueprint with its schedule and last result, and Run now, Pause or Resume. |
 | `<ds-checklist id="getting-started" />` | Show a setup checklist whose steps tick themselves; `getting-started` for a new user. |
 | `<ds-tasks plan="pl_example" />` | Show plan tasks grouped by status, live from the plan. |
-| `<ds-canvas>{"items":[…]}</ds-canvas>` | Lay out images, HTML mocks, files and notes side by side in one zoomable board. |
-| `<ds-canvas src="ABSOLUTE_PATH.canvas.json" />` | Show a board kept in a file that agents and the owner both edit. |
+| `<ds-canvas src="ABSOLUTE_PATH.canvas.json" />` | Show images, HTML cards and notes together on a board kept in a file that agents and the owner both edit. |
 
 ## `ds-guide`
 
@@ -157,25 +156,37 @@ a paired snapshot with strict JSON and keeps detached rows if a task disappears:
 ## `ds-canvas`
 
 A canvas puts several visuals in one frame: before and after screenshots, an
-HTML mock beside a note, or design options under named views. It carries its
-items in a strict JSON body and lives only in its message:
+HTML mock beside a note, or design options under named views. Keep the board in
+a `NAME.canvas.json` file and show it with a self-closing tag:
 
 ```text
-<ds-canvas>{"title":"Header options","items":[
-  {"kind":"image","src":"/absolute/a.png","x":0,"y":0,"w":640,"h":400},
-  {"kind":"html","html":"<div class='p-4'>Option B</div>","x":680,"y":0,"w":480,"h":400},
-  {"kind":"note","markdown":"**A** is calmer, **B** is denser.","x":0,"y":440,"w":640,"h":120}],
- "views":[{"name":"compare","x":0,"y":0,"w":1160,"h":400}]}</ds-canvas>
+<ds-canvas src="/absolute/board.canvas.json" view="compare" />
 ```
 
-A canvas has 1 to 64 items. `kind` is `image`, `page` or `document` with an
-absolute `src`; `html` with an `html` body that runs in the same sandbox as
+A minimal board file starts with the format field and can mix screenshots,
+sandboxed HTML cards and notes:
+
+```json
+{
+  "format": "domios.canvas/1",
+  "title": "Header options",
+  "items": [
+    {"kind": "image", "src": "/absolute/before.png", "x": 0, "y": 0, "w": 640, "h": 400},
+    {"kind": "html", "html": "<div class='p-4'>Option B</div>", "x": 680, "y": 0, "w": 480, "h": 400},
+    {"kind": "note", "markdown": "**A** is calmer, **B** is denser."}
+  ],
+  "views": [{"name": "compare", "x": 0, "y": 0, "w": 1160, "h": 400}]
+}
+```
+
+A canvas file has 1 to 64 items. `kind` is `image`, `page` or `document` with
+an absolute `src`; `html` with an `html` body that runs in the same sandbox as
 `ds-html`; or `note` with `markdown`. Every item may add an `id` (letters,
 digits, `_` and `-`), a `title`, and `x`, `y`, `w` and `h` in canvas pixels.
 Give `x` and `y` together; items without both flow into rows below the placed
 ones at a default size. Up to 16 `views` name rectangles. Unknown fields,
 relative paths and duplicate ids or view names make the canvas invalid. The
-body is limited to 200,000 bytes, and its file items count toward the message's
+file is limited to 200,000 bytes, and its file items count toward the message's
 32 file previews.
 
 In the chat the canvas shows a static preview about 320px high that never pans
@@ -201,7 +212,7 @@ in a file:
 
 Name the file `NAME.canvas.json`. Don't use a bare `.canvas`, which is another
 format. The file's first field is `"format": "domios.canvas/1"`, followed by
-exactly the fields of an inline body, up to 200,000 bytes in all:
+the board fields, up to 200,000 bytes in all:
 
 ```json
 {
@@ -215,7 +226,7 @@ exactly the fields of an inline body, up to 200,000 bytes in all:
 ```
 
 A file without the header first, or with another major version, shows one
-sentence with the reason under Details. An inline body takes no header.
+sentence with the reason under Details.
 `view` is optional and opens the board on that named view. The file follows the same rules as `ds-document`: the tab
 must reference it, private paths stay refused, and mesh delivery copies the
 file itself but not its items. Its items need no reference of their own, but
@@ -266,4 +277,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

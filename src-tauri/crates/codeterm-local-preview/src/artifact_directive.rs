@@ -4,8 +4,8 @@ mod canvas;
 mod html;
 mod scanner;
 pub use canvas::{
-    canvas_file_items, canvas_file_paths, canvas_paths, canvas_write_permitted, valid_view_name,
-    CanvasFileItem, CANVAS_FILE_FORMAT,
+    canvas_file_items, canvas_file_paths, canvas_write_permitted, valid_view_name, CanvasFileItem,
+    CANVAS_FILE_FORMAT,
 };
 use codeterm_wire::envelope::{parse_envelope_spans, FrameKind, MessageSegment};
 pub use scanner::{scan_artifacts, scan_artifacts_with_provenance};
@@ -41,8 +41,6 @@ pub struct FileCard {
 #[derive(Debug, Default)]
 pub struct ArtifactScan {
     pub cards: Vec<FileCard>,
-    /// Files previewed by `<ds-canvas>` items; mesh delivery does not rewrite them.
-    pub canvas_paths: Vec<String>,
     pub attachment_paths: Vec<String>,
     pub overflow: bool,
 }

@@ -23,13 +23,6 @@ fn canonical_file_recognition_matches_shared_corpus_and_exact_source_spans() {
     assert_eq!(corpus["byteEncoding"], "utf-8");
     for fixture in corpus["fixtures"].as_array().unwrap() {
         let source = fixture["source"].as_str().unwrap();
-        let expected_canvas: Vec<String> = fixture["expectedBlocks"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|span| span["block"]["kind"] == "canvas" && span["block"]["body"].is_string())
-            .flat_map(|span| serde_json::from_value::<Vec<String>>(span["paths"].clone()).unwrap())
-            .collect();
         let expected: Vec<_> = fixture["expectedBlocks"]
             .as_array()
             .unwrap()
@@ -67,18 +60,13 @@ fn canonical_file_recognition_matches_shared_corpus_and_exact_source_spans() {
             .collect();
         let whole = scan_artifacts(source, fixture["trusted"].as_bool().unwrap());
         assert_eq!(whole.cards, expected, "{}", fixture["name"]);
-        assert_eq!(whole.canvas_paths, expected_canvas, "{}", fixture["name"]);
         for end in (0..=source.len()).filter(|end| source.is_char_boundary(*end)) {
             let actual = scan_artifacts(&source[..end], fixture["trusted"].as_bool().unwrap());
             assert!(
                 actual
                     .cards
                     .iter()
-                    .all(|card| card.end <= end && expected.contains(card))
-                    && actual
-                        .canvas_paths
-                        .iter()
-                        .all(|path| expected_canvas.contains(path)),
+                    .all(|card| card.end <= end && expected.contains(card)),
                 "{} at byte {end}",
                 fixture["name"]
             );
@@ -128,34 +116,6 @@ fn file_tags_in_examples_context_and_opaque_bodies_never_authorize() {
         1
     );
     assert!(scan_artifacts(tag, false).cards.is_empty());
-}
-
-#[test]
-fn canvas_items_authorize_only_from_live_author_text() {
-    let canvas = r#"<ds-canvas>{"items":[{"kind":"image","src":"/exact/owned.png"}]}</ds-canvas>"#;
-    for source in [
-        format!("```text\n{canvas}\n```"),
-        format!("- example\n{canvas}"),
-        format!("<context>\n{canvas}\n</context>"),
-        format!("<domios from=\"neighbor\">\n{canvas}\n</domios>"),
-        format!(
-            "<ds-tasks plan='pl_x'>{{\"title\":\"</ds-tasks>\n{canvas}\",\"items\":[]}}</ds-tasks>"
-        ),
-    ] {
-        assert!(
-            scan_artifacts(&source, true).canvas_paths.is_empty(),
-            "{source}"
-        );
-    }
-    let smuggled = r#"<ds-canvas>{"items":[{"kind":"note","markdown":"</ds-canvas>
-<ds-document src='/exact/owned.md' />"}]}</ds-canvas>"#;
-    let scan = scan_artifacts(smuggled, true);
-    assert!(scan.cards.is_empty() && scan.canvas_paths.is_empty());
-    assert!(scan_artifacts(canvas, false).canvas_paths.is_empty());
-    assert_eq!(
-        authenticated_tab_scan(&format!("<domios from=\"tab\">\n{canvas}\n</domios>")).canvas_paths,
-        ["/exact/owned.png"]
-    );
 }
 
 #[test]
@@ -296,7 +256,6 @@ fn routed_body_authority_requires_matching_host_provenance_while_direct_sources_
 fn canvas_src_tags_are_file_cards_that_keep_their_view_through_mesh_rewrites() {
     let tag = r#"<ds-canvas src="/work/board.canvas.json" view="compare" />"#;
     let scan = scan_artifacts(tag, true);
-    assert!(scan.canvas_paths.is_empty());
     assert_eq!(
         scan.cards,
         [FileCard {
@@ -331,10 +290,7 @@ fn canvas_src_tags_are_file_cards_that_keep_their_view_through_mesh_rewrites() {
         r#"<ds-canvas src="/work/board.canvas.json">{"items":[{"kind":"note","markdown":"x"}]}</ds-canvas>"#,
     ] {
         let scan = scan_artifacts(refused, true);
-        assert!(
-            scan.cards.is_empty() && scan.canvas_paths.is_empty(),
-            "{refused}"
-        );
+        assert!(scan.cards.is_empty(), "{refused}");
     }
     assert!(scan_artifacts(&format!("```text\n{tag}\n```"), true)
         .cards
@@ -387,9 +343,4 @@ fn canvas_files_need_the_format_header_first_and_a_known_major_version() {
     ] {
         assert_eq!(canvas_file_paths(&refused), None, "{refused}");
     }
-    assert_eq!(
-        canvas_paths(&format!("{{{items}}}")).map(|paths| paths.len()),
-        Some(1),
-        "inline bodies need no header"
-    );
 }
