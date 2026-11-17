@@ -7,17 +7,23 @@ import { installAndWait } from "../../lib/firstRunInstall";
 import { firstRunTransition } from "../../lib/firstRunFlow";
 import type { TabRef } from "./pickerNavigation";
 
+interface PendingStart {
+  stop?: () => void;
+  deadline?: ReturnType<typeof setTimeout>;
+  controller: AbortController;
+}
+
 export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void, beforeStart?: (providerId: string, signal: AbortSignal) => Promise<void>) {
   const [phase, transition] = useReducer(firstRunTransition, "choosing");
   const busy = phase === "installing" || phase === "signIn" || phase === "starting";
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const attempt = useRef<{ stop?: () => void; deadline?: ReturnType<typeof setTimeout>; controller: AbortController } | null>(null);
+  const attempt = useRef<PendingStart | null>(null);
   useEffect(() => () => { attempt.current?.controller.abort(); attempt.current?.stop?.(); clearTimeout(attempt.current?.deadline); attempt.current = null; }, []);
 
   const onConfirm = async (providerId: string, install = false) => {
     if (attempt.current) return;
-    const current: NonNullable<typeof attempt.current> = { controller: new AbortController() };
+    const current: PendingStart = { controller: new AbortController() };
     attempt.current = current;
     transition(install ? "install" : "start");
     setError(null);
