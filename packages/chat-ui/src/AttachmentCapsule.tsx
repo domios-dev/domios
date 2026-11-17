@@ -201,7 +201,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
             {(opensImage || kind === "video") && <Button variant="icon" aria-label={`Expand ${kind} ${accessibleName}`} title="Expand" onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: accessibleName, src: image.src, path }); }} style={{ minWidth: 44, minHeight: 44 }}><Maximize2 size={16} aria-hidden /></Button>}
           </>} />
       </AnchoredPopover>
-      {open && <ImageFullscreen image={open} anchorRef={anchorRef} onClose={close} />}
+      {open && <ImageFullscreen image={open} anchorRef={anchorRef} onClose={close} onImageError={() => { image.markFailed(); close(); }} />}
       {playing && <VideoFullscreen label={label} path={path} anchorRef={anchorRef} onClose={() => setPlaying(false)} />}
     </span>
   );

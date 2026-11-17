@@ -224,6 +224,25 @@ it("collapses a browser image decode failure to the named capsule", async () => 
   expect(chip.getAttribute("aria-label")).toBe(`Open image ${NAME}`);
 });
 
+it.each(["pointer", "keyboard"])("remembers a fullscreen image decode failure after %s activation", async activation => {
+  const host = await render({
+    ...codexImageTurn("caption"),
+    attachments: [{ id: "inline", mimeType: "image/png", data: "AAAA", path: PATH }],
+  });
+  const chip = openButton(host)!;
+  if (activation === "keyboard") await act(async () => chip.focus());
+  await act(async () => chip.dispatchEvent(new MouseEvent("click", { detail: activation === "pointer" ? 1 : 0, bubbles: true })));
+  expect(viewer()).toBeTruthy();
+  const image = viewer()!.querySelector<HTMLImageElement>("img")!;
+  await act(async () => image.dispatchEvent(new Event("error")));
+  expect(viewer()).toBeNull();
+  expect(chip.isConnected).toBe(true);
+  expect(chip.getAttribute("aria-label")).toBe(`Open image ${NAME}`);
+  await act(async () => chip.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  expect(viewer()).toBeNull();
+  expect(document.querySelector('[role="region"]')).toBeNull();
+});
+
 it.each([1280, 390])("shows the image preview on hover at viewport width %s", async (width) => {
   const previous = window.innerWidth;
   Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
