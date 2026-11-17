@@ -62,21 +62,69 @@ impl SharedReadGrant {
         Ok(())
     }
 
-    pub(super) fn allows(&self, target: &Path) -> bool {
-        let canonical = codeterm_util::project_roots::canonical_target;
-        match self {
-            Self::Directory { path } => {
-                canonical(path).is_some_and(|root| target.starts_with(root))
+    pub fn pin(self, exclusions: &[PathBuf]) -> Result<PinnedSharedReadGrant, String> {
+        self.validate()?;
+        let resolved = codeterm_util::project_roots::canonical_target(self.root())
+            .ok_or("Shared storage target cannot be resolved")?;
+        let pinned = PinnedSharedReadGrant {
+            grant: self,
+            resolved,
+        };
+        for exclusion in exclusions {
+            let exclusion = codeterm_util::project_roots::canonical_target(exclusion)
+                .ok_or("Isolated storage target cannot be resolved")?;
+            if pinned.resolved.starts_with(&exclusion)
+                || pinned.allows_resolved(&exclusion)
+                || (matches!(pinned.grant, Self::Directory { .. })
+                    && exclusion.starts_with(&pinned.resolved))
+            {
+                return Err("Shared history overlaps isolated account storage".into());
             }
-            Self::File { path } => canonical(path).as_deref() == Some(target),
-            Self::VersionedSqlite { directory, stem } => canonical(directory).is_some_and(|root| {
-                target == root
-                    || (target.parent() == Some(root.as_path())
+        }
+        Ok(pinned)
+    }
+
+    fn root(&self) -> &Path {
+        match self {
+            Self::Directory { path } | Self::File { path } => path,
+            Self::VersionedSqlite { directory, .. } => directory,
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub struct PinnedSharedReadGrant {
+    grant: SharedReadGrant,
+    resolved: PathBuf,
+}
+
+impl PinnedSharedReadGrant {
+    pub fn resolved(&self) -> &Path {
+        &self.resolved
+    }
+
+    pub(super) fn allows(&self, target: &Path) -> bool {
+        codeterm_util::project_roots::canonical_target(self.grant.root()).as_deref()
+            == Some(self.resolved.as_path())
+            && self.allows_resolved(target)
+    }
+
+    pub(super) fn covers_path(&self, path: &Path, target: &Path) -> bool {
+        path.starts_with(self.grant.root()) || target.starts_with(&self.resolved)
+    }
+
+    fn allows_resolved(&self, target: &Path) -> bool {
+        match &self.grant {
+            SharedReadGrant::Directory { .. } => target.starts_with(&self.resolved),
+            SharedReadGrant::File { .. } => target == self.resolved,
+            SharedReadGrant::VersionedSqlite { stem, .. } => {
+                target == self.resolved
+                    || (target.parent() == Some(self.resolved.as_path())
                         && target
                             .file_name()
                             .and_then(|name| name.to_str())
                             .is_some_and(|name| versioned_sqlite_name(stem, name)))
-            }),
+            }
         }
     }
 }

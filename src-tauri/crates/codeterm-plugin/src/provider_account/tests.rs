@@ -272,3 +272,6 @@ fn account_home_secret_scope_survives_promotion_without_exposing_other_roots_or_
     assert!(secret_reference("foreign", reference, Some(&promoted)).is_none());
     assert!(secret_reference("fixture", reference, Some(&context("a"))).is_none());
 }
+
+#[cfg(any(unix, windows))]
+mod redirected_shared_reads;

@@ -10,6 +10,8 @@ struct TranscriptRetry {
     seen: Vec<String>,
     busy: bool,
     floor: u64,
+    path: Option<std::path::PathBuf>,
+    input: Option<crate::service::provider_accounts::PtyInputWitness>,
 }
 
 fn states() -> &'static Mutex<HashMap<String, TranscriptRetry>> {
@@ -58,9 +60,11 @@ pub(crate) fn register(
     }
     state.identity = (session.into(), nonce.into());
     state.floor = floor;
+    state.path = Some(path.into());
     state.retry.clear_cycle();
     state.seen.clear();
     state.busy = false;
+    state.input = None;
 }
 
 pub(super) fn cancel(svc: &ServiceContext, tab: &str) -> Result<(), String> {
@@ -155,6 +159,11 @@ fn observe_at(
         let observation = row.provider_observations.as_ref();
         if row.role == "user" {
             crate::service::provider_accounts::invalidate_boundary(svc, tab);
+            state.input = state.path.as_deref().and_then(|path| {
+                crate::service::provider_accounts::pty_input_witness(
+                    svc, tab, session, nonce, row, path,
+                )
+            });
             state.busy = true;
             if let Err(error) = remove_pending(svc, tab, &mut state.retry) {
                 log::warn!("[capacity-retry] {error}");
@@ -185,6 +194,7 @@ fn observe_at(
                 .and_then(|observation| observation.turn_id.as_deref())
                 .unwrap_or(id),
             signal,
+            state.input.as_ref(),
         ) {
             if let Err(error) = remove_pending(svc, tab, &mut state.retry) {
                 log::debug!("[provider-accounts] retry cleanup failed: {error}");

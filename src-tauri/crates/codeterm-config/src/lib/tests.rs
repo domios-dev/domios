@@ -706,3 +706,45 @@ fn browser_upload_grants_are_preserved_for_all_snapshot_commits_and_failed_saves
     assert_ne!(state.lock().font.size, 20);
     assert!(state.lock().browser_upload_folders.contains_key("work"));
 }
+
+#[test]
+fn provider_accounts_mutation_publishes_product_changes_after_writer_release_only() {
+    let state = std::sync::Arc::new(Mutex::new(AppConfig::default()));
+    let seen = std::sync::Arc::new(Mutex::new(Vec::new()));
+    let observed = seen.clone();
+    let owner = std::sync::Arc::downgrade(&state);
+    product_observer::bind_plugin_enabled_observer(
+        &state,
+        std::sync::Arc::new(move |enabled| {
+            assert!(CONFIG_WRITER.try_lock().is_some());
+            assert!(owner.upgrade().unwrap().try_lock().is_some());
+            observed.lock().push(enabled);
+        }),
+    );
+    update_config_and_apply_with(
+        &state,
+        |config| {
+            config.agents.entry("fixture".into()).or_default().accounts = Some(Default::default());
+            config
+                .plugins
+                .insert("fixture".into(), serde_json::json!({"enabled":true}));
+            Ok(())
+        },
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(*seen.lock(), vec![true]);
+    assert!(update_config_and_apply_with(
+        &state,
+        |config| {
+            config
+                .plugins
+                .insert("fixture".into(), serde_json::json!({"enabled":false}));
+            Ok(())
+        },
+        |_| Err("opaque persistence refusal".into())
+    )
+    .is_err());
+    assert_eq!(*seen.lock(), vec![true]);
+    assert_eq!(state.lock().plugins["fixture"]["enabled"], true);
+}

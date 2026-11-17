@@ -431,21 +431,22 @@ fn commit_config(
             }
         }
     }
-    let changes = product_observer::enabled_changes(&state.lock(), &config);
-    let applied = persist_and_apply(state, config, persist).map_err(ConfigCommitError::Save)?;
+    let (config, changes) =
+        persist_and_apply(state, config, persist).map_err(ConfigCommitError::Save)?;
     drop(writer);
     product_observer::publish(state, changes);
-    Ok(applied)
+    Ok(config)
 }
 
 fn persist_and_apply(
     state: &Mutex<AppConfig>,
     config: AppConfig,
     persist: impl FnOnce(&AppConfig) -> Result<(), String>,
-) -> Result<AppConfig, String> {
+) -> Result<(AppConfig, Vec<bool>), String> {
     persist(&config)?;
+    let changes = product_observer::enabled_changes(&state.lock(), &config);
     *state.lock() = config.clone();
-    Ok(config)
+    Ok((config, changes))
 }
 
 fn update_config_and_apply_with(
@@ -453,10 +454,13 @@ fn update_config_and_apply_with(
     update: impl FnOnce(&mut AppConfig) -> Result<(), String>,
     persist: impl FnOnce(&AppConfig) -> Result<(), String>,
 ) -> Result<AppConfig, String> {
-    let _writer = CONFIG_WRITER.lock();
+    let writer = CONFIG_WRITER.lock();
     let mut current = state.lock().clone();
     update(&mut current)?;
-    persist_and_apply(state, current, persist)
+    let (config, changes) = persist_and_apply(state, current, persist)?;
+    drop(writer);
+    product_observer::publish(state, changes);
+    Ok(config)
 }
 
 /// Applies a bounded mutation to the latest configuration inside the existing writer boundary.

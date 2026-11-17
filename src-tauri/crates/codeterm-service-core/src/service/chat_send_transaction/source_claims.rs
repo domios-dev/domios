@@ -62,6 +62,34 @@ pub(crate) fn valid_source_row(source: &SourceRowRef) -> bool {
 }
 
 impl ChatSendLedger {
+    pub(crate) fn latest_jsonl_input_revision(
+        &self,
+        tab: &str,
+        nonce: &str,
+        send_id: &str,
+        source: &SourceRowRef,
+    ) -> Option<(String, u64, u64)> {
+        if !valid_source_row(source) || !matches!(&source.record, SourceRecord::Jsonl { .. }) {
+            return None;
+        }
+        let state = self.state.lock();
+        let status = state.by_id.get(state.latest_by_tab.get(tab)?)?;
+        let binding = state.live_binding_by_id.get(&status.send_id)?;
+        if status.send_id != send_id
+            || status.state != ChatSendState::Sent
+            || binding.session_id.as_deref() != Some(source.source_session_id.as_str())
+            || binding.binding_nonce.as_deref() != Some(nonce)
+            || status.matched_row.as_ref()?.source != *source
+        {
+            return None;
+        }
+        Some((
+            state.ledger_id.clone(),
+            state.next_sequence,
+            status.sequence,
+        ))
+    }
+
     pub(super) fn claim_rows_locked(
         state: &mut ChatSendLedgerState,
         sends: &[String],

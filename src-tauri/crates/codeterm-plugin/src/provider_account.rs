@@ -8,7 +8,7 @@ use std::sync::Arc;
 pub(crate) mod cache;
 mod shared_reads;
 pub mod storage;
-pub use shared_reads::SharedReadGrant;
+pub use shared_reads::{PinnedSharedReadGrant, SharedReadGrant};
 
 #[derive(Clone)]
 pub struct InvocationContext {
@@ -17,7 +17,9 @@ pub struct InvocationContext {
     environment: BTreeMap<String, Option<String>>,
     read_roots: Vec<PathBuf>,
     protected_roots: Vec<PathBuf>,
-    shared_reads: Vec<SharedReadGrant>,
+    shared_reads: Vec<PinnedSharedReadGrant>,
+    shared_exclusions: Vec<PathBuf>,
+    pinned_read_roots: Vec<PathBuf>,
     cache_key: String,
     credential_secret_scope: Option<String>,
 }
@@ -61,6 +63,13 @@ impl InvocationContext {
         {
             return Err("invalid provider account invocation context".into());
         }
+        let pinned_read_roots = read_roots
+            .iter()
+            .map(|root| {
+                codeterm_util::project_roots::canonical_target(root)
+                    .ok_or("Selected account read root cannot be resolved")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let mut context = Self {
             provider,
             account,
@@ -68,6 +77,8 @@ impl InvocationContext {
             read_roots,
             protected_roots,
             shared_reads: Vec::new(),
+            shared_exclusions: Vec::new(),
+            pinned_read_roots,
             cache_key: String::new(),
             credential_secret_scope: None,
         };
@@ -84,6 +95,8 @@ impl InvocationContext {
             &self.read_roots,
             &self.protected_roots,
             &self.shared_reads,
+            &self.shared_exclusions,
+            &self.pinned_read_roots,
             &self.credential_secret_scope,
         ))
         .map_err(|error| error.to_string())?;
@@ -97,11 +110,33 @@ impl InvocationContext {
         if grants.len() > 64 {
             return Err("shared storage authority limit".into());
         }
-        for grant in &grants {
-            grant.validate()?;
+        let pinned = grants
+            .into_iter()
+            .map(|grant| grant.pin(&self.shared_exclusions))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut context = (*self).clone();
+        context.shared_reads = pinned;
+        context.cache_key = context.identity()?;
+        Ok(Arc::new(context))
+    }
+
+    pub fn with_shared_exclusions(
+        self: Arc<Self>,
+        exclusions: Vec<PathBuf>,
+    ) -> Result<Arc<Self>, String> {
+        if exclusions.len() > 1024
+            || exclusions.iter().any(|path| !path.is_absolute())
+            || !self.shared_reads.is_empty()
+        {
+            return Err("Invalid isolated storage exclusions".into());
         }
         let mut context = (*self).clone();
-        context.shared_reads = grants;
+        for exclusion in exclusions {
+            let pinned = codeterm_util::project_roots::canonical_target(&exclusion)
+                .ok_or("Isolated storage target cannot be resolved")?;
+            context.shared_exclusions.push(exclusion);
+            context.shared_exclusions.push(pinned);
+        }
         context.cache_key = context.identity()?;
         Ok(Arc::new(context))
     }
@@ -143,6 +178,26 @@ impl InvocationContext {
         }
         let mut context =
             (*Self::new(provider, account, environment, read_roots, protected_roots)?).clone();
+        context.shared_exclusions = context
+            .protected_roots
+            .iter()
+            .chain(&context.read_roots)
+            .flat_map(|root| {
+                capability
+                    .isolated_paths
+                    .iter()
+                    .map(move |path| root.join(path))
+            })
+            .collect();
+        let pinned_exclusions = context
+            .shared_exclusions
+            .iter()
+            .map(|path| {
+                codeterm_util::project_roots::canonical_target(path)
+                    .ok_or("Isolated storage target cannot be resolved")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        context.shared_exclusions.extend(pinned_exclusions);
         context.credential_secret_scope = Some(credential_secret_scope);
         context.cache_key = context.identity()?;
         Ok(Arc::new(context))
@@ -214,16 +269,41 @@ impl InvocationContext {
                     .is_some_and(|root| target.starts_with(root))
             })
         };
-        if under(&self.read_roots) {
+        if self
+            .read_roots
+            .iter()
+            .zip(&self.pinned_read_roots)
+            .any(|(root, pinned)| {
+                target.starts_with(pinned)
+                    && codeterm_util::project_roots::canonical_target(root).as_ref() == Some(pinned)
+            })
+        {
             return Some(true);
+        }
+        if self.shared_exclusions.iter().any(|excluded| {
+            target.starts_with(excluded)
+                || path.starts_with(excluded)
+                || codeterm_util::project_roots::canonical_target(excluded)
+                    .is_some_and(|excluded| target.starts_with(excluded))
+        }) {
+            return Some(false);
         }
         if self.shared_reads.iter().any(|grant| grant.allows(&target)) {
             return Some(true);
         }
-        if self.read_roots.iter().any(|root| path.starts_with(root)) {
+        if self
+            .shared_reads
+            .iter()
+            .any(|grant| grant.covers_path(path, &target))
+            || self.read_roots.iter().any(|root| path.starts_with(root))
+        {
             return Some(false);
         }
-        let protected = under(&self.protected_roots)
+        let protected = self
+            .protected_roots
+            .iter()
+            .any(|root| path.starts_with(root))
+            || under(&self.protected_roots)
             || self.protected_roots.iter().any(|root| {
                 codeterm_util::project_roots::canonical_target(root)
                     .is_some_and(|root| root.starts_with(&target))

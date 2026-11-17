@@ -293,24 +293,12 @@ impl ServiceContext {
                         tab.report_target_tab_id = Some(rtid.clone());
                     }
                 }
-                if let Some(ref peer) = params.report_target_mesh_peer {
-                    if !peer.is_empty() {
-                        if let Some(tab) = mux.get_tab_mut(&result) {
-                            tab.report_target_mesh_peer = Some(peer.clone());
-                        }
-                    }
-                }
                 // Record the spawning agent for report routing fallback, independent of explicit --parent / role hierarchy.
                 if let Some(ref sb) = params.spawned_by_tab_id {
                     if !sb.is_empty() {
                         if let Some(tab) = mux.get_tab_mut(&result) {
                             tab.spawned_by_tab_id = Some(sb.clone());
                         }
-                    }
-                }
-                if let Some(ref ownership) = params.ownership {
-                    if let Some(tab) = mux.get_tab_mut(&result) {
-                        tab.ownership = Some(ownership.clone());
                     }
                 }
                 result

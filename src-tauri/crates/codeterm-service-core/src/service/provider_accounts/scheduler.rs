@@ -16,8 +16,10 @@ use std::{collections::BTreeMap, sync::Arc};
 
 mod dispatch;
 mod limits;
+mod pty_input;
 mod requests;
 pub(super) use dispatch::dispatch;
+pub(crate) use pty_input::{admit_pty_input, admit_pty_write, pty_input_witness};
 pub(super) use requests::evacuate;
 pub(super) use requests::reauthenticated;
 pub use requests::{select, SelectRequest};
@@ -31,6 +33,8 @@ pub(super) struct Scheduler {
     pub transitions: BTreeMap<String, Transition>,
     auth_contexts: BTreeMap<(String, String), String>,
     quota_versions: BTreeMap<(String, String), String>,
+    input_generation: u64,
+    inputs: BTreeMap<String, InputAdmission>,
 }
 
 impl Scheduler {
@@ -47,7 +51,14 @@ impl Scheduler {
         self.pending.remove(tab);
         self.transitions.remove(tab);
         self.boundaries.remove(tab);
+        self.inputs.remove(tab);
     }
+}
+
+#[derive(Clone)]
+struct InputAdmission {
+    generation: u64,
+    user_send_id: Option<String>,
 }
 
 struct Limit {
@@ -55,10 +66,22 @@ struct Limit {
     expected: AccountRestartBinding,
     turn: String,
     resets_at: Option<u64>,
+    input: Option<PtyInputWitness>,
+}
+#[derive(Clone)]
+pub(crate) struct PtyInputWitness {
+    generation: u64,
+    revision: (String, u64, u64),
+    turn: String,
+    path: std::path::PathBuf,
+    epoch: crate::service::tab_chat::resume_cursor::ChatEpoch,
+    source: crate::service::tab_chat::registry::SourceIncarnation,
+    offset: u64,
 }
 pub(super) struct Boundary {
     pub expected: AccountRestartBinding,
     pub turn: String,
+    pub input: Option<PtyInputWitness>,
 }
 pub(super) struct Pending {
     pub claim: Claim,
@@ -343,6 +366,7 @@ pub(crate) fn runtime_observe(
                     .insert(
                         context.tab_id.clone(),
                         Limit {
+                            input: None,
                             version: String::new(),
                             expected,
                             turn: turn.clone(),
@@ -408,6 +432,7 @@ pub(crate) fn transcript_limit(
     nonce: &str,
     turn: &str,
     signal: &RuntimeErrorSignal,
+    input: Option<&PtyInputWitness>,
 ) -> bool {
     let Some(limit) = &signal.account_limit else {
         return false;
@@ -424,10 +449,14 @@ pub(crate) fn transcript_limit(
     {
         return false;
     }
+    let Some(input) = input.filter(|input| input.turn == turn && input.current(svc, tab)) else {
+        return true;
+    };
     queue_exhausted(
         svc,
         tab,
         Limit {
+            input: Some(input.clone()),
             version: String::new(),
             expected,
             turn: turn.into(),
@@ -438,6 +467,13 @@ pub(crate) fn transcript_limit(
 }
 
 fn queue_exhausted(svc: &ServiceContext, tab: &str, mut limit: Limit) {
+    if limit
+        .input
+        .as_ref()
+        .is_some_and(|input| !input.current(svc, tab))
+    {
+        return;
+    }
     limit.version = uuid::Uuid::new_v4().to_string();
     {
         let mut scheduler = svc.ext_or_init::<State>(State::default).scheduler.lock();
@@ -457,6 +493,7 @@ fn queue_exhausted(svc: &ServiceContext, tab: &str, mut limit: Limit) {
             Boundary {
                 expected: limit.expected.clone(),
                 turn: limit.turn.clone(),
+                input: limit.input.clone(),
             },
         );
     }
@@ -491,6 +528,13 @@ pub(crate) fn invalidate_boundary(svc: &ServiceContext, tab: &str) {
 }
 
 fn exhausted(svc: &ServiceContext, tab: &str, limit: Limit) {
+    if limit
+        .input
+        .as_ref()
+        .is_some_and(|input| !input.current(svc, tab))
+    {
+        return;
+    }
     let policy = policy(svc, &limit.expected.provider);
     if super::capability(svc, &limit.expected.provider).is_none() {
         return;
@@ -651,6 +695,9 @@ fn prepare(
         .get(&claim.source.tab)
         .filter(|boundary| boundary.expected == expected && boundary.turn == claim.turn)
         .map(|boundary| boundary.turn.clone());
+    if resume_work && expected.runtime_epoch.is_none() && terminal_turn.is_none() {
+        return Err("The failed turn no longer owns this PTY input generation".into());
+    }
     Ok(Pending {
         claim: claim.clone(),
         target: AccountRestartTarget {
@@ -699,12 +746,18 @@ pub fn account_turn_boundary(
     let Some(state) = svc.try_ext::<State>() else {
         return false;
     };
-    state
-        .scheduler
-        .lock()
-        .boundaries
-        .get(tab)
-        .is_some_and(|boundary| boundary.expected == *expected && boundary.turn == turn)
+    let input = {
+        let scheduler = state.scheduler.lock();
+        let Some(boundary) = scheduler
+            .boundaries
+            .get(tab)
+            .filter(|boundary| boundary.expected == *expected && boundary.turn == turn)
+        else {
+            return false;
+        };
+        boundary.input.clone()
+    };
+    input.as_ref().is_none_or(|input| input.current(svc, tab))
 }
 
 fn emit(svc: &ServiceContext, tab: &str) {

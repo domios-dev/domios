@@ -271,3 +271,79 @@ fn isolated_credential_symlink_cannot_escape_to_the_usual_account() {
     )
     .is_err());
 }
+
+#[cfg(any(unix, windows))]
+#[test]
+fn shared_history_redirected_into_named_or_usual_credentials_is_not_provisioned() {
+    let data = tempfile::tempdir().unwrap();
+    let usual = tempfile::tempdir().unwrap();
+    let base = capability();
+    provision(data.path(), "fixture", "account-b", &base, usual.path()).unwrap();
+    let foreign = home_path(data.path(), "fixture", "account-b").unwrap();
+    std::fs::write(foreign.join("auth.json"), "opaque-b").unwrap();
+    std::fs::write(usual.path().join("auth.json"), "opaque-usual").unwrap();
+    for directory in [true, false] {
+        let mut capability = capability();
+        let name = if directory {
+            "sessions"
+        } else {
+            "history.jsonl"
+        };
+        capability.shared_paths = vec![SharedStoragePath {
+            path: name.into(),
+            kind: if directory {
+                StoragePathKind::Directory
+            } else {
+                StoragePathKind::File
+            },
+            root_environment: None,
+            configuration: None,
+        }];
+        let target = if directory {
+            foreign.clone()
+        } else {
+            foreign.join("auth.json")
+        };
+        link_shared(&target, &usual.path().join(name), directory).unwrap();
+        assert!(provision(
+            data.path(),
+            "fixture",
+            "account-a",
+            &capability,
+            usual.path()
+        )
+        .is_err());
+        assert!(!home_path(data.path(), "fixture", "account-a")
+            .unwrap()
+            .join(name)
+            .exists());
+        #[cfg(unix)]
+        std::fs::remove_file(usual.path().join(name)).unwrap();
+        #[cfg(windows)]
+        if directory {
+            std::fs::remove_dir(usual.path().join(name)).unwrap();
+        } else {
+            std::fs::remove_file(usual.path().join(name)).unwrap();
+        }
+        if !directory {
+            link_shared(
+                &usual.path().join("auth.json"),
+                &usual.path().join(name),
+                false,
+            )
+            .unwrap();
+            assert!(provision(
+                data.path(),
+                "fixture",
+                "account-a",
+                &capability,
+                usual.path()
+            )
+            .is_err());
+        }
+    }
+    assert_eq!(
+        std::fs::read_to_string(foreign.join("auth.json")).unwrap(),
+        "opaque-b"
+    );
+}
