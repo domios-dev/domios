@@ -32,7 +32,8 @@ pub use spawn_model::CatalogBackgroundModelPort;
 pub use spawn_model::ModelFallbackNotice;
 pub use spawn_model_catalogue::{
     catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
-    resolve_agent_model_selection, validate_agent_model, InvalidModelError,
+    resolve_agent_model_selection, resolve_agent_model_selection_with_default,
+    validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]

@@ -15,7 +15,7 @@ pub struct LaunchProfileRefusal {
 impl LaunchProfileRefusal {
     fn new(code: &str, provider: &str, requested: Option<&str>, declared: Vec<String>) -> Self {
         let message = format!(
-            "{code}: provider '{provider}', launch profile {}; declared profile ids: [{}]",
+            "{code}: provider '{provider}', launch profile {}; declared profile ids: [{}]. Choose an installed profile or configure one in Settings > Providers.",
             requested.unwrap_or("<missing>"),
             declared.join(", ")
         );
