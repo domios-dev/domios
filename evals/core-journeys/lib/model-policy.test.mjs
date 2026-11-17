@@ -196,6 +196,20 @@ test("profile default identity survives restart without claiming a model and rej
   }
 });
 
+test("an owner-excluded installed provider keeps launches open while a new provider still refuses", async () => {
+  const f = fixture();
+  f.descriptors.push({ ...descriptor(), id: "excluded-real" });
+  f.ctx.selection = { excluded_providers: [{ id: "excluded-real", waiver: "owner: fixture" }] };
+  await f.prepare();
+  assert.deepEqual(f.ctx.policy.roster.run.map(value => value.id), [provider]);
+  let launches = 0;
+  await f.ctx.policy.launch(provider, "allowed", () => { launches++; });
+  assert.equal(launches, 1);
+  f.descriptors.push({ ...descriptor(), id: "another-real-provider" });
+  await assert.rejects(f.ctx.policy.launch(provider, "must-refuse", () => { launches++; }), /roster changed/);
+  assert.equal(launches, 1);
+});
+
 test("the run's control fixture never narrows the complete real provider roster", async () => {
   const f = fixture();
   const control = fixtureProviderId(f.ctx.state.run);
