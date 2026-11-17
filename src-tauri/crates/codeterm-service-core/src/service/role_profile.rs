@@ -85,6 +85,8 @@ impl SpawnAgentParams {
     ) -> Result<Self, String> {
         let (role, role_profile) = role_type_pair(role_team, json_str(params, "role").as_deref())?;
         let mut out = Self {
+            account_id: None,
+            account_namespace: None,
             agent: json_str(params, "agent"),
             agent_name: json_str(params, "agent_name"),
             args: params.get("args").and_then(|v| v.as_array()).map(|a| {

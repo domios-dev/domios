@@ -5,7 +5,7 @@ use super::{
 };
 use crate::service::{
     agent_lifecycle::{AccountRestartBinding, AccountRestartTarget},
-    agent_runtime::{engine, events::RuntimeEvent},
+    agent_runtime::{engine, RuntimeEvent},
     ServiceContext,
 };
 use codeterm_plugin::agent_runtime::{
@@ -184,12 +184,12 @@ pub(super) fn availability(
         .collect()
 }
 
-fn runtime_epoch(svc: &ServiceContext, tab: &str) -> Option<u64> {
+fn runtime_epoch(tab: &str) -> Option<u64> {
     engine::for_tab(tab).map(|session| session.context.lock().epoch)
 }
 
 fn capture(svc: &ServiceContext, tab: &str) -> Result<AccountRestartBinding, String> {
-    let epoch = runtime_epoch(svc, tab);
+    let epoch = runtime_epoch(tab);
     let mux = svc.mux.read();
     AccountRestartBinding::capture(
         mux.get_tab(tab).ok_or("The account tab is unavailable")?,
@@ -198,7 +198,7 @@ fn capture(svc: &ServiceContext, tab: &str) -> Result<AccountRestartBinding, Str
 }
 
 fn bound(svc: &ServiceContext, tab: &str, expected: &AccountRestartBinding) -> bool {
-    let epoch = runtime_epoch(svc, tab);
+    let epoch = runtime_epoch(tab);
     svc.mux
         .read()
         .get_tab(tab)

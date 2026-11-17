@@ -247,8 +247,8 @@ pub(in crate::service::provider_accounts) fn reauthenticated(
             let expected = match capture(svc, &tab) {
                 Ok(expected) => expected,
                 Err(_) => AccountRestartBinding::capture_refresh(svc, &tab).or_else(|_| {
-                    let epoch = runtime_epoch(svc, &tab)
-                        .ok_or("Start a new tab to use this saved sign-in")?;
+                    let epoch =
+                        runtime_epoch(&tab).ok_or("Start a new tab to use this saved sign-in")?;
                     let mux = svc.mux.read();
                     AccountRestartBinding::capture_login(
                         mux.get_tab(&tab).ok_or("The account tab closed")?,

@@ -36,6 +36,14 @@ impl AgentProvider for Provider {
     fn detect_from_output(&self, _: &str) -> bool {
         false
     }
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
     fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
         None
     }
