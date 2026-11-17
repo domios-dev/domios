@@ -192,6 +192,9 @@ The confined runtime for everything that is not core: agent providers, capabilit
 
 Browser streams have one size owner and a fixed viewport set at startup. An explicit agent viewport or a user's Take control sets a new size and owner. Every viewer scales the stream to fit its surface, preserving aspect ratio. Layout, focus, visibility, tab switches and reconnects never resize the browser; an owner leaving never transfers size authority.
 
+The owner can move an exclusively held named Browser profile into a normal visible Chromium window for interactive sign-in, then continue headless with the same saved cookies. Visible sign-in pauses agent page control and preview; mode changes confirm process exit before launching the replacement, and shared profiles refuse the handoff. Agents may request the owner action but cannot initiate the visible window through the surface API.
+
+
 The system channel participates in the same list, diff and refresh inventory as registered channels, even before it has a local registration. Listing needs no network access. Refresh reports failures while preserving the last validated cache; an unavailable channel does not hide the others from an aggregate diff. One host-owned availability inventory covers plugins, the application and the independent interface bundle. Core plugins synchronize silently from the official channel and never offer a user update action; incompatible offers name the host requirement. Completed actions publish the changed inventory. One grouped Update surface counts compatible newer user offers, carries Update all intent through an app-first restart, and rechecks plugin compatibility against the resumed host before offering the Interface swap. Interface swaps require explicit consent, health confirmation and rollback on failure.
 
 ### Supporter Agent {#core:supporter-agent}

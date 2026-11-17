@@ -51,7 +51,7 @@ pub fn macos_app_launch(
         profile_dir: profile_dir.into(),
         adds_to_recent_items: false,
         creates_new_instance: true,
-        activates: false,
+        activates: !args.iter().any(|arg| arg.starts_with("--headless")),
     }))
 }
 
@@ -71,6 +71,7 @@ pub fn active_port_endpoint(contents: &str) -> Option<String> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LaunchSpec<'a> {
+    pub visible: bool,
     pub profile_dir: &'a Path,
     pub width: u32,
     pub height: u32,
@@ -78,9 +79,8 @@ pub struct LaunchSpec<'a> {
 }
 
 pub fn launch_args(spec: &LaunchSpec<'_>) -> Vec<String> {
-    vec![
+    let mut args = vec![
         OWNERSHIP_FLAG.into(),
-        "--headless=new".into(),
         "--remote-debugging-port=0".into(),
         format!("--user-data-dir={}", spec.profile_dir.display()),
         "--no-first-run".into(),
@@ -92,14 +92,17 @@ pub fn launch_args(spec: &LaunchSpec<'_>) -> Vec<String> {
         "--password-store=basic".into(),
         "--use-mock-keychain".into(),
         "--disable-features=Translate,CalculateNativeWinOcclusion".into(),
-        "--disable-blink-features=AutomationControlled".into(),
         format!("--window-size={},{}", spec.width.max(1), spec.height.max(1)),
         if spec.initial_url.is_empty() {
             "about:blank".into()
         } else {
             spec.initial_url.to_string()
         },
-    ]
+    ];
+    if !spec.visible {
+        args.insert(1, "--headless=new".into());
+    }
+    args
 }
 
 /// Incremental stderr scanner: chunks may split lines anywhere, lines may end in CRLF.

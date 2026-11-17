@@ -118,14 +118,6 @@ fn browser_cdp_picks_first_real_page_target() {
 }
 
 #[test]
-fn browser_cdp_user_agent_drops_headless_marker() {
-    assert_eq!(
-            headful_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36"),
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
-        );
-}
-
-#[test]
 fn browser_cdp_recovers_response_id_after_deep_result() {
     let payload = format!(
         "{{\"result\":{}0{},\"id\":73}}",
