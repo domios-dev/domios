@@ -7,6 +7,8 @@ use crate::surface::runtime::SurfaceCallCtx;
 use codeterm_browser::PageChannel;
 
 pub const VERBS: &[&str] = &[
+    "sign-in",
+    "continue",
     "console",
     "network",
     "hover",
@@ -125,6 +127,16 @@ impl BrowserRuntime {
                 VERBS.join(", ")
             ));
         }
+        if self.host.is_visible()
+            && !matches!(
+                verb,
+                "status" | "sign-in" | "continue" | "profiles" | "inbox" | "help"
+            )
+        {
+            return Err(
+                "Visible sign-in is active; wait for the owner, then continue headless".into(),
+            );
+        }
         let quiet = is_quiet_verb(verb);
         if !quiet {
             self.shared
@@ -156,6 +168,17 @@ impl BrowserRuntime {
         args: &[String],
     ) -> Result<String, String> {
         match verb {
+            "sign-in" => {
+                self.shared.notice(crate::surface::runtime::SurfaceNotice::info(
+                    "This page needs interactive sign-in. Choose Sign in visibly to open Chromium on this machine using this named profile.",
+                ));
+                Ok("Owner action required: choose Sign in visibly in the Browser toolbar. After signing in, choose Continue headless or run domios plugin browser continue.".into())
+            }
+            "continue" => {
+                self.switch_signin(false).await?;
+                self.ensure_page().await?;
+                Ok(self.status_text())
+            }
             "status" => Ok(self.status_text()),
             "profile" => self.profile_verb(args).await,
             "connect-secret" => self.connect_session(args).await,
@@ -195,6 +218,14 @@ impl BrowserRuntime {
         [
             format!("owner: {}", state.owner),
             format!("profile: {}", state.profile),
+            format!(
+                "mode: {}",
+                if self.host.is_visible() {
+                    "visible sign-in; owner controls Chromium"
+                } else {
+                    "headless"
+                }
+            ),
             format!("page: {title} — {}", state.url),
             format!("needs human: {}", state.needs_human),
         ]

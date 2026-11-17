@@ -76,6 +76,7 @@ const ids = (state: SurfaceState, interactive: boolean, picking = false) =>
   resolveToolbar(BROWSER_SURFACE_CHROME, { interactive, picking, state }).map((item) => [item.id, item.disabled] as const);
 assert.deepEqual(ids(page, false), [
   ["back", true], ["forward", true], ["reload", true], ["address", true], [CHROME_ITEM.openExternal, false],
+  ["signin-visible", false], ["signin-continue", false],
   [CHROME_ITEM.copy, true], [CHROME_ITEM.paste, true],
   [CHROME_ITEM.pick, false], [CHROME_ITEM.snip, false], ["profile", false], [CHROME_ITEM.takeControl, false],
 ], "watch-only disables page input only: open, pick and snip stay usable beside the agent, in the owner's order");
@@ -213,3 +214,6 @@ console.log("✓ surfaceChromeModel tests green");
 assert.equal(navigationFailureNotice("127.0.0.1:9", new Error("navigation failed: net::ERR_UNSAFE_PORT")), null);
 assert.equal(navigationFailureNotice("example.com", new Error("browser is not open")), "Could not open example.com");
 assert.equal(navigationFailureNotice(undefined, "boom"), "Navigation failed");
+
+assert.deepEqual(toolbarInvocation(declared("signin-visible")), { method: "signin.visible", args: {} });
+assert.deepEqual(toolbarInvocation(declared("signin-continue")), { method: "signin.continue", args: {} });

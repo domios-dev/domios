@@ -4,6 +4,7 @@ const BROWSER_ID: &str = "5c1a3b9e-8f0d-4f8e-9f41-2b1c0e6d7a10";
 
 fn owned_args() -> Vec<String> {
     launch_args(&LaunchSpec {
+        visible: false,
         profile_dir: Path::new("/data/Domios Browser/profiles/work"),
         width: 960,
         height: 640,
@@ -108,6 +109,7 @@ const READY: &str =
 fn browser_launch_args_carry_hygiene_flags_and_profile() {
     let profile = Path::new("/data/browsers/sessions/abc");
     let args = launch_args(&LaunchSpec {
+        visible: false,
         profile_dir: profile,
         width: 1600,
         height: 900,
@@ -125,7 +127,6 @@ fn browser_launch_args_carry_hygiene_flags_and_profile() {
         "--password-store=basic",
         "--use-mock-keychain",
         "--disable-features=Translate,CalculateNativeWinOcclusion",
-        "--disable-blink-features=AutomationControlled",
         "--window-size=1600,900",
     ] {
         assert!(args.iter().any(|arg| arg == flag), "missing {flag}");
@@ -137,6 +138,7 @@ fn browser_launch_args_carry_hygiene_flags_and_profile() {
 #[test]
 fn browser_launch_args_end_with_initial_url_when_given() {
     let args = launch_args(&LaunchSpec {
+        visible: false,
         profile_dir: Path::new("p"),
         width: 0,
         height: 0,
@@ -225,4 +227,33 @@ fn browser_endpoint_validation_accepts_only_loopback() {
     assert!(validate_loopback_endpoint("ws://192.168.1.4:9222/x", &["ws"]).is_err());
     assert!(validate_loopback_endpoint("wss://127.0.0.1:9222/x", &["ws"]).is_err());
     assert!(validate_loopback_endpoint("http://127.0.0.1:9223", &["http"]).is_ok());
+}
+
+#[test]
+fn visible_signin_uses_same_profile_without_headless_or_spoofing() {
+    for visible in [false, true] {
+        let args = launch_args(&LaunchSpec {
+            visible,
+            profile_dir: Path::new("/data/profiles/Andrey"),
+            width: 1200,
+            height: 800,
+            initial_url: "https://example.test/login",
+        });
+        assert_eq!(
+            args.iter().any(|arg| arg.starts_with("--headless")),
+            !visible
+        );
+        assert!(args.contains(&"--user-data-dir=/data/profiles/Andrey".into()));
+        assert!(!args
+            .iter()
+            .any(|arg| arg.contains("AutomationControlled") || arg.contains("user-agent")));
+        let mac = macos_app_launch(
+            HostOs::MacOs,
+            Path::new("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            &args,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(mac.activates, visible);
+    }
 }

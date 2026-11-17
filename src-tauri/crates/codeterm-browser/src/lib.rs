@@ -138,18 +138,28 @@ impl BrowserHost {
     }
 
     fn install(&self, runtime: Runtime) -> Arc<Runtime> {
+        Self::install_into(&self.runtime, &self.viewport, &self.frames, runtime)
+    }
+
+    fn install_into(
+        state: &Mutex<Option<Arc<Runtime>>>,
+        viewport_model: &Mutex<ViewportModel>,
+        frames: &FrameHub,
+        runtime: Runtime,
+    ) -> Arc<Runtime> {
         let mode = match runtime.mode {
+            _ if runtime.visible => ViewportMode::Attached,
             BrowserMode::Launched { .. } => ViewportMode::Owned,
             BrowserMode::Attached { .. } => ViewportMode::Attached,
         };
         let viewport = {
-            let mut model = self.viewport.lock();
+            let mut model = viewport_model.lock();
             *model = ViewportModel::new(mode, model.current());
             model.current()
         };
         let runtime = Arc::new(runtime);
-        *self.runtime.lock() = Some(runtime.clone());
-        self.frames.set_params(ScreencastParams::new(viewport));
+        *state.lock() = Some(runtime.clone());
+        frames.set_params(ScreencastParams::new(viewport));
         runtime
     }
 
@@ -209,6 +219,12 @@ impl BrowserHost {
     /// Start or reuse this instance's Chromium; a different profile relaunches it.
     pub async fn open(&self, options: OpenOptions) -> Result<OpenedBrowser, String> {
         let _lifecycle = self.lifecycle.lock().await;
+        if self.is_visible() {
+            return Err(
+                "visible sign-in is active; finish in the Chromium window, then continue headless"
+                    .into(),
+            );
+        }
         let wanted = ProfileKind::from_request(&options.profile);
         let current = self.current();
         let plan = plan_open(
@@ -328,6 +344,34 @@ impl BrowserHost {
         self.current().map(|runtime| runtime.mode.clone())
     }
 
+    pub fn is_visible(&self) -> bool {
+        self.current().is_some_and(|runtime| runtime.visible)
+    }
+
+    pub async fn set_visible(&self, visible: bool) -> Result<(), String> {
+        let lifecycle = self.lifecycle.clone();
+        let state = self.runtime.clone();
+        let viewport_model = self.viewport.clone();
+        let frames = self.frames.clone();
+        tokio::spawn(async move {
+            let _lifecycle = lifecycle.lock().await;
+            let current = state.lock().clone().ok_or("open a named Browser profile first")?;
+            let named = matches!(&current.mode, BrowserMode::Launched { profile } if profile.is_persistent());
+            if !named {
+                return Err("visible sign-in requires a named Browser profile".into());
+            }
+            if current.visible == visible {
+                return Ok(());
+            }
+            let viewport = viewport_model.lock().current();
+            let runtime = runtime::switch_visibility(current, visible, viewport, frames.clone()).await?;
+            Self::install_into(&state, &viewport_model, &frames, runtime);
+            Ok(())
+        })
+        .await
+        .map_err(|error| format!("browser visibility task failed: {error}"))?
+    }
+
     /// Process exit for crash detection; `None` in attach mode or when nothing runs.
     pub fn exit_watch(&self) -> Option<watch::Receiver<Option<ProcessExit>>> {
         self.current()
@@ -430,3 +474,7 @@ pub async fn sweep_orphans(layout: ProfileLayout) -> sweep::SweepReport {
 #[cfg(test)]
 #[path = "lib/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "lib/visible_tests.rs"]
+mod visible_tests;

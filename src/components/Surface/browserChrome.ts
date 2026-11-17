@@ -9,6 +9,8 @@ export const BROWSER_SURFACE_CHROME: SurfaceChromeSpec = {
     { id: "reload", kind: "button", icon: "rotate-cw", label: "Reload", when: "interactive", invoke: { method: "nav", args: { action: "reload" } } },
     { id: "address", kind: "input", label: "Address", placeholder: "Address", source: "url", when: "interactive", invoke: { method: "nav", args: { action: "goto" }, valueArg: "target" } },
     { id: "profile", kind: "select", label: "Browser profile", source: "profiles", invoke: { method: "profiles.use", valueArg: "name" } },
+    { id: "signin-visible", kind: "button", icon: "external-link", label: "Sign in visibly", invoke: { method: "signin.visible" } },
+    { id: "signin-continue", kind: "button", icon: "globe", label: "Continue headless", invoke: { method: "signin.continue" } },
   ],
   takeControl: true,
   pointAndAsk: true,
