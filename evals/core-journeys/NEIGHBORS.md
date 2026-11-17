@@ -41,6 +41,8 @@ Create a private config outside tracked source, replacing the example values:
   "candidate": "FULL_40_HEX_CANDIDATE_SHA",
   "friendship": "EXISTING_64_HEX_QA_FRIENDSHIP_ID",
   "qa_accounts_confirmed": true,
+  "provider": "codex",
+  "model": "EXACT_ADVERTISED_INCIDENT_MODEL",
   "peer": { "instance": "curated", "port": 7697 }
 }
 ```
@@ -77,8 +79,13 @@ bash evals/core-journeys/run.sh all --journeys J5 --neighbors-config PRIVATE_CON
 node evals/core-journeys/lib/evidence-contract.mjs OWNED_FRESH_OUT
 ```
 
-J5 uses the stored concierge provider/model and records actual session/model
-identity. It does not run the J1–J4 complete-provider matrix, set global agent
+J5 pins the stored concierge provider/model to the private config and requires
+the same actual own-session model before a reply passes. The Codex runtime is
+mandatory for the incident/release gate on both platforms; a working Claude
+concierge is a separate control and does not exercise the Codex sandbox. Discover
+the exact incident model through that peer's live catalogue, and use the normal
+Change concierge action to select it while retaining the friendship's grants.
+J5 does not run the J1–J4 complete-provider matrix, set global agent
 full access, provision Teams or restart a DEV. A combined selection still runs
 the existing J1–J4 model policy and requires their explicit `--model` options.
 The API oracle requires the expected answer from B's exact bound concierge
@@ -105,6 +112,12 @@ reports cleanup failure so the owner can reconcile the exact pending IDs.
 Do not stop/reopen the concierge or replay a payload to simplify cleanup.
 Every paid run needs a new output directory; an existing J5 state refuses
 another setup. A transport uncertainty is retained, never resubmitted.
+An already matching grant is retained without replacing its concierge. During
+replacement, a provisional launch may briefly project as crashed before it is
+ready; that label alone does not prove a terminal launch failure. Preserve the
+API observation and check whether the owner sees it in Browser as a product
+defect; the harness still requires authoritative session readiness or fails at
+its readiness bound.
 
 ## Fail-first and platform ledger
 

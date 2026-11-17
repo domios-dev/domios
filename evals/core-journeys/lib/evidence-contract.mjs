@@ -109,6 +109,9 @@ function checkNeighbors(results, errors) {
       || row.recipient.answers.length !== 1 || !row.recipient.answer_matches || !row.recipient.answer_by_concierge
       || !row.recipient.question_matches || row.recipient.question?.handling_state !== "answered"
       || row.recipient.session !== row.concierge?.session || !isText(row.concierge?.session)
+      || !isText(state.expected_provider) || !isText(state.expected_model)
+      || row.concierge.provider !== state.expected_provider || row.concierge.requested_model !== state.expected_model
+      || row.recipient.actual_model !== state.expected_model
       || row.concierge.machine_access !== access || !isText(row.concierge.initial_context_digest)
       || row.friend?.answers?.length !== 1 || row.friend.answers[0].message_id !== answer.message_id
       || !row.friend.answer_matches || row.friend.question?.delivery_status !== "delivered"

@@ -125,6 +125,8 @@ then sync them here. Never hand-edit the bundled snapshot.
    [J5 two-peer journey](../../../evals/core-journeys/NEIGHBORS.md) on both Windows
    (BLACKSTAR named QA peers) and macOS (qualified named QA peers on air/eight).
    Each platform must prove `read_only`, `folder` and `full`: a fresh question,
+   using the incident's Codex runtime provider/model (a Claude control cannot
+   replace its sandbox coverage),
    a host-created concierge's trusted linked answer, the friend's received answer,
    delivered receipts and the friend page returning to idle. Retain the Browser
    evidence alongside the API run and check its evidence contract. Missing, failed,
@@ -715,4 +717,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

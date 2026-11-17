@@ -37,7 +37,7 @@ async function qualify(peer, config, { editsGrant = false } = {}) {
   } };
 }
 
-async function concierge(peer, friendship, access, ctx) {
+async function concierge(peer, friendship, access, ctx, config) {
   return withEvents(peer, ctx.deadlines.ready, (events, signal) => observe({
     events, label: `J5 ${access} host concierge ready`,
     read: async () => {
@@ -48,8 +48,9 @@ async function concierge(peer, friendship, access, ctx) {
     },
     judge: snapshot => {
       if (snapshot.permission.machine_access !== access) return { fail: "J5 saved machine access differs from requested access" };
-      if (snapshot.concierge?.state?.startsWith("concierge_") && snapshot.concierge.state !== "concierge_starting") return { fail: `J5 ${snapshot.concierge.state}` };
+      if (["concierge_auth_needed", "concierge_access_needed", "concierge_provider_refused", "concierge_invalid"].includes(snapshot.concierge?.state)) return { fail: `J5 ${snapshot.concierge.state}` };
       if (!snapshot.id || !snapshot.tab || snapshot.concierge?.state !== "ready") return { pending: "host-created concierge binding" };
+      if (snapshot.tab.agent_type !== config.provider || snapshot.tab.agent_requested_model !== config.model) return { fail: "J5 bound concierge provider/model differs from the selected incident harness" };
       const ready = readiness(snapshot.tab, { requireSession: true });
       if (ready.fail) return ready;
       return ready.done ? { done: { tab: snapshot.id, session: snapshot.tab.agent_session_id, provider: snapshot.tab.agent_type,
@@ -84,7 +85,7 @@ async function roundtrip(ctx, a, b, config, access, row) {
           answer_matches: answers.length === 1 && answers[0].body.trim() === expected,
           answer_by_concierge: answers.length === 1 && answers[0].author?.agent === row.concierge.tab,
           question_matches: question?.body === body, session: tab?.agent_session_id,
-          status: tab?.agent_state?.state ?? tab?.status };
+          status: tab?.agent_state?.state ?? tab?.status, actual_model: tab?.agent_session_model };
       },
       judge: snapshot => {
         if (snapshot.session !== row.concierge.session) return { fail: "J5 concierge session changed during the question" };
@@ -92,7 +93,8 @@ async function roundtrip(ctx, a, b, config, access, row) {
         const reply = snapshot.answers[0];
         if (reply && (reply.kind !== "answer" || !snapshot.answer_matches || !snapshot.answer_by_concierge)) return { fail: "J5 linked reply is not the expected concierge answer" };
         if (reply?.submission === "unconfirmed" || reply?.delivery_status === "not_delivered") return { fail: "J5 answer unconfirmed or not delivered; never replay" };
-        if (reply && snapshot.question_matches && snapshot.question?.handling_state === "answered") return { done: snapshot };
+        if (snapshot.actual_model && snapshot.actual_model !== config.model) return { fail: "J5 own-session model differs from the selected incident model" };
+        if (reply && snapshot.question_matches && snapshot.question?.handling_state === "answered" && snapshot.actual_model === config.model) return { done: snapshot };
         if (["failed", "stopped", "refused", "no_reply"].includes(snapshot.question?.handling_state)) return { fail: `J5 handling ${snapshot.question.handling_state}: ${snapshot.question.handling_reason ?? "no linked answer"}` };
         return { pending: `linked answer (handling=${snapshot.question?.handling_state ?? "not admitted"})` };
       },
@@ -140,6 +142,9 @@ export async function journeyFive(ctx) {
   const qualified = await ctx.check("SETUP", "neighbors_qa_peers", "J5", async () => {
     demand(ctx.options.neighborsConfig, "J5 requires --neighbors-config with qualified disposable QA peers");
     config = JSON.parse(readFileSync(ctx.options.neighborsConfig, "utf8"));
+    demand(typeof config.provider === "string" && config.provider.trim() && typeof config.model === "string" && config.model.trim(), "J5 requires explicit provider/model pins from the selected incident harness's live catalogue");
+    state.expected_provider = config.provider;
+    state.expected_model = config.model;
     demand((config.question === undefined && config.expected_answer === undefined)
       || (typeof config.question === "string" && config.question.includes("{nonce}") && typeof config.expected_answer === "string" && config.expected_answer.trim().length > 0), "J5 custom question needs a {nonce} and a nonempty expected_answer matching the public grant");
     demand(config.access_levels === undefined || (Array.isArray(config.access_levels) && config.access_levels.length > 0
@@ -169,10 +174,14 @@ export async function journeyFive(ctx) {
       const row = { access };
       state.rows.push(row);
       const ready = await ctx.check("J5", "host_concierge_ready", access, async () => {
-        changed = true;
-        await runtime(b, { operation: "set_permission", friendship_id: config.friendship,
-          permission: { machine_access: access, folder: saved.effective_folder } });
-        row.concierge = await concierge(b, config.friendship, access, ctx);
+        const folder = access === "folder" ? saved.effective_folder : saved.folder;
+        const current = await runtime(b, { operation: "permission", friendship_id: config.friendship });
+        if (current.machine_access !== access || current.folder !== folder) {
+          changed = true;
+          await runtime(b, { operation: "set_permission", friendship_id: config.friendship,
+            permission: { machine_access: access, folder } });
+        }
+        row.concierge = await concierge(b, config.friendship, access, ctx, config);
         ctx.save();
         return { summary: `${access}: host-created concierge ready from stored grant`, evidence: row.concierge };
       });
@@ -181,16 +190,18 @@ export async function journeyFive(ctx) {
       if (!result) break;
     }
   } finally {
-    if (changed) await ctx.check("J5", "permission_restored", "B", async () => {
-      const status = await runtime(b, { operation: "status" });
-      const tab = await readTab(b.api, status.bindings?.[config.friendship]);
-      demand(tab && (tab.agent_state?.state ?? tab.status) === "idle", "J5 leaves the current grant intact while the concierge is active or uncertain; reconcile pending IDs before restoring");
-      await runtime(b, { operation: "set_permission", friendship_id: config.friendship,
-        permission: { machine_access: saved.machine_access, folder: saved.folder } });
+    await ctx.check("J5", "permission_restored", "B", async () => {
+      if (changed) {
+        const status = await runtime(b, { operation: "status" });
+        const tab = await readTab(b.api, status.bindings?.[config.friendship]);
+        demand(tab && (tab.agent_state?.state ?? tab.status) === "idle", "J5 leaves the current grant intact while the concierge is active or uncertain; reconcile pending IDs before restoring");
+        await runtime(b, { operation: "set_permission", friendship_id: config.friendship,
+          permission: { machine_access: saved.machine_access, folder: saved.folder } });
+      }
       const actual = await runtime(b, { operation: "permission", friendship_id: config.friendship });
       demand(actual.machine_access === saved.machine_access && actual.folder === saved.folder && actual.scope === saved.scope, "J5 original permission did not persist");
       state.restored = true;
-      return "original machine access, folder and scope restored";
+      return changed ? "original machine access, folder and scope restored" : "original machine access, folder and scope retained without replacement";
     });
   }
 }
