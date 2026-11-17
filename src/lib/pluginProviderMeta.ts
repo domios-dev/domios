@@ -40,9 +40,18 @@ const subscribers = new Set<() => void>();
 export function setPluginProviderMeta(list: PluginProviderMeta[]): void {
   const next: Record<string, PluginProviderMeta> = {};
   for (const m of list) next[m.id] = m;
+  if (Object.keys(cache).length === Object.keys(next).length && Object.entries(next).every(([id, meta]) => {
+    const previous = cache[id];
+    return previous && previous.displayName === meta.displayName && previous.iconSvg === meta.iconSvg
+      && previous.iconColor === meta.iconColor;
+  })) return;
   cache = next;
   generation += 1;
   for (const fn of subscribers) fn();
+}
+
+export function pluginCatalogChanged(kind: string): boolean {
+  return !kind.startsWith("status_bubble:");
 }
 
 export function getPluginProviderMeta(id: string | null | undefined): PluginProviderMeta | undefined {

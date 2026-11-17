@@ -49,6 +49,7 @@ function installEnv() {
   globalThis.window = win as unknown as Window & typeof globalThis;
   globalThis.localStorage = win.localStorage;
   globalThis.sessionStorage = win.sessionStorage;
+  globalThis.document = new EventTarget() as Document;
 
   let push!: (chunk: string) => void;
   const body = new ReadableStream<Uint8Array>({
