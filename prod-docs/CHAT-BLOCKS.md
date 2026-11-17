@@ -201,6 +201,11 @@ Markdown only, so ds tags inside them stay text. Mesh delivery does not
 transfer canvas files, so a canvas sent to another machine shows those items
 as unavailable.
 
+In the opened viewer, Space+drag or middle-button drag pans from anywhere on
+the board, including over items. Primary-button drag on empty board space also
+pans. Space keeps its normal meaning while a note editor or an HTML item has
+focus. The static chat preview does not pan or zoom.
+
 ### Canvas files
 
 A board that should last, and that you and the owner keep changing, belongs
@@ -277,4 +282,4 @@ loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
 use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
 and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
