@@ -11,7 +11,7 @@ const history = (peer, friendship, signal) => runtime(peer, { operation: "histor
 const demand = (condition, reason) => { if (!condition) throw new JourneyFailure(reason); };
 const entryEvidence = entry => entry && Object.fromEntries(["message_id", "direction", "kind", "in_reply_to", "submission", "delivery_status", "delivered_at", "handling_state", "handling_reason", "outcome"].filter(key => entry[key] !== undefined).map(key => [key, entry[key]]));
 
-async function qualify(peer, config) {
+async function qualify(peer, config, { editsGrant = false } = {}) {
   const [health, backend, account, status, listed, page] = await Promise.all([
     peer.api("/api/health"), peer.api("/api/account/backend"), peer.api("/api/account/status"),
     runtime(peer, { operation: "status" }), peer.api("/api/account/neighbors", { method: "POST", body: { operation: "list" } }),
@@ -25,10 +25,12 @@ async function qualify(peer, config) {
   demand(friend && listed.access === "paid" && !friend.my_paused && !friend.their_paused && !page.ended, "J5 requires an active, unlocked QA friendship");
   demand(status.enabled && status.friend_receivers?.[config.friendship]?.receiving_here, "J5 peer must already receive this QA friend here");
   demand(status.listeners?.[config.friendship] === "receiving", "J5 requires a healthy receiving listener");
-  const gateway = status.bindings?.[config.friendship];
-  const tab = gateway ? await readTab(peer.api, gateway) : null;
-  demand(tab && (tab.agent_state?.state ?? tab.status) === "idle", "J5 requires the existing QA concierge to be idle before grant edits");
-  demand(!(status.incoming_handling?.[config.friendship] ?? []).some(row => ["waiting", "working", "delivered_to_concierge"].includes(row.handling_state)), "J5 pending inbound work must be reconciled before the run");
+  if (editsGrant) {
+    const gateway = status.bindings?.[config.friendship];
+    const tab = gateway ? await readTab(peer.api, gateway) : null;
+    demand(tab && (tab.agent_state?.state ?? tab.status) === "idle", "J5 requires B's existing QA concierge to be idle before grant edits");
+    demand(!(status.incoming_handling?.[config.friendship] ?? []).some(row => ["waiting", "working", "delivered_to_concierge"].includes(row.handling_state)), "J5 pending inbound work must be reconciled before grant edits");
+  }
   return { uid: account.identity.uid, friendUid: friend.uid, evidence: {
     instance: peer.dev.instance, port: peer.dev.port, build_sha: health.build_sha, boot_id: health.boot_id, platform: health.platform,
     backend: { target: backend.target, project_id: backend.project_id }, signed_in: true,
@@ -60,8 +62,10 @@ async function concierge(peer, friendship, access, ctx) {
 
 async function roundtrip(ctx, a, b, config, access, row) {
   const friendship = config.friendship;
-  const expected = marker(ctx.state.run, "neighbor", access);
-  const body = `Public synthetic release question: what is the verification code ${expected}? Answer with exactly that code through the trusted Neighbor reply path, linked to this question. Do not answer only in your local chat.`;
+  const nonce = marker(ctx.state.run, "neighbor", access);
+  const expected = config.expected_answer ?? nonce;
+  const body = config.question?.replaceAll("{nonce}", nonce)
+    ?? `Public synthetic release question: what is the verification code ${expected}? Answer with exactly that code through the trusted Neighbor reply path, linked to this question. Do not answer only in your local chat.`;
   return withEvents(b, ctx.deadlines.reply, async (eventsB, signalB) => withEvents(a, ctx.deadlines.reply, async (eventsA, signalA) => {
     row.send_started_at = new Date().toISOString();
     ctx.save();
@@ -136,12 +140,14 @@ export async function journeyFive(ctx) {
   const qualified = await ctx.check("SETUP", "neighbors_qa_peers", "J5", async () => {
     demand(ctx.options.neighborsConfig, "J5 requires --neighbors-config with qualified disposable QA peers");
     config = JSON.parse(readFileSync(ctx.options.neighborsConfig, "utf8"));
+    demand((config.question === undefined && config.expected_answer === undefined)
+      || (typeof config.question === "string" && config.question.includes("{nonce}") && typeof config.expected_answer === "string" && config.expected_answer.trim().length > 0), "J5 custom question needs a {nonce} and a nonempty expected_answer matching the public grant");
     demand(/^[0-9a-f]{40}$/.test(config.candidate ?? "") && /^[0-9a-f]{64}$/.test(config.friendship ?? ""), "J5 requires a full candidate SHA and friendship ID");
     demand(config.qa_accounts_confirmed === true, "J5 requires private confirmation of the authorized QA account aliases");
     a = { dev: ctx.dev, api: ctx.api };
     b = await neighborPeer(config.peer);
     demand(a.dev.instance !== b.dev.instance && a.dev.port !== b.dev.port, "J5 requires two distinct named peers");
-    const qaA = await qualify(a, config), qaB = await qualify(b, config);
+    const qaA = await qualify(a, config), qaB = await qualify(b, config, { editsGrant: true });
     demand(qaA.uid !== qaB.uid && qaA.friendUid === qaB.uid && qaB.friendUid === qaA.uid, "J5 account/friendship identities do not match the QA pair");
     state.peers = [qaA.evidence, qaB.evidence];
     state.friendship = config.friendship;

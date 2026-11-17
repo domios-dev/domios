@@ -52,6 +52,14 @@ distinct-account and reciprocal-friendship checks. Both peers must report
 Missing prerequisites fail before a question is sent. The config and run
 artifacts contain no credentials. Account emails and UIDs never enter results.
 
+For an existing grant limited to a public fixture, add `question` and
+`expected_answer` to the private config. The question must contain `{nonce}`,
+replaced with a fresh per-run/access marker, and request only the granted public
+fact. Read the controlled fixture independently to choose its exact expected
+answer; do not widen the stored scope to fit the default code question. Only B
+needs an idle bound concierge before grant edits: A's owner conversation can
+receive its linked answer without a live concierge.
+
 ## Run and inspect
 
 Use one Team QA utility with timeout 60m. Select A before sourcing the DEV lib;
