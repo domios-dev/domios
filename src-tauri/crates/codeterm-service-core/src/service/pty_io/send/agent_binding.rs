@@ -12,7 +12,7 @@ impl ServiceContext {
         payload: &mut crate::service::messenger::AgentDeliveryPayload,
     ) -> Result<(), String> {
         let tab_id = claim.tab_id();
-        crate::service::provider_accounts::invalidate_boundary(self, tab_id);
+        crate::service::provider_accounts::admit_pty_input(self, tab_id);
         let restored = {
             let mux = self.mux.read();
             mux.resolve_tab_id(tab_id)

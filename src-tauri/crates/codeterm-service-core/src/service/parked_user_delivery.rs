@@ -921,7 +921,7 @@ impl super::ServiceContext {
             })?;
         let claim = admitted_claim
             .unwrap_or_else(|| super::pty_io::submit_transaction::claim_submit_cycle(pty_id))
-            .with_trace_id(&record.send_id);
+            .with_user_send_id(&record.send_id);
         if let Some(wait) = claim.command_wait() {
             self.hold_user_send_for_model_command(tab_id, &record.send_id, wait);
             return Err(DeliveryError::TabBusyRefused {

@@ -17,7 +17,8 @@ pub use scheduler::{
     account_turn_boundary, can_try_now, select, transition, SelectRequest, Transition,
 };
 pub(crate) use scheduler::{
-    invalidate_boundary, runtime_observe, successful_turn, transcript_limit,
+    admit_pty_input, admit_pty_write, invalidate_boundary, pty_input_witness, runtime_observe,
+    successful_turn, transcript_limit, PtyInputWitness,
 };
 
 use codeterm_plugin::provider_account::{storage::AccountCapability, InvocationContext};

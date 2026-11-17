@@ -478,6 +478,11 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             text.len(),
             input.len()
         );
+        crate::service::provider_accounts::admit_pty_write(
+            self.svc,
+            self.pty_id,
+            self.submit_claim.user_send_id.as_deref(),
+        );
         let session = self
             .svc
             .pty

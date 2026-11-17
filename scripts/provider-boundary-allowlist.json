@@ -5054,7 +5054,7 @@
     {
       "file": "src-tauri/crates/codeterm-usage/src/store.rs",
       "token": "claude",
-      "count": 12,
+      "count": 11,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },

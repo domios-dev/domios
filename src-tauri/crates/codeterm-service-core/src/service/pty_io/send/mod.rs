@@ -1039,6 +1039,7 @@ impl ServiceContext {
         let _update_input = self.admit_update_input(tab_id)?;
         self.wake_frozen_tab(tab_id)?;
         let pty_id = self.resolve_pty_id(tab_id)?;
+        crate::service::provider_accounts::admit_pty_write(self, &pty_id, None);
         let data = input.as_bytes();
         let encoded = self.encode_provider_control_key(&pty_id, data);
         let data = encoded.as_deref().unwrap_or(data);
@@ -1057,6 +1058,7 @@ impl ServiceContext {
     ) -> Result<(), String> {
         let update_input = self.admit_update_input(tab_id)?;
         let pty_id = self.resolve_pty_id(tab_id)?;
+        crate::service::provider_accounts::admit_pty_write(self, &pty_id, None);
         let pty = self.pty.clone();
         std::thread::spawn(move || {
             let _update_input = update_input;

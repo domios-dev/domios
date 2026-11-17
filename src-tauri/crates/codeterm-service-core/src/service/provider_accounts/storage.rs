@@ -296,6 +296,27 @@ pub(super) fn provision_namespace(
         capability.home_environment.clone(),
         Some(home.to_string_lossy().into_owned()),
     )]);
+    let mut exclusions = capability
+        .isolated_paths
+        .iter()
+        .map(|path| relative(usual, path))
+        .collect::<Vec<_>>();
+    exclusions.push(accounts_root.clone());
+    let mut count = 0;
+    for provider in std::fs::read_dir(&accounts_root).map_err(|error| error.to_string())? {
+        let provider = provider.map_err(|error| error.to_string())?.path();
+        for namespace in std::fs::read_dir(provider).map_err(|error| error.to_string())? {
+            count += 1;
+            if count > 128 {
+                return Err("Account storage exclusion limit".into());
+            }
+            let namespace = namespace.map_err(|error| error.to_string())?.path();
+            exclusions.push(std::fs::canonicalize(&namespace).map_err(|error| error.to_string())?);
+            exclusions.push(namespace);
+        }
+    }
+    exclusions.sort();
+    exclusions.dedup();
     let mut grants = Vec::new();
     for layout in &capability.shared_paths {
         if layout
@@ -307,7 +328,10 @@ pub(super) fn provision_namespace(
         }
         let root = shared_root(layout, usual)?;
         std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
-        grants.push(SharedReadGrant::from_layout(layout, &root)?);
+        let grant = SharedReadGrant::from_layout(layout, &root)?;
+        // Validate before installing links or writing the selected SQLite configuration.
+        grant.clone().pin(&exclusions)?;
+        grants.push(grant);
         match layout.kind {
             StoragePathKind::VersionedSqlite => {
                 let variable = layout
@@ -339,7 +363,8 @@ pub(super) fn provision_namespace(
                         return Err("Shared history must be a regular file".into());
                     }
                 }
-                link_shared(&target, &relative(&home, &layout.path), directory)?;
+                let pinned = SharedReadGrant::from_layout(layout, &root)?.pin(&exclusions)?;
+                link_shared(pinned.resolved(), &relative(&home, &layout.path), directory)?;
             }
         }
     }
@@ -351,6 +376,7 @@ pub(super) fn provision_namespace(
         vec![home],
         vec![usual.into(), accounts_root],
     )?
+    .with_shared_exclusions(exclusions)?
     .with_shared_reads(grants)
 }
 

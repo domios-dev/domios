@@ -11,15 +11,17 @@ pub(super) fn validate_pty(
     target
         .validate_target()
         .map_err(AgentRestartError::BadRequest)?;
-    let turn_boundary = svc.tab_is_idle(&snap.tab_id)
-        || target.terminal_turn.as_deref().is_some_and(|turn| {
+    let turn_boundary = target.terminal_turn.as_deref().map_or_else(
+        || svc.tab_is_idle(&snap.tab_id),
+        |turn| {
             crate::service::provider_accounts::account_turn_boundary(
                 svc,
                 &snap.tab_id,
                 &target.expected,
                 turn,
             )
-        });
+        },
+    );
     if target.expected.unbound_login
         || target.expected.refresh_login
         || target.expected.runtime_epoch.is_some()

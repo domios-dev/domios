@@ -28,6 +28,25 @@ pub(in crate::service::provider_accounts) fn dispatch(svc: &ServiceContext, tab:
             scheduler.book.cancel(&pending.claim);
             return;
         }
+        if pending.resume_work
+            && pending.target.expected.runtime_epoch.is_none()
+            && !scheduler.boundaries.get(tab).is_some_and(|boundary| {
+                boundary.expected == pending.target.expected
+                    && boundary.turn == pending.claim.turn
+                    && boundary.input.as_ref().is_some_and(|input| {
+                        input.revision == svc.chat_send_ledger.input_revision_for_tab(tab)
+                            && input.generation != u64::MAX
+                            && scheduler
+                                .inputs
+                                .get(tab)
+                                .is_some_and(|admission| admission.generation == input.generation)
+                    })
+            })
+        {
+            let pending = scheduler.pending.remove(tab).unwrap();
+            scheduler.book.cancel(&pending.claim);
+            return;
+        }
         if let Some(session) = engine::for_tab(tab) {
             let completion = pending.resume_work.then_some((
                 pending.claim.source.session.as_str(),
@@ -42,12 +61,7 @@ pub(in crate::service::provider_accounts) fn dispatch(svc: &ServiceContext, tab:
                 .is_some_and(|snapshot| {
                     snapshot.tab_statuses.get(tab) == Some(&codeterm_types::pty::TabStatus::Idle)
                 });
-            if !idle
-                && !scheduler.boundaries.get(tab).is_some_and(|boundary| {
-                    boundary.expected == pending.target.expected
-                        && boundary.turn == pending.claim.turn
-                })
-            {
+            if !idle && !pending.resume_work {
                 return;
             }
         }
