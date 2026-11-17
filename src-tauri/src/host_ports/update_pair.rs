@@ -60,6 +60,28 @@ struct AttachedServerStop {
 
 #[async_trait::async_trait]
 impl ServerStop for AttachedServerStop {
+    async fn describe_install_holders(
+        &self,
+        processes: Vec<codeterm_update::holders::HolderProcess>,
+    ) -> Result<Vec<codeterm_update::holders::HolderTab>, String> {
+        let api = self
+            .app
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
+            .ok_or("the server attachment is unavailable")?;
+        api.client
+            .post(format!("{}/api/update/holders", api.api_origin()))
+            .bearer_auth(api.token())
+            .json(&processes)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .map_err(|e| e.to_string())?
+            .json()
+            .await
+            .map_err(|e| e.to_string())
+    }
+
     #[cfg(target_os = "linux")]
     fn debian_quit_target(&self) -> Result<codeterm_update::debian::handoff::QuitTarget, String> {
         let api = self

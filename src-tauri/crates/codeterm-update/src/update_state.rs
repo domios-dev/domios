@@ -78,9 +78,13 @@ pub type StatusEmitter = Box<dyn Fn(serde_json::Value) + Send + Sync>;
 
 pub static STATUS_EMITTER: std::sync::OnceLock<StatusEmitter> = std::sync::OnceLock::new();
 
+pub static STATUS_CHANGED: std::sync::LazyLock<tokio::sync::watch::Sender<serde_json::Value>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(serde_json::Value::Null).0);
+
 impl UpdateState {
     fn publish_status(&self) {
         let status = self.runtime_status();
+        STATUS_CHANGED.send_replace(status.clone());
         #[cfg(test)]
         state_tests::capture_status(&status);
         if let Some(emit) = STATUS_EMITTER.get() {

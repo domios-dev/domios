@@ -9,6 +9,17 @@ use crate::app_runtime::AppHandle;
 /// The native client stops its attached server before an installer replaces the pair.
 #[async_trait::async_trait]
 pub trait ServerStop: Send + Sync {
+    async fn describe_install_holders(
+        &self,
+        processes: Vec<codeterm_update::holders::HolderProcess>,
+    ) -> Result<Vec<codeterm_update::holders::HolderTab>, String> {
+        if processes.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Err("install holder tab ownership is unavailable".into())
+        }
+    }
+
     #[cfg(target_os = "linux")]
     fn debian_quit_target(&self) -> Result<codeterm_update::debian::handoff::QuitTarget, String> {
         Err("the authenticated update quit target is unavailable".into())

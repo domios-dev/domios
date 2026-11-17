@@ -369,3 +369,16 @@ fn updater_admission_errors_render_recovery_copy_without_protocol_noise() {
         "download failure"
     );
 }
+
+#[test]
+fn update_success_requires_a_running_version_matching_the_verified_native_receipt() {
+    let mut status = serde_json::json!({ "phase": "success", "current_version": "1.20.0" });
+    assert_eq!(super::verified_update_version(&status), None);
+    status["native_update"] = serde_json::json!({"phase": {"phase": "relaunching"}});
+    assert_eq!(super::verified_update_version(&status), None);
+    status["native_update"]["phase"] =
+        serde_json::json!({"phase": "verified", "payload": {"version": "1.20.1"}});
+    assert_eq!(super::verified_update_version(&status), None);
+    status["current_version"] = serde_json::json!("1.20.1");
+    assert_eq!(super::verified_update_version(&status), Some("1.20.1"));
+}

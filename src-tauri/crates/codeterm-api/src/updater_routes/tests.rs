@@ -1,5 +1,28 @@
 use super::{validate_after_update_enabled, validate_initiating_tab};
 
+#[tokio::test]
+async fn holder_inspection_rejects_unbounded_process_lists_before_os_access() {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_neighbors_service::test_support::fixture(mux);
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let response = crate::routes::create_router(state)
+        .oneshot(
+            Request::post("/api/update/holders")
+                .header("authorization", "Bearer preview-test-token")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&vec![serde_json::json!({"pid":1,"created":1}); 257])
+                        .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+}
+
 async fn assert_container_api_refusal(method: axum::http::Method, path: &str) {
     use axum::{
         body::{to_bytes, Body},
