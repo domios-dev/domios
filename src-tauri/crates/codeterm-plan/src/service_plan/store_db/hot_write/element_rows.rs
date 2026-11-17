@@ -55,7 +55,11 @@ pub(super) fn apply(
             links,
         } => {
             let mut element = read(tx, plan_id, &id, receipt)?;
-            let previous = element.clone();
+            let changed = kind.as_ref().is_some_and(|value| value != &element.kind)
+                || content
+                    .as_ref()
+                    .is_some_and(|value| value != &element.content)
+                || links.as_ref().is_some_and(|value| value != &element.links);
             if let Some(kind) = kind {
                 element.kind = kind;
             }
@@ -65,10 +69,7 @@ pub(super) fn apply(
             if let Some(links) = links {
                 element.links = links;
             }
-            if element.kind != previous.kind
-                || element.content != previous.content
-                || element.links != previous.links
-            {
+            if changed {
                 receipt.element_action = Some((
                     "update",
                     crate::service_plan::canvas_elements::observed_kind(&element.kind),
@@ -77,7 +78,15 @@ pub(super) fn apply(
             element
         }
         ElementChange::Remove { id } => {
-            let element = read(tx, plan_id, &id, receipt)?;
+            let kind = tx
+                .query_row(
+                    "SELECT json_extract(row_json,'$.kind') FROM plan_elements WHERE plan_id=?1 AND element_id=?2",
+                    params![plan_id, id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .unwrap_or_default()
+                .unwrap_or_default();
             let removed = tx
                 .execute(
                     "DELETE FROM plan_elements WHERE plan_id=?1 AND element_id=?2",
@@ -87,10 +96,11 @@ pub(super) fn apply(
             if removed == 0 {
                 return Err(PlanError::ElementNotFound);
             }
+            receipt.projected_text_bytes += kind.len();
             receipt.element_rows += removed;
             receipt.element_action = Some((
                 "delete",
-                crate::service_plan::canvas_elements::observed_kind(&element.kind),
+                crate::service_plan::canvas_elements::observed_kind(&kind),
             ));
             return Ok(());
         }

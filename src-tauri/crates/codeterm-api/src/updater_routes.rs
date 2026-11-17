@@ -81,6 +81,12 @@ pub async fn check_update(
     us.set_phase(UpdatePhase::Idle);
     drop(us);
 
+    state
+        .svc
+        .record_product_event(codeterm_analytics::Event::UpdateChecked {
+            offers: u32::from(info.update_available),
+        });
+
     Ok(Json(serde_json::to_value(info).unwrap_or_default()))
 }
 
