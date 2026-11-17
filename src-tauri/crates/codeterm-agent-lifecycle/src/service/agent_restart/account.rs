@@ -11,7 +11,16 @@ pub(super) fn validate_pty(
     target
         .validate_target()
         .map_err(AgentRestartError::BadRequest)?;
-    if target.expected.runtime_epoch.is_some() || !svc.tab_is_idle(&snap.tab_id) {
+    let turn_boundary = svc.tab_is_idle(&snap.tab_id)
+        || target.terminal_turn.as_deref().is_some_and(|turn| {
+            crate::service::provider_accounts::account_turn_boundary(
+                svc,
+                &snap.tab_id,
+                &target.expected,
+                turn,
+            )
+        });
+    if target.expected.unbound_login || target.expected.runtime_epoch.is_some() || !turn_boundary {
         return Err(AgentRestartError::BadRequest(
             "Account restart requires an idle turn boundary".into(),
         ));
@@ -69,6 +78,11 @@ pub(super) fn validate_before_teardown(
 ) -> Result<(), AgentRestartError> {
     if validate_pty(svc, snap, target).is_ok() {
         return Ok(());
+    }
+    if target.terminal_turn.is_some() {
+        return Err(AgentRestartError::BadRequest(
+            "Authenticated terminal turn boundary changed before teardown".into(),
+        ));
     }
     let mux = svc.mux.read();
     let tab = mux

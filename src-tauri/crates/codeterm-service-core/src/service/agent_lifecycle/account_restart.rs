@@ -9,6 +9,7 @@ pub struct AccountRestartBinding {
     pub account_namespace: Option<String>,
     pub binding_nonce: String,
     pub session_id: String,
+    pub unbound_login: bool,
     pub runtime_epoch: Option<u64>,
     pub lifecycle_epoch: Option<u64>,
 }
@@ -19,10 +20,23 @@ pub struct AccountRestartTarget {
     pub account_id: Option<String>,
     pub account_namespace: Option<String>,
     pub invocation: Option<Arc<InvocationContext>>,
+    pub terminal_turn: Option<String>,
 }
 
 impl AccountRestartBinding {
     pub fn capture(tab: &Tab, runtime_epoch: Option<u64>) -> Result<Self, String> {
+        Self::capture_inner(tab, runtime_epoch, false)
+    }
+
+    pub fn capture_login(tab: &Tab, runtime_epoch: u64) -> Result<Self, String> {
+        Self::capture_inner(tab, Some(runtime_epoch), true)
+    }
+
+    fn capture_inner(
+        tab: &Tab,
+        runtime_epoch: Option<u64>,
+        unbound_login: bool,
+    ) -> Result<Self, String> {
         let binding = Self {
             provider: tab
                 .agent_type
@@ -34,11 +48,15 @@ impl AccountRestartBinding {
                 .session_binding_nonce
                 .clone()
                 .ok_or("Account restart nonce absent")?,
-            session_id: tab
-                .agent_session_id
-                .clone()
-                .filter(|id| !id.is_empty())
-                .ok_or("Account restart requires an exact session")?,
+            session_id: if unbound_login {
+                String::new()
+            } else {
+                tab.agent_session_id
+                    .clone()
+                    .filter(|id| !id.is_empty())
+                    .ok_or("Account restart requires an exact session")?
+            },
+            unbound_login,
             runtime_epoch,
             lifecycle_epoch: tab.lifecycle_epoch,
         };
@@ -48,12 +66,28 @@ impl AccountRestartBinding {
 
     pub fn validate(&self, tab: &Tab, runtime_epoch: Option<u64>) -> Result<(), String> {
         self.validate_selection(tab)?;
-        if tab.agent_type.as_deref() != Some(&self.provider)
-            || tab.agent_session_id.as_deref() != Some(&self.session_id)
-            || tab.session_binding_nonce.as_deref() != Some(&self.binding_nonce)
-            || tab.reported_session_binding_nonce.as_deref() != Some(&self.binding_nonce)
+        let session_matches = if self.unbound_login {
+            self.session_id.is_empty()
+                && self.runtime_epoch.is_some()
+                && self.account_id.as_deref().is_some_and(|id| id != "default")
+                && tab.agent_session_id.is_none()
+                && tab.reported_session_binding_nonce.is_none()
+                && !tab.restored_from_snapshot
+                && tab.prior_session_binding_nonces.iter().all(|prior| {
+                    prior.session_id.is_none() && prior.resume_target_session_id.is_none()
+                })
+                && matches!(&tab.backing, crate::multiplexer::types::TabBacking::ChatBackend { plugin_id, session_id }
+                    if plugin_id == &self.provider && session_id.is_empty())
+        } else {
+            !self.session_id.is_empty()
+                && tab.agent_session_id.as_deref() == Some(self.session_id.as_str())
+                && tab.reported_session_binding_nonce.as_deref()
+                    == Some(self.binding_nonce.as_str())
+        };
+        if !session_matches
+            || tab.agent_type.as_deref() != Some(self.provider.as_str())
+            || tab.session_binding_nonce.as_deref() != Some(self.binding_nonce.as_str())
             || self.runtime_epoch != runtime_epoch
-            || self.session_id.is_empty()
         {
             return Err("Account restart binding changed".into());
         }
@@ -71,7 +105,8 @@ impl AccountRestartBinding {
     }
 
     pub fn validate_retired(&self, tab: &Tab) -> Result<(), String> {
-        if tab.restorable_launch.account_id != self.account_id
+        if self.unbound_login
+            || tab.restorable_launch.account_id != self.account_id
             || tab.restorable_launch.account_namespace != self.account_namespace
             || tab.lifecycle_epoch.is_some()
             || tab.agent_type.is_some()
@@ -91,6 +126,13 @@ impl AccountRestartBinding {
 impl AccountRestartTarget {
     pub fn validate_target(&self) -> Result<(), String> {
         let account = self.account_id.as_deref().unwrap_or("default");
+        if self.expected.unbound_login
+            && (account == "default" || self.expected.account_id.as_deref() != Some(account))
+        {
+            return Err(
+                "Unbound sign-in can only replace credentials for the same named account".into(),
+            );
+        }
         if !crate::service::provider_accounts::invocation_matches(
             self.invocation.as_deref(),
             &self.expected.provider,

@@ -152,7 +152,8 @@ async fn restart_inner(
         .map(|account| {
             validate_account_restart(svc, tab, provider, old_nonce, session.as_ref(), account)
         })
-        .transpose()?;
+        .transpose()?
+        .flatten();
     if let Some(session) = &session {
         super::turn_requests::end_for_lifecycle(
             svc,
@@ -389,17 +390,23 @@ fn validate_account_restart(
     nonce: &str,
     session: Option<&Arc<Session>>,
     account: &crate::service::agent_lifecycle::AccountRestartTarget,
-) -> Result<Arc<super::process::Process>, RuntimeFailure> {
+) -> Result<Option<Arc<super::process::Process>>, RuntimeFailure> {
     account.validate_target().map_err(RuntimeFailure::Refused)?;
     let session = session.ok_or(RuntimeFailure::Superseded)?;
     let epoch = session.state.lock().epoch;
     let context = session.context.lock().clone();
+    let unbound = account.expected.unbound_login;
+    let thread_matches = if unbound {
+        context.thread_id.is_none()
+    } else {
+        context.thread_id.as_deref() == Some(account.expected.session_id.as_str())
+    };
     if account.expected.provider != provider
         || account.expected.binding_nonce != nonce
         || account.expected.runtime_epoch != Some(epoch)
         || context.epoch != epoch
-        || context.thread_id.as_deref() != Some(&account.expected.session_id)
-        || session.process.lock().is_none()
+        || !thread_matches
+        || (!unbound && session.process.lock().is_none())
         || super::update::busy(session)
         || !session.turn_requests.lock().is_empty()
     {
@@ -407,15 +414,38 @@ fn validate_account_restart(
             "Account restart requires the exact idle runtime epoch".into(),
         ));
     }
-    let mux = svc.mux.read();
-    let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
-    account
-        .expected
-        .validate(target, Some(epoch))
-        .map_err(RuntimeFailure::Refused)?;
-    session
-        .process
-        .lock()
-        .clone()
-        .ok_or(RuntimeFailure::Superseded)
+    let pending_delivery = {
+        let mux = svc.mux.read();
+        let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        account
+            .expected
+            .validate(target, Some(epoch))
+            .map_err(RuntimeFailure::Refused)?;
+        target.pending_delivery.is_some()
+    };
+    if unbound {
+        let login_pending = {
+            let state = session.state.lock();
+            matches!(state.phase, RuntimePhase::LoginPending) && state.thread_id.is_none()
+        };
+        if !login_pending
+            || context.pending_request.is_some()
+            || !context.claimed_sends.is_empty()
+            || !session.prompts.lock().is_empty()
+            || !session.cache.lock().tail(1).is_empty()
+            || session.thread_loaded.load(Ordering::Acquire)
+            || pending_delivery
+            || svc.chat_send_ledger.has_records_for_tab(tab)
+        {
+            return Err(RuntimeFailure::Refused(
+                "Unbound account restart requires an empty sign-in state with no delivery records"
+                    .into(),
+            ));
+        }
+    }
+    let process = session.process.lock().clone();
+    if !unbound && process.is_none() {
+        return Err(RuntimeFailure::Superseded);
+    }
+    Ok(process)
 }
