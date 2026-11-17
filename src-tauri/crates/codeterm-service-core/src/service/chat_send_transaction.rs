@@ -187,6 +187,14 @@ impl ChatSendLedger {
         Ok(())
     }
 
+    pub(crate) fn has_records_for_tab(&self, tab_id: &str) -> bool {
+        self.state
+            .lock()
+            .by_id
+            .values()
+            .any(|status| status.tab_id == tab_id)
+    }
+
     pub fn status(&self, send_id: &str) -> Option<ChatSendStatus> {
         let state = self.state.lock();
         state

@@ -14,6 +14,7 @@ fn account_selection_waits_for_exact_pty_cleanup_and_retirement() {
     tab.pty_id = Some("old-pty".into());
     tab.lifecycle_epoch = Some(7);
     let target = AccountRestartTarget {
+        terminal_turn: None,
         expected: AccountRestartBinding::capture(tab, None).unwrap(),
         account_id: Some("next-account".into()),
         account_namespace: Some("next-namespace".into()),

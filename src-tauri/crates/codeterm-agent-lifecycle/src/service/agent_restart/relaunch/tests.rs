@@ -15,6 +15,7 @@ fn account_relaunch_keeps_recorded_resume_and_immutable_target_environment() {
         AccountRestartBinding::capture(tab, None).unwrap()
     };
     let target = AccountRestartTarget {
+        terminal_turn: None,
         expected,
         account_id: Some("account-b".into()),
         account_namespace: Some("namespace-b".into()),

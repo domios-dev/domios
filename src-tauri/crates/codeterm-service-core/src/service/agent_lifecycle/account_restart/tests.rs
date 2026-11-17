@@ -47,3 +47,56 @@ fn account_restart_binding_distinguishes_default_storage_and_refuses_missing_ses
     tab.agent_session_id = None;
     assert!(AccountRestartBinding::capture(tab, None).is_err());
 }
+
+#[test]
+fn unbound_login_capture_is_explicit_named_runtime_only_and_cannot_change_accounts() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("opaque-provider".into());
+    tab.session_binding_nonce = Some("login-nonce".into());
+    tab.restorable_launch.account_id = Some("account-a".into());
+    tab.restorable_launch.account_namespace = Some("old-namespace".into());
+    assert!(AccountRestartBinding::capture_login(tab, 3).is_err());
+    tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+        plugin_id: "opaque-provider".into(),
+        session_id: String::new(),
+    };
+    assert!(AccountRestartBinding::capture(tab, Some(3)).is_err());
+    let binding = AccountRestartBinding::capture_login(tab, 3).unwrap();
+    assert!(binding.unbound_login);
+    let mut target = AccountRestartTarget {
+        terminal_turn: None,
+        expected: binding.clone(),
+        account_id: Some("account-a".into()),
+        account_namespace: Some("new-namespace".into()),
+        invocation: Some(
+            InvocationContext::new(
+                "opaque-provider".into(),
+                "account-a".into(),
+                Default::default(),
+                vec![],
+                vec![],
+            )
+            .unwrap(),
+        ),
+    };
+    assert!(target.validate_target().is_ok());
+    target.account_id = Some("account-b".into());
+    target.invocation = Some(
+        InvocationContext::new(
+            "opaque-provider".into(),
+            "account-b".into(),
+            Default::default(),
+            vec![],
+            vec![],
+        )
+        .unwrap(),
+    );
+    assert!(target.validate_target().is_err());
+    assert!(binding.validate_retired(tab).is_err());
+    tab.reported_session_binding_nonce = Some("login-nonce".into());
+    assert!(AccountRestartBinding::capture_login(tab, 3).is_err());
+    tab.reported_session_binding_nonce = None;
+    tab.agent_session_id = Some("previous-thread".into());
+    assert!(AccountRestartBinding::capture_login(tab, 3).is_err());
+}

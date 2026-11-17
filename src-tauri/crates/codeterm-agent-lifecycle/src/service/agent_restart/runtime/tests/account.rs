@@ -11,6 +11,7 @@ fn target(fixture: &RuntimeFixture) -> AccountRestartTarget {
     )
     .unwrap();
     AccountRestartTarget {
+        terminal_turn: None,
         expected,
         account_id: Some("account-b".into()),
         account_namespace: Some("namespace-b".into()),
@@ -42,6 +43,164 @@ fn restart(
             ..Default::default()
         },
     )
+}
+
+fn unbound_login() -> (RuntimeFixture, AccountRestartTarget) {
+    unbound_login_fixture(false)
+}
+
+fn unbound_login_fixture(missing_secret: bool) -> (RuntimeFixture, AccountRestartTarget) {
+    let source = SOURCE.replace("    let result = {kind:'done'};", r#"
+    if ((op.kind === 'initialize' || (op.kind === 'control' && op.action === 'auth')) && reply.value.authKey !== 'credential-b')
+      return {kind:'complete',result:{kind:op.kind === 'initialize' ? 'initialized' : 'done'},events:[{kind:'auth',state:'signedOut'}]};
+    let result = {kind:'done'};
+"#);
+    let fixture = RuntimeFixture::prepared_with_profile(&source, true, missing_secret);
+    if missing_secret {
+        crate::async_runtime::block_on(async {
+            *fixture.service.secrets.write().await =
+                Arc::new(crate::secrets::mock::MockStore::new());
+        });
+    }
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&fixture.tab).unwrap();
+        if missing_secret {
+            tab.agent_runtime_config.as_mut().unwrap()["launchProfile"] = json!("credential");
+        }
+        tab.restorable_launch.account_id = Some("account-b".into());
+        tab.restorable_launch.account_namespace = Some("old-namespace".into());
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        if let TabBacking::ChatBackend { session_id, .. } = &mut tab.backing {
+            session_id.clear();
+        }
+    }
+    fixture.service.ensure_agent_pad(&fixture.tab).unwrap();
+    agent_runtime::authority::record_spawn_for_test(
+        &fixture.service,
+        &fixture.tab,
+        PROVIDER,
+        "own-nonce",
+    );
+    let old = InvocationContext::new(
+        PROVIDER.into(),
+        "account-b".into(),
+        Default::default(),
+        vec![],
+        vec![],
+    )
+    .unwrap();
+    let result = crate::async_runtime::block_on(agent_runtime::engine::ensure_with_invocation(
+        &fixture.service,
+        &fixture.tab,
+        Some(old),
+    ));
+    assert!(matches!(
+        result,
+        Err(agent_runtime::model::RuntimeFailure::SignInRequired)
+    ));
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    assert!(matches!(
+        session.state.lock().phase,
+        agent_runtime::model::RuntimePhase::LoginPending
+    ));
+    let expected = AccountRestartBinding::capture_login(
+        fixture.service.mux.read().get_tab(&fixture.tab).unwrap(),
+        session.state.lock().epoch,
+    )
+    .unwrap();
+    let target = AccountRestartTarget {
+        terminal_turn: None,
+        expected,
+        account_id: Some("account-b".into()),
+        account_namespace: Some("new-namespace".into()),
+        invocation: Some(
+            InvocationContext::new(
+                PROVIDER.into(),
+                "account-b".into(),
+                [("OPAQUE_AUTH_KEY".into(), Some("credential-b".into()))].into(),
+                vec![],
+                vec![],
+            )
+            .unwrap(),
+        ),
+    };
+    (fixture, target)
+}
+
+#[test]
+fn initial_named_login_replaces_credentials_before_opening_its_only_thread() {
+    let (fixture, target) = unbound_login();
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    let old = session.process.lock().clone().unwrap();
+    let count = fixture.requests().len();
+    let outcome = restart(&fixture, target).unwrap();
+    assert!(outcome.agent_ready && outcome.session_id.is_some());
+    assert!(old.ended.borrow().is_some());
+    assert_eq!(
+        fixture.requests()[count..]
+            .iter()
+            .map(|request| request["method"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["initialize", "openThread", "readHistory"]
+    );
+    assert_eq!(
+        agent_runtime::process::test_ports::spawned_env(&fixture.tab)
+            .get("OPAQUE_AUTH_KEY")
+            .map(String::as_str),
+        Some("credential-b")
+    );
+}
+
+#[test]
+fn initial_named_login_refuses_any_delivery_record_before_mutation() {
+    for bootstrap in [false, true] {
+        let (fixture, target) = unbound_login();
+        let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+        let old = session.process.lock().clone().unwrap();
+        let pending = if bootstrap {
+            fixture
+                .service
+                .mux
+                .write()
+                .get_tab_mut(&fixture.tab)
+                .unwrap()
+                .pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
+                "opaque payload".into(),
+                crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+            ));
+            None
+        } else {
+            Some(
+                fixture
+                    .service
+                    .chat_send_ledger
+                    .try_start(&fixture.tab, "opaque payload", None)
+                    .unwrap(),
+            )
+        };
+        let count = fixture.requests().len();
+        assert!(restart(&fixture, target).is_err());
+        assert_eq!(fixture.requests().len(), count);
+        assert!(old.ended.borrow().is_none());
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&fixture.tab).unwrap();
+        assert_eq!(tab.session_binding_nonce.as_deref(), Some("own-nonce"));
+        assert_eq!(
+            tab.restorable_launch.account_namespace.as_deref(),
+            Some("old-namespace")
+        );
+        if let Some(pending) = pending {
+            assert!(fixture
+                .service
+                .chat_send_ledger
+                .status(&pending.send_id)
+                .is_some());
+        } else {
+            assert!(tab.pending_delivery.is_some());
+        }
+    }
 }
 
 #[test]
@@ -212,4 +371,41 @@ fn account_restart_same_account_credential_replacement_and_default_return_share_
             replacement.then_some("replacement-key")
         );
     }
+}
+
+#[test]
+fn initial_named_login_before_any_child_spawn_uses_the_same_restart_path() {
+    let (fixture, target) = unbound_login_fixture(true);
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    assert!(session.process.lock().is_none());
+    assert!(fixture.requests().is_empty());
+    crate::async_runtime::block_on(async {
+        fixture
+            .service
+            .secrets
+            .read()
+            .await
+            .clone()
+            .save(crate::secrets::SaveRequest {
+                name: "domios:provider:restart-fixture:key".into(),
+                value: crate::secrets::SecretString::new("opaque-test-key".into()),
+                notes: None,
+                folder: None,
+                organization: None,
+                collection: None,
+                overwrite: false,
+            })
+            .await
+            .unwrap();
+    });
+    let outcome = restart(&fixture, target).unwrap();
+    assert!(outcome.agent_ready && outcome.session_id.is_some());
+    assert_eq!(
+        fixture
+            .requests()
+            .iter()
+            .map(|request| request["method"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["initialize", "openThread", "readHistory"]
+    );
 }

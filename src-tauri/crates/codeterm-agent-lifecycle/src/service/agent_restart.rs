@@ -461,7 +461,10 @@ impl AgentRestartExt for ServiceContext {
             restart_binding.as_ref().and_then(Option::as_ref),
         )
         .map_err(AgentRestartError::BadRequest)?;
-        if mode != RestartMode::SkipExit && mode != RestartMode::Fresh {
+        if mode != RestartMode::SkipExit
+            && mode != RestartMode::Fresh
+            && !account.is_some_and(|target| target.terminal_turn.is_some())
+        {
             self.require_background_work_safe(&snap.tab_id, force)?;
             crate::service::agent_lifecycle::timing::stage(
                 &snap.tab_id,

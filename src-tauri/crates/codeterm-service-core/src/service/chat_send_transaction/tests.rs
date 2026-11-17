@@ -1,4 +1,30 @@
 use super::*;
+
+#[test]
+fn account_login_absence_query_refuses_held_written_and_uncertain_records_without_mutation() {
+    let ledger = ChatSendLedger::default();
+    ledger.try_start("other-tab", "opaque input", None).unwrap();
+    assert!(!ledger.has_records_for_tab("login-tab"));
+    let pending = ledger.try_start("login-tab", "opaque input", None).unwrap();
+    assert!(ledger.has_records_for_tab("login-tab"));
+    assert_eq!(
+        ledger.status(&pending.send_id).unwrap().state,
+        ChatSendState::Pending
+    );
+    assert!(ledger.bind_rpc_send(&pending.send_id, SendLiveBinding::default()));
+    ledger.mark_rpc_accepted(&pending.send_id).unwrap();
+    assert!(ledger.has_records_for_tab("login-tab"));
+    assert_eq!(
+        ledger.status(&pending.send_id).unwrap().state,
+        ChatSendState::Written
+    );
+    ledger.mark_rpc_uncertain(&pending.send_id).unwrap();
+    assert!(ledger.has_records_for_tab("login-tab"));
+    assert_eq!(
+        ledger.status(&pending.send_id).unwrap().state,
+        ChatSendState::Unknown
+    );
+}
 use crate::service::delivery_error::{DeliveryError, SendOrigin};
 use crate::service::inject_verify::InjectionError;
 
