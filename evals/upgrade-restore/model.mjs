@@ -112,7 +112,7 @@ export function requireBackings(document) {
     if (tab.agent_type && !(tab.claude_session_id ?? tab.agent_session_id)) {
       throw new Error(`tab=${tab.tab_id}: provider thread identity missing`);
     }
-    if (tab.agent_type && tab.agent_type !== 'codex') {
+    if (tab.agent_type && !['codex', 'claude'].includes(tab.agent_type)) {
       throw new Error(`tab=${tab.tab_id}: fake provider backing missing for ${tab.agent_type}`);
     }
     const binding = tab.agent_identity?.task_binding;

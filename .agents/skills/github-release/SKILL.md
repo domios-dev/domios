@@ -135,8 +135,9 @@ then sync them here. Never hand-edit the bundled snapshot.
 3. With version-bump GO, create the release branch from reviewed develop. Edit package.json's
    version, run `npm run sync:versions`, refresh the workspace lockfile offline, then run
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
-   plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
-   that committed head and `git diff --check`.
+   plugin versions remain independent. Run `build.sh release-preflight` as a seconds-long local
+   sanity check on that committed head and `git diff --check`. The exact release SHA's CI
+   qualification is the one broad release gate; do not repeat its suites locally.
    Keep the release branch separate from moving `develop`. Commit release fixes on that line,
    then real-merge the release into `develop`; never pull unrelated dev work into the release.
    Before pushing, complete the OWNER runner-policy step below. Push release/X.Y.Z and wait for
