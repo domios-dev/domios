@@ -192,7 +192,7 @@ export function ExtensionsView({
           </div>
         )}
         {error && (
-          <div data-testid="extensions-error"><InlineErrorNotice error={error} operation="loading plugins" actions={[{ label: "Retry", onClick: () => { void ensurePluginSnapshot({ force: true }).catch(() => undefined); } }]} /></div>
+          <div data-testid="extensions-error"><InlineErrorNotice error={error} operation="loading plugins" role="alert" actions={[{ label: "Retry", onClick: () => { void ensurePluginSnapshot({ force: true }).catch(() => undefined); } }]} /></div>
         )}
         {snapshotState.refreshing && snapshotState.lastSuccessfulSnapshot && (
           <div data-testid="extensions-stale-refresh" style={{ fontSize: 12, color: "var(--ct-muted)", marginBottom: 12, flex: "none" }}>
