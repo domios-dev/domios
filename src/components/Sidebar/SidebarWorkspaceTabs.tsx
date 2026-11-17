@@ -1,5 +1,5 @@
 import type { PlanView as Plan } from "../Canvas/planProjection";
-import { tabActivity } from "../../lib/tabActivity";
+import { countWorkingTabs } from "./tabStatuses";
 import { useMemo, type ReactNode } from "react";
 import { MonitorUp, Plus } from "lucide-react";
 import type {
@@ -339,7 +339,7 @@ export function SidebarWorkspaceTabs({
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const agentItems = agents.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);
-    const workingLocal = workers.filter((member) => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length;
+    const workingLocal = countWorkingTabs(workers.map((member) => member.tab), tabStatuses);
     const team = teamById.get(teamId) ?? remoteTeams.get(teamId) ?? {
       id: teamId,
       name: null,
@@ -363,9 +363,9 @@ export function SidebarWorkspaceTabs({
         team={team}
         plan={plan}
         tabs={tabs}
-        workingManagerCount={managers.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
-        workingAgentCount={agents.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
-        workingTerminalCount={terminals.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
+        workingManagerCount={countWorkingTabs(managers.map((member) => member.tab), tabStatuses)}
+        workingAgentCount={countWorkingTabs(agents.map((member) => member.tab), tabStatuses)}
+        workingTerminalCount={countWorkingTabs(terminals.map((member) => member.tab), tabStatuses)}
         workingCronCount={teamCrons.filter(isCronRunning).length}
         managerCount={managers.length}
         managers={

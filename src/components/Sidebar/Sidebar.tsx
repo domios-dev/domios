@@ -33,7 +33,7 @@ import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { LiquidFlip } from "../shared/LiquidToggle";
 import type { MeshPresence } from "./meshPresenceHeader";
 import { flattenSidebarTabs, isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
-import { aggregateTabStatuses } from "./tabStatuses";
+import { aggregateTabStatuses, countWorkingTabs } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { readTeamClosePlanMetadata } from "./teamClosePlanRead";
 import { renamePlan } from "../Canvas/plansApi";
@@ -591,6 +591,10 @@ export const Sidebar = memo(function Sidebar({
       state.tabs,
     ),
   ])), [ordinaryWorkspaces, state.tabStatuses, state.tabs]);
+  const workingByWorkspace = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
+    workspace.id,
+    countWorkingTabs(tabsInWorkspace(workspace.tabs, state.tabs), state.tabStatuses) > 0,
+  ])), [ordinaryWorkspaces, state.tabStatuses, state.tabs]);
   const workspaceSortIds = useMemo(
     () => ordinaryWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
     [ordinaryWorkspaces],
@@ -724,6 +728,7 @@ export const Sidebar = memo(function Sidebar({
                       workspaces={ordinaryWorkspaces}
                       selectedWorkspaceId={selectedWorkspaceId}
                       statuses={workspaceStatuses}
+                      workingByWorkspace={workingByWorkspace}
                       sortIds={workspaceSortIds}
                       onSelect={(workspaceId) => {
                         setSelectedWorkspaceId(workspaceId);
