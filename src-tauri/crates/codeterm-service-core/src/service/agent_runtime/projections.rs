@@ -6,6 +6,7 @@ use codeterm_plugin::agent_runtime::{
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::LazyLock};
 
+mod limits;
 mod tab_usage;
 pub use tab_usage::{for_tab, read_for_tab};
 
@@ -220,30 +221,47 @@ pub async fn rate_limits(
     }
     let supported = super::reset_credits::supported(session).await;
     let context = session.context.lock().clone();
-    let sample = rate_sample(&session.provider, &limits, at);
+    let reported = rate_sample(&session.provider, &limits, at);
+    let merged = {
+        let mut readings = USAGE.lock();
+        let reading = projection(&mut readings, &session.provider, &context);
+        limits::merge(reading.rate_limits.clone(), limits.clone(), at)?
+    };
+    let mut sample = rate_sample(&session.provider, &merged.value, at);
+    sample.session_resets_at_ms = reported.session_resets_at_ms;
+    sample.weekly_resets_at_ms = reported.weekly_resets_at_ms;
     let store = svc.usage_store.clone();
-    let snapshot_id = tokio::task::spawn_blocking(move || store.insert_runtime_snapshot(&sample))
-        .await
-        .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
-        .map_err(RuntimeFailure::HookFailed)?;
-    let mut readings = USAGE.lock();
-    let reading = projection(&mut readings, &session.provider, &context);
-    reading.captured_at = at;
-    reading.resets = if supported { resets } else { None };
-    reading.account_credits = account_credits;
-    reading.rate_limits = Some(Reading {
-        captured_at: at,
-        value: limits,
-    });
-    drop(readings);
-    svc.notify_event(
-        "usage-snapshot-updated",
-        serde_json::json!(codeterm_usage::contract::UsageSnapshotEvent::Snapshot {
+    let snapshot_id = if merged.value.is_empty() {
+        None
+    } else {
+        Some(
+            tokio::task::spawn_blocking(move || store.insert_runtime_snapshot(&sample))
+                .await
+                .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+                .map_err(RuntimeFailure::HookFailed)?,
+        )
+    };
+    {
+        let mut readings = USAGE.lock();
+        let reading = projection(&mut readings, &session.provider, &context);
+        let merged = limits::merge(reading.rate_limits.clone(), limits, at)?;
+        reading.captured_at = reading.captured_at.max(at);
+        reading.resets = if supported { resets } else { None };
+        reading.account_credits = account_credits;
+        reading.rate_limits = (!merged.value.is_empty()).then_some(merged);
+    }
+    let event = match snapshot_id {
+        Some(snapshot_id) => codeterm_usage::contract::UsageSnapshotEvent::Snapshot {
             provider: &session.provider,
             account_id: None,
-            snapshot_id
-        }),
-    );
+            snapshot_id,
+        },
+        None => codeterm_usage::contract::UsageSnapshotEvent::Runtime {
+            provider: &session.provider,
+            account_id: None,
+        },
+    };
+    svc.notify_event("usage-snapshot-updated", serde_json::json!(event));
     Ok(())
 }
 
@@ -257,10 +275,20 @@ fn rate_sample(
         .max_by(|a, b| a.used_percent.total_cmp(&b.used_percent));
     let longest = limits.iter().max_by_key(|window| window.window_minutes);
     let shortest = limits.iter().min_by_key(|window| window.window_minutes);
-    let session = if highest == longest {
+    let named = limits
+        .iter()
+        .all(|window| matches!(window.window.as_str(), "primary" | "secondary"));
+    let session = if named {
+        limits.iter().find(|window| window.window == "primary")
+    } else if highest == longest {
         shortest
     } else {
         highest
+    };
+    let weekly = if named {
+        limits.iter().find(|window| window.window == "secondary")
+    } else {
+        longest.filter(|window| Some(*window) != session)
     };
     codeterm_usage::UsageSample {
         usage_details: None,
@@ -273,11 +301,8 @@ fn rate_sample(
         session_resets_at_ms: session
             .and_then(|window| window.resets_at)
             .map(|at| at as i64),
-        weekly_pct: longest
-            .filter(|window| Some(*window) != session)
-            .map(|window| window.used_percent as f32),
-        weekly_resets_at_ms: longest
-            .filter(|window| Some(*window) != session)
+        weekly_pct: weekly.map(|window| window.used_percent as f32),
+        weekly_resets_at_ms: weekly
             .and_then(|window| window.resets_at)
             .map(|at| at as i64),
         spend_cents: None,
@@ -333,6 +358,9 @@ pub fn latest(
         })
         .cloned()
         .map(|mut reading| {
+            if let Some(limits) = &mut reading.rate_limits {
+                limits::expire(limits, chrono::Utc::now().timestamp_millis() as u64);
+            }
             if reading.thread_id.is_none() {
                 reading.thread_id = mux
                     .get_tab(&reading.tab_id)

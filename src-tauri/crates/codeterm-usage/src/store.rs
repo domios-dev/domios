@@ -17,6 +17,8 @@ use super::suspicious::{
 const SCHEMA: &str = include_str!("schema.sql");
 const MAX_ROWS_PER_PROVIDER: i64 = 10_000;
 
+mod reset_times;
+
 // Keep up to a 90-day baseline (~30 samples/day) per provider.
 // Storage is small (~80B per row).
 
@@ -215,6 +217,19 @@ impl UsageStore {
         Ok(row)
     }
 
+    fn latest_at(
+        &self,
+        provider: &str,
+        account_id: Option<&str>,
+        now: i64,
+    ) -> Result<Option<UsageSnapshotRow>, String> {
+        let mut row = self.get_latest(provider, account_id)?;
+        if let Some(row) = &mut row {
+            reset_times::apply(&self.conn.lock(), row, now)?;
+        }
+        Ok(row)
+    }
+
     /// Newest failed probe, whether or not a good reading came after it.
     pub fn get_latest_failure(
         &self,
@@ -245,7 +260,9 @@ impl UsageStore {
         provider: &str,
         account_id: Option<&str>,
     ) -> Result<Option<UsageSnapshotRow>, String> {
-        let Some(mut latest) = self.get_latest(provider, account_id)? else {
+        let Some(mut latest) =
+            self.latest_at(provider, account_id, chrono::Utc::now().timestamp_millis())?
+        else {
             return Ok(None);
         };
         if let Some(failure) = self.get_latest_failure(provider, account_id)? {

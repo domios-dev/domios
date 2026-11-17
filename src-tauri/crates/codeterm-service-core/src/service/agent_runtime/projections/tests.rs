@@ -46,6 +46,15 @@ fn ordinary_two_windows_keep_the_existing_session_and_weekly_meaning() {
 }
 
 #[test]
+fn secondary_window_never_becomes_the_session_window() {
+    let sample = rate_sample("fixture", &[window("secondary", 80.0, 10080)], 100);
+    assert_eq!(sample.session_pct, None);
+    assert_eq!(sample.session_resets_at_ms, None);
+    assert_eq!(sample.weekly_pct, Some(80.0));
+    assert_eq!(sample.weekly_resets_at_ms, Some(9000));
+}
+
+#[test]
 fn token_only_reading_is_visible_without_fabricating_allowance() {
     let reading = UsageProjection {
         tab_id: "own".into(),
@@ -235,6 +244,54 @@ fn declare_usage(svc: &ServiceContext, provider: &str, enabled: bool) {
                 PluginVm::from_source(provider, "module.exports={}".into()).unwrap(),
             ),
         )));
+}
+
+#[test]
+fn runtime_and_stored_views_keep_resets_after_partial_and_credit_only_events() {
+    let (fixture, tab, _peer, _cleanup) = super::super::engine::test_support::runtime_fixture();
+    let session = super::super::engine::for_tab(&tab).unwrap();
+    declare_usage(&fixture.service, &session.provider, true);
+    let at = chrono::Utc::now().timestamp_millis() as u64;
+    let mut primary = window("primary", 20.0, 300);
+    primary.resets_at = Some(at + 3_600_000);
+    let mut secondary = window("secondary", 40.0, 10080);
+    secondary.resets_at = Some(at + 86_400_000);
+    crate::async_runtime::block_on(async {
+        for (offset, windows) in [
+            (0, vec![primary.clone(), secondary.clone()]),
+            (
+                1,
+                vec![RuntimeRateLimit {
+                    resets_at: None,
+                    ..primary.clone()
+                }],
+            ),
+            (2, vec![]),
+        ] {
+            rate_limits(&fixture.service, &session, windows, None, None, at + offset)
+                .await
+                .unwrap();
+        }
+    });
+    let stored = fixture
+        .service
+        .usage_store
+        .get_latest_with_stale_reason(&session.provider, None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stored.session_resets_at,
+        primary.resets_at.map(|at| at as i64)
+    );
+    assert_eq!(
+        stored.weekly_resets_at,
+        secondary.resets_at.map(|at| at as i64)
+    );
+    let readings = USAGE.lock();
+    let runtime = readings[&tab].rate_limits.as_ref().unwrap();
+    assert_eq!(runtime.value.len(), 2);
+    assert_eq!(runtime.value[0].resets_at, primary.resets_at);
+    assert_eq!(runtime.value[1].resets_at, secondary.resets_at);
 }
 
 #[test]
