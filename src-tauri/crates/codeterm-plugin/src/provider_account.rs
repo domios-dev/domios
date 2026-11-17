@@ -133,6 +133,12 @@ impl InvocationContext {
         &self.cache_key
     }
 
+    pub fn environment_entries(&self) -> impl Iterator<Item = (&str, Option<&str>)> {
+        self.environment
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_deref()))
+    }
+
     pub fn apply_environment(&self, env: &mut std::collections::HashMap<String, String>) {
         for (key, value) in &self.environment {
             match value {
