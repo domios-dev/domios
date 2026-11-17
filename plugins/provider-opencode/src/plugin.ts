@@ -10,6 +10,7 @@ import { modelProviderExports } from "./modelProviders";
 import { modelSwitch } from "./modelSwitch";
 import { decisionModel } from "./decisionModel";
 import { variantLaunch } from "./modelVariants";
+import {runtimePlan, runtimeResponse, runtimeReduce} from "./runtime";
 
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
@@ -76,6 +77,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin = {
+  runtimePlan, runtimeResponse, runtimeReduce,
   usageAccounting: () => "transcript" as const,
   parseUsageRecord,
   usageSqlQuery: (scoped: boolean) => `SELECT rowid, id, data FROM message WHERE rowid > ?1 AND rowid <= ?2 ${scoped ? "AND session_id = ?3 " : ""}ORDER BY rowid ASC`,

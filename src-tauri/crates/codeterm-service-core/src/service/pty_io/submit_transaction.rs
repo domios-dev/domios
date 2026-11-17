@@ -30,6 +30,7 @@ pub(crate) use readiness::observe_delivery_readiness;
 use readiness::{exact_session_turn_source_available, pty_owner_guard};
 mod recovery_guard;
 mod runner;
+mod settlement;
 mod shell;
 pub use cycle::{
     claim_command_submit_cycle, claim_exit_submit_cycle, claim_submit_cycle,
@@ -219,6 +220,8 @@ struct PtySubmitTransport<'a> {
     wake_rx: Receiver<SubmitCycleSignal>,
     _session_evidence_watcher: RefCell<Option<notify::RecommendedWatcher>>,
     recovery_refusal: Cell<Option<&'static str>>,
+    queued_payload_bytes: Cell<usize>,
+    queued_submit_keys: Cell<usize>,
 }
 
 #[cfg(test)]
@@ -507,8 +510,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
                 .prepare_switch_confirmation(self.pty_id, text, None);
         let queued = Cell::new(false);
         let queued_ref = &queued;
+        let encoded_bytes = input.len();
         let on_enqueued = move || {
             queued_ref.set(true);
+            self.queued_payload_bytes.set(encoded_bytes);
             if let Some(confirmation) = switch_confirmation {
                 confirmation.start();
             }
@@ -602,9 +607,15 @@ impl SubmitTransport for PtySubmitTransport<'_> {
                 key.to_vec(),
                 permit.clone(),
                 timeout,
-                || self.submit_claim.payload_enqueued(self.wake_tx.clone()),
+                || {
+                    self.queued_submit_keys
+                        .set(self.queued_submit_keys.get() + 1);
+                    self.submit_claim.payload_enqueued(self.wake_tx.clone());
+                },
             ),
             None => session.write_and_flush_with_enqueued(key.to_vec(), timeout, || {
+                self.queued_submit_keys
+                    .set(self.queued_submit_keys.get() + 1);
                 self.submit_claim.payload_enqueued(self.wake_tx.clone())
             }),
         };
@@ -953,11 +964,14 @@ pub(crate) fn submit_text_with_key_claimed_revalidated(
         _session_evidence_watcher: RefCell::new(None),
         deferred_ready_seen: Cell::new(false),
         recovery_refusal: Cell::new(None),
+        queued_payload_bytes: Cell::new(0),
+        queued_submit_keys: Cell::new(0),
     };
     let mut key_guard = |allow_initial_key: bool, _turn_was_started: bool| {
         recovery_guard::submit_key_guard(&transport, allow_initial_key)
     };
     let expected_user_turn = format!("{text}{}", paste_marker.unwrap_or_default());
+    let started = Instant::now();
     let run = run_with_submit_key_and_payload(
         &transport,
         text,
@@ -968,7 +982,7 @@ pub(crate) fn submit_text_with_key_claimed_revalidated(
         opts,
         &mut key_guard,
     );
-    let mut result = run.inspect(|result| {
+    let result = run.inspect(|result| {
         if recovery_attempted(result) {
             // `recovered=false` is not a lost message: a TUI strategy proves submit
             // only by a turn transition, which a busy tab cannot produce.
@@ -990,12 +1004,13 @@ pub(crate) fn submit_text_with_key_claimed_revalidated(
     });
     let exact_turn_present =
         track_exact_session_turn && transport.exact_user_turn_present(&expected_user_turn);
-    if exact_turn_present {
-        if let Ok(result) = &mut result {
-            result.submit_observed = true;
-            result.submit_anomaly = false;
-        }
-    }
+    let result = settlement::settle_exact_turn(
+        result,
+        exact_turn_present,
+        transport.queued_payload_bytes.get(),
+        transport.queued_submit_keys.get(),
+        started.elapsed(),
+    );
     if let Err(ref error) = result {
         let tab_current_pty = {
             let mux = svc.mux.read();

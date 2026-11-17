@@ -16,6 +16,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     sync::{broadcast, mpsc, oneshot, watch},
 };
+pub(super) mod http;
 
 pub type Reply = Result<Value, RpcFailure>;
 type Pending = oneshot::Sender<Result<TurnReply, RuntimeFailure>>;
@@ -89,6 +90,25 @@ struct Write {
     turn_write: Option<Arc<WriteWitness>>,
 }
 
+impl Write {
+    fn begin(&self, client: &Client) -> Result<(), RuntimeFailure> {
+        if let Some(reason) = self.guard.as_ref().and_then(|guard| guard().err()) {
+            return Err(RuntimeFailure::PrewriteRefused(reason.to_string()));
+        }
+        if let Some(witness) = &self.turn_write {
+            witness.begin(client.0.event_sequence.load(Ordering::Acquire));
+        }
+        Ok(())
+    }
+
+    fn finish(self, result: Result<(), RuntimeFailure>) {
+        if let Some(witness) = &self.turn_write {
+            witness.finish(result.clone());
+        }
+        let _ = self.written.send(result);
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct Ingress {
     pub frame: RuntimeFrame,
@@ -105,6 +125,7 @@ struct State {
     pending: HashMap<RpcId, Pending>,
 }
 struct Inner {
+    scoped_thread: Mutex<Option<String>>,
     envelope: Option<AgentRuntimeEnvelope>,
     trace_bound: AtomicBool,
     state: Mutex<State>,
@@ -152,23 +173,7 @@ impl Client {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
-        let (outgoing, mut messages) = mpsc::channel::<Write>(64);
-        let (events, initial_events) = broadcast::channel(EVENT_BUFFER);
-        let (ended, _) = watch::channel(None);
-        let client = Self(Arc::new(Inner {
-            envelope,
-            trace_bound: AtomicBool::new(false),
-            state: Mutex::new(State {
-                closed: None,
-                pending: HashMap::new(),
-            }),
-            next_id: AtomicI64::new(1),
-            outgoing,
-            event_sequence: AtomicU64::new(0),
-            events,
-            initial_events: Mutex::new(Some(initial_events)),
-            ended,
-        }));
+        let (client, mut messages) = Self::channel(envelope, 64, EVENT_BUFFER);
         let sender = client.clone();
         let mut ended = client.ended();
         crate::async_runtime::spawn(async move {
@@ -178,16 +183,9 @@ impl Client {
                     text = messages.recv() => match text {Some(text)=>text,None=>break},
                 };
                 let _attempt = WriteAttempt(text.turn_write.clone());
-                if let Some(reason) = text.guard.as_ref().and_then(|guard| guard().err()) {
-                    let reason = RuntimeFailure::PrewriteRefused(reason.to_string());
-                    if let Some(witness) = &text.turn_write {
-                        witness.finish(Err(reason.clone()));
-                    }
-                    let _ = text.written.send(Err(reason));
+                if let Err(reason) = text.begin(&sender) {
+                    text.finish(Err(reason));
                     continue;
-                }
-                if let Some(witness) = &text.turn_write {
-                    witness.begin(sender.0.event_sequence.load(Ordering::Acquire));
                 }
                 let sent = tokio::select! {
                     _ = ended.changed() => break,
@@ -198,27 +196,18 @@ impl Client {
                     }) => sent,
                 };
                 match sent {
-                    Ok(Ok(())) => {
-                        if let Some(witness) = &text.turn_write {
-                            witness.finish(Ok(()));
-                        }
-                        let _ = text.written.send(Ok(()));
-                    }
+                    Ok(Ok(())) => text.finish(Ok(())),
                     Ok(Err(error)) => {
                         let reason = RuntimeFailure::PipeFailure {
                             stream: "stdin".into(),
                             reason: error.to_string(),
                         };
-                        if let Some(witness) = &text.turn_write {
-                            witness.finish(Err(reason.clone()));
-                        }
+                        text.finish(Err(reason.clone()));
                         sender.close(reason);
                         break;
                     }
                     Err(_) => {
-                        if let Some(witness) = &text.turn_write {
-                            witness.finish(Err(RuntimeFailure::Deadline));
-                        }
+                        text.finish(Err(RuntimeFailure::Deadline));
                         sender.close(RuntimeFailure::Deadline);
                         break;
                     }
@@ -241,28 +230,62 @@ impl Client {
                         break;
                     }
                 };
-                if let WireFrame::Response { id, result } = frame {
-                    if let Some(reply) = receiver.0.state.lock().pending.remove(&id) {
-                        let _ = reply.send(Ok(TurnReply {
-                            result,
-                            through: receiver.0.event_sequence.load(Ordering::Acquire),
-                        }));
-                    }
-                } else if let WireFrame::Event(frame) = frame {
-                    if receiver.0.trace_bound.load(Ordering::Relaxed) {
-                        super::model::responsiveness::ingress(&frame);
-                    }
-                    let _ = receiver.0.events.send(Ingress {
-                        frame,
-                        sequence: receiver.0.event_sequence.fetch_add(1, Ordering::AcqRel) + 1,
-                    });
-                }
+                receiver.ingest(frame);
             }
         });
         client
     }
 
+    fn channel(
+        envelope: Option<AgentRuntimeEnvelope>,
+        queue: usize,
+        capacity: usize,
+    ) -> (Self, mpsc::Receiver<Write>) {
+        let (outgoing, messages) = mpsc::channel(queue);
+        let (events, initial_events) = broadcast::channel(capacity);
+        let (ended, _) = watch::channel(None);
+        let client = Self(Arc::new(Inner {
+            scoped_thread: Mutex::new(None),
+            envelope,
+            trace_bound: AtomicBool::new(false),
+            state: Mutex::new(State {
+                closed: None,
+                pending: HashMap::new(),
+            }),
+            next_id: AtomicI64::new(1),
+            outgoing,
+            event_sequence: AtomicU64::new(0),
+            events,
+            initial_events: Mutex::new(Some(initial_events)),
+            ended,
+        }));
+        (client, messages)
+    }
+
+    fn ingest(&self, frame: WireFrame) {
+        match frame {
+            WireFrame::Response { id, result } => {
+                if let Some(reply) = self.0.state.lock().pending.remove(&id) {
+                    let _ = reply.send(Ok(TurnReply {
+                        result,
+                        through: self.0.event_sequence.load(Ordering::Acquire),
+                    }));
+                }
+            }
+            WireFrame::Event(frame) => {
+                if self.0.trace_bound.load(Ordering::Relaxed) {
+                    super::model::responsiveness::ingress(&frame);
+                }
+                let _ = self.0.events.send(Ingress {
+                    frame,
+                    sequence: self.0.event_sequence.fetch_add(1, Ordering::AcqRel) + 1,
+                });
+            }
+        }
+    }
+
     pub(super) fn trace_binding(&self, context: &codeterm_plugin::agent_runtime::RuntimeContext) {
+        self.0.scoped_thread.lock().clone_from(&context.thread_id);
         self.0.trace_bound.store(
             super::model::responsiveness::context(context).is_some(),
             Ordering::Relaxed,

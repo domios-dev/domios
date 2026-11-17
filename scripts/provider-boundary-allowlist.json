@@ -10659,6 +10659,10 @@
       "reason": "Provider-owned native/JavaScript parity proof that the provider declares bracketed-paste input attach."
     },
     {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/opencode/runtime.rs",
+      "reason": "Provider-owned OpenCode runtime fixture parity adapter; no core dispatch policy."
+    },
+    {
       "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/sessions/tests.rs",
       "reason": "Native provider-owned session storage tests moved intact from the provider implementation."
     },

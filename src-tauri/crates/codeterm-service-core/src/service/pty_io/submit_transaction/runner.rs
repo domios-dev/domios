@@ -275,8 +275,8 @@ pub(super) fn run_with_submit_key_and_payload<T: SubmitTransport>(
             if text.is_empty() && submit_key_writes == 0 {
                 return Err(error);
             }
-            log::warn!(
-                "[submit-transaction] post-paste submit-key write failed ({error}); classified unconfirmed"
+            log::debug!(
+                "[submit-transaction] post-paste submit-key write failed ({error}); awaiting final evidence"
             );
             let screen_tail = transport
                 .observe()
@@ -357,8 +357,8 @@ pub(super) fn run_with_submit_key_and_payload<T: SubmitTransport>(
             let enter_armed = transport.generation();
             let key_deadline = Instant::now() + opts.submit_timeout;
             if let Err(error) = transport.write_submit_key(submit_key, key_deadline) {
-                log::warn!(
-                    "[submit-transaction] deferred submit-key write failed ({error}); classified unconfirmed"
+                log::debug!(
+                    "[submit-transaction] deferred submit-key write failed ({error}); awaiting final evidence"
                 );
                 let screen_tail = transport
                     .observe()
