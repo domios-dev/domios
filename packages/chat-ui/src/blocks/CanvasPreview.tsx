@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { CanvasNotice } from "./CanvasNotice";
-import { parseDsCanvas, type DsCanvas } from "@codeterm/chat-core";
+import type { DsCanvas } from "@codeterm/chat-core";
 import { readThemeVars } from "../HtmlPreviewBlock";
 import { CanvasItemView } from "./canvasItems";
 import { CanvasViewer } from "./CanvasViewer";
@@ -13,14 +12,6 @@ const DOTTED_GROUND = {
   backgroundImage: "radial-gradient(circle, color-mix(in srgb, var(--ct-accent) 25%, transparent) 1px, transparent 1px)",
   backgroundSize: "24px 24px",
 };
-
-/** A `<ds-canvas>` body: a static preview in the chat that opens the full canvas. */
-export function CanvasBlock({ body }: { body: string }) {
-  const parsed = useMemo(() => parseDsCanvas(body), [body]);
-  if (!parsed.ok) return <CanvasNotice text="This canvas could not be shown because its description is not valid." reason={parsed.reason} />;
-  return <CanvasPreview canvas={parsed.canvas} />;
-}
-
 
 function usePreviewWidth() {
   const ref = useRef<HTMLDivElement>(null);

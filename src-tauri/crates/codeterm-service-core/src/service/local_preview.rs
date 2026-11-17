@@ -139,7 +139,7 @@ pub fn read(
 }
 
 /// Reads an item of a `<ds-canvas src>` file: the tab must reference the canvas, and the item
-/// must be one the canvas names, exactly as an inline canvas item must be named by its message.
+/// must be one the canvas names.
 pub fn read_canvas_item(
     svc: &super::ServiceContext,
     tab_id: &str,

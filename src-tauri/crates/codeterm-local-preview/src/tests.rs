@@ -769,7 +769,7 @@ fn pasted_attachment_markers_never_grant_references_with_or_without_provider_seg
 }
 
 #[test]
-fn canvas_file_items_authorize_like_inline_items_and_write_back_skips_upload_buckets() {
+fn canvas_file_items_authorize_through_the_board_and_write_back_skips_upload_buckets() {
     let temp = tempfile::tempdir().unwrap();
     let root = crate::html_preview::preview_test_root(temp.path());
     let private = root.join("private");

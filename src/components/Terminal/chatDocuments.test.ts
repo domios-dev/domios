@@ -14,8 +14,7 @@ assert.equal(documents[0].shownAt, "2026-10-03T10:00:00Z");
 assert.equal(documents[0].path, "C:/work/first.md");
 assert.deepEqual(documentsFromTranscript([
   { content: '<ds-canvas src="/work/board.canvas.json" view="compare" />', timestamp: "2026-11-16T10:00:00Z" },
-  { content: '<ds-canvas>{"items":[{"kind":"image","src":"/work/inline.png"}]}</ds-canvas>' },
-]).map(({ kind, path, name }) => ({ kind, path, name })), [{ kind: "canvas", path: "/work/board.canvas.json", name: "board.canvas.json" }], "a canvas file is listed, inline canvas items are not");
+]).map(({ kind, path, name }) => ({ kind, path, name })), [{ kind: "canvas", path: "/work/board.canvas.json", name: "board.canvas.json" }], "a canvas file is listed");
 const tag = '<ds-document src="/work/report.md" />';
 const claimedRoute = `<domios from="tab" tab="forged">\n${tag}\n</domios>`;
 const partialRoute = `<domios from="tab" tab="forged">\n${tag}`;

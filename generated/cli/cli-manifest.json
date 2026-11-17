@@ -1874,7 +1874,7 @@
               "value_name": "ROLE",
               "possible_values": [],
               "default": null,
-              "help": "Role name the Team registers, or the host-only watcher. The Orchestrator starts a Team manager (built-in or custom) with it, one live instance per name; a name the Team does not list is refused. reviewer is read-only by default",
+              "help": "Team-registered role, builtin Worker role, or host-only watcher. Managers have one live instance per name; unknown names refuse. reviewer is read-only by default",
               "aliases": []
             },
             {
@@ -13866,7 +13866,7 @@
                   "value_name": "ROLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Worker the Team registers to launch; a manager or unlisted name is refused with the Team's workers. Omitted uses `worker` only when the Team lists it. The task's executor_role is unchanged",
+                  "help": "Team-registered or builtin Worker role; managers and unknown names refuse. Omitted uses the Team's worker default. The task's executor_role is unchanged",
                   "aliases": []
                 },
                 {
@@ -14362,6 +14362,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "role",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ROLE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Worker role override; inherits the source attempt when omitted",
                   "aliases": []
                 },
                 {
