@@ -17,6 +17,7 @@ import { ActivityDots } from "../shared/ActivityDots";
 import { AgentIcon } from "../AgentIcon";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabActivity } from "../../lib/tabActivity";
+import { uid } from "../../lib/uid";
 import type { Tab } from "../../lib/types";
 import { askGeneralAgent, focusTab, permissionInterviewTask, workspaceOfTab } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
@@ -25,7 +26,7 @@ import { flagLine, NeighborFlagDialog } from "./NeighborFlagDialog";
 import { useNeighborReadReceipt } from "./useNeighborReadReceipt";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
-import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, dayLabel, landedSends, mergeHistory, readableBody, receiptMark, refusalLine, shownWork, speaker, type ConciergeWorkEntry, type OutgoingSend, type ReceiptMark } from "./neighborConversationModel";
+import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, conversationMessages, dayLabel, mergeHistory, readableBody, receiptMark, refusalLine, shownWork, speaker, type ConciergeWorkEntry, type OutgoingSend, type ReceiptMark } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
 import { useNeighborGateway } from "./neighborGateways";
 import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
@@ -198,13 +199,10 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
 
   const byId = new Map((entries ?? []).map(entry => [entry.message_id, entry]));
   const bubbleKeys = useRef(new Map<string, string>());
-  const landed = entries ? landedSends(outgoing, entries, new Set(bubbleKeys.current.values())) : new Map<string, string>();
+  const { landed, pendingSends, shown } = conversationMessages(outgoing, entries ?? []);
   const bubbleKey = (messageId: string) => bubbleKeys.current.get(messageId)
     ?? [...landed].find(([, id]) => id === messageId)?.[0] ?? messageId;
-  const pendingSends = outgoing.filter(item => !landed.has(item.key));
   const pendingByKey = new Map(pendingSends.map(item => [item.key, item]));
-  const shown: HistoryEntry[] = [...(entries ?? []), ...pendingSends.map((item): HistoryEntry =>
-    ({ direction: "out", kind: "question", author: "me", body: item.body, at: item.at, message_id: item.key }))];
   const work = conciergeWork(entries ?? [], { working: tabWorking, missing: enabled && concierge?.concierge_missing === true && !conciergeTab });
   const conciergeWorking = tabWorking && [...work.values()].some(entry => activeWork(entry.work));
   // The calm view of that standing: outcomes on their messages, the work under way once, "no reply needed" nowhere.
@@ -225,20 +223,19 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     setOutgoing(current => current.filter(item => !landed.has(item.key)));
   });
   const settleSend = (key: string, change: Partial<OutgoingSend>) => setOutgoing(current => current.map(item => item.key === key ? { ...item, ...change } : item));
-  const deliver = async (key: string, body: string) => {
+  const deliver = async (key: string, body: string, messageId: string) => {
     try {
-      const receipt = await runtimeClient.send(friendship, body);
-      settleSend(key, { messageId: receipt.message_id });
+      await runtimeClient.send(friendship, body, messageId);
       onSent();
     } catch (failure: unknown) {
       // Only a refusal the runtime named proves nothing went out; anything else may have, so it stays sending and is never sent again.
-      if (failure instanceof NeighborRuntimeFailure && (failure.reason !== "unavailable" || failure.refusal)) {
+      if (failure instanceof NeighborRuntimeFailure && failure.reason !== "operation_id_conflict" && (failure.reason !== "unavailable" || failure.refusal)) {
         const refused = failure.refusal;
         const resetsAt = refused?.resets_at === undefined ? undefined : refused.resets_at < 1e12 ? refused.resets_at * 1000 : refused.resets_at;
         const line = refused ? refusalLine({ direction: "out", kind: "question", author: "me", body: "", at: Date.now(), message_id: "", reason: refused.reason,
           limit: refused.limit, resets_at: resetsAt, retry_after_seconds: refused.retry_after_seconds }, name, Date.now()) : null;
         settleSend(key, { state: "failed", reason: line ?? failure.message, ...(FINAL_REFUSALS.has(failure.reason) ? { final: true } : {}) });
-      } else settleSend(key, { uncertain: true });
+      }
     }
     await loadLatest();
   };
@@ -250,15 +247,17 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       return false;
     }
     const key = `outgoing-${++sendCount.current}`;
+    const messageId = uid().replaceAll("-", "");
     setError(null); stickToEnd.current = true;
-    setOutgoing(current => [...current, { key, body, at: Date.now(), state: "sending" }]);
-    void deliver(key, body);
+    setOutgoing(current => [...current, { key, messageId, body, at: Date.now(), state: "sending" }]);
+    void deliver(key, body, messageId);
     return true;
   };
-  // Retrying is the owner's choice and only follows a proven refusal, so the failed bubble gives way to a fresh send.
   const retrySend = (item: OutgoingSend) => {
-    setOutgoing(current => current.filter(entry => entry.key !== item.key));
-    void send(item.body);
+    if (!canSend || item.state !== "failed" || item.final) return;
+    const messageId = uid().replaceAll("-", "");
+    settleSend(item.key, { messageId, state: "sending", reason: undefined, final: undefined });
+    void deliver(item.key, item.body, messageId);
   };
   const sendFiles = async (body: string, paths: string[]): Promise<boolean> => {
     if (sending || !canSend) return false;

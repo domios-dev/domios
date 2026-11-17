@@ -32,33 +32,34 @@ export function receiptMark(entry: HistoryEntry): ReceiptMark | null {
   return entry.submission === "accepted" ? "sent" : "sending";
 }
 
-/** A message you sent that history has not shown yet: its bubble appears at once and becomes the history entry when it lands.
- *  An uncertain send has no receipt, so it is never sent again; it waits to be recognised in history by its words. */
 export interface OutgoingSend {
   key: string;
   body: string;
   at: number;
   state: "sending" | "failed";
-  messageId?: string;
-  uncertain?: boolean;
+  messageId: string;
   reason?: string;
   /** Refused for good: nothing went out and sending it again cannot succeed, so the bubble offers no Retry. */
   final?: boolean;
 }
 
 /** Which sends history now holds, as send key to message id, each history entry claimed once. */
-export function landedSends(sends: readonly OutgoingSend[], entries: readonly HistoryEntry[], claimed: ReadonlySet<string> = new Set()): Map<string, string> {
+export function landedSends(sends: readonly OutgoingSend[], entries: readonly HistoryEntry[]): Map<string, string> {
   const landed = new Map<string, string>();
-  const taken = new Set(claimed);
   for (const send of sends) {
-    const entry = send.messageId ? entries.find(item => item.message_id === send.messageId)
-      : send.uncertain ? entries.find(item => item.direction === "out" && item.author === "me" && item.body === send.body
-        && item.at >= send.at - 2000 && !taken.has(item.message_id)) : undefined;
+    const entry = entries.find(item => item.direction === "out" && item.author === "me" && item.message_id === send.messageId);
     if (!entry) continue;
-    taken.add(entry.message_id);
     landed.set(send.key, entry.message_id);
   }
   return landed;
+}
+
+export function conversationMessages(sends: readonly OutgoingSend[], entries: readonly HistoryEntry[]) {
+  const landed = landedSends(sends, entries);
+  const pendingSends = sends.filter(item => !landed.has(item.key));
+  const shown: HistoryEntry[] = [...entries, ...pendingSends.map((item): HistoryEntry =>
+    ({ direction: "out", kind: "question", author: "me", body: item.body, at: item.at, message_id: item.key }))];
+  return { landed, pendingSends, shown };
 }
 
 /** Why a message of yours did not reach them, in plain words, with when to try again when that is known. */

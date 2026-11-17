@@ -1,6 +1,8 @@
 use super::authority::SendAuthority;
 use super::*;
 
+mod admission;
+
 pub trait NeighborsExt {
     fn send_neighbor(
         &self,
@@ -62,6 +64,7 @@ impl NeighborsExt for ServiceContext {
         self.require_neighbors_enabled()?;
         let generation = self.neighbor_history_generation();
         let Outgoing {
+            message_id,
             authority,
             friendship,
             kind,
@@ -70,6 +73,10 @@ impl NeighborsExt for ServiceContext {
             author,
         } = outgoing;
         if !hex_id(&friendship, 64) {
+            return Err(Error::InvalidEnvelope);
+        }
+        let message_id = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
+        if !hex_id(&message_id, 32) {
             return Err(Error::InvalidEnvelope);
         }
         let permission = metadata
@@ -93,6 +100,7 @@ impl NeighborsExt for ServiceContext {
             in_reply_to.as_deref(),
         )
         .await?;
+        admission::reserve(self, metadata, &message_id, generation).await?;
         let keys = lifecycle.load().await?.ok_or(Error::Revoked)?;
         if !lifecycle
             .registry
@@ -108,7 +116,7 @@ impl NeighborsExt for ServiceContext {
         let mut envelope = Envelope {
             schema: SCHEMA.into(),
             friendship_id: friendship.clone(),
-            message_id: uuid::Uuid::new_v4().simple().to_string(),
+            message_id,
             sender_uid: transport.uid.clone(),
             recipient_uid: peers.peer_uid.clone(),
             kind,

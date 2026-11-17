@@ -153,6 +153,8 @@ pub enum NeighborRuntimeCommand {
         permission: Value,
     },
     Send {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
         friendship_id: String,
         kind: Kind,
         body: String,
@@ -166,6 +168,7 @@ pub enum NeighborRuntimeCommand {
 }
 
 pub struct Outgoing {
+    message_id: Option<String>,
     authority: authority::SendAuthority,
     friendship: String,
     kind: Kind,
@@ -852,6 +855,7 @@ impl NeighborsExt for ServiceContext {
                         .await
                 }
                 NeighborRuntimeCommand::Send {
+                    message_id,
                     friendship_id,
                     kind,
                     body,
@@ -877,6 +881,7 @@ impl NeighborsExt for ServiceContext {
                         &lifecycle,
                         &metadata,
                         Outgoing {
+                            message_id,
                             authority: send_authority,
                             friendship: friendship_id,
                             kind,

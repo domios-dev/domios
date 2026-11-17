@@ -133,6 +133,7 @@ async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_networ
         ] {
             let command = NeighborRuntimeCommand::Send {
                 attach: vec![],
+                message_id: None,
                 friendship_id: "a".repeat(64),
                 kind,
                 body: body.clone(),
@@ -150,6 +151,7 @@ async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_networ
     ));
     let command = NeighborRuntimeCommand::Send {
         attach: vec![],
+        message_id: None,
         friendship_id: "a".repeat(64),
         kind: Kind::Question,
         body: "opaque nonempty".into(),

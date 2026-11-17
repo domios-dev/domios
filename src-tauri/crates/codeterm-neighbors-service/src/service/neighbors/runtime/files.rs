@@ -158,6 +158,7 @@ impl NeighborsExt for ServiceContext {
                     let lifecycle = InstallationKeys { store: &self.neighbor_key_store()?, registry: registry.as_ref(), scope, uid: &transport.uid };
                     let author = self.neighbor_author(caller)?;
                     let mut receipt = self.send_neighbor(transport.as_ref(), &lifecycle, &metadata, Outgoing {
+                        message_id: None,
                         authority: authority::SendAuthority::Unrestricted,
                         friendship: friendship.clone(), kind, body: OutboundBody::Files { text: Zeroizing::new(body), paths, pad: None }, in_reply_to, author,
                     }).await?;
