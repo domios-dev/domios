@@ -21,10 +21,18 @@ pub fn command(binary: &Path) -> Result<Command, String> {
                     probe.searched
                 ));
             };
-            return Ok(interpreted_command(binary, &path));
+            let mut command = interpreted_command(binary, &path);
+            if let Some(context) = crate::provider_account::current() {
+                context.configure_command(&mut command);
+            }
+            return Ok(command);
         }
     }
-    Ok(Command::new(binary))
+    let mut command = Command::new(binary);
+    if let Some(context) = crate::provider_account::current() {
+        context.configure_command(&mut command);
+    }
+    Ok(command)
 }
 
 #[cfg(any(unix, test))]

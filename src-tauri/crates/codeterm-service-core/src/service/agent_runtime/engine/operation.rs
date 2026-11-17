@@ -254,11 +254,15 @@ async fn run_inner(
                 };
                 let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
                     .then(|| operation.clone());
+                let captured_login = super::super::login::declared_operation_witness(&operation);
                 let guard: rpc::PrewriteGuard = Arc::new(move || {
                     if runtime.context.lock().epoch != epoch {
                         return Err(RuntimeFailure::Superseded);
                     }
                     validate_binding(&owner, &runtime)?;
+                    if let Some(witness) = &captured_login {
+                        super::super::login::validate_declared_witness(&runtime, witness)?;
+                    }
                     let cli_context = runtime.context.lock().clone();
                     super::super::cli_exception::validate_binding(&owner, &cli_context)
                         .map_err(RuntimeFailure::Refused)?;

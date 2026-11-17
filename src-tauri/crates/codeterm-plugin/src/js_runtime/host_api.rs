@@ -460,6 +460,15 @@ impl PluginSandbox {
     /// A declared credential file stays unreadable to the plugin even when a
     /// read root covers its directory — the host reads it instead.
     pub(super) fn is_denied_read(&self, path: &str) -> bool {
+        if super::host_credentials::declared_files(&self.credentials)
+            .iter()
+            .any(|denied| {
+                let target = codeterm_util::project_roots::canonical_target(Path::new(path));
+                target.is_some() && codeterm_util::project_roots::canonical_target(denied) == target
+            })
+        {
+            return true;
+        }
         if self.denied_reads.is_empty() {
             return false;
         }
@@ -523,7 +532,7 @@ fn prepare_fetch(sandbox: &PluginSandbox, opts_json: &str) -> Result<String, Str
     }
     let prepared = super::host_credentials::inject(sandbox.credentials(), opts_json)?;
     let prepared = super::host_credentials::inject_profile_secret(&prepared, |profile, env| {
-        if !sandbox.secrets_allowed() {
+        if !sandbox.secrets_allowed() || crate::provider_account::current().is_some() {
             return None;
         }
         sandbox

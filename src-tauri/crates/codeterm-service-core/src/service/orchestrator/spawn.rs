@@ -764,6 +764,9 @@ impl ServiceContext {
         } else {
             bg_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task))
         };
+        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+            tab.restorable_launch.account_id = params.account_id.clone();
+        }
         crate::service::restored_launch::capture_tab_launch_parameters(
             &self.mux,
             &tab_id,

@@ -55,7 +55,12 @@ pub(super) fn validate_settings(settings: &RuntimeSettings) -> Result<(), Runtim
 pub(super) fn validate_authentication(auth: &RuntimeAuthentication) -> Result<(), RuntimeFailure> {
     if auth.methods.len() > 32
         || !unique(auth.methods.iter().map(|v| v.id.as_str()))
-        || auth.methods.iter().any(|v| !text(&v.name))
+        || auth.methods.iter().any(|v| {
+            !text(&v.name)
+                || v.unavailable_reason.as_ref().is_some_and(|reason| {
+                    reason.is_empty() || reason.len() > 4096 || reason.contains('\0')
+                })
+        })
     {
         return Err(invalid());
     }

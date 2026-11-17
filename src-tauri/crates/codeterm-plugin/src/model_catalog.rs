@@ -257,9 +257,11 @@ impl ProviderModels {
     }
 }
 
-fn registry() -> &'static RwLock<HashMap<String, ProviderModels>> {
-    static REG: OnceLock<RwLock<HashMap<String, ProviderModels>>> = OnceLock::new();
-    REG.get_or_init(|| RwLock::new(HashMap::new()))
+fn registry(
+) -> &'static crate::provider_account::cache::ScopedCache<HashMap<String, ProviderModels>> {
+    static CACHE: crate::provider_account::cache::ScopedCache<HashMap<String, ProviderModels>> =
+        crate::provider_account::cache::ScopedCache::new();
+    &CACHE
 }
 
 /// Registered seeds survive live overlays so cache validation can always
@@ -271,7 +273,7 @@ fn seed_registry() -> &'static RwLock<HashMap<String, RegisteredDefaults>> {
 
 /// Deterministic hash of the registered seed (ids, display, descriptions,
 /// availability, order, default); no registered seed hashes `null`.
-fn seed_fingerprint(provider_id: &str) -> String {
+pub(crate) fn seed_fingerprint(provider_id: &str) -> String {
     use sha2::{Digest, Sha256};
     let seed = seed_registry().read().get(provider_id).cloned();
     let canonical = match seed {
@@ -297,9 +299,11 @@ struct PublishedCatalogue {
     digest: Option<[u8; 32]>,
 }
 
-fn versions() -> &'static RwLock<HashMap<String, PublishedCatalogue>> {
-    static VERSIONS: OnceLock<RwLock<HashMap<String, PublishedCatalogue>>> = OnceLock::new();
-    VERSIONS.get_or_init(|| RwLock::new(HashMap::new()))
+fn versions(
+) -> &'static crate::provider_account::cache::ScopedCache<HashMap<String, PublishedCatalogue>> {
+    static CACHE: crate::provider_account::cache::ScopedCache<HashMap<String, PublishedCatalogue>> =
+        crate::provider_account::cache::ScopedCache::new();
+    &CACHE
 }
 
 fn change_sender() -> &'static broadcast::Sender<ModelCatalogueChanged> {
@@ -681,7 +685,7 @@ pub fn is_stale(provider_id: &str, ttl: Duration, now: SystemTime) -> bool {
 
 /// Re-reads the provider's configured endpoint models without a live probe.
 pub async fn refresh_endpoints(provider: Arc<dyn AgentProvider>) {
-    let _ = tokio::task::spawn_blocking(move || {
+    let _ = crate::js_runtime::spawn_blocking(move || {
         let stamp = discovery_stamp(provider.as_ref());
         endpoints::refresh(provider.as_ref(), &stamp);
     })
@@ -888,7 +892,11 @@ pub fn resolve_live_catalog_model(provider_id: &str, requested: &str) -> Option<
 fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
     let snapshot = registry().read().get(provider_id).cloned();
     let Some(snapshot) = snapshot else {
-        return Vec::new();
+        return seed_registry()
+            .read()
+            .get(provider_id)
+            .map(|seed| seed.models.clone())
+            .unwrap_or_default();
     };
     if snapshot.source != Source::Live {
         return snapshot.models;
@@ -920,6 +928,12 @@ pub fn resolve_default(provider_id: &str) -> Option<String> {
         .read()
         .get(provider_id)
         .and_then(|d| d.default.clone())
+        .or_else(|| {
+            seed_registry()
+                .read()
+                .get(provider_id)
+                .and_then(|seed| seed.default.clone())
+        })
 }
 
 pub fn resolve_reasoning_efforts(provider_id: &str) -> Vec<ReasoningEffortInfo> {

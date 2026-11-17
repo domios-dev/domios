@@ -159,7 +159,7 @@ pub(super) async fn sign_in_with_key(
     .map_err(|_| "Runtime restart failed")?
     .map_err(restart_reason)?;
     let session = engine::for_tab(tab).ok_or("Runtime binding unavailable")?;
-    super::declared_controls::authenticate(svc, tab, &session, method).await
+    super::declared_controls::authenticate(svc, tab, &session, method, None).await
 }
 
 fn restart_reason(error: crate::service::agent_lifecycle::AgentRestartError) -> String {
