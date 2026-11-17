@@ -374,3 +374,106 @@ it("uses account-add progress hints instead of promising a hidden context will c
   await render();
   expect(login.render).toHaveBeenLastCalledWith(expect.objectContaining({ hint: "opaque account-check progress" }));
 });
+
+it("renders a restored removal failure with collapsed details, without moving focus or retrying automatically", async () => {
+  await render();
+  row("default").focus();
+  snapshot = { ...snapshot, accounts: [snapshot.accounts[0], { ...snapshot.accounts[1], status: "removing", tabsInUse: 0, removalFailureReason: "opaque deletion failure" }] };
+  await render();
+  const notice = row("work").querySelector<HTMLElement>('[role="status"]')!;
+  expect(row("work").getAttribute("aria-label")).toBe("other@example.test, couldn't finish removing");
+  expect(notice.querySelector("p")?.textContent).toBe("Couldn't finish removing other@example.test.");
+  expect(notice.querySelector("details")?.open).toBe(false);
+  expect(notice.querySelector("details")?.textContent).toContain("opaque deletion failure");
+  expect(notice.querySelector("p")?.textContent).not.toContain("opaque deletion failure");
+  expect(button("Try again", notice)).toBeDefined();
+  expect(notice.querySelector('button[aria-label="Dismiss notice"]')).toBeNull();
+  expect(document.activeElement).toBe(row("default"));
+  snapshot = { ...snapshot, revision: "unrelated-refresh" };
+  await render();
+  expect(row("work").querySelector('[role="status"]')).toBe(notice);
+  expect(document.activeElement).toBe(row("default"));
+  expect(onAction).not.toHaveBeenCalled();
+});
+
+it("keeps failed removal stationary with only an explicit menu retry, then updates failure details after the attempt", async () => {
+  snapshot.accounts[1] = { ...snapshot.accounts[1], status: "removing", tabsInUse: 0, removalFailureReason: "first failure" };
+  let resolve!: () => void;
+  onAction.mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
+  await render();
+  const actions = await menu("work");
+  for (const label of ["Move to top", "Move up", "Move down", "Rename", "Sign out and remove"]) {
+    const item = button(label, actions);
+    expect(item.disabled).toBe(false);
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById(item.getAttribute("aria-describedby")!)?.textContent).toBe("Finishing removal first.");
+    await act(async () => item.click());
+  }
+  await act(async () => row("work").dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowUp", altKey: true, bubbles: true })));
+  expect(onAction).not.toHaveBeenCalled();
+  await click("Try again", actions);
+  expect(onAction).toHaveBeenCalledExactlyOnceWith({ action: "remove", accountId: "work" });
+  expect(row("work").querySelector('[role="status"][aria-label="Removing"]')).not.toBeNull();
+  expect(row("work").querySelector("details")).toBeNull();
+  snapshot = { ...snapshot, accounts: [snapshot.accounts[0], { ...snapshot.accounts[1], removalFailureReason: "second failure" }] };
+  await render();
+  await act(async () => resolve());
+  expect(row("work").querySelector("details")?.open).toBe(false);
+  expect(row("work").querySelector("details")?.textContent).toContain("second failure");
+  expect(row("work").querySelector("details")?.textContent).not.toContain("first failure");
+  expect(onAction).toHaveBeenCalledTimes(1);
+});
+
+it("does not replace a persisted failure with Removing while an unrelated account action runs", async () => {
+  snapshot.accounts[1] = { ...snapshot.accounts[1], status: "removing", removalFailureReason: "retained failure" };
+  let resolve!: () => void;
+  onAction.mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
+  await render();
+  await click("Add account");
+  expect(row("work").querySelector("details")?.textContent).toContain("retained failure");
+  expect(row("work").querySelector('[role="status"][aria-label="Removing"]')).toBeNull();
+  await act(async () => resolve());
+});
+
+it("withdraws an open editor when a removal failure arrives from another client", async () => {
+  await render();
+  await click("Rename", await menu("work"));
+  expect(host.querySelector("input")).not.toBeNull();
+  snapshot = { ...snapshot, accounts: [snapshot.accounts[0], { ...snapshot.accounts[1], status: "removing", removalFailureReason: "external cleanup failed" }] };
+  await render();
+  expect(host.querySelector("input")).toBeNull();
+  expect(row("work").querySelector("details")?.textContent).toContain("external cleanup failed");
+  expect(document.activeElement).toBe(button("Actions for other@example.test"));
+  expect(onAction).not.toHaveBeenCalled();
+});
+
+it("shows the active cleanup line after the parent clears the persisted reason", async () => {
+  snapshot.accounts[1] = { ...snapshot.accounts[1], status: "removing", tabsInUse: 0, tabsToFinish: 0, removalFailureReason: "previous failure" };
+  await render();
+  await click("Try again", row("work"));
+  snapshot = { ...snapshot, accounts: [snapshot.accounts[0], { ...snapshot.accounts[1], removalFailureReason: undefined }] };
+  await render();
+  expect(row("work").querySelector('[role="status"][aria-label="Removing"]')).not.toBeNull();
+  expect(row("work").querySelector("details")).toBeNull();
+  expect(onAction).toHaveBeenCalledExactlyOnceWith({ action: "remove", accountId: "work" });
+});
+
+it.each([true, false])("announces accepted removal once and focuses its surviving next row (present: %s) after the request settles", async hasNext => {
+  snapshot.accounts[1] = { ...snapshot.accounts[1], status: "removing", tabsInUse: 0, removalFailureReason: "cleanup failed" };
+  if (hasNext) snapshot.accounts.push({ id: "next", identity: "next@example.test", status: "ready", tabsInUse: 0 });
+  let resolve!: () => void;
+  onAction.mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
+  await render();
+  await click("Try again", row("work"));
+  snapshot = { ...snapshot, accounts: snapshot.accounts.filter(account => account.id !== "work"),
+    feedback: { id: "removed-once", kind: "removed", accountId: "work", identity: "other@example.test", position: 1 } };
+  await render();
+  expect(button("Add account").disabled).toBe(true);
+  await act(async () => resolve());
+  expect(host.querySelector('[aria-atomic="true"]')?.textContent).toBe("Removed other@example.test");
+  expect(document.activeElement).toBe(hasNext ? row("next") : button("Add account"));
+  row("default").focus();
+  snapshot = { ...snapshot, revision: "same-accepted-feedback" };
+  await render();
+  expect(document.activeElement).toBe(row("default"));
+});
