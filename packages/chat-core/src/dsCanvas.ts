@@ -83,12 +83,6 @@ function readJson(text: string): { ok: true; document: unknown } | { ok: false; 
   } catch (error) { return { ok: false, reason: `The JSON is invalid: ${error instanceof Error ? error.message : String(error)}` }; }
 }
 
-/** Reads a `<ds-canvas>` body; the reason is one sentence for the block's Details. */
-export function parseDsCanvas(body: string): DsCanvasParse {
-  const json = readJson(body);
-  return json.ok ? readCanvas(json.document) : json;
-}
-
 /** A canvas file is named `NAME.canvas.json`; a bare `.canvas` belongs to another format. */
 export const isDsCanvasFilePath = (path: string) => /[^\\/]\.canvas\.json$/i.test(path);
 
@@ -96,7 +90,7 @@ export const isDsCanvasFilePath = (path: string) => /[^\\/]\.canvas\.json$/i.tes
 export const DS_CANVAS_FILE_FORMAT = "domios.canvas/1";
 const FILE_FORMAT = /^domios\.canvas\/(\d+)(?:\.\d+)?$/;
 
-/** Reads a `.canvas.json` file: `"format": "domios.canvas/1"` first, then exactly an inline body's fields. */
+/** Reads a `.canvas.json` file: `"format": "domios.canvas/1"` first, then its board fields. */
 export function parseDsCanvasFile(text: string): DsCanvasParse {
   const json = readJson(text);
   if (!json.ok) return json;
@@ -129,10 +123,4 @@ function readCanvas(document: unknown): DsCanvasParse {
     if (error instanceof CanvasError) return { ok: false, reason: error.message };
     throw error;
   }
-}
-
-/** The local files a canvas previews, in item order; the preview guard admits exactly these. */
-export function dsCanvasFilePaths(body: string): string[] {
-  const parsed = parseDsCanvas(body);
-  return parsed.ok ? parsed.canvas.items.flatMap((item) => "src" in item ? [item.src] : []) : [];
 }

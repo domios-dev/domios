@@ -72,7 +72,7 @@ pub fn referenced_paths(messages: &[ChatMsg], cwd: Option<&str>) -> HashSet<Stri
                 insert(&mut paths, &path, None);
             }
         }
-        for path in scan.attachment_paths.into_iter().chain(scan.canvas_paths) {
+        for path in scan.attachment_paths {
             insert(&mut paths, &path, None);
         }
         for attachment in message.attachments.iter().flatten() {

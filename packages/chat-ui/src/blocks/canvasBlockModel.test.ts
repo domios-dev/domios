@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDsCanvas, type DsCanvas } from "@codeterm/chat-core";
+import { parseDsCanvasFile, type DsCanvas } from "@codeterm/chat-core";
 import { CANVAS_LIVE_FRAME_BUDGET, canvasPagerLabel, canvasPagerTargets, canvasViewTarget, chooseLiveFrames, fitPreview, layoutCanvas, noteLabel, noteSpot, reconcilePager, resizeFrame, sentenceCase, stepCanvasPager } from "./canvasBlockModel";
 import { gestureEdit } from "./canvasEditing";
 
 function canvas(document: unknown): DsCanvas {
-  const parsed = parseDsCanvas(JSON.stringify(document));
+  const parsed = parseDsCanvasFile(JSON.stringify({ format: "domios.canvas/1", ...document as object }));
   assert.ok(parsed.ok, parsed.ok ? "" : parsed.reason);
   return parsed.canvas;
 }

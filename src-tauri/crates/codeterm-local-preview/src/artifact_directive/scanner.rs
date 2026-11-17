@@ -1,6 +1,5 @@
 use super::{
-    attributes, canvas::canvas_paths, file_paths, html::HtmlBoundary, space, ArtifactScan,
-    FileCard, HostArtifactProvenance, HEADER_LIMIT, KINDS,
+    file_paths, html::HtmlBoundary, space, ArtifactScan, FileCard, HostArtifactProvenance, KINDS,
 };
 use codeterm_wire::envelope::{parse_envelope_spans, MessageSegment};
 use regex::Regex;
@@ -37,10 +36,9 @@ static OPAQUE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^ {0,3}<(?:script|style|title|textarea|xmp|iframe|noembed|noframes|noscript|plaintext)(?:[\t\r\n />])|^ {0,3}<[!?]").unwrap()
 });
 
-/// A file card names its files in its tag; an inline canvas carries them in its body.
+/// A file card names the file it previews in its tag.
 enum Preview {
     Card(Vec<String>, Option<String>),
-    Canvas(Vec<String>),
 }
 
 fn candidate(source: &str, start: usize, kind: &str) -> Option<(usize, Option<Preview>)> {
@@ -94,20 +92,10 @@ fn candidate(source: &str, start: usize, kind: &str) -> Option<(usize, Option<Pr
         }
         if boundary.feed(c) {
             let next = end + offset + c.len_utf8();
-            let paths = (kind == "canvas")
-                .then(|| canvas_header_paths(header, &source[end..next - "</ds-canvas>".len()]))
-                .flatten()
-                .map(Preview::Canvas);
-            return Some((next, paths));
+            return Some((next, None));
         }
     }
     None
-}
-
-fn canvas_header_paths(header: &str, body: &str) -> Option<Vec<String>> {
-    (header.encode_utf16().count() <= HEADER_LIMIT && attributes(header, "canvas")?.is_empty())
-        .then(|| canvas_paths(body))
-        .flatten()
 }
 
 fn frame_body_start(source: &str) -> usize {
@@ -334,14 +322,6 @@ fn scan(
                         })
                     {
                         match paths {
-                            Some(Preview::Canvas(paths)) => {
-                                count += paths.len();
-                                if count <= 32 {
-                                    result.canvas_paths.extend(paths);
-                                } else {
-                                    result.overflow = true;
-                                }
-                            }
                             Some(Preview::Card(paths, view)) => {
                                 count += paths.len();
                                 if count <= 32 {
