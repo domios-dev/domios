@@ -6,6 +6,8 @@ use axum::{
 use codeterm_service_core::service::MuxEmitCause;
 use serde::Deserialize;
 
+mod account_resume;
+
 use crate::routes::AppState;
 use codeterm_service_core::api_support::OptionalJson;
 
@@ -298,34 +300,39 @@ struct ResumableIdentity {
     can_spawn: bool,
 }
 
-async fn persisted_resume_identity(
+async fn persisted_resume_selection(
     state: &AppState,
     provider: &str,
     session_id: &str,
-) -> Option<ResumableIdentity> {
-    let storage = state
+) -> Result<(Option<ResumableIdentity>, account_resume::SavedAccount), String> {
+    let Some(storage) = state
         .svc
-        .try_ext::<codeterm_service_core::startup::StorageAuthority>()?
-        .storage()?
-        .clone();
+        .try_ext::<codeterm_service_core::startup::StorageAuthority>()
+        .and_then(|authority| authority.storage())
+        .cloned()
+    else {
+        return Ok((None, account_resume::SavedAccount::default()));
+    };
     let adapter = codeterm_service_core::session::store::StorageDeskAdapter::from_storage(storage);
     let provider = provider.to_string();
     let session_id = session_id.to_string();
-    let persisted = tokio::task::spawn_blocking(move || {
-        adapter
-            .identity_catalog()
-            .ok()?
+    tokio::task::spawn_blocking(move || {
+        let snapshot = adapter.normalized_snapshot()?;
+        let account = account_resume::from_snapshot(&snapshot, &provider, &session_id)?;
+        let identity = snapshot
+            .agent_session_identities
             .into_iter()
             .find(|identity| identity.provider == provider && identity.session_id == session_id)
+            .map(|persisted| ResumableIdentity {
+                role: persisted.role,
+                role_profile: persisted.role_profile,
+                parent_tab_id: persisted.parent_tab_id,
+                can_spawn: persisted.can_spawn,
+            });
+        Ok((identity, account))
     })
     .await
-    .ok()??;
-    Some(ResumableIdentity {
-        role: persisted.role,
-        role_profile: persisted.role_profile,
-        parent_tab_id: persisted.parent_tab_id,
-        can_spawn: persisted.can_spawn,
-    })
+    .map_err(|error| error.to_string())?
 }
 
 fn restorable_identity(
@@ -407,8 +414,10 @@ pub async fn resume_session_api(
         })
         .flatten();
 
-    let persisted_identity =
-        persisted_resume_identity(&state, &meta.provider, &meta.session_id).await;
+    let (persisted_identity, saved_account) =
+        persisted_resume_selection(&state, &meta.provider, &meta.session_id)
+            .await
+            .map_err(|error| (StatusCode::CONFLICT, error))?;
     let owner = state.clone();
     let prepared = tokio::task::spawn_blocking(move || {
         let state = owner;
@@ -515,6 +524,8 @@ pub async fn resume_session_api(
     };
 
     let spawn_params = codeterm_service_core::service::SpawnAgentParams {
+        account_id: Some(saved_account.id),
+        account_namespace: saved_account.namespace,
         agent: Some(meta.provider.clone()),
         remote_task_binding: None,
         execution_mode: None,
