@@ -36,7 +36,10 @@ export function runtimeError(value:unknown, willRetry=false, limits?:unknown): {
   const limited=outputLimit(error) || outputLimit({message:diagnostic});
   const message=diagnostic ?? (limited ? "Output limit reached" : "Provider request failed");
   const status=statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
-  return {message,metadata:{...(code ? {code} : {}),class:runtimeClass(code, status),retryable:willRetry,...(limited ? {retryableKind:"output_limit" as const} : retrySignal(code,status,limits))}};
+  const kind = runtimeClass(code, status);
+  const retry: Pick<RuntimeErrorSignal,"retryableKind"|"retryAtMs"> = limited ? {retryableKind:"output_limit" as const} : retrySignal(code,status,limits);
+  const accountQuota = !willRetry && !limited && ((code === "usageLimitExceeded" && kind === "usage_limit") || (code === "rateLimitExceeded" && retry.retryableKind === "rate_limited_until"));
+  return {message,metadata:{...(code ? {code} : {}),class:kind,retryable:willRetry,...retry,...(accountQuota ? {accountLimit: {...(retry.retryAtMs == null ? {} : {resetsAtMs:retry.retryAtMs})}} : {})}};
 }
 
 function retrySignal(code:string|undefined, status:number|null, limits:unknown): Pick<RuntimeErrorSignal,"retryableKind"|"retryAtMs"> {

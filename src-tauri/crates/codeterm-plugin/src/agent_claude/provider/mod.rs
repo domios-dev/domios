@@ -65,6 +65,12 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn account_capability(&self) -> Option<crate::provider_account::storage::AccountCapability> {
+        serde_json::from_str::<crate::js_runtime::PluginManifest>(MANIFEST_JSON)
+            .ok()?
+            .accounts
+    }
+
     fn general_agent_offer_when_absent(&self) -> bool {
         true
     }

@@ -52,13 +52,27 @@ fn validate_binding_inner(
     require_thread: bool,
 ) -> Result<(), RuntimeFailure> {
     let context = session.context.lock().clone();
+    let account = session.account.lock().clone();
+    if !crate::service::provider_accounts::invocation_matches(
+        session.invocation.lock().as_deref(),
+        &session.provider,
+        &account,
+    ) {
+        return Err(RuntimeFailure::Superseded);
+    }
     if session.adapter.lock().is_none()
         || svc.agent_registry.provider_arc(&session.provider).is_none()
     {
         return Err(RuntimeFailure::Superseded);
     }
     if svc.mux.read().get_tab(&context.tab_id).is_some_and(|tab| {
-        tab.agent_type.as_deref() == Some(session.provider.as_str())
+        *session.account.lock()
+            == tab
+                .restorable_launch
+                .account_id
+                .as_deref()
+                .unwrap_or("default")
+            && tab.agent_type.as_deref() == Some(session.provider.as_str())
             && tab.session_binding_nonce.as_deref() == Some(context.binding_nonce.as_str())
             && (!require_thread
                 || context

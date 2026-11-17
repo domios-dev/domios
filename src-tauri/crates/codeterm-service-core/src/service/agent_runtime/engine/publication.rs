@@ -35,9 +35,14 @@ pub(in crate::service::agent_runtime) fn publish_controls(
 
 fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: bool) {
     let context = session.context.lock().clone();
+    let account = session.account.lock().clone();
     let mut value = serde_json::to_value(snapshot(session)).unwrap_or(Value::Null);
     if let Some(snapshot) = value.as_object_mut() {
         super::super::declared_controls::project(session, snapshot);
+        snapshot.insert(
+            "loginBinding".into(),
+            serde_json::json!({"nonce":context.binding_nonce,"epoch":context.epoch}),
+        );
         snapshot.insert(
             "auth".into(),
             serde_json::to_value(session.auth.lock().clone()).unwrap_or(Value::Null),
@@ -123,7 +128,8 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
         let Some(target) = mux.get_tab_mut(tab) else {
             return;
         };
-        if target.agent_type.as_deref() != Some(session.provider.as_str())
+        if crate::service::provider_accounts::selected_account(target) != account
+            || target.agent_type.as_deref() != Some(session.provider.as_str())
             || target.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str())
         {
             return;

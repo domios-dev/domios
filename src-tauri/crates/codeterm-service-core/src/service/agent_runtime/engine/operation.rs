@@ -136,12 +136,16 @@ async fn run_tracked(
     operation: RuntimeOperation,
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        run_inner(svc, session, process, operation, handed_off),
-    )
+    let invocation = session.invocation.lock().clone();
+    codeterm_plugin::provider_account::scope(invocation, async {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            run_inner(svc, session, process, operation, handed_off),
+        )
+        .await
+        .map_err(|_| RuntimeFailure::Deadline)?
+    })
     .await
-    .map_err(|_| RuntimeFailure::Deadline)?
 }
 
 async fn run_inner(
@@ -254,11 +258,15 @@ async fn run_inner(
                 };
                 let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
                     .then(|| operation.clone());
+                let captured_login = super::super::login::declared_operation_witness(&operation);
                 let guard: rpc::PrewriteGuard = Arc::new(move || {
                     if runtime.context.lock().epoch != epoch {
                         return Err(RuntimeFailure::Superseded);
                     }
                     validate_binding(&owner, &runtime)?;
+                    if let Some(witness) = &captured_login {
+                        super::super::login::validate_declared_witness(&runtime, witness)?;
+                    }
                     let cli_context = runtime.context.lock().clone();
                     super::super::cli_exception::validate_binding(&owner, &cli_context)
                         .map_err(RuntimeFailure::Refused)?;

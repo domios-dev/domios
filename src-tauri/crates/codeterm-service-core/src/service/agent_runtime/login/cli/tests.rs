@@ -12,7 +12,7 @@ fn pending() -> (ServiceFixture, String, watch::Receiver<bool>) {
     let fixture = ServiceFixture::new(mux);
     let (stop, stopping) = watch::channel(false);
     JOBS.lock().insert(tab.clone(), Job {
-        provider: "fixture".into(), nonce: Some("own-nonce".into()),
+        provider: "fixture".into(), account: "default".into(), nonce: Some("own-nonce".into()),
         state: json!({"state":"loginPending","auth":"signedOut","login":{"status":"pending","loginId":"own-login","url":"https://example.test/start"}}),
         stop: Some(stop), notification: None, input: None,
     });
@@ -109,5 +109,55 @@ fn cli_login_verified_completion_clears_link_and_code() {
     assert_eq!(ready["state"]["auth"], "signedIn");
     assert_eq!(ready["login"]["status"], "completed");
     assert!(ready["login"].get("url").is_none());
+    close(&tab);
+}
+
+#[test]
+fn cli_login_old_account_cannot_publish_or_complete_under_the_same_nonce() {
+    let (fixture, tab, mut stopping) = pending();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .restorable_launch
+        .account_id = Some("account-b".into());
+    finish(&fixture.service, &tab, "own-login", Ok(true));
+    observe(
+        &fixture.service,
+        &tab,
+        "own-login",
+        "https://example.test/late".into(),
+    );
+    assert!(show(&fixture.service, &tab).is_err());
+    assert_eq!(JOBS.lock()[&tab].state["auth"], "signedOut");
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .agent_runtime_state
+        .is_none());
+    cleanup(&fixture.service);
+    assert!(!has(&tab));
+    crate::async_runtime::block_on(async {
+        assert!(stopping.changed().await.is_err());
+    });
+}
+
+#[test]
+fn cli_follow_up_requires_the_current_challenge_id() {
+    let (fixture, tab, _stopping) = pending();
+    for login_id in [None, Some("foreign-login"), Some("own-login")] {
+        let request: LoginRequest =
+            serde_json::from_value(json!({"action":"cancel","loginId":login_id})).unwrap();
+        let jobs = JOBS.lock();
+        assert_eq!(
+            require_challenge(&fixture.service, &tab, &jobs[&tab], &request).is_ok(),
+            login_id == Some("own-login")
+        );
+    }
     close(&tab);
 }

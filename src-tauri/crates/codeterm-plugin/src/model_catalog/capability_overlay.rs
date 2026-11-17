@@ -1,10 +1,10 @@
 use super::ModelInfo;
-use parking_lot::RwLock;
-use std::{collections::BTreeMap, sync::OnceLock};
+use std::collections::BTreeMap;
 type Overlays = BTreeMap<(String, String), Vec<ModelInfo>>;
-fn overlays() -> &'static RwLock<Overlays> {
-    static OVERLAYS: OnceLock<RwLock<Overlays>> = OnceLock::new();
-    OVERLAYS.get_or_init(RwLock::default)
+fn overlays() -> &'static crate::provider_account::cache::ScopedCache<Overlays> {
+    static CACHE: crate::provider_account::cache::ScopedCache<Overlays> =
+        crate::provider_account::cache::ScopedCache::new();
+    &CACHE
 }
 pub fn put(provider: &str, project: &str, models: Vec<ModelInfo>) {
     overlays()

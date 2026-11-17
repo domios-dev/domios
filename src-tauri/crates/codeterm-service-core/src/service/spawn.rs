@@ -157,57 +157,9 @@ pub enum TabCommand {
     },
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct AgentSpawnSpec {
-    pub provider: String,
-    #[serde(skip)]
-    pub remote_task_bound: bool,
-    #[serde(default)]
-    pub planned_model: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default, skip_deserializing)]
-    pub(crate) planned_reasoning_effort: Option<String>,
-    #[serde(default)]
-    pub reasoning_effort: Option<String>,
-    #[serde(default)]
-    pub task: Option<String>,
-    #[serde(default)]
-    pub agent_name: Option<String>,
-    #[serde(default)]
-    pub extra_args: Vec<String>,
-    #[serde(default, skip_deserializing)]
-    pub provisioned_cwd: Option<String>,
-    #[serde(default, skip_deserializing)]
-    pub existing_tab_id: Option<String>,
-    #[serde(default)]
-    pub role: Option<String>,
-    #[serde(default)]
-    pub role_profile: Option<String>,
-    #[serde(default)]
-    pub can_spawn: Option<bool>,
-    #[serde(default)]
-    pub report_target_tab_id: Option<String>,
-    #[serde(default)]
-    pub worker_id: Option<String>,
-    #[serde(default)]
-    pub spawned_by: Option<String>,
-    #[serde(default)]
-    pub extra_env: HashMap<String, String>,
-    #[serde(default)]
-    pub task_preamble: Option<String>,
-    #[serde(default)]
-    pub spawned_by_tab_id: Option<String>,
-    #[serde(default)]
-    pub resume_session_id: Option<String>,
-    #[serde(default, skip_deserializing)]
-    pub(crate) fork_session: bool,
-    /// Highlight the new tab in every client; it never moves a client or the last selection.
-    #[serde(default)]
-    pub activate: Option<bool>,
-    #[serde(skip)]
-    pub(crate) launch_purpose: super::unattended_launch::LaunchPurpose,
-}
+mod accounts;
+mod agent_spec;
+pub use agent_spec::AgentSpawnSpec;
 
 pub(crate) fn should_default_agent_tab_to_chat(
     visibility: TabVisibility,
@@ -258,6 +210,18 @@ impl ServiceContext {
     ) -> Result<TabHandle, String> {
         let _neighbor_launch = self.neighbor_tab_launch_guard(&spec)?;
         self.neighbors().prepare_neighbor_tab_spawn(&mut spec)?;
+        let context = accounts::prepare(self, &mut spec)?;
+        codeterm_plugin::provider_account::with_context(context, || {
+            self.spawn_tab_prepared(spec, ready_tx, emit_state_change)
+        })
+    }
+
+    fn spawn_tab_prepared(
+        &self,
+        mut spec: SpawnTabSpec,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        emit_state_change: bool,
+    ) -> Result<TabHandle, String> {
         if !matches!(&spec.command, TabCommand::Shell) {
             self.validate_request_cwd(
                 spec.workspace_id.as_deref(),
@@ -424,6 +388,7 @@ impl ServiceContext {
                 }
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
+                tab.restorable_launch.account_id = agent.account_id.clone();
                 tab.role_profile = agent.role_profile.clone();
                 tab.taskless_authorized_gates = taskless_authorized_gates.clone();
                 if tab.neighbor_authority.is_none() {
@@ -867,6 +832,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance, &gate)?;
             if let Some(tab) = mux.get_tab_mut(&result) {
+                tab.restorable_launch.account_id = agent.account_id.clone();
                 tab.hidden = true;
                 tab.show_in_tabbar = false;
                 tab.audience = spec.audience;

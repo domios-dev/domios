@@ -417,10 +417,38 @@ fn commit_config(
         }
         config.api.token = current.api.token.clone();
     }
-    persist(&config).map_err(ConfigCommitError::Save)?;
+    persist_and_apply(state, config, persist).map_err(ConfigCommitError::Save)
+}
+
+fn persist_and_apply(
+    state: &Mutex<AppConfig>,
+    config: AppConfig,
+    persist: impl FnOnce(&AppConfig) -> Result<(), String>,
+) -> Result<AppConfig, String> {
+    persist(&config)?;
     let applied = config.clone();
     *state.lock() = applied;
     Ok(config)
+}
+
+fn update_config_and_apply_with(
+    state: &Mutex<AppConfig>,
+    update: impl FnOnce(&mut AppConfig) -> Result<(), String>,
+    persist: impl FnOnce(&AppConfig) -> Result<(), String>,
+) -> Result<AppConfig, String> {
+    let _writer = CONFIG_WRITER.lock();
+    let mut current = state.lock().clone();
+    update(&mut current)?;
+    persist_and_apply(state, current, persist)
+}
+
+/// Applies a bounded mutation to the latest configuration inside the existing writer boundary.
+pub fn update_config_and_apply(
+    state: &Mutex<AppConfig>,
+    update: impl FnOnce(&mut AppConfig) -> Result<(), String>,
+) -> Result<AppConfig, String> {
+    let path = config_path()?;
+    update_config_and_apply_with(state, update, |config| save_config_at(&path, config))
 }
 
 fn save_config_and_apply_at(

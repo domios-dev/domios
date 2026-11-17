@@ -32,7 +32,15 @@ pub(super) fn compose(
         codeterm_util::tab_launch::FILE_ENV.into(),
         svc.runtime_credential_file(tab, nonce)?,
     );
-    Ok(compose_owned_environment(extra, owned))
+    let mut environment = compose_owned_environment(extra, owned);
+    let invocation = match super::engine::for_tab(tab) {
+        Some(session) => session.invocation.lock().clone(),
+        None => codeterm_plugin::provider_account::current(),
+    };
+    if let Some(invocation) = invocation {
+        invocation.apply_environment(&mut environment);
+    }
+    Ok(environment)
 }
 
 /// Applied last, so neither owner settings nor an inherited value can claim it.

@@ -66,6 +66,8 @@ pub enum DirectoryTrustRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PluginManifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accounts: Option<crate::provider_account::storage::AccountCapability>,
     pub id: String,
     pub version: String,
     pub display_name: String,

@@ -2,6 +2,7 @@ pub mod dream_hygiene;
 pub mod embedder;
 pub mod model_defaults;
 pub mod neighbors;
+pub mod provider_accounts;
 pub mod schema;
 pub mod supporter;
 

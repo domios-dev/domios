@@ -93,7 +93,7 @@ pub(super) fn settings(value: &Value) -> Option<String> {
 
 fn read_settings(path: &std::path::Path) -> Option<Value> {
     use std::io::Read;
-    let file = std::fs::File::open(path).ok()?;
+    let file = crate::provider_account::open_read(path).ok()?;
     let mut text = String::new();
     file.take(65_537).read_to_string(&mut text).ok()?;
     if text.len() > 65_536 {
@@ -128,8 +128,8 @@ fn compose_args(args: &[String]) -> Option<Vec<String>> {
         }
     }
     if enabled {
-        let user = dirs::home_dir().and_then(|home| {
-            let path = home.join(".claude/settings.json");
+        let user = super::read_home::config_root().and_then(|home| {
+            let path = home.join("settings.json");
             if path.exists() {
                 read_settings(&path)
             } else {

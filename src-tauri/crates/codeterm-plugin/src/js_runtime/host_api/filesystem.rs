@@ -47,7 +47,15 @@ impl PluginSandbox {
             self.record_denial();
             return false;
         }
-        let allowed = if let Some(root) = self.project_origin(path) {
+        let account_access = crate::provider_account::current()
+            .and_then(|context| context.read_access(Path::new(path)));
+        if account_access == Some(false) {
+            self.record_denial();
+            return false;
+        }
+        let allowed = if account_access == Some(true) {
+            true
+        } else if let Some(root) = self.project_origin(path) {
             Self::path_under(std::slice::from_ref(root), path)
         } else {
             self.unrestricted
@@ -62,6 +70,12 @@ impl PluginSandbox {
     }
 
     pub(in crate::js_runtime) fn can_write(&self, path: &str) -> bool {
+        if crate::provider_account::current()
+            .is_some_and(|context| context.write_denied(Path::new(path)))
+        {
+            self.record_denial();
+            return false;
+        }
         if !codeterm_decision::physical::effects_allowed() {
             self.record_denial();
             return false;

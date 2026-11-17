@@ -203,7 +203,7 @@ impl UsageStore {
     ) -> Result<Option<UsageSnapshotRow>, String> {
         let conn = self.conn.lock();
         let sql = format!(
-            "{} WHERE provider = ?1 AND (?2 IS NULL OR account_id = ?2) AND parsed_ok = 1 ORDER BY captured_at DESC LIMIT 1",
+            "{} WHERE provider = ?1 AND account_id IS ?2 AND parsed_ok = 1 ORDER BY captured_at DESC LIMIT 1",
             SELECT_HEADER
         );
         let mut stmt = conn
@@ -223,7 +223,7 @@ impl UsageStore {
     ) -> Result<Option<UsageSnapshotRow>, String> {
         let conn = self.conn.lock();
         let sql = format!(
-            "{} WHERE provider = ?1 AND (?2 IS NULL OR account_id = ?2) AND parsed_ok = 0 ORDER BY captured_at DESC LIMIT 1",
+            "{} WHERE provider = ?1 AND account_id IS ?2 AND parsed_ok = 0 ORDER BY captured_at DESC LIMIT 1",
             SELECT_HEADER
         );
         let mut stmt = conn
@@ -485,7 +485,7 @@ fn previous_accepted_snapshot(
     snap: &UsageSample,
 ) -> Result<Option<UsageSnapshotRow>, String> {
     let sql = format!(
-        "{} WHERE provider = ?1 AND (?2 IS NULL OR account_id = ?2) AND parsed_ok = 1 AND captured_at < ?3 ORDER BY captured_at DESC LIMIT 1",
+        "{} WHERE provider = ?1 AND account_id IS ?2 AND parsed_ok = 1 AND captured_at < ?3 ORDER BY captured_at DESC LIMIT 1",
         SELECT_HEADER
     );
     let mut stmt = tx
@@ -1047,8 +1047,28 @@ mod tests {
         store.insert_snapshot(&s2).unwrap();
         let a = store.get_latest("claude", Some("acct-a")).unwrap().unwrap();
         assert_eq!(a.account_id.as_deref(), Some("acct-a"));
+        assert!(store.get_latest(&s1.provider, None).unwrap().is_none());
+        store
+            .insert_snapshot(&make_snapshot(1_000_000_002_000))
+            .unwrap();
+        store
+            .insert_failure_kind(
+                &s1.provider,
+                Some("acct-b"),
+                None,
+                UsageFailureKind::FetchError,
+                "foreign failure",
+                None,
+            )
+            .unwrap();
+        let usual = store
+            .get_latest_with_stale_reason(&s1.provider, None)
+            .unwrap()
+            .unwrap();
+        assert!(usual.account_id.is_none());
+        assert!(usual.failure_reason.is_none());
         let any = store.get_history("claude", 0, 10, None).unwrap();
-        assert_eq!(any.len(), 2);
+        assert_eq!(any.len(), 4);
     }
 
     #[test]

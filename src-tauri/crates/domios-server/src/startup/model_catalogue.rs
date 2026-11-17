@@ -15,7 +15,7 @@ pub(crate) fn forward_changes(
                     serde_json::to_value(change).unwrap_or_default(),
                 ),
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    for change in agent::model_catalog::version_snapshot() {
+                    for change in agent::model_catalog::all_version_snapshots() {
                         ui.emit(
                             "model-catalogue-changed",
                             serde_json::to_value(change).unwrap_or_default(),

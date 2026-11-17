@@ -38,7 +38,8 @@ pub fn capture_result(binary: &str, probe: &AuthStatusProbe) -> Result<Value, Pr
         .map_err(|_| ProbeFailure::Unavailable)?;
     runtime.block_on(async {
         await_probe(probe.timeout_ms, async {
-            let mut command = tokio::process::Command::new(binary);
+            let command = codeterm_plugin::provider_command::command(&binary).ok()?;
+            let mut command = tokio::process::Command::from(command);
             codeterm_util::process_util::no_window_std(command.as_std_mut());
             let mut child = command
                 .args(&probe.args)
