@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::provider::SystemPromptDelivery;
+mod cli_launch;
 mod runtime;
 
 const SES_ID: &str = "ses_abc";

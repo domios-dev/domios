@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.21",
-  "minCodeterm": "1.20.1",
+  "version": "1.14.22",
+  "minCodeterm": "1.20.2",
   "hostApi": 2,
   "capabilities": {
     "attachments": {
@@ -416,7 +416,7 @@
       "--variant",
       "{effort}"
     ],
-    "modelSwitch": "next_turn"
+    "modelSwitch": "restart_resume"
   },
   "permissions": {
     "subprocess": {

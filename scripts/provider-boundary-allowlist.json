@@ -10663,6 +10663,10 @@
       "reason": "Provider-owned OpenCode runtime fixture parity adapter; no core dispatch policy."
     },
     {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/opencode/cli_launch.rs",
+      "reason": "Provider-owned native QuickJS parity on the shared OpenCode CLI launch contract fixture."
+    },
+    {
       "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/sessions/tests.rs",
       "reason": "Native provider-owned session storage tests moved intact from the provider implementation."
     },
