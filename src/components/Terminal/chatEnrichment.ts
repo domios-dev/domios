@@ -1,4 +1,4 @@
-import { envelopeRows } from "@codeterm/chat-core";
+import { envelopeRows, parseDomiosMessage } from "@codeterm/chat-core";
 import type { FrameKind, MessageSegment, NormalizedChatMessage as ChatMessage, TimelineItem } from "@codeterm/chat-core";
 import { detectChatPrefix, framePrefix, type ChatOrigin } from "../../lib/chatPrefixes";
 
@@ -58,14 +58,22 @@ function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedCha
     const rows = single ? [{ content: raw.content, segments }] : envelopeRows(segments);
     if (!rows.length && raw.attachments?.length) rows.push({ content: raw.content, segments });
     return rows.map((row, index) => {
-      const prefix = row.frame ? framePrefix({ ...row.frame.attrs, from: row.frame.from }, row.content, row.frame.tip) : detectChatPrefix(row.content);
+      const curator = row.segments.length === 1 && row.segments[0].type === "unknown_frame"
+        && row.segments[0].attrs.from === "curator" && raw.content.startsWith(row.segments[0].raw)
+        ? row.segments[0] : undefined;
+      const curatorWire = curator ? parseDomiosMessage(curator.raw) : null;
+      const curatorTip = curatorWire ? TIP.exec(curatorWire.content) : null;
+      const frame = row.frame ?? (curator && curatorWire ? { from: "curator", attrs: curator.attrs,
+        body: curatorWire.body, tip: curatorTip?.[1] ?? null } : undefined);
+      const prefix = frame ? framePrefix({ ...frame.attrs, from: frame.from }, row.frame ? row.content : frame.body, frame.tip) : detectChatPrefix(row.content);
       // A Neighbors frame's header and host instruction fold into its origin header; the bubble shows only the friend's words.
       // A daemon-parsed frame may carry its own text segments; they still hold the escaped words, so they give way too.
       const neighborBody = row.frame?.from === "neighbor" && prefix && !(row.frame.segments ?? []).some((segment) => segment.type === "attachment");
       const msg: ChatMessage = {
         ...raw, id: `${raw.id}-segment-${index}`, content: prefix?.body ?? row.content,
         sourceMessageId: raw.sourceMessageId ?? raw.id,
-        segments: neighborBody ? [{ type: "text", text: prefix.body }] as typeof row.segments : row.segments,
+        segments: (neighborBody || curator) && prefix ? [{ type: "text", text: prefix.body }] as typeof row.segments : row.segments,
+        routing: frame ? { kind: frame.from, label: frame.attrs.label, model: frame.attrs.model, tab: frame.attrs.tab, tip: frame.tip } : undefined,
         correlationId: row.correlationId ?? (index === 0 ? raw.correlationId : undefined),
         inboundKind: row.frame || !hasFrames ? raw.inboundKind : undefined,
         attachments: index === 0 ? raw.attachments : undefined,

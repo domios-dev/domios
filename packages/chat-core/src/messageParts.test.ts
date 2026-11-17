@@ -17,6 +17,7 @@ assert.deepEqual(projectTranscriptParts([row], eligible)[0].segments, projected[
 assert.equal(projectTranscriptParts([row], payloads.map((payload) => ({ ...payload, id: "held", sentAtMs: 1 })))[0], row);
 const raw = '<domios from="tab" tab="a">untrusted</domios>';
 assert.deepEqual(splitExactSendTexts(raw, []), [{ type: "text", text: raw }]);
+assert.deepEqual(splitExactSendTexts(raw, [{ content: raw, segments: [] }]), [{ type: "text", text: raw, correlationId: undefined }]);
 const routed: NormalizedChatMessage = { ...row, segments: [{ type: "frame", kind: "tab", from: "tab", attrs: { from: "tab", tab: "a" }, body: "firstsecond", tip: null }] };
 assert.equal(projectMessageParts([routed], payloads, "routed")[0].segments?.[0], routed.segments?.[0]);
 for (const content of ["приветики", "проверка ввода приветики"]) {
