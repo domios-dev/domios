@@ -81,6 +81,12 @@ pub async fn check_update(
     us.set_phase(UpdatePhase::Idle);
     drop(us);
 
+    state
+        .svc
+        .record_product_event(codeterm_analytics::Event::UpdateChecked {
+            offers: u32::from(info.update_available),
+        });
+
     Ok(Json(serde_json::to_value(info).unwrap_or_default()))
 }
 
@@ -431,6 +437,9 @@ pub async fn availability(
             true,
         )
         .await;
+        if let Some(event) = checked_event(&result) {
+            state.svc.record_product_event(event);
+        }
         return availability_response(result);
     }
     codeterm_commands::update::discovery::refresh_in_background(
@@ -440,6 +449,30 @@ pub async fn availability(
         false,
     );
     availability_response(Ok(cached))
+}
+
+fn checked_event(
+    result: &Result<codeterm_update::update_state::AvailabilitySnapshot, String>,
+) -> Option<codeterm_analytics::Event> {
+    let snapshot = result.as_ref().ok()?;
+    if !snapshot.errors.is_empty() {
+        return None;
+    }
+    let offers = snapshot
+        .items
+        .iter()
+        .filter(|item| {
+            item.compatible
+                && matches!(
+                    item.state,
+                    codeterm_plugins::AvailabilityState::UpdateAvailable
+                        | codeterm_plugins::AvailabilityState::ReadyToApply
+                )
+        })
+        .count();
+    Some(codeterm_analytics::Event::UpdateChecked {
+        offers: u32::try_from(offers).unwrap_or(u32::MAX),
+    })
 }
 
 fn availability_response(

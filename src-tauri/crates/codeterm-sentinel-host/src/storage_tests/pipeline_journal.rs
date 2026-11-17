@@ -27,6 +27,122 @@ fn journal_id(job: &Sentinel) -> SentinelId {
     SentinelId::new(job.id.clone()).expect("journal sentinel id")
 }
 
+#[tokio::test]
+async fn terminal_completion_observer_uses_committed_journal_once_and_fences_stale_runs() {
+    use codeterm_analytics::{
+        sinks::fake::{Fake, Recording},
+        BlueprintOutcome, Consent, Event, Worker,
+    };
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = Arc::new(MockClock::starting_at(1000));
+    let store = typed(&storage, &clock);
+    let job = create_pipeline(&store, owner(None));
+    let recording = Arc::new(std::sync::Mutex::new(Recording::default()));
+    let worker = Worker::start_with_sink(
+        root.path().join("analytics.json"),
+        codeterm_analytics::Config::default(),
+        Box::new(Fake {
+            recording: recording.clone(),
+        }),
+    )
+    .unwrap();
+    worker.set_consent(Consent::On).await.unwrap();
+    worker.flush().await.unwrap();
+    recording.lock().unwrap().batches.clear();
+    let sink = worker.clone();
+    store.lock().bind_run_observer(Arc::new(move |outcome| {
+        sink.record_nowait(Event::BlueprintRunCompleted {
+            outcome: BlueprintOutcome::from_catalog(outcome).unwrap(),
+        })
+        .unwrap();
+    }));
+    let claim = |run: &str, version| BlueprintJournalWrite::Claim {
+        definition_version: Some(version),
+        parent: None,
+        run_id: run.into(),
+        marker: JournalMarker::Step(0),
+        step_name: "emit".into(),
+        generation: 0,
+        started_at_ms: 1000,
+    };
+    let finish = |run: &str, state: JournalState| BlueprintJournalWrite::CloseRun {
+        run_id: run.into(),
+        state,
+        outcome: state.as_str().into(),
+        at_ms: 1100,
+        reason: (state == JournalState::Held).then(|| "plan_limit_locked".into()),
+    };
+    for (run, state) in [
+        ("success", JournalState::Done),
+        ("failure", JournalState::Failed),
+        ("cancelled", JournalState::Skipped),
+    ] {
+        assert!(commit(&store, |s| s
+            .stage_pipeline_journal(&job.id, claim(run, job.definition_version)))
+        .unwrap());
+        if state == JournalState::Done {
+            assert!(commit(&store, |s| s
+                .stage_pipeline_journal(&job.id, finish(run, JournalState::Held)))
+            .unwrap());
+        }
+        for _ in 0..2 {
+            assert!(commit(&store, |s| s
+                .stage_pipeline_journal(&job.id, finish(run, state)))
+            .unwrap());
+        }
+    }
+    commit(&store, |s| {
+        s.stage_pipeline_journal(&job.id, claim("stale", job.definition_version + 1))
+    })
+    .unwrap();
+    commit(&store, |s| {
+        s.stage_pipeline_journal(&job.id, finish("stale", JournalState::Done))
+    })
+    .unwrap();
+    commit(&store, |s| {
+        s.stage_pipeline_journal(&job.id, finish("unstarted", JournalState::Done))
+    })
+    .unwrap();
+    worker.flush().await.unwrap();
+    let events = || {
+        recording
+            .lock()
+            .unwrap()
+            .batches
+            .iter()
+            .flatten()
+            .map(|event| event.event.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        events(),
+        vec![
+            Event::BlueprintRunCompleted {
+                outcome: BlueprintOutcome::Success
+            },
+            Event::BlueprintRunCompleted {
+                outcome: BlueprintOutcome::Failure
+            },
+            Event::BlueprintRunCompleted {
+                outcome: BlueprintOutcome::Cancelled
+            }
+        ]
+    );
+    worker.set_consent(Consent::Off).await.unwrap();
+    commit(&store, |s| {
+        s.stage_pipeline_journal(&job.id, claim("off", job.definition_version))
+    })
+    .unwrap();
+    commit(&store, |s| {
+        s.stage_pipeline_journal(&job.id, finish("off", JournalState::Done))
+    })
+    .unwrap();
+    worker.flush().await.unwrap();
+    assert_eq!(events().len(), 3);
+    close(storage);
+}
+
 #[test]
 fn journal_evidence_round_trip_large_marker_size_refusal_and_legacy_rows() {
     let root = temp_root();

@@ -117,6 +117,7 @@ impl Lease {
 }
 
 pub struct Store {
+    pub(crate) run_observer: Option<crate::product_observer::RunObserver>,
     pub jobs: Vec<Sentinel>,
     pub active: HashMap<String, Arc<Cancellation>>,
     pub wake_pending: BTreeSet<String>,

@@ -10,6 +10,31 @@ use tower::ServiceExt;
 const SNAPSHOT: &str =
     include_str!("../../../../../tests/fixtures/update-availability/snapshot.json");
 
+#[test]
+fn checked_event_counts_only_compatible_user_offers_after_success() {
+    use codeterm_plugins::{AvailabilityItem, AvailabilityState, UpdateKind};
+    let mut snapshot = codeterm_update::update_state::AvailabilitySnapshot::default();
+    let mut available =
+        AvailabilityItem::release("private", UpdateKind::App, "1.0.0", "2.0.0", true);
+    snapshot.items.push(available.clone());
+    available.state = AvailabilityState::ReadyToApply;
+    snapshot.items.push(available.clone());
+    available.compatible = false;
+    snapshot.items.push(available.clone());
+    available.compatible = true;
+    available.state = AvailabilityState::CoreSilent;
+    snapshot.items.push(available);
+    assert_eq!(
+        checked_event(&Ok(snapshot.clone())),
+        Some(codeterm_analytics::Event::UpdateChecked { offers: 2 })
+    );
+    snapshot
+        .errors
+        .insert("private".into(), "private error".into());
+    assert!(checked_event(&Ok(snapshot)).is_none());
+    assert!(checked_event(&Err("private error".into())).is_none());
+}
+
 #[tokio::test]
 async fn availability_json_contract_preserves_prerelease_and_escaped_errors() {
     for installed in ["1.14.9-bs.3", "1.14.9-dev.4"] {

@@ -19,9 +19,10 @@ const ACTION_STYLE: CSSProperties = { minWidth: 28, minHeight: 28, padding: 0, b
 // A caption never widens its tile: it takes the picture's width and truncates.
 const FIT_TILE = "w-0 min-w-full";
 
-export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = false, onLoaded, renderError }: {
+export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = false, onLoaded, renderError, onOpen }: {
   directive: LocalArtifactDirective;
   fullscreenRequest?: number;
+  onOpen?: () => void;
   bare?: boolean;
   onLoaded?: (file: LocalPreviewFile | null) => void;
   renderError?: (error: string) => ReactNode;
@@ -38,7 +39,7 @@ export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = fal
     <div className="flex flex-wrap items-start gap-2">
       {images.map((image, index) => <figure key={index} className="group m-0 inline-flex max-w-full flex-col gap-1">
         <div className="relative max-w-full overflow-hidden rounded-lg border" style={FRAME_STYLE}>
-          <button type="button" aria-label={`Fullscreen ${image.name}`} onClick={() => setOpen(index)} className="block max-w-full cursor-zoom-in focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]" style={{ minWidth: 44, minHeight: 44 }}>
+          <button type="button" aria-label={`Fullscreen ${image.name}`} onClick={() => { setOpen(index); onOpen?.(); }} className="block max-w-full cursor-zoom-in focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]" style={{ minWidth: 44, minHeight: 44 }}>
             {image.pending ? <DeferredLoader state="present" role="status" aria-label={`Loading ${image.name}`} className={PLACEHOLDER}><ImageIcon size={18} aria-hidden className="animate-pulse opacity-60" /></DeferredLoader>
               : image.error ? <span role="status" aria-label={`${image.name} not available`} title={image.error} className={PLACEHOLDER}>
                 <ImageOff size={18} aria-hidden className="opacity-70" />

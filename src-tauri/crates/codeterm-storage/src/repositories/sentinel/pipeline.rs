@@ -15,6 +15,7 @@ const RETAIN_RUNS: i64 = 32;
 
 fn commit(outcome: MutationOutcome) -> SentinelCommit {
     SentinelCommit {
+        terminal_run: None,
         outcome,
         sentinels: Vec::new(),
         removed: Vec::new(),
@@ -303,6 +304,10 @@ pub(super) fn write(
             at_ms,
             reason,
         } => {
+            let first_terminal: bool = cx.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM blueprint_step_journal j JOIN blueprint_heads h ON h.blueprint_id=j.blueprint_id AND h.version=j.definition_version WHERE j.blueprint_id=?1 AND j.run_id=?2 AND j.step_index>=0) AND NOT EXISTS(SELECT 1 FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND step_index=-1 AND outcome IN ('done','failed','skipped') AND state IN ('done','failed','skipped'))",
+                params![id, run_id], |row| row.get(0),
+            ).unwrap_or(false);
             append(
                 cx,
                 id,
@@ -323,7 +328,16 @@ pub(super) fn write(
                 let reason = reason.as_deref().unwrap_or("journal_write_failed");
                 cx.write("UPDATE blueprint_runtime SET held = ?2, last_reason = ?2 WHERE blueprint_id = ?1", params![id, reason])?;
             }
-            Ok(commit(MutationOutcome::Applied))
+            let mut receipt = commit(MutationOutcome::Applied);
+            if first_terminal
+                && matches!(
+                    state,
+                    JournalState::Done | JournalState::Failed | JournalState::Skipped
+                )
+            {
+                receipt.terminal_run = Some(state);
+            }
+            Ok(receipt)
         }
     }
 }
