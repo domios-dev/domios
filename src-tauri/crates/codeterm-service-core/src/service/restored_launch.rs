@@ -83,6 +83,11 @@ pub(crate) fn capture_tab_launch_parameters(
         })
         .unwrap_or_default();
     let launch = RestorableLaunchParameters {
+        account_notices: mux
+            .read()
+            .get_tab(tab_id)
+            .map(|tab| tab.restorable_launch.account_notices.clone())
+            .unwrap_or_default(),
         account_namespace: mux
             .read()
             .get_tab(tab_id)

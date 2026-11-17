@@ -60,11 +60,11 @@ pub(super) async fn handle_stamped(
     let sequences = frames.iter().map(|frame| frame.sequence).collect();
     let frames = frames.into_iter().map(|frame| frame.frame).collect();
     let result = handle(svc, session, process, epoch, frames, sequences, lagged).await;
-    let context = session.context.lock();
-    if context.epoch == epoch {
+    if session.context.lock().epoch == epoch {
         let previous = *session.stream_progress.borrow();
         session.stream_progress.send_replace(previous.max(through));
     }
+    crate::service::provider_accounts::runtime_boundary(svc, session);
     result
 }
 

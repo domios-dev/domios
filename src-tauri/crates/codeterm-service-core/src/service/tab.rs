@@ -145,6 +145,7 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
+        super::provider_accounts::prepare_tab_close(self, tab_id)?;
         self.pending_delivery_payloads
             .user_sends
             .tab(tab_id)
@@ -454,6 +455,7 @@ impl ServiceContext {
                 self.emit_tab_focus_changed(&new);
             }
         }
+        super::provider_accounts::tab_closed(self, &canonical_tab_id);
         Ok(())
     }
 

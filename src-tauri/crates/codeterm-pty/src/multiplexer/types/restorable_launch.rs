@@ -31,6 +31,8 @@ impl ReasoningEffortIdentity {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct RestorableLaunchParameters {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub account_notices: Vec<AccountContinuationNotice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub account_id: Option<String>,
@@ -118,7 +120,8 @@ impl RestorableLaunchParameters {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.account_id.is_none()
+        self.account_notices.is_empty()
+            && self.account_id.is_none()
             && self.account_namespace.is_none()
             && self.execution_mode.is_none()
             && self.execution_sandbox.is_none()
@@ -140,6 +143,17 @@ impl RestorableLaunchParameters {
             && self.host_approval_choice.is_none()
             && self.selected_session_mode.is_none()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AccountContinuationNotice {
+    pub id: String,
+    pub provider: String,
+    pub session: String,
+    pub at_ms: u64,
+    pub content: String,
+    pub boundary: Option<String>,
+    pub resets_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]

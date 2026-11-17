@@ -154,6 +154,7 @@ fn observe_at(
         }
         let observation = row.provider_observations.as_ref();
         if row.role == "user" {
+            crate::service::provider_accounts::invalidate_boundary(svc, tab);
             state.busy = true;
             if let Err(error) = remove_pending(svc, tab, &mut state.retry) {
                 log::warn!("[capacity-retry] {error}");
@@ -174,6 +175,22 @@ fn observe_at(
         else {
             continue;
         };
+        if crate::service::provider_accounts::transcript_limit(
+            svc,
+            tab,
+            session,
+            nonce,
+            observation
+                .and_then(|observation| observation.turn_id.as_deref())
+                .unwrap_or(id),
+            signal,
+        ) {
+            if let Err(error) = remove_pending(svc, tab, &mut state.retry) {
+                log::debug!("[provider-accounts] retry cleanup failed: {error}");
+            }
+            state.busy = false;
+            continue;
+        }
         state.busy = false;
         state.retry.error = Some((id.into(), signal.clone()));
         state.retry.reason = Some(

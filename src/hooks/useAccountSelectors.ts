@@ -5,6 +5,7 @@ import type { Tab } from "../lib/types";
 import { useAgentProviders } from "./useAgentProviders";
 import { useProviderAccounts } from "./useProviderAccounts";
 import type { ProviderAccountsSnapshot } from "./providerAccountsTypes";
+import { useAccountTransition } from "./useAccountTransition";
 
 interface WorkspaceProvider {
   providerId: string;
@@ -78,8 +79,10 @@ export function useSpawnAccounts(providerId: string | null, workspaceId: string)
   const accounts = useProviderAccounts(capable ? providerId : null);
   const [choice, setChoice] = useState<{ provider: string; workspace: string; account: string } | null>(null);
   const selected = choice?.provider === providerId && choice.workspace === workspaceId ? choice.account : null;
-  const starting = accounts.snapshot?.workspaceOverrides.find(override => override.workspaceId === workspaceId)?.accountId ?? accounts.snapshot?.accounts[0]?.id;
-  const selectedAccountId = accounts.snapshot?.accounts.some(account => account.id === selected) ? selected : starting ?? null;
+  const available=accounts.snapshot?.accounts.filter(account=>account.status!=="removing") ?? [];
+  const override=accounts.snapshot?.workspaceOverrides.find(override=>override.workspaceId===workspaceId)?.accountId;
+  const starting=available.find(account=>account.id===override)?.id ?? available[0]?.id;
+  const selectedAccountId = available.some(account => account.id === selected) ? selected : starting ?? null;
   const select = useCallback((accountId: string) => {
     if (!providerId || !accounts.snapshot?.accounts.some(account => account.id === accountId && account.status !== "removing")) return;
     setChoice({ provider: providerId, workspace: workspaceId, account: accountId });
@@ -91,13 +94,14 @@ export function useTabAccounts(tab: Tab) {
   const catalogue = useAgentProviders();
   const descriptor = catalogue.providers.find(provider => provider.id === tab.agent_type);
   const accounts = useProviderAccounts(descriptor?.accounts && !tab.remote_peer_id ? tab.agent_type : null);
+  const transition=useAccountTransition(descriptor?.accounts && !tab.remote_peer_id ? tab.id:null,tab.agent_type);
   const currentAccountId = tab.restorable_launch?.account_id ?? "default";
   const row = accounts.snapshot?.accounts.find(account => account.id === currentAccountId);
   const currentIdentity = row?.name ?? row?.identity ?? null;
   const [pending, setPending] = useState<string | null>(null);
   const inFlight=useRef(false);
-  const [error, setError] = useState<string | null>(null);
-  const binding = `${tab.id}:${tab.agent_type}:${tab.session_binding_nonce}:${tab.agent_runtime_state?.epoch}:${currentAccountId}`;
+  const [failure, setFailure] = useState<{binding:string;reason:string} | null>(null);
+  const binding = `${tab.id}:${tab.agent_type}:${tab.session_binding_nonce}:${tab.agent_runtime_state?.epoch}:${currentAccountId}:${tab.restorable_launch?.account_namespace}`;
   const latest = useRef(binding);
   latest.current = binding;
   const blockedReason = accounts.snapshot && accounts.snapshot.continuation !== "proven"
@@ -105,7 +109,7 @@ export function useTabAccounts(tab: Tab) {
       ? `${descriptor?.display_name ?? "This harness"} can't move a running conversation to another account.`
       : "Moving this conversation to another account isn't confirmed yet."
     : null;
-  const choose = useCallback(async (accountId: string) => {
+  const choose = useCallback(async (accountId: string,resume?:{turnId:string}) => {
     const snapshot = accounts.snapshot;
     if (!snapshot || latest.current !== binding || blockedReason || inFlight.current) throw new Error(blockedReason ?? "The tab account changed. Refresh it before trying again.");
     if (accountId === currentAccountId) return;
@@ -113,14 +117,16 @@ export function useTabAccounts(tab: Tab) {
     if (!target || target.status === "signedOut" || target.status === "removing") throw new Error("The selected account is unavailable");
     inFlight.current=true;
     setPending(binding);
-    setError(null);
+    setFailure(null);
     try {
       await selectedDaemonTransport.json("POST", `/api/tabs/${encodeURIComponent(tab.id)}/account`, {
         providerId: tab.agent_type, accountId, previousAccountId: currentAccountId,
+        accountNamespace:tab.restorable_launch?.account_namespace ?? null,
+        ...(resume?{resumeWork:true,turnId:resume.turnId}:{}),
         nonce: tab.session_binding_nonce, epoch: tab.agent_runtime_state?.epoch ?? null, revision: snapshot.revision,
       });
-    } catch (failure) { if (latest.current === binding) setError(String(failure)); throw failure; }
+    } catch (failure) { if (latest.current === binding) setFailure({binding,reason:String(failure)}); throw failure; }
     finally { inFlight.current=false;setPending(current => current === binding ? null : current); }
-  }, [accounts.snapshot, binding, blockedReason, pending, currentAccountId, tab.id, tab.agent_type, tab.session_binding_nonce, tab.agent_runtime_state?.epoch]);
-  return { snapshot: accounts.snapshot, currentAccountId, currentIdentity, switching: pending === binding, blockedReason, error: error ?? accounts.error, choose };
+  }, [accounts.snapshot, binding, blockedReason, pending, currentAccountId, tab.id, tab.agent_type, tab.session_binding_nonce, tab.agent_runtime_state?.epoch,tab.restorable_launch?.account_namespace]);
+  return { snapshot: accounts.snapshot, currentAccountId, currentIdentity, transition:transition.transition,switching: pending === binding || transition.transition?.status==="waiting" || transition.transition?.status==="switching", blockedReason, error: (failure?.binding===binding?failure.reason:null) ?? accounts.error ?? transition.error, choose,continueOn:(accountId:string,turnId:string)=>choose(accountId,{turnId}) };
 }

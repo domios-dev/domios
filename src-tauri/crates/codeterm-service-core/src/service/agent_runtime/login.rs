@@ -15,6 +15,7 @@ use std::{
 
 mod account_context;
 mod cli;
+mod credential_recovery;
 mod declared;
 mod relay;
 pub(crate) use account_context::OpenedContext;
@@ -44,6 +45,8 @@ pub struct LoginRequest {
     pub login_id: Option<String>,
     #[serde(default)]
     pub action: Option<String>,
+    #[serde(default)]
+    pub owner_confirmed: bool,
     #[serde(default)]
     pub provider_id: Option<String>,
     #[serde(default)]
@@ -234,6 +237,37 @@ pub async fn operate(
     let label = request_label(&request);
     let secret = request.api_key.clone().or_else(|| request.code.clone());
     cli::cleanup(svc);
+    if request.action.as_deref() == Some("backupCredentials") {
+        if request.api_key.is_some()
+            || request.code.is_some()
+            || request.method.is_some()
+            || request.method_id.is_some()
+            || request.account.is_some()
+        {
+            return Err("Credential recovery cannot include sign-in values".into());
+        }
+        let binding = request
+            .binding
+            .clone()
+            .ok_or("The sign-in session binding is required")?;
+        let login_id = request
+            .login_id
+            .clone()
+            .ok_or("The failed sign-in identity is required")?;
+        let owner = svc.clone();
+        let target = tab.to_owned();
+        return codeterm_plugin::js_runtime::spawn_blocking(move || {
+            credential_recovery::recover(
+                &owner,
+                &target,
+                &binding,
+                &login_id,
+                request.owner_confirmed,
+            )
+        })
+        .await
+        .map_err(|_| "Credential recovery could not finish".to_owned())?;
+    }
     if !crate::service::provider_accounts::login_permitted(svc, tab) {
         return Err("This account sign-in is finishing; refresh its account card".into());
     }
@@ -263,7 +297,7 @@ async fn operate_unlogged(
     if cli::supported(svc, tab, request.provider_id.as_deref()) {
         return cli::operate(svc, tab, request).await;
     }
-    if request.provider_id.is_some() || request.account.is_some() {
+    if request.account.is_some() {
         return Err("This provider does not support CLI account sign-in".into());
     }
     let session = match engine::for_tab(tab) {
@@ -273,6 +307,13 @@ async fn operate_unlogged(
             engine::for_tab(tab).ok_or("Runtime binding unavailable")?
         }
     };
+    if request
+        .provider_id
+        .as_deref()
+        .is_some_and(|provider| provider != session.provider)
+    {
+        return Err("The sign-in request belongs to a different harness".into());
+    }
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
     validate_request(&session, &request)?;
     if declared::handles(&session, &request) {

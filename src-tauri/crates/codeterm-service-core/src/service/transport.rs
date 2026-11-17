@@ -267,6 +267,11 @@ impl ServiceContext {
             None,
         )?;
         params.workspace_id = Some(workspace);
+        let _account_reservation = super::provider_accounts::admission::reserve(
+            self,
+            &provider,
+            params.account_id.as_deref(),
+        )?;
         let context = super::provider_accounts::invocation_at(
             self,
             &provider,

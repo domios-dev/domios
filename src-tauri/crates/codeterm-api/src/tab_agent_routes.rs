@@ -16,6 +16,20 @@ mod profiles;
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
     router
         .route(
+            "/api/tabs/{id}/account",
+            get(accounts::tab_status)
+                .post(accounts::select)
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/api/tabs/{id}/account/verify",
+            post(accounts::verify).layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/api/tabs/{id}/account/refresh",
+            post(accounts::refresh).layer(axum::extract::DefaultBodyLimit::max(4096)),
+        )
+        .route(
             "/api/agents/providers/{id}/accounts",
             get(accounts::list)
                 .post(accounts::update)

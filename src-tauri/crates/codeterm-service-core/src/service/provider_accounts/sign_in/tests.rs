@@ -10,14 +10,12 @@ fn an_unverified_draft_is_not_a_roster_account_and_cancellation_requires_its_own
     let usual = fixture.temp.path().join("usual-home");
     std::fs::create_dir(&usual).unwrap();
     std::fs::write(usual.join("auth.json"), "opaque-usual-auth").unwrap();
-    assert!(fixture
-        .service
-        .set_ext(State {
-            root: fixture.temp.path().join("account-data"),
-            ..Default::default()
-        })
-        .is_ok());
-    std::fs::create_dir(fixture.temp.path().join("account-data")).unwrap();
+    super::super::test_support::configure(
+        &fixture.service,
+        fixture.temp.path().join("account-data"),
+        fixture.temp.path().join("config.json"),
+    )
+    .unwrap();
     let manifest = PluginManifest::from_json_str(&json!({
         "id":provider,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"binaryName":"fixture-cli","cliBinary":"fixture-cli","accounts":{

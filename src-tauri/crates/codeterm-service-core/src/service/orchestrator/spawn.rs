@@ -90,7 +90,7 @@ impl ServiceContext {
             params.parent_tab_id = Some(self.resolve_planner_parent_for_spawn(plan_id)?);
         }
         let admission = self.admit_spawn_role(&mut params)?;
-        let (mut params, invocation) =
+        let (mut params, invocation, _account_reservation) =
             crate::service::provider_accounts::spawn_params(self, params)?;
         codeterm_plugin::provider_account::with_context(invocation, || {
             let role = params.role.clone();

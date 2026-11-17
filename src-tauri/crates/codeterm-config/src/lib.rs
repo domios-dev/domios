@@ -461,7 +461,15 @@ pub fn update_config_and_apply(
     update: impl FnOnce(&mut AppConfig) -> Result<(), String>,
 ) -> Result<AppConfig, String> {
     let path = config_path()?;
-    update_config_and_apply_with(state, update, |config| save_config_at(&path, config))
+    update_config_and_apply_at(&path, state, update)
+}
+
+pub fn update_config_and_apply_at(
+    path: &std::path::Path,
+    state: &Mutex<AppConfig>,
+    update: impl FnOnce(&mut AppConfig) -> Result<(), String>,
+) -> Result<AppConfig, String> {
+    update_config_and_apply_with(state, update, |config| save_config_at(path, config))
 }
 
 fn save_config_and_apply_at(

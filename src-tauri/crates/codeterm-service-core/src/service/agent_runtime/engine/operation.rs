@@ -137,7 +137,7 @@ async fn run_tracked(
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let invocation = session.invocation.lock().clone();
-    codeterm_plugin::provider_account::scope(invocation, async {
+    let result = codeterm_plugin::provider_account::scope(invocation, async {
         tokio::time::timeout(
             std::time::Duration::from_secs(60),
             run_inner(svc, session, process, operation, handed_off),
@@ -145,7 +145,9 @@ async fn run_tracked(
         .await
         .map_err(|_| RuntimeFailure::Deadline)?
     })
-    .await
+    .await;
+    crate::service::provider_accounts::runtime_boundary(svc, session);
+    result
 }
 
 async fn run_inner(
@@ -165,6 +167,9 @@ async fn run_inner(
     )
     .map_err(RuntimeFailure::Refused)?;
     super::model::validate_operation_thread(&context, &operation)?;
+    if matches!(operation, RuntimeOperation::SubmitTurn { .. }) {
+        crate::service::provider_accounts::invalidate_boundary(svc, &context.tab_id);
+    }
     if matches!(operation, RuntimeOperation::SubmitTurn { .. })
         && session.compaction.lock().held(context.epoch)
     {

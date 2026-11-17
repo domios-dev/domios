@@ -63,12 +63,14 @@ impl ServiceContext {
         }
         apply_worker_hierarchy_defaults(&mut params);
         let owner = self.clone();
-        let (mut params, invocation) = codeterm_plugin::js_runtime::spawn_blocking(move || {
-            crate::service::provider_accounts::spawn_params(&owner, params)
-        })
-        .await
-        .map_err(|error| error.to_string())??;
+        let (mut params, invocation, account_reservation) =
+            codeterm_plugin::js_runtime::spawn_blocking(move || {
+                crate::service::provider_accounts::spawn_params(&owner, params)
+            })
+            .await
+            .map_err(|error| error.to_string())??;
         codeterm_plugin::provider_account::scope(invocation, async move {
+            let _account_reservation = account_reservation;
             let default_provider = self.configuration().general_agent.agent_provider;
             let agent_cmd = params
                 .agent

@@ -12,7 +12,7 @@ export function useRuntimeLogin(tabId:string, providerId?:string, state?:AgentRu
   const cycle=useRef(0);
   const current=useRef(false);
   useEffect(()=>{current.current=true;return ()=>{current.current=false;};},[]);
-  async function operate(request:{action?:string;method?:string;methodId?:string;apiKey?:string;account?:string;code?:string}) {
+  async function operate(request:{action?:string;method?:string;methodId?:string;apiKey?:string;account?:string;code?:string;ownerConfirmed?:boolean}) {
     const cancel=request.action === "cancel";
     if (cancel ? cancelPending.current : pending.current) return false;
     if (cancel) { cancelPending.current=true;cycle.current++; } else pending.current=true;

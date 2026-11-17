@@ -210,7 +210,7 @@ impl ServiceContext {
     ) -> Result<TabHandle, String> {
         let _neighbor_launch = self.neighbor_tab_launch_guard(&spec)?;
         self.neighbors().prepare_neighbor_tab_spawn(&mut spec)?;
-        let context = accounts::prepare(self, &mut spec)?;
+        let (context, _account_reservation) = accounts::prepare(self, &mut spec)?;
         codeterm_plugin::provider_account::with_context(context, || {
             self.spawn_tab_prepared(spec, ready_tx, emit_state_change)
         })

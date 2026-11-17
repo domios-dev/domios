@@ -10,7 +10,7 @@ export interface ProviderConfig {
 export interface ProviderAccountsConfig {
   default_name?: string;
   default_identity?: import("../../gen/AccountIdentity").AccountIdentity;
-  profiles?: Record<string, { name?: string; identity?: import("../../gen/AccountIdentity").AccountIdentity; credential_namespace?: string; retained_namespaces?: string[] }>;
+  profiles?: Record<string, { name?: string; identity?: import("../../gen/AccountIdentity").AccountIdentity; credential_namespace?: string; retained_namespaces?: string[]; removal?: {id:string;failure:string} }>;
   order: string[];
   automatic_switch: boolean;
   workspaces?: Record<string, string>;

@@ -55,6 +55,47 @@ pub struct Switches {
 }
 
 impl Switches {
+    pub fn authentication(&self, provider: &str, account: &str) -> Option<Authentication> {
+        self.accounts
+            .get(&(provider.into(), account.into()))
+            .map(|entry| entry.authentication.clone())
+    }
+
+    pub fn request(&mut self, binding: &Binding, target: &str, turn: &str) -> Decision {
+        if self.bindings.get(&binding.tab) != Some(binding)
+            || self.claims.contains_key(&binding.tab)
+        {
+            return Decision::AlreadyHandled;
+        }
+        if !self
+            .accounts
+            .get(&(binding.provider.clone(), binding.account.clone()))
+            .is_some_and(|account| {
+                account.generation == binding.authentication_generation
+                    && account.authentication != Authentication::SignedOut
+            })
+        {
+            return Decision::Stale;
+        }
+        let Some(account) = self
+            .accounts
+            .get(&(binding.provider.clone(), target.into()))
+            .filter(|account| !account.removing && account.authentication == Authentication::Ready)
+        else {
+            return Decision::Stale;
+        };
+        let generation = account.generation;
+        self.serial = self.serial.saturating_add(1);
+        let claim = Claim {
+            source: binding.clone(),
+            target: target.into(),
+            turn: turn.into(),
+            generation,
+            serial: self.serial,
+        };
+        self.claims.insert(binding.tab.clone(), claim.clone());
+        Decision::Switch(claim)
+    }
     pub fn set_authentication(
         &mut self,
         provider: &str,

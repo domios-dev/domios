@@ -13,6 +13,13 @@ use sha2::{Digest, Sha256};
     deny_unknown_fields
 )]
 pub enum PolicyAction {
+    Remove {
+        account_id: String,
+    },
+    DismissRemovalNotice {
+        account_id: String,
+        notice_id: String,
+    },
     Add,
     RetryAdd,
     CancelAdd,
@@ -61,7 +68,28 @@ pub(super) fn apply(
     if revision(policy)? != expected {
         return Err("The account list changed. Refresh it before trying again.".into());
     }
+    let selected = match action {
+        PolicyAction::Rename { account_id, .. } | PolicyAction::Reorder { account_id, .. } => {
+            Some(account_id.as_str())
+        }
+        PolicyAction::Workspace {
+            account_id: Some(account),
+            ..
+        } => Some(account.as_str()),
+        _ => None,
+    };
+    if selected.is_some_and(|account| {
+        policy
+            .profiles
+            .get(account)
+            .is_some_and(|profile| profile.removal.is_some())
+    }) {
+        return Err("Finish removing this account before changing it".into());
+    }
     match action {
+        PolicyAction::Remove { .. } | PolicyAction::DismissRemovalNotice { .. } => {
+            return Err("Removal requires a live account ownership check".into())
+        }
         PolicyAction::Add
         | PolicyAction::RetryAdd
         | PolicyAction::CancelAdd
@@ -135,24 +163,21 @@ pub fn update(
     expected: &str,
     action: &PolicyAction,
 ) -> Result<(), String> {
-    let capability = super::capability(svc, provider)
-        .ok_or("This harness does not support isolated accounts")?;
+    super::capability(svc, provider).ok_or("This harness does not support isolated accounts")?;
+    let continuation = super::continuation(svc, provider);
     if let PolicyAction::Workspace { workspace_id, .. } = action {
         if svc.mux.read().get_workspace(workspace_id).is_none() {
             return Err("Workspace is unavailable".into());
         }
     }
-    let config = svc
-        .try_ext::<crate::config::ConfigState>()
-        .ok_or("Configuration is unavailable")?;
-    let applied = crate::config::update_config_and_apply(config, |config| {
+    let applied = super::mutate_config(svc, |config| {
         let policy = config
             .agents
             .entry(provider.into())
             .or_default()
             .accounts
             .get_or_insert_with(Default::default);
-        apply(policy, expected, capability.continuation, action)
+        apply(policy, expected, continuation, action)
     })?;
     svc.ui.emit(
         "config-changed",
@@ -171,6 +196,7 @@ pub fn update(
                 super::roster::Feedback {
                     id: uuid::Uuid::new_v4().to_string(),
                     kind: "moved",
+                    identity: None,
                     account_id: account_id.clone(),
                     position: *position,
                 },

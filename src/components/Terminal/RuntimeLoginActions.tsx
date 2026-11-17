@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Check, Copy, KeyRound, Monitor, SquareTerminal } from "lucide-react";
 import { useRuntimeLogin } from "./useRuntimeLogin";
 import { nativeBridge } from "../../lib/nativeBridge";
@@ -8,6 +8,7 @@ import { spawnAiHelper, withAiHelperContext } from "../../lib/aiHelperSpawn";
 import { useAiHelperLaunch } from "../../lib/useAiHelperLaunch";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { BusyState } from "../shared/BusyState";
+import { CredentialOwnerRecovery } from "./CredentialOwnerRecovery";
 
 /**
  * Whether a tab must sign in before it can start: the agent said so (needs_auth), a sign-in is under way, the harness
@@ -42,13 +43,15 @@ interface RuntimeLoginActionsProps {
   providerId?: string; tabId: string; state: AgentRuntimeState; iconSvg?: string | null; onCheck?: () => void; variant?: "center" | "inline";
   title?: string;
   hint?: string;
+  actions?: ReactNode;
+  onCancel?:()=>void;
 }
 
 export function RuntimeLoginActions(props: RuntimeLoginActionsProps) {
   return <RuntimeLoginContext key={JSON.stringify([props.tabId,props.providerId,props.state.loginBinding?.nonce,props.state.epoch])} {...props} />;
 }
 
-function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, variant = "inline", title: customTitle, hint: customHint }: RuntimeLoginActionsProps) {
+function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, variant = "inline", title: customTitle, hint: customHint,actions:customActions,onCancel }: RuntimeLoginActionsProps) {
   const [keyEntry, setKeyEntry] = useState(false);
   const [keyMethod, setKeyMethod] = useState<string | undefined>();
   const [code, setCode] = useState("");
@@ -64,7 +67,7 @@ function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, varia
   const provider = state.loginProviderName ?? state.agentName ?? "the agent";
   const methods = state.loginMethods ?? [];
   const declared=Boolean(state.authentication?.methods.some(entry=>entry.input !== undefined));
-  const failure = error ?? login?.error;
+  const failure = error ?? login?.error ?? (state.state==="degraded" ? state.reason ?? undefined : undefined);
   const center = variant === "center";
   const openLink = (url: string) => (event: React.MouseEvent) => {
     if (remote) return;
@@ -87,7 +90,7 @@ function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, varia
       {!login.url && <BusyState inline label="Waiting for sign-in" className="px-1 text-[13px] text-[var(--ct-muted-fg)]" />}
       {login.url && <button className={method} type="button" disabled={busy || sentLogin === login.loginId}
         onClick={() => { void operate({ action: "notify" }).then(sent => { if (sent) setSentLogin(login.loginId); }); }}>{sentLogin === login.loginId ? "Notification requested" : "Send to my phone"}</button>}
-      <button className={quiet} type="button" disabled={!login.loginId} onClick={() => { void operate({ action: "cancel" }); }}>Cancel</button>
+      <button className={quiet} type="button" disabled={!login.loginId} onClick={() => { if(onCancel)onCancel();else void operate({ action: "cancel" }); }}>Cancel</button>
     </> : <>
       {login?.loginId && login.error && <button className={quiet} type="button" disabled={busy} onClick={() => { void operate({action:"cancel"}); }}>Cancel expired sign-in</button>}
       {state.authentication?.methods.map(entry => {
@@ -143,7 +146,8 @@ function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, varia
       <button className={quiet} type="button" onClick={() => { setApiKey(""); setKeyEntry(false); setKeyMethod(undefined); }}>Cancel</button>
     </form>}
 
-    {actions}
+    {customActions ?? actions}
+    {!pending && onCancel && <button className={quiet} type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
 
     {pending && login.url && (login.codeInput || state.loginCodeInput) && !remote && <form aria-label="Sign-in code" className="flex w-full items-center gap-2"
       onSubmit={event => { event.preventDefault(); const value = code; setCode(""); void operate({ action: "code", code: value }); }}>
@@ -153,6 +157,8 @@ function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, varia
     </form>}
 
     {failure && <div className="w-full text-left"><InlineErrorNotice error={failure} operation="signing in" blocking /></div>}
+    <CredentialOwnerRecovery key={login?.loginId} tabId={tabId} providerId={providerId} loginId={login?.loginId} error={login?.error} busy={busy}
+      onRecover={async()=>{if(!await operate({action:"backupCredentials",ownerConfirmed:true})) throw new Error("The saved sign-in could not be backed up. Check the sign-in error and try again.");}} />
 
     {!pending && <div className={`flex flex-wrap items-center gap-1 ${center ? "justify-center" : ""}`}>
       {onCheck && <button className={quiet} type="button" disabled={busy} onClick={state.loginChoices?.length ? () => { void operate({ action: "check" }); } : onCheck}>I already signed in</button>}

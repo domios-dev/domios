@@ -19,9 +19,17 @@ pub async fn cleanup_credential_secrets(
         .map_err(|_| "Account credential store is busy")?
         .clone();
     let provider = context.provider().to_owned();
+    #[cfg(any(test, feature = "test-support"))]
+    let fixture_root = crate::service::provider_accounts::test_support::credential_store_root(svc);
     let bucket = tokio::time::timeout_at(
         deadline,
-        crate::async_runtime::spawn_blocking(move || super::secret_bucket(&provider)),
+        crate::async_runtime::spawn_blocking(move || {
+            #[cfg(any(test, feature = "test-support"))]
+            if let Some(root) = fixture_root {
+                return codeterm_util::secret_file::plugin_secret_bucket(root, &provider);
+            }
+            super::secret_bucket(&provider)
+        }),
     )
     .await
     .map_err(|_| "Account secret bucket preparation timed out")?

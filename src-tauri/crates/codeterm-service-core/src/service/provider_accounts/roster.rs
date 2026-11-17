@@ -1,8 +1,6 @@
 use super::{capability, policy, State};
 use crate::service::ServiceContext;
-use codeterm_plugin::provider_account::storage::{
-    AccountCapability, AccountContinuation, AccountIdentity,
-};
+use codeterm_plugin::provider_account::storage::{AccountContinuation, AccountIdentity};
 use codeterm_types::config::provider_accounts::{ProviderAccountsConfig, IMPLICIT_ACCOUNT};
 use serde::Serialize;
 use std::sync::{Arc, LazyLock};
@@ -19,6 +17,8 @@ pub enum AccountStatus {
     ProbeFailed,
     Unknown,
     SigningIn,
+    Removing,
+    Exhausted,
 }
 
 pub(super) struct Observation {
@@ -27,7 +27,7 @@ pub(super) struct Observation {
     plan: Option<String>,
     failure: Option<String>,
     identity: Option<AccountIdentity>,
-    authenticated: Option<bool>,
+    pub(super) authenticated: Option<bool>,
     pending: bool,
 }
 
@@ -47,6 +47,14 @@ pub struct AccountRow {
     probe_failure_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     login: Option<super::sign_in::LoginContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    removal_notice: Option<super::removal::Notice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    removal_failure_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tabs_to_finish: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resets_at_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -81,11 +89,13 @@ pub(super) struct Feedback {
     pub kind: &'static str,
     pub account_id: String,
     pub position: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
 }
 
 pub fn snapshot(svc: &ServiceContext, provider: &str) -> Result<Snapshot, String> {
-    let capability =
-        capability(svc, provider).ok_or("This harness does not support isolated accounts")?;
+    super::removal::restore(svc, provider);
+    capability(svc, provider).ok_or("This harness does not support isolated accounts")?;
     let policy = policy(svc, provider);
     policy.validate()?;
     svc.ext_or_init::<State>(State::default)
@@ -93,7 +103,9 @@ pub fn snapshot(svc: &ServiceContext, provider: &str) -> Result<Snapshot, String
         .lock()
         .retain(|(id, account), _| id != provider || policy.order.contains(account));
     for account in &policy.order {
-        if super::sign_in::active(svc, provider, account) {
+        if super::sign_in::active(svc, provider, account)
+            || !super::admission::available(svc, provider, account)
+        {
             continue;
         }
         let known = svc
@@ -105,7 +117,7 @@ pub fn snapshot(svc: &ServiceContext, provider: &str) -> Result<Snapshot, String
             check(svc, provider, account)?;
         }
     }
-    project(svc, provider, &policy, &capability)
+    project(svc, provider, &policy)
 }
 
 pub(super) fn starting_account(
@@ -115,9 +127,19 @@ pub(super) fn starting_account(
     starting: &str,
 ) -> Result<String, String> {
     let state = svc.ext_or_init::<State>(State::default);
+    let availability = super::scheduler::availability(svc, provider, &policy.order);
     let observations = state.observations.lock();
     policy
         .first_eligible(starting, |id| {
+            if !super::admission::available(svc, provider, id) {
+                return false;
+            }
+            if matches!(
+                availability.get(id),
+                Some(super::switching::Authentication::Exhausted { .. })
+            ) {
+                return false;
+            }
             observations
                 .get(&(provider.into(), id.into()))
                 .is_none_or(|entry| !matches!(entry.status, AccountStatus::SignedOut))
@@ -130,7 +152,6 @@ fn project(
     svc: &ServiceContext,
     provider: &str,
     policy: &ProviderAccountsConfig,
-    capability: &AccountCapability,
 ) -> Result<Snapshot, String> {
     let login = super::sign_in::project(svc, provider);
     let (adding, reauth, sign_in_id) = (login.adding, login.reauth, login.id);
@@ -158,12 +179,19 @@ fn project(
             .collect()
     };
     let state = svc.ext_or_init::<State>(State::default);
+    let availability = super::scheduler::availability(svc, provider, &policy.order);
     let observations = state.observations.lock();
     let accounts = policy
         .order
         .iter()
         .map(|id| {
             let observation = observations.get(&(provider.into(), id.clone()));
+            let removal = state
+                .admissions
+                .lock()
+                .removing
+                .get(&(provider.into(), id.clone()))
+                .map(|removal| removal.error.clone());
             AccountRow {
                 id: id.clone(),
                 name: if id == IMPLICIT_ACCOUNT {
@@ -188,7 +216,14 @@ fn project(
                         }
                     })
                     .map(|identity| identity.label.clone()),
-                status: if reauth
+                status: if removal.is_some() {
+                    AccountStatus::Removing
+                } else if matches!(
+                    availability.get(id),
+                    Some(super::switching::Authentication::Exhausted { .. })
+                ) {
+                    AccountStatus::Exhausted
+                } else if reauth
                     .as_ref()
                     .is_some_and(|(account, context, _)| account == id && context.is_some())
                 {
@@ -204,6 +239,18 @@ fn project(
                     .as_ref()
                     .filter(|(account, _, _)| account == id)
                     .and_then(|(_, context, _)| context.clone()),
+                removal_notice: super::removal::notice(svc, provider, id),
+                removal_failure_reason: removal.clone().flatten(),
+                tabs_to_finish: removal.map(|_| counts.get(id).copied().unwrap_or_default()),
+                resets_at_ms: availability.get(id).and_then(|authentication| {
+                    if let super::switching::Authentication::Exhausted { resets_at } =
+                        authentication
+                    {
+                        *resets_at
+                    } else {
+                        None
+                    }
+                }),
             }
         })
         .collect();
@@ -212,8 +259,8 @@ fn project(
         revision: super::policy::revision(policy)?,
         accounts,
         automatic_switch: policy.automatic_switch
-            && capability.continuation == AccountContinuation::Proven,
-        continuation: capability.continuation,
+            && super::continuation(svc, provider) == AccountContinuation::Proven,
+        continuation: super::continuation(svc, provider),
         workspace_overrides,
         adding,
         feedback: state.feedback.lock().get(provider).cloned(),
@@ -227,6 +274,7 @@ pub(super) fn record_authenticated(
     account: &str,
     identity: Option<AccountIdentity>,
 ) {
+    super::scheduler::authenticated(svc, provider, account);
     let status = if identity.is_some() {
         AccountStatus::Ready
     } else {
@@ -250,6 +298,9 @@ pub(super) fn record_authenticated(
 }
 
 pub fn check(svc: &ServiceContext, provider: &str, account: &str) -> Result<(), String> {
+    if !super::admission::available(svc, provider, account) {
+        return Err("This account is being removed".into());
+    }
     if super::sign_in::active(svc, provider, account) {
         return Err("Finish this account's sign-in before checking it again".into());
     }
@@ -354,11 +405,17 @@ pub fn check(svc: &ServiceContext, provider: &str, account: &str) -> Result<(), 
             }
         }
         entry.pending = false;
+        let authenticated = entry.authenticated;
         drop(observations);
         if let Some(identity) = new_identity {
             if let Err(error) = remember_identity(&owner, &key.0, &key.1, identity) {
                 log::debug!("[provider-accounts] could not remember account identity: {error}");
             }
+        }
+        match authenticated {
+            Some(true) => super::scheduler::authenticated(&owner, &key.0, &key.1),
+            Some(false) => super::scheduler::signed_out(&owner, &key.0, &key.1),
+            None => {}
         }
         owner.ui.emit(
             "provider-accounts-changed",
@@ -428,10 +485,7 @@ fn remember_identity(
     if previous == Some(&identity) {
         return Ok(());
     }
-    let config = svc
-        .try_ext::<crate::config::ConfigState>()
-        .ok_or("Configuration is unavailable")?;
-    let applied = crate::config::update_config_and_apply(config, |config| {
+    let applied = super::mutate_config(svc, |config| {
         let policy = config
             .agents
             .entry(provider.into())

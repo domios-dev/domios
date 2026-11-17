@@ -5,14 +5,20 @@ use std::sync::Arc;
 pub(super) fn prepare(
     svc: &ServiceContext,
     spec: &mut SpawnTabSpec,
-) -> Result<Option<Arc<InvocationContext>>, String> {
+) -> Result<
+    (
+        Option<Arc<InvocationContext>>,
+        Option<crate::service::provider_accounts::admission::Reservation>,
+    ),
+    String,
+> {
     let agent: AgentSpawnSpec = match &spec.command {
         TabCommand::Agent(agent) => agent.clone(),
         TabCommand::ChatBackend { .. } => match &spec.chatbackend_launch {
             Some(metadata) => metadata.agent.clone(),
-            None => return Ok(None),
+            None => return Ok((None, None)),
         },
-        TabCommand::Shell => return Ok(None),
+        TabCommand::Shell => return Ok((None, None)),
     };
     let provider = if agent.provider.is_empty() {
         svc.configuration().general_agent.agent_provider
@@ -45,6 +51,8 @@ pub(super) fn prepare(
         account.as_deref(),
         agent.account_namespace.as_deref(),
     )?;
+    let reservation =
+        crate::service::provider_accounts::admission::reserve(svc, &provider, account.as_deref())?;
     let context = crate::service::provider_accounts::invocation_at(
         svc,
         &provider,
@@ -64,5 +72,5 @@ pub(super) fn prepare(
         metadata.params.account_id = account;
     }
     spec.workspace_id = Some(workspace);
-    Ok(context)
+    Ok((context, Some(reservation)))
 }

@@ -13,6 +13,7 @@ export interface ProviderAccountRow {
   status: "ready" | "signedOut" | "signingIn" | "exhausted" | "removing" | "checking" | "probeFailed" | "unknown";
   probeFailureReason?: string;
   removalNotice?: { id: string; kind: "inUse" };
+  removalFailureReason?: string;
   tabsInUse: number;
   tabsToFinish?: number;
   resetsAtMs?: number;
@@ -33,7 +34,7 @@ export interface ProviderAccountsSnapshot {
     details?: string;
   } & ({ status: "signingIn"; context: AccountLoginContext } | { status: "duplicate" | "failed"; context?: AccountLoginContext });
   /** Positions are zero-based in requests and feedback. */
-  feedback?: { id: string; kind: "added" | "moved"; accountId: string; position: number };
+  feedback?: { id: string; kind: "added" | "moved" | "removed"; accountId: string; position: number; identity?:string };
 }
 
 export type ProviderAccountsAction =
@@ -45,3 +46,18 @@ export type ProviderAccountsAction =
   | { action: "resetWorkspace"; workspaceId: string }
   | { action: "workspace"; workspaceId: string; accountId: string | null }
   | { action: "dismissRemovalNotice"; accountId: string; noticeId: string };
+
+export interface AccountTransition {
+  id:string;
+  cause:"limit"|"manual"|"reauth"|"removal"|"verification";
+  providerId:string;
+  accountId:string;
+  accountIdentity:string;
+  status:"waiting"|"switching"|"exhausted"|"allExhausted"|"continued"|"failed";
+  nextAccountId:string|null;
+  nextIdentity:string|null;
+  resetsAtMs:number|null;
+  turnId:string|null;
+  reason:string|null;
+  continuation:ProviderAccountsSnapshot["continuation"];
+}

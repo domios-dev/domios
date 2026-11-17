@@ -31,6 +31,10 @@ impl AccountIdentity {
 #[serde(deny_unknown_fields)]
 pub struct ProviderAccountConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<AccountLimitConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removal: Option<AccountRemovalConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<AccountIdentity>,
@@ -41,8 +45,19 @@ pub struct ProviderAccountConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountRemovalConfig {
+    pub id: String,
+    pub failure: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ProviderAccountsConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_limit: Option<AccountLimitConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuation_receipt: Option<ContinuationReceipt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,6 +74,8 @@ impl Default for ProviderAccountsConfig {
     fn default() -> Self {
         Self {
             default_name: None,
+            default_limit: None,
+            continuation_receipt: None,
             default_identity: None,
             profiles: BTreeMap::new(),
             order: vec![IMPLICIT_ACCOUNT.into()],
@@ -70,6 +87,38 @@ impl Default for ProviderAccountsConfig {
 
 impl ProviderAccountsConfig {
     pub fn validate(&self) -> Result<(), String> {
+        for limit in self.default_limit.iter().chain(
+            self.profiles
+                .values()
+                .filter_map(|profile| profile.limit.as_ref()),
+        ) {
+            if limit
+                .resets_at_ms
+                .is_some_and(|at| at > 9_007_199_254_740_991)
+            {
+                return Err("The account limit reset time is invalid".into());
+            }
+        }
+        if let Some(receipt) = &self.continuation_receipt {
+            let values = [
+                (&receipt.host_sha, 128),
+                (&receipt.capability_hash, 128),
+                (&receipt.binary_fingerprint, 2048),
+                (&receipt.session_id, 512),
+                (&receipt.source_account, 64),
+                (&receipt.target_account, 64),
+                (&receipt.source_nonce, 128),
+                (&receipt.resumed_nonce, 128),
+            ];
+            if values.iter().any(|(value, limit)| {
+                value.is_empty() || value.len() > *limit || value.chars().any(char::is_control)
+            }) || receipt.source_account == receipt.target_account
+                || receipt.source_nonce == receipt.resumed_nonce
+                || receipt.verified_at_ms > 9_007_199_254_740_991
+            {
+                return Err("The account continuation receipt is invalid".into());
+            }
+        }
         if let Some(identity) = &self.default_identity {
             identity.validate()?;
         }
@@ -87,6 +136,15 @@ impl ProviderAccountsConfig {
         }
         let mut owners = BTreeMap::<&str, &str>::new();
         for (id, profile) in &self.profiles {
+            if let Some(removal) = &profile.removal {
+                if !valid_account_id(&removal.id)
+                    || removal.failure.is_empty()
+                    || removal.failure.chars().count() > 2048
+                    || removal.failure.chars().any(char::is_control)
+                {
+                    return Err("Account removal metadata must be bounded printable text".into());
+                }
+            }
             for namespace in std::iter::once(profile.credential_namespace.as_deref().unwrap_or(id))
                 .chain(profile.retained_namespaces.iter().map(String::as_str))
             {
@@ -210,6 +268,27 @@ impl ProviderAccountsConfig {
         self.workspaces.retain(|_, account| account != id);
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContinuationReceipt {
+    pub supported: bool,
+    pub host_sha: String,
+    pub capability_hash: String,
+    pub binary_fingerprint: String,
+    pub session_id: String,
+    pub source_account: String,
+    pub target_account: String,
+    pub source_nonce: String,
+    pub resumed_nonce: String,
+    pub verified_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountLimitConfig {
+    pub resets_at_ms: Option<u64>,
 }
 
 pub fn valid_account_name(name: &str) -> bool {

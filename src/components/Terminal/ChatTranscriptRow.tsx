@@ -5,6 +5,7 @@ import type { Notification } from "../../lib/types";
 import type { ChatOrigin } from "../../lib/chatPrefixes";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { ChatWindowRow } from "./ChatWindowRow";
+import { AccountContinuationNoticeCard } from "./AccountContinuationNoticeCard";
 import { ChatMessageRow, type MessageRowHandlers } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
@@ -138,6 +139,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   const resendWithCli = Boolean(deliverySend && resendsWithCli(deliverySend));
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
   const turnId = msg.toolFlowId;
+  if(msg.systemSubtype==="account_transition")return <ChatWindowRow message={msg}><ChatDaySeparator label={daySeparator}/><AccountContinuationNoticeCard message={msg}/></ChatWindowRow>;
   return (
     <ChatWindowRow message={msg} liveActivityLabel={liveActivityLabel}>
       <ChatDaySeparator label={daySeparator} />

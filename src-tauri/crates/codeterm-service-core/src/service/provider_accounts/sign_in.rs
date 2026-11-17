@@ -1,4 +1,4 @@
-use super::{capability, policy, roster, storage, State};
+use super::{capability, policy, roster, State};
 use crate::service::{agent_runtime::login, ServiceContext};
 use codeterm_plugin::provider_account::storage::AccountIdentity;
 use codeterm_types::config::provider_accounts::{
@@ -27,6 +27,7 @@ pub(super) struct Entry {
     account: String,
     context_account: String,
     expected_identity: Option<AccountIdentity>,
+    _reservation: Arc<super::admission::Reservation>,
     adding: bool,
     initializing: bool,
     context: Option<login::OpenedContext>,
@@ -135,6 +136,7 @@ pub(super) fn begin(
         account.clone()
     };
     let generation = uuid::Uuid::new_v4().to_string();
+    let reservation = Arc::new(super::admission::reserve(svc, provider, Some(&account))?);
     let state = svc.ext_or_init::<State>(State::default);
     {
         let mut sign_ins = state.sign_ins.lock();
@@ -148,6 +150,7 @@ pub(super) fn begin(
                 account: account.clone(),
                 context_account: context_account.clone(),
                 expected_identity,
+                _reservation: reservation,
                 adding,
                 initializing: true,
                 context: None,
@@ -269,7 +272,12 @@ fn close_and_discard(
             .ok_or("An account operation is still finishing; credentials were retained")?;
         let state = svc.ext_or_init::<State>(State::default);
         let _provisioning = state.provisioning.lock();
-        storage::discard(&state.root, provider, &entry.context_account)?;
+        super::credentials::discard(
+            svc,
+            provider,
+            &entry.context_account,
+            &entry.context_account,
+        )?;
     }
     Ok(())
 }
@@ -283,7 +291,11 @@ fn context(svc: &ServiceContext, entry: &Entry) -> Option<LoginContext> {
         .and_then(|tab| tab.agent_runtime_state.clone())
         .unwrap_or_else(|| json!({"state":"loading","epoch":0,"auth":"unknown"}));
     if entry.phase != Phase::SigningIn {
-        state = json!({"state":"loading","epoch":state["epoch"],"auth":"unknown","notice":"Checking account"});
+        state = if entry.phase == Phase::Failed {
+            json!({"state":"degraded","epoch":state["epoch"],"auth":"unknown","reason":entry.error})
+        } else {
+            json!({"state":"loading","epoch":state["epoch"],"auth":"unknown","notice":"Checking account"})
+        };
     }
     Some(LoginContext {
         tab_id: context.tab.clone(),
@@ -604,14 +616,7 @@ fn finish(svc: &ServiceContext, provider: &str, entry: &Entry, result: Result<Ve
         return;
     }
     let identity = verified.identity;
-    let config = match svc.try_ext::<crate::config::ConfigState>() {
-        Some(config) => config,
-        None => {
-            fail(svc, provider, entry, "Configuration is unavailable".into());
-            return;
-        }
-    };
-    let applied = crate::config::update_config_and_apply(config, |config| {
+    let applied = super::mutate_config(svc, |config| {
         let policy = config
             .agents
             .entry(provider.into())
@@ -666,6 +671,7 @@ fn finish(svc: &ServiceContext, provider: &str, entry: &Entry, result: Result<Ve
                         roster::Feedback {
                             id: uuid::Uuid::new_v4().to_string(),
                             kind: "added",
+                            identity: None,
                             account_id: entry.account.clone(),
                             position,
                         },
@@ -675,6 +681,9 @@ fn finish(svc: &ServiceContext, provider: &str, entry: &Entry, result: Result<Ve
                 .sign_ins
                 .lock()
                 .remove(provider);
+            if !entry.adding {
+                super::scheduler::reauthenticated(svc, provider, &entry.account);
+            }
             svc.ui.emit(
                 "config-changed",
                 serde_json::to_value(applied).unwrap_or(Value::Null),

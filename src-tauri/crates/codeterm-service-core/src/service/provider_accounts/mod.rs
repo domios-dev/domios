@@ -1,16 +1,30 @@
 //! Account availability and switch claims; runtime lifecycle owns process and turn delivery.
 
+pub(crate) mod admission;
+mod closing;
 pub mod policy;
+mod removal;
+pub(crate) use closing::{closed as tab_closed, prepare as prepare_tab_close};
+mod credentials;
+mod receipt;
 pub mod roster;
+mod scheduler;
 mod sign_in;
 mod storage;
 pub mod switching;
+mod work;
+pub use scheduler::{account_turn_boundary, select, transition, SelectRequest, Transition};
+pub(crate) use scheduler::{invalidate_boundary, runtime_observe, transcript_limit};
 
 use codeterm_plugin::provider_account::{storage::AccountCapability, InvocationContext};
 use codeterm_types::config::provider_accounts::{ProviderAccountsConfig, IMPLICIT_ACCOUNT};
 use std::sync::Arc;
 
 pub(crate) struct State {
+    #[cfg(any(test, feature = "test-support"))]
+    config_path: Option<std::path::PathBuf>,
+    #[cfg(any(test, feature = "test-support"))]
+    work: tokio::sync::watch::Sender<usize>,
     root: std::path::PathBuf,
     provisioning: parking_lot::Mutex<()>,
     observations:
@@ -20,18 +34,91 @@ pub(crate) struct State {
     >,
     sign_ins: parking_lot::Mutex<std::collections::BTreeMap<String, sign_in::Entry>>,
     feedback: parking_lot::Mutex<std::collections::BTreeMap<String, roster::Feedback>>,
+    admissions: parking_lot::Mutex<admission::Admissions>,
+    closing: parking_lot::Mutex<closing::PendingCloses>,
+    scheduler: parking_lot::Mutex<scheduler::Scheduler>,
 }
 
 impl Default for State {
     fn default() -> Self {
         Self {
+            #[cfg(any(test, feature = "test-support"))]
+            config_path: None,
+            #[cfg(any(test, feature = "test-support"))]
+            work: tokio::sync::watch::channel(0).0,
             root: crate::paths::data_dir_path(),
             provisioning: Default::default(),
             observations: Default::default(),
             operations: Default::default(),
             sign_ins: Default::default(),
             feedback: Default::default(),
+            admissions: Default::default(),
+            closing: Default::default(),
+            scheduler: Default::default(),
         }
+    }
+}
+
+fn mutate_config(
+    svc: &super::ServiceContext,
+    update: impl FnOnce(&mut crate::config::schema::AppConfig) -> Result<(), String>,
+) -> Result<crate::config::schema::AppConfig, String> {
+    let config = svc
+        .try_ext::<crate::config::ConfigState>()
+        .ok_or("Configuration is unavailable")?;
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(path) = svc
+        .ext_or_init::<State>(State::default)
+        .config_path
+        .as_ref()
+    {
+        return crate::config::update_config_and_apply_at(path, config, update);
+    }
+    crate::config::update_config_and_apply(config, update)
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support {
+    pub(crate) fn credential_store_root(
+        svc: &crate::service::ServiceContext,
+    ) -> Option<std::path::PathBuf> {
+        let state = svc.try_ext::<super::State>()?;
+        state.config_path.as_ref().map(|_| state.root.clone())
+    }
+
+    /// Subscribe before applying provider events; wait after their stream acknowledgement.
+    pub fn work_receipt(
+        svc: &crate::service::ServiceContext,
+    ) -> tokio::sync::watch::Receiver<usize> {
+        svc.ext_or_init::<super::State>(Default::default)
+            .work
+            .subscribe()
+    }
+    pub async fn settled(receipt: &mut tokio::sync::watch::Receiver<usize>) -> Result<(), String> {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            receipt.wait_for(|pending| *pending == 0),
+        )
+        .await
+        .map_err(|_| "The account worker did not settle".to_owned())?
+        .map(|_| ())
+        .map_err(|_| "The account worker receipt closed".to_owned())
+    }
+    pub fn configure(
+        svc: &crate::service::ServiceContext,
+        root: std::path::PathBuf,
+        config_path: std::path::PathBuf,
+    ) -> Result<(), String> {
+        if !root.is_absolute() || !config_path.is_absolute() {
+            return Err("The account fixture requires absolute isolated paths".into());
+        }
+        std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+        svc.set_ext(super::State {
+            root,
+            config_path: Some(config_path),
+            ..Default::default()
+        })
+        .map_err(|_| "The account fixture was already configured".into())
     }
 }
 
@@ -92,16 +179,26 @@ pub fn update(
             request.sign_in_id.as_deref(),
         )?,
         policy::PolicyAction::Check { account_id } => roster::check(svc, provider, account_id)?,
+        policy::PolicyAction::Remove { account_id } => removal::request(svc, provider, account_id)?,
+        policy::PolicyAction::DismissRemovalNotice {
+            account_id,
+            notice_id,
+        } => removal::dismiss(svc, provider, account_id, notice_id),
         action => policy::update(svc, provider, &request.revision, action)?,
     }
     roster::snapshot(svc, provider)
 }
 
 pub(crate) fn login_permitted(svc: &super::ServiceContext, tab: &str) -> bool {
-    sign_in::permits_login(svc, tab)
+    let named_work_tab = svc.mux.read().get_tab(tab).is_some_and(|tab| {
+        selected_account(tab) != IMPLICIT_ACCOUNT
+            && tab.description.as_deref() != Some("domios:provider-account-sign-in")
+    });
+    !named_work_tab && sign_in::permits_login(svc, tab)
 }
 pub(crate) fn login_changed(svc: &super::ServiceContext, tab: &str) {
     sign_in::changed(svc, tab);
+    scheduler::auth_changed(svc, tab);
 }
 
 pub(crate) fn invocation_matches(
@@ -128,8 +225,85 @@ pub fn selected_account(tab: &crate::multiplexer::types::Tab) -> &str {
 
 fn capability(svc: &super::ServiceContext, provider: &str) -> Option<AccountCapability> {
     svc.agent_registry
-        .with_provider(provider, |provider| provider.account_capability())
+        .with_provider(provider, |provider| {
+            let mut capability = provider.account_capability()?;
+            if let Some(runtime) = provider.agent_runtime() {
+                for profile in runtime
+                    .launch_profiles
+                    .iter()
+                    .flat_map(|profiles| profiles.values())
+                {
+                    capability.secret_environment.extend(
+                        profile
+                            .auth_env
+                            .keys()
+                            .chain(profile.secret_env.keys())
+                            .cloned(),
+                    );
+                }
+            }
+            capability.secret_environment.sort();
+            capability.secret_environment.dedup();
+            Some(capability)
+        })
         .flatten()
+}
+
+fn continuation(
+    svc: &super::ServiceContext,
+    provider: &str,
+) -> codeterm_plugin::provider_account::storage::AccountContinuation {
+    receipt::effective(svc, provider)
+}
+
+pub(crate) fn runtime_boundary(
+    svc: &super::ServiceContext,
+    session: &Arc<super::agent_runtime::engine::Session>,
+) {
+    let tab = session.context.lock().tab_id.clone();
+    if !svc
+        .try_ext::<State>()
+        .is_some_and(|state| state.scheduler.lock().pending.contains_key(&tab))
+    {
+        return;
+    }
+    let owner = svc.clone();
+    let receipt = work::Receipt::capture(svc);
+    crate::async_runtime::spawn(async move {
+        let _ = codeterm_plugin::js_runtime::spawn_blocking(move || {
+            let _receipt = receipt;
+            scheduler::dispatch(&owner, &tab)
+        })
+        .await;
+    });
+}
+
+pub fn refresh_login(
+    svc: &super::ServiceContext,
+    tab: &str,
+    nonce: &str,
+    epoch: Option<u64>,
+) -> Result<Option<Transition>, String> {
+    let (provider, account) = {
+        let mux = svc.mux.read();
+        let target = mux.get_tab(tab).ok_or("The account tab is unavailable")?;
+        if target.session_binding_nonce.as_deref() != Some(nonce)
+            || super::agent_runtime::engine::for_tab(tab)
+                .map(|session| session.context.lock().epoch)
+                != epoch
+        {
+            return Err("The sign-in tab binding changed".into());
+        }
+        (
+            target
+                .agent_type
+                .clone()
+                .ok_or("The account harness is unavailable")?,
+            selected_account(target).to_owned(),
+        )
+    };
+    scheduler::reauthenticated(svc, &provider, &account);
+    Ok(transition(svc, tab))
 }
 
 pub(crate) fn usual_home_for_login(capability: &AccountCapability) -> Result<String, String> {
@@ -199,7 +373,14 @@ pub fn starting_account(
 pub(crate) fn spawn_params(
     svc: &super::ServiceContext,
     mut params: super::SpawnAgentParams,
-) -> Result<(super::SpawnAgentParams, Option<Arc<InvocationContext>>), String> {
+) -> Result<
+    (
+        super::SpawnAgentParams,
+        Option<Arc<InvocationContext>>,
+        admission::Reservation,
+    ),
+    String,
+> {
     let provider = params
         .agent
         .clone()
@@ -230,6 +411,7 @@ pub(crate) fn spawn_params(
         params.account_id.as_deref(),
         params.account_namespace.as_deref(),
     )?;
+    let reservation = admission::reserve(svc, &provider, params.account_id.as_deref())?;
     let context = invocation_at(
         svc,
         &provider,
@@ -238,7 +420,7 @@ pub(crate) fn spawn_params(
     )?;
     params.account_namespace = namespace;
     params.workspace_id = Some(workspace);
-    Ok((params, context))
+    Ok((params, context, reservation))
 }
 
 /// Call from a blocking operation; provisioning never changes daemon environment or the usual home.
@@ -294,6 +476,9 @@ pub(crate) fn invocation_at(
     namespace: Option<&str>,
 ) -> Result<Option<Arc<InvocationContext>>, String> {
     let account = account.unwrap_or(IMPLICIT_ACCOUNT);
+    if !admission::available(svc, provider, account) && tabs_in_use(svc, provider, account) == 0 {
+        return Err("This account is being removed".into());
+    }
     if account == IMPLICIT_ACCOUNT {
         return Ok(None);
     }
