@@ -10,7 +10,7 @@ import { recordBoundary, nextTurnModel } from "./records.mjs";
 import { snapshotAfterEvent, tabSnapshot } from "./snapshots.mjs";
 import { assertTarget } from "./target.mjs";
 import { restartObserved } from "./restart.mjs";
-import { restoreReady, reconcileReadiness } from "./readiness.mjs";
+import { launchFailure as failure, restoreReady, reconcileReadiness } from "./readiness.mjs";
 
 const script = fileURLToPath(import.meta.url);
 const root = resolve(dirname(script), "../..");
@@ -164,7 +164,6 @@ class Events {
 }
 
 const touches = (event, id) => event.data?.tab_id === id || event.event_type?.includes(id) || event.event_type === "mux-state-changed";
-const terminalStages = new Set(["spawn_failed", "launch_deadline_elapsed", "launch_binding_unconfirmed", "awaiting_owner_prompt"]);
 async function tabs(signal = AbortSignal.timeout(deadlineMs), events) {
   return tabSnapshot({ events, createEvents: () => new Events(signal),
     summaries: () => api("/api/tabs?local_only=true&all_workspaces=true", "GET", undefined, signal),
@@ -172,11 +171,6 @@ async function tabs(signal = AbortSignal.timeout(deadlineMs), events) {
   });
 }
 async function tab(id, signal, events) { return (await tabs(signal, events)).find((record) => record.id === id); }
-function failure(record) {
-  if (!record) return "Tab absent from the all-tabs projection";
-  if (terminalStages.has(record.boot_stage)) return `${record.boot_stage}: ${record.boot_failure_reason ?? JSON.stringify(record.pending_prompt ?? null)}`;
-  return null;
-}
 async function waitReady(events, id, signal, policy, requireSession = false, requireLaunch = false) {
   for (;;) {
     const record = await tab(id, signal, events);
