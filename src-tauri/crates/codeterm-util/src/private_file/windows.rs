@@ -13,9 +13,10 @@ use windows_sys::Win32::Security::Authorization::{
     GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
 };
 use windows_sys::Win32::Security::{
-    EqualSid, GetAce, GetSecurityDescriptorControl, GetTokenInformation, TokenUser,
+    EqualSid, GetAce, GetSecurityDescriptorControl, GetTokenInformation, TokenOwner, TokenUser,
     ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
-    PROTECTED_DACL_SECURITY_INFORMATION, SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER,
+    PROTECTED_DACL_SECURITY_INFORMATION, SE_DACL_PROTECTED, TOKEN_INFORMATION_CLASS, TOKEN_OWNER,
+    TOKEN_QUERY, TOKEN_USER,
 };
 use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
 use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
@@ -160,6 +161,7 @@ pub(super) fn wide_path(path: &Path) -> Vec<u16> {
 
 pub(super) struct CurrentUser {
     token_info: Vec<usize>,
+    owner_info: Vec<usize>,
 }
 
 impl CurrentUser {
@@ -169,33 +171,44 @@ impl CurrentUser {
             return Err(io::Error::last_os_error());
         }
         let token = TokenHandle(token);
-        let mut required = 0;
-        unsafe {
-            GetTokenInformation(token.0, TokenUser, null_mut(), 0, &mut required);
-        }
-        if required == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let units = (required as usize + size_of::<usize>() - 1) / size_of::<usize>();
-        let mut token_info = vec![0usize; units];
-        if unsafe {
-            GetTokenInformation(
-                token.0,
-                TokenUser,
-                token_info.as_mut_ptr().cast(),
-                required,
-                &mut required,
-            )
-        } == 0
-        {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(Self { token_info })
+        Ok(Self {
+            token_info: token_information(token.0, TokenUser)?,
+            owner_info: token_information(token.0, TokenOwner)?,
+        })
     }
 
     pub(super) fn sid(&self) -> windows_sys::Win32::Security::PSID {
         unsafe { (*self.token_info.as_ptr().cast::<TOKEN_USER>()).User.Sid }
     }
+
+    pub(super) fn owner_sid(&self) -> windows_sys::Win32::Security::PSID {
+        unsafe { (*self.owner_info.as_ptr().cast::<TOKEN_OWNER>()).Owner }
+    }
+}
+
+fn token_information(token: HANDLE, class: TOKEN_INFORMATION_CLASS) -> io::Result<Vec<usize>> {
+    let mut required = 0;
+    unsafe {
+        GetTokenInformation(token, class, null_mut(), 0, &mut required);
+    }
+    if required == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let units = (required as usize + size_of::<usize>() - 1) / size_of::<usize>();
+    let mut token_info = vec![0usize; units];
+    if unsafe {
+        GetTokenInformation(
+            token,
+            class,
+            token_info.as_mut_ptr().cast(),
+            required,
+            &mut required,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(token_info)
 }
 
 struct TokenHandle(HANDLE);
