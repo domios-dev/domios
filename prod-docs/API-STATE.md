@@ -182,12 +182,20 @@ the change instead — `domios notify send --offer <surface> --offer-accept <lab
 | GET | `/api/update/channel` | — | Active diagnostic channel: normally `{"channel":"stable"}`. |
 | POST | `/api/update/channel` | `{channel}` | Disabled; `409 update channel switching is disabled`. |
 | GET | `/api/update/status` | — | Updater progress plus durable `native_update` operation ID, sequence and outcome when readable. Unreadable handoffs are logged and omitted. |
+| GET | `/api/update/wait` | `?after_phase=applying` | Wait for a phase change, bounded to five minutes. Disconnection and timeout do not confirm installation. |
+| POST | `/api/update/holders` | Array of `{pid, created}` | Local-only Windows PTY ownership lookup for install holders; bounded to 256 identities. Returns owning tabs, workspaces, command and busy state. |
+| POST | `/api/update/reserve` | `{tabs, initiating_tab}` | Native owner credential only. Revalidates the holder snapshot and freezes new work admission and PTY writes before shutdown; activity or identity changes refuse without teardown. |
+| POST | `/api/update/release` | Reservation ID as a JSON string | Native owner credential only. Releases that exact reservation after a stop refusal before dispatch. |
 
 Native auto-install uses stable, requires an attached application-host updater, returns `{"status":"updating"}` immediately and reports progress through status:
 1. Discover the release with a no-cache GitHub request and pin its immutable manifest. `manifest_url` overrides it; HTTPS is required.
 2. Download the platform artifact and verify its Ed25519 signature before installation. A wrong-key signature aborts before replacing binaries.
 3. The native client durably records the verified target, stops the exact attached server, installs and relaunches the pair.
 4. The replacement records `verified` only after enrollment with the expected instance, target version and matching client/server build. Interrupted operations never replay automatically.
+
+Windows refusals name blocking tabs, their workspaces and running work. The Updates panel offers **Stop and retry** for each tab, with confirmation before closing it. The CLI prints the same list with explicit `domios tab close --tab ID` actions; a task-holding Worker may additionally require `--force`. Busy or unknown work is never stopped automatically. Observed idle holders close with the server.
+
+`success` requires a verified replacement running the target version. The CLI exits 2 if its connection ends before verification; run `domios update status` after restart. The instance data directory retains `native-update-handoff.json` and `native-update-installer.json`. Logs print the installer evidence path and, on Windows, the expected `%TEMP%\Domios-installer.log` path; the latter records installer preflight and completion with the actual installer path. A relaunched old version reports the expected/running versions and last installer stage.
 
 After restart, valid recorded provider sessions resume; stale or missing sessions launch fresh. `continue_tab` must match the authenticated local caller and uses its continuation owner. A plain shell caller has no agent session to continue and needs no `--no-continue`; agents still require their own resumable session. Full-access peers (or Custom Admin) may install remotely without a local caller continuation, subject to the same updater capability and installation method. `after_update` persists the requester's message and identity for the General Agent continuation; failure to persist refuses installation.
 
@@ -210,4 +218,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 46 -->
+<!-- revision: 48 -->

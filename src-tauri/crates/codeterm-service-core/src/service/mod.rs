@@ -225,6 +225,7 @@ pub use stop_execution::stop_agent_turn as stop_execution_stop_agent_turn;
 mod tab_status_events;
 pub(crate) mod tab_stop;
 pub mod turn_resume;
+pub mod update_holders;
 pub(crate) mod utility_deadline;
 pub(crate) mod utility_deadline_model;
 pub use utility_deadline_model::parse_timeout as utility_deadline_model_parse_timeout;

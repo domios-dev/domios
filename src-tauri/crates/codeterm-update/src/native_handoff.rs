@@ -330,7 +330,9 @@ impl NativeUpdateHandoff {
             }
         } else {
             NativeUpdateApplyPhase::Failed {
-                message: "the relaunched pair does not match the verified installer version and client/server build".into(),
+                message: format!("Update failed: expected version {}, running version {version}; client/server build match={}. {}",
+                    self.target_version.as_deref().unwrap_or("unknown"), server.build == client_build,
+                    crate::installer_evidence::diagnostic(&self.request.expected_server.identity.data, self.target_version.as_deref())),
             }
         };
         self.advance(phase)?;
@@ -362,7 +364,9 @@ fn now_ms() -> u64 {
 }
 
 pub fn failure_code(message: &str) -> &'static str {
-    if message.contains("install-file holders") {
+    if message.contains("install-file holders")
+        || message.starts_with(crate::holders::REFUSAL_PREFIX)
+    {
         "install_file_holders"
     } else if message.contains("download/verify") {
         "download_or_signature"

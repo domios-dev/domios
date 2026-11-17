@@ -349,6 +349,7 @@ impl Messenger {
         mut envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        let _update_input = svc.admit_update_input(to_tab)?;
         envelope = svc.neighbors().stamp_neighbor_message(envelope);
         let kind = envelope.kind;
         if crate::paths::is_dev_instance() && envelope.id.is_none() {

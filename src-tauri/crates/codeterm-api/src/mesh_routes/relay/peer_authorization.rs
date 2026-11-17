@@ -13,6 +13,10 @@ pub(super) enum PeerRelayAuthorization<'a> {
     MeshRpc {
         peer_id: &'a str,
     },
+    TabClose {
+        peer_id: &'a str,
+        tab_id: &'a str,
+    },
     Forward,
 }
 
@@ -30,6 +34,16 @@ pub(super) fn authorize_peer_relay<'a>(
     let path = request_path(path);
     if *method == Method::POST && path == "/api/mesh/rpc" {
         return PeerRelayAuthorization::MeshRpc { peer_id };
+    }
+    if *method == Method::POST {
+        if let Some(tab_id) = path
+            .strip_prefix("/api/tabs/")
+            .and_then(|path| path.strip_suffix("/close"))
+        {
+            if !tab_id.is_empty() && !tab_id.contains('/') {
+                return PeerRelayAuthorization::TabClose { peer_id, tab_id };
+            }
+        }
     }
     match workspace_close_target(method, path) {
         Some(workspace_id) => PeerRelayAuthorization::WorkspaceClose {
@@ -71,6 +85,50 @@ fn relay_workspace_close_force(body: &serde_json::Value) -> bool {
     body.get("force")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
+}
+
+pub(super) async fn close_tab_from_mesh_peer(
+    state: &AppState,
+    peer_id: &str,
+    tab_id: &str,
+    path: &str,
+    origin: crate::auth::AuthenticatedOrigin,
+    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
+) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
+    let uri = path
+        .parse::<axum::http::Uri>()
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    let axum::extract::Query(query) =
+        axum::extract::Query::<crate::tab_routes::CloseTabQuery>::try_from_uri(&uri)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    let (peer_id, controller) = match (origin, agent) {
+        (crate::auth::AuthenticatedOrigin::Agent, Some(agent)) => {
+            (agent.instance_id.as_str(), Some(agent.tab_id.as_str()))
+        }
+        (origin, _) if origin.owner_trusted() => (peer_id, None),
+        _ => {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Authenticated remote creator required".into(),
+            ))
+        }
+    };
+    let result =
+        crate::tab_routes::close_remote_tab(state, peer_id, controller, tab_id, query.force).await;
+    Ok(match result {
+        Ok(axum::Json(data)) => codeterm_service_core::mesh::types::RelayResponse {
+            ok: true,
+            status: 200,
+            data: Some(data),
+            error: None,
+        },
+        Err((status, message)) => codeterm_service_core::mesh::types::RelayResponse {
+            ok: false,
+            status: status.as_u16(),
+            data: None,
+            error: Some(message),
+        },
+    })
 }
 
 fn workspace_close_target<'a>(method: &Method, path: &'a str) -> Option<&'a str> {

@@ -145,6 +145,7 @@ fn pinned_server_descendants_are_confirmed_after_the_server_exits() {
             pid: server.0.id(),
             created: created.to_string(),
         }),
+        &[],
     )
     .unwrap();
     server.0.stdin.take().unwrap().write_all(b"x").unwrap();

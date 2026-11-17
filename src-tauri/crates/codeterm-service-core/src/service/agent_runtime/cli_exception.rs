@@ -240,6 +240,7 @@ fn provision(
     if cwd != Path::new(&sandbox.cwd).canonicalize().map_err(|_| DENIED)? {
         return Err(DENIED.into());
     }
+    require_fresh_project(&cwd, metadata_directory)?;
     let executable = command_path(&executable)?;
     let rule_bytes = rule_bytes(&executable)?;
     let policy = RestrictedCliPolicy {
@@ -271,15 +272,13 @@ fn require_fresh_project(cwd: &Path, metadata_directory: &str) -> Result<(), Str
     if !RestrictedCliCapability::valid_metadata_directory(metadata_directory) {
         return Err(DENIED.into());
     }
-    for ancestor in cwd.ancestors() {
-        if ancestor
-            .join(metadata_directory)
-            .try_exists()
-            .map_err(|_| DENIED)?
-            || ancestor.join(".git").try_exists().map_err(|_| DENIED)?
-        {
-            return Err("Restricted CLI exception requires a fresh project configuration".into());
-        }
+    if cwd
+        .join(metadata_directory)
+        .try_exists()
+        .map_err(|_| DENIED)?
+        || cwd.join(".git").try_exists().map_err(|_| DENIED)?
+    {
+        return Err("Restricted CLI exception requires a fresh project configuration".into());
     }
     Ok(())
 }
@@ -408,7 +407,6 @@ pub(super) fn prepare(
         record_policy(&policy);
         return Ok(Some(policy));
     }
-    require_fresh_project(Path::new(&context.cwd), &metadata_directory)?;
     let executable_pin = pin_executable(&executable)?;
     let policy = provision(context, &sandbox, &executable, &metadata_directory)?;
     if !self::sandbox(svc, context).is_ok_and(|current| current.as_ref() == Some(&sandbox))
