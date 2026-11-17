@@ -1,9 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { restoreReady, reconcileReadiness } from "./readiness.mjs";
+import { launchFailure, restoreReady, reconcileReadiness } from "./readiness.mjs";
 
 const fixture = { id: "owned", has_answer: true, first_turn_policy: {} };
 const ready = { id: "owned", agent_type: "test", agent_session_id: "session", boot_stage: "agent_ready" };
+
+test("provisional launch states remain pending until authoritative readiness or failure", () => {
+  for (const boot_stage of ["launch_binding_unconfirmed", "launch_deadline_elapsed"]) {
+    const pending = { ...ready, boot_stage };
+    assert.equal(launchFailure(pending), null);
+    assert.equal(restoreReady(pending, fixture), false);
+  }
+  assert.equal(launchFailure(ready), null);
+  assert.equal(restoreReady(ready, fixture), true);
+  assert.match(launchFailure(null), /absent/);
+  assert.equal(launchFailure({ ...ready, boot_stage: "spawn_failed", boot_failure_reason: "opaque failure" }), "spawn_failed: opaque failure");
+  assert.match(launchFailure({ ...ready, boot_stage: "awaiting_owner_prompt", pending_prompt: { kind: "auth" } }), /awaiting_owner_prompt/);
+});
 
 test("a final ready snapshot reconciles a stream gap without mutating its evidence", () => {
   const observations = [{ id: "owned", readiness_error: "stream gap" }];
