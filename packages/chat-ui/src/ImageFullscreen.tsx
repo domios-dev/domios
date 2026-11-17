@@ -22,11 +22,12 @@ export function revealLocalFile(path: string) {
 
 export const REVEAL_UNAVAILABLE = "Revealing files is available only in the desktop app";
 
-export function ImageFullscreen({ image, images, anchorRef, onClose }: {
+export function ImageFullscreen({ image, images, anchorRef, onClose, onImageError }: {
   images?: FullscreenImage[];
   image: FullscreenImage;
   anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
+  onImageError?: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const { gallery, active, selected, layout, cameraKey, initialFit, focus, select, measure, navigate } = useImageCanvasGallery(image, images);
@@ -53,7 +54,7 @@ export function ImageFullscreen({ image, images, anchorRef, onClose }: {
           style={{ position: "absolute", left: layout.items[index].x, top: layout.items[index].y, width: layout.items[index].width, height: layout.items[index].height, padding: 0, border: 0, background: "transparent" }}
           onClick={() => select(index)}>
           {item.pending ? <DeferredLoader state="present" role="status" aria-label={`Loading ${item.name}`}>Loading…</DeferredLoader> : item.error ? <span role="status" aria-label={`${item.name} not available`} className="flex h-full w-full items-center justify-center border p-4 text-lg">Image not available</span> : <img src={item.src} alt={item.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain" }}
-            onError={() => measure(index, 800, 600)}
+            onError={() => { measure(index, 800, 600); onImageError?.(); }}
             onLoad={event => {
               const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
               measure(index, width, height);
