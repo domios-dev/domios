@@ -361,13 +361,24 @@ pub(super) fn dispatch(
             if let Err(locked) = svc.as_ref().tab_write_lock_delivery(&resolved_target) {
                 return Ok(local_send_response(Err(locked), true, None));
             }
-            svc.as_ref()
-                .require_managed_send_allowed(&resolved_target, source_tab.as_deref())
-                .map_err(|message| JsonRpcError {
-                    code: -32603,
-                    message,
-                    data: None,
-                })?;
+            let system_context = opt_string_param(params, "system_context");
+            let admission = match system_context.as_deref() {
+                Some(context) => svc.require_system_notice_send_allowed(
+                    &resolved_target,
+                    source_tab.as_deref(),
+                    context,
+                ),
+                None => svc.require_managed_send_allowed(&resolved_target, source_tab.as_deref()),
+            };
+            if let Err(detail) = admission {
+                return Ok(local_send_response(
+                    Err(codeterm_service_core::service::delivery_error::DeliveryError::TabBusyRefused {
+                        tab: resolved_target, detail,
+                    }),
+                    true,
+                    None,
+                ));
+            }
             let writes_pty = svc.as_ref().tab_chat_backing(&resolved_target).is_none();
             let target_has_agent = mux
                 .read()
@@ -391,7 +402,6 @@ pub(super) fn dispatch(
                 }
             }
             let restored_send = writes_pty && svc.public_send_restores_agent(&resolved_target);
-            let system_context = opt_string_param(params, "system_context");
             let response = if source_tab.is_some() || target_has_agent || system_context.is_some() {
                 let src = source_tab.as_deref().unwrap_or("");
                 let (from_label, model, from_agent) = {
