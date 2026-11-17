@@ -437,7 +437,7 @@ fn deferred_actions_use_closed_payloads_fake_sink_and_existing_consent() {
     engine.consent(Consent::On).unwrap();
     let events = [
         Event::AgentProviderChanged {
-            provider_id: crate::ProviderId::Codex,
+            provider_id: crate::ProviderId::Other,
             outcome: crate::ProviderChangeOutcome::Applied,
         },
         Event::AgentModelChanged {
