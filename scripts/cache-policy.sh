@@ -291,8 +291,38 @@ ct_sccache_verify() {
     ct_sccache_start_job_local
     return $?
   fi
+  ct_sccache_handover_idle_local_ci_server || return $?
   ct_sccache_start_shared_if_absent
   ct_sccache_status verify
+}
+
+# A local build can leave a disk-backed server under the runner user's account.
+# Replace it only in credentialed CI, and only when sccache reports no active work.
+ct_sccache_handover_idle_local_ci_server() {
+  [ -n "${GITHUB_ENV:-}" ] || return 0
+  [ "${CODETERM_SCCACHE_CREDENTIAL_SOURCE:-}" = runner ] || return 0
+  ct_sccache_storage
+  [ "$CT_SCCACHE_STORAGE" = shared ] || return 0
+  ct_sccache_server_live || return 0
+
+  local stats location pending active
+  stats="$(sccache --show-stats 2>/dev/null)" || return 0
+  location="$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"
+  case "$location" in 'Local disk:'*) ;; *) return 0 ;; esac
+
+  pending="$(printf '%s\n' "$stats" | sed -n 's/^Compile requests pending[[:space:]]*//p')"
+  active="$(printf '%s\n' "$stats" | sed -n 's/^Compile requests active[[:space:]]*//p')"
+  if [ "$pending" != 0 ] || [ "$active" != 0 ]; then
+    echo "[cache-policy] ERROR: local-disk sccache server is busy or activity is unknown; refusing to stop it" >&2
+    return 2
+  fi
+
+  echo "[cache-policy] stopping idle local-disk sccache before shared-cache verification"
+  sccache --stop-server >/dev/null 2>&1 || return 2
+  if ct_sccache_server_live; then
+    echo "[cache-policy] ERROR: local-disk sccache server remained live after stop" >&2
+    return 2
+  fi
 }
 
 # The job-local server listens on its own port so it never serves or stops another job's server.

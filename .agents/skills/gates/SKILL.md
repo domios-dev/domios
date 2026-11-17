@@ -20,7 +20,7 @@ Two shapes, and picking the wrong one is what costs hours.
 | What you are proving | How |
 |---|---|
 | A change you just made | Run the focused check here, now |
-| The branch is releasable | Delegate the broad gate, get a summary |
+| The branch is releasable | Require green CI qualification on its exact release SHA |
 | A release | Delegate, then verify its SHA yourself |
 
 In canonical, a per-task Rust test-profile change uses `./build.ps1 check-tests`, which
@@ -105,16 +105,16 @@ The provider boundary guard compares exact exceptions with `origin/develop`; CI 
 
 ## Broad, delegate
 
-Run the broad gate in its owner's Team utility shell with `--timeout none`;
-completion is the process exit and final report, never elapsed time. Preserve
-owner cancellation and protocol/cleanup deadlines. Each completed preflight step
-prints its name, duration and actual exit; retain the full log for the profile.
-Do not rerun the broad gate to obtain timings already captured on the candidate.
+Run release qualification through the owner-authorized release branch push and
+wait for the exact-SHA CI jobs and qualification receipt. Local
+`release-preflight` is a fast sanity check and does not need an unbounded shell
+timeout. Preserve owner cancellation and protocol/cleanup deadlines. Do not
+rerun successful CI suites to obtain timings already captured on the candidate.
 
-The broad gate is `./build.ps1 release-preflight`: fmt, size, bundles,
-versions, cargo check, clippy, the release Rust set, tsc, knip,
-the TS unit suite, biome. It runs **once, on the release SHA, immediately
-before cutting** — never per merge.
+The broad release gate is CI qualification on the exact release SHA. The local
+`./build.ps1 release-preflight` is a seconds-long sanity check before pushing;
+it runs only static guards, dependency/resource preparation and type checking.
+Do not use it as release qualification or repeat the CI suites locally.
 
 The release Rust set is every `release`-tier Rust runner in
 `tests/catalogue.json` (`node scripts/test-catalogue.mjs select --tier release`):
@@ -140,7 +140,7 @@ domios agent spawn codex --model gpt-5.6-luna --reasoning-effort xhigh \
   --title "gate" --cwd "D:\Developer\codeterm" --task-file <pad>/gate-brief.md
 ```
 
-The brief must say: run `./build.ps1 release-preflight` with **no**
+The brief must say: run the relevant focused gate with **no**
 `CODETERM_INSTANCE` or `CODETERM_API_PORT` set, capture the whole log, and
 report back with `domios agent report`:
 
@@ -162,7 +162,7 @@ finished last, not the one that failed. Count `test result: FAILED` instead.
 
 **`build.ps1 test` stops at the first failing crate.** A clean-looking count
 can be hiding four more crates that never ran. It also covers neither the CLI
-crate nor the TS suite — only `release-preflight` does.
+crate nor the TS suite; use their focused CI jobs for release qualification.
 
 **Unset your dev instance variables first.** Isolated tests demand their own
 `CODETERM_INSTANCE`; with yours set they fail on the environment, not the code.

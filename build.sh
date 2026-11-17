@@ -10,7 +10,7 @@
 #   ./build.sh frontend  — production frontend typecheck + bundle
 #   ./build.sh release-inputs — build target-aware frontend/CLI bundle inputs
 #   ./build.sh release-bundle [--fresh-target] [tauri args...] — prepare and bundle in one gateway session
-#   ./build.sh release-preflight — run local PR checks and verify release inputs
+#   ./build.sh release-preflight — run fast local sanity guards before pushing
 #   ./build.sh worktree-check — explicit isolated, nonincremental checkout check
 #   ./build.sh build     — production build
 #   ./build.sh install-local — incremental production build + self-install, then resume the calling tab
@@ -3042,21 +3042,14 @@ EOF
     # so the bundle diff runs from the real worktree where the committed bundles were built.
     preflight_step plugin-bundles preflight_real node scripts/check-plugin-bundles.mjs
     preflight_step plugin-versions node scripts/sync-plugin-versions.mjs --check
-    preflight_step cargo-app cargo check --manifest-path src-tauri/Cargo.toml
-    preflight_step cargo-cli cargo check --manifest-path cli/Cargo.toml
     preflight_step release-locks node scripts/check-release-locks.mjs
     # Under the gateway's subst drive the catalogue reads every Cargo.toml as an unmatched test; run from the real worktree.
     preflight_step script-guards preflight_real bash ./build.sh script-guards
-    preflight_step clippy bash scripts/clippy-gate.sh
-    preflight_step rust run_release_rust_tests
     preflight_step typescript node node_modules/typescript/bin/tsc --noEmit
     # Knip cannot enumerate pnpm workspaces under the gateway's subst drive root; run from the real worktree.
     preflight_step exports preflight_real node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
     preflight_step api-effects node scripts/check-api-effect-dependencies.mjs
-    preflight_step ts-unit node scripts/run-ts-unit-tests.mjs
-    preflight_step vitest node node_modules/vitest/vitest.mjs run
-    preflight_step plugins node scripts/run-plugin-tests.mjs
-    preflight_step biome node node_modules/@biomejs/biome/bin/biome check .
+    preflight_step public-privacy node scripts/check-public-privacy.mjs
     ;;
   release-rust)
     prepare_dev_frontend_dist "$(pwd -P)"
