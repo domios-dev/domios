@@ -42,6 +42,10 @@ pub(super) fn apply(
     let element = match change {
         ElementChange::Add(element) => {
             insert(tx, plan_id, &element, receipt)?;
+            receipt.element_action = Some((
+                "create",
+                crate::service_plan::canvas_elements::observed_kind(&element.kind),
+            ));
             return Ok(());
         }
         ElementChange::Update {
@@ -51,6 +55,7 @@ pub(super) fn apply(
             links,
         } => {
             let mut element = read(tx, plan_id, &id, receipt)?;
+            let previous = element.clone();
             if let Some(kind) = kind {
                 element.kind = kind;
             }
@@ -60,9 +65,19 @@ pub(super) fn apply(
             if let Some(links) = links {
                 element.links = links;
             }
+            if element.kind != previous.kind
+                || element.content != previous.content
+                || element.links != previous.links
+            {
+                receipt.element_action = Some((
+                    "update",
+                    crate::service_plan::canvas_elements::observed_kind(&element.kind),
+                ));
+            }
             element
         }
         ElementChange::Remove { id } => {
+            let element = read(tx, plan_id, &id, receipt)?;
             let removed = tx
                 .execute(
                     "DELETE FROM plan_elements WHERE plan_id=?1 AND element_id=?2",
@@ -73,6 +88,10 @@ pub(super) fn apply(
                 return Err(PlanError::ElementNotFound);
             }
             receipt.element_rows += removed;
+            receipt.element_action = Some((
+                "delete",
+                crate::service_plan::canvas_elements::observed_kind(&element.kind),
+            ));
             return Ok(());
         }
         ElementChange::Layout { id, x, y } => {

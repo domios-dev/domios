@@ -30,8 +30,8 @@ function usePreviewWidth() {
 }
 
 /** The static preview; a file canvas adds its source path, a named view and, for its owner, an editor. */
-export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0, details, notice }: {
-  canvas: DsCanvas; view?: string; editor?: CanvasEditor; fullscreenRequest?: number; details?: string;
+export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0, details, notice, onOpen }: {
+  canvas: DsCanvas; view?: string; editor?: CanvasEditor; fullscreenRequest?: number; onOpen?: () => void; details?: string;
   /** A quiet sentence the opened canvas shows under its header, such as a file error over the last good board. */
   notice?: { text: string; reason?: string };
 }) {
@@ -55,8 +55,8 @@ export function CanvasPreview({ canvas, view, editor, fullscreenRequest = 0, det
       <div ref={previewRef} role="button" tabIndex={0} aria-label={`Open canvas ${title}, ${count}`} aria-haspopup="dialog"
         className="relative w-full cursor-zoom-in overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
         style={{ height: CANVAS_INLINE_HEIGHT, border: "1px solid var(--ct-border)", borderRadius: 8, boxSizing: "border-box", ...DOTTED_GROUND }}
-        onClick={() => setOpen(true)}
-        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(true); } }}>
+        onClick={() => { setOpen(true); onOpen?.(); }}
+        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(true); onOpen?.(); } }}>
         {fit.scale > 0 && <div aria-hidden data-canvas-preview-layer="" style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})`, pointerEvents: "none" }}>
           {viewBounds
             ? <div data-canvas-view-clip="" style={{ position: "absolute", left: viewBounds.x, top: viewBounds.y, width: viewBounds.width, height: viewBounds.height, overflow: "hidden" }}>

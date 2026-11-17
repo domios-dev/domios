@@ -2,6 +2,7 @@ use super::ServiceContext;
 use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Worker};
 use std::sync::Arc;
 
+mod actions;
 mod context;
 mod hardware;
 pub(crate) mod update_confirm;
@@ -140,6 +141,12 @@ impl ServiceContext {
                 self.plan_store.bind_product_observer(Arc::new(move || {
                     let _ = observer.record_nowait(Event::PlanCreated {});
                 }));
+                self.plan_store
+                    .bind_element_observer(actions::element_observer(worker.clone()));
+                crate::config::product_observer::bind_plugin_enabled_observer(
+                    self.ext::<crate::config::ConfigState>(),
+                    actions::plugin_observer(worker.clone()),
+                );
                 if let Some(mesh) = self.try_ext::<crate::mesh::MeshState>() {
                     let counts = worker.clone();
                     mesh.lock().bind_connection_observers(

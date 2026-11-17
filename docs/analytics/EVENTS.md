@@ -49,6 +49,13 @@ Every row has source **desktop**.
 | `canvas_opened` | `src/components/Canvas/CanvasView.tsx` · CanvasView / useProductViewEvent | View mounted once; StrictMode replay does not duplicate | None | Adoption |
 | `onboarding_completed` | `src/components/AgentPicker/useFirstRunStart.ts` · settle | Selected first-run General reaches agent_ready | None | Activation |
 | `settings_viewed` | `src/hooks/useSettingsNavigation.ts · useSettingsNavigation` | Settings route section changes | `section`: SettingsSection | Adoption |
+| `agent_tab_selected` | `src/store/multiplexer/index.tsx` · setActiveTab | Explicit human agent-tab selection acknowledged by the selection command; shell tabs, no-op selection, restore and programmatic focus excluded | None | Engagement |
+| `mesh_request_completed` | `codeterm-api/src/mesh_routes/rpc.rs` · handle_mesh_rpc | One completed owner-dispatched RPC; cached duplicate results emit nothing; invalid authority/request admission excluded | `operation`: MeshOperation, `outcome`: RequestOutcome | Mesh use |
+| `canvas_element_saved` | `codeterm-plan/src/service_plan/canvas_elements.rs` · commit_element_change, with row receipt from element_rows | Committed plan-canvas create/content update/delete; layout writes, no-op content and failed saves excluded | `operation`: CanvasOperation, `kind`: CanvasKind | Canvas use |
+| `ds_block_interacted` | `packages/chat-ui/src/blocks/ChatBlockHost.tsx` · observeBlockInteraction, forwarded by AppChatBlockServices | Explicit supported block open or accepted submit; no render/mount, declined choice, disabled action or failed submit | `kind`: DsBlockKind, `action`: DsBlockAction | Block use |
+| `blueprint_run_completed` | `codeterm-storage/src/repositories/sentinel/pipeline.rs` · CloseRun receipt → codeterm-sentinel pipeline_journal observer | First committed terminal pipeline close after a step claim on the current definition; done/failed/skipped map to success/failure/cancelled. Held, unstarted, superseded and duplicate terminal closes excluded | `outcome`: BlueprintOutcome | Automation use |
+| `plugin_enabled_changed` | `codeterm-config/src/lib.rs` · commit_config → per-config product_observer | Successfully persisted explicit plugin enabled boolean differs from its prior configured value; no-op and failed saves excluded | `enabled`: bool | Plugin use |
+| `update_checked` | `codeterm-api/src/updater_routes.rs` · availability / checked_event | Explicit forced aggregate availability check succeeds with no source errors; counts compatible update_available/ready_to_apply user offers. Background/cache reads and failed/partial checks excluded | `offers`: u32 | Updates |
 
 `checkout_returned.outcome=returned` proves the application regained focus following a checkout launch. It does not claim payment success. Only the backend verified-payment event is authoritative for conversion. `subscription_changed` exists in both sources: filter by envelope/available properties when inspecting it; never add desktop and backend counts as unique purchases. `friend_added` measures acceptance on this device; the requesting person's later remote acceptance is not a second local button event. File counts are selected attachment counts following relay acceptance, not proof that the recipient saved them.
 
@@ -71,6 +78,14 @@ These are values of `feature_used.feature`, not separate event names. Each meani
 
 Desktop enum definitions and count bounds are authoritative in `src-tauri/crates/codeterm-analytics/catalog.schema.json`. Generated Rust, TypeScript and the in-app privacy catalog come from `node scripts/check-analytics-catalog.mjs --write`. The plan enum currently maps paid desktop plans to `pro`; Sponsor segmentation is unavailable in this catalog.
 
+## Deferred lifecycle completion integration
+
+The catalog reserves `agent_provider_changed` (`provider_id`: ProviderId, `outcome`: applied/pending)
+and `agent_model_changed` (`mode`: live/restart/next_turn, `outcome`: observed/pending).
+Their completion instrumentation awaits the merged multi-account and OpenCode lifecycle lanes.
+The expected authorities are provider_switch/operations.rs and model_switch/staging/completion_records.rs;
+operation admission is not completion. No raw model identifier is part of either event.
+
 ## Backend events
 
 Every row below has source **backend**. Production business emitters currently use empty event properties unless stated. The contract permits additional reviewed dimensions, but an allowlist is not evidence of an emitter. All delivery is fenced by current server consent and erasure state; business transactions stage analytics atomically via `analytics/atomic.ts::prepareProductEvent`.
@@ -79,6 +94,8 @@ Every row below has source **backend**. Production business emitters currently u
 |---|---|---|---|
 | `$identify` | `analytics/product.ts` · signInAnalytics, exposed by `analytics/firebase.ts::analyticsSignIn` | None; UID and device UUID in envelope | Identity join |
 | `sign_in_completed` | `analytics/product.ts` · signInAnalytics | None | Hosted/desktop identity bridge |
+| `account_created` | `analytics/account-created-trigger.ts` · accountCreated → account-created/creation; Firebase Auth first-create trigger with durable UID receipt | `auth_provider`: firebase | Account creation; fenced delivery, separate backend rollout |
+| `neighbor_invite_created` | `analytics/account-created-trigger.ts` · neighborInviteCreated → neighbor-invite-created/creation; committed friendInvites creation from registry transaction | None | Invitation creation; duplicate server events reuse receipt; sent, mail results and document updates excluded |
 | `checkout_created` | `billing/index.ts` · callable checkout participant using prepareProductEvent | None | Checkout created by backend |
 | `subscription_started` | `billing/adapters/firestore.ts` · FirestoreBillingStore.apply | None | Initial subscription projection |
 | `subscription_changed` | `billing/adapters/firestore.ts` · FirestoreBillingStore.apply | None | Subscription projection changes |
@@ -97,6 +114,8 @@ Every row below has source **backend**. Production business emitters currently u
 | `checkout_returned` | Same contract/allowlist | Contract: common dimensions, outcome (completed/cancelled/unknown) | Reserved backend contract; desktop returned outcome differs |
 | `referral_link_shared` | Same contract/allowlist | Contract: plan, app_version, platform, referral_id | Reserved; no production emitter found |
 | `referral_reward_revoked` | Same contract/allowlist | Contract: plan, app_version, platform, referral_id | Reserved; no production emitter found |
+
+`account_created` and `neighbor_invite_created` are backend-only emitters. Creation receipts and existing bounded retry intents commit atomically after the server creation event; OFF and erasure fence delivery. Their triggers have no request IP/device context, so none is fabricated. They require separately reviewed backend rollout; a desktop sign-in never creates either event.
 
 Backend common dimensions: plan, catalogued price_id/discount_id, bounded trial_length_days, via_trial boolean, catalogued app_version/platform. Provider-transition contracts additionally allow catalogued country. `analytics/events.ts::properties` rejects arbitrary values and unknown keys. `PRODUCT_CATALOGUE` currently has empty optional dimension lists, so do not assume live segmentation by those dimensions. Business provider IDs and journal evidence are not sent as arbitrary properties.
 
@@ -136,4 +155,4 @@ After reviewed deployments, the owner should use the Amplitude UI to confirm a c
 
 The owner must also check the Amplitude project's IP/location ingestion settings: a project-level setting can discard IP and location despite the envelope. Application code cannot inspect that setting. Confirm country and platform on consented desktop/web events after reviewed rollout.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

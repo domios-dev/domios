@@ -404,6 +404,7 @@ pub enum MutationOutcome {
 /// Post-commit aggregates of every stage the operation touched, for cache publication.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SentinelCommit {
+    pub terminal_run: Option<codeterm_blueprint_types::blueprint_journal::JournalState>,
     pub outcome: MutationOutcome,
     pub sentinels: Vec<StoredSentinel>,
     pub removed: Vec<SentinelId>,
@@ -412,6 +413,7 @@ pub struct SentinelCommit {
 impl SentinelCommit {
     pub(super) fn fenced(fence: Fence, current: Option<StoredSentinel>) -> Self {
         SentinelCommit {
+            terminal_run: None,
             outcome: MutationOutcome::Fenced(fence),
             sentinels: current.into_iter().collect(),
             removed: Vec::new(),
