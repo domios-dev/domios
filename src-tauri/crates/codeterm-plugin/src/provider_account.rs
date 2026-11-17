@@ -431,16 +431,13 @@ pub(crate) struct AccountReadDir {
 impl Iterator for AccountReadDir {
     type Item = std::io::Result<std::fs::DirEntry>;
     fn next(&mut self) -> Option<Self::Item> {
-        for entry in self.entries.by_ref() {
-            if with_context(self.context.clone(), || {
+        self.entries.by_ref().find(|entry| {
+            with_context(self.context.clone(), || {
                 entry
                     .as_ref()
                     .map_or(true, |entry| read_allowed(&entry.path()))
-            }) {
-                return Some(entry);
-            }
-        }
-        None
+            })
+        })
     }
 }
 

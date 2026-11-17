@@ -100,21 +100,19 @@ pub(super) fn request(svc: &ServiceContext, provider: &str, account: &str) -> Re
         },
     );
     drop(admissions);
-    let persisted = (|| {
-        super::mutate_config(svc, |config| {
-            let profile = config
-                .agents
-                .get_mut(provider)
-                .and_then(|provider| provider.accounts.as_mut())
-                .and_then(|policy| policy.profiles.get_mut(account))
-                .ok_or("The account no longer exists")?;
-            profile.removal = Some(AccountRemovalConfig {
-                id: id.clone(),
-                failure: "Removal was interrupted. Try again.".into(),
-            });
-            Ok(())
-        })
-    })();
+    let persisted = super::mutate_config(svc, |config| {
+        let profile = config
+            .agents
+            .get_mut(provider)
+            .and_then(|provider| provider.accounts.as_mut())
+            .and_then(|policy| policy.profiles.get_mut(account))
+            .ok_or("The account no longer exists")?;
+        profile.removal = Some(AccountRemovalConfig {
+            id: id.clone(),
+            failure: "Removal was interrupted. Try again.".into(),
+        });
+        Ok(())
+    });
     let applied = match persisted {
         Ok(applied) => applied,
         Err(error) => {
