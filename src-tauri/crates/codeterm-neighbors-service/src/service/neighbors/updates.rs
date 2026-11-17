@@ -287,6 +287,9 @@ impl Session {
                 )
                 .ok_or(Error::Revoked)?;
             self.ports.activate(self, &list).await?;
+            if self.service.neighbor_activation_stale() {
+                return Ok(());
+            }
             self.service.remember_neighbor_projection_activation(
                 &self.transport.uid,
                 self.expected.login_generation,
@@ -616,6 +619,16 @@ impl DocumentSession for Session {
                     if !self.ports.paid(self) {
                         signals = None;
                         continue;
+                    }
+                    if self.service.neighbor_activation_stale() {
+                        if let Some(list) = self.service.peek_neighbor_projection(
+                            &self.transport.uid,
+                            self.expected.login_generation,
+                            "friendsList",
+                            &self.transport.installation_id,
+                        ) {
+                            self.ports.activate(self, &list).await?;
+                        }
                     }
                     if let Some(catch_up) = revisions.observe(signal.revision) {
                         incremental =

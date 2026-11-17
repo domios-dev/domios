@@ -1,9 +1,9 @@
-import { channelStatus } from "./neighborRuntime.testdata";
+import { channelStatus, conciergeState } from "./neighborRuntime.testdata";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ChannelStatus, NeighborListenerEvent, NeighborRuntimeClient, ReceiverState } from "./neighborRuntimeClient";
-import { resetNeighborStatus } from "./neighborStatusStore";
+import { resetNeighborStatus, useNeighborStatus, type NeighborStatusSnapshot } from "./neighborStatusStore";
 import { friendReceiverState, useReceiverState } from "./useReceiverState";
 import { conciergeNeedsAttention, conciergeStatusLine, useConciergeStatus } from "./useConciergeStatus";
 
@@ -235,4 +235,57 @@ it("refreshes offline and expired receiver observations at the same assignment r
   expect(seen).toMatchObject({ revision: 8, receiver_online: false, receiving_enabled: true });
   await act(async () => events.handlers["account-mesh-changed"]());
   expect(seen).toMatchObject({ revision: 8, receiver_instance_id: "instance", not_receiving_reason: "membership_expired", receiving_enabled: false });
+});
+
+it("retains display evidence across receiver invalidation and an empty reread without retaining authority", async () => {
+  const ready = conciergeState({ gateway_tab: "own-tab", concierge_missing: false, receiving_here: true, state: "ready" });
+  const initial = { ...status(true, 3), bindings: { first: "own-tab" }, concierges: { first: ready } };
+  const missing = { ...initial, friend_receivers: {}, friend_receivers_version: 4,
+    concierges: { first: { ...ready, state: "not_receiving" as const, receiving_here: false } } };
+  const { runtime, emit } = client(Promise.resolve(initial), Promise.resolve(missing), Promise.resolve(initial));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let seen: NeighborStatusSnapshot | null = null;
+  const Probe = () => { seen = useNeighborStatus(runtime, true); return null; };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<Probe />));
+  await act(async () => emit({ receiver_unavailable: true, friend_receivers_version: 4 }));
+  expect(friendReceiverState(seen, "first")).toBeNull();
+  expect(seen!.observations?.first).toMatchObject({ receiver: { receiving_here: true }, concierge: { state: "ready" }, stale: true });
+  await act(async () => events.handlers["mesh-state-changed"]());
+  expect(friendReceiverState(seen, "first")).toBeNull();
+  expect(seen!.observations?.first).toMatchObject({ concierge: { state: "ready" }, stale: true });
+  await act(async () => emit({ ...receiver(false, 5), friendship_id: "first", friend_receivers_version: 5 }));
+  expect(seen!.observations?.first).toMatchObject({ receiver: { receiving_here: false, revision: 5 }, stale: false });
+});
+
+it("marks failed status refreshes stale and clears that marker after recovery", async () => {
+  const { runtime } = client(Promise.resolve(status(true, 1)));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let seen: NeighborStatusSnapshot | null = null;
+  const Probe = () => { seen = useNeighborStatus(runtime, true); return null; };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<Probe />));
+  vi.mocked(runtime.status).mockRejectedValueOnce(new Error("backend unavailable"));
+  await act(async () => events.handlers["mesh-state-changed"]());
+  expect(seen!.observations?.first).toMatchObject({ receiver: { revision: 1 }, stale: true });
+  vi.mocked(runtime.status).mockResolvedValueOnce(status(true, 1));
+  await act(async () => events.handlers["mesh-state-changed"]());
+  expect(seen!.observations?.first.stale).toBe(false);
+});
+
+it("refreshes activation staleness from daemon transitions without losing local receiver evidence", async () => {
+  const initial = status(true, 1);
+  const { runtime } = client(Promise.resolve(initial), Promise.resolve({ ...initial, status_stale: true }), Promise.resolve(initial));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let seen: NeighborStatusSnapshot | null = null;
+  const Probe = () => { seen = useNeighborStatus(runtime, true); return null; };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<Probe />));
+  await act(async () => events.handlers["neighbor-activation-status"]());
+  expect(seen!.observations?.first).toMatchObject({ receiver: { receiving_here: true }, stale: true });
+  await act(async () => events.handlers["neighbor-activation-status"]());
+  expect(seen!.observations?.first.stale).toBe(false);
 });

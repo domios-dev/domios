@@ -96,6 +96,37 @@ async fn local_reads_bypass_blocked_network_owner_and_return_metadata() {
 }
 
 #[tokio::test]
+async fn status_uses_known_local_receiver_and_real_concierge_lifecycle_while_activation_is_stale() {
+    let fixture = crate::test_support::fixture(MultiplexerState::new().0);
+    let service = &fixture.service;
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let friendship = "a".repeat(64);
+    let mut settings = crate::service::neighbors::storage::Settings::default();
+    settings
+        .bindings
+        .insert(friendship.clone(), "closed-concierge".into());
+    metadata.save_settings(settings).await.unwrap();
+    service.set_neighbor_friend_receiver_for_test(&friendship, Some(true), 9);
+    let generation = service.neighbor_cell().generation.load(Ordering::Acquire);
+    service.record_neighbor_activation(generation, Some(Error::Transport.into()));
+    let result = service
+        .neighbor_local_metadata(&NeighborRuntimeCommand::Status, &metadata, generation)
+        .await
+        .unwrap();
+    assert_eq!(result["status_stale"], true);
+    assert_eq!(
+        result["friend_receivers"][&friendship]["receiving_here"],
+        true
+    );
+    assert_eq!(result["friend_receivers"][&friendship]["revision"], 9);
+    assert_eq!(result["concierges"][&friendship]["receiving_here"], true);
+    assert_eq!(
+        result["concierges"][&friendship]["state"],
+        "concierge_closed"
+    );
+}
+
+#[tokio::test]
 async fn flag_message_persists_without_entering_the_network_operation_queue() {
     let (mut mux, concierge) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&concierge).unwrap();

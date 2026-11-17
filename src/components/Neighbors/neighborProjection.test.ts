@@ -7,13 +7,24 @@ async function main() {
   const win = new Window({ url: "http://gateway:7685" });
   Object.defineProperty(globalThis, "window", { configurable: true, value: win });
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: win.localStorage });
-  const { projectionForPeer, readNeighborProjection } = await import("./neighborProjection");
+  const { projectionForPeer, readNeighborProjection, observeNeighborProjection } = await import("./neighborProjection");
   const { setRelayTarget, setTokenFor, selfHost, invalidateWebRequestContext } = await import("../../lib/webApi");
   const blackstar = { pair: { tab_id: "remote-concierge", friend_display_name: "Opaque Friend", friend_photo_url: null, paused: false, access: "paid" as const, receiver: null } };
   assert.deepEqual(projectionForPeer("blackstar", "blackstar", blackstar), blackstar);
   assert.deepEqual(projectionForPeer("eight", "blackstar", blackstar), {});
   assert.deepEqual(projectionForPeer(null, "blackstar", blackstar), {});
   console.log("ok - grouping uses only the selected machine's projection");
+
+  const receiver = { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 7 };
+  const known = observeNeighborProjection({ pair: { ...blackstar.pair, receiver } });
+  const missed = observeNeighborProjection(blackstar, known);
+  assert.equal(missed.pair.receiver, null);
+  assert.deepEqual(missed.pair.observation, { receiver, concierge: undefined, stale: true });
+  const recovered = observeNeighborProjection({ pair: { ...blackstar.pair, receiver: { ...receiver, receiving_here: true, revision: 8 } } }, missed);
+  assert.equal(recovered.pair.observation?.stale, false);
+  assert.equal(recovered.pair.observation?.receiver?.revision, 8);
+  assert.deepEqual(observeNeighborProjection({}, known), {});
+  console.log("ok - transient receiver misses retain display evidence and recovery replaces it");
 
   setTokenFor(selfHost(), "owner-sentinel");
   setRelayTarget("blackstar", "Blackstar");
