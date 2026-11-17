@@ -232,3 +232,52 @@ it("does not show a foreign snapshot while the matching provider is loading", as
   expect(host.querySelectorAll("[data-account-id]")).toHaveLength(0);
   expect(host.querySelector('[role="status"][aria-label="Loading accounts"]')).not.toBeNull();
 });
+
+it.each(["checking", "probeFailed", "unknown"] as const)("keeps identity and reorder available for %s accounts", async status => {
+  snapshot.accounts[1] = { ...snapshot.accounts[1], status };
+  await render();
+  expect(row("work").getAttribute("aria-label")).toContain("other@example.test");
+  expect(Array.from(row("work").querySelectorAll("button")).some(node => node.textContent === "Sign in")).toBe(false);
+  expect(button("Actions for other@example.test", row("work")).disabled).toBe(false);
+  await act(async () => row("work").dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowUp", altKey: true, bubbles: true })));
+  expect(onAction).toHaveBeenCalledExactlyOnceWith({ action: "reorder", accountId: "work", position: 0 });
+  onAction.mockClear();
+  await click("Move to top", await menu("work"));
+  expect(onAction).toHaveBeenCalledExactlyOnceWith({ action: "reorder", accountId: "work", position: 0 });
+});
+
+it("removes checking activity as soon as the bounded probe settles, retaining the cached identity", async () => {
+  snapshot.accounts[1] = { ...snapshot.accounts[1], name: "Work", status: "checking" };
+  await render();
+  expect(row("work").getAttribute("aria-label")).toBe("Work, other@example.test, Checking sign-in");
+  expect(row("work").querySelector('[role="status"][aria-label="Checking sign-in"]')).not.toBeNull();
+  snapshot = { ...snapshot, accounts: [snapshot.accounts[0], { ...snapshot.accounts[1], status: "ready" }] };
+  await render();
+  expect(row("work").querySelector('[role="status"]')).toBeNull();
+  expect(row("work").getAttribute("aria-label")).toContain("other@example.test");
+});
+
+it("rechecks a failed probe and exposes its reason only through an inert menu description", async () => {
+  snapshot.accounts[1] = { ...snapshot.accounts[1], status: "probeFailed", probeFailureReason: "opaque probe reason" };
+  await render();
+  expect(row("work").getAttribute("aria-label")).toBe("other@example.test, Couldn't check sign-in");
+  expect(row("work").textContent).not.toContain("opaque probe reason");
+  await click("Check again", row("work"));
+  expect(onAction).toHaveBeenCalledExactlyOnceWith({ action: "check", accountId: "work" });
+  const actions = await menu("work");
+  const reason = button("Couldn't check sign-in", actions);
+  expect(reason.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(reason.getAttribute("aria-describedby")!)?.textContent).toBe("opaque probe reason");
+  await act(async () => reason.click());
+  expect(onAction).toHaveBeenCalledTimes(1);
+});
+
+it("does not infer readiness or signed-out state when identity reporting is unsupported", async () => {
+  snapshot.accounts = [{ id: "default", status: "unknown", tabsInUse: 3, plan: "opaque plan" }];
+  await render();
+  expect(row("default").getAttribute("aria-label")).toBe("Your usual sign-in");
+  expect(row("default").querySelector('[role="status"]')).toBeNull();
+  expect(row("default").textContent).not.toContain("opaque plan");
+  expect(row("default").textContent).not.toContain("Signed out");
+  expect(row("default").querySelectorAll("button")).toHaveLength(1);
+});

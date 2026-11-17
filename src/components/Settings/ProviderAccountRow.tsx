@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 import type { ProviderAccountRow as Account, ProviderAccountsAction } from "../../hooks/providerAccountsTypes";
 import { BusyState } from "../shared/BusyState";
 import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
@@ -8,6 +9,9 @@ import { RuntimeLoginActions } from "../Terminal/RuntimeLoginActions";
 const quiet = "ct-bar-pill min-h-11 px-3 text-xs text-[var(--ct-muted-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-border-focus)] disabled:opacity-50";
 
 function accountStatus(account: Account): string {
+  if (account.status === "checking") return "Checking sign-in";
+  if (account.status === "probeFailed") return "Couldn't check sign-in";
+  if (account.status === "unknown") return "";
   if (account.status === "exhausted") {
     const reset = account.resetsAtMs == null ? "" : `, resets ${new Date(account.resetsAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
     return `Limit reached${reset}`;
@@ -48,7 +52,7 @@ export function ProviderAccountRow({ account, providerId, providerName, iconSvg,
   onRefresh: () => void;
 }) {
   const edit = useRowEditor(account);
-  const identity = account.identity ?? account.name ?? "Signed out";
+  const identity = account.identity ?? account.name ?? (account.status === "signedOut" ? "Signed out" : account.id === "default" ? "Your usual sign-in" : "Account");
   const name = account.name ?? identity;
   const status = accountStatus(account);
   const disabled = busy || account.status === "removing";
@@ -65,6 +69,10 @@ export function ProviderAccountRow({ account, providerId, providerName, iconSvg,
       description: account.id === "default" ? `This is your usual sign-in. Sign out from ${providerName} itself.` : undefined,
       onClick: () => edit.setMode("remove") },
   ];
+  if (account.status === "probeFailed" && account.probeFailureReason) {
+    items.push({ separator: true, key: "probe-failure" },
+      { label: "Couldn't check sign-in", description: account.probeFailureReason, unavailable: true });
+  }
   const trimmed = edit.draft.trim();
   const validName = Array.from(trimmed).length > 0 && Array.from(trimmed).length <= 80 && !/\p{Cc}/u.test(trimmed);
   const cancelEdit = () => { if (!busy) edit.setMode(null); };
@@ -97,7 +105,8 @@ export function ProviderAccountRow({ account, providerId, providerName, iconSvg,
           <div title={name} className="truncate text-[13px] text-[var(--ct-fg)]">{name}</div>
           {account.name && account.identity && <div title={account.identity} className="truncate text-xs text-[var(--ct-muted-fg)]">{account.identity}</div>}
           {status && <div className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]">
-            {account.status === "signingIn" ? <BusyState inline label={status} /> : <>
+            {account.status === "checking" ? <DeferredLoader state="present" style={{ animationDelay: "400ms" }}><BusyState inline label={status} /></DeferredLoader>
+              : account.status === "signingIn" ? <BusyState inline label={status} /> : <>
               {(account.status === "exhausted" || account.status === "signedOut") && <span aria-hidden="true" className={account.status === "exhausted" ? "h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ct-yellow)]" : "h-1.5 w-1.5 shrink-0 rounded-full border border-[var(--ct-muted-fg)]"} />}
               <span>{status}</span>
             </>}
@@ -105,6 +114,7 @@ export function ProviderAccountRow({ account, providerId, providerName, iconSvg,
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {account.status === "signedOut" && <button type="button" className={quiet} disabled={disabled} onClick={() => { void onAction({ action: "signIn", accountId: account.id }); }}>Sign in</button>}
+          {account.status === "probeFailed" && <button type="button" className={quiet} disabled={disabled} onClick={() => { void onAction({ action: "check", accountId: account.id }); }}>Check again</button>}
           {account.status === "signingIn" && <button type="button" className={quiet} disabled={disabled} onClick={() => { void onAction({ action: "cancelSignIn", accountId: account.id }); }}>Cancel</button>}
           <DropdownMenu items={items} disabled={disabled} menuLabel={`${identity} actions`}
             trigger={disabled
