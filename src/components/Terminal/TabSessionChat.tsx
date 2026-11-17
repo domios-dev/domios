@@ -5,7 +5,8 @@ import { tabActivity } from "../../lib/tabActivity";
 
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { useChatTabNameResolver } from "./useChatTabNameResolver";
-import { isInputBlockedTab } from "../../lib/tabInputPolicy";
+import { isConciergeTab, isInputBlockedTab } from "../../lib/tabInputPolicy";
+import { ConciergeChatHint } from "../Neighbors/ConciergeChatHint";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { useTabLock } from "../billing/useTabLock";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
@@ -264,7 +265,7 @@ function TabSessionChatBody({
     ? tabActivity(promptLifecycle.tab, agentActivity.status === "Waiting" ? null : agentActivity.status)
     : agentActivity;
   const descriptor = getAgentDescriptor(tabProvider);
-  const promptAnswers = descriptor?.supports_prompt_answers === true;
+  const promptAnswers = !readOnly && descriptor?.supports_prompt_answers === true;
   const structuredPrompts = descriptor?.supports_structured_prompts === true;
   const isActive = isVisible;
   const transcriptMounted = sessionActive ?? isActive;
@@ -843,8 +844,8 @@ function TabSessionChatBody({
     resolvePeerName,
     onOpenPlan,
     resolvePlanRef,
-    onAnswerInteractive: handleAnswerInteractive,
-    onRerunShellCommand: handleRerunShellCommand,
+    onAnswerInteractive: readOnly ? undefined : handleAnswerInteractive,
+    onRerunShellCommand: readOnly ? undefined : handleRerunShellCommand,
     onStopReminder: handleStopReminder,
     onOpenJobs: openJobs,
     onJumpToShellCommand: onOpenTerminalFallback ? handleJumpToShellCommand : undefined,
@@ -858,7 +859,7 @@ function TabSessionChatBody({
   }), [tabId, promptAnswers, uiFontScale, answeredInteractiveIds, messageSelection.rowHandlers, handleContentLayout, resolveTabName,
     resolvePeerName, onOpenPlan, resolvePlanRef, handleAnswerInteractive, handleRerunShellCommand, handleStopReminder, openJobs,
     onOpenTerminalFallback, handleJumpToShellCommand, resolveFocusTab, jumpToQuoted, answerNotification, deleteSend, retryChatDelivery,
-    forkFrom, revertTo]);
+    forkFrom, revertTo, readOnly]);
 
   const setupState = (<ChatSetupState
           visible={isActive}
@@ -1113,7 +1114,7 @@ function TabSessionChatBody({
             ? () => setBindingRecoveryOpen(true)
             : undefined}
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
-          recovery={readOnly || dockedTabFailure(tab) ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
+          recovery={(readOnly && !isConciergeTab(tab)) || dockedTabFailure(tab) ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
@@ -1136,7 +1137,7 @@ function TabSessionChatBody({
       />}
         {signInState && signIn === "inline" && <RuntimeLoginActions key={`${tabId}:${signInState.epoch}`} variant="inline" tabId={tabId} state={signInState}
           iconSvg={provider?.iconSvg} providerId={tabProvider ?? undefined} onCheck={() => { void runtime.retry(); }} />}
-        {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
+        {isConciergeTab(tab) && tab?.neighbor_authority ? <ConciergeChatHint friendship={tab.neighbor_authority.friendship_id} /> : managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
           idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}

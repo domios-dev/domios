@@ -217,9 +217,7 @@ impl DeliverySeam for super::ServiceContext {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
-        if envelope.kind != super::messenger::MessageKind::System {
-            self.require_tab_input_allowed(to_tab, Some(&envelope.from_tab))?;
-        }
+        self.require_enveloped_input_allowed(to_tab, &envelope)?;
         Messenger::deliver(self, to_tab, envelope, body)
     }
 
@@ -229,9 +227,7 @@ impl DeliverySeam for super::ServiceContext {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
-        if envelope.kind != super::messenger::MessageKind::System {
-            self.require_tab_input_allowed(to_tab, Some(&envelope.from_tab))?;
-        }
+        self.require_enveloped_input_allowed(to_tab, &envelope)?;
         Messenger::deliver_with_pad_file(self, to_tab, envelope, body)
     }
 
@@ -378,7 +374,7 @@ pub(crate) fn classify(target: &str, err: String) -> DeliveryError {
         DeliveryError::ReadOnly {
             target: target.to_string(),
         }
-    } else if err.starts_with("tab_busy_refused:") {
+    } else if err.starts_with("tab_busy_refused:") || err.starts_with("concierge_read_only:") {
         DeliveryError::BusyRefused { detail: err }
     } else if low.contains("not found")
         || low.contains("Tab missing")

@@ -99,6 +99,9 @@ impl DeliveryError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::TabNotReachableOnPeer { .. } => "tab_not_reachable_on_peer",
+            Self::TabBusyRefused { detail, .. } if detail.starts_with("concierge_read_only:") => {
+                "concierge_read_only"
+            }
             Self::TabBusyRefused { .. } => "tab_busy_refused",
             Self::PtyUnavailable { .. } => "pty_unavailable",
             Self::SubmitUnconfirmed { .. } => "submit_unconfirmed",
@@ -202,6 +205,12 @@ impl DeliveryError {
     /// their zero-byte type; unknown failures remain submit uncertainty.
     pub fn from_opaque(tab: &str, detail: impl Into<String>) -> Self {
         let detail = detail.into();
+        if detail.starts_with("concierge_read_only:") {
+            return Self::TabBusyRefused {
+                tab: tab.to_string(),
+                detail,
+            };
+        }
         if detail.starts_with(crate::service::billing::PLAN_LIMIT_LOCKED) {
             return Self::PlanLimitLocked {
                 tab: tab.to_string(),

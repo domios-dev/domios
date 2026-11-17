@@ -437,6 +437,56 @@ test("watcher Tab mounts read-only bar and no composer input", async () => {
   await act(async () => root.unmount());
 });
 
+test("concierge keeps model management and routes the owner to the friend conversation", async () => {
+  const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
+  const { __setTabModelApiForTest } = await import("../Sidebar/tabModelApi");
+  const { isInputBlockedTab } = await import("../../lib/tabInputPolicy");
+  const tabId = "opaque-role-tab";
+  const friendship = "opaque-friendship";
+  const tab = tabBase(tabId, { agent_type: "fixture", agent_session_model: "fast", pty_id: "own-pty",
+    neighbor_authority: { uid: "opaque-user", friendship_id: friendship, root_tab_id: null } });
+  setAgentDescriptors([{ id: "fixture", display_name: "Fixture", transport: "pty", model_switch: "next_turn",
+    available_models: [{ id: "fast", display_name: "Fast", reasoning_efforts: [] }, { id: "deep", display_name: "Deep", reasoning_efforts: [] }],
+  } as import("../../lib/types").ProviderDescriptor]);
+  const switched: string[] = [];
+  __setTabModelApiForTest({ switchModel: async (_tab, model) => {
+    switched.push(model);
+    return { mode_used: "next_turn", model_confirmation: "pending" };
+  } });
+  const fetchMock = mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
+    [friendship]: { friend_display_name: "Ada", tab_id: tabId },
+  }), { headers: { "content-type": "application/json" } }));
+  const opened: string[] = [];
+  const onOpen = (event: Event) => opened.push((event as CustomEvent<{ panel: string }>).detail.panel);
+  window.addEventListener("codeterm:open-panel", onOpen);
+  const { host, root } = await renderTabSessionChat(tabId, muxStateFor({ [tabId]: tab }));
+  try {
+    assert(isInputBlockedTab(tab, { locked: false }), "concierge input policy blocks terminal keys and paste");
+    assert(!host.querySelector('textarea, [contenteditable="true"], [aria-label="Message composer"]'), "no owner composer mounted");
+    const picker = host.querySelector<HTMLButtonElement>('[aria-label^="Change model, currently"]');
+    assert(picker && !picker.disabled, "model picker remains available");
+    await act(async () => picker.click());
+    const deep = document.querySelector<HTMLButtonElement>('[role="option"][aria-label="Deep"]');
+    assert(deep, "picker exposes model choices");
+    await act(async () => deep.click());
+    const apply = [...document.querySelectorAll("button")].find(button => button.textContent === "Apply");
+    assert(apply, "model selection can be applied");
+    await act(async () => apply.click());
+    assert(switched.length === 1 && switched[0] === "deep", "model change reaches its management API once");
+    const hint = host.querySelector<HTMLAnchorElement>(`a[href="domios://neighbor/${friendship}"]`);
+    assert(hint, "friend conversation link is available");
+    await act(async () => hint.click());
+    assert(opened.length === 1 && opened[0] === `neighbor:${friendship}`, "hint opens exactly the friend's chat");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    fetchMock.mock.restore();
+    window.removeEventListener("codeterm:open-panel", onOpen);
+    __setTabModelApiForTest(null);
+    setAgentDescriptors([]);
+  }
+});
+
 test("normal chat_backend Tab keeps composer and hides read-only bar", async () => {
   const tabId = "chat-tab";
   const state = muxStateFor({
