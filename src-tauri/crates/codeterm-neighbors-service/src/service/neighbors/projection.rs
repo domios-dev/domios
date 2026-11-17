@@ -390,6 +390,9 @@ impl NeighborsExt for ServiceContext {
             .await
     }
     fn neighbor_projection_activated(&self, uid: &str, generation: u64, version: u64) -> bool {
+        if self.neighbor_activation_stale() {
+            return false;
+        }
         let state = self.extensions.get_or_init(Cell::default).state.lock();
         state.selected.as_ref() == Some(&(uid.to_owned(), generation))
             && state.activated == Some(version)

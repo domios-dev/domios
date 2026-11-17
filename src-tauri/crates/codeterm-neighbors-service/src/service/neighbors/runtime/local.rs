@@ -180,6 +180,7 @@ impl NeighborsExt for ServiceContext {
                     listener_errors: failures.into_iter().collect(),
                 });
                 status["projection"] = self.neighbor_projection_diagnostics().await;
+                status["status_stale"] = self.neighbor_activation_stale().into();
                 status["installation_id"] = installation.as_str().into();
                 Ok(status)
             }

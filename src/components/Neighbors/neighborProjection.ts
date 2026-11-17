@@ -7,6 +7,7 @@ import { resetNeighborReads } from "./neighborReads";
 import { listen } from "../../lib/bridge";
 import { onResync } from "../../lib/resync";
 import { receiverState, type ReceiverState } from "./neighborRuntimeClient";
+import { observeNeighborStatus, type NeighborStatusObservation } from "./neighborStatusObservations";
 
 export type NeighborProjection = Record<string, {
   tab_id: string | null;
@@ -16,7 +17,21 @@ export type NeighborProjection = Record<string, {
   access: "paid" | "locked" | null;
   receiver: ReceiverState | null;
   concierge?: unknown;
+  observation?: NeighborStatusObservation;
+  status_stale?: boolean;
 }>;
+
+export function observeNeighborProjection(fresh: NeighborProjection, current: NeighborProjection = {}, stale = false): NeighborProjection {
+  return Object.fromEntries(Object.entries(fresh).map(([id, entry]) => {
+    const previous = current[id];
+    const observed = observeNeighborStatus({ bindings: { [id]: entry.tab_id ?? "" },
+      friend_receivers: entry.receiver ? { [id]: entry.receiver } : {}, concierges: { [id]: entry.concierge }, status_stale: stale || entry.status_stale,
+    }, previous ? {
+      bindings: { [id]: previous.tab_id ?? "" }, observations: previous.observation ? { [id]: previous.observation } : {},
+    } : undefined);
+    return [id, { ...entry, observation: observed.observations?.[id] }];
+  }));
+}
 
 export function projectionForPeer(selected: string | null, source: string | null, projection: NeighborProjection): NeighborProjection {
   return selected === source ? projection : {};
@@ -57,11 +72,15 @@ export function useNeighborProjection(peer: string, tabKey: string): NeighborPro
       const request = new AbortController();
       controller = request;
       void readNeighborProjection(request.signal).then(projection => {
-        if (live && !request.signal.aborted) setSnapshot({ peer, projection });
-      }).catch(() => {});
+        if (live && !request.signal.aborted) setSnapshot(current => ({ peer,
+          projection: observeNeighborProjection(projection, current?.peer === peer ? current.projection : {}) }));
+      }).catch(() => {
+        if (live && !request.signal.aborted) setSnapshot(current => current?.peer === peer
+          ? { peer, projection: observeNeighborProjection(current.projection, current.projection, true) } : current);
+      });
     };
     const keep = (stop: () => void) => { if (live) stops.push(stop); else stop(); };
-    for (const event of ["neighbor-agent-changed", "neighbor-friend-paused", "neighbors-changed", "account-changed", "account-mesh-changed", "mesh-state-changed"]) void listen(event, load).then(keep);
+    for (const event of ["neighbor-agent-changed", "neighbor-activation-status", "neighbor-friend-paused", "neighbors-changed", "account-changed", "account-mesh-changed", "mesh-state-changed"]) void listen(event, load).then(keep);
     void listen<unknown>("neighbor-runtime-status", event => {
       const value = event.payload;
       if (receiverState(value) || (typeof value === "object" && value !== null && "receiver_unavailable" in value)) load();
