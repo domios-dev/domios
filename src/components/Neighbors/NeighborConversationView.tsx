@@ -275,7 +275,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   };
 
   const headerStatus = removed ? "no longer connected" : !enabled ? "Neighbors is off" : locked ? "paused by plan"
-    : concierge?.state === "concierge_starting" || concierge?.state === "paused" ? conciergeStatusLine(concierge) : null;
+    : concierge?.state === "concierge_starting" || concierge?.state === "paused" || conciergeNeedsAttention(concierge) ? conciergeStatusLine(concierge) : null;
   return <div className="neighbor-chat absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
     <div className={`${UI_PANEL.toolbar} ct-section-toolbar gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
       <button type="button" className="neighbor-chat__who ct-liquid-interactive" aria-label={`Open ${name}'s page`} onClick={() => openNeighborPage(friendship)}>

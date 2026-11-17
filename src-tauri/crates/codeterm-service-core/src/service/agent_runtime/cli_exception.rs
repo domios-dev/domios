@@ -367,6 +367,15 @@ fn metadata_directory(svc: &ServiceContext, provider: &str) -> Result<Option<Str
         .transpose()
 }
 
+fn instance_executable(svc: &ServiceContext) -> Option<PathBuf> {
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(executable) = svc.try_ext::<tests::Executable>() {
+        return Some(executable.0.clone());
+    }
+    let _ = svc;
+    crate::service::instance_env::instance_cli_binary_path()
+}
+
 pub(super) fn prepare(
     svc: &ServiceContext,
     provider: &str,
@@ -381,7 +390,7 @@ pub(super) fn prepare(
     let Some(sandbox) = sandbox(svc, context)? else {
         return Ok(None);
     };
-    let executable = crate::service::instance_env::instance_cli_binary_path().ok_or(DENIED)?;
+    let executable = instance_executable(svc).ok_or(DENIED)?;
     let existing = LEASES.lock().get(&context.tab_id).cloned();
     if let Some(mut lease) = existing {
         if lease.provider != provider
@@ -443,7 +452,7 @@ pub(super) fn validate(svc: &ServiceContext, context: &RuntimeContext) -> Result
     {
         return Err(DENIED.into());
     }
-    let executable = crate::service::instance_env::instance_cli_binary_path().ok_or(DENIED)?;
+    let executable = instance_executable(svc).ok_or(DENIED)?;
     if command_path(&executable.canonicalize().map_err(|_| DENIED)?)? != policy.executable {
         return Err(DENIED.into());
     }

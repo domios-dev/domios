@@ -1,6 +1,9 @@
 use super::*;
 use codeterm_plugin::agent_runtime::RuntimeSettings;
 
+#[derive(Debug)]
+pub struct Executable(pub PathBuf);
+
 pub fn fixture() -> (
     tempfile::TempDir,
     RuntimeContext,

@@ -103,21 +103,23 @@ it("says when a friend has no concierge on this machine, with the waiting count 
   expect(sentText()[0].text).toContain("pair");
 });
 
-it("updates recovery from concierge events and shows a closed notice despite the friend's stale binding", async () => {
+it("resolves a provisional launch from runtime failure and keeps a closed notice despite the friend's stale binding", async () => {
   const runtimeClient = runtime({ pair: "tab-gateway" });
   vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ bindings: { pair: "tab-gateway" },
-    concierges: { pair: conciergeState({ state: "ready", gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true }) } }));
+    concierges: { pair: conciergeState({ state: "concierge_starting", gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true }) } }));
   const client: NeighborClient = { list: vi.fn(async () => ({ schema_version: 1 as const, access: "paid" as const, can_invite: true,
     friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] })), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
   expect(hasButton("Open recovery")).toBe(false);
+  expect(host.textContent).toContain("concierge starting");
   const focused = vi.fn();
   window.addEventListener("codeterm:focus-tab", focused);
   try {
-    await act(async () => emit("neighbor-concierge-status", { friendship_id: "pair", ...conciergeState({ state: "concierge_crashed",
-      gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true }) }));
+    vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ bindings: { pair: "tab-gateway" },
+      concierges: { pair: conciergeState({ state: "concierge_crashed", gateway_tab: "tab-gateway", concierge_missing: false, receiving_here: true }) } }));
+    await act(async () => emit("agent-runtime-state", {tab_id:"tab-gateway",state:{state:"degraded",failureCode:"hook_failed"}}));
     const notice = host.querySelector('[role="status"][aria-label="Concierge needs attention"]')!;
     expect(notice.querySelectorAll("button")).toHaveLength(1);
     expect(host.textContent).not.toMatch(/\bconnected\b|concierge starting/);

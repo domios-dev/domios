@@ -8,6 +8,52 @@ use std::sync::Arc;
 pub struct NoCalls;
 
 #[tokio::test]
+async fn invalid_saved_access_notifies_once_without_replacing_the_concierge() {
+    let data = tempfile::tempdir().unwrap();
+    let (fixture, metadata, friend, root, _, _) = fixture(data.path()).await;
+    let service = &fixture.service;
+    let mut settings = metadata.settings().await.unwrap();
+    settings.permissions.remove(&friend);
+    metadata.save_settings(settings.clone()).await.unwrap();
+    for _ in 0..2 {
+        service
+            .reconcile_neighbor_concierge_receiver_with(
+                &metadata,
+                "owner",
+                &friend,
+                true,
+                1,
+                service.neighbor_history_generation(),
+                || {
+                    service.restore_neighbor_concierge_with(
+                        &metadata,
+                        "owner",
+                        &friend,
+                        |_, _, _, _, _, _| async {
+                            panic!("missing persisted access cannot launch")
+                        },
+                    )
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let saved = metadata.settings().await.unwrap();
+    assert_eq!(saved.bindings[&friend], root);
+    assert!(!saved.permissions.contains_key(&friend));
+    let events = fixture.ui.0.lock();
+    let notices: Vec<_> = events
+        .iter()
+        .filter(|(name, _)| name == "notification-created")
+        .collect();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(
+        notices[0].1["actions"][0]["value"],
+        format!("domios://neighbor/{friend}/permissions")
+    );
+}
+
+#[tokio::test]
 async fn restore_failure_after_generation_or_receiver_change_still_refuses_activation() {
     for change_generation in [false, true] {
         let data = tempfile::tempdir().unwrap();
