@@ -93,3 +93,18 @@ it("preserves the last proven roster on a failed mutation and rejects foreign sn
     expect(mounted.value.error).toContain("does not match this harness");
   } finally { await mounted.close(); }
 });
+
+it("an old rendered cancel cannot target a replacement sign-in attempt", async () => {
+  fixture.json.mockReset().mockResolvedValueOnce({...snapshot("fixture","one"),signInId:"first"})
+    .mockResolvedValueOnce({...snapshot("fixture","one"),signInId:"replacement"})
+    .mockResolvedValueOnce(snapshot("fixture","one"));
+  const mounted=await harness("fixture");
+  try {
+    const oldCancel=mounted.value.onAction;
+    await act(async()=>mounted.value.onRefresh());
+    await act(async()=>{await expect(oldCancel({action:"cancelAdd"})).rejects.toThrow("account list changed");});
+    expect(fixture.json.mock.calls.filter(([method])=>method==="POST")).toHaveLength(0);
+    await act(async()=>{await mounted.value.onAction({action:"cancelAdd"});});
+    expect(fixture.json.mock.calls.at(-1)?.[2]).toEqual({revision:"one",signInId:"replacement",operation:{action:"cancelAdd"}});
+  } finally {await mounted.close();}
+});

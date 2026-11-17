@@ -5134,6 +5134,11 @@ function cleanPromptText(value) {
 // plugins/provider-codex/src/usage.ts
 var CODEX_USAGE_KIND = "codeterm_usage_v1";
 var CODEX_AUTH_CREDENTIAL2 = "codexAuth";
+function* codexAccountIdentity() {
+  const subject = stringAt(safeJson(yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL2 }, true)), "accountId");
+  if (!subject || subject.trim() !== subject || [...subject].length > 320 || /[\u0000-\u001f\u007f-\u009f]/u.test(subject)) return null;
+  return { subject, label: subject };
+}
 function* fetchCodexUsage(host2) {
   const accountId = stringAt(safeJson(yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL2 }, true)), "accountId");
   if (!accountId) return null;
@@ -7099,6 +7104,9 @@ var plugin = {
   },
   *fetchUsage() {
     return yield* fetchCodexUsage(host);
+  },
+  *accountIdentity() {
+    return yield* codexAccountIdentity();
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;

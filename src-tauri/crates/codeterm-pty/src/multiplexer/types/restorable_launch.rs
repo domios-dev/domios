@@ -35,6 +35,8 @@ pub struct RestorableLaunchParameters {
     #[ts(optional)]
     pub account_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub execution_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,6 +119,7 @@ impl RestorableLaunchParameters {
 
     pub fn is_empty(&self) -> bool {
         self.account_id.is_none()
+            && self.account_namespace.is_none()
             && self.execution_mode.is_none()
             && self.execution_sandbox.is_none()
             && self.failed_provider.is_none()

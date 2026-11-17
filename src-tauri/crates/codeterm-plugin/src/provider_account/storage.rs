@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub use codeterm_types::config::provider_accounts::AccountIdentity;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct AccountCapability {
@@ -9,6 +11,8 @@ pub struct AccountCapability {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excluded_environment: Vec<String>,
     pub isolated_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub credential_files: Vec<String>,
     pub shared_paths: Vec<SharedStoragePath>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_index_paths: Vec<String>,
@@ -72,6 +76,10 @@ impl AccountCapability {
             || self.secret_environment.contains(&self.home_environment)
             || self.excluded_environment.contains(&self.home_environment)
             || self.isolated_paths.len() > 64
+            || self.credential_files.len() > 16
+            || self.credential_files.iter().any(|path| {
+                !relative(path) || path.contains(['/', '\\']) || !self.isolated_paths.contains(path)
+            })
             || self.shared_paths.len() > 64
             || self.shared_index_paths.len() > 64
             || self.secret_environment.len() > 64

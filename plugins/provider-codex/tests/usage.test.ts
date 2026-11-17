@@ -19,8 +19,9 @@ import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseCodexUsage, fetchCodexUsage as ioSource_fetchCodexUsage } from "../src/usage";
+import { parseCodexUsage, fetchCodexUsage as ioSource_fetchCodexUsage, codexAccountIdentity } from "../src/usage";
 const fetchCodexUsage = ioTestExport(ioSource_fetchCodexUsage);
+const accountIdentity = ioTestExport(codexAccountIdentity);
 
 let passed = 0;
 let failed = 0;
@@ -37,6 +38,11 @@ function eq(actual: unknown, expected: unknown, name: string) {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+for (const subject of ["opaque-account", " foreign-account", "foreign-account\n", "x".repeat(321), ""]) {
+  const identity=accountIdentity({credentialPublic:()=>JSON.stringify({accountId:subject,accessToken:"opaque-secret"})});
+  eq(identity,subject==="opaque-account"?{subject,label:subject}:null,"account identity uses bounded public metadata only");
+}
 
 function fixtureText(name: string): string {
   return fs.readFileSync(path.join(here, "fixtures", name), "utf8");

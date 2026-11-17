@@ -416,6 +416,19 @@ fn commit_config(
             config.browser_upload_folders = current.browser_upload_folders.clone();
         }
         config.api.token = current.api.token.clone();
+        // Account actions own this policy; an unrelated stale settings snapshot cannot restore it.
+        for (provider, incoming) in &mut config.agents {
+            incoming.accounts = current
+                .agents
+                .get(provider)
+                .and_then(|entry| entry.accounts.clone());
+        }
+        for (provider, stored) in &current.agents {
+            if stored.accounts.is_some() {
+                config.agents.entry(provider.clone()).or_default().accounts =
+                    stored.accounts.clone();
+            }
+        }
     }
     persist_and_apply(state, config, persist).map_err(ConfigCommitError::Save)
 }

@@ -17,7 +17,7 @@ import type { LaunchParams, LaunchSessionDetection, LaunchSessionEvidence, Model
 import { discoverCodexModels } from "./models";
 import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
 import { classifyCodexFolderTrustPrompt, parseMenuOptions, parseCodexFolderTrustPrompt, parseCodexPrompt, responseKeysForIndex } from "./prompt";
-import { fetchCodexUsage, parseCodexUsage } from "./usage";
+import { codexAccountIdentity, fetchCodexUsage, parseCodexUsage } from "./usage";
 import { checkCodexUpdate, codexSelfUpdateCapability } from "./update";
 import { execScriptCommands, summarizeExecScript, unwrapCommandExecution, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
@@ -437,6 +437,10 @@ const plugin = {
 
   *fetchUsage(): HostIoSteps<unknown> {
     return (yield* fetchCodexUsage(host));
+  },
+
+  *accountIdentity(): HostIoSteps<unknown> {
+    return (yield* codexAccountIdentity());
   },
 
   detectActiveSession(_cwd: string, _currentSid?: string): string | null {

@@ -3,6 +3,7 @@ use codeterm_plugin::provider_account::{self, storage::AccountContinuation};
 
 fn capability() -> AccountCapability {
     AccountCapability {
+        credential_files: vec![],
         home_environment: "ACCOUNT_STORAGE_TEST_HOME".into(),
         default_home: "~/.fixture".into(),
         secret_environment: vec!["ACCOUNT_STORAGE_TEST_TOKEN".into()],
@@ -21,6 +22,108 @@ fn capability() -> AccountCapability {
         shared_index_paths: vec![],
         continuation: AccountContinuation::Unverified,
     }
+}
+
+#[test]
+fn replacement_credentials_have_a_new_namespace_and_keep_the_logical_account() {
+    let data = tempfile::tempdir().unwrap();
+    let usual = tempfile::tempdir().unwrap();
+    let capability = capability();
+    let original = provision_namespace(
+        data.path(),
+        "fixture",
+        "work",
+        "work",
+        &capability,
+        usual.path(),
+    )
+    .unwrap();
+    let replacement = provision_namespace(
+        data.path(),
+        "fixture",
+        "work",
+        "auth-replacement",
+        &capability,
+        usual.path(),
+    )
+    .unwrap();
+    assert_eq!(original.account(), replacement.account());
+    assert_ne!(original.cache_key(), replacement.cache_key());
+    let original_home = home_path(data.path(), "fixture", "work").unwrap();
+    let replacement_home = home_path(data.path(), "fixture", "auth-replacement").unwrap();
+    std::fs::write(original_home.join("auth.json"), "opaque-original-auth").unwrap();
+    assert!(!replacement_home.join("auth.json").exists());
+    std::fs::write(
+        replacement_home.join("auth.json"),
+        "opaque-replacement-auth",
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(original_home.join("auth.json")).unwrap(),
+        "opaque-original-auth"
+    );
+    assert_eq!(
+        configuration_value(
+            &original_home,
+            capability.shared_paths[0].configuration.as_ref().unwrap()
+        )
+        .unwrap(),
+        configuration_value(
+            &replacement_home,
+            capability.shared_paths[0].configuration.as_ref().unwrap()
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn discarding_a_named_context_unlinks_shared_history_and_retains_the_usual_credentials() {
+    let data = tempfile::tempdir().unwrap();
+    let usual = tempfile::tempdir().unwrap();
+    let mut capability = capability();
+    capability.shared_paths.extend([
+        SharedStoragePath {
+            path: "sessions".into(),
+            kind: StoragePathKind::Directory,
+            root_environment: None,
+            configuration: None,
+        },
+        SharedStoragePath {
+            path: "history.jsonl".into(),
+            kind: StoragePathKind::File,
+            root_environment: None,
+            configuration: None,
+        },
+    ]);
+    std::fs::create_dir(usual.path().join("sessions")).unwrap();
+    std::fs::write(usual.path().join("sessions/own-session"), "opaque-session").unwrap();
+    std::fs::write(usual.path().join("history.jsonl"), "opaque-history").unwrap();
+    std::fs::write(usual.path().join("auth.json"), "opaque-usual-auth").unwrap();
+    provision(
+        data.path(),
+        "fixture",
+        "draft-account",
+        &capability,
+        usual.path(),
+    )
+    .unwrap();
+    let home = home_path(data.path(), "fixture", "draft-account").unwrap();
+    std::fs::write(home.join("auth.json"), "opaque-draft-auth").unwrap();
+    assert!(discard(data.path(), "fixture", "default").is_err());
+    discard(data.path(), "fixture", "draft-account").unwrap();
+    assert!(!home.exists());
+    assert_eq!(
+        std::fs::read_to_string(usual.path().join("auth.json")).unwrap(),
+        "opaque-usual-auth"
+    );
+    assert_eq!(
+        std::fs::read_to_string(usual.path().join("history.jsonl")).unwrap(),
+        "opaque-history"
+    );
+    assert_eq!(
+        std::fs::read_to_string(usual.path().join("sessions/own-session")).unwrap(),
+        "opaque-session"
+    );
 }
 
 #[test]

@@ -19,6 +19,94 @@ fn pending() -> (ServiceFixture, String, watch::Receiver<bool>) {
     (fixture, tab, stopping)
 }
 
+#[tokio::test]
+async fn account_cleanup_waits_for_the_owned_cli_process_receipt() {
+    let (_fixture, tab, mut stopping) = pending();
+    let (completed, finished) = watch::channel(false);
+    let stop = JOBS.lock().get(&tab).unwrap().stop.clone().unwrap();
+    RUNS.lock().insert(
+        tab.clone(),
+        Arc::new(Run {
+            id: "own-login".into(),
+            provider: "fixture".into(),
+            account: "default".into(),
+            nonce: Some("own-nonce".into()),
+            stop,
+            finished,
+        }),
+    );
+    let closing = close_and_wait(&tab, "fixture", "default", Some("own-nonce"));
+    tokio::pin!(closing);
+    tokio::select! {
+        biased;
+        result = &mut closing => panic!("cleanup finished without a process receipt: {result:?}"),
+        _ = std::future::ready(()) => {}
+    }
+    stopping.changed().await.unwrap();
+    assert!(*stopping.borrow());
+    assert!(JOBS.lock().contains_key(&tab));
+    completed.send_replace(true);
+    closing.await.unwrap();
+    assert!(!JOBS.lock().contains_key(&tab));
+    assert!(!RUNS.lock().contains_key(&tab));
+}
+
+#[tokio::test]
+async fn account_cleanup_does_not_treat_a_dropped_worker_as_completion() {
+    let (_fixture, tab, _stopping) = pending();
+    let (completed, finished) = watch::channel(false);
+    let stop = JOBS.lock().get(&tab).unwrap().stop.clone().unwrap();
+    RUNS.lock().insert(
+        tab.clone(),
+        Arc::new(Run {
+            id: "own-login".into(),
+            provider: "fixture".into(),
+            account: "default".into(),
+            nonce: Some("own-nonce".into()),
+            stop,
+            finished,
+        }),
+    );
+    drop(completed);
+    close(&tab);
+    assert!(!JOBS.lock().contains_key(&tab));
+    assert!(
+        close_and_wait(&tab, "fixture", "default", Some("own-nonce"))
+            .await
+            .is_err()
+    );
+    assert!(RUNS.lock().contains_key(&tab));
+    RUNS.lock().remove(&tab);
+}
+
+#[tokio::test]
+async fn account_cleanup_retains_process_ownership_after_ui_job_removal() {
+    let (_fixture, tab, _stopping) = pending();
+    let (completed, finished) = watch::channel(false);
+    let stop = JOBS.lock().get(&tab).unwrap().stop.clone().unwrap();
+    RUNS.lock().insert(
+        tab.clone(),
+        Arc::new(Run {
+            id: "own-login".into(),
+            provider: "fixture".into(),
+            account: "default".into(),
+            nonce: Some("own-nonce".into()),
+            stop,
+            finished,
+        }),
+    );
+    close(&tab);
+    let closing = close_and_wait(&tab, "fixture", "default", Some("own-nonce"));
+    tokio::pin!(closing);
+    tokio::select! { biased;
+        result=&mut closing=>panic!("UI removal was mistaken for process cleanup: {result:?}"),
+        _=std::future::ready(())=>{}
+    }
+    completed.send_replace(true);
+    closing.await.unwrap();
+    assert!(!RUNS.lock().contains_key(&tab));
+}
+
 #[test]
 fn cli_login_pending_publication_reaches_the_runtime_event_bus() {
     let (fixture, tab, _stopping) = pending();

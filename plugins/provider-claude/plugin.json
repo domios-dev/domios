@@ -4,6 +4,7 @@
   "minCodeterm": "1.20.2",
   "hostApi": 2,
   "accounts": {
+    "credentialFiles": [".credentials.json"],
     "homeEnvironment": "CLAUDE_CONFIG_DIR",
     "defaultHome": "~/.claude",
     "secretEnvironment": [

@@ -110,6 +110,8 @@ pub struct SpawnAgentParams {
     pub agent: Option<String>,
     #[serde(default)]
     pub account_id: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub account_namespace: Option<String>,
     pub agent_name: Option<String>,
     pub args: Option<Vec<String>>,
     pub cwd: Option<String>,

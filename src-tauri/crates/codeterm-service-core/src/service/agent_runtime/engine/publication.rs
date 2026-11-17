@@ -187,6 +187,7 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
         "agent-runtime-state",
         serde_json::json!({"tab_id":tab,"session_binding_nonce":context.binding_nonce,"state":value}),
     );
+    crate::service::provider_accounts::login_changed(svc, tab);
 }
 
 #[cfg(any(test, feature = "test-support"))]

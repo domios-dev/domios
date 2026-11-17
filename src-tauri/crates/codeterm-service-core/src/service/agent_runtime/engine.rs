@@ -37,6 +37,8 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(tab).cloned()
 }
 
+pub use accounts::ensure_with_invocation;
+
 pub(super) fn login_pending_session(
     svc: &ServiceContext,
     tab: &str,
@@ -402,6 +404,12 @@ async fn ensure_scoped(
             session.context.lock().binding_nonce != nonce
                 || session.provider != provider
                 || *session.account.lock() != account
+                || session
+                    .invocation
+                    .lock()
+                    .as_ref()
+                    .map(|context| context.cache_key())
+                    != invocation.as_ref().map(|context| context.cache_key())
         }) {
             if let Some(old) = sessions.remove(tab) {
                 retired_cli = true;

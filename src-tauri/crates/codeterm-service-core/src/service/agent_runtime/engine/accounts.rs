@@ -25,3 +25,11 @@ pub(super) async fn ensure(
     .map_err(RuntimeFailure::Refused)?;
     codeterm_plugin::provider_account::scope(invocation, ensure_scoped(svc, tab, fork)).await
 }
+
+pub async fn ensure_with_invocation(
+    svc: &ServiceContext,
+    tab: &str,
+    invocation: Option<Arc<codeterm_plugin::provider_account::InvocationContext>>,
+) -> Result<Arc<Session>, RuntimeFailure> {
+    codeterm_plugin::provider_account::scope(invocation, ensure_scoped(svc, tab, None)).await
+}

@@ -12,6 +12,7 @@ export interface ProviderAccountRow {
   plan?: string;
   status: "ready" | "signedOut" | "signingIn" | "exhausted" | "removing" | "checking" | "probeFailed" | "unknown";
   probeFailureReason?: string;
+  removalNotice?: { id: string; kind: "inUse" };
   tabsInUse: number;
   tabsToFinish?: number;
   resetsAtMs?: number;
@@ -21,17 +22,16 @@ export interface ProviderAccountRow {
 export interface ProviderAccountsSnapshot {
   providerId: string;
   revision: string;
+  signInId?: string;
   accounts: ProviderAccountRow[];
   automaticSwitch: boolean;
   continuation: "unverified" | "unsupported" | "proven";
   workspaceOverrides: { workspaceId: string; workspaceName: string; accountId: string }[];
   adding?: {
-    context: AccountLoginContext;
-    status: "signingIn" | "duplicate" | "failed";
     identity?: string;
     error?: string;
     details?: string;
-  };
+  } & ({ status: "signingIn"; context: AccountLoginContext } | { status: "duplicate" | "failed"; context?: AccountLoginContext });
   /** Positions are zero-based in requests and feedback. */
   feedback?: { id: string; kind: "added" | "moved"; accountId: string; position: number };
 }
@@ -42,4 +42,6 @@ export type ProviderAccountsAction =
   | { action: "rename"; accountId: string; name: string }
   | { action: "reorder"; accountId: string; position: number }
   | { action: "automaticSwitch"; enabled: boolean }
-  | { action: "resetWorkspace"; workspaceId: string };
+  | { action: "resetWorkspace"; workspaceId: string }
+  | { action: "workspace"; workspaceId: string; accountId: string | null }
+  | { action: "dismissRemovalNotice"; accountId: string; noticeId: string };

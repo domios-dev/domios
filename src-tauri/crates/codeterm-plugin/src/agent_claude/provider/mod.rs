@@ -122,6 +122,13 @@ impl AgentProvider for ClaudeProvider {
         signals::auth(record)
     }
 
+    fn account_identity(
+        &self,
+        record: Option<&serde_json::Value>,
+    ) -> Result<Option<crate::provider_account::storage::AccountIdentity>, String> {
+        Ok(record.and_then(signals::identity))
+    }
+
     fn parse_session_observations(
         &self,
         record: &serde_json::Value,

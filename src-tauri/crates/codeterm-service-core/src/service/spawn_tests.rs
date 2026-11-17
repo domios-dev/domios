@@ -695,6 +695,7 @@ fn agent_spec_roundtrips_json() {
 #[test]
 fn from_agent_params_carries_model_into_spec() {
     let params = SpawnAgentParams {
+        account_namespace: None,
         account_id: None,
         execution_mode: None,
         launch_profile: None,
@@ -866,6 +867,7 @@ fn can_spawn_some_false_explicitly_overrides() {
 fn from_agent_params_preserves_can_spawn_option() {
     // --can-spawn=b explicitly". The spec must NOT collapse None → Some(false) (the pre-fix-#42 behavior that clobbered Orchestrator default to false on every spawn).
     let mut p = SpawnAgentParams {
+        account_namespace: None,
         account_id: None,
         execution_mode: None,
         launch_profile: None,
@@ -948,6 +950,7 @@ fn from_agent_params_preserves_can_spawn_option() {
 #[test]
 fn from_agent_params_carries_activate_into_spec() {
     let mut p = SpawnAgentParams {
+        account_namespace: None,
         account_id: None,
         execution_mode: None,
         launch_profile: None,

@@ -595,6 +595,7 @@ impl ServiceContext {
             };
             if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
                 tab.restorable_launch.account_id = params.account_id.clone();
+                tab.restorable_launch.account_namespace = params.account_namespace.clone();
             }
             crate::service::restored_launch::capture_tab_launch_parameters(
                 &self.mux,

@@ -278,6 +278,7 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
 
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
+        account_namespace: None,
         account_id: None,
         execution_mode: None,
         launch_profile: None,

@@ -90,10 +90,16 @@ export function useProviderAccounts(providerId: string | null) {
 
   const onAction = useCallback(async (action: ProviderAccountsAction): Promise<void> => {
     const current = resource.current;
+    const rendered = view.providerId === providerId ? view.snapshot : null;
     if (!current?.active || current.providerId !== providerId || !current.snapshot) {
       throw new Error("The account list is unavailable");
     }
     if (current.mutating) throw new Error("Another account change is in progress");
+    if (!rendered || rendered.revision !== current.snapshot.revision || rendered.signInId !== current.snapshot.signInId) {
+      const error = new Error("The account list changed. Refresh it before trying again.");
+      setView({providerId:current.providerId,snapshot:current.snapshot,loading:false,error:error.message});
+      throw error;
+    }
     current.mutating = true;
     current.sequence++;
     current.reading?.abort();
@@ -101,7 +107,7 @@ export function useProviderAccounts(providerId: string | null) {
     try {
       const response = await selectedDaemonTransport.json<ProviderAccountsSnapshot>(
         "POST", `/api/agents/providers/${encodeURIComponent(current.providerId)}/accounts`,
-        { revision: current.snapshot.revision, operation: action },
+        { revision: rendered.revision, ...(rendered.signInId ? {signInId:rendered.signInId} : {}), operation: action },
       );
       if (!current.active) throw new Error("The harness changed before the account response arrived");
       current.snapshot = acceptSnapshot(current.providerId, response);
@@ -113,7 +119,7 @@ export function useProviderAccounts(providerId: string | null) {
       current.mutating = false;
       if (current.active && current.refreshPending) void read(current);
     }
-  }, [providerId, read]);
+  }, [providerId, read, view.providerId, view.snapshot]);
 
   const own = view.providerId === providerId;
   return {

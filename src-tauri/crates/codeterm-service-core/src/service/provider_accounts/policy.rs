@@ -13,6 +13,15 @@ use sha2::{Digest, Sha256};
     deny_unknown_fields
 )]
 pub enum PolicyAction {
+    Add,
+    RetryAdd,
+    CancelAdd,
+    SignIn {
+        account_id: String,
+    },
+    CancelSignIn {
+        account_id: String,
+    },
     Check {
         account_id: String,
     },
@@ -53,6 +62,13 @@ pub(super) fn apply(
         return Err("The account list changed. Refresh it before trying again.".into());
     }
     match action {
+        PolicyAction::Add
+        | PolicyAction::RetryAdd
+        | PolicyAction::CancelAdd
+        | PolicyAction::SignIn { .. }
+        | PolicyAction::CancelSignIn { .. } => {
+            return Err("Sign-in does not change account policy directly".into())
+        }
         PolicyAction::Check { .. } => {
             return Err("A sign-in check does not change account policy".into())
         }
@@ -142,6 +158,24 @@ pub fn update(
         "config-changed",
         serde_json::to_value(applied).map_err(|error| error.to_string())?,
     );
+    if let PolicyAction::Reorder {
+        account_id,
+        position,
+    } = action
+    {
+        svc.ext_or_init::<super::State>(super::State::default)
+            .feedback
+            .lock()
+            .insert(
+                provider.into(),
+                super::roster::Feedback {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    kind: "moved",
+                    account_id: account_id.clone(),
+                    position: *position,
+                },
+            );
+    }
     svc.ui.emit(
         "provider-accounts-changed",
         serde_json::json!({"providerId":provider}),
