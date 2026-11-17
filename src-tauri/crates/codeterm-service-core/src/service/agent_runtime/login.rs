@@ -279,6 +279,7 @@ pub async fn operate(
     })
     .await
     .map_err(|error| error.to_string())??;
+    crate::service::provider_accounts::remember_login_method(svc, tab, &request);
     codeterm_plugin::provider_account::scope(invocation, operate_unlogged(svc, tab, request))
         .await
         .map_err(|reason| {

@@ -34,6 +34,8 @@ pub(super) struct Entry {
     nonce: Option<String>,
     epoch: Option<u64>,
     login_id: Option<String>,
+    last_method: Option<Value>,
+    preferred_method: Option<Value>,
     phase: Phase,
     identity: Option<AccountIdentity>,
     error: Option<String>,
@@ -157,6 +159,8 @@ pub(super) fn begin(
                 nonce: None,
                 epoch: None,
                 login_id: None,
+                last_method: None,
+                preferred_method: None,
                 phase: Phase::SigningIn,
                 identity: None,
                 error: None,
@@ -297,6 +301,11 @@ fn context(svc: &ServiceContext, entry: &Entry) -> Option<LoginContext> {
             json!({"state":"loading","epoch":state["epoch"],"auth":"unknown","notice":"Checking account"})
         };
     }
+    if entry.phase == Phase::SigningIn {
+        if let Some(method) = &entry.preferred_method {
+            state["preferredLoginMethod"] = method.clone();
+        }
+    }
     Some(LoginContext {
         tab_id: context.tab.clone(),
         state,
@@ -358,6 +367,13 @@ pub(super) fn project(svc: &ServiceContext, provider: &str) -> Projection {
 }
 
 pub(super) fn retry(svc: &ServiceContext, provider: &str, id: Option<&str>) -> Result<(), String> {
+    let previous = svc
+        .ext_or_init::<State>(Default::default)
+        .sign_ins
+        .lock()
+        .get(provider)
+        .filter(|entry| Some(entry.generation.as_str()) == id)
+        .and_then(|entry| entry.last_method.clone());
     cancel(svc, provider, None, id)?;
     if svc
         .ext_or_init::<State>(State::default)
@@ -367,7 +383,92 @@ pub(super) fn retry(svc: &ServiceContext, provider: &str, id: Option<&str>) -> R
     {
         return Ok(());
     }
-    begin(svc, provider, None)
+    begin(svc, provider, None)?;
+    if let Some(entry) = svc
+        .ext_or_init::<State>(Default::default)
+        .sign_ins
+        .lock()
+        .get_mut(provider)
+    {
+        entry.preferred_method = previous;
+    }
+    emit(svc, provider);
+    Ok(())
+}
+
+pub(super) fn remember_method(svc: &ServiceContext, tab: &str, request: &login::LoginRequest) {
+    let state = svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .and_then(|tab| tab.agent_runtime_state.clone());
+    let Some(method) = state
+        .as_ref()
+        .and_then(|state| method_preference(state, request))
+    else {
+        return;
+    };
+    for entry in svc
+        .ext_or_init::<State>(Default::default)
+        .sign_ins
+        .lock()
+        .values_mut()
+    {
+        if entry.phase == Phase::SigningIn
+            && entry
+                .context
+                .as_ref()
+                .is_some_and(|context| context.tab == tab)
+        {
+            entry.last_method = Some(method.clone());
+            break;
+        }
+    }
+}
+
+fn method_preference(state: &Value, request: &login::LoginRequest) -> Option<Value> {
+    if request
+        .action
+        .as_deref()
+        .is_some_and(|action| action != "start")
+    {
+        return None;
+    }
+    let contains = |values: Option<&Vec<Value>>, value: &str| {
+        values.is_some_and(|values| values.iter().any(|entry| entry.as_str() == Some(value)))
+    };
+    if let Some(id) = &request.method_id {
+        if id.len() > 512
+            || !state["authentication"]["methods"]
+                .as_array()
+                .is_some_and(|methods| {
+                    methods.iter().any(|method| {
+                        method["id"].as_str() == Some(id) && method["available"] == true
+                    })
+                })
+        {
+            return None;
+        }
+    } else {
+        let method = serde_json::to_value(request.method.as_ref()?).ok()?;
+        if !contains(state["loginMethods"].as_array(), method.as_str()?) {
+            return None;
+        }
+    }
+    if let Some(choice) = &request.account {
+        if choice.len() > 512
+            || !state["loginChoices"].as_array().is_some_and(|choices| {
+                choices
+                    .iter()
+                    .any(|entry| entry["id"].as_str() == Some(choice))
+            })
+        {
+            return None;
+        }
+    }
+    Some(
+        json!({"method":request.method,"methodId":request.method_id,"choice":request.account,"apiKey":request.api_key.is_some()}),
+    )
 }
 
 fn emit(svc: &ServiceContext, provider: &str) {

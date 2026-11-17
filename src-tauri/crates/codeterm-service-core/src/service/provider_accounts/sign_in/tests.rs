@@ -62,3 +62,25 @@ fn an_unverified_draft_is_not_a_roster_account_and_cancellation_requires_its_own
         "opaque-usual-auth"
     );
 }
+
+#[test]
+fn duplicate_retry_remembers_only_declared_method_identity_never_credential_values() {
+    let state = json!({"authentication":{"methods":[{"id":"declared-key","available":true}]}});
+    let request: login::LoginRequest = serde_json::from_value(
+        json!({"methodId":"declared-key","apiKey":"opaque-private-value","code":"opaque-code"}),
+    )
+    .unwrap();
+    let remembered = method_preference(&state, &request).unwrap();
+    assert_eq!(remembered["methodId"], "declared-key");
+    assert_eq!(remembered["apiKey"], true);
+    assert!(!remembered.to_string().contains("opaque-private-value"));
+    assert!(!remembered.to_string().contains("opaque-code"));
+    let undeclared: login::LoginRequest = serde_json::from_value(
+        json!({"methodId":"opaque-private-value","apiKey":"opaque-private-value"}),
+    )
+    .unwrap();
+    assert!(method_preference(&state, &undeclared).is_none());
+    let unavailable =
+        json!({"authentication":{"methods":[{"id":"declared-key","available":false}]}});
+    assert!(method_preference(&unavailable, &request).is_none());
+}

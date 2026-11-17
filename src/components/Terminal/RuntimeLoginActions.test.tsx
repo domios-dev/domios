@@ -213,3 +213,25 @@ it("keeps a live notice across same-epoch snapshots and clears it for a new runt
   expect(runtimeStateFromSnapshot(state,{state:"loaded",epoch:4})?.notice).toBe("Transient");
   expect(runtimeStateFromSnapshot(state,{state:"loaded",epoch:5})?.notice).toBeUndefined();
 });
+
+it("restarts the remembered browser choice once after an explicit different-account retry",async()=>{
+  bridge.invoke.mockReset().mockResolvedValue({});bridge.openUrl.mockReset();
+  const host=document.createElement("div");const root=createRoot(host);
+  const state:AgentRuntimeState={state:"loginPending",epoch:3,auth:"signedOut",loginMethods:["browser"],loginChoices:[{id:"work-browser",label:"Browser"}],preferredLoginMethod:{method:"browser",choice:"work-browser",apiKey:false}};
+  try {
+    await act(async()=>root.render(<RuntimeLoginActions tabId="private-retry" state={state}/>));
+    await act(async()=>root.render(<RuntimeLoginActions tabId="private-retry" state={{...state}}/>));
+    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login",{tabId:"private-retry",request:{method:"browser",account:"work-browser"}});
+  }finally{await act(async()=>root.unmount());}
+});
+it("remembers only the API-key method and asks for a fresh masked key on retry",async()=>{
+  bridge.invoke.mockReset();
+  const host=document.createElement("div");const root=createRoot(host);
+  const state:AgentRuntimeState={state:"loginPending",epoch:3,auth:"signedOut",loginMethods:["apiKey"],preferredLoginMethod:{method:"apiKey",apiKey:true}};
+  try {
+    await act(async()=>root.render(<RuntimeLoginActions tabId="private-retry-key" state={state}/>));
+    const input=host.querySelector<HTMLInputElement>('input[aria-label="API key"]');
+    expect(input?.type).toBe("password");expect(input?.value).toBe("");
+    expect(bridge.invoke).not.toHaveBeenCalled();
+  }finally{await act(async()=>root.unmount());}
+});

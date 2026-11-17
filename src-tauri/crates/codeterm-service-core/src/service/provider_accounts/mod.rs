@@ -200,6 +200,14 @@ pub(crate) fn login_permitted(svc: &super::ServiceContext, tab: &str) -> bool {
     });
     !named_work_tab && sign_in::permits_login(svc, tab)
 }
+pub(crate) fn remember_login_method(
+    svc: &super::ServiceContext,
+    tab: &str,
+    request: &super::agent_runtime::login::LoginRequest,
+) {
+    sign_in::remember_method(svc, tab, request);
+}
+
 pub(crate) fn login_changed(svc: &super::ServiceContext, tab: &str) {
     sign_in::changed(svc, tab);
     scheduler::auth_changed(svc, tab);

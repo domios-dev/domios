@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useState, type ReactNode } from "react";
+import { useEffect,useRef,useState, type ReactNode } from "react";
 import { Check, Copy, KeyRound, Monitor, SquareTerminal } from "lucide-react";
 import { useRuntimeLogin } from "./useRuntimeLogin";
 import { nativeBridge } from "../../lib/nativeBridge";
@@ -67,6 +67,19 @@ function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, varia
   const provider = state.loginProviderName ?? state.agentName ?? "the agent";
   const methods = state.loginMethods ?? [];
   const declared=Boolean(state.authentication?.methods.some(entry=>entry.input !== undefined));
+  const preferredStarted=useRef(false);
+  useEffect(()=>{
+    const preferred=state.preferredLoginMethod;
+    if(!preferred || preferredStarted.current || login || state.state==="loading" || busy || remote)return;
+    const declaredMethod=preferred.methodId?state.authentication?.methods.find(entry=>entry.id===preferred.methodId && entry.available):undefined;
+    const choice=preferred.choice?state.loginChoices?.find(entry=>entry.id===preferred.choice):undefined;
+    if(preferred.methodId && !declaredMethod)return;
+    if(preferred.choice && !choice)return;
+    if(!preferred.methodId && preferred.method && !methods.includes(preferred.method as "browser"|"device"|"apiKey"))return;
+    preferredStarted.current=true;
+    if(preferred.apiKey || preferred.method==="apiKey" || declaredMethod?.input==="apiKey") {setKeyMethod(preferred.methodId);setKeyEntry(true);}
+    else void operate(preferred.methodId?{methodId:preferred.methodId}:{method:preferred.method,account:preferred.choice});
+  },[state.preferredLoginMethod,state.state,state.authentication?.methods,state.loginChoices,login,busy,remote,methods,operate]);
   const failure = error ?? login?.error ?? (state.state==="degraded" ? state.reason ?? undefined : undefined);
   const center = variant === "center";
   const openLink = (url: string) => (event: React.MouseEvent) => {

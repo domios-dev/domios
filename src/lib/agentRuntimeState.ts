@@ -13,6 +13,7 @@ export interface AgentRuntimeState {
   loginBinding?: {nonce: string; epoch: number};
   auth?: "signedIn"|"signedOut"|"unknown";
   loginCodeInput?: boolean;
+  preferredLoginMethod?:{method?:string;methodId?:string;choice?:string;apiKey:boolean};
   loginChoices?: { id: string; label: string }[];
   loginMethods?: ("browser"|"device"|"apiKey")[];
   loginProviderName?: string;
