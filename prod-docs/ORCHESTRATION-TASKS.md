@@ -165,4 +165,12 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `domios plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->
+
+Builtin Worker roles (`worker`, `qa`, `reviewer`, `release_manager`) remain available through `agent spawn --role` and `plan task dispatch --role` even when the Team omits them. Team registrations recommend specialists; unknown roles refuse. Respawn inherits the recorded role; override it with:
+
+```bash
+domios plan task respawn <plan> <task> --attempt <attempt> --role qa
+```
+
+Role selection leaves the task's executor_role, machine access, execution intent and authority unchanged.

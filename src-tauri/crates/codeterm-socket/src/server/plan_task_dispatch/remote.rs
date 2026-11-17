@@ -191,6 +191,7 @@ pub(super) fn dispatch(
             &peer_id,
             &peer_name,
             &model.provider_id,
+            hosted_role.as_ref().map(|role| role.kind.as_str()),
             &base,
             &destination,
             now,

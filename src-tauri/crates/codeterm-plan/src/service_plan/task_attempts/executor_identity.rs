@@ -6,6 +6,7 @@ struct Identity {
     session: Option<String>,
     nonce: Option<String>,
     launch_profile: Option<String>,
+    role_profile: Option<String>,
 }
 impl Identity {
     fn read(attempt: &TaskExecutionAttempt) -> Self {
@@ -14,6 +15,7 @@ impl Identity {
             session: attempt.session_id.clone(),
             nonce: attempt.session_binding_nonce.clone(),
             launch_profile: attempt.launch_profile.clone(),
+            role_profile: attempt.role_profile.clone(),
         }
     }
     fn apply(self, attempt: &mut TaskExecutionAttempt) {
@@ -21,6 +23,7 @@ impl Identity {
         attempt.session_id = self.session;
         attempt.session_binding_nonce = self.nonce;
         attempt.launch_profile = self.launch_profile;
+        attempt.role_profile = self.role_profile;
     }
 }
 
@@ -54,6 +57,7 @@ impl PlanStore {
             session_id,
             nonce,
             launch_profile,
+            None,
             now_ms,
         )
         .map(|_| ())
@@ -69,6 +73,7 @@ impl PlanStore {
         session_id: Option<&str>,
         nonce: Option<&str>,
         launch_profile: Option<&str>,
+        role_profile: Option<&str>,
         now_ms: u64,
     ) -> Result<AttemptExecutorIdentityChange, PlanError> {
         let normalize = |value: Option<&str>| {
@@ -82,6 +87,7 @@ impl PlanStore {
             session: normalize(session_id),
             nonce: normalize(nonce),
             launch_profile: launch_profile.map(str::to_owned),
+            role_profile: role_profile.map(str::to_owned),
         };
         self.change_attempt(
             plan_id,
@@ -95,6 +101,10 @@ impl PlanStore {
                 let attempt = attempt.ok_or(PlanError::TaskNotFound)?;
                 let before = Identity::read(attempt);
                 let after = Identity {
+                    role_profile: after
+                        .role_profile
+                        .clone()
+                        .or_else(|| before.role_profile.clone()),
                     launch_profile: after
                         .launch_profile
                         .clone()

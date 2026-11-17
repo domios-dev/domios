@@ -150,6 +150,11 @@ pub(crate) fn respawn_remote(
 
 fn remote_respawn_params(params: &Option<Value>, attempt: &TaskExecutionAttempt) -> Value {
     let mut forwarded = params.clone().unwrap_or_else(|| json!({}));
+    if forwarded.get("role").and_then(Value::as_str).is_none() {
+        if let Some(role) = &attempt.role_profile {
+            forwarded["role"] = json!(role);
+        }
+    }
     forwarded["mesh_peer"] = json!(attempt.mesh_peer);
     forwarded["execution_intent"] = json!("mutating");
     forwarded["authorized_gates"] = json!(attempt.authorized_gates.as_deref().unwrap_or(&[]));

@@ -26,6 +26,7 @@ fn attempt_records_resolved_reasoning_effort() {
             &plan.id,
             NewTask {
                 name: "resolved effort attempt".into(),
+                executor_role: Some("Implementation engineer".into()),
                 ..Default::default()
             },
             2,
@@ -49,6 +50,7 @@ fn attempt_records_resolved_reasoning_effort() {
             None,
             Some("medium".into()),
             None,
+            Some("qa".into()),
             None,
             false,
             true,
@@ -70,4 +72,5 @@ fn attempt_records_resolved_reasoning_effort() {
         .find(|attempt| attempt.id == attempt_id)
         .unwrap();
     assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
+    assert_eq!(attempt.role_profile.as_deref(), Some("qa"));
 }

@@ -335,7 +335,7 @@ pub enum AgentAction {
         /// absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths.
         #[arg(long)]
         cwd: Option<String>,
-        /// Role name the Team registers, or the host-only watcher. The Orchestrator starts a Team manager (built-in or custom) with it, one live instance per name; a name the Team does not list is refused. reviewer is read-only by default.
+        /// Team-registered role, builtin Worker role, or host-only watcher. Managers have one live instance per name; unknown names refuse. reviewer is read-only by default.
         #[arg(long, value_parser = parse_role_name)]
         role: Option<RoleName>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved

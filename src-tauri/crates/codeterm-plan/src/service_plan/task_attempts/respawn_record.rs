@@ -89,6 +89,7 @@ impl PlanStore {
                 attempt.agent_type = Some(draft.provider.clone());
                 attempt.model = draft.model.clone();
                 attempt.launch_profile = draft.launch_profile.clone();
+                attempt.role_profile = draft.role_profile.clone();
                 attempt.provider_resolved_model = draft.model.clone();
                 attempt.reasoning_effort = draft.reasoning_effort.clone();
                 attempt.executor_title = draft.title.clone();

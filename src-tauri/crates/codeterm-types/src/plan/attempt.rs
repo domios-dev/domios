@@ -178,6 +178,9 @@ pub struct TaskExecutorTermination {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TaskExecutionAttempt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role_profile: Option<String>,
     pub id: String,
     #[serde(default)]
     pub executor_tab_id: String,
