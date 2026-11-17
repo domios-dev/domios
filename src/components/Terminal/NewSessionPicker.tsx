@@ -278,6 +278,9 @@ export function NewSessionPicker({
         ...(accountId ? [accountId] as const : [] as const)));
       return;
     }
+    const selectionArgs: [intent?: "fresh_general", executionMode?: string, profile?: string, accountId?: string] = accountId
+      ? [section === "general" ? "fresh_general" : undefined, undefined, undefined, accountId]
+      : section === "general" ? ["fresh_general"] : [];
     await finishSpawn(() =>
       spawnAgentTab(
         workspaceId,
@@ -286,10 +289,7 @@ export function NewSessionPicker({
         modelId,
         effortId,
         preset,
-        section === "general" ? "fresh_general" : undefined,
-        undefined,
-        undefined,
-        accountId,
+        ...selectionArgs,
       ),
     );
   }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd, section]);
