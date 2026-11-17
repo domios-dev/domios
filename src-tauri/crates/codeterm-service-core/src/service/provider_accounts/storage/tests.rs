@@ -160,7 +160,11 @@ fn selected_home_pins_existing_sqlite_root_without_copying_credentials_or_histor
     provider_account::with_context(Some(account.clone()), || {
         assert_eq!(
             provider_account::environment("ACCOUNT_STORAGE_TEST_HOME"),
-            Some(home.clone().into_os_string())
+            Some(
+                home.components()
+                    .collect::<std::path::PathBuf>()
+                    .into_os_string()
+            )
         );
         assert_eq!(
             provider_account::environment("ACCOUNT_STORAGE_TEST_SQLITE"),

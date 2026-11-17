@@ -87,7 +87,7 @@ fn cancellation_bypasses_busy_gate_and_fences_late_completion() {
         .unwrap();
     let binary = capability.command.binary.clone();
     let mut manifest = json!({"id":session.provider,"version":"1.0.0","displayName":"Fixture",
-        "capabilities":{"agentProvider":true,"agentRuntime":capability},"permissions":{"subprocess":{"allow":[binary]}}});
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":capability},"permissions":{"subprocess":{"allow":[binary]}}});
     manifest["capabilities"]["agentRuntime"]
         .as_object_mut()
         .unwrap()

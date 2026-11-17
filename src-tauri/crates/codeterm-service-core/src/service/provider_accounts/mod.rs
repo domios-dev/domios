@@ -11,6 +11,7 @@ pub mod roster;
 mod scheduler;
 mod sign_in;
 mod storage;
+pub(crate) use storage::ProvisionError;
 pub mod switching;
 mod work;
 pub use scheduler::{
@@ -490,6 +491,24 @@ pub(crate) fn invocation_at(
     account: Option<&str>,
     namespace: Option<&str>,
 ) -> Result<Option<Arc<InvocationContext>>, String> {
+    invocation_at_typed(svc, provider, account, namespace).map_err(|error| error.to_string())
+}
+
+pub(crate) fn login_invocation(
+    svc: &super::ServiceContext,
+    provider: &str,
+    account: &str,
+) -> Result<Option<Arc<InvocationContext>>, ProvisionError> {
+    let namespace = credential_namespace(svc, provider, Some(account), None)?;
+    invocation_at_typed(svc, provider, Some(account), namespace.as_deref())
+}
+
+fn invocation_at_typed(
+    svc: &super::ServiceContext,
+    provider: &str,
+    account: Option<&str>,
+    namespace: Option<&str>,
+) -> Result<Option<Arc<InvocationContext>>, ProvisionError> {
     let account = account.unwrap_or(IMPLICIT_ACCOUNT);
     if !admission::available(svc, provider, account) && tabs_in_use(svc, provider, account) == 0 {
         return Err("This account is being removed".into());

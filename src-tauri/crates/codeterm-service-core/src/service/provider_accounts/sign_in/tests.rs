@@ -18,10 +18,10 @@ fn an_unverified_draft_is_not_a_roster_account_and_cancellation_requires_its_own
     .unwrap();
     let manifest = PluginManifest::from_json_str(&json!({
         "id":provider,"version":"1.0.0","displayName":"Fixture",
-        "capabilities":{"agentProvider":true,"binaryName":"fixture-cli","cliBinary":"fixture-cli","accounts":{
+        "capabilities":{"agentProvider":true,"binaryName":"fixture-cli","cliBinary":"fixture-cli"},"accounts":{
             "homeEnvironment":"ACCOUNT_ACTOR_TEST_HOME","defaultHome":usual,"secretEnvironment":["ACCOUNT_ACTOR_TEST_TOKEN"],
             "isolatedPaths":["auth.json"],"sharedPaths":[],"continuation":"unverified"
-        }},
+        },
         "cliLogin":{"methods":[{"id":"browser","label":"Browser","args":["login"]}],"urlPattern":"(https://example.test/[^ ]+)","timeoutMs":1000,"codeInput":false}
     }).to_string()).unwrap();
     fixture

@@ -1,28 +1,10 @@
 use super::*;
 
 fn link(target: &Path, path: &Path, directory: bool) {
-    #[cfg(unix)]
-    {
-        let _ = directory;
-        std::os::unix::fs::symlink(target, path).unwrap();
-    }
-    #[cfg(windows)]
     if directory {
-        let mut command = std::process::Command::new("cmd");
-        codeterm_util::process_util::no_window_std(&mut command);
-        let output = command
-            .args(["/C", "mklink", "/J"])
-            .arg(path)
-            .arg(target)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        codeterm_util::fs_links::directory_link(target, path).unwrap();
     } else {
-        std::os::windows::fs::symlink_file(target, path).unwrap();
+        codeterm_util::fs_links::file_link(target, path).unwrap();
     }
 }
 
@@ -42,6 +24,8 @@ fn unlink(path: &Path, directory: bool) {
 
 #[test]
 fn account_home_shared_targets_reject_preexisting_and_replaced_directory_and_file_links() {
+    assert_hard_linked_credentials_are_excluded();
+    assert_retired_credential_identity_stays_excluded();
     let root = tempfile::tempdir().unwrap();
     let own = root.path().join("named/a");
     let foreign = root.path().join("named/b");
@@ -55,7 +39,11 @@ fn account_home_shared_targets_reject_preexisting_and_replaced_directory_and_fil
     std::fs::write(&private, "opaque-private").unwrap();
     std::fs::write(&usual_private, "opaque-usual-config").unwrap();
     std::fs::write(history.join("record"), "own-session").unwrap();
-    let exclusions = vec![root.path().join("named"), usual_private.clone()];
+    let exclusions = vec![
+        root.path().join("named"),
+        private.clone(),
+        usual_private.clone(),
+    ];
     let context = InvocationContext::new(
         "fixture".into(),
         "a".into(),
@@ -119,4 +107,47 @@ fn account_home_shared_targets_reject_preexisting_and_replaced_directory_and_fil
         with_context(Some(selected), || assert!(open_read(&leaked).is_err()));
         unlink(&alias, directory);
     }
+}
+
+fn assert_hard_linked_credentials_are_excluded() {
+    let root = tempfile::tempdir().unwrap();
+    let credential = root.path().join("auth.json");
+    let shared = root.path().join("sessions");
+    std::fs::create_dir(&shared).unwrap();
+    std::fs::write(&credential, "opaque-private").unwrap();
+    let alias = shared.join("history.jsonl");
+    std::fs::hard_link(&credential, &alias).unwrap();
+    let exclusions = vec![credential];
+    assert!(SharedReadGrant::File { path: alias }
+        .pin(&exclusions)
+        .is_err());
+    assert!(SharedReadGrant::Directory { path: shared }
+        .pin(&exclusions)
+        .is_err());
+}
+
+fn assert_retired_credential_identity_stays_excluded() {
+    let root = tempfile::tempdir().unwrap();
+    let own = root.path().join("own");
+    std::fs::create_dir(&own).unwrap();
+    let credential = root.path().join("auth.json");
+    let retired = root.path().join("retired.json");
+    std::fs::write(&credential, "opaque-private").unwrap();
+    std::fs::hard_link(&credential, &retired).unwrap();
+    let context = InvocationContext::new(
+        "fixture".into(),
+        "own".into(),
+        BTreeMap::new(),
+        vec![own],
+        vec![root.path().into()],
+    )
+    .unwrap()
+    .with_shared_exclusions(vec![credential.clone()])
+    .unwrap();
+    std::fs::remove_file(&credential).unwrap();
+    std::fs::write(&credential, "replacement-private").unwrap();
+    assert_eq!(context.read_access(&retired), Some(false));
+    assert!(context
+        .with_shared_reads(vec![SharedReadGrant::File { path: retired }])
+        .is_err());
 }

@@ -18,7 +18,8 @@ pub(super) fn discard(
         namespace,
         &capability,
         &storage::usual_home(&capability)?,
-    )?;
+    )
+    .map_err(|error| error.to_string())?;
     let declaration = svc
         .agent_registry
         .with_provider(provider, |provider| provider.agent_runtime())

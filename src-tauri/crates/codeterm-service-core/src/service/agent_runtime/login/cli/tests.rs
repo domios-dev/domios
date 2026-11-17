@@ -231,7 +231,8 @@ fn cli_login_old_account_cannot_publish_or_complete_under_the_same_nonce() {
     cleanup(&fixture.service);
     assert!(!has(&tab));
     crate::async_runtime::block_on(async {
-        assert!(stopping.changed().await.is_err());
+        stopping.changed().await.unwrap();
+        assert!(*stopping.borrow_and_update());
     });
 }
 

@@ -53,6 +53,35 @@ fn unbound_login_fixture(missing_secret: bool) -> (RuntimeFixture, AccountRestar
     named_login_fixture(missing_secret, false)
 }
 
+fn login_invocation(
+    fixture: &RuntimeFixture,
+    namespace: &str,
+    auth: Option<&str>,
+) -> Arc<InvocationContext> {
+    let home = fixture.temp.path().join(namespace);
+    std::fs::create_dir_all(&home).unwrap();
+    let capability = serde_json::from_value(json!({
+        "homeEnvironment":"ACCOUNT_LOGIN_FIXTURE_HOME", "defaultHome":home,
+        "secretEnvironment":[], "isolatedPaths":["auth.json"], "sharedPaths":[], "continuation":"unverified"
+    })).unwrap();
+    let mut environment = std::collections::BTreeMap::from([(
+        "ACCOUNT_LOGIN_FIXTURE_HOME".into(),
+        Some(home.to_string_lossy().into_owned()),
+    )]);
+    if let Some(auth) = auth {
+        environment.insert("OPAQUE_AUTH_KEY".into(), Some(auth.into()));
+    }
+    InvocationContext::from_capability(
+        PROVIDER.into(),
+        "account-b".into(),
+        &capability,
+        environment,
+        vec![home],
+        vec![fixture.temp.path().to_owned()],
+    )
+    .unwrap()
+}
+
 fn named_login_fixture(
     missing_secret: bool,
     retained_thread: bool,
@@ -92,23 +121,20 @@ fn named_login_fixture(
         PROVIDER,
         "own-nonce",
     );
-    let old = InvocationContext::new(
-        PROVIDER.into(),
-        "account-b".into(),
-        Default::default(),
-        vec![],
-        vec![],
-    )
-    .unwrap();
+    let old = login_invocation(&fixture, "old-namespace", None);
     let result = crate::async_runtime::block_on(agent_runtime::engine::ensure_with_invocation(
         &fixture.service,
         &fixture.tab,
         Some(old),
     ));
-    assert!(matches!(
-        result,
-        Err(agent_runtime::model::RuntimeFailure::SignInRequired)
-    ));
+    let failure = result.as_ref().err().map(ToString::to_string);
+    assert!(
+        matches!(
+            result,
+            Err(agent_runtime::model::RuntimeFailure::SignInRequired)
+        ),
+        "Expected sign-in boundary, got {failure:?}"
+    );
     let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
     assert!(matches!(
         session.state.lock().phase,
@@ -128,16 +154,11 @@ fn named_login_fixture(
         expected,
         account_id: Some("account-b".into()),
         account_namespace: Some("new-namespace".into()),
-        invocation: Some(
-            InvocationContext::new(
-                PROVIDER.into(),
-                "account-b".into(),
-                [("OPAQUE_AUTH_KEY".into(), Some("credential-b".into()))].into(),
-                vec![],
-                vec![],
-            )
-            .unwrap(),
-        ),
+        invocation: Some(login_invocation(
+            &fixture,
+            "new-namespace",
+            Some("credential-b"),
+        )),
     };
     (fixture, target)
 }
@@ -400,7 +421,12 @@ fn initial_named_login_before_any_child_spawn_uses_the_same_restart_path() {
             .await
             .clone()
             .save(crate::secrets::SaveRequest {
-                name: "domios:provider:restart-fixture:key".into(),
+                name: codeterm_plugin::provider_account::secret_reference(
+                    PROVIDER,
+                    "domios:provider:restart-fixture:key",
+                    target.invocation.as_deref(),
+                )
+                .unwrap(),
                 value: crate::secrets::SecretString::new("opaque-test-key".into()),
                 notes: None,
                 folder: None,
@@ -444,7 +470,12 @@ fn expired_named_login_refresh_resumes_only_its_retained_thread() {
                     .await
                     .clone()
                     .save(crate::secrets::SaveRequest {
-                        name: "domios:provider:restart-fixture:key".into(),
+                        name: codeterm_plugin::provider_account::secret_reference(
+                            PROVIDER,
+                            "domios:provider:restart-fixture:key",
+                            target.invocation.as_deref(),
+                        )
+                        .unwrap(),
                         value: crate::secrets::SecretString::new("opaque-test-key".into()),
                         notes: None,
                         folder: None,

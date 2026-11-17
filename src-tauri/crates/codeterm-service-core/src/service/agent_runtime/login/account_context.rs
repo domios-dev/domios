@@ -15,12 +15,12 @@ pub(crate) fn open(
     svc: &ServiceContext,
     provider: &str,
     account: &str,
-) -> Result<OpenedContext, String> {
+) -> Result<OpenedContext, crate::service::provider_accounts::ProvisionError> {
     let adapter = svc
         .agent_registry
         .provider_arc(provider)
         .ok_or("Harness is unavailable")?;
-    let invocation = crate::service::provider_accounts::invocation(svc, provider, Some(account))?;
+    let invocation = crate::service::provider_accounts::login_invocation(svc, provider, account)?;
     let runtime = adapter.agent_runtime().is_some();
     if !runtime && adapter.cli_login().is_none() {
         return Err("This harness has no account sign-in method".into());
@@ -85,7 +85,7 @@ pub(crate) fn open(
     let initialized = if runtime {
         if let Err(error) = super::super::authority::record_spawn(svc, &tab, provider, &nonce) {
             let _ = svc.close_tab(&tab);
-            return Err(error);
+            return Err(error.into());
         }
         let owner = svc.clone();
         let target = tab.clone();
@@ -118,7 +118,7 @@ pub(crate) fn open(
             Ok(value) => value,
             Err(error) => {
                 let _ = svc.close_tab(&tab);
-                return Err(error);
+                return Err(error.into());
             }
         };
         if let Some(target) = svc.mux.write().get_tab_mut(&tab) {
