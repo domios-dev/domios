@@ -95,12 +95,10 @@ export function RateUsTray({ locked = false, now = Date.now }: { locked?: boolea
     window.addEventListener("pointerdown", note, options);
     window.addEventListener("keydown", note, options);
     window.addEventListener("focusin", note, options);
-    const timer = window.setInterval(note, 2000);
     return () => {
       window.removeEventListener("pointerdown", note, options);
       window.removeEventListener("keydown", note, options);
       window.removeEventListener("focusin", note, options);
-      window.clearInterval(timer);
     };
   }, [finished, now, persist]);
 
