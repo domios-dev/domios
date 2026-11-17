@@ -6,9 +6,15 @@ use sha2::{Digest, Sha256};
 
 fn declaration(svc: &ServiceContext, provider: &str) -> Option<String> {
     let capability = super::capability(svc, provider)?;
+    let adapter = svc.agent_registry.provider_arc(provider)?;
+    let identity = (
+        capability,
+        adapter.account_implementation_revision(),
+        adapter.agent_runtime(),
+    );
     Some(format!(
         "{:x}",
-        Sha256::digest(serde_json::to_vec(&capability).ok()?)
+        Sha256::digest(serde_json::to_vec(&identity).ok()?)
     ))
 }
 
@@ -27,6 +33,12 @@ pub(super) fn effective(svc: &ServiceContext, provider: &str) -> AccountContinua
     let Some(capability) = super::capability(svc, provider) else {
         return AccountContinuation::Unsupported;
     };
+    if svc
+        .try_ext::<super::State>()
+        .is_some_and(|state| state.continuation_refusals.lock().contains(provider))
+    {
+        return AccountContinuation::Unsupported;
+    }
     if capability.continuation != AccountContinuation::Unverified {
         return capability.continuation;
     }
@@ -123,6 +135,10 @@ pub(super) fn record(
         policy.continuation_receipt = Some(receipt);
         policy.validate()
     })?;
+    svc.ext_or_init::<super::State>(Default::default)
+        .continuation_refusals
+        .lock()
+        .remove(provider);
     svc.ui.emit(
         "config-changed",
         serde_json::to_value(applied).unwrap_or_default(),
@@ -134,39 +150,31 @@ pub(super) fn record_refusal(
     svc: &ServiceContext,
     tab: &str,
     target: &crate::service::agent_lifecycle::AccountRestartTarget,
+    outcome: &crate::service::agent_lifecycle::RestartOutcome,
 ) -> Result<bool, String> {
     let source = &target.expected;
-    let Some(session) = crate::service::agent_runtime::engine::for_tab(tab) else {
+    let Some(nonce) = outcome
+        .account_refusal_nonce
+        .as_deref()
+        .filter(|nonce| !nonce.is_empty() && *nonce != source.binding_nonce)
+    else {
         return Ok(false);
     };
-    let context = session.context.lock().clone();
-    let target_account = target
-        .account_id
-        .as_deref()
-        .unwrap_or(super::IMPLICIT_ACCOUNT);
     let source_account = source
         .account_id
         .as_deref()
         .unwrap_or(super::IMPLICIT_ACCOUNT);
-    let refused = {
-        let mux = svc.mux.read();
-        mux.get_tab(&context.tab_id).is_some_and(|tab| {
-            tab.agent_type.as_deref() == Some(&source.provider)
-                && super::selected_account(tab) == target_account
-                && tab.restorable_launch.account_namespace == target.account_namespace
-                && tab.session_binding_nonce.as_deref() == Some(&context.binding_nonce)
-                && context.binding_nonce != source.binding_nonce
-                && tab.agent_runtime_state.as_ref().is_some_and(|state| {
-                    matches!(
-                        state["failureCode"].as_str(),
-                        Some("session_load_refused" | "thread_not_found")
-                    )
-                })
-        })
-    };
-    if !refused
-        || *session.auth.lock() != codeterm_plugin::agent_runtime::RuntimeAuthState::SignedIn
-        || context.thread_id.as_deref() != Some(&source.session_id)
+    let target_account = target
+        .account_id
+        .as_deref()
+        .unwrap_or(super::IMPLICIT_ACCOUNT);
+    if !outcome.account_target_refused
+        || outcome.tab_id != tab
+        || outcome.provider != source.provider
+        || outcome.session_id.as_deref() != Some(&source.session_id)
+        || outcome.session_was_stale
+        || source.unbound_login
+        || source.refresh_login
         || source_account == target_account
         || codeterm_build_info::sha() == "unknown"
     {
@@ -184,7 +192,7 @@ pub(super) fn record_refusal(
         source_account: source_account.into(),
         target_account: target_account.into(),
         source_nonce: source.binding_nonce.clone(),
-        resumed_nonce: context.binding_nonce,
+        resumed_nonce: nonce.into(),
         verified_at_ms: crate::delayed_send::now_ms(),
     };
     let applied = super::mutate_config(svc, |config| {

@@ -41,6 +41,7 @@ pub(crate) struct State {
     admissions: parking_lot::Mutex<admission::Admissions>,
     closing: parking_lot::Mutex<closing::PendingCloses>,
     scheduler: parking_lot::Mutex<scheduler::Scheduler>,
+    continuation_refusals: parking_lot::Mutex<std::collections::BTreeSet<String>>,
 }
 
 impl Default for State {
@@ -59,6 +60,7 @@ impl Default for State {
             admissions: Default::default(),
             closing: Default::default(),
             scheduler: Default::default(),
+            continuation_refusals: Default::default(),
         }
     }
 }

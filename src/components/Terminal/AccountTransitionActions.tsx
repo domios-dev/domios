@@ -24,14 +24,14 @@ function AccountTransition({tab,displayName}:{tab:Tab;displayName:string}) {
   if(transition.status==="waiting" || transition.status==="switching")return <div role="status"><BusyState inline label={transition.cause==="reauth"?"Updating sign-in":"Switching account"}/></div>;
   const all=transition.status==="allExhausted";
   const verification=transition.cause==="verification";
-  if(verification && transition.status==="failed" && transition.continuation!=="unsupported")return <div role="status"><InlineErrorNotice description={{title:`Couldn't try ${transition.nextIdentity ?? "this account"}.`,cause:"",actions:[],raw:transition.reason ?? ""}}/></div>;
+  if(transition.status==="failed" && transition.continuation!=="unsupported")return <div role="status"><InlineErrorNotice description={{title:verification?`Couldn't try ${transition.nextIdentity ?? "this account"}.`:`Couldn't switch to ${transition.nextIdentity ?? "this account"}.`,cause:"",actions:[],raw:transition.reason ?? ""}}/></div>;
   const limit=transition.cause==="limit";
   const supported=transition.continuation==="proven" && transition.turnId!=null;
   const next=transition.nextAccountId;
   const nextIdentity=transition.nextIdentity;
   const reset=transition.resetsAtMs==null?null:new Date(transition.resetsAtMs).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
   const title=verification && transition.continuation==="unsupported"?`${displayName} can't move this conversation to another account`:all?`All ${displayName} accounts reached their limits`:limit?`${transition.accountIdentity} reached its limit`:"Couldn't switch accounts";
-  const hint=all?`${reset?`The first one resets at ${reset}. `:""}Send again after that.`:limit && !supported
+  const hint=verification && transition.continuation==="unsupported"?transition.sourceAccountRestored?`The conversation is back on ${transition.accountIdentity}.`:"The original account could not be restored. Review Details before continuing.":all?`${reset?`The first one resets at ${reset}. `:""}Send again after that.`:limit && !supported
     ?transition.continuation==="unsupported"?`${displayName} can't move this conversation to another account.`:"Moving this conversation to another account isn't confirmed yet."
     :reset?`It resets at ${reset}.`:transition.reason ?? "Choose an available account.";
   const locked=managedTabPresentation(tab.managed).locked;

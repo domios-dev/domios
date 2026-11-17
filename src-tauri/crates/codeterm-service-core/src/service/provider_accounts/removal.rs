@@ -289,6 +289,7 @@ fn finish(svc: &ServiceContext, provider: &str, account: &str, id: &str) -> Resu
         policy.remove(account)?;
         policy.validate()
     })?;
+    state.scheduler.lock().forget_account(provider, account);
     state
         .observations
         .lock()

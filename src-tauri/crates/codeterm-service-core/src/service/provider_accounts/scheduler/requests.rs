@@ -102,6 +102,7 @@ pub fn select(
         }
     };
     let transition = Transition {
+        source_account_restored: false,
         cause: if request.resume_work {
             "limit"
         } else if verify {
@@ -197,6 +198,7 @@ pub(in crate::service::provider_accounts) fn evacuate(
             }
         };
         let transition = Transition {
+            source_account_restored: false,
             cause: "removal",
             account_identity: identity(svc, provider, account),
             id: uuid::Uuid::new_v4().to_string(),
@@ -281,6 +283,7 @@ pub(in crate::service::provider_accounts) fn reauthenticated(
             };
             pending.target.terminal_turn = None;
             let transition = Transition {
+                source_account_restored: false,
                 cause: "reauth",
                 account_identity: identity(svc, provider, account),
                 id: uuid::Uuid::new_v4().to_string(),
@@ -311,6 +314,7 @@ pub(in crate::service::provider_accounts) fn reauthenticated(
                 .insert(
                     tab.clone(),
                     Transition {
+                        source_account_restored: false,
                         cause: "reauth",
                         account_identity: identity(svc, provider, account),
                         id: uuid::Uuid::new_v4().to_string(),

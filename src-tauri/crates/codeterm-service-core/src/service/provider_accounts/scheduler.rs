@@ -30,9 +30,17 @@ pub(super) struct Scheduler {
     pub pending: BTreeMap<String, Pending>,
     pub transitions: BTreeMap<String, Transition>,
     auth_contexts: BTreeMap<(String, String), String>,
+    quota_versions: BTreeMap<(String, String), String>,
 }
 
 impl Scheduler {
+    pub(super) fn forget_account(&mut self, provider: &str, account: &str) {
+        self.book.forget(provider, account);
+        self.auth_contexts
+            .remove(&(provider.into(), account.into()));
+        self.quota_versions
+            .remove(&(provider.into(), account.into()));
+    }
     pub(super) fn retire(&mut self, tab: &str) {
         self.book.close_tab(tab);
         self.errors.remove(tab);
@@ -43,6 +51,7 @@ impl Scheduler {
 }
 
 struct Limit {
+    version: String,
     expected: AccountRestartBinding,
     turn: String,
     resets_at: Option<u64>,
@@ -63,6 +72,7 @@ pub(super) struct Pending {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Transition {
+    pub source_account_restored: bool,
     pub cause: &'static str,
     pub account_identity: String,
     pub id: String,
@@ -113,6 +123,7 @@ pub fn transition(svc: &ServiceContext, tab: &str) -> Option<Transition> {
         )
     });
     Some(Transition {
+        source_account_restored: false,
         cause: "limit",
         account_identity: identity(svc, &provider, &account),
         id: format!("saved-limit-{nonce}"),
@@ -332,6 +343,7 @@ pub(crate) fn runtime_observe(
                     .insert(
                         context.tab_id.clone(),
                         Limit {
+                            version: String::new(),
                             expected,
                             turn: turn.clone(),
                             resets_at: limit.resets_at_ms,
@@ -416,6 +428,7 @@ pub(crate) fn transcript_limit(
         svc,
         tab,
         Limit {
+            version: String::new(),
             expected,
             turn: turn.into(),
             resets_at: limit.resets_at_ms,
@@ -424,18 +437,29 @@ pub(crate) fn transcript_limit(
     true
 }
 
-fn queue_exhausted(svc: &ServiceContext, tab: &str, limit: Limit) {
-    svc.ext_or_init::<State>(State::default)
-        .scheduler
-        .lock()
-        .boundaries
-        .insert(
+fn queue_exhausted(svc: &ServiceContext, tab: &str, mut limit: Limit) {
+    limit.version = uuid::Uuid::new_v4().to_string();
+    {
+        let mut scheduler = svc.ext_or_init::<State>(State::default).scheduler.lock();
+        scheduler.quota_versions.insert(
+            (
+                limit.expected.provider.clone(),
+                limit
+                    .expected
+                    .account_id
+                    .clone()
+                    .unwrap_or_else(|| super::IMPLICIT_ACCOUNT.into()),
+            ),
+            limit.version.clone(),
+        );
+        scheduler.boundaries.insert(
             tab.into(),
             Boundary {
                 expected: limit.expected.clone(),
                 turn: limit.turn.clone(),
             },
         );
+    }
     let owner = svc.clone();
     let tab = tab.to_owned();
     let receipt = super::work::Receipt::capture(svc);
@@ -476,9 +500,20 @@ fn exhausted(svc: &ServiceContext, tab: &str, limit: Limit) {
         .account_id
         .as_deref()
         .unwrap_or(super::IMPLICIT_ACCOUNT);
+    let operation = super::operation(svc, &limit.expected.provider, account);
+    let Some(_operation) = operation.try_lock_for(std::time::Duration::from_secs(30)) else {
+        return;
+    };
     let state = svc.ext_or_init::<State>(State::default);
     let decision = {
         let mut scheduler = state.scheduler.lock();
+        if scheduler
+            .quota_versions
+            .get(&(limit.expected.provider.clone(), account.into()))
+            != Some(&limit.version)
+        {
+            return;
+        }
         if !scheduler.boundaries.get(tab).is_some_and(|boundary| {
             boundary.expected == limit.expected && boundary.turn == limit.turn
         }) {
@@ -545,6 +580,7 @@ fn exhausted(svc: &ServiceContext, tab: &str, limit: Limit) {
         (all, resets.and_then(|resets| resets.into_iter().min()))
     };
     let mut transition = Transition {
+        source_account_restored: false,
         cause: "limit",
         account_identity: identity(svc, &limit.expected.provider, account),
         id: uuid::Uuid::new_v4().to_string(),
@@ -701,8 +737,24 @@ pub(crate) fn successful_turn(svc: &ServiceContext, tab: &str, session: &str, no
         .as_deref()
         .unwrap_or(super::IMPLICIT_ACCOUNT);
     let policy = policy(svc, &expected.provider);
-    if limits::active(&policy, account).is_none() {
-        return;
+    let version = uuid::Uuid::new_v4().to_string();
+    {
+        let mut scheduler = svc.ext_or_init::<State>(Default::default).scheduler.lock();
+        if limits::active(&policy, account).is_none()
+            && !matches!(
+                scheduler.book.authentication(&expected.provider, account),
+                Some(Authentication::Exhausted { .. })
+            )
+            && !scheduler.boundaries.values().any(|boundary| {
+                boundary.expected.provider == expected.provider
+                    && boundary.expected.account_id == expected.account_id
+            })
+        {
+            return;
+        }
+        scheduler
+            .quota_versions
+            .insert((expected.provider.clone(), account.into()), version.clone());
     }
     let owner = svc.clone();
     let tab = tab.to_owned();
@@ -717,6 +769,21 @@ pub(crate) fn successful_turn(svc: &ServiceContext, tab: &str, session: &str, no
                 .account_id
                 .as_deref()
                 .unwrap_or(super::IMPLICIT_ACCOUNT);
+            let operation = super::operation(&owner, &expected.provider, account);
+            let Some(_operation) = operation.try_lock_for(std::time::Duration::from_secs(30))
+            else {
+                return;
+            };
+            if owner
+                .ext_or_init::<State>(Default::default)
+                .scheduler
+                .lock()
+                .quota_versions
+                .get(&(expected.provider.clone(), account.into()))
+                != Some(&version)
+            {
+                return;
+            }
             if let Err(reason) = limits::clear(&owner, &expected.provider, account) {
                 log::debug!("[provider-accounts] completed-turn quota update failed: {reason}");
                 return;
@@ -725,6 +792,13 @@ pub(crate) fn successful_turn(svc: &ServiceContext, tab: &str, session: &str, no
                 .ext_or_init::<State>(Default::default)
                 .scheduler
                 .lock();
+            if scheduler
+                .quota_versions
+                .get(&(expected.provider.clone(), account.into()))
+                != Some(&version)
+            {
+                return;
+            }
             scheduler
                 .book
                 .set_authentication(&expected.provider, account, Authentication::Ready);

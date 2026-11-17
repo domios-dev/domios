@@ -88,6 +88,7 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
         automatic: _,
         verify,
     } = pending;
+    let mut source_restored = false;
     let result = (|| {
         if !svc
             .ext_or_init::<State>(State::default)
@@ -98,16 +99,65 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
         {
             return Err("The account transition was canceled".into());
         }
-        let outcome = svc
-            .lifecycle_port()
-            .agent_restart_observed_with_options(
-                tab,
-                RestartOptions {
-                    account_restart: Some(target.clone()),
-                    ..Default::default()
-                },
-            )
-            .map_err(|error| format!("Account restart failed: {error:?}"))?;
+        let outcome = match svc.lifecycle_port().agent_restart_observed_with_options(
+            tab,
+            RestartOptions {
+                account_restart: Some(target.clone()),
+                ..Default::default()
+            },
+        ) {
+            Ok(outcome) => outcome,
+            Err(crate::service::agent_lifecycle::RestartAttemptError::Failed {
+                outcome,
+                reason,
+                timed_out,
+            }) => {
+                if outcome.account_target_refused && !timed_out {
+                    if outcome.tab_id != tab
+                        || outcome.provider != target.expected.provider
+                        || outcome.session_id.as_deref() != Some(&target.expected.session_id)
+                        || outcome.session_was_stale
+                    {
+                        return Err(
+                            "The account refusal belongs to a different restart attempt".into()
+                        );
+                    }
+                    if claim.source.account != claim.target {
+                        svc.ext_or_init::<State>(State::default)
+                            .continuation_refusals
+                            .lock()
+                            .insert(target.expected.provider.clone());
+                    }
+                    if outcome.source_account_restored {
+                        let restored = capture(svc, tab)?;
+                        if outcome.tab_id != tab
+                            || outcome.provider != target.expected.provider
+                            || !outcome.agent_ready
+                            || !outcome.binding_restored
+                            || restored.provider != target.expected.provider
+                            || restored.account_id != target.expected.account_id
+                            || restored.account_namespace != target.expected.account_namespace
+                            || restored.session_id != target.expected.session_id
+                            || restored.binding_nonce == target.expected.binding_nonce
+                        {
+                            return Err("The original account restoration was not confirmed".into());
+                        }
+                        let mut scheduler =
+                            svc.ext_or_init::<State>(State::default).scheduler.lock();
+                        if !scheduler.book.current(&claim) {
+                            return Err("The account check changed during restoration".into());
+                        }
+                        scheduler.book.cancel(&claim);
+                        let restored_binding = binding(&restored, tab, &scheduler.book);
+                        scheduler.book.bind(restored_binding);
+                        source_restored = true;
+                    }
+                    super::super::receipt::record_refusal(svc, tab, &target, &outcome)?;
+                }
+                return Err(reason);
+            }
+            Err(error) => return Err(format!("Account restart failed: {error:?}")),
+        };
         if !outcome.agent_ready
             || !outcome.binding_restored
             || (!target.expected.unbound_login
@@ -167,11 +217,6 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
         }
         Ok::<_, String>(())
     })();
-    if verify && result.is_err() {
-        if let Err(reason) = super::super::receipt::record_refusal(svc, tab, &target) {
-            log::debug!("[provider-accounts] live refusal receipt unavailable: {reason}");
-        }
-    }
     let state = svc.ext_or_init::<State>(State::default);
     {
         let mut scheduler = state.scheduler.lock();
@@ -180,6 +225,7 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
             if let Some(transition) = scheduler.transitions.get_mut(tab) {
                 transition.status = "failed";
                 transition.reason = Some(reason);
+                transition.source_account_restored = source_restored;
                 transition.continuation = super::super::continuation(svc, &claim.source.provider);
             }
         } else if let Some(transition) = scheduler.transitions.get_mut(tab) {

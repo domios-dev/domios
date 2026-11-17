@@ -1,5 +1,9 @@
 macro_rules! js_provider_metadata {
     () => {
+        fn account_implementation_revision(&self) -> Option<String> {
+            Some(self.manifest.version.clone())
+        }
+
         fn account_identity(
             &self,
             record: Option<&Value>,

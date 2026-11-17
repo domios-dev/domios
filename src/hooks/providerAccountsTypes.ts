@@ -48,6 +48,7 @@ export type ProviderAccountsAction =
   | { action: "dismissRemovalNotice"; accountId: string; noticeId: string };
 
 export interface AccountTransition {
+  sourceAccountRestored?:boolean;
   id:string;
   cause:"limit"|"manual"|"reauth"|"removal"|"verification";
   providerId:string;

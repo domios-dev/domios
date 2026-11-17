@@ -25,6 +25,10 @@ mod catalogue;
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
 pub trait AgentProvider: Send + Sync {
+    fn account_implementation_revision(&self) -> Option<String> {
+        None
+    }
+
     fn account_capability(&self) -> Option<crate::provider_account::storage::AccountCapability> {
         None
     }
