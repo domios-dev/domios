@@ -38,6 +38,32 @@ pub fn fixture() -> (
 }
 
 #[test]
+fn read_only_pad_policy_provisions_only_the_pinned_cli_exception() {
+    let (directory, mut context, mut sandbox, executable) = fixture();
+    let pad = directory.path().join("own-pad");
+    fs::create_dir(&pad).unwrap();
+    sandbox.intent = ExecutionIntent::ReadOnly;
+    sandbox.runtime_mode = Some("read-only-with-writable-roots".into());
+    sandbox.writable_roots = vec![plain_path(&pad.canonicalize().unwrap()).unwrap()];
+    context.settings.mode = sandbox.runtime_mode.clone();
+    context.settings.additional_directories = sandbox.writable_roots.clone();
+    let before = sandbox.clone();
+    let policy = provision(&context, &sandbox, &executable, ".codex").unwrap();
+    verify_files(&policy).unwrap();
+    assert_eq!(sandbox, before);
+    assert_eq!(
+        fs::read(paths(&policy).2).unwrap(),
+        format!(
+            "prefix_rule(pattern={}, decision=\"allow\")\n",
+            serde_json::to_string(&[&policy.executable]).unwrap()
+        )
+        .as_bytes()
+    );
+    assert!(fs::read_dir(pad).unwrap().next().is_none());
+    remove_owned(&policy);
+}
+
+#[test]
 fn provisions_only_fresh_protected_policy_and_exact_executable_prefix() {
     let (_directory, context, sandbox, executable) = fixture();
     let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();

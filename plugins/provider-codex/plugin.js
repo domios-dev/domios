@@ -2738,7 +2738,7 @@ function codexRestrictedCliConfig(ctx) {
   const policy = ctx.restrictedCli;
   if (!policy) return {};
   const hash = (value) => /^[0-9a-f]{64}$/.test(value);
-  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false || !/^[A-Za-z0-9/\\:._~-]+$/.test(policy.executable) || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash))
+  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || !["workspace-write", "read-only-with-writable-roots"].includes(ctx.settings.mode ?? "") || ctx.settings.networkAccess !== false || !/^[A-Za-z0-9/\\:._~-]+$/.test(policy.executable) || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash))
     throw { code: "binding_mismatch", message: "Restricted CLI policy differs from the bound launch" };
   return { projects: { [ctx.cwd]: { trust_level: "trusted" } } };
 }
@@ -2888,7 +2888,7 @@ function codexWritableRootsConfirmed(settings, reply) {
   const sandbox = object2(reported.sandboxPolicy ?? reported.sandbox);
   const expected = settings.additionalDirectories ?? [];
   const same = (value) => Array.isArray(value) && value.length === expected.length && value.every((path) => typeof path === "string" && expected.includes(path));
-  return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
+  return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.networkAccess === settings.networkAccess && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
 }
 function codexRestrictedCliInstructions(ctx, instructions) {
   if (!ctx.restrictedCli) return instructions;
@@ -3729,7 +3729,7 @@ function planOperation(ctx, op) {
       return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
     case "openThread":
     case "resumeThread":
-      return op.settings.mode === "workspace-write" ? request("config/read", { includeLayers: false, cwd: ctx.cwd }, { stage: "windowsSandboxConfig" }) : threadPlan(ctx, op);
+      return ["workspace-write", "read-only-with-writable-roots"].includes(op.settings.mode ?? "") ? request("config/read", { includeLayers: false, cwd: ctx.cwd }, { stage: "windowsSandboxConfig" }) : threadPlan(ctx, op);
     case "forkThread":
       return forkThreadPlan(ctx, op);
     case "readHistory":

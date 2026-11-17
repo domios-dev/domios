@@ -446,6 +446,10 @@ it("keeps writing open to a friend you disabled and offers Enable", async () => 
 });
 
 it("shows your concierge working on a friend's message and stops it through the runtime", async () => {
+  const previousTab = mux.tabs["tab-gateway"];
+  Object.assign(mux.tabs, {"tab-gateway":{...previousTab,agent_session_id:"own-session",boot_stage:"agent_ready"}});
+  Object.assign(mux.tabStatuses, {"tab-gateway":"Working"});
+  try {
   const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Is the build green?", at: 1700000000000, message_id: "m1",
     handling_state: "working", handling_updated_at: 1700000001000 }]);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
@@ -457,6 +461,15 @@ it("shows your concierge working on a friend's message and stops it through the 
   expect(document.querySelector(".neighbor-chat__working")?.textContent).toContain("Your concierge is working for Ada");
   await act(async () => document.querySelector<HTMLButtonElement>('#neighbor-msg-m1 button[aria-label="Stop your concierge"]')!.click());
   expect(conciergeClient.stopConcierge).toHaveBeenCalledExactlyOnceWith("pair");
+  for (const status of ["Idle", "Error", "Dead"]) {
+    Object.assign(mux.tabStatuses, {"tab-gateway":status});
+    await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+    expect(Array.from(document.querySelectorAll('[role="status"]')).some(element => element.textContent?.includes("Your concierge is working for Ada"))).toBe(false);
+  }
+  } finally {
+    mux.tabs["tab-gateway"] = previousTab;
+    mux.tabStatuses = {};
+  }
 });
 
 it("puts a settled concierge outcome in the time row, linked to the reply", async () => {
