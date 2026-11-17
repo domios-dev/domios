@@ -31,6 +31,7 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   root = null;
   document.body.replaceChildren();
+  vi.useRealTimers();
 });
 
 async function mount(locked = false) {
@@ -108,4 +109,24 @@ it("a new user is only recorded, never invited", async () => {
   await mount();
   expect(host.childElementCount).toBe(0);
   expect(lastSaved()).toEqual({ first_seen: NOW, days: [localDayKey(NOW)], snoozes: 0, snooze_until: 0, done: false });
+});
+
+it("an idle chat records no activity or renders until the user interacts", async () => {
+  vi.useFakeTimers();
+  settings.stored = undefined;
+  let time = NOW;
+  const clock = vi.fn(() => time);
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root!.render(<RateUsTray now={clock} />));
+  settings.setUiSettings.mockClear();
+  clock.mockClear();
+  time += 2 * DAY_MS;
+  await act(async () => vi.advanceTimersByTime(60_000));
+  expect(clock).not.toHaveBeenCalled();
+  expect(settings.setUiSettings).not.toHaveBeenCalled();
+  await act(async () => window.dispatchEvent(new Event("pointerdown")));
+  expect(lastSaved().days).toEqual([localDayKey(NOW), localDayKey(time)]);
+  expect(invite()).not.toBeNull();
 });
