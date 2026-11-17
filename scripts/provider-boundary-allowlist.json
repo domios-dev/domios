@@ -10678,6 +10678,10 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/input_attach.rs",
       "reason": "Provider-owned native/JavaScript parity proof that the provider declares bracketed-paste input attach."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/opencode/runtime.rs",
+      "reason": "Provider-owned OpenCode runtime fixture parity adapter; no core dispatch policy."
     }
   ]
 }

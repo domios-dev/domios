@@ -92,6 +92,13 @@ fn runtime_manifest_schema_and_consent_fail_closed() {
 fn runtime_transport_is_a_typed_capability() {
     let mut raw = manifest();
     raw["capabilities"]["agentRuntime"]["runtime"] = json!("http-sse");
+    assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
+    raw["capabilities"]["agentRuntime"]["command"]["args"] = json!(["serve", "--port={httpPort}"]);
+    raw["capabilities"]["agentRuntime"]["httpSse"] = json!({
+        "readinessPrefix":"fixture listening on ","passwordEnv":"FIXTURE_PASSWORD","username":"fixture","usernameEnv":"FIXTURE_USERNAME",
+        "eventPath":"/event","eventMethod":"item.changed",
+        "routes":{"handshake":{"method":"GET","path":"/health"},"turn.submit":{"method":"POST","path":"/session/{sessionID}/prompt"}}
+    });
     let parsed = PluginManifest::from_json_str(&raw.to_string()).unwrap();
     assert_eq!(
         parsed.capabilities.agent_runtime.unwrap().runtime,
@@ -99,6 +106,40 @@ fn runtime_transport_is_a_typed_capability() {
     );
     raw["capabilities"]["agentRuntime"]["runtime"] = json!("websocket");
     assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
+}
+
+#[test]
+fn http_transport_refuses_undeclared_routes_foreign_origins_and_missing_port_identity() {
+    let mut raw = manifest();
+    raw["capabilities"]["agentRuntime"]["runtime"] = json!("http-sse");
+    raw["capabilities"]["agentRuntime"]["command"]["args"] = json!(["serve", "--port={httpPort}"]);
+    raw["capabilities"]["agentRuntime"]["httpSse"] = json!({
+        "readinessPrefix":"fixture listening on ","passwordEnv":"FIXTURE_PASSWORD","username":"fixture","usernameEnv":"FIXTURE_USERNAME",
+        "eventPath":"/event","eventMethod":"item.changed",
+        "routes":{"handshake":{"method":"GET","path":"/health"},"turn.submit":{"method":"POST","path":"/session/{sessionID}/prompt"}}
+    });
+    assert!(PluginManifest::from_json_str(&raw.to_string()).is_ok());
+    for (pointer, value) in [
+        ("/httpSse/eventPath", json!("http://remote/event")),
+        ("/httpSse/passwordEnv", json!("CODETERM_API_TOKEN")),
+        ("/httpSse/routes/handshake/path", json!("/../auth")),
+        ("/httpSse/routes/handshake/method", json!("CONNECT")),
+        (
+            "/httpSse/routes/handshake/path",
+            json!("/health?target=other"),
+        ),
+        ("/httpSse/eventMethod", json!("undeclared")),
+        ("/command/args", json!(["serve"])),
+    ] {
+        let mut invalid = raw.clone();
+        *invalid["capabilities"]["agentRuntime"]
+            .pointer_mut(pointer)
+            .unwrap() = value;
+        assert!(
+            PluginManifest::from_json_str(&invalid.to_string()).is_err(),
+            "{pointer}"
+        );
+    }
 }
 
 #[test]

@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.19",
-  "minCodeterm": "1.19.2",
+  "version": "1.14.20",
+  "minCodeterm": "1.20.2",
   "hostApi": 2,
   "capabilities": {
     "attachments": {
@@ -76,6 +76,162 @@
             "sideEffects": true
           }
         }
+      ]
+    },
+    "chatBackend": {
+      "spawnable": true,
+      "sessionConfig": true,
+      "agentTasks": true
+    },
+    "agentRuntime": {
+      "runtime": "http-sse",
+      "command": {
+        "binary": "opencode",
+        "args": [
+          "serve",
+          "--hostname={httpHost}",
+          "--port={httpPort}"
+        ]
+      },
+      "httpSse": {
+        "readinessPrefix": "opencode server listening on ",
+        "passwordEnv": "OPENCODE_SERVER_PASSWORD",
+        "username": "opencode",
+        "usernameEnv": "OPENCODE_SERVER_USERNAME",
+        "eventPath": "/event",
+        "eventMethod": "http/event",
+        "requestEvents": {
+          "permission.asked": {
+            "typePointer": "/type",
+            "idPointer": "/properties/id",
+            "threadPointer": "/properties/sessionID",
+            "replyMethod": "permission.reply",
+            "rejectMethod": "permission.reply",
+            "rejectBody": {
+              "reply": "reject"
+            },
+            "pathParams": {
+              "requestID": "/properties/id"
+            }
+          },
+          "question.asked": {
+            "typePointer": "/type",
+            "idPointer": "/properties/id",
+            "threadPointer": "/properties/sessionID",
+            "replyMethod": "question.reply",
+            "rejectMethod": "question.reject",
+            "pathParams": {
+              "requestID": "/properties/id"
+            }
+          }
+        },
+        "responseHeaders": [
+          "x-next-cursor"
+        ],
+        "routes": {
+          "health": {
+            "method": "GET",
+            "path": "/global/health"
+          },
+          "provider.list": {
+            "method": "GET",
+            "path": "/provider"
+          },
+          "provider.auth": {
+            "method": "GET",
+            "path": "/provider/auth"
+          },
+          "provider.authorize": {
+            "method": "POST",
+            "path": "/provider/{providerID}/oauth/authorize"
+          },
+          "provider.callback": {
+            "method": "POST",
+            "path": "/provider/{providerID}/oauth/callback"
+          },
+          "provider.key": {
+            "method": "PUT",
+            "path": "/auth/{providerID}"
+          },
+          "session.create": {
+            "method": "POST",
+            "path": "/session"
+          },
+          "session.get": {
+            "method": "GET",
+            "path": "/session/{sessionID}"
+          },
+          "session.messages": {
+            "method": "GET",
+            "path": "/session/{sessionID}/message"
+          },
+          "session.prompt": {
+            "method": "POST",
+            "path": "/session/{sessionID}/prompt_async"
+          },
+          "session.abort": {
+            "method": "POST",
+            "path": "/session/{sessionID}/abort"
+          },
+          "permission.reply": {
+            "method": "POST",
+            "path": "/permission/{requestID}/reply"
+          },
+          "question.reply": {
+            "method": "POST",
+            "path": "/question/{requestID}/reply"
+          },
+          "question.reject": {
+            "method": "POST",
+            "path": "/question/{requestID}/reject"
+          }
+        }
+      },
+      "hostApprovals": true,
+      "interrupt": {
+        "beforeFirstTurn": true
+      },
+      "localImagePaths": true,
+      "usage": true,
+      "turnScopedRequests": [
+        "submitTurn"
+      ],
+      "requestMethods": {
+        "initialize": [
+          "health",
+          "provider.list",
+          "provider.auth"
+        ],
+        "openThread": [
+          "session.create"
+        ],
+        "resumeThread": [
+          "session.get"
+        ],
+        "readHistory": [
+          "session.messages"
+        ],
+        "submitTurn": [
+          "session.prompt"
+        ],
+        "interrupt": [
+          "session.abort"
+        ],
+        "answer": [
+          "permission.reply",
+          "question.reply",
+          "question.reject"
+        ],
+        "control": [
+          "provider.list",
+          "provider.auth",
+          "provider.authorize",
+          "provider.callback",
+          "provider.key"
+        ]
+      },
+      "notificationMethods": [
+        "http/event"
       ]
     }
   },

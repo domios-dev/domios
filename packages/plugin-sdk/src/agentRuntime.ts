@@ -47,6 +47,12 @@ export type RuntimeAccountCredits = import("./gen/RuntimeAccountCredits").Runtim
 export type ResetCreditOutcome = import("./gen/ResetCreditOutcome").ResetCreditOutcome;
 export type RuntimeReduction = Omit<import("./gen/RuntimeReduction").RuntimeReduction, "events"> & {events: readonly AgentEvent[]};
 export type AgentRuntimeTransport = import("./gen/AgentRuntimeProtocol").AgentRuntimeProtocol;
+export type RuntimeHttpCallParameters = {path?:Record<string,string>;query?:Record<string,string>;body?:JsonValue};
+export type RuntimeHttpReply = {body:JsonValue;headers:Record<string,string>};
+export type HttpSseAgentRuntimeCapability = Omit<StdioAgentRuntimeCapability,"runtime"|"httpSse"> & {
+  runtime:"http-sse";
+  httpSse:NonNullable<import("./gen/AgentRuntimeCapability").AgentRuntimeCapability["httpSse"]>;
+};
 export type RuntimeLaunchProfile = Omit<OptionalWireFields<import("./gen/RuntimeLaunchProfile").RuntimeLaunchProfile, "icon" | "iconSvg" | "registryId" | "iconUrl" | "env" | "hostWorkingDirectory" | "install" | "detection" | "secretEnv" | "authEnv" | "ownerConfigured" | "clientCapabilities" | "limitsSource" | "fullAccessMode" | "askScope">, "args"> & {args: Readonly<import("./gen/RuntimeLaunchProfile").RuntimeLaunchProfile["args"]>};
 /** `outsideWorkspace`: the agent confines its own work to the workspace and asks only to go beyond it. */
 export type RuntimeAskScope = import("./gen/RuntimeAskScope").RuntimeAskScope;

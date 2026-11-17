@@ -10,6 +10,8 @@ mod history;
 pub use history::*;
 mod background;
 mod capability;
+mod http_sse;
+pub use http_sse::{RuntimeHttpRequestEvent, RuntimeHttpRoute, RuntimeHttpSse};
 pub mod install_validation;
 pub mod limits_source;
 pub use limits_source::{RuntimeProfileLimitsSource, RuntimeRegistryDefaults};

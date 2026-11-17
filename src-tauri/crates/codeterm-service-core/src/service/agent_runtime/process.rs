@@ -1,12 +1,4 @@
 use super::{model::RuntimeFailure, rpc::Client};
-use codeterm_plugin::agent_runtime::AgentRuntimeProtocol;
-
-fn transport_name(protocol: &AgentRuntimeProtocol) -> &'static str {
-    match protocol {
-        AgentRuntimeProtocol::StdioJsonrpc => "stdio-jsonrpc",
-        AgentRuntimeProtocol::HttpSse => "http-sse",
-    }
-}
 use parking_lot::Mutex;
 use std::{collections::HashMap, process::Stdio, sync::Arc, time::Duration};
 use tokio::{io::AsyncReadExt, sync::watch};
@@ -131,14 +123,8 @@ pub(super) fn spawn(
         test_ports::record_spawn(_tab, &env, cwd);
         return Ok(factory());
     }
-    if cap.runtime != codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc {
-        return Err(RuntimeFailure::SpawnFailed {
-            reason: format!(
-                "Runtime transport {} has no reader",
-                transport_name(&cap.runtime)
-            ),
-        });
-    }
+    let http = super::rpc::http::Launch::prepare(cap)?;
+    let http_transport = http.is_some();
     if let Some(problem) = crate::service::spawn_cwd::cwd_problem(cwd) {
         return Err(RuntimeFailure::SpawnFailed {
             reason: format!("Runtime cwd {cwd:?}: {problem}"),
@@ -189,8 +175,12 @@ pub(super) fn spawn(
             None => command.env_remove(key),
         };
     }
+    if let Some(http) = &http {
+        command.env(&http.declaration.password_env, &http.password);
+        command.env(&http.declaration.username_env, &http.declaration.username);
+    }
     command
-        .args(&cap.command.args)
+        .args(http.as_ref().map_or(&cap.command.args, |http| &http.args))
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -236,6 +226,9 @@ pub(super) fn spawn(
             if count == 0 {
                 break;
             }
+            if http_transport {
+                continue;
+            }
             append_stderr(
                 &mut captured.lock(),
                 &bytes[..count],
@@ -244,8 +237,15 @@ pub(super) fn spawn(
             );
         }
     });
-    let client = Client::attach_redacted(reader, writer, cap.envelope.clone(), credential.clone());
+    let client = match http {
+        Some(http) => {
+            drop(writer);
+            super::rpc::http::attach(reader, http)
+        }
+        None => Client::attach_redacted(reader, writer, cap.envelope.clone(), credential.clone()),
+    };
     let dying = client.clone();
+    let mut transport_ended = client.ended();
     let (stop, mut stopping) = watch::channel(None::<bool>);
     let (ended, exit) = watch::channel(None);
     #[cfg(debug_assertions)]
@@ -271,12 +271,14 @@ pub(super) fn spawn(
         let requested = tokio::select! {
             biased;
             _ = &mut witnessed => false,
+            _ = transport_ended.changed(), if http_transport => matches!(&*transport_ended.borrow(), Some(RuntimeFailure::Superseded)),
             _ = stopping.changed() => stopping.borrow().unwrap_or(false),
         };
         #[cfg(windows)]
         let requested = tokio::select! {
             biased;
             _ = child.wait() => false,
+            _ = transport_ended.changed(), if http_transport => matches!(&*transport_ended.borrow(), Some(RuntimeFailure::Superseded)),
             _ = stopping.changed() => stopping.borrow().unwrap_or(false),
         };
         // Cleanup may request termination after pipe EOF; it cannot rewrite the observed cause.
