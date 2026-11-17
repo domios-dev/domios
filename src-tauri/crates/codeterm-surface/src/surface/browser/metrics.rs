@@ -138,8 +138,6 @@ impl BrowserRuntime {
 
     async fn apply_metrics(&self, viewport: Viewport) -> Result<(), String> {
         let mut owner = self.viewport.lock().await;
-        owner.agent();
-        self.shared.update(|state| state.viewport_owner = None);
         match self
             .host
             .set_device_viewport(
@@ -156,7 +154,11 @@ impl BrowserRuntime {
             ViewportDecision::RefusedAttached => {
                 Err("refused_attached: device metrics require an owned target".into())
             }
-            _ => Ok(()),
+            _ => {
+                owner.agent(viewport);
+                self.shared.update(|state| state.viewport_owner = None);
+                Ok(())
+            }
         }
     }
 

@@ -110,11 +110,6 @@ impl Drop for ViewerLease {
                     "[browser-viewport] leave viewer={viewer} lease={generation} owner={:?}",
                     model.owner()
                 );
-                if let Err(error) = runtime.apply_viewer_viewport(&mut model).await {
-                    runtime
-                        .shared
-                        .notice(SurfaceNotice::error(format!("resize failed: {error}")));
-                }
             }
         });
     }
