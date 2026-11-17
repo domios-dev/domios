@@ -29,6 +29,7 @@ export interface ProviderAccountsSnapshot {
   continuation: "unverified" | "unsupported" | "proven";
   workspaceOverrides: { workspaceId: string; workspaceName: string; accountId: string }[];
   adding?: {
+    failureKind?: "sharedFileLinkUnsupported";
     identity?: string;
     error?: string;
     details?: string;

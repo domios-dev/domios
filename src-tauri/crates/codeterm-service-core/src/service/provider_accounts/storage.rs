@@ -29,6 +29,45 @@ pub(super) fn usual_home(capability: &AccountCapability) -> Result<PathBuf, Stri
     absolute(path)
 }
 
+#[derive(Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum SetupFailure {
+    SharedFileLinkUnsupported,
+}
+
+#[derive(Debug)]
+pub(crate) enum ProvisionError {
+    Refused(String),
+    SharedFileLinkUnsupported(String),
+}
+impl ProvisionError {
+    pub(crate) fn kind(&self) -> Option<SetupFailure> {
+        match self {
+            Self::SharedFileLinkUnsupported(_) => Some(SetupFailure::SharedFileLinkUnsupported),
+            Self::Refused(_) => None,
+        }
+    }
+}
+impl std::fmt::Display for ProvisionError {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Refused(message) | Self::SharedFileLinkUnsupported(message) => {
+                out.write_str(message)
+            }
+        }
+    }
+}
+impl From<String> for ProvisionError {
+    fn from(message: String) -> Self {
+        Self::Refused(message)
+    }
+}
+impl From<&str> for ProvisionError {
+    fn from(message: &str) -> Self {
+        Self::Refused(message.into())
+    }
+}
+
 fn absolute(path: PathBuf) -> Result<PathBuf, String> {
     if !path.is_absolute()
         || path.to_str().is_none()
@@ -183,8 +222,17 @@ fn pin_configuration(
     codeterm_util::private_file::write_atomic(&path, &bytes).map_err(|error| error.to_string())
 }
 
-fn link_shared(target: &Path, link: &Path, directory: bool) -> Result<(), String> {
+fn link_shared(target: &Path, link: &Path, directory: bool) -> Result<(), ProvisionError> {
     if std::fs::symlink_metadata(link).is_ok() {
+        if !directory
+            && codeterm_util::fs_links::file_identity(target)
+                .map_err(|error| error.to_string())?
+                .is_some_and(|identity| {
+                    codeterm_util::fs_links::file_identity(link).ok().flatten() == Some(identity)
+                })
+        {
+            return Ok(());
+        }
         if std::fs::canonicalize(target)
             .ok()
             .is_some_and(|target| std::fs::canonicalize(link).ok().as_ref() == Some(&target))
@@ -196,17 +244,20 @@ fn link_shared(target: &Path, link: &Path, directory: bool) -> Result<(), String
     if let Some(parent) = link.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    #[cfg(unix)]
-    let result = std::os::unix::fs::symlink(target, link);
-    #[cfg(windows)]
     let result = if directory {
-        std::os::windows::fs::symlink_dir(target, link)
+        codeterm_util::fs_links::directory_link(target, link)
     } else {
-        std::os::windows::fs::symlink_file(target, link)
+        codeterm_util::fs_links::file_link(target, link)
     };
-    #[cfg(unix)]
-    let _ = directory;
-    result.map_err(|error| format!("Shared account history could not be linked: {error}"))
+    result.map_err(|error| {
+        if !directory && error.kind() == std::io::ErrorKind::Unsupported {
+            ProvisionError::SharedFileLinkUnsupported(error.to_string())
+        } else {
+            ProvisionError::Refused(format!(
+                "Shared account history could not be linked: {error}"
+            ))
+        }
+    })
 }
 
 fn home_path(data_root: &Path, provider: &str, account: &str) -> Result<PathBuf, String> {
@@ -263,6 +314,7 @@ pub(super) fn provision(
     usual: &Path,
 ) -> Result<Arc<InvocationContext>, String> {
     provision_namespace(data_root, provider, account, account, capability, usual)
+        .map_err(|error| error.to_string())
 }
 
 pub(super) fn provision_namespace(
@@ -272,7 +324,7 @@ pub(super) fn provision_namespace(
     namespace: &str,
     capability: &AccountCapability,
     usual: &Path,
-) -> Result<Arc<InvocationContext>, String> {
+) -> Result<Arc<InvocationContext>, ProvisionError> {
     capability.validate()?;
     validate_environment_authority(capability)?;
     validate_isolation(capability)?;
@@ -296,11 +348,13 @@ pub(super) fn provision_namespace(
         capability.home_environment.clone(),
         Some(home.to_string_lossy().into_owned()),
     )]);
-    let mut exclusions = capability
+    let mut isolated = capability
         .isolated_paths
         .iter()
         .map(|path| relative(usual, path))
         .collect::<Vec<_>>();
+    let mut exclusions = Vec::new();
+    extend_isolated_paths(&mut exclusions, usual, capability)?;
     exclusions.push(accounts_root.clone());
     let mut count = 0;
     for provider in std::fs::read_dir(&accounts_root).map_err(|error| error.to_string())? {
@@ -312,6 +366,13 @@ pub(super) fn provision_namespace(
             }
             let namespace = namespace.map_err(|error| error.to_string())?.path();
             exclusions.push(std::fs::canonicalize(&namespace).map_err(|error| error.to_string())?);
+            isolated.extend(
+                capability
+                    .isolated_paths
+                    .iter()
+                    .map(|path| relative(&namespace, path)),
+            );
+            extend_isolated_paths(&mut exclusions, &namespace, capability)?;
             exclusions.push(namespace);
         }
     }
@@ -357,7 +418,7 @@ pub(super) fn provision_namespace(
                     match codeterm_util::private_file::create_new_owner_only(&target) {
                         Ok(_) => {}
                         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                        Err(error) => return Err(error.to_string()),
+                        Err(error) => return Err(error.to_string().into()),
                     }
                     if !std::fs::metadata(&target).is_ok_and(|metadata| metadata.is_file()) {
                         return Err("Shared history must be a regular file".into());
@@ -376,8 +437,10 @@ pub(super) fn provision_namespace(
         vec![home],
         vec![usual.into(), accounts_root],
     )?
+    .with_isolated_storage_paths(&isolated)?
     .with_shared_exclusions(exclusions)?
     .with_shared_reads(grants)
+    .map_err(Into::into)
 }
 
 fn validate_environment_authority(capability: &AccountCapability) -> Result<(), String> {
@@ -475,3 +538,33 @@ fn validate_isolation(capability: &AccountCapability) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests;
+
+fn extend_isolated_paths(
+    exclusions: &mut Vec<PathBuf>,
+    home: &Path,
+    capability: &AccountCapability,
+) -> Result<(), ProvisionError> {
+    let mut pending = capability
+        .isolated_paths
+        .iter()
+        .map(|path| relative(home, path))
+        .collect::<Vec<_>>();
+    let mut visited = std::collections::HashSet::new();
+    while let Some(path) = pending.pop() {
+        if exclusions.len() >= 1024 {
+            return Err("Account storage exclusion limit".into());
+        }
+        exclusions.push(path.clone());
+        if !path.is_dir() {
+            continue;
+        }
+        let target = std::fs::canonicalize(&path).map_err(|error| error.to_string())?;
+        if !visited.insert(target) {
+            continue;
+        }
+        for entry in std::fs::read_dir(path).map_err(|error| error.to_string())? {
+            pending.push(entry.map_err(|error| error.to_string())?.path());
+        }
+    }
+    Ok(())
+}

@@ -113,7 +113,7 @@ function ProviderAccountsContent({ provider, snapshot: supplied, loading, error,
         <p>This is {adding.identity ?? "an account"}, which is already in the list.</p>
         <button type="button" className="ct-bar-pill min-h-11 px-3" disabled={controls.busy} onClick={() => { void controls.act({ action: "retryAdd" }); }}>Use a different account</button>
       </div>}
-      {adding?.status === "failed" && <InlineErrorNotice description={{ title: "Couldn't add the account.", cause: "", actions: [], raw: adding.details ?? adding.error ?? "" }}
+      {adding?.status === "failed" && <InlineErrorNotice description={{ title: adding.failureKind === "sharedFileLinkUnsupported" ? "Shared file linking is unsupported on this machine." : "Couldn't add the account.", cause: "", actions: [], raw: adding.details ?? adding.error ?? "" }}
         actions={[{ label: "Try again", onClick: () => { void controls.act({ action: "retryAdd" }); }, disabled: controls.busy }]} />}
       {snapshot.accounts.length > 1 && <Toggle label="Switch accounts automatically" checked={continuation === "proven" && snapshot.automaticSwitch}
         disabled={controls.busy || continuation !== "proven"} description={toggleDescription}

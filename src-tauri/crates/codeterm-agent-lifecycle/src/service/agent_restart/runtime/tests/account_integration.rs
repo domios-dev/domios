@@ -23,13 +23,13 @@ module.exports = {
       const turn = limited ? 'limited-turn' : 'continued-turn';
       result = {kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:turn};
       if (limited) {
-        const error = {kind:'chatItem',threadId:op.threadId,item:{id:'account-limit',kind:'system',
+        const error = {kind:'chatItem',threadId:op.threadId,item:{id:'account-limit',type:'system',
           content:'opaque-limit',systemSubtype:'api_error',toolFlowId:turn,
           toolInput:{retryable:false,retryableKind:null,retryAtMs:null,accountLimit:{}}}};
         const ended = {kind:'turnState',threadId:op.threadId,turnId:turn,state:'idle',detail:'failed'};
         events = [{kind:'turnState',threadId:op.threadId,turnId:turn,state:'working'},error,error,ended,ended];
       } else {
-        const stale = {kind:'chatItem',threadId:op.threadId,item:{id:'account-limit',kind:'system',
+        const stale = {kind:'chatItem',threadId:op.threadId,item:{id:'account-limit',type:'system',
           content:'opaque-limit',systemSubtype:'api_error',toolFlowId:'limited-turn',
           toolInput:{retryable:false,retryableKind:null,retryAtMs:null,accountLimit:{}}}};
         events = [{kind:'turnState',threadId:op.threadId,turnId:turn,state:'working'},stale,
@@ -179,7 +179,17 @@ fn authenticated_account_limit_runs_scheduler_restart_and_one_durable_continuati
             }
         })
         .await
-        .unwrap();
+        .unwrap_or_else(|error| {
+            panic!(
+                "Account continuation timed out: {error}; transition={}; requests={:?}",
+                serde_json::to_value(provider_accounts::transition(
+                    &fixture.service,
+                    &fixture.tab
+                ))
+                .unwrap(),
+                fixture.requests()
+            )
+        });
         provider_accounts::test_support::settled(&mut receipt)
             .await
             .unwrap();

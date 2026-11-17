@@ -873,6 +873,7 @@ mod tests {
     #[test]
     fn team_attach_fields_round_trip_through_the_tab_spec() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            account_id: Some("account-selected".into()),
             execution_mode: None,
             launch_profile: None,
             context_files: None,

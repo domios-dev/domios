@@ -195,6 +195,11 @@ it("routes duplicate and failed additions to retry without adding a row or expos
   await click("Try again");
   expect(onAction).toHaveBeenLastCalledWith({ action: "retryAdd" });
   expect(host.querySelectorAll("[data-account-id]")).toHaveLength(2);
+  snapshot = { ...snapshot, adding: { status: "failed", failureKind: "sharedFileLinkUnsupported", details: "opaque link failure" } };
+  await render();
+  expect(host.textContent).toContain("Shared file linking is unsupported on this machine.");
+  expect(host.querySelectorAll("[data-account-id]")).toHaveLength(snapshot.accounts.length);
+
 });
 
 it("names exhausted and removing rows and wires only the row's sign-in context", async () => {

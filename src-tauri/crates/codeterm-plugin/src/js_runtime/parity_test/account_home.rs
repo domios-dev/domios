@@ -160,7 +160,7 @@ fn parity_account_home_claude_selected_session_roots_and_storage_declarations() 
     let session = unique_session.as_str();
     std::fs::create_dir_all(&shared).unwrap();
     let shared_record = shared.join(format!("{session}.jsonl"));
-    std::fs::write(&shared_record, serde_json::json!({"type":"user","uuid":"shared-record","sessionId":session,"cwd":"/work","message":{"role":"user","content":"opaque-shared-history"}}).to_string()).unwrap();
+    std::fs::write(&shared_record, serde_json::json!({"type":"user","uuid":"shared-record","sessionId":session,"cwd":"/work","message":{"role":"user","content":"opaque-shared-history"}}).to_string()+"\n").unwrap();
     for account in ["a", "b", "a"] {
         let home = root.path().join(account);
         std::fs::create_dir_all(home.join("projects/-work")).unwrap();

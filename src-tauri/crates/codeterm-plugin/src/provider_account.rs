@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub(crate) mod cache;
+mod isolation;
 mod shared_reads;
 pub mod storage;
 pub use shared_reads::{PinnedSharedReadGrant, SharedReadGrant};
@@ -20,6 +21,7 @@ pub struct InvocationContext {
     shared_reads: Vec<PinnedSharedReadGrant>,
     shared_exclusions: Vec<PathBuf>,
     pinned_read_roots: Vec<PathBuf>,
+    isolation: isolation::Isolation,
     cache_key: String,
     credential_secret_scope: Option<String>,
 }
@@ -79,6 +81,7 @@ impl InvocationContext {
             shared_reads: Vec::new(),
             shared_exclusions: Vec::new(),
             pinned_read_roots,
+            isolation: Default::default(),
             cache_key: String::new(),
             credential_secret_scope: None,
         };
@@ -98,6 +101,8 @@ impl InvocationContext {
             &self.shared_exclusions,
             &self.pinned_read_roots,
             &self.credential_secret_scope,
+            &self.isolation.identities(),
+            &self.isolation.roots(),
         ))
         .map_err(|error| error.to_string())?;
         Ok(format!("{:x}", Sha256::digest(identity)))
@@ -112,7 +117,9 @@ impl InvocationContext {
         }
         let pinned = grants
             .into_iter()
-            .map(|grant| grant.pin(&self.shared_exclusions))
+            .map(|grant| {
+                grant.pin_with_identities(&self.shared_exclusions, &self.isolation.identities())
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let mut context = (*self).clone();
         context.shared_reads = pinned;
@@ -131,12 +138,35 @@ impl InvocationContext {
             return Err("Invalid isolated storage exclusions".into());
         }
         let mut context = (*self).clone();
+        let identity_paths = exclusions
+            .iter()
+            .filter(|path| !path.is_dir())
+            .cloned()
+            .collect::<Vec<_>>();
+        context
+            .isolation
+            .extend(&identity_paths, &context.pinned_read_roots)?;
         for exclusion in exclusions {
             let pinned = codeterm_util::project_roots::canonical_target(&exclusion)
                 .ok_or("Isolated storage target cannot be resolved")?;
             context.shared_exclusions.push(exclusion);
             context.shared_exclusions.push(pinned);
         }
+        context.cache_key = context.identity()?;
+        Ok(Arc::new(context))
+    }
+
+    pub fn with_isolated_storage_paths(
+        self: Arc<Self>,
+        paths: &[PathBuf],
+    ) -> Result<Arc<Self>, String> {
+        if !self.shared_reads.is_empty() || paths.iter().any(|path| !path.is_absolute()) {
+            return Err("Invalid isolated storage paths".into());
+        }
+        let mut context = (*self).clone();
+        context
+            .isolation
+            .extend(paths, &context.pinned_read_roots)?;
         context.cache_key = context.identity()?;
         Ok(Arc::new(context))
     }
@@ -198,6 +228,9 @@ impl InvocationContext {
             })
             .collect::<Result<Vec<_>, _>>()?;
         context.shared_exclusions.extend(pinned_exclusions);
+        context
+            .isolation
+            .extend(&context.shared_exclusions, &context.pinned_read_roots)?;
         context.credential_secret_scope = Some(credential_secret_scope);
         context.cache_key = context.identity()?;
         Ok(Arc::new(context))
@@ -263,6 +296,9 @@ impl InvocationContext {
 
     pub(crate) fn read_access(&self, path: &Path) -> Option<bool> {
         let target = codeterm_util::project_roots::canonical_target(path)?;
+        if self.isolation.denies(&target).unwrap_or(true) {
+            return Some(false);
+        }
         let under = |roots: &[PathBuf]| {
             roots.iter().any(|root| {
                 codeterm_util::project_roots::canonical_target(root)
@@ -338,8 +374,15 @@ pub fn with_context<R>(context: Option<Arc<InvocationContext>>, work: impl FnOnc
     work()
 }
 
-pub async fn scope<F: Future>(context: Option<Arc<InvocationContext>>, work: F) -> F::Output {
-    ASYNC_CONTEXT.scope(context, work).await
+pub fn scope<F: Future>(
+    context: Option<Arc<InvocationContext>>,
+    work: F,
+) -> impl Future<Output = F::Output> {
+    let mut work = Box::pin(work);
+    ASYNC_CONTEXT.scope(
+        context.clone(),
+        std::future::poll_fn(move |cx| with_context(context.clone(), || work.as_mut().poll(cx))),
+    )
 }
 
 pub fn environment_is_selected(name: &str) -> bool {

@@ -40,6 +40,7 @@ pub(super) struct Entry {
     identity: Option<AccountIdentity>,
     error: Option<String>,
     details: Option<String>,
+    failure_kind: Option<super::storage::SetupFailure>,
 }
 
 #[derive(Clone, Serialize)]
@@ -51,6 +52,8 @@ pub struct LoginContext {
 
 #[derive(Serialize)]
 pub struct Adding {
+    #[serde(rename = "failureKind", skip_serializing_if = "Option::is_none")]
+    failure_kind: Option<super::storage::SetupFailure>,
     pub status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<LoginContext>,
@@ -165,6 +168,7 @@ pub(super) fn begin(
                 identity: None,
                 error: None,
                 details: None,
+                failure_kind: None,
             },
         );
     }
@@ -194,7 +198,8 @@ pub(super) fn begin(
         Err(error) => {
             entry.phase = Phase::Failed;
             entry.error = Some("Couldn't add the account.".into());
-            entry.details = Some(error);
+            entry.failure_kind = error.kind();
+            entry.details = Some(error.to_string());
         }
     }
     emit(svc, provider);
@@ -356,6 +361,7 @@ pub(super) fn project(svc: &ServiceContext, provider: &str) -> Projection {
     Projection {
         id,
         adding: Some(Adding {
+            failure_kind: entry.failure_kind,
             status,
             context,
             identity: entry.identity.map(|identity| identity.label),
