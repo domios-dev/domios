@@ -1,5 +1,17 @@
 !define DOMIOS_INSTALLER_HOOK_DIR "${__FILEDIR__}"
 
+!macro DomiosInstallerEvidence STAGE
+  Push $9
+  ClearErrors
+  FileOpen $9 "$TEMP\Domios-installer.log" a
+  ${IfNot} ${Errors}
+    FileWrite $9 "stage=${STAGE} version=${VERSION} installer=$EXEPATH root=$INSTDIR$\r$\n"
+    FileClose $9
+  ${EndIf}
+  ClearErrors
+  Pop $9
+!macroend
+
 !macro DomiosMeshFirewall OPERATION
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\installer\account-mesh-firewall.ps1" -Operation ${OPERATION} -ServerProgram "$INSTDIR\domios-server\domios-server.exe"'
   Pop $0
@@ -9,12 +21,14 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  !insertmacro DomiosInstallerEvidence "postinstall"
 !if "${BUNDLEID}" != "com.domios.dev.updater"
   !insertmacro DomiosMeshFirewall Ensure
 !endif
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
+  !insertmacro DomiosInstallerEvidence "preinstall"
   InitPluginsDir
   File /oname=$PLUGINSDIR\installer-preflight.ps1 "${DOMIOS_INSTALLER_HOOK_DIR}\installer-preflight.ps1"
   File /oname=$PLUGINSDIR\installer-process-model.ps1 "${DOMIOS_INSTALLER_HOOK_DIR}\installer-process-model.ps1"
@@ -33,6 +47,7 @@
   Pop $0
   Pop $1
   ${If} $0 != 0
+    !insertmacro DomiosInstallerEvidence "preflight_refused"
     DetailPrint "$1"
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$1$\r$\n$\r$\nClose the named holder, then choose Retry to check again. Cancel leaves the installation unchanged." /SD IDCANCEL IDRETRY domios_preflight_retry
     Abort

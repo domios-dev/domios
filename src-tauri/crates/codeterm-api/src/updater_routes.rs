@@ -14,6 +14,60 @@ use codeterm_update::UpdatePhase;
 #[derive(Clone)]
 pub struct InstalledExecutable(pub std::path::PathBuf);
 
+pub async fn reserve_shutdown(
+    AxumState(state): AxumState<AppState>,
+    headers: crate::auth::ActorHeaders,
+    Json(request): Json<codeterm_update::holders::ReserveHolders>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    if !matches!(headers.actor, crate::auth::RequestActor::Owner) || request.tabs.len() > 256 {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "native owner credential and bounded holder snapshot required".into(),
+        ));
+    }
+    tokio::task::spawn_blocking(move || state.svc.reserve_update_shutdown(request))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
+pub async fn release_shutdown(
+    AxumState(state): AxumState<AppState>,
+    headers: crate::auth::ActorHeaders,
+    Json(id): Json<String>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    if !matches!(headers.actor, crate::auth::RequestActor::Owner) || id.len() > 64 {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "native owner credential required".into(),
+        ));
+    }
+    state
+        .svc
+        .release_update_shutdown(&id)
+        .map(Json)
+        .map_err(|e| (StatusCode::CONFLICT, e))
+}
+
+pub async fn describe_holders(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(processes): Json<Vec<codeterm_update::holders::HolderProcess>>,
+) -> Result<Json<Vec<codeterm_update::holders::HolderTab>>, (StatusCode, String)> {
+    if !super::auth::is_local_caller(&state, &headers) || processes.len() > 256 {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "local bounded holder inspection required".into(),
+        ));
+    }
+    tokio::task::spawn_blocking(move || state.svc.describe_update_holders(processes))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
 fn container_refusal(
     installed: Option<axum::Extension<InstalledExecutable>>,
 ) -> Option<codeterm_update::headless::Error> {
@@ -105,11 +159,65 @@ pub async fn update_status(
     })
     .await
     {
-        Ok(Some(handoff)) => status["native_update"] = serde_json::json!(handoff.result),
+        Ok(Some(handoff)) => {
+            use codeterm_types::native_update::apply::NativeUpdateApplyPhase;
+            match &handoff.result.phase {
+                NativeUpdateApplyPhase::Verified { version, server }
+                    if version == codeterm_build_info::version()
+                        && server.build == codeterm_build_info::sha() =>
+                {
+                    if matches!(state.update_state.lock().phase, UpdatePhase::Idle) {
+                        status["phase"] = serde_json::json!("success");
+                        status["last_error"] = serde_json::Value::Null;
+                    }
+                }
+                NativeUpdateApplyPhase::Failed { message } => {
+                    if matches!(
+                        state.update_state.lock().phase,
+                        UpdatePhase::Idle | UpdatePhase::Error
+                    ) {
+                        status["phase"] = serde_json::json!("error");
+                        status["last_error"] = serde_json::json!(message);
+                    }
+                }
+                _ => {}
+            }
+            status["native_update"] = serde_json::json!(handoff.result);
+        }
         Ok(None) => {}
         Err(error) => log::warn!("[updater] native status unavailable: {error}"),
     }
     Ok(Json(status))
+}
+
+#[derive(Deserialize)]
+pub struct WaitUpdateQuery {
+    pub after_phase: Option<String>,
+}
+
+pub async fn wait_update_status(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<WaitUpdateQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    let mut changed = codeterm_update::update_state::STATUS_CHANGED.subscribe();
+    let wait = async {
+        loop {
+            let phase = state.update_state.lock().phase.to_string();
+            if query.after_phase.as_deref() != Some(phase.as_str()) {
+                break;
+            }
+            changed.changed().await.map_err(|_| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "update status channel closed",
+                )
+            })?;
+        }
+        update_status(AxumState(state), headers).await
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(300), wait).await
+        .map_err(|_| (StatusCode::REQUEST_TIMEOUT, "update completion unverified; inspect update status and native-update-installer.json"))?
 }
 
 #[derive(Deserialize)]
@@ -318,8 +426,8 @@ async fn install_update_inner(
                 match outcome {
                     Ok(result) => match result {
                         ApplyResult::Restarting => {
-                            update_state.lock().set_phase(UpdatePhase::Success);
-                            log::info!("[updater] check_and_apply success — restart imminent");
+                            update_state.lock().set_phase(UpdatePhase::Applying);
+                            log::info!("[updater] installer handoff pending; replacement version is not yet verified");
                         }
                         ApplyResult::NoUpdate => {
                             update_state.lock().set_phase(UpdatePhase::Idle);
