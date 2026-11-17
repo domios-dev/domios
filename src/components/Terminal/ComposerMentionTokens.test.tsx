@@ -2,7 +2,7 @@ import { harnessWindow as browser } from "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
 import { act, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { DOMIOS_TEXT_MIME } from "@codeterm/chat-core";
+import { DOMIOS_TEXT_MIME, formatAttachmentMarker } from "@codeterm/chat-core";
 import { useComposerMentionTokens } from "./useComposerMentionTokens";
 import { ComposerMentionHighlight } from "./ComposerMentionHighlight";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
@@ -90,6 +90,7 @@ async function main() {
     });
     assert.equal(editor.value, "@Elgar ");
     assert.equal(canonical, `${marker} `);
+    assert.equal(host.querySelector('[role="status"]')?.textContent, "", "replacing a draft with the same mention does not announce removal or insertion");
     Object.assign(editor, { getBoundingClientRect: () => ({ left: 100, right: 300, top: 100, bottom: 150, width: 200, height: 50 }) });
     await act(async () => {
       editor.setSelectionRange(editor.value.length, editor.value.length);
@@ -99,6 +100,29 @@ async function main() {
     });
     assert.equal(canonical, `${marker} ${marker} `, "sidebar drop inserts a canonical token");
     assert.equal(editor.value, "@Elgar @Elgar ");
+    const filePath = String.raw`C:\tmp\private-neighbor.txt`;
+    raw.setData("text/plain", `"${filePath}"`);
+    await act(async () => {
+      editor.setSelectionRange(0, editor.value.length);
+      editor.dispatchEvent(new browser.ClipboardEvent("paste", { clipboardData: raw, bubbles: true, cancelable: true }) as unknown as Event);
+    });
+    assert.equal(editor.value, "@private-neighbor.txt ");
+    assert.equal(canonical, `${formatAttachmentMarker(filePath)} `);
+    assert.equal(host.querySelector('[role="status"]')?.textContent, "Mentioned private-neighbor.txt");
+    await act(async () => {
+      editor.setSelectionRange(2, 6);
+      editor.dispatchEvent(new browser.ClipboardEvent("copy", { clipboardData: clipboard, bubbles: true, cancelable: true }) as unknown as Event);
+    });
+    assert.equal(clipboard.getData("text/plain"), "@private-neighbor.txt");
+    assert.equal(clipboard.getData(DOMIOS_TEXT_MIME), formatAttachmentMarker(filePath));
+    await act(async () => {
+      editor.dispatchEvent(new browser.ClipboardEvent("cut", { clipboardData: clipboard, bubbles: true, cancelable: true }) as unknown as Event);
+    });
+    assert.equal(canonical, " ");
+    await act(async () => {
+      editor.dispatchEvent(new browser.ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true, cancelable: true }) as unknown as Event);
+    });
+    assert.equal(canonical, `${formatAttachmentMarker(filePath)}  `);
   } finally { await act(async () => root.unmount()); host.remove(); }
   console.log("Composer mention native command, undo input, clipboard, raw paste and sidebar drop wiring checks passed");
 }

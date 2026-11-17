@@ -19,7 +19,8 @@ export function tabMentionSource(read: () => { tabs: Record<string, Tab>; worksp
           kind: "tab" as const, id: `tabs:${tab.id}`, label: tab.title, group, providerId: tab.agent_type,
           description: [tab.role ?? (tab.agent_type ? "Agent" : "Shell"), tab.description, tab.remote_peer_name ?? workspace?.name].filter(Boolean).join(" · "),
           insertText: canonicalMentionText("tab", tab.title, tab.id),
-          match: mentionMatch(query, [tab.id, tab.title, tab.description ?? "", tab.role ?? ""]),
+          match: mentionMatch(query, [tab.id, tab.title, (tab.description ?? "").replace(/\bagent\b/gi, ""), (tab.role ?? "").replace(/\bagent\b/gi, "")]),
+          titlePrefix: !!query && tab.title.toLowerCase().startsWith(query.toLowerCase()),
           exact: !!query && [tab.id, tab.title].some((value) => value.toLowerCase() === query.toLowerCase()),
           proximity, agentOrder: tab.agent_type || tab.role ? 0 : 1,
         };

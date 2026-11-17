@@ -1024,7 +1024,7 @@ function TabSessionChatBody({
               deliveryView={deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined}
               deliveryBehindTurn={deliverySend ? queuedBehindTurn(deliverySend, agentActivity.kind) : undefined}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
-              ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
+              ariaLabel={chatMessageAccessibleName(msg.type, msg.content, id => tabTitleMap.get(id))}
               selected={messageSelection.selected.has(msg.id)}
               joinNext={nextId !== undefined && reports.length === 0 && messageSelection.selected.has(nextId)}
               selecting={messageSelection.active}

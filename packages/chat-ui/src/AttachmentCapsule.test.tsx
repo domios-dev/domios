@@ -10,6 +10,44 @@ import { configureLocalArtifactLoader, configureLocalArtifactOpener } from "./lo
 
 const SHOT = String.raw`C:\Users\dev\AppData\Local\Temp\codeterm-chat\a1-pasted-image-1.png`;
 const NOTES = "/tmp/codeterm-chat/c3-pasted-text-3.txt";
+
+it("keeps text and multiple attachments in marker order in one inline flow", async () => {
+  const host = await render(`before ${formatAttachmentMarker(SHOT, "image")} between ${formatAttachmentMarker(NOTES, "file")} after`);
+  const flow = inlineText(host);
+  const [image, file] = capsules(host);
+  expect(flow.textContent).toBe("before a1-pasted-image-1.png between c3-pasted-text-3.txt after");
+  expect(image.compareDocumentPosition(file) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(flow.querySelector("pre, p, br")).toBeNull();
+});
+
+it("names file references, truncates their basename, previews an existing file and mutes a missing file", async () => {
+  const path = "/tmp/private-neighbor-with-a-long-name.txt";
+  configureLocalArtifactLoader(vi.fn(async (requested: string) => {
+    if (requested !== path) throw new Error("missing");
+    return { data: "Private preview sentinel", media_type: "text/plain" };
+  }));
+  const reveal = vi.fn(async () => {});
+  configureLocalArtifactOpener(reveal);
+  const host = await render(`${formatAttachmentMarker(path)} ${formatAttachmentMarker("/tmp/missing.txt")}`);
+  const [file, missing] = capsules(host);
+  expect(file.textContent?.length).toBe(24);
+  expect(file.title).toBe(path);
+  expect(file.getAttribute("aria-label")).toBe("private-neighbor-with-a-long-name.txt, file");
+  expect(missing.getAttribute("aria-disabled")).toBe("true");
+  await act(async () => file.click());
+  expect(document.querySelector('[data-testid="capsule-preview-text"]')?.textContent).toContain("Private preview sentinel");
+  expect(reveal).not.toHaveBeenCalled();
+});
+
+it("keeps unpreviewable file types available through the existing file opener", async () => {
+  const reveal = vi.fn(async () => {});
+  configureLocalArtifactOpener(reveal);
+  const host = await render(formatAttachmentMarker("/tmp/report.pdf"));
+  const [file] = capsules(host);
+  expect(file.getAttribute("aria-disabled")).toBeNull();
+  await act(async () => file.click());
+  expect(reveal).toHaveBeenCalledWith("/tmp/report.pdf");
+});
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
 const mounted: { root: Root; host: HTMLElement }[] = [];
 

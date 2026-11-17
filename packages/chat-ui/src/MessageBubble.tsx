@@ -368,6 +368,9 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
         {text}
       </>;
     };
+    const renderInlineUserText = (content: string) => effectiveOrigin
+      ? renderUserText(content)
+      : <LinkedText text={content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />;
 
     const reply = userAttachments.reply;
     const quotedId = reply?.reply;
@@ -381,8 +384,8 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           />
         )}
         {userProgress ?? (message.segments
-        ? <EnvelopeContent segments={message.segments} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} onJumpToMessage={onJumpToMessage} attachmentNames={message.attachmentNames} />
-          : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} attachmentNames={message.attachmentNames} />)}
+        ? <EnvelopeContent segments={message.segments} attachments={attachments} renderText={renderUserText} renderInlineText={renderInlineUserText} onJumpToMessage={onJumpToMessage} attachmentNames={message.attachmentNames} />
+          : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} renderInlineText={renderInlineUserText} attachmentNames={message.attachmentNames} />)}
       </>
     );
 

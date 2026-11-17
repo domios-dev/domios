@@ -18,6 +18,7 @@ export interface ComposerMention {
   group: string;
   match: number;
   exact?: boolean;
+  titlePrefix?: boolean;
   proximity?: number;
   agentOrder?: number;
   statusOrder?: number;
@@ -52,6 +53,7 @@ export function mentionMatch(query: string, values: readonly string[]): number {
 }
 export function compareMentions(a: ComposerMention, b: ComposerMention): number {
   return Number(!!b.exact) - Number(!!a.exact)
+    || Number(!!b.titlePrefix) - Number(!!a.titlePrefix)
     || (a.proximity ?? 0) - (b.proximity ?? 0)
     || (a.agentOrder ?? 0) - (b.agentOrder ?? 0)
     || (a.statusOrder ?? 0) - (b.statusOrder ?? 0)

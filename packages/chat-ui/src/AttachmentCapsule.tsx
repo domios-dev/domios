@@ -14,7 +14,8 @@ import { VideoFullscreen } from "./VideoFullscreen";
 import { ImageFullscreen, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable } from "./localArtifactLoader";
 import { useLocalImage, type LocalImage } from "./localImage";
-import { useLocalTextPreview } from "./localText";
+import { useLocalTextPreview, useLocalTextPreviewState } from "./localText";
+import { truncateChipTitle } from "./codeterm/ReferenceChip";
 
 export const CAPSULE_ICONS: Record<AttachmentKind, LucideIcon> = {
   voice: Mic,
@@ -117,11 +118,12 @@ interface AttachmentCapsuleProps {
 function CapsuleContent({ attachment, labelContent, decoration, spanProps }: AttachmentCapsuleProps) {
   const label = attachment.label ?? fileName(attachment.path);
   const { name, detail } = capsuleLabelParts(label);
+  const displayName = ["file", "folder", "image", "document"].includes(attachment.kind) ? truncateChipTitle(name, 24) : name;
   const accessibleName = attachmentAccessibleName(attachment.kind, attachment.path, label);
   const tailAt = Math.max(0, name.length - 12);
   return <span title={attachment.path} aria-label={`${KIND_NAMES[attachment.kind]}: ${accessibleName}`} {...spanProps} className={labelContent ? "ct-capsule" : "ct-capsule ct-capsule--padded"}>
     {decoration ?? <CapsuleDecor kind={attachment.kind} />}
-    {labelContent ?? <><span className="ct-capsule__name">{tailAt > 0 && <span>{name.slice(0, tailAt)}</span>}<span>{name.slice(tailAt)}</span></span>{detail && <span className="ct-capsule__detail">{detail}</span>}</>}
+    {labelContent ?? <><span className="ct-capsule__name">{tailAt > 0 && <span>{displayName.slice(0, Math.max(0, displayName.length - 12))}</span>}<span>{displayName.slice(-12)}</span></span>{detail && <span className="ct-capsule__detail">{detail}</span>}</>}
   </span>;
 }
 
@@ -135,6 +137,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
   const accessibleName = attachmentAccessibleName(kind, path, label);
   const inline = nativeImage ? inlineAttachmentSrc(nativeImage) : null;
   const local = useLocalImage(kind === "image" && !inline ? attachment.previewPath ?? path : undefined);
+  const file = useLocalTextPreviewState((kind === "file" || kind === "document") && attachmentPreviewKind(attachment) === "document" ? path : undefined);
   const [open, setOpen] = useState<FullscreenImage | null>(null);
   const [playing, setPlaying] = useState(false);
   const [previewing, setPreviewing] = useState(false);
@@ -170,11 +173,14 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
         data-attachment-kind={kind}
         data-attachment-path={path}
         data-attachment-label={label}
-        aria-label={kind === "image" ? `Open image ${accessibleName}` : kind === "video" ? `Play video ${accessibleName}` : `${localArtifactOpeningAvailable() ? "Reveal" : "Preview"} ${KIND_NAMES[kind].toLowerCase()} ${accessibleName}`}
+        aria-label={kind === "file" ? `${accessibleName}, file${file.failed ? ", unavailable" : ""}` : kind === "image" ? `Open image ${accessibleName}` : kind === "video" ? `Play video ${accessibleName}` : `${localArtifactOpeningAvailable() ? "Reveal" : "Preview"} ${KIND_NAMES[kind].toLowerCase()} ${accessibleName}`}
+        aria-disabled={file.failed || undefined}
+        style={file.failed ? { color: "var(--ct-muted-fg)" } : undefined}
         title={path}
         onFocus={() => { if (skipPreviewFocus.current) { skipPreviewFocus.current = false; return; } if (!restoringFocus.current && !(kind === "image" && image.failed)) setPreviewing(true); }}
         onBlur={(event) => { if (!previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}
         onClick={(event) => {
+          if (file.failed) return;
           if (event.detail > 0 && window.matchMedia?.("(hover: none)").matches) {
             if (kind === "image" && image.failed) image.retry();
             setPreviewing(true);
@@ -182,6 +188,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
           }
           event.currentTarget.focus();
           setPreviewing(false);
+          if (kind === "file" && file.text !== undefined) { setPreviewing(true); return; }
           if (opensImage || kind === "video") skipPreviewFocus.current = true;
           if (opensImage && image.src) setOpen({ name: accessibleName, src: image.src, path });
           else if (kind === "video") setPlaying(true);

@@ -18,10 +18,16 @@
 }
 
 .ct-user-bubble-row {
+  --ct-bubble-max: min(40rem, 85%);
   --ct-delivery-space: 7px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  max-width: calc(100% - var(--ct-delivery-space) - 8px);
+  max-width: min(var(--ct-bubble-max), calc(100% - var(--ct-delivery-space) - 8px));
+}
+
+@container (max-width: 479px) {
+  .ct-user-bubble-row { --ct-bubble-max: 88%; }
+  .ct-user-bubble { --ct-bubble-pad-x: 14px; }
 }
 
 .ct-user-bubble-row > .ct-delivery {

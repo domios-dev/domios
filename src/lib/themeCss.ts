@@ -13,9 +13,15 @@ function luminance(hex: string): number {
 }
 
 function mentionTextColor(theme: ThemeConfig, light: boolean): string {
-  const text = luminance(theme.blue), surface = luminance(blendColor(theme.background, theme.blue, .12));
-  const contrast = (Math.max(text, surface) + .05) / (Math.min(text, surface) + .05);
-  return light && contrast < 4.5 ? "color-mix(in srgb, var(--ct-accent) 80%, var(--ct-fg))" : "var(--ct-accent)";
+  const bubble = blendColor(deriveColor(theme.background, 10), theme.blue, .08);
+  const surface = luminance(blendColor(bubble, theme.blue, .18));
+  const contrast = (color: string) => (Math.max(luminance(color), surface) + .05) / (Math.min(luminance(color), surface) + .05);
+  if (contrast(theme.blue) >= 4.5) return "var(--ct-accent)";
+  for (let foreground = light ? 20 : 5; foreground <= 100; foreground += 5) {
+    const color = blendColor(theme.blue, theme.foreground, foreground / 100);
+    if (contrast(color) >= 4.5) return color;
+  }
+  return theme.foreground;
 }
 
 function contrastTextColor(background: string): "#000000" | "#ffffff" {

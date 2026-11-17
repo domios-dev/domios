@@ -64,7 +64,7 @@ export function MentionChipGallery() {
     <div style={{ display: "flex", gap: 16 }}><button type="button" onClick={() => setTheme("dark")}>Dark</button><button type="button" onClick={() => setTheme("light")}>Light</button></div>
     <p>Tabs only. People are deferred for this release.</p>
     <div style={{ lineHeight: "30px", margin: "16px 0" }}><ChipSet /></div>
-    <div className="ct-user-bubble" style={{ padding: 12, borderRadius: 16, background: "var(--ct-accent)", color: "var(--ct-on-accent)", lineHeight: "30px" }}><ChipSet /></div>
+    <div className="ct-user-bubble"><ChipSet /></div>
     <div style={{ marginTop: 20 }}><MuxStateStoreContext value={mux}><MentionEditor /></MuxStateStoreContext></div>
   </div>;
 }
