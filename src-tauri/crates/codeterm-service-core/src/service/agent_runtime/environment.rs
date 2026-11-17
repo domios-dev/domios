@@ -43,6 +43,29 @@ pub(super) fn compose(
     Ok(environment)
 }
 
+pub(super) fn compose_for_account_restart(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    nonce: &str,
+    invocation: Option<&codeterm_plugin::provider_account::InvocationContext>,
+) -> Result<HashMap<String, String>, String> {
+    let mut environment = compose(svc, tab, provider, nonce)?;
+    if let Some(old) =
+        super::engine::for_tab(tab).and_then(|session| session.invocation.lock().clone())
+    {
+        for (key, _) in old.environment_entries() {
+            environment.retain(|existing, _| {
+                existing != key && !(cfg!(windows) && existing.eq_ignore_ascii_case(key))
+            });
+        }
+    }
+    if let Some(invocation) = invocation {
+        invocation.apply_environment(&mut environment);
+    }
+    Ok(environment)
+}
+
 /// Applied last, so neither owner settings nor an inherited value can claim it.
 pub(super) fn mark_runtime_agent(env: &mut HashMap<String, String>, turn_scoped: bool) {
     env.remove(codeterm_util::tab_launch::RUNTIME_AGENT_ENV);

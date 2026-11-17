@@ -39,6 +39,14 @@ pub trait RuntimeRestartExt {
         fresh: bool,
         retry_refused_start: bool,
     ) -> Result<RestartOutcome, RestartAttemptError>;
+    fn restart_runtime_agent_with_account(
+        &self,
+        tab_id: &str,
+        force: bool,
+        fresh: bool,
+        retry_refused_start: bool,
+        account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
+    ) -> Result<RestartOutcome, RestartAttemptError>;
 }
 
 impl RuntimeRestartExt for ServiceContext {
@@ -62,6 +70,17 @@ impl RuntimeRestartExt for ServiceContext {
         force: bool,
         fresh: bool,
         retry_refused_start: bool,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        self.restart_runtime_agent_with_account(tab_id, force, fresh, retry_refused_start, None)
+    }
+
+    fn restart_runtime_agent_with_account(
+        &self,
+        tab_id: &str,
+        force: bool,
+        fresh: bool,
+        retry_refused_start: bool,
+        account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         if let Some(refusal) = self.tab_write_lock(tab_id) {
             return Err(AgentRestartError::BadRequest(refusal.to_string()).into());
@@ -152,13 +171,14 @@ impl RuntimeRestartExt for ServiceContext {
         if fresh {
             outcome.session_id = None;
         }
-        let result = crate::async_runtime::block_on(agent_runtime::restart::restart(
+        let result = crate::async_runtime::block_on(agent_runtime::restart::restart_with_account(
             self,
             tab_id,
             &provider,
             &nonce,
             fresh.then_some((&snap, force)),
             retry_refused_start,
+            account,
         ));
         if result.as_ref().is_ok_and(|session| {
             matches!(

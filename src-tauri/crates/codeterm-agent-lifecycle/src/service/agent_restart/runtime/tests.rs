@@ -6,6 +6,7 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+mod account;
 mod failed_start;
 mod launch_directory;
 mod provider_switch;

@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 
 use crate::pty::screen_state::ScreenChangeSignal;
 
+pub mod account_restart;
 pub mod model_request;
 mod model_switch;
 pub mod sleep_transition;
@@ -16,6 +17,7 @@ mod staged_completion;
 pub mod staged_switches;
 pub mod timing;
 pub mod worker_binding;
+pub use account_restart::{AccountRestartBinding, AccountRestartTarget};
 
 pub use model_switch::{
     ControlChange, ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence,
@@ -159,6 +161,7 @@ pub fn screen_shows_agent_tui(
 
 #[derive(Default)]
 pub struct RestartOptions {
+    pub account_restart: Option<AccountRestartTarget>,
     pub force: bool,
     pub grace_secs: u64,
     pub target_provider: Option<String>,

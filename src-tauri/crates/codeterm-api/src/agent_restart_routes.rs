@@ -85,6 +85,7 @@ pub(crate) async fn agent_restart_handler(
                 handoff_history: body.handoff_history,
                 fresh: body.fresh,
                 retry_refused_start: true,
+                account_restart: None,
             },
         )
     })

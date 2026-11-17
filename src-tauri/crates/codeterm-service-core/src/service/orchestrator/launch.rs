@@ -1,3 +1,4 @@
+use super::launch_agent_in_background_with_env;
 use super::types::agent_role_label;
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::{boot_stage::BootStage, ServiceContext};
@@ -279,7 +280,7 @@ pub(crate) fn launch_agent_in_background_with_task_turn(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn launch_agent_in_background_with_env(
+pub fn launch_agent_in_background_with_invocation(
     svc: ServiceContext,
     tab_id: String,
     launch_cmd: impl Into<PreparedAgentCommand>,
@@ -293,6 +294,9 @@ pub fn launch_agent_in_background_with_env(
     task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     resume_session_id: Option<String>,
+    invocation: Option<
+        Option<std::sync::Arc<codeterm_plugin::provider_account::InvocationContext>>,
+    >,
 ) -> Option<String> {
     if let Some(refusal) = svc.tab_write_lock(&tab_id) {
         if let Some(tx) = ready_tx {
@@ -360,7 +364,11 @@ pub fn launch_agent_in_background_with_env(
     crate::service::boot_wait::notify_boot_changed();
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
     std::thread::spawn(move || {
-        let invocation = match crate::service::provider_accounts::for_tab(&svc, &tab_id) {
+        let resolved_invocation = match invocation {
+            Some(invocation) => Ok(invocation),
+            None => crate::service::provider_accounts::for_tab(&svc, &tab_id),
+        };
+        let invocation = match resolved_invocation {
             Ok(invocation) => invocation,
             Err(error) => {
                 launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));

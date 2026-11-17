@@ -124,6 +124,15 @@ pub trait AgentRestartExt {
         model_switch: Option<&model_switch::ModelSwitchLaunch>,
         mode: RestartMode,
     ) -> Result<RestartOutcome, RestartAttemptError>;
+    fn restart_live_agent_with_account(
+        &self,
+        snap: TabRestartSnapshot,
+        force: bool,
+        grace_secs: u64,
+        model_switch: Option<&model_switch::ModelSwitchLaunch>,
+        mode: RestartMode,
+        account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
+    ) -> Result<RestartOutcome, RestartAttemptError>;
     fn settle_restored_binding(
         &self,
         outcome: RestartOutcome,
@@ -276,11 +285,23 @@ impl AgentRestartExt for ServiceContext {
     /// own resume command and commits its launch record once the old PTY is gone.
     fn restart_live_agent(
         &self,
+        snap: TabRestartSnapshot,
+        force: bool,
+        grace_secs: u64,
+        model_switch: Option<&model_switch::ModelSwitchLaunch>,
+        mode: RestartMode,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        self.restart_live_agent_with_account(snap, force, grace_secs, model_switch, mode, None)
+    }
+
+    fn restart_live_agent_with_account(
+        &self,
         mut snap: TabRestartSnapshot,
         force: bool,
         grace_secs: u64,
         model_switch: Option<&model_switch::ModelSwitchLaunch>,
         mode: RestartMode,
+        account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         self.require_background_work_safe(&snap.tab_id, force)?;
         crate::service::agent_lifecycle::timing::stage(&snap.tab_id, &snap.pty_id, "request");
@@ -313,6 +334,9 @@ impl AgentRestartExt for ServiceContext {
                 snap.session_id = tab.agent_session_id.clone();
             }
         }
+        if let Some(account) = account {
+            account::validate_pty(self, &snap, account)?;
+        }
         if mode == RestartMode::Fresh {
             self.require_fresh_restart_allowed(&snap, force)?;
         }
@@ -337,7 +361,13 @@ impl AgentRestartExt for ServiceContext {
             outcome.session_id = None;
         }
         let session_present = !provider_changed && !session_was_stale && snap.session_id.is_some();
-        let relaunch = match model_switch {
+        if account.is_some() && !session_present {
+            return Err(AgentRestartError::BadRequest(
+                "Account restart session is unavailable".into(),
+            )
+            .into());
+        }
+        let build = || match model_switch {
             Some(launch)
                 if session_present || (snap.session_id.is_none() && launch.is_sessionless()) =>
             {
@@ -348,6 +378,15 @@ impl AgentRestartExt for ServiceContext {
             Some(_) => None,
             None => relaunch::build_relaunch(self, &snap, session_present)
                 .map(|relaunch| (relaunch.command, relaunch.task)),
+        };
+        let relaunch = match account {
+            Some(account) => {
+                codeterm_plugin::provider_account::with_context(account.invocation.clone(), || {
+                    relaunch::build_account_relaunch(self, &snap, account)
+                        .map(|relaunch| (relaunch.command, relaunch.task))
+                })
+            }
+            None => build(),
         };
         let Some((launch_cmd, launch_task)) = relaunch else {
             crate::service::task_files::release_tab(self, &snap.tab_id);
@@ -364,6 +403,7 @@ impl AgentRestartExt for ServiceContext {
             });
         };
 
+        let launch_task = if account.is_some() { None } else { launch_task };
         let restart_binding = if session_present || provider_changed {
             let (nonce, task_bound) = {
                 let mux = self.mux.read();
@@ -437,6 +477,9 @@ impl AgentRestartExt for ServiceContext {
             self.end_held_user_sends_for_fresh_restart(&snap.tab_id)
                 .map_err(AgentRestartError::Internal)?;
         }
+        if let Some(account) = account {
+            account::validate_before_teardown(self, &snap, account)?;
+        }
         let teardown = || {
             crate::service::orchestrator::supersede_tab_launch(&snap.tab_id);
             self.tear_down_restart_pty(&snap)
@@ -464,6 +507,9 @@ impl AgentRestartExt for ServiceContext {
             });
         }
         outcome.old_pty_torn_down = true;
+        if let Some(account) = account {
+            account::commit_pty(self, &snap, account)?;
+        }
         if mode == RestartMode::Fresh {
             self.commit_fresh_restart(&snap)?;
         }
@@ -509,7 +555,7 @@ impl AgentRestartExt for ServiceContext {
             &snap.pty_id,
             "relaunch-request",
         );
-        crate::service::orchestrator::launch_agent_in_background_with_env(
+        crate::service::orchestrator::launch_agent_in_background_with_invocation(
             self.clone(),
             snap.tab_id.clone(),
             launch_cmd,
@@ -531,6 +577,7 @@ impl AgentRestartExt for ServiceContext {
             } else {
                 None
             },
+            account.map(|target| target.invocation.clone()),
         );
         drop(pty_claim);
         drop(restart_claim);
@@ -946,6 +993,7 @@ fn evidenced_transcript_block(snap: &TabRestartSnapshot) -> Option<String> {
     ))
 }
 
+mod account;
 pub mod exit_recovery;
 pub mod failed_launch;
 pub mod fresh;
