@@ -124,7 +124,7 @@ function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
     case "initialize":
       return request("initialize",{clientInfo:{name:"domios",version:ctx.hostVersion},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}});
     case "openThread":
-    case "resumeThread": return op.settings.mode === "workspace-write"
+    case "resumeThread": return ["workspace-write", "read-only-with-writable-roots"].includes(op.settings.mode ?? "")
       ? request("config/read",{includeLayers:false,cwd:ctx.cwd},{stage:"windowsSandboxConfig"}) : threadPlan(ctx,op);
     case "forkThread": return forkThreadPlan(ctx,op);
     case "readHistory":
