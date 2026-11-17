@@ -76,6 +76,7 @@ async fn pad_file_send_to_non_receiving_recipient_never_uploads_or_writes_histor
             &lifecycle,
             &metadata,
             Outgoing {
+                message_id: None,
                 authority: SendAuthority::Unrestricted,
                 friendship: "a".repeat(64),
                 kind: Kind::Question,
