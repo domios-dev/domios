@@ -8,6 +8,7 @@ use std::path::{Component, Path, PathBuf};
 struct Selection {
     provider: String,
     account: String,
+    namespace: Option<String>,
 }
 
 pub(super) fn recover(
@@ -70,6 +71,7 @@ fn selected(tab: &Tab, binding: &LoginBinding, login_id: &str) -> Result<Selecti
             .clone()
             .ok_or("The sign-in harness is unavailable")?,
         account: provider_accounts::selected_account(tab).into(),
+        namespace: tab.restorable_launch.account_namespace.clone(),
     })
 }
 
