@@ -20,7 +20,11 @@ pub(super) fn validate_pty(
                 turn,
             )
         });
-    if target.expected.unbound_login || target.expected.runtime_epoch.is_some() || !turn_boundary {
+    if target.expected.unbound_login
+        || target.expected.refresh_login
+        || target.expected.runtime_epoch.is_some()
+        || !turn_boundary
+    {
         return Err(AgentRestartError::BadRequest(
             "Account restart requires an idle turn boundary".into(),
         ));

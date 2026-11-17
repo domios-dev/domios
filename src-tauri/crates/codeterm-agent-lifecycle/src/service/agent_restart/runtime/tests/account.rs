@@ -50,6 +50,13 @@ fn unbound_login() -> (RuntimeFixture, AccountRestartTarget) {
 }
 
 fn unbound_login_fixture(missing_secret: bool) -> (RuntimeFixture, AccountRestartTarget) {
+    named_login_fixture(missing_secret, false)
+}
+
+fn named_login_fixture(
+    missing_secret: bool,
+    retained_thread: bool,
+) -> (RuntimeFixture, AccountRestartTarget) {
     let source = SOURCE.replace("    let result = {kind:'done'};", r#"
     if ((op.kind === 'initialize' || (op.kind === 'control' && op.action === 'auth')) && reply.value.authKey !== 'credential-b')
       return {kind:'complete',result:{kind:op.kind === 'initialize' ? 'initialized' : 'done'},events:[{kind:'auth',state:'signedOut'}]};
@@ -70,10 +77,12 @@ fn unbound_login_fixture(missing_secret: bool) -> (RuntimeFixture, AccountRestar
         }
         tab.restorable_launch.account_id = Some("account-b".into());
         tab.restorable_launch.account_namespace = Some("old-namespace".into());
-        tab.agent_session_id = None;
         tab.reported_session_binding_nonce = None;
-        if let TabBacking::ChatBackend { session_id, .. } = &mut tab.backing {
-            session_id.clear();
+        if !retained_thread {
+            tab.agent_session_id = None;
+            if let TabBacking::ChatBackend { session_id, .. } = &mut tab.backing {
+                session_id.clear();
+            }
         }
     }
     fixture.service.ensure_agent_pad(&fixture.tab).unwrap();
@@ -105,10 +114,14 @@ fn unbound_login_fixture(missing_secret: bool) -> (RuntimeFixture, AccountRestar
         session.state.lock().phase,
         agent_runtime::model::RuntimePhase::LoginPending
     ));
-    let expected = AccountRestartBinding::capture_login(
-        fixture.service.mux.read().get_tab(&fixture.tab).unwrap(),
-        session.state.lock().epoch,
-    )
+    let expected = if retained_thread {
+        AccountRestartBinding::capture_refresh(&fixture.service, &fixture.tab)
+    } else {
+        AccountRestartBinding::capture_login(
+            fixture.service.mux.read().get_tab(&fixture.tab).unwrap(),
+            session.state.lock().epoch,
+        )
+    }
     .unwrap();
     let target = AccountRestartTarget {
         terminal_turn: None,
@@ -408,4 +421,119 @@ fn initial_named_login_before_any_child_spawn_uses_the_same_restart_path() {
             .collect::<Vec<_>>(),
         vec!["initialize", "openThread", "readHistory"]
     );
+}
+
+#[test]
+fn expired_named_login_refresh_resumes_only_its_retained_thread() {
+    for before_spawn in [false, true] {
+        let (fixture, target) = named_login_fixture(before_spawn, true);
+        assert!(target.expected.refresh_login && !target.expected.unbound_login);
+        assert!(AccountRestartBinding::capture(
+            fixture.service.mux.read().get_tab(&fixture.tab).unwrap(),
+            target.expected.runtime_epoch,
+        )
+        .is_err());
+        let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+        let old_process = session.process.lock().clone();
+        if before_spawn {
+            crate::async_runtime::block_on(async {
+                fixture
+                    .service
+                    .secrets
+                    .read()
+                    .await
+                    .clone()
+                    .save(crate::secrets::SaveRequest {
+                        name: "domios:provider:restart-fixture:key".into(),
+                        value: crate::secrets::SecretString::new("opaque-test-key".into()),
+                        notes: None,
+                        folder: None,
+                        organization: None,
+                        collection: None,
+                        overwrite: false,
+                    })
+                    .await
+                    .unwrap();
+            });
+        }
+        let count = fixture.requests().len();
+        let outcome = restart(&fixture, target).unwrap();
+        assert!(outcome.agent_ready);
+        assert_eq!(outcome.session_id.as_deref(), Some("own-thread"));
+        if let Some(old) = old_process {
+            assert!(old.ended.borrow().is_some());
+        }
+        let requests = fixture.requests();
+        assert_eq!(
+            requests[count..]
+                .iter()
+                .map(|request| request["method"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["initialize", "resumeThread", "readHistory"]
+        );
+        assert_eq!(requests[count + 1]["params"]["threadId"], "own-thread");
+        assert_eq!(
+            agent_runtime::process::test_ports::spawned_env(&fixture.tab)
+                .get("OPAQUE_AUTH_KEY")
+                .map(String::as_str),
+            Some("credential-b")
+        );
+    }
+}
+
+#[test]
+fn expired_named_login_refresh_refuses_stale_thread_epoch_and_cross_account() {
+    for mutation in 0..4 {
+        let (fixture, mut target) = named_login_fixture(false, true);
+        match mutation {
+            0 => target.expected.session_id = "unrelated-thread".into(),
+            1 => {
+                target.expected.runtime_epoch = target.expected.runtime_epoch.map(|epoch| epoch + 1)
+            }
+            2 => {
+                target.account_id = Some("account-c".into());
+                target.invocation = Some(
+                    InvocationContext::new(
+                        PROVIDER.into(),
+                        "account-c".into(),
+                        Default::default(),
+                        vec![],
+                        vec![],
+                    )
+                    .unwrap(),
+                );
+            }
+            _ => target.account_namespace = target.expected.account_namespace.clone(),
+        }
+        let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+        let process = session.process.lock().clone().unwrap();
+        let count = fixture.requests().len();
+        assert!(restart(&fixture, target).is_err());
+        assert_eq!(fixture.requests().len(), count);
+        assert!(process.ended.borrow().is_none());
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&fixture.tab).unwrap();
+        assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
+        assert_eq!(tab.session_binding_nonce.as_deref(), Some("own-nonce"));
+        assert_eq!(
+            tab.restorable_launch.account_namespace.as_deref(),
+            Some("old-namespace")
+        );
+    }
+}
+
+#[test]
+fn expired_named_login_refresh_requires_retained_host_restart_authority() {
+    let (fixture, _) = named_login_fixture(false, true);
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    session.context.lock().binding_nonce = "unrecorded-nonce".into();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&fixture.tab)
+        .unwrap()
+        .session_binding_nonce = Some("unrecorded-nonce".into());
+    assert!(agent_runtime::engine::validate_binding(&fixture.service, &session).is_ok());
+    assert!(AccountRestartBinding::capture_refresh(&fixture.service, &fixture.tab).is_err());
 }

@@ -396,6 +396,13 @@ fn validate_account_restart(
     let epoch = session.state.lock().epoch;
     let context = session.context.lock().clone();
     let unbound = account.expected.unbound_login;
+    let refresh = account.expected.refresh_login;
+    if refresh {
+        account
+            .expected
+            .validate_refresh_authority(svc, tab, session)
+            .map_err(RuntimeFailure::Refused)?;
+    }
     let thread_matches = if unbound {
         context.thread_id.is_none()
     } else {
@@ -406,7 +413,7 @@ fn validate_account_restart(
         || account.expected.runtime_epoch != Some(epoch)
         || context.epoch != epoch
         || !thread_matches
-        || (!unbound && session.process.lock().is_none())
+        || (!unbound && !refresh && session.process.lock().is_none())
         || super::update::busy(session)
         || !session.turn_requests.lock().is_empty()
     {
@@ -423,6 +430,15 @@ fn validate_account_restart(
             .map_err(RuntimeFailure::Refused)?;
         target.pending_delivery.is_some()
     };
+    if refresh
+        && (context.pending_request.is_some()
+            || !context.claimed_sends.is_empty()
+            || !session.prompts.lock().is_empty())
+    {
+        return Err(RuntimeFailure::Refused(
+            "Credential refresh cannot replace active or claimed work".into(),
+        ));
+    }
     if unbound {
         let login_pending = {
             let state = session.state.lock();
@@ -444,7 +460,7 @@ fn validate_account_restart(
         }
     }
     let process = session.process.lock().clone();
-    if !unbound && process.is_none() {
+    if !unbound && !refresh && process.is_none() {
         return Err(RuntimeFailure::Superseded);
     }
     Ok(process)
