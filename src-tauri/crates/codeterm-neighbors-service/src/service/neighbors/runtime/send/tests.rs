@@ -204,6 +204,7 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
                     &lifecycle,
                     &metadata,
                     Outgoing {
+                        message_id: None,
                         authority: SendAuthority::FriendshipGrant,
                         friendship: friend.clone(),
                         kind,
@@ -233,6 +234,7 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
                 &lifecycle,
                 &metadata,
                 Outgoing {
+                    message_id: None,
                     authority: SendAuthority::FriendshipGrant,
                     friendship: friend.clone(),
                     kind: Kind::Question,
@@ -240,6 +242,52 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
                         text: Zeroizing::new(String::new()),
                         paths,
                     },
+                    in_reply_to: None,
+                    author: Author::Person("me".into()),
+                },
+            )
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error, expected);
+        assert_eq!(
+            store.0.load(Ordering::SeqCst),
+            usize::from(expected == Error::SecretStore)
+        );
+    }
+    assert_eq!(
+        metadata.history_page(&friend, None, 50).await.unwrap(),
+        before
+    );
+    let existing_id = "c".repeat(32);
+    let existing = serde_json::from_value(json!({"direction":"out","author":"me","sender_uid":"owner","body":"opaque retained send","at":1,"message_id":existing_id,"kind":"question"})).unwrap();
+    service
+        .append_neighbor_history(
+            &metadata,
+            &friend,
+            existing,
+            service.neighbor_history_generation(),
+        )
+        .await
+        .unwrap();
+    let before = metadata.history_page(&friend, None, 50).await.unwrap();
+    for (message_id, expected) in [
+        ("invalid".into(), Error::InvalidEnvelope),
+        (existing_id, Error::OperationIdConflict),
+        ("d".repeat(32), Error::SecretStore),
+    ] {
+        store.0.store(0, Ordering::SeqCst);
+        let error = service
+            .send_neighbor_once(
+                &transport,
+                &lifecycle,
+                &metadata,
+                Outgoing {
+                    message_id: Some(message_id),
+                    authority: SendAuthority::FriendshipGrant,
+                    friendship: friend.clone(),
+                    kind: Kind::Question,
+                    body: OutboundBody::Granted(Zeroizing::new("opaque original send".into())),
                     in_reply_to: None,
                     author: Author::Person("me".into()),
                 },
@@ -264,6 +312,7 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
             &lifecycle,
             &metadata,
             Outgoing {
+                message_id: None,
                 authority: SendAuthority::FriendshipGrant,
                 friendship: friend.clone(),
                 kind: Kind::Answer,
@@ -357,6 +406,7 @@ async fn stopped_requests_reject_later_answers_and_refusals_before_keys_network_
                     &lifecycle,
                     &metadata,
                     Outgoing {
+                        message_id: None,
                         authority: SendAuthority::FriendshipGrant,
                         friendship: friend.clone(),
                         kind,
@@ -386,4 +436,17 @@ async fn stopped_requests_reject_later_answers_and_refusals_before_keys_network_
             );
         }
     }
+}
+
+#[test]
+fn send_command_preserves_client_message_identity() {
+    let id = "a".repeat(32);
+    let command: NeighborRuntimeCommand = serde_json::from_value(json!({
+        "operation":"send","friendship_id":"b".repeat(64),"kind":"question",
+        "body":"opaque message","in_reply_to":null,"message_id":id
+    }))
+    .unwrap();
+    assert!(
+        matches!(command, NeighborRuntimeCommand::Send { message_id: Some(observed), .. } if observed == id)
+    );
 }

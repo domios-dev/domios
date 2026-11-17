@@ -62,6 +62,7 @@ impl NeighborsExt for ServiceContext {
         self.require_neighbors_enabled()?;
         let generation = self.neighbor_history_generation();
         let Outgoing {
+            message_id,
             authority,
             friendship,
             kind,
@@ -71,6 +72,19 @@ impl NeighborsExt for ServiceContext {
         } = outgoing;
         if !hex_id(&friendship, 64) {
             return Err(Error::InvalidEnvelope);
+        }
+        let message_id = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
+        if !hex_id(&message_id, 32) {
+            return Err(Error::InvalidEnvelope);
+        }
+        if metadata
+            .history(&friendship)
+            .await?
+            .entries
+            .iter()
+            .any(|entry| entry.message_id == message_id)
+        {
+            return Err(Error::OperationIdConflict);
         }
         let permission = metadata
             .settings()
@@ -104,7 +118,7 @@ impl NeighborsExt for ServiceContext {
         let mut envelope = Envelope {
             schema: SCHEMA.into(),
             friendship_id: friendship.clone(),
-            message_id: uuid::Uuid::new_v4().simple().to_string(),
+            message_id,
             sender_uid: transport.uid.clone(),
             recipient_uid: peers.peer_uid.clone(),
             kind,

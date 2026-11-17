@@ -58,6 +58,7 @@ async fn assert_preflight(
             &lifecycle,
             metadata,
             Outgoing {
+                message_id: None,
                 authority,
                 friendship: friend.clone(),
                 kind,
@@ -111,6 +112,7 @@ async fn owner_and_authenticated_general_send_text_answers_and_files_without_inb
                 (Kind::Answer, true),
             ] {
                 let command = NeighborRuntimeCommand::Send {
+                    message_id: None,
                     friendship_id: friend.clone(),
                     kind,
                     body: "opaque".into(),
@@ -142,6 +144,7 @@ async fn owner_and_authenticated_general_send_text_answers_and_files_without_inb
                 .await;
             }
             let command = NeighborRuntimeCommand::Send {
+                message_id: None,
                 friendship_id: friend.clone(),
                 kind: Kind::TabRequest,
                 body: "opaque".into(),
@@ -163,6 +166,7 @@ async fn owner_and_authenticated_general_send_text_answers_and_files_without_inb
             .await;
         }
         let command = NeighborRuntimeCommand::Send {
+            message_id: None,
             friendship_id: friend.clone(),
             kind: Kind::Question,
             body: "opaque".into(),
@@ -237,6 +241,7 @@ async fn bound_concierge_and_descendant_sends_stay_gated_by_the_exact_friend_gra
                 (Kind::Answer, true),
             ] {
                 let command = NeighborRuntimeCommand::Send {
+                    message_id: None,
                     friendship_id: friend.clone(),
                     kind,
                     body: "opaque".into(),
@@ -269,6 +274,7 @@ async fn bound_concierge_and_descendant_sends_stay_gated_by_the_exact_friend_gra
                 .await;
             }
             let foreign = NeighborRuntimeCommand::Send {
+                message_id: None,
                 friendship_id: "b".repeat(64),
                 kind: Kind::Question,
                 body: "opaque".into(),

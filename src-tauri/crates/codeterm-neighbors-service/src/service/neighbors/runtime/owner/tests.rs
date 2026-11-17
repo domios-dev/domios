@@ -132,6 +132,7 @@ async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_networ
             Kind::TabRequest,
         ] {
             let command = NeighborRuntimeCommand::Send {
+                message_id: None,
                 friendship_id: "a".repeat(64),
                 kind,
                 body: body.clone(),
@@ -148,6 +149,7 @@ async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_networ
         Err(mpsc::error::TryRecvError::Empty)
     ));
     let command = NeighborRuntimeCommand::Send {
+        message_id: None,
         friendship_id: "a".repeat(64),
         kind: Kind::Question,
         body: "opaque nonempty".into(),

@@ -61,7 +61,7 @@ it("shows the conversation with a refused question, its linked refusal and deliv
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
-  expect(runtimeClient.send).toHaveBeenCalledExactlyOnceWith("pair", "Lunch on Friday?");
+  expect(runtimeClient.send).toHaveBeenCalledExactlyOnceWith("pair", "Lunch on Friday?", expect.stringMatching(/^[0-9a-f]{32}$/));
   expect(conciergeClient.history).toHaveBeenCalledTimes(2);
   await act(async () => conciergeClient.changed("other-pair"));
   expect(conciergeClient.history).toHaveBeenCalledTimes(2);
@@ -375,9 +375,9 @@ it("shows a message's files with their state and opens a saved one from the frie
 
 it("shows a sent message at once and keeps one bubble when history brings it back", async () => {
   const runtimeClient = runtime();
-  const id = "a".repeat(32);
+  let id!: string;
   let accept!: () => void;
-  vi.mocked(runtimeClient.send).mockImplementation(() => new Promise(resolve => { accept = () => resolve({ message_id: id, status: "pending" }); }));
+  vi.mocked(runtimeClient.send).mockImplementation((_friendship, _body, messageId) => new Promise(resolve => { id = messageId; accept = () => resolve({ message_id: id, status: "pending" }); }));
   const conciergeClient = concierge([]);
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
@@ -394,7 +394,11 @@ it("shows a sent message at once and keeps one bubble when history brings it bac
   expect(input.value).toBe("");
   const pending = bubbles()[0];
   vi.mocked(conciergeClient.history).mockResolvedValue({ entries: [{ direction: "out", kind: "question", author: "me", body: "Lunch on Friday?", at: Date.now(), message_id: id, delivery_status: "delivered" }], next_before: null, ended: false });
+  await act(async () => conciergeClient.changed("pair"));
+  expect(bubbles()).toHaveLength(1);
+  expect(bubbles()[0]).toBe(pending);
   await act(async () => accept());
+  expect(runtimeClient.send).toHaveBeenCalledTimes(1);
   expect(bubbles()).toHaveLength(1);
   expect(bubbles()[0]).toBe(pending);
   expect(bubbles()[0].id).toBe(`neighbor-msg-${id}`);
@@ -526,4 +530,47 @@ it("explains a refused Neighbors read before opening cached conversation service
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge([])} />));
   expect(host.querySelector('[role="status"]')?.textContent).toContain("Sign in with a hosted account to use Neighbors");
   expect(host.querySelector("textarea")).toBeNull();
+});
+
+it.each([false, true, "conflict"] as const)("retains one bubble after a send failure (uncertain: %s) and retries only a proven refusal", async uncertain => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.send).mockRejectedValueOnce(uncertain ? uncertain === "conflict" ? new NeighborRuntimeFailure("operation_id_conflict") : new Error("Connection lost")
+    : new NeighborRuntimeFailure("unavailable", "Too many", undefined, { status: "not_delivered", reason: "rate_limited" }));
+  const conciergeClient = concierge([]);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
+  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Opaque retry message");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
+  const bubble = host.querySelector('.neighbor-msg[data-side="out"]');
+  expect(host.querySelectorAll('.neighbor-msg[data-side="out"]')).toHaveLength(1);
+  const originalId = vi.mocked(runtimeClient.send).mock.calls[0][2];
+  expect(runtimeClient.send).toHaveBeenCalledTimes(1);
+  if (uncertain) {
+    expect(host.querySelector(".ct-delivery__retry")).toBeNull();
+  } else {
+    vi.mocked(runtimeClient.send).mockImplementation(async (_friendship, body, messageId) => {
+      vi.mocked(conciergeClient.history).mockResolvedValue({ entries: [{ direction: "out", author: "me", kind: "question", body,
+        at: Date.now(), message_id: messageId, delivery_status: "delivered" }], next_before: null, ended: false });
+      return { message_id: messageId, status: "delivered" };
+    });
+    await act(async () => bubble!.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click());
+    await act(async () => button("Retry").click());
+    expect(runtimeClient.send).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(runtimeClient.send).mock.calls[1][2]).not.toBe(originalId);
+    expect(host.querySelectorAll('.neighbor-msg[data-side="out"]')).toHaveLength(1);
+    expect(host.querySelector('.neighbor-msg[data-side="out"]')).toBe(bubble);
+    expect(host.querySelector(".ct-delivery")).toBeNull();
+    return;
+  }
+  vi.mocked(conciergeClient.history).mockResolvedValue({ entries: [{ direction: "out", author: "me", kind: "question", body: "Opaque retry message",
+    at: Date.now(), message_id: originalId, delivery_status: "delivered" }], next_before: null, ended: false });
+  await act(async () => conciergeClient.changed("pair"));
+  expect(host.querySelectorAll('.neighbor-msg[data-side="out"]')).toHaveLength(1);
+  expect(host.querySelector('.neighbor-msg[data-side="out"]')).toBe(bubble);
+  expect(runtimeClient.send).toHaveBeenCalledTimes(1);
 });
