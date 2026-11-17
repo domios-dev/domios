@@ -1,4 +1,16 @@
 import { referenceMarkers } from "../../../packages/chat-ui/src/codeterm/referenceMarkers";
+import { attachmentPathName, formatAttachmentMarker, parseAttachmentMarkers } from "@codeterm/chat-core";
+
+export function composerTokenMarkers(text: string) {
+  const tabs = referenceMarkers(text).filter(marker => marker.kind === "tab").map(marker => ({ ...marker, title: undefined as string | undefined }));
+  const files = [...text.matchAll(/<domios\s+[^<>]*\btype="attachment"[^<>]*\/>/g)].flatMap(match => {
+    const file = parseAttachmentMarkers(match[0]).attachments[0];
+    return file && !file.reply && ["file", "image", "folder", "video", "document"].includes(file.kind)
+      ? [{ start: match.index!, end: match.index! + match[0].length, text: match[0], kind: "file" as const, id: file.path, title: attachmentPathName(file.path) }] : [];
+  });
+  const code = [...text.matchAll(/```[\s\S]*?(?:```|$)|`[^`\n]+`/g)];
+  return [...tabs, ...files].filter(marker => !code.some(match => marker.start >= match.index! && marker.start < match.index! + match[0].length)).sort((a, b) => a.start - b.start);
+}
 
 export interface MentionToken {
   start: number;
@@ -17,10 +29,9 @@ interface MentionEdit { start: number; before: string; after: string; beforeLeng
 export function projectMentionDraft(canonical: string, title: (id: string, sourceStart: number) => string): MentionDraft {
   let text = "", cursor = 0;
   const tokens: MentionToken[] = [];
-  for (const marker of referenceMarkers(canonical)) {
-    if (marker.kind !== "tab") continue;
+  for (const marker of composerTokenMarkers(canonical)) {
     text += canonical.slice(cursor, marker.start);
-    const label = title(marker.id, marker.start).replace(/[\r\n\t]/g, " ") || "Tab";
+    const label = (marker.title ?? title(marker.id, marker.start)).replace(/[\r\n\t]/g, " ") || "Tab";
     const start = text.length;
     text += `@${label}`;
     tokens.push({ start, end: text.length, sourceStart: marker.start, sourceEnd: marker.end, marker: marker.text, title: label, id: marker.id });
@@ -73,6 +84,14 @@ export function replaceMentionRange(draft: MentionDraft, start: number, end: num
 }
 
 export function normalizePastedMentions(text: string): string {
+  const trimmed = text.trim();
+  if (/^"(?:[A-Za-z]:[\\/]|\/|\\\\)[^"\r\n]+"$/.test(trimmed)) {
+    let path = trimmed.slice(1, -1);
+    if (path.includes("\\\\")) {
+      try { path = JSON.parse(trimmed) as string; } catch { /* Native UNC paths are not JSON strings. */ }
+    }
+    return formatAttachmentMarker(path);
+  }
   return text.replace(/(?:@[^\s()]+\s+)?\(tab ([\w:./-]+)\)/g, (_, id: string) => `<domios type="tab" id="${id}" />`);
 }
 

@@ -4,7 +4,7 @@ import { referenceMarkers } from "../../../packages/chat-ui/src/codeterm/referen
 import type { ComposerMention, MentionQuery } from "../../lib/composerMentions";
 import { useMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { replaceTextareaRange } from "./useComposerCapsules";
-import { canonicalMentionSlice, mentionArrowTarget, mentionDeletionRange, MentionTokenModel, normalizePastedMentions, snapMentionSelection } from "./composerMentionTokens";
+import { canonicalMentionSlice, composerTokenMarkers, mentionArrowTarget, mentionDeletionRange, MentionTokenModel, normalizePastedMentions, snapMentionSelection } from "./composerMentionTokens";
 
 export function useComposerMentionTokens(canonical: string, setCanonical: (text: string) => void, textarea: RefObject<HTMLTextAreaElement | null>) {
   const mux = useMuxStateStore();
@@ -27,7 +27,14 @@ export function useComposerMentionTokens(canonical: string, setCanonical: (text:
     el.setSelectionRange(start + insertion.length, start + insertion.length);
     const added = next.tokens.filter(token => token.start >= start && token.end <= start + insertion.length);
     const removed = before.tokens.filter(token => token.start >= start && token.end <= end);
-    announce(added.length ? added.map(token => `Mentioned ${token.title}`).join(". ") : removed.map(token => `Removed ${token.title}`).join(". "));
+    const unmatched = [...removed];
+    const inserted = added.filter(token => {
+      const index = unmatched.findIndex(prior => prior.id === token.id);
+      if (index < 0) return true;
+      unmatched.splice(index, 1);
+      return false;
+    });
+    announce(inserted.length ? inserted.map(token => `Mentioned ${token.title}`).join(". ") : unmatched.map(token => `Removed ${token.title}`).join(". "));
   };
   const insert = (mention: ComposerMention, query: MentionQuery) => {
     const el = textarea.current;
@@ -90,12 +97,13 @@ export function useComposerMentionTokens(canonical: string, setCanonical: (text:
     const data = event.clipboardData;
     if (data.files?.length || Array.from(data.items ?? []).some(item => item.kind === "file")) return false;
     const text = normalizePastedMentions(data.getData(DOMIOS_TEXT_MIME) || data.getData("text/plain"));
-    if (!referenceMarkers(text).some(marker => marker.kind === "tab")) return false;
+    const markers = composerTokenMarkers(text);
+    if (!markers.length) return false;
     event.preventDefault();
     const el = event.currentTarget;
     const range = snapMentionSelection(model.current!.current.tokens, el.selectionStart, el.selectionEnd);
     const leading = range.start > 0 && !/\s/.test(el.value[range.start - 1]) ? " " : "";
-    replace(el, range.start, range.end, `${leading}${fromPortable(text)} `);
+    replace(el, range.start, range.end, `${leading}${markers.some(marker => marker.kind === "file") ? text : fromPortable(text)} `);
     return true;
   };
   const handleCopy = (event: ClipboardEvent<HTMLTextAreaElement>, cut: boolean, toPortable: (text: string) => string = text => text): boolean => {

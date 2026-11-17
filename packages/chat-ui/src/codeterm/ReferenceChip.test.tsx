@@ -5,6 +5,7 @@ import { ChatBlockHostProvider, type ChatMentionValue } from "../blocks/ChatBloc
 import { CompactMessageContent } from "./CompactMessageContent";
 import { referenceMarkerText } from "./referenceMarkers";
 import { ReferenceChip, TASK_CHIP_TITLE_CHARS, splitTaskLabel, truncateChipTitle } from "./ReferenceChip";
+import { MessageBubble } from "../MessageBubble";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -63,6 +64,18 @@ describe("task reference chip", () => {
 });
 
 describe("participant mentions", () => {
+  it("preserves resolved, closed, loading and missing semantics in the production user bubble", async () => {
+    live["review-live"] = { kind: "tab", id: "review-live", title: "Elgar", tabKind: "agent", providerName: "Claude", activity: "working" };
+    live["review-closed"] = { kind: "tab", id: "review-closed", title: "Closed", state: "closed" };
+    live["review-loading"] = { kind: "tab", id: "review-loading", title: "opaque", state: "loading" };
+    const content = ["review-live", "review-closed", "review-loading", "review-missing"].map(id => referenceMarkerText("tab", id)).join(" ");
+    const el = await mount(<MessageBubble message={{ id: "review", type: "user", content }} />);
+    const bubble = el.querySelector('[role="group"][aria-label="User message"]')!;
+    expect([...bubble.querySelectorAll("button")].map(button => [button.getAttribute("aria-label"), button.getAttribute("aria-disabled")])).toEqual([
+      ["Elgar, Claude agent tab, working", null], ["Closed, closed tab", "true"], ["Tab, loading tab", "true"],
+    ]);
+    expect(bubble.textContent).toBe("Elgar Closed Tab Unknown tab");
+  });
   it("opens an agent through the host and exposes its live identity and status", async () => {
     let opened = 0;
     const el = await mount(<ReferenceChip kind="tab" presentation="mention" label="Elgar" fullRef="agent" disabled={false}

@@ -7,9 +7,9 @@
   position: relative;
   display: inline-flex;
   max-width: 100%;
-  align-items: center;
+  align-items: baseline;
   vertical-align: baseline;
-  padding: 1px 7px 1px 2px;
+  padding: .28em 7px .28em 2px;
   gap: 4px;
   border: none;
   border-radius: 999px;
@@ -18,7 +18,7 @@
   font-family: var(--ct-font-ui);
   font-size: .95em;
   font-weight: 500;
-  line-height: inherit;
+  line-height: 1;
   white-space: nowrap;
   cursor: pointer;
   transition: background-color var(--ct-duration-liquid-hover), color var(--ct-duration-liquid-hover), transform var(--ct-duration-liquid-press);
@@ -27,26 +27,22 @@
 .ct-participant-mention:hover { background: var(--ct-mention-hover); }
 .ct-participant-mention:active:not([aria-disabled="true"]) { transform: scale(.97); }
 .ct-participant-mention:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 1px; }
-.ct-mention-avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; border-radius: 50%; background: color-mix(in srgb, var(--ct-fg) 8%, transparent); }
+.ct-mention-avatar { position: relative; display: inline-flex; align-items: center; align-self: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; border-radius: 50%; background: color-mix(in srgb, var(--ct-fg) 8%, transparent); }
 .ct-mention-avatar-icon { display: inline-flex; align-items: center; justify-content: center; }
-.ct-mention-title { min-width: 0; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; }
+.ct-mention-title { min-width: 0; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; line-height: 1; text-box: trim-both cap alphabetic; }
 .ct-mention-dot { position: absolute; bottom: -1px; right: -1px; width: 6px; height: 6px; border-radius: 50%; background: var(--ct-accent); box-shadow: 0 0 0 1.5px var(--ct-mention-ring); }
 .ct-mention-dot[data-activity="waiting"] { background: var(--ct-yellow); }
 .ct-mention-dot[data-activity="error"] { background: var(--ct-red); }
-.ct-user-bubble:not(.ct-user-bubble--relayed) .ct-participant-mention {
-  --ct-mention-fill: color-mix(in srgb, var(--ct-on-accent) 16%, transparent);
-  --ct-mention-hover: color-mix(in srgb, var(--ct-on-accent) 22%, transparent);
-  --ct-mention-color: var(--ct-on-accent);
-  --ct-mention-ring: var(--ct-accent);
-}
 .ct-participant-mention[aria-disabled="true"] {
   --ct-mention-fill: color-mix(in srgb, var(--ct-fg) 6%, transparent);
   --ct-mention-hover: var(--ct-mention-fill);
-  --ct-mention-color: var(--ct-muted-fg);
+  --ct-mention-color: color-mix(in srgb, var(--ct-fg) 75%, var(--ct-surface));
   cursor: default;
 }
 .ct-participant-mention[data-ref-state="closed"] .ct-mention-avatar-icon { opacity: .5; }
-.ct-mention-missing { color: var(--ct-muted-fg); }
+.ct-mention-missing { color: color-mix(in srgb, var(--ct-fg) 75%, var(--ct-surface)); }
+.ct-user-bubble .ct-mention-dot { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-accent) 8%, var(--ct-surface)); }
+.ct-user-bubble--relayed .ct-mention-dot { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-fg) 4%, var(--ct-bg)); }
 @media (prefers-reduced-motion: reduce) {
   .ct-participant-mention { transition: none; }
   .ct-mention-dot.ct-live-pulse::after { animation: none; }

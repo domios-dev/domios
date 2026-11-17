@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { referenceMarkerText } from "../../../packages/chat-ui/src/codeterm/referenceMarkers";
 import { canonicalMentionSlice, MentionTokenModel, mentionArrowTarget, mentionDeletionRange, normalizePastedMentions, projectMentionDraft, snapMentionSelection } from "./composerMentionTokens";
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 
 const marker = '<domios id="tab-1" type="tab" />';
 let title = "Elgar";
@@ -56,3 +57,17 @@ assert.equal(renamed.change("@Old @New ").text, "@Old @New ", "new insert freeze
 renamed.prepare(5, 9, ""); renamed.change("@Old  ");
 assert.equal(renamed.change("@Old @New ", "historyUndo").text, "@Old @New ");
 console.log("Mention token projection, atomic ranges, clipboard slices, paste, rename and undo/redo identity checks passed");
+
+const filePath = String.raw`C:\tmp\file.txt`;
+const fileMarker = formatAttachmentMarker(filePath);
+const fileModel = new MentionTokenModel(`See ${fileMarker} here`, () => "Tab");
+assert.equal(fileModel.current.text, "See @file.txt here");
+assert.equal(canonicalMentionSlice(fileModel.current, 4, 13), fileMarker);
+assert.deepEqual(snapMentionSelection(fileModel.current.tokens, 6, 9), { start: 4, end: 13 });
+assert.deepEqual(mentionDeletionRange(fileModel.current.tokens, 13, 13, "Backspace"), { start: 4, end: 13 });
+fileModel.prepare(4, 13, "");
+assert.equal(fileModel.change("See  here").canonical, "See  here");
+assert.equal(fileModel.change("See @file.txt here", "historyUndo").canonical, `See ${fileMarker} here`);
+assert.equal(normalizePastedMentions(`"${filePath}"`), fileMarker);
+assert.equal(normalizePastedMentions(JSON.stringify(filePath)), fileMarker);
+assert.equal(projectMentionDraft(`\`${fileMarker}\``, () => "Tab").tokens.length, 0);

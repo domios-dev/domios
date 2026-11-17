@@ -10,6 +10,7 @@ import { FIXTURE_PLAN, FIXTURE_TASK } from "../components/Canvas/cards/fixtures.
 import { fixtureGraph, fixtureNode } from "../components/Automation/fixtures.testdata";
 import type { Plan, Task } from "../components/Canvas/types";
 import type { Tab, Workspace } from "./types";
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 
 const ctx: MentionContext = { scope: { tabId: "self", workspaceId: "ws1", projectPath: "/project1", teamId: "team1" }, signal: new AbortController().signal };
 const row = (label: string, extra: Partial<ComposerMention> = {}): ComposerMention => ({ id: label, label, description: "", insertText: label, group: "Fixture", match: 1, ...extra });
@@ -92,6 +93,20 @@ test("proximity then agents outrank match quality except exact title/id", async 
   assert.deepEqual((await registry.search("co", ctx)).map((r) => r.id), ["tabs:self", "tabs:shell", "tabs:peer", "tabs:far"]);
   assert.equal((await registry.search("Comet", ctx))[0].id, "tabs:far");
   assert.equal((await registry.search("peer", ctx))[0].id, "tabs:peer");
+});
+test("title prefixes precede nearby fuzzy matches and generic Agent metadata is not searched", async () => {
+  const rows = {
+    main: { ...tab("main", null, "ws2", "Main"), role: "general", description: "General assistant" },
+    general: tab("general", null, "ws2", "General"),
+    worker: { ...tab("worker", "team1", "ws1", "Chip"), role: "Agent", description: "Agent" },
+  };
+  const result = await createMentionRegistry([tabMentionSource(() => ({ tabs: rows, workspaces }))]).search("Gen", ctx);
+  assert.deepEqual(result.map(row => row.label), ["General", "Main"]);
+});
+test("file picks insert the existing typed attachment marker", async () => {
+  const path = String.raw`C:\repo\private-neighbor.txt`;
+  const [row] = await fileMentionSource(async () => [{ name: "private-neighbor.txt", path }]).search("private", ctx);
+  assert.equal(row.insertText, formatAttachmentMarker(path));
 });
 test("same workspace precedes others for non-Team callers and mesh is labelled", async () => {
   const mesh = { ...tabs.far, id: "mesh:peer:far", remote_peer_id: "peer", remote_peer_name: "Remote" };
