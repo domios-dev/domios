@@ -160,6 +160,12 @@
       "to": [
         "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/tests.rs"
       ]
+    },
+    {
+      "from": "src-tauri/crates/codeterm-usage/src/store.rs",
+      "to": [
+        "src-tauri/crates/codeterm-usage/src/store/tests.rs"
+      ]
     }
   ],
   "entries": [
@@ -5099,7 +5105,7 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-usage/src/store.rs",
+      "file": "src-tauri/crates/codeterm-usage/src/store/tests.rs",
       "token": "claude",
       "count": 11,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
@@ -5108,40 +5114,47 @@
     {
       "file": "src-tauri/crates/codeterm-usage/src/store.rs",
       "token": "codex",
-      "count": 11,
+      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-usage/src/store.rs",
+      "file": "src-tauri/crates/codeterm-usage/src/store/tests.rs",
+      "token": "codex",
+      "count": 10,
+      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
+      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
+    },
+    {
+      "file": "src-tauri/crates/codeterm-usage/src/store/tests.rs",
       "token": "Codex",
       "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-usage/src/store.rs",
+      "file": "src-tauri/crates/codeterm-usage/src/store/tests.rs",
       "token": "codex_exhaustion_with_distinct_resets_is_accepted",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-usage/src/store.rs",
+      "file": "src-tauri/crates/codeterm-usage/src/store/tests.rs",
       "token": "codex_hundred_hundred_with_identical_resets_is_rejected",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-usage/src/store.rs",
+      "file": "src-tauri/crates/codeterm-usage/src/store/tests.rs",
       "token": "codex_zero_after_supported_reset_is_accepted",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-usage/src/store.rs",
+      "file": "src-tauri/crates/codeterm-usage/src/store/tests.rs",
       "token": "codex_zero_zero_with_backward_resets_is_rejected",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
