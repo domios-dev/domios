@@ -10,6 +10,7 @@ export interface DeliveryDraft {
   text: string;
   attachments: string[];
   recordedVoiceAttachments: string[];
+  voiceTranscribing?: boolean;
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
@@ -195,7 +196,9 @@ export function deliveryProjectionSends(
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",
         flowAtMs: send.sentAtMs,
-        held: queuedIds.has(send.id) || (deliveryState(send) !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD),
+        held: Boolean(send.draft?.recordedVoiceAttachments.length && !send.echo)
+          || queuedIds.has(send.id)
+          || (deliveryState(send) !== "delivered" && send.status?.pending_reason === ACTIVE_TURN_HOLD),
       };
     });
 }

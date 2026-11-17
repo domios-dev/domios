@@ -24,6 +24,38 @@ test("a queued send stays after the running output through turn end, while steer
   }
 });
 
+test("a transcribing voice bubble stays newest despite newer server timestamps", () => {
+  const voice: DeliverySend = { ...send, sentAtMs: 10,
+    content: '<domios type="attachment" kind="voice" path="/recording.webm" label="voice" />',
+    draft: { text: "", attachments: ["/recording.webm"], recordedVoiceAttachments: ["/recording.webm"],
+      voiceTranscribing: true, capsules: {}, reply: null } };
+  const rows: NormalizedChatMessage[] = [{ id: "later-output", type: "assistant", content: "still working", timestamp: "200" }];
+  const projected = deliveryProjectionSends([voice]);
+  assert.equal(projected[0]?.held, true);
+  assert.deepEqual(projectTranscript(reduceTranscript(createTranscriptState(), { kind: "snapshot",
+    authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null, rows }).state, projected)
+    .rows.map(row => row.id), ["later-output", "local"]);
+  assert.match(projected[0]!.content, /kind="voice" path="\/recording\.webm"/);
+});
+
+test("the transcript echo takes over the pending voice bubble identity", () => {
+  const voice: DeliverySend = { ...send, content: "transcribing voice", draft: {
+    text: "", attachments: ["/recording.webm"], recordedVoiceAttachments: ["/recording.webm"],
+    voiceTranscribing: true, capsules: {}, reply: null,
+  } };
+  const state = memory();
+  const pending = entry({ id: voice.id, type: "user", content: voice.content, timestamp: String(voice.sentAtMs) });
+  assert.equal(stableDeliveryEntries([pending], [voice], new Map(), state)[0]?.msg.id, voice.id);
+  const transcript = entry({ id: "server-row", sourceMessageId: "server-row", sourceSessionId: "own", type: "user",
+    correlationId: voice.correlationId, content: "spoken words", timestamp: String(voice.sentAtMs + 100) });
+  const rows = stableDeliveryEntries([transcript], [{ ...voice, content: "spoken words", echo: {
+    content: "spoken words", timestampMs: voice.sentAtMs + 100,
+  } }], new Map(), state);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.msg.id, voice.id);
+  assert.equal(rows[0]?.msg.content, "spoken words");
+});
+
 test("an explicit active-turn hold supplies queue placement without transport assumptions", () => {
   const state = memory();
   const held: DeliverySend = { ...send, status: { tab_id: "tab", send_id: "tx", state: "held", sequence: 1, ledger_id: "ledger", retained_from: 1,

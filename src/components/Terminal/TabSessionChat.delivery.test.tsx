@@ -871,7 +871,8 @@ for (const reducedMotion of [false, true]) {
           id: "voice", correlationId: "voice", content: "opaque-placeholder", sentAtMs: Date.now(),
         });
         setChatSendDraft(tabId, "voice", {
-          text: "", attachments: ["/voice.wav"], recordedVoiceAttachments: ["/voice.wav"], capsules: {}, reply: null,
+          text: "", attachments: ["/voice.wav"], recordedVoiceAttachments: ["/voice.wav"],
+          voiceTranscribing: true, capsules: {}, reply: null,
         });
       });
       const bubble = host.querySelector('[data-testid="chat-message"][data-message-id="voice"]')!;
@@ -883,11 +884,15 @@ for (const reducedMotion of [false, true]) {
           .then(() => { throw new Error("transcription should fail"); }, () => {});
       });
       assert(!bubble.querySelector('[aria-busy="true"]'), "failure removes progress from the same bubble");
-      const status = bubble.querySelector('[role="status"]');
-      const buttons = [...(status?.querySelectorAll("button") ?? [])];
-      assert(buttons.length === 1 && buttons[0].textContent === "Set up transcriber", "transcription failure offers only setup");
-      assert(status?.textContent?.includes("transcriber is unavailable"), "transcription reason remains visible");
-      await act(async () => buttons[0].click());
+      const statuses = [...bubble.querySelectorAll('[role="status"]')];
+      const buttons = [...bubble.querySelectorAll("button")];
+      assert(buttons.some(button => button.textContent === "Set up transcriber"), "transcription failure retains setup action");
+      assert(statuses.some(status => status.textContent?.includes("transcriber is unavailable")), "transcription reason remains visible");
+      await openDeliveryActions(bubble);
+      assert([...document.querySelectorAll('[role="dialog"] button')].some(button => button.textContent === "Retry"),
+        "transcription failure retains a retry action");
+      await act(async () => statuses[0]?.querySelector("button")?.click());
+      await act(async () => buttons.find(button => button.textContent === "Set up transcriber")!.click());
       assert(sends.length === 1 && sends[0].tabId === "general" && sends[0].text.includes("transcriber"), "setup sends one request to General");
       assert((focused as { tabId: string; workspaceId: string })?.tabId === "general"
         && (focused as { workspaceId: string })?.workspaceId === "general-workspace", "setup brings General forward");

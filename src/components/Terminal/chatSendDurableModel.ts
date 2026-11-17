@@ -22,6 +22,7 @@ interface DurableDraft {
   text: BodyRef;
   attachments: string[];
   recordedVoiceAttachments: string[];
+  voiceTranscribing?: boolean;
   capsules: DeliveryDraft["capsules"];
   reply: DeliveryDraft["reply"];
 }
@@ -125,6 +126,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
       text: body(draft.text),
       attachments: draft.attachments,
       recordedVoiceAttachments: draft.recordedVoiceAttachments,
+      ...(draft.voiceTranscribing !== undefined ? { voiceTranscribing: draft.voiceTranscribing } : {}),
       capsules: draft.capsules as DurableDraft["capsules"],
       reply: draft.reply as DurableDraft["reply"],
     } } : {}),
@@ -304,6 +306,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
         text: draftText!,
         attachments: value.draft.attachments,
         recordedVoiceAttachments: value.draft.recordedVoiceAttachments,
+        ...(value.draft.voiceTranscribing !== undefined ? { voiceTranscribing: value.draft.voiceTranscribing } : {}),
         capsules: value.draft.capsules,
         reply: value.draft.reply,
       } } : {}),

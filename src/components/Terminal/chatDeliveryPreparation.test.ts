@@ -18,7 +18,7 @@ const peerPath = "/Users/peer-user/voice-note.webm";
 const expansion = () => ({ kind: "none" as const });
 
 function draft(tab: string) {
-  addChatSend(tab, { id: "voice", correlationId: "voice", content: "pending", sentAtMs: 10 });
+  addChatSend(tab, { id: "voice", correlationId: "voice", content: markVoice(path, null, null), sentAtMs: 10 });
   setChatSendDraft(tab, "voice", {
     text: "", attachments: [path], recordedVoiceAttachments: [path], capsules: {}, reply: null,
   });
@@ -41,7 +41,8 @@ test("remote voice preparation retains an explicit failure and retries the origi
     await ensureChatSendTabHydrated(tab);
     const failed = readChatSends(tab)[0];
     assert.equal(deliveryState(failed), "failed");
-    assert.match(failed.content, /model not installed/);
+    assert.equal(failed.content, original.content);
+    assert.match(failed.requestError ?? "", /model not installed/);
     assert.deepEqual(failed.draft, original.draft);
     assert.equal(failed.sentAtMs, 10);
     reference = markVoice(peerPath, "spoken text");
@@ -55,14 +56,15 @@ test("remote voice preparation retains an explicit failure and retries the origi
   }
 });
 
-test("desktop remote-control host failures keep the underlying reason in the bubble", async () => {
+test("desktop remote-control host failures retain the voice attachment and error", async () => {
   setRelayTarget("eight", "eight");
   const tab = "desktop-relayed-voice";
   const original = draft(tab);
   __setInvokeForTest(async () => { throw new Error("remote host connection refused"); });
   try {
     await assert.rejects(prepareChatDelivery(tab, original, expansion), /connection refused/);
-    assert.match(readChatSends(tab)[0].content, /connection refused/);
+    assert.equal(readChatSends(tab)[0].content, original.content);
+    assert.match(readChatSends(tab)[0].requestError ?? "", /connection refused/);
     assert.equal(deliveryState(readChatSends(tab)[0]), "failed");
   } finally {
     clearRelayTarget();

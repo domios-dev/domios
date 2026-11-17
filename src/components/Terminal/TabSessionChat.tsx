@@ -116,7 +116,7 @@ import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
 import { awaitsTranscriptEcho, deliveryPresentation, queuedBehindTurn, sendForRow, undeliveredSends } from "./chatDeliveryModel";
-import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
+import { beginChatSendRetry, failChatSendRequest, setChatSendDraft, updateChatSendContent, useChatSendSnapshot } from "./chatSendStore";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
@@ -329,9 +329,18 @@ function TabSessionChatBody({
   const retryChatDelivery = useLatestCallback(async (id: string) => {
     const send = beginChatSendRetry(tabId, id);
     if (!send) return;
+    const voiceRetry = Boolean(send.draft?.recordedVoiceAttachments.length);
+    if (voiceRetry && send.draft) setChatSendDraft(tabId, id, { ...send.draft, voiceTranscribing: true });
     let content = send.content;
-    try { content = await prepareChatDelivery(tabId, send, expandDeliveryTasks); }
-    catch (error) { failChatSendRequest(tabId, id, error); return; }
+    try {
+      content = await prepareChatDelivery(tabId, send, expandDeliveryTasks);
+      if (voiceRetry && send.draft) setChatSendDraft(tabId, id, { ...send.draft, voiceTranscribing: false });
+      updateChatSendContent(tabId, id, content);
+    } catch (error) {
+      if (voiceRetry && send.draft) setChatSendDraft(tabId, id, { ...send.draft, voiceTranscribing: false });
+      failChatSendRequest(tabId, id, error);
+      return;
+    }
     try {
       observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content));
     } catch {
