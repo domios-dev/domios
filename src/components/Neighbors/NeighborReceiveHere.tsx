@@ -30,7 +30,8 @@ export function NeighborReceiveHere({ receiver, onReceive, friendship, client, f
   const [error, setError] = useState<ReturnType<typeof receiverFailureDescription> | null>(null);
   const [keyLimited, setKeyLimited] = useState(false);
   const [managing, setManaging] = useState(false);
-  const grants = useReceiverGrants(client, friendship, receiver.revision, confirming !== null && operation === "set");
+  const [grantAttempt, setGrantAttempt] = useState(0);
+  const grants = useReceiverGrants(client, friendship, receiver.revision, confirming !== null && operation === "set", grantAttempt);
   const preview = grants?.preview;
   const [choice, setChoice] = useState<"keep" | "adopt" | null>(null);
   const [scope, setScope] = useState<string | null>(null);
@@ -47,7 +48,8 @@ export function NeighborReceiveHere({ receiver, onReceive, friendship, client, f
     <p className="ct-card__meta">{takeoverWarning(receiver, targetMachine, friendName, operation)}</p>
     {operation === "set" && <>
       {!grants && <p role="status">Reading permissions on both machines…</p>}
-      {grants?.error && <p role="alert">{grants.error}</p>}
+      {grants?.error && <><p role="alert">{grants.error}</p>
+        <Button size="sm" onClick={() => setGrantAttempt(attempt => attempt + 1)}>Retry reading permissions</Button></>}
       {preview && <>
         <p>{targetMachine}: {grantSummary(preview.local)}</p>
         <p>Sharing scope: {preview.local.scope || "Nothing allowed"}</p>
@@ -80,7 +82,7 @@ export function NeighborReceiveHere({ receiver, onReceive, friendship, client, f
             setKeyLimited(failure instanceof NeighborRuntimeFailure && failure.reason === "key_limit");
             setError(receiverFailureDescription(failure));
           }).finally(() => setBusy(false));
-      }}>{preview?.different ? "Apply" : label}</Button>
+      }}>{error?.retryable ? (operation === "reset" ? "Retry stopping" : "Retry receiving") : preview?.different ? "Apply" : label}</Button>
       <Button size="sm" disabled={busy} onClick={close}>Cancel</Button>
     </div>
   </div>;

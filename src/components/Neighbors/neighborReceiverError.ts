@@ -14,14 +14,16 @@ function diagnostic(message: string): string {
     ? `${text.slice(0, MAX_DIAGNOSTIC - 1)}…` : text;
 }
 
-export function receiverFailureDescription(failure: unknown): ErrorDescription {
+export function receiverFailureDescription(failure: unknown): ErrorDescription & { retryable: boolean } {
   const typed = failure instanceof NeighborRuntimeFailure;
+  const retryable = typed && failure.reason === "entitlements_unavailable";
   const message = typed
     ? failure.reason === "key_limit" && failure.limit !== undefined && failure.active !== undefined
       ? `${failure.active} of ${failure.limit} machines in use. Remove a machine to receive here.`
+      : retryable ? "We couldn't verify your account access. Try again."
       : failure.reason === "unavailable" ? "The receiving service is unavailable. Try again."
       : diagnostic(failure.message) || "Receiving could not move here."
     : "Receiving could not move here. Try again.";
   const cause = typed ? `${failure.reason}: ${message}` : message;
-  return { title: "Receiving could not move here", cause, raw: cause, actions: [] };
+  return { title: "Receiving could not move here", cause, raw: cause, actions: [], retryable };
 }

@@ -1045,7 +1045,7 @@ impl NeighborsExt for ServiceContext {
             .0
             .store(true, Ordering::Release);
         self.neighbor_reconciliation().close();
-        self.forget_neighbor_friend_receivers();
+        let stopped_receivers = self.retire_neighbor_friend_receivers();
         self.forget_neighbor_registry();
         self.neighbor_cell().names.lock().clear();
         self.neighbor_pauses().clear();
@@ -1057,13 +1057,23 @@ impl NeighborsExt for ServiceContext {
         self.neighbor_restoration_entitlement_changed();
         self.stop_neighbor_updates();
         self.neighbor_cell().watch_states.lock().clear();
-        self.neighbor_cell()
-            .generation
-            .fetch_add(1, Ordering::AcqRel);
         self.stop_neighbor_listeners();
         self.neighbor_cell()
             .bootstrapped
             .store(false, std::sync::atomic::Ordering::Release);
+        for friendship in stopped_receivers {
+            let mut notice = crate::service::notification::InAppNotice::neighbor_connection(
+                "Receiving stopped for a Neighbor after the account changed".into(),
+                format!("neighbor-account-change:{friendship}"),
+            );
+            notice.actions.push(
+                codeterm_notification_core::contract::NotificationAction::Url {
+                    label: "Receive here".into(),
+                    value: format!("domios://neighbor/{friendship}/concierge"),
+                },
+            );
+            self.create_in_app_notice_record(notice);
+        }
         let service = self.clone();
         match self.neighbor_reconciliation().submit(
             super::reconciliation::Kind::Retirement,

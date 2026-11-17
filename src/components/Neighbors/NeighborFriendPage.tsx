@@ -59,7 +59,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   const name = neighborName(friend);
   const friendship = friend.friendship_id;
   const { permission } = useNeighborPermission(runtimeClient, conciergeClient, friendship);
-  const receiver = useReceiverState(runtimeClient, enabled, friendship);
+  const receiver = useReceiverState(runtimeClient, enabled, friendship, friend.my_receiver);
   const runtimeStatus = useNeighborStatus(runtimeClient, enabled);
   const receiverGrants = useReceiverGrants(runtimeClient, friendship, receiver?.revision ?? -1, enabled && receiver !== null);
   const grantPreview = receiverGrants?.preview;

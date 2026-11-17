@@ -187,6 +187,10 @@ impl AccountMesh {
         let nonce = self
             .call(self.ports.registry.challenge(&signed.session, &challenge))
             .await?;
+        let issued_at = nonce
+            .split_once('.')
+            .and_then(|(issued_at, _)| issued_at.parse::<u64>().ok())
+            .ok_or(AccountMeshRefusal::ChallengeInvalid)?;
         let context = ProofContext {
             project: signed.trust.project().to_owned(),
             mode: signed.trust.mode(),
@@ -199,7 +203,7 @@ impl AccountMesh {
         };
         signed
             .key
-            .prove(&context, generation, self.now(), nonce)
+            .prove(&context, generation, issued_at, nonce)
             .ok_or(AccountMeshRefusal::Invalid)
     }
 

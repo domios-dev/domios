@@ -180,6 +180,7 @@ pub struct Script {
     pub peer_membership_expires_at: Option<u64>,
     /// Seconds the issuer's clock runs ahead of the desktop's.
     pub issuer_ahead: u64,
+    pub challenge_issuer_ahead: u64,
 }
 
 #[derive(Default)]

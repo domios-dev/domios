@@ -147,10 +147,10 @@ it("the conversation header's menu receives the friend here through the same con
 });
 
 it("a friend the status does not know yet borrows nothing from the account: no line, no action, no notice", async () => {
-  // The account is received elsewhere, but Ada's own receiver is unknown, so nothing may claim where Ada arrives.
+  // Another friendship is received elsewhere, but Ada has no receiver or bound concierge.
   const unknown = (): NeighborRuntimeClient => {
-    const client = receiving(elsewhere);
-    vi.mocked(client.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: {} }));
+    const client = runtime();
+    vi.mocked(client.status).mockResolvedValue(channelStatus({ enrolled: true, machine_label: "This laptop", friend_receivers: { other: elsewhere } }));
     return client;
   };
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={unknown()} />);
@@ -183,6 +183,14 @@ it("keeps the single-friend receiving action inside concierge setup", async () =
   expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set", undefined);
 });
 
+it("receives an unassigned friend at the listed revision when runtime status has no row", async () => {
+  const runtimeClient = runtime();
+  const friend = { ...neighbor, my_receiver: { installation_id: null, enc_key_id: null, machine_label: null, receiving: false, revision: 7 } };
+  await render("paid", { runtimeClient, friend });
+  await act(async () => button("Ada, connected").click());
+  await act(async () => button("Confirm receiving").click());
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set", undefined);
+});
 
 it("the friend page shows the receiving machine's effective grant rather than the local grant", async () => {
   const runtimeClient = receiving(elsewhere);
