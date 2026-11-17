@@ -160,7 +160,7 @@ it("subscribes before reading and ignores a stale catalog after setup completion
   expect(stop).toHaveBeenCalledTimes(1);
 });
 
-it("with no ACP agent set up, says so in one line and offers the General agent once",async()=>{
+it("keeps unavailable profiles selectable for setup and offers one General action, distinct from an empty catalogue",async()=>{
   const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
   helper.spawnAiHelper.mockReset().mockResolvedValue({tabId:"general",workspaceId:"w",deliveryState:"confirmed"});
   const provider={id:"acp",agent_runtime:{launchProfiles:{"gemini-cli":{binary:"gemini",args:["--acp"]},"deepseek-harness":{binary:"npx",args:[]}}}} as unknown as ProviderDescriptor;
@@ -169,16 +169,35 @@ it("with no ACP agent set up, says so in one line and offers the General agent o
     {id:"deepseek-harness",install:"not_installed",auth:"unknown",canInstall:true,ownerConfigured:false},
   ];
   const buttons=()=>Array.from(host.querySelectorAll("button")).map(button=>button.textContent);
+  const onSelect=vi.fn();
   try {
-    await act(async()=>root.render(<LaunchProfilePicker provider={provider} profiles={profiles} selected="" onSelect={()=>{}} onRefresh={()=>{}} error={null}/>));
-    expect(host.textContent).toContain("No ACP agents set up yet.");
+    const emptyProvider={...provider,agent_runtime:{...provider.agent_runtime,launchProfiles:{}}} as ProviderDescriptor;
+    await act(async()=>root.render(<LaunchProfilePicker provider={emptyProvider} profiles={[]} selected="" onSelect={onSelect} onRefresh={()=>{}} error={null}/>));
+    expect(host.querySelectorAll('[role="radio"]')).toHaveLength(0);
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(buttons().filter(name=>name?.includes("General agent"))).toEqual(["Ask the General agent"]);
+    expect(buttons()).not.toContain("Install profile");
+
+    await act(async()=>root.render(<LaunchProfilePicker provider={provider} profiles={profiles} selected="" onSelect={onSelect} onRefresh={()=>{}} error={null}/>));
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    const options=Array.from(host.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
+    expect(options).toHaveLength(profiles.length);
+    for(const [index,option] of options.entries()) {
+      expect(option.disabled).toBe(false);
+      expect(option.getAttribute("aria-checked")).toBe("false");
+      await act(async()=>option.click());
+      expect(onSelect).toHaveBeenNthCalledWith(index+1,profiles[index].id);
+    }
+    await act(async()=>root.render(<LaunchProfilePicker provider={provider} profiles={profiles} selected="gemini-cli" onSelect={onSelect} onRefresh={()=>{}} error={null}/>));
+    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain("gemini-cli");
+    expect(Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button=>button.textContent==="Install profile")?.disabled).toBe(false);
     expect(buttons().filter(name=>name?.includes("General agent"))).toEqual(["Ask the General agent"]);
     await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="Ask the General agent")!.click());
     expect(helper.spawnAiHelper).toHaveBeenCalledTimes(1);
     expect(helper.spawnAiHelper.mock.calls[0][0].task).toContain("Explain in one or two plain sentences what ACP is");
 
     await act(async()=>root.render(<LaunchProfilePicker provider={provider} profiles={[{...profiles[0],install:"installed",auth:"authenticated"},profiles[1]]} selected="gemini-cli" onSelect={()=>{}} onRefresh={()=>{}} error={null}/>));
-    expect(host.textContent).not.toContain("No ACP agents set up yet.");
+    expect(host.querySelector('[role="status"]')).toBeNull();
     expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain("Ready");
     await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="Set up with the General agent")!.click());
     expect(helper.spawnAiHelper.mock.calls[1][0].task).toContain("Connect an ACP agent: gemini-cli.");
