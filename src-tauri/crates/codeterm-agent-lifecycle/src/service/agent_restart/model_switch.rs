@@ -393,14 +393,23 @@ impl ModelSwitchExt for ServiceContext {
         force: bool,
         restart_fallback: bool,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
-        self.execute_model_switch(
+        let nonce = {
+            let mux = self.mux.read();
+            mux.resolve_tab_id(tab_id).and_then(|id| {
+                mux.get_tab(&id)
+                    .and_then(|tab| tab.session_binding_nonce.clone())
+            })
+        };
+        let result = self.execute_model_switch(
             tab_id,
             requested,
             requested_effort,
             force,
             restart_fallback,
             None,
-        )
+        );
+        self.record_product_model_switch(&result, nonce.as_deref());
+        result
     }
 
     fn execute_model_switch(
@@ -895,3 +904,6 @@ fn model_switch_confirmation(
 mod runtime_route_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod analytics_tests;

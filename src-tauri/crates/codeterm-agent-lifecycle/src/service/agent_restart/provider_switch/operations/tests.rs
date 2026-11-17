@@ -174,3 +174,59 @@ fn slow_switch_preflight_leaves_runtime_and_mux_responsive() {
         .unwrap()
         .starts_with("provider_switch_auth_timeout:"));
 }
+
+#[tokio::test]
+async fn completion_analytics_is_once_only_current_and_consent_gated() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("target-fixture".into());
+    tab.agent_session_id = Some("new-session".into());
+    let fixture = ServiceFixture::new(mux);
+    let recording = crate::test_support::record_product_analytics(
+        &fixture.service,
+        fixture.temp.path().join("analytics.json"),
+    )
+    .await;
+    let operation = || Operation {
+        state: Mutex::new(ProviderSwitchStatus {
+            operation_id: "private-operation".into(),
+            tab_id: tab_id.clone(),
+            provider: "target-fixture".into(),
+            phase: "pending".into(),
+            outcome: None,
+            error: None,
+        }),
+        changed: Condvar::new(),
+    };
+    let outcome = ProviderSwitchOutcome {
+        tab_id: tab_id.clone(),
+        provider: "target-fixture".into(),
+        session_id: "new-session".into(),
+        previous_provider: "source-fixture".into(),
+        previous_session_id: Some("old-session".into()),
+        previous_history_path: "private-path".into(),
+        binding_restored: true,
+        handoff_delivered: true,
+    };
+    let first = operation();
+    complete(&fixture.service, &first, Ok(outcome.clone()));
+    complete(&fixture.service, &first, Ok(outcome.clone()));
+    assert_eq!(
+        recording.events().await,
+        vec![serde_json::json!({
+            "event_type":"agent_provider_changed","event_properties":{"provider_id":"other","outcome":"applied"}
+        })]
+    );
+    complete(
+        &fixture.service,
+        &operation(),
+        Err("private refusal".into()),
+    );
+    let mut stale = outcome.clone();
+    stale.session_id = "stale".into();
+    complete(&fixture.service, &operation(), Ok(stale));
+    assert_eq!(recording.events().await.len(), 1);
+    recording.set_enabled(false).await;
+    complete(&fixture.service, &operation(), Ok(outcome));
+    assert_eq!(recording.events().await.len(), 1);
+}

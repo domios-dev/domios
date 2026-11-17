@@ -5,6 +5,7 @@ use std::sync::Arc;
 mod actions;
 mod context;
 mod hardware;
+mod lifecycle;
 pub(crate) mod update_confirm;
 
 pub(crate) struct AnalyticsCell(pub(crate) Arc<tokio::sync::OnceCell<Worker>>);
