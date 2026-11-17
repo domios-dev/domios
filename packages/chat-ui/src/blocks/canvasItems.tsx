@@ -7,11 +7,11 @@ import { loadHtmlFile } from "../htmlFileLoader";
 import { useLocalArtifactTabId } from "../LocalArtifactScope";
 import { RichMarkdown } from "../MarkdownBody";
 import { canvasItemLabel, isLiveFrameItem, type PlacedCanvasItem } from "./canvasBlockModel";
-import { CanvasSourceContext } from "./canvasFilePort";
+import { CanvasItemRecoveryContext, CanvasSourceContext } from "./canvasFilePort";
 import type { CanvasItemEdit } from "./canvasEditing";
 
 type FileContent = { kind: "image"; src: string } | { kind: "text"; text: string; markdown: boolean } | { kind: "html"; html: string };
-type FileState = { status: "loading" } | { status: "ready"; content: FileContent } | { status: "error"; reason: string };
+type FileState = { status: "loading" } | { status: "ready"; content: FileContent } | { status: "error"; reason: string; retry(): void };
 
 const isMarkdownPath = (path: string) => /\.(md|markdown)$/i.test(path);
 const FAILURE_TEXT: Record<DsCanvasItem["kind"], string> = {
@@ -37,6 +37,7 @@ async function readItemFile(kind: DsCanvasItem["kind"], src: string, tabId: stri
 function useItemFile(item: DsCanvasItem): FileState | null {
   const tabId = useLocalArtifactTabId();
   const canvas = useContext(CanvasSourceContext);
+  const recovery = useContext(CanvasItemRecoveryContext);
   const src = "src" in item ? item.src : null;
   const kind = item.kind;
   const [state, setState] = useState<{ key: string; value: FileState } | null>(null);
@@ -44,12 +45,26 @@ function useItemFile(item: DsCanvasItem): FileState | null {
   useEffect(() => {
     if (src === null) return;
     let current = true;
-    readItemFile(kind, src, tabId, canvas).then(
-      (content) => { if (current) setState({ key, value: { status: "ready", content } }); },
-      (error: unknown) => { if (current) setState({ key, value: { status: "error", reason: error instanceof Error ? error.message : String(error) } }); },
-    );
-    return () => { current = false; };
-  }, [key, kind, src, tabId, canvas]);
+    let reading = false;
+    let failed = false;
+    const read = () => {
+      if (!current || reading) return;
+      reading = true;
+      failed = false;
+      setState({ key, value: { status: "loading" } });
+      void readItemFile(kind, src, tabId, canvas).then(
+        (content) => { if (current) setState({ key, value: { status: "ready", content } }); },
+        (error: unknown) => {
+          if (!current) return;
+          failed = true;
+          setState({ key, value: { status: "error", reason: error instanceof Error ? error.message : String(error), retry: read } });
+        },
+      ).finally(() => { reading = false; });
+    };
+    const unsubscribe = recovery?.subscribe(() => { if (failed) read(); });
+    read();
+    return () => { current = false; unsubscribe?.(); };
+  }, [key, kind, src, tabId, canvas, recovery]);
   if (src === null) return null;
   return state?.key === key ? state.value : { status: "loading" };
 }
@@ -67,11 +82,12 @@ function useOwnWheel(enabled: boolean) {
   return ref;
 }
 
-export function CanvasItemFailure({ text, reason }: { text: string; reason?: string }) {
+export function CanvasItemFailure({ text, reason, retry, label }: { text: string; reason?: string; retry?: () => void; label?: string }) {
   return (
     <div role="note" data-canvas-failure="" className="flex h-full w-full flex-col items-center justify-center gap-1 border border-[var(--ct-border)] p-4 text-center text-xs" style={{ color: "var(--ct-muted-fg)", background: "var(--ct-bg)" }}>
       <p className="m-0">{text}</p>
       {reason && <details className="relative z-[1] max-w-full text-[11px] opacity-80"><summary className="cursor-pointer select-none">Details</summary><p className="m-0 mt-1 break-words">{reason}</p></details>}
+      {retry && <button type="button" aria-label={`Retry ${label}`} className="relative z-[1] cursor-pointer rounded border border-[var(--ct-border)] px-2 py-1" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); retry(); }}>Retry</button>}
     </div>
   );
 }
@@ -118,7 +134,7 @@ function ItemContent({ item, live, active, theme }: { item: DsCanvasItem; live: 
   const inlineDoc = useMemo(() => html === null ? null : buildHtmlPreviewDocument(html, theme), [html, theme]);
   const pageDoc = useMemo(() => file?.status === "ready" && file.content.kind === "html" ? buildHtmlPreviewDocument(file.content.html, theme) : null, [file, theme]);
   if (item.kind === "note") return <TextBox scrolls={active} fill><Markdown text={item.markdown} /></TextBox>;
-  if (file?.status === "error") return <CanvasItemFailure text={FAILURE_TEXT[item.kind]} reason={file.reason} />;
+  if (file?.status === "error") return <CanvasItemFailure text={FAILURE_TEXT[item.kind]} reason={file.reason} retry={file.retry} label={label} />;
   if (file?.status === "loading") return <div role="status" aria-label={`Loading ${label}`} className="h-full w-full" />;
   const doc = inlineDoc ?? pageDoc;
   if (doc !== null) return live ? <CanvasFrame doc={doc} label={label} active={active} /> : <FramePlaceholder label={label} />;

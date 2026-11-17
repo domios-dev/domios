@@ -43,6 +43,88 @@ function host(writable: boolean, { text = board("first"), watching = true } = {}
 }
 const reset = () => { configureLocalArtifactLoader(null); configureCanvasFilePort(null); };
 
+test("failed canvas items recover on board changes without remounting and keep an explicit retry", async () => {
+  const view = await mount();
+  const files = host(false);
+  let available = false;
+  let finish: (() => void) | undefined;
+  let reads = 0;
+  configureLocalArtifactLoader(async (path, kind, tabId, canvas) => {
+    if (path === SRC) return { data: files.text, media_type: "application/json" };
+    assert.deepEqual({ path, kind, tabId, canvas }, { path: "/work/shot.png", kind: "image", tabId: "owner", canvas: SRC });
+    reads++;
+    if (!available) throw new Error("Fixture file access denied");
+    await new Promise<void>((resolve) => { finish = resolve; });
+    return { data: "data:image/png;base64,AA==", media_type: "image/png" };
+  });
+  try {
+    const render = () => view.render(<LocalArtifactScope tabId="owner"><RichMarkdown text={`<ds-canvas src="${SRC}" />`} /></LocalArtifactScope>);
+    await render();
+    await settle();
+    const item = view.host.querySelector("[data-canvas-item='shot']")!;
+    assert.match(item.textContent ?? "", /Fixture file access denied/);
+    await render();
+    assert.equal(reads, 1, "rendering alone never retries I/O");
+    await act(async () => { files.change?.(); });
+    await settle();
+    assert.equal(reads, 2, "one authoritative board change retries a failed item once");
+    const retry = item.querySelector<HTMLButtonElement>("button[aria-label='Retry shot.png']");
+    assert.ok(retry, "continuing failure remains actionable");
+    await click(retry);
+    await settle();
+    assert.equal(reads, 3);
+    available = true;
+    await act(async () => { files.change?.(); files.change?.(); files.change?.(); });
+    assert.equal(reads, 4, "changes coalesce while the item read is in flight");
+    await act(async () => { finish!(); });
+    await settle();
+    assert.equal(view.host.querySelector("[data-canvas-item='shot']"), item);
+    assert.equal(item.querySelector("img")?.getAttribute("src"), "data:image/png;base64,AA==");
+    await act(async () => { files.change?.(); });
+    await settle();
+    assert.equal(reads, 4, "successful items are not re-read on board changes");
+  } finally { await view.close(); reset(); }
+  assert.equal(files.released, 1);
+  files.change?.();
+  assert.equal(reads, 4, "disposed item subscriptions cannot read");
+});
+
+test("a retry from an old tab cannot overwrite or read through the new tab", async () => {
+  const view = await mount();
+  const files = host(false);
+  const reads: string[] = [];
+  let finish: (() => void) | undefined;
+  configureLocalArtifactLoader(async (path, _kind, tabId, canvas) => {
+    if (path === SRC) return { data: files.text, media_type: "application/json" };
+    assert.equal(canvas, SRC);
+    reads.push(tabId!);
+    if (tabId === "owner") {
+      if (reads.length === 1) throw new Error("Not ready");
+      await new Promise<void>((resolve) => { finish = resolve; });
+    }
+    return { data: `data:image/png;base64,${tabId === "owner" ? "AA==" : "BB=="}`, media_type: "image/png" };
+  });
+  try {
+    const render = (tabId: string) => view.render(<LocalArtifactScope tabId={tabId}><RichMarkdown text={`<ds-canvas src="${SRC}" />`} /></LocalArtifactScope>);
+    await render("owner");
+    await settle();
+    const item = view.host.querySelector("[data-canvas-item='shot']")!;
+    const retry = item.querySelector<HTMLButtonElement>("button[aria-label='Retry shot.png']")!;
+    assert.ok(retry);
+    await act(async () => { retry.click(); retry.click(); });
+    assert.deepEqual(reads, ["owner", "owner"], "repeated clicks share the in-flight read");
+    await render("other");
+    await settle();
+    const current = view.host.querySelector("[data-canvas-item='shot']")!;
+    assert.equal(current.querySelector("img")?.getAttribute("src"), "data:image/png;base64,BB==");
+    await act(async () => { finish!(); retry.click(); });
+    await settle();
+    assert.equal(current.querySelector("img")?.getAttribute("src"), "data:image/png;base64,BB==", "stale completion cannot replace the current tab's content");
+    assert.deepEqual(reads, ["owner", "owner", "other"], "a detached retry cannot issue an old-tab read");
+  } finally { await view.close(); reset(); }
+  assert.equal(files.released, 2);
+});
+
 test("a canvas file renders through the preview loader, reads items through it, and reloads in place", async () => {
   const view = await mount();
   const files = host(false);
