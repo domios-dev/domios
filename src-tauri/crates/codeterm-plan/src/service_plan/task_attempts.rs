@@ -42,6 +42,8 @@ mod compete_lane_tests;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskRespawnRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_profile: Option<String>,
     pub reasoning_effort: Option<String>,
     pub attempt_id: String,
@@ -80,6 +82,8 @@ pub struct TaskAttemptView {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskRespawnDraft {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role_profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub launch_profile: Option<String>,
     pub plan_id: String,
@@ -766,6 +770,7 @@ impl PlanStore {
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
         Ok(TaskRespawnDraft {
+            role_profile: request.role.or(source.role_profile.clone()),
             launch_profile: request.launch_profile.or_else(|| {
                 (source_provider.as_deref() == Some(provider.as_str()))
                     .then(|| source.launch_profile.clone())

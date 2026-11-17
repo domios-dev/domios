@@ -11,6 +11,11 @@ use codeterm_types::agent::ReportStatus;
 #[test]
 fn attempt_model_fields_round_trip() {
     let (dir, store, plan_id, task_id) = super::bound_report_store();
+    let executor_role = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .executor_role;
     let attempt_id = store.list_task_attempts(&plan_id, &task_id).unwrap()[0]
         .attempt_id
         .clone();
@@ -29,6 +34,7 @@ fn attempt_model_fields_round_trip() {
                 .unwrap();
             attempt.provider = Some("fixture-agent".into());
             attempt.launch_profile = Some("selected".into());
+            attempt.role_profile = Some("qa".into());
             attempt.model = Some("gpt-6-luna".into());
             attempt.reasoning_effort = Some("xhigh".into());
             attempt.session_model = Some("gpt-runtime".into());
@@ -48,6 +54,7 @@ fn attempt_model_fields_round_trip() {
         .unwrap();
     let json = serde_json::to_value(&saved).unwrap();
     assert_eq!(json["launch_profile"], "selected");
+    assert_eq!(json["role_profile"], "qa");
     assert_eq!(json["provider"], "fixture-agent");
     assert_eq!(json["model"], "gpt-6-luna");
     assert_eq!(json["reasoning_effort"], "xhigh");
@@ -64,6 +71,7 @@ fn attempt_model_fields_round_trip() {
         )
         .unwrap();
     assert_eq!(draft.launch_profile.as_deref(), Some("selected"));
+    assert_eq!(draft.role_profile.as_deref(), Some("qa"));
     assert_eq!(
         draft.execution_intent,
         crate::plan::ExecutionIntent::Mutating
@@ -82,14 +90,35 @@ fn attempt_model_fields_round_trip() {
     assert_eq!(draft.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(draft.reasoning_effort.as_deref(), Some("xhigh"));
 
+    let overridden = reloaded
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: draft.source_attempt.id.clone(),
+                role: Some("reviewer".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(overridden.role_profile.as_deref(), Some("reviewer"));
     let respawned = reloaded
         .record_task_respawn_attempt(&plan_id, &task_id, "worker-next", &draft, Some("worker"), 5)
         .unwrap();
     assert_eq!(respawned.attempt.id, draft.attempt_id);
+    assert_eq!(respawned.attempt.role_profile.as_deref(), Some("qa"));
     assert_eq!(respawned.attempt.provider.as_deref(), Some("fixture-agent"));
     assert_eq!(respawned.attempt.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(respawned.attempt.reasoning_effort.as_deref(), Some("xhigh"));
     assert_eq!(respawned.attempt.session_model, None);
+    assert_eq!(
+        reloaded
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .executor_role,
+        executor_role
+    );
 }
 
 #[test]

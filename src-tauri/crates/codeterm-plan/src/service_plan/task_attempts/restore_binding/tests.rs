@@ -605,6 +605,7 @@ fn executor_identity_undo_preserves_other_attempt_fields_and_rejects_newer_ident
                 Some(SESSION_ID),
                 Some(CURRENT_NONCE),
                 Some("captured-profile"),
+                None,
                 10,
             )
             .unwrap();

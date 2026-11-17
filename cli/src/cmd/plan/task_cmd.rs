@@ -1044,6 +1044,7 @@ pub(super) fn run_task(
         )
         .map(Some),
         PlanTaskAction::Respawn {
+            role,
             plan_id,
             task_id,
             attempt,
@@ -1061,6 +1062,9 @@ pub(super) fn run_task(
                 "task_id": task_id,
                 "attempt_id": attempt,
             });
+            if let Some(role) = role {
+                params["role"] = json!(role.as_str());
+            }
             if let Some(provider) = provider {
                 params["provider"] = json!(provider);
             }

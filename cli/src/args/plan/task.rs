@@ -406,7 +406,7 @@ pub enum PlanTaskAction {
         #[arg(
             long = "role",
             value_parser = crate::args::agent::parse_role_name,
-            help = "Worker the Team registers to launch; a manager or unlisted name is refused with the Team's workers. Omitted uses `worker` only when the Team lists it. The task's executor_role is unchanged"
+            help = "Team-registered or builtin Worker role; managers and unknown names refuse. Omitted uses the Team's worker default. The task's executor_role is unchanged"
         )]
         role: Option<crate::args::agent::RoleName>,
         #[arg(long, allow_hyphen_values = true)]
@@ -508,6 +508,8 @@ pub enum PlanTaskAction {
     },
     /// Respawn a worker from one prior attempt, inheriting its recorded execution intent and provider/model.
     Respawn {
+        #[arg(long, value_parser = crate::args::agent::parse_role_name, help = "Worker role override; inherits the source attempt when omitted")]
+        role: Option<crate::args::agent::RoleName>,
         plan_id: String,
         task_id: String,
         #[arg(long)]
