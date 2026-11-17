@@ -537,3 +537,167 @@ fn expired_named_login_refresh_requires_retained_host_restart_authority() {
     assert!(agent_runtime::engine::validate_binding(&fixture.service, &session).is_ok());
     assert!(AccountRestartBinding::capture_refresh(&fixture.service, &fixture.tab).is_err());
 }
+
+fn authenticated_refusal_fixture() -> RuntimeFixture {
+    let source = SOURCE.replace("    let result = {kind:'done'};", r#"
+    if (op.kind === 'resumeThread' && reply.value.authKey === 'credential-b')
+      return {kind:'refused',beforeAcceptance:true,reason:{code:'session_load_refused',message:'opaque authenticated target refusal'}};
+    let result = {kind:'done'};
+"#).replace("return {kind:'complete',result};", "return {kind:'complete',result,events:op.kind === 'initialize' ? [{kind:'auth',state:'signedIn'}] : []};");
+    let fixture = RuntimeFixture::prepared(&source, true);
+    crate::service::provider_accounts::test_support::configure(
+        &fixture.service,
+        fixture.temp.path().join("rollback-accounts"),
+        fixture.temp.path().join("rollback-config.toml"),
+    )
+    .unwrap();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&fixture.tab).unwrap();
+        tab.restorable_launch.account_id = Some("account-a".into());
+        tab.restorable_launch.account_namespace = Some("namespace-a".into());
+    }
+    fixture.service.ensure_agent_pad(&fixture.tab).unwrap();
+    agent_runtime::authority::record_spawn_for_test(
+        &fixture.service,
+        &fixture.tab,
+        PROVIDER,
+        "own-nonce",
+    );
+    let invocation = InvocationContext::new(
+        PROVIDER.into(),
+        "account-a".into(),
+        [("OPAQUE_AUTH_KEY".into(), Some("credential-a".into()))].into(),
+        vec![],
+        vec![],
+    )
+    .unwrap();
+    crate::async_runtime::block_on(agent_runtime::engine::ensure_with_invocation(
+        &fixture.service,
+        &fixture.tab,
+        Some(invocation),
+    ))
+    .unwrap();
+    fixture
+}
+
+#[test]
+fn authenticated_target_refusal_restores_exact_source_unless_loaded_or_input_arrived() {
+    for mutation in 0..3 {
+        let fixture = authenticated_refusal_fixture();
+        let target = target(&fixture);
+        let original = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+        let old_process = original.process.lock().clone().unwrap();
+        let failed_process = Arc::new(parking_lot::Mutex::new(None));
+        let captured_process = failed_process.clone();
+        let new_input = Arc::new(parking_lot::Mutex::new(None));
+        let captured_input = new_input.clone();
+        let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let once = observed.clone();
+        let owner = fixture.service.clone();
+        let tab_id = fixture.tab.clone();
+        let listener = fixture.ui.listen("agent-runtime-state", move |event| {
+            if event["tab_id"] != tab_id
+                || event["state"]["failureCode"] != "session_load_refused"
+                || once.swap(true, std::sync::atomic::Ordering::AcqRel)
+            {
+                return;
+            }
+            let failed = agent_runtime::engine::for_tab(&tab_id).unwrap();
+            *captured_process.lock() = failed.process.lock().clone();
+            if mutation == 1 {
+                failed
+                    .thread_loaded
+                    .store(true, std::sync::atomic::Ordering::Release);
+            } else if mutation == 2 {
+                *captured_input.lock() = Some(
+                    owner
+                        .chat_send_ledger
+                        .try_start(&tab_id, "opaque newer input", None)
+                        .unwrap()
+                        .send_id,
+                );
+            }
+        });
+        let count = fixture.requests().len();
+        let error = restart(&fixture, target).unwrap_err();
+        fixture.ui.unlisten(listener);
+        assert!(observed.load(std::sync::atomic::Ordering::Acquire));
+        let RestartAttemptError::Failed {
+            outcome, timed_out, ..
+        } = error
+        else {
+            panic!("target refusal was not a failed restart")
+        };
+        assert!(outcome.account_target_refused);
+        assert!(outcome
+            .account_refusal_nonce
+            .as_deref()
+            .is_some_and(|nonce| nonce != "own-nonce"));
+        assert!(!timed_out);
+        assert_eq!(outcome.source_account_restored, mutation == 0);
+        let requests = fixture.requests();
+        let methods = requests[count..]
+            .iter()
+            .map(|request| request["method"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&fixture.tab).unwrap();
+        assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
+        assert!(old_process.ended.borrow().is_some());
+        if mutation == 0 {
+            assert!(outcome.agent_ready && outcome.binding_restored);
+            assert_ne!(outcome.account_refusal_nonce, tab.session_binding_nonce);
+            assert_eq!(
+                tab.restorable_launch.account_id.as_deref(),
+                Some("account-a")
+            );
+            assert_eq!(
+                tab.restorable_launch.account_namespace.as_deref(),
+                Some("namespace-a")
+            );
+            assert_eq!(
+                methods,
+                vec![
+                    "initialize",
+                    "resumeThread",
+                    "initialize",
+                    "resumeThread",
+                    "readHistory"
+                ]
+            );
+            assert_eq!(requests[count + 1]["params"]["threadId"], "own-thread");
+            assert_eq!(requests[count + 3]["params"]["threadId"], "own-thread");
+            assert!(failed_process
+                .lock()
+                .as_ref()
+                .unwrap()
+                .ended
+                .borrow()
+                .is_some());
+            assert_eq!(
+                agent_runtime::process::test_ports::spawned_env(&fixture.tab)
+                    .get("OPAQUE_AUTH_KEY")
+                    .map(String::as_str),
+                Some("credential-a")
+            );
+        } else {
+            assert_eq!(
+                tab.restorable_launch.account_id.as_deref(),
+                Some("account-b")
+            );
+            assert_eq!(outcome.account_refusal_nonce, tab.session_binding_nonce);
+            assert_eq!(methods, vec!["initialize", "resumeThread"]);
+            assert!(failed_process
+                .lock()
+                .as_ref()
+                .unwrap()
+                .ended
+                .borrow()
+                .is_none());
+            if let Some(id) = new_input.lock().as_ref() {
+                assert!(fixture.service.chat_send_ledger.status(id).is_some());
+            }
+        }
+    }
+}

@@ -28,6 +28,12 @@ module.exports = {
           toolInput:{retryable:false,retryableKind:null,retryAtMs:null,accountLimit:{}}}};
         const ended = {kind:'turnState',threadId:op.threadId,turnId:turn,state:'idle',detail:'failed'};
         events = [{kind:'turnState',threadId:op.threadId,turnId:turn,state:'working'},error,error,ended,ended];
+      } else {
+        const stale = {kind:'chatItem',threadId:op.threadId,item:{id:'account-limit',kind:'system',
+          content:'opaque-limit',systemSubtype:'api_error',toolFlowId:'limited-turn',
+          toolInput:{retryable:false,retryableKind:null,retryAtMs:null,accountLimit:{}}}};
+        events = [{kind:'turnState',threadId:op.threadId,turnId:turn,state:'working'},stale,
+          {kind:'turnState',threadId:op.threadId,turnId:'limited-turn',state:'idle',detail:'failed'}];
       }
     }
     return {kind:'complete',result,events};
@@ -263,6 +269,17 @@ fn authenticated_account_limit_runs_scheduler_restart_and_one_durable_continuati
             .outcome,
         crate::multiplexer::types::TurnResumeOutcome::Sent
     );
+    assert!(fixture
+        .service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .agents[PROVIDER]
+        .accounts
+        .as_ref()
+        .unwrap()
+        .profiles["account-b"]
+        .limit
+        .is_none());
     assert!(config_path.is_file());
     assert!(other_process.ended.borrow().is_none());
     assert!(Arc::ptr_eq(

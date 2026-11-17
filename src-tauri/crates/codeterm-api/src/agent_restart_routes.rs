@@ -53,6 +53,11 @@ pub(crate) fn agent_restart_failure_response(
     reason: &str,
 ) -> serde_json::Value {
     let mut response = agent_restart_response(outcome);
+    if let Some(nonce) = &outcome.account_refusal_nonce {
+        response["account_refusal_nonce"] = serde_json::Value::String(nonce.clone());
+    }
+    response["source_account_restored"] = serde_json::Value::Bool(outcome.source_account_restored);
+    response["account_target_refused"] = serde_json::Value::Bool(outcome.account_target_refused);
     response["error"] = serde_json::Value::String(reason.to_string());
     response
 }

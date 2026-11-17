@@ -177,7 +177,7 @@ impl RuntimeRestartExt for ServiceContext {
         if fresh {
             outcome.session_id = None;
         }
-        let result = crate::async_runtime::block_on(agent_runtime::restart::restart_with_account(
+        let attempt = crate::async_runtime::block_on(agent_runtime::restart::restart_with_account(
             self,
             tab_id,
             &provider,
@@ -186,6 +186,11 @@ impl RuntimeRestartExt for ServiceContext {
             retry_refused_start,
             account,
         ));
+        outcome.source_account_restored = attempt.source_account_restored;
+        outcome.account_target_refused = attempt.target_refusal.is_some();
+        outcome.account_refusal_nonce = attempt.account_refusal_nonce;
+        let target_refusal = attempt.target_refusal;
+        let result = attempt.session;
         if result.as_ref().is_ok_and(|session| {
             matches!(
                 session.state.lock().phase,
@@ -241,6 +246,13 @@ impl RuntimeRestartExt for ServiceContext {
                 }
                 self.schedule_session_persist_debounced();
                 self.emit_state_changed(MuxEmitCause::AgentRestart);
+                if let Some(reason) = target_refusal {
+                    return Err(RestartAttemptError::Failed {
+                        outcome,
+                        reason,
+                        timed_out: false,
+                    });
+                }
                 Ok(outcome)
             }
             Err(reason) => Err(RestartAttemptError::Failed {

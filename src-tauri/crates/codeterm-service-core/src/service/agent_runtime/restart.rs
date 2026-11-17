@@ -24,6 +24,14 @@ pub async fn restart(
         None,
     )
     .await
+    .session
+}
+
+pub struct AccountRestartResult {
+    pub session: Result<Arc<Session>, RuntimeFailure>,
+    pub target_refusal: Option<String>,
+    pub source_account_restored: bool,
+    pub account_refusal_nonce: Option<String>,
 }
 
 pub async fn restart_with_account(
@@ -34,23 +42,88 @@ pub async fn restart_with_account(
     fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
     retry_refused_start: bool,
     account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
-) -> Result<Arc<Session>, RuntimeFailure> {
+) -> AccountRestartResult {
     let trigger = if retry_refused_start {
         Trigger::RetryRefused
     } else {
         Trigger::Request
     };
-    let result = restart_inner(
+    let mut source = None;
+    let mut result = restart_inner(
         svc,
         tab,
         provider,
         old_nonce,
         fresh_restart,
         trigger,
-        account,
+        account.map(|target| AccountTransition::Requested {
+            target,
+            source: &mut source,
+        }),
     )
     .await
     .and_then(|session| session.ok_or(RuntimeFailure::Superseded));
+    let account_refusal_nonce = account.and_then(|target| {
+        result
+            .as_ref()
+            .err()
+            .and_then(|reason| authenticated_target_refusal(svc, tab, target, reason))
+    });
+    let target_refusal = account_refusal_nonce
+        .as_ref()
+        .and_then(|_| result.as_ref().err().map(ToString::to_string));
+    let mut source_account_restored = false;
+    if target_refusal.is_some() {
+        if let (Some(source), Some(target)) = (source, account) {
+            match RollbackWitness::capture(svc, tab, source, target) {
+                Ok((witness, reverse)) => {
+                    let rollback = restart_inner(
+                        svc,
+                        tab,
+                        provider,
+                        &reverse.expected.binding_nonce,
+                        None,
+                        Trigger::Request,
+                        Some(AccountTransition::Rollback {
+                            target: &reverse,
+                            witness: &witness,
+                        }),
+                    )
+                    .await
+                    .and_then(|session| session.ok_or(RuntimeFailure::Superseded));
+                    match rollback {
+                        Ok(session)
+                            if session.thread_loaded.load(Ordering::Acquire)
+                                && matches!(session.state.lock().phase, RuntimePhase::Ready) =>
+                        {
+                            source_account_restored = true;
+                            result = Ok(session);
+                        }
+                        Ok(_) => {
+                            result = Err(RuntimeFailure::Refused(
+                                "The original account did not restore its retained conversation"
+                                    .into(),
+                            ))
+                        }
+                        Err(reason) => {
+                            log::debug!(
+                                "[account-restart] original account restore refused: {reason}"
+                            );
+                            if svc.mux.read().get_tab(tab).is_none_or(|current| {
+                                current.session_binding_nonce.as_deref()
+                                    != Some(reverse.expected.binding_nonce.as_str())
+                            }) {
+                                result = Err(reason);
+                            }
+                        }
+                    }
+                }
+                Err(reason) => {
+                    log::debug!("[account-restart] rollback admission refused: {reason}")
+                }
+            }
+        }
+    }
     let changed = svc
         .mux
         .read()
@@ -59,7 +132,12 @@ pub async fn restart_with_account(
     if let Err(reason) = &result {
         if account.is_some() && !changed {
             svc.clear_runtime_restart_binding(tab);
-            return result;
+            return AccountRestartResult {
+                session: result,
+                target_refusal,
+                source_account_restored,
+                account_refusal_nonce,
+            };
         }
         svc.clear_runtime_restart_binding(tab);
         let nonce = svc
@@ -72,7 +150,12 @@ pub async fn restart_with_account(
             publish_failure(svc, tab, &nonce, engine::for_tab(tab).as_ref(), reason);
         }
     }
-    result
+    AccountRestartResult {
+        session: result,
+        target_refusal,
+        source_account_restored,
+        account_refusal_nonce,
+    }
 }
 
 pub async fn restart_idle(
@@ -101,8 +184,9 @@ async fn restart_inner(
     old_nonce: &str,
     fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
     trigger: Trigger,
-    account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
+    mut transition: Option<AccountTransition<'_>>,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
+    let account = transition.as_ref().map(AccountTransition::target);
     let idle_only = trigger == Trigger::IdleUpdate;
     let session = engine::for_tab(tab);
     let _permit = match &session {
@@ -148,12 +232,25 @@ async fn restart_inner(
             return Ok(None);
         }
     }
-    let account_process = account
-        .map(|account| {
-            validate_account_restart(svc, tab, provider, old_nonce, session.as_ref(), account)
-        })
-        .transpose()?
-        .flatten();
+    let account_process = match transition.as_mut() {
+        Some(AccountTransition::Requested { target, source }) => {
+            let process =
+                validate_account_restart(svc, tab, provider, old_nonce, session.as_ref(), target)?;
+            if !target.expected.unbound_login {
+                match SourceAccountRestore::capture(svc, tab, target, session.as_ref()) {
+                    Ok(captured) => **source = Some(captured),
+                    Err(reason) => log::debug!(
+                        "[account-restart] source cannot authorize compensation: {reason}"
+                    ),
+                }
+            }
+            process
+        }
+        Some(AccountTransition::Rollback { target, witness }) => {
+            Some(witness.validate(svc, tab, old_nonce, session.as_ref(), target)?)
+        }
+        None => None,
+    };
     if let Some(session) = &session {
         super::turn_requests::end_for_lifecycle(
             svc,
@@ -170,9 +267,17 @@ async fn restart_inner(
     let rebound = session
         .as_ref()
         .is_some_and(|session| session.context.lock().thread_id != old_thread);
-    let binding = svc
-        .authorize_runtime_restart_binding(tab, provider, old_nonce, fresh)
-        .map_err(RuntimeFailure::Refused)?;
+    let binding = match transition.as_ref() {
+        Some(AccountTransition::Rollback { witness, .. }) => witness.source.restart_binding.clone(),
+        _ => svc
+            .authorize_runtime_restart_binding(tab, provider, old_nonce, fresh)
+            .map_err(RuntimeFailure::Refused)?,
+    };
+    if let Some(AccountTransition::Requested { source, .. }) = transition.as_mut() {
+        if let Some(source) = source.as_mut() {
+            source.restart_binding = binding.clone();
+        }
+    }
     let environment = match account {
         Some(target) => super::environment::compose_for_account_restart(
             svc,
@@ -195,6 +300,13 @@ async fn restart_inner(
     }
     svc.validate_completed_restart_binding(tab, binding.as_ref())
         .map_err(RuntimeFailure::Refused)?;
+    if let Some(AccountTransition::Rollback { witness, .. }) = transition.as_ref() {
+        if !witness.source.unchanged(svc, tab) {
+            return Err(RuntimeFailure::Refused(
+                "Account rollback input authority changed before teardown".into(),
+            ));
+        }
+    }
     let nonce = super::authority::rotate_restart(svc, tab, provider, old_nonce)
         .map_err(RuntimeFailure::Refused)?;
     svc.stage_runtime_restart_binding(tab, binding);
@@ -306,6 +418,13 @@ async fn restart_inner(
             session.process.lock().take();
         }
         bridge_retired?;
+        if let Some(AccountTransition::Rollback { witness, .. }) = transition.as_ref() {
+            if !witness.source.unchanged(svc, tab) {
+                return Err(RuntimeFailure::Refused(
+                    "Account rollback input authority changed during cleanup".into(),
+                ));
+            }
+        }
         if let Some(account) = account {
             let mut mux = svc.mux.write();
             let target = mux.get_tab_mut(tab).ok_or(RuntimeFailure::Superseded)?;
@@ -464,4 +583,254 @@ fn validate_account_restart(
         return Err(RuntimeFailure::Superseded);
     }
     Ok(process)
+}
+
+enum AccountTransition<'a> {
+    Requested {
+        target: &'a crate::service::agent_lifecycle::AccountRestartTarget,
+        source: &'a mut Option<SourceAccountRestore>,
+    },
+    Rollback {
+        target: &'a crate::service::agent_lifecycle::AccountRestartTarget,
+        witness: &'a RollbackWitness,
+    },
+}
+
+impl<'a> AccountTransition<'a> {
+    fn target(&self) -> &'a crate::service::agent_lifecycle::AccountRestartTarget {
+        match self {
+            Self::Requested { target, .. } | Self::Rollback { target, .. } => target,
+        }
+    }
+}
+
+struct SourceAccountRestore {
+    owner: ServiceContext,
+    expected: crate::service::agent_lifecycle::AccountRestartBinding,
+    invocation: Option<Arc<codeterm_plugin::provider_account::InvocationContext>>,
+    input_revision: (String, u64, u64),
+    pending_delivery: Option<crate::multiplexer::types::PendingDeliveryRecord>,
+    _reservation: crate::service::provider_accounts::admission::Reservation,
+    restart_binding:
+        Option<crate::service::agent_lifecycle::worker_binding::RestartBindingAuthority>,
+}
+
+impl SourceAccountRestore {
+    fn capture(
+        svc: &ServiceContext,
+        tab: &str,
+        target: &crate::service::agent_lifecycle::AccountRestartTarget,
+        session: Option<&Arc<Session>>,
+    ) -> Result<Self, RuntimeFailure> {
+        let session = session.ok_or(RuntimeFailure::Superseded)?;
+        let reservation = crate::service::provider_accounts::admission::reserve(
+            svc,
+            &target.expected.provider,
+            target.expected.account_id.as_deref(),
+        )
+        .map_err(RuntimeFailure::Refused)?;
+        let pending_delivery = svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .ok_or(RuntimeFailure::Superseded)?
+            .pending_delivery
+            .clone();
+        Ok(Self {
+            owner: svc.clone(),
+            expected: target.expected.clone(),
+            invocation: session.invocation.lock().clone(),
+            input_revision: svc.chat_send_ledger.input_revision_for_tab(tab),
+            pending_delivery,
+            _reservation: reservation,
+            restart_binding: None,
+        })
+    }
+
+    fn unchanged(&self, svc: &ServiceContext, tab: &str) -> bool {
+        Arc::ptr_eq(&self.owner.mux, &svc.mux)
+            && Arc::ptr_eq(&self.owner.chat_send_ledger, &svc.chat_send_ledger)
+            && self.input_revision == svc.chat_send_ledger.input_revision_for_tab(tab)
+            && svc
+                .mux
+                .read()
+                .get_tab(tab)
+                .is_some_and(|target| target.pending_delivery == self.pending_delivery)
+    }
+}
+
+fn authenticated_target_refusal(
+    svc: &ServiceContext,
+    tab: &str,
+    target: &crate::service::agent_lifecycle::AccountRestartTarget,
+    reason: &RuntimeFailure,
+) -> Option<String> {
+    use codeterm_plugin::agent_runtime::{RuntimeAuthState, RuntimeFailureCode};
+    if !matches!(reason, RuntimeFailure::SessionLoadRefused(_)) {
+        return None;
+    }
+    let Some(session) = engine::for_tab(tab) else {
+        return None;
+    };
+    let context = session.context.lock().clone();
+    let state_refused =
+        session.state.lock().failure_code == Some(RuntimeFailureCode::SessionLoadRefused);
+    let refused = state_refused
+        && *session.auth.lock() == RuntimeAuthState::SignedIn
+        && context.thread_id.as_deref() == Some(target.expected.session_id.as_str())
+        && svc.mux.read().get_tab(tab).is_some_and(|current| {
+            current.agent_type.as_deref() == Some(target.expected.provider.as_str())
+                && current.agent_session_id.as_deref() == Some(target.expected.session_id.as_str())
+                && current.session_binding_nonce.as_deref() == Some(context.binding_nonce.as_str())
+                && current.restorable_launch.account_id == target.account_id
+                && current.restorable_launch.account_namespace == target.account_namespace
+        });
+    refused.then_some(context.binding_nonce)
+}
+
+struct RollbackWitness {
+    source: SourceAccountRestore,
+    failed: crate::service::agent_lifecycle::AccountRestartBinding,
+    session: Arc<Session>,
+    process: Arc<super::process::Process>,
+}
+
+impl RollbackWitness {
+    fn capture(
+        svc: &ServiceContext,
+        tab: &str,
+        source: SourceAccountRestore,
+        target: &crate::service::agent_lifecycle::AccountRestartTarget,
+    ) -> Result<(Self, crate::service::agent_lifecycle::AccountRestartTarget), RuntimeFailure> {
+        let session = engine::for_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        let context = session.context.lock().clone();
+        let failed = {
+            let mux = svc.mux.read();
+            let current = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+            if current.restorable_launch.account_id != target.account_id
+                || current.restorable_launch.account_namespace != target.account_namespace
+            {
+                return Err(RuntimeFailure::Superseded);
+            }
+            crate::service::agent_lifecycle::AccountRestartBinding {
+                provider: target.expected.provider.clone(),
+                account_id: current.restorable_launch.account_id.clone(),
+                account_namespace: current.restorable_launch.account_namespace.clone(),
+                binding_nonce: context.binding_nonce.clone(),
+                session_id: source.expected.session_id.clone(),
+                runtime_epoch: Some(context.epoch),
+                lifecycle_epoch: current.lifecycle_epoch,
+                unbound_login: false,
+                refresh_login: false,
+            }
+        };
+        let process = session
+            .process
+            .lock()
+            .clone()
+            .ok_or(RuntimeFailure::Superseded)?;
+        let reverse = crate::service::agent_lifecycle::AccountRestartTarget {
+            expected: failed.clone(),
+            account_id: source.expected.account_id.clone(),
+            account_namespace: source.expected.account_namespace.clone(),
+            invocation: source.invocation.clone(),
+            terminal_turn: None,
+        };
+        let witness = Self {
+            source,
+            failed,
+            session,
+            process,
+        };
+        witness.validate(
+            svc,
+            tab,
+            &reverse.expected.binding_nonce,
+            Some(&witness.session),
+            &reverse,
+        )?;
+        Ok((witness, reverse))
+    }
+
+    fn validate(
+        &self,
+        svc: &ServiceContext,
+        tab: &str,
+        nonce: &str,
+        session: Option<&Arc<Session>>,
+        target: &crate::service::agent_lifecycle::AccountRestartTarget,
+    ) -> Result<Arc<super::process::Process>, RuntimeFailure> {
+        use codeterm_plugin::agent_runtime::{RuntimeAuthState, RuntimeFailureCode};
+        let session = session.ok_or(RuntimeFailure::Superseded)?;
+        if !Arc::ptr_eq(session, &self.session)
+            || !engine::for_tab(tab).is_some_and(|installed| Arc::ptr_eq(&installed, session))
+            || !self.source.unchanged(svc, tab)
+            || target.expected != self.failed
+            || target.account_id != self.source.expected.account_id
+            || target.account_namespace != self.source.expected.account_namespace
+            || target
+                .invocation
+                .as_ref()
+                .map(|context| context.cache_key())
+                != self
+                    .source
+                    .invocation
+                    .as_ref()
+                    .map(|context| context.cache_key())
+            || nonce != self.failed.binding_nonce
+            || nonce == self.source.expected.binding_nonce
+        {
+            return Err(RuntimeFailure::Refused(
+                "Account rollback source or input authority changed".into(),
+            ));
+        }
+        target.validate_target().map_err(RuntimeFailure::Refused)?;
+        engine::validate_binding(svc, session)?;
+        if !super::authority::verifies(svc, tab, &self.failed.provider, nonce) {
+            return Err(RuntimeFailure::Superseded);
+        }
+        let context = session.context.lock().clone();
+        let failed_epoch = {
+            let state = session.state.lock();
+            state.failure_code == Some(RuntimeFailureCode::SessionLoadRefused)
+                && matches!(state.phase, RuntimePhase::Degraded { .. })
+                && Some(state.epoch) == self.failed.runtime_epoch
+                && state.thread_id.as_deref() == Some(self.failed.session_id.as_str())
+        };
+        if !failed_epoch
+            || *session.auth.lock() != RuntimeAuthState::SignedIn
+            || session.thread_loaded.load(Ordering::Acquire)
+            || context.binding_nonce != nonce
+            || Some(context.epoch) != self.failed.runtime_epoch
+            || context.thread_id.as_deref() != Some(self.failed.session_id.as_str())
+            || context.active_turn_id.is_some()
+            || !context.active_turns.is_empty()
+            || context.pending_request.is_some()
+            || !context.claimed_sends.is_empty()
+            || !session.turn_requests.lock().is_empty()
+            || !session.prompts.lock().is_empty()
+            || !session
+                .process
+                .lock()
+                .as_ref()
+                .is_some_and(|process| Arc::ptr_eq(process, &self.process))
+        {
+            return Err(RuntimeFailure::Refused(
+                "Account rollback requires the exact authenticated unloaded refusal".into(),
+            ));
+        }
+        let mux = svc.mux.read();
+        let current = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        self.failed
+            .validate_selection(current)
+            .map_err(RuntimeFailure::Refused)?;
+        if current.agent_type.as_deref() != Some(self.failed.provider.as_str())
+            || current.agent_session_id.as_deref() != Some(self.failed.session_id.as_str())
+            || current.session_binding_nonce.as_deref() != Some(nonce)
+            || current.reported_session_binding_nonce.is_some()
+        {
+            return Err(RuntimeFailure::Superseded);
+        }
+        Ok(self.process.clone())
+    }
 }

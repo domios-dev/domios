@@ -77,6 +77,9 @@ pub struct RestartOutcome {
     /// The tab's plan/task caller binding was re-established against its own
     /// authoritative session. Always settled before `agent_ready` is returned.
     pub binding_restored: bool,
+    pub source_account_restored: bool,
+    pub account_target_refused: bool,
+    pub account_refusal_nonce: Option<String>,
     /// An exited provider was relaunched in its own shell PTY; nothing was torn down.
     pub recovered_in_place: bool,
     pub old_pty_id: Option<String>,
@@ -100,6 +103,9 @@ impl RestartOutcome {
             old_pty_torn_down: false,
             agent_ready: false,
             binding_restored: false,
+            source_account_restored: false,
+            account_target_refused: false,
+            account_refusal_nonce: None,
             recovered_in_place: false,
             old_pty_id: (!snap.pty_id.is_empty()).then(|| snap.pty_id.clone()),
             new_pty_id: None,
