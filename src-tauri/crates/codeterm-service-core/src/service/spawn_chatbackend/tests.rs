@@ -566,7 +566,7 @@ module.exports = {
             .spawn_agent(
                 SpawnAgentParams {
                     agent: Some(PROVIDER.into()),
-                    role: Some("orchestrator".into()),
+                    role: Some("Orchestrator".into()),
                     can_spawn: Some(true),
                     workspace_id: Some(workspace.id.clone()),
                     existing_tab_id: Some(tab_id.clone()),

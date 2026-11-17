@@ -12,9 +12,10 @@ fn runtime_spawn_selects_the_declared_default_and_preserves_explicit_and_resume_
         &serde_json::json!({
             "id":provider,"displayName":"Fixture","version":"1.0.0","defaultModel":default,
             "modelCatalogue":{"authority":"authoritative","liveDiscoveryRequired":true},
-            "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true},
+            "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
                 "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture","args":[]},
-                    "requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}}
+                    "requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},
+            "permissions":{"subprocess":{"allow":["fixture"]}}
         })
         .to_string(),
     )
