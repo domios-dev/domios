@@ -177,7 +177,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
         onClick={(event) => {
           if (event.detail > 0 && window.matchMedia?.("(hover: none)").matches) {
             if (kind === "image" && image.failed) image.retry();
-            else setPreviewing(true);
+            setPreviewing(true);
             return;
           }
           event.currentTarget.focus();
@@ -186,7 +186,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
           if (opensImage && image.src) setOpen({ name: accessibleName, src: image.src, path });
           else if (kind === "video") setPlaying(true);
           else if (kind === "image") {
-            if (image.failed) { image.retry(); setPreviewing(false); }
+            if (image.failed) { image.retry(); setPreviewing(true); }
             else setPreviewing(true);
           }
           else if (localArtifactOpeningAvailable()) revealLocalFile(path);

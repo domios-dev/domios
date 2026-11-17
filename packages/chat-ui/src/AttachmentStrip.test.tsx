@@ -202,9 +202,6 @@ it("retries a failed image read through the same scoped loader", async () => {
   await act(async () => openButton(host)!.click());
   await flush();
   expect(loader).toHaveBeenLastCalledWith(PATH, "image", "attachment-owner");
-  expect(document.querySelector('[role="region"]')).toBeNull();
-  await act(async () => openButton(host)!.blur());
-  await act(async () => openButton(host)!.focus());
   expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe(PNG);
   await act(async () => openButton(host)!.click());
   expect(viewer()?.querySelector("img")?.getAttribute("src")).toBe(PNG);
@@ -240,7 +237,7 @@ it.each(["pointer", "keyboard"])("remembers a fullscreen image decode failure af
   expect(chip.getAttribute("aria-label")).toBe(`Open image ${NAME}`);
   await act(async () => chip.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   expect(viewer()).toBeNull();
-  expect(document.querySelector('[role="region"]')).toBeNull();
+  expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
 });
 
 it.each([1280, 390])("shows the image preview on hover at viewport width %s", async (width) => {
