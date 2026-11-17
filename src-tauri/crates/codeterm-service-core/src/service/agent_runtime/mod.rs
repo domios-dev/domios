@@ -18,6 +18,7 @@ pub mod engine;
 mod envelope_delivery;
 mod environment;
 mod events;
+pub(crate) use events::RuntimeEvent;
 pub mod full_access;
 pub mod goals;
 mod host_mcp;

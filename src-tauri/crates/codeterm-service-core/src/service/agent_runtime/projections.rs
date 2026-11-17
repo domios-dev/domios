@@ -255,7 +255,8 @@ pub async fn rate_limits(
             &context,
             account.as_deref(),
         );
-        limits::merge(reading.rate_limits.clone(), limits.clone(), at)?
+        limits::merge(reading.rate_limits.clone(), limits.clone(), at)
+            .map_err(|error| RuntimeFailure::InvalidFrame(error.message))?
     };
     let mut sample = rate_sample(&session.provider, &merged.value, at);
     sample.account_id = account.clone();
@@ -280,7 +281,8 @@ pub async fn rate_limits(
             &context,
             account.as_deref(),
         );
-        let merged = limits::merge(reading.rate_limits.clone(), limits, at)?;
+        let merged = limits::merge(reading.rate_limits.clone(), limits, at)
+            .map_err(|error| RuntimeFailure::InvalidFrame(error.message))?;
         reading.captured_at = reading.captured_at.max(at);
         reading.resets = if supported { resets } else { None };
         reading.account_credits = account_credits;
