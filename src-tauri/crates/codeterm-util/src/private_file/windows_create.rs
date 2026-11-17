@@ -9,7 +9,7 @@ use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE
 use windows_sys::Win32::Security::Authorization::{SetEntriesInAclW, GRANT_ACCESS};
 use windows_sys::Win32::Security::{
     InitializeSecurityDescriptor, SetSecurityDescriptorControl, SetSecurityDescriptorDacl,
-    SetSecurityDescriptorOwner, SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR, SE_DACL_PROTECTED,
+    SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR, SE_DACL_PROTECTED,
     SUB_CONTAINERS_AND_OBJECTS_INHERIT,
 };
 use windows_sys::Win32::Storage::FileSystem::{
@@ -69,7 +69,6 @@ fn with_attributes<T>(
     let mut descriptor = SECURITY_DESCRIPTOR::default();
     let descriptor = (&mut descriptor as *mut SECURITY_DESCRIPTOR).cast();
     if unsafe { InitializeSecurityDescriptor(descriptor, SECURITY_DESCRIPTOR_REVISION) } == 0
-        || unsafe { SetSecurityDescriptorOwner(descriptor, user.sid(), 0) } == 0
         || unsafe { SetSecurityDescriptorDacl(descriptor, 1, acl, 0) } == 0
         || unsafe { SetSecurityDescriptorControl(descriptor, SE_DACL_PROTECTED, SE_DACL_PROTECTED) }
             == 0
@@ -82,3 +81,6 @@ fn with_attributes<T>(
         bInheritHandle: 0,
     })
 }
+
+#[cfg(test)]
+mod tests;
