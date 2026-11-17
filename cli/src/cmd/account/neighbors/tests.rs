@@ -464,6 +464,62 @@ fn receive_here_is_one_friend_with_required_revision_and_explicit_takeover() {
         friendship_id: "one".into(),
         expected_receiver_revision: 0,
         takeover_confirmed: false,
+        preview: false,
+        grant_choice: None,
+        expected_grant_digest: None,
+        adopt_scope_from_pad: None,
     });
     assert_eq!(body["takeover_confirmed"], false);
+}
+
+#[test]
+fn receive_here_previews_and_binds_the_owner_grant_choice() {
+    let args = [
+        "domios",
+        "account",
+        "neighbors",
+        "receive-here",
+        "friend",
+        "--expected-receiver-revision",
+        "3",
+    ];
+    for choice in ["keep", "adopt"] {
+        let mut command = args.to_vec();
+        command.extend([
+            "--takeover-confirmed",
+            "--grant-choice",
+            choice,
+            "--expected-grant-digest",
+            "snapshot",
+        ]);
+        let cli = crate::Cli::try_parse_from(command).unwrap();
+        let crate::Commands::Account {
+            action: crate::args::account::AccountAction::Neighbors { action },
+        } = cli.command
+        else {
+            panic!("wrong command")
+        };
+        let (_, body) = super::request(action);
+        assert_eq!(
+            body["grant_decision"],
+            serde_json::json!({"choice":choice,"expected_digest":"snapshot","scope":null})
+        );
+        assert_eq!(body["takeover_confirmed"], true);
+    }
+    let mut command = args.to_vec();
+    command.push("--preview");
+    let cli = crate::Cli::try_parse_from(command).unwrap();
+    let crate::Commands::Account {
+        action: crate::args::account::AccountAction::Neighbors { action },
+    } = cli.command
+    else {
+        panic!("wrong command")
+    };
+    assert_eq!(
+        super::request(action).1,
+        serde_json::json!({"operation":"receiver_grants","friendship_id":"friend"})
+    );
+    let mut missing_digest = args.to_vec();
+    missing_digest.extend(["--grant-choice", "adopt"]);
+    assert!(crate::Cli::try_parse_from(missing_digest).is_err());
 }

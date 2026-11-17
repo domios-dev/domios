@@ -14,11 +14,13 @@ const J4_AFTER = ["restart_observed", "restored_tab_ready", "restored_send_reply
 // Each step group is [journey, checks, when(selected)]; selected is the Set of journeys that run.
 const always = () => true;
 const has = (id) => (selected) => selected.has(id);
+const needsNativeWindow = selected => ["J1", "J2", "J3", "J4"].some(id => selected.has(id));
 export const PHASE_STEPS = {
-  setup: [["SETUP", ["agent_access_chosen", "workspace_provisioned"], always], ["J1", J1, has("J1")],
+  setup: [["SETUP", ["agent_access_chosen", "workspace_provisioned"], selected => [...selected].some(id => id !== "J5")], ["J1", J1, has("J1")],
     ["J4", J4_OWN_SETUP, (selected) => selected.has("J4") && !selected.has("J1")], ["J2", J2, has("J2")], ["J3", J3, has("J3")],
     ["J3", ["review_accept_done"], (selected) => selected.has("J3") && !selected.has("J4")],
-    ["J4", ["pre_restart_snapshot"], has("J4")], ["EVIDENCE", ["window_screenshot setup"], always]],
+    ["J5", ["neighbors_qa_peers", "host_concierge_ready", "neighbors_roundtrip", "permission_restored"], has("J5")],
+    ["J4", ["pre_restart_snapshot"], has("J4")], ["EVIDENCE", ["window_screenshot setup"], needsNativeWindow]],
   verify: [["J4", J4_AFTER, always], ["J4", ["restored_worker_attempt_binding", "fixture_orchestrator_rebind"], has("J3")],
     ["J3", ["restored_bounce_then_report", "review_accept_done"], has("J3")], ["EVIDENCE", ["window_screenshot verify"], always]],
   cleanup: [["CLEAN", ["plan_deleted", "team_closed", "workspace_closed"], always]],
@@ -36,7 +38,7 @@ function phasePlan(name, selected) {
 }
 
 export function buildPlan({ mode, out, instance, port, selection = null }) {
-  const selected = new Set(selection ? Object.keys(selection.journeys).filter((id) => runs(selection, id)) : ["J1", "J2", "J3", "J4"]);
+  const selected = new Set(selection ? Object.keys(selection.journeys).filter((id) => runs(selection, id)) : ["J1", "J2", "J3", "J4", "J5"]);
   const restarts = selected.has("J4");
   const cycle = restarts ? ["setup", "restart", "verify", "cleanup"] : ["setup", "cleanup"];
   const sequence = { setup: ["setup"], verify: ["verify"], cleanup: ["cleanup"], all: cycle }[mode];
@@ -47,6 +49,7 @@ export function buildPlan({ mode, out, instance, port, selection = null }) {
     : [`${out}/results.json`, `${out}/results.md`, ...(mode === "cleanup" ? [] : [`${out}/${screenshotPath(mode)}`])];
   const journeys = selection ? Object.entries(selection.journeys).map(([id, entry]) => ({ id, status: entry.status, reasons: entry.reasons }))
     : [...selected].map((id) => ({ id, status: "run", reasons: ["full suite: no selection given"] }));
+  if (!needsNativeWindow(selected)) evidence.splice(2);
   return { mode, out, target: { instance, port: port ?? null }, journeys, excluded: selection?.excluded_providers ?? [], stages, evidence };
 }
 

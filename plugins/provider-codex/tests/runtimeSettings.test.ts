@@ -15,6 +15,18 @@ const cliContext: RuntimeContext = {
     executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64)},
 };
 assert.deepEqual(codexRestrictedCliConfig(cliContext),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
+const padCliContext: RuntimeContext = {...cliContext,settings:{mode:"read-only-with-writable-roots",networkAccess:false,additionalDirectories:["C:/own-pad"]}};
+assert.deepEqual(codexRestrictedCliConfig(padCliContext),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
+assert.ok(codexRestrictedCliInstructions(padCliContext)!.includes(cliContext.restrictedCli!.executable));
+for (const kind of ["openThread","resumeThread"] as const) {
+  const operation: Operation = kind === "openThread" ? {kind,settings:padCliContext.settings,instructions:"opaque"}
+    : {kind,threadId:"own-thread",settings:padCliContext.settings,instructions:"opaque"};
+  const config = sourcePlan(padCliContext,operation);
+  assert.equal(config.action.kind,"request");
+  if (config.action.kind !== "request") throw new Error("Missing sandbox configuration request");
+  assert.equal(config.action.call.method,"config/read");
+  assert.throws(()=>sourceResponse(padCliContext,operation,config.state,{kind:"success",value:{config:{projects:{"C:/opaque/project":{trust_level:"untrusted"}}}}}));
+}
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:{...cliContext.restrictedCli!,executable:"C:/USERNA~1/bin/cli.exe"}}),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined}),{});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined,settings:{mode:"full-access"},providerSettings:{restrictedCli:cliContext.restrictedCli as never}}),{});

@@ -4,6 +4,53 @@ use codeterm_service_core::service::agent_runtime::cli_exception::*;
 use std::path::Path;
 
 #[test]
+fn read_only_concierge_cli_exception_preserves_pad_roots_and_network_confinement() {
+    use crate::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
+    use codeterm_types::plan::ExecutionIntent;
+
+    let (directory, mut context, mut policy, _) = fixture();
+    let pad = directory.path().join("own-pad");
+    std::fs::create_dir(&pad).unwrap();
+    policy.intent = ExecutionIntent::ReadOnly;
+    policy.runtime_mode = Some("read-only-with-writable-roots".into());
+    policy.writable_roots = vec![pad.to_string_lossy().into_owned()];
+    context.settings.mode = policy.runtime_mode.clone();
+    context.settings.additional_directories = policy.writable_roots.clone();
+    let (mut mux, tab_id) = MultiplexerState::new();
+    context.tab_id = tab_id.clone();
+    let target = mux.get_tab_mut(&tab_id).unwrap();
+    target.session_binding_nonce = Some(context.binding_nonce.clone());
+    target.neighbor_authority = Some(NeighborAuthority {
+        uid: "owner".into(),
+        friendship_id: "a".repeat(64),
+        root_tab_id: None,
+    });
+    target.restorable_launch.execution_sandbox = Some(policy.clone());
+    let fixture = crate::test_support::fixture(mux);
+    let svc = &fixture.service;
+    assert_eq!(sandbox(svc, &context).unwrap(), Some(policy.clone()));
+    for settings in [
+        codeterm_plugin::agent_runtime::RuntimeSettings {
+            network_access: Some(true),
+            ..context.settings.clone()
+        },
+        codeterm_plugin::agent_runtime::RuntimeSettings {
+            additional_directories: vec![context.cwd.clone()],
+            ..context.settings.clone()
+        },
+        codeterm_plugin::agent_runtime::RuntimeSettings {
+            mode: Some("full-access".into()),
+            ..context.settings.clone()
+        },
+    ] {
+        let mut changed = context.clone();
+        changed.settings = settings;
+        assert!(sandbox(svc, &changed).is_err());
+    }
+    assert_eq!(sandbox(svc, &context).unwrap(), Some(policy));
+}
+
+#[test]
 fn full_concierge_skips_optional_exception_only_with_current_host_bypass_grant() {
     use crate::multiplexer::{state::MultiplexerState, types::NeighborAuthority};
     use crate::service::SpawnAgentParams;

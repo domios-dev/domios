@@ -376,6 +376,26 @@
               "aliases": [],
               "args": [
                 {
+                  "name": "adopt-scope-from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ADOPT_SCOPE_FROM_PAD",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Reconciled sharing scope for adoption, read from this tab's pad",
+                  "aliases": []
+                },
+                {
+                  "name": "expected-grant-digest",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "EXPECTED_GRANT_DIGEST",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "expected-receiver-revision",
                   "positional": false,
                   "required": true,
@@ -393,6 +413,29 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "grant-choice",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "GRANT_CHOICE",
+                  "possible_values": [
+                    "keep",
+                    "adopt"
+                  ],
+                  "default": null,
+                  "help": "Owner-confirmed grant decision after reviewing --preview",
+                  "aliases": []
+                },
+                {
+                  "name": "preview",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PREVIEW",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Read both local and previous receiver grants without moving receiving",
                   "aliases": []
                 },
                 {

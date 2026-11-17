@@ -3,6 +3,63 @@ use super::*;
 const IDENTITY: &str = "opaque-restart-identity-7c2e";
 const PROVIDER: &str = "claude";
 
+#[test]
+fn account_relaunch_keeps_recorded_resume_and_immutable_target_environment() {
+    use crate::service::agent_lifecycle::{AccountRestartBinding, AccountRestartTarget};
+    let (fixture, snap, spawn) = restart_fixture(None);
+    let expected = {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&snap.tab_id).unwrap();
+        tab.session_binding_nonce = Some("old-nonce".into());
+        tab.reported_session_binding_nonce = Some("old-nonce".into());
+        AccountRestartBinding::capture(tab, None).unwrap()
+    };
+    let target = AccountRestartTarget {
+        expected,
+        account_id: Some("account-b".into()),
+        account_namespace: Some("namespace-b".into()),
+        invocation: Some(
+            codeterm_plugin::provider_account::InvocationContext::new(
+                PROVIDER.into(),
+                "account-b".into(),
+                [(
+                    "OPAQUE_ACCOUNT_ENV".into(),
+                    Some("target-environment".into()),
+                )]
+                .into(),
+                vec![],
+                vec![],
+            )
+            .unwrap(),
+        ),
+    };
+    let resumed = build_account_relaunch(&fixture.service, &snap, &target).unwrap();
+    assert!(resumed.command.contains("session-restart"));
+    assert!(resumed.command.contains(&spawn.model_flag));
+    assert_carries(&resumed.command, &spawn.effort_args);
+    assert_prompt_context(&resumed.command, IDENTITY);
+    assert_eq!(
+        resumed
+            .command
+            .direct
+            .as_ref()
+            .unwrap()
+            .env_set
+            .get("OPAQUE_ACCOUNT_ENV")
+            .map(String::as_str),
+        Some("target-environment")
+    );
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&snap.tab_id)
+        .unwrap()
+        .restorable_launch
+        .account_id
+        .is_none());
+}
+
 struct RecordedSpawn {
     model: String,
     effort: String,

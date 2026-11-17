@@ -330,9 +330,14 @@ pub fn sandbox(
         .execution_sandbox
         .as_ref()
         .ok_or(DENIED)?;
-    if policy.intent != ExecutionIntent::Mutating
-        || policy.runtime_mode.as_deref() != Some("workspace-write")
-    {
+    if !matches!(
+        (&policy.intent, policy.runtime_mode.as_deref()),
+        (ExecutionIntent::Mutating, Some("workspace-write"))
+            | (
+                ExecutionIntent::ReadOnly,
+                Some("read-only-with-writable-roots")
+            )
+    ) {
         return Ok(None);
     }
     crate::service::execution_sandbox::validate_runtime_settings(

@@ -16,8 +16,25 @@ pub(crate) use bootstrap::{
     ClientStartupStage,
 };
 
+pub(crate) fn record_frontend_recovery(detail: &str) {
+    startup_log::record("frontend", "recovery", Some(detail), None);
+}
+
+pub(crate) fn record_frontend_failure(detail: &str) {
+    startup_log::record("frontend", "unavailable", Some(detail), None);
+}
+
 pub(crate) fn record_client_only_quit() {
-    startup_log::record("quit", "client_only_server_not_stopped", None, None);
+    record_client_quit("client_only_server_not_stopped");
+}
+
+pub(crate) fn record_client_quit(outcome: &'static str) {
+    startup_log::record(
+        "quit",
+        outcome,
+        Some(crate::startup::frontend_shell::quit_surface()),
+        None,
+    );
 }
 
 use codeterm_process_identity::PinnedProcess;

@@ -88,7 +88,7 @@ for (const operation of [
   {kind:"resumeThread" as const,threadId:"opaque-thread",instructions:"opaque",settings:padSettings},
   {kind:"submitTurn" as const,threadId:"opaque-thread",sendId:"opaque-send",input:{text:"opaque",attachments:[]},settings:padSettings},
 ]) {
-  const result=plain(provider.runtimePlan({...context,settings:padSettings},operation));
+  const result=planned({...context,settings:padSettings},operation);
   if (result.action.kind !== "request") throw new Error("Missing pad-write request");
   const params=result.action.call.params as Record<string,unknown>;
   assert.equal(params.approvalPolicy,"never");
@@ -98,11 +98,12 @@ for (const operation of [
     assert.deepEqual(params.sandboxPolicy,{type:"workspaceWrite",networkAccess:false,writableRoots:["/own-pad"],excludeTmpdirEnvVar:true,excludeSlashTmp:true});
   } else {
     assert.equal(params.sandbox,"workspace-write");
+    assert.equal((params.config as Record<string,unknown>)["windows.sandbox"],"mxc");
     assert.deepEqual((params.config as Record<string,unknown>)["sandbox_workspace_write.writable_roots"],["/own-pad"]);
-    const reply={thread:{id:"opaque-thread",source:"user"},approvalPolicy:"never",runtimeWorkspaceRoots:["/own-pad"],sandbox:{type:"workspaceWrite",writableRoots:["/own-pad"],excludeTmpdirEnvVar:true,excludeSlashTmp:true}};
+    const reply={thread:{id:"opaque-thread",source:"user"},approvalPolicy:"never",runtimeWorkspaceRoots:["/own-pad"],sandbox:{type:"workspaceWrite",networkAccess:false,writableRoots:["/own-pad"],excludeTmpdirEnvVar:true,excludeSlashTmp:true}};
     const accepted=plain(provider.runtimeResponse({...context,settings:padSettings},operation,result.state,{kind:"success",value:reply}));
     assert.notEqual(accepted.kind,"refused");
-    for (const wrong of [{...reply,runtimeWorkspaceRoots:["/lane","/own-pad"]},{thread:reply.thread,approvalPolicy:reply.approvalPolicy,sandbox:reply.sandbox},{...reply,sandbox:{...reply.sandbox,excludeSlashTmp:false}},{...reply,sandbox:{...reply.sandbox,writableRoots:["/foreign-pad"]}},{...reply,sandbox:{type:"dangerFullAccess"}}]) {
+    for (const wrong of [{...reply,runtimeWorkspaceRoots:["/lane","/own-pad"]},{thread:reply.thread,approvalPolicy:reply.approvalPolicy,sandbox:reply.sandbox},{...reply,sandbox:{...reply.sandbox,networkAccess:true}},{...reply,sandbox:{...reply.sandbox,excludeSlashTmp:false}},{...reply,sandbox:{...reply.sandbox,writableRoots:["/foreign-pad"]}},{...reply,sandbox:{type:"dangerFullAccess"}}]) {
       const denied=plain(provider.runtimeResponse({...context,settings:padSettings},operation,result.state,{kind:"success",value:wrong}));
       assert.equal(denied.kind,"refused");
     }

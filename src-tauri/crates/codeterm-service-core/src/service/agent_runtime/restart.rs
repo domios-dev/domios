@@ -14,15 +14,53 @@ pub async fn restart(
     fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
     retry_refused_start: bool,
 ) -> Result<Arc<Session>, RuntimeFailure> {
+    restart_with_account(
+        svc,
+        tab,
+        provider,
+        old_nonce,
+        fresh_restart,
+        retry_refused_start,
+        None,
+    )
+    .await
+}
+
+pub async fn restart_with_account(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    old_nonce: &str,
+    fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
+    retry_refused_start: bool,
+    account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
+) -> Result<Arc<Session>, RuntimeFailure> {
     let trigger = if retry_refused_start {
         Trigger::RetryRefused
     } else {
         Trigger::Request
     };
-    let result = restart_inner(svc, tab, provider, old_nonce, fresh_restart, trigger)
-        .await
-        .and_then(|session| session.ok_or(RuntimeFailure::Superseded));
+    let result = restart_inner(
+        svc,
+        tab,
+        provider,
+        old_nonce,
+        fresh_restart,
+        trigger,
+        account,
+    )
+    .await
+    .and_then(|session| session.ok_or(RuntimeFailure::Superseded));
+    let changed = svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_none_or(|target| target.session_binding_nonce.as_deref() != Some(old_nonce));
     if let Err(reason) = &result {
+        if account.is_some() && !changed {
+            svc.clear_runtime_restart_binding(tab);
+            return result;
+        }
         svc.clear_runtime_restart_binding(tab);
         let nonce = svc
             .mux
@@ -43,7 +81,7 @@ pub async fn restart_idle(
     provider: &str,
     nonce: &str,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
-    restart_inner(svc, tab, provider, nonce, None, Trigger::IdleUpdate)
+    restart_inner(svc, tab, provider, nonce, None, Trigger::IdleUpdate, None)
         .await
         .inspect_err(|_| svc.clear_runtime_restart_binding(tab))
 }
@@ -63,6 +101,7 @@ async fn restart_inner(
     old_nonce: &str,
     fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
     trigger: Trigger,
+    account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
     let idle_only = trigger == Trigger::IdleUpdate;
     let session = engine::for_tab(tab);
@@ -76,6 +115,11 @@ async fn restart_inner(
         None => None,
     };
     let fresh = fresh_restart.is_some();
+    if account.is_some() && (fresh || trigger != Trigger::Request) {
+        return Err(RuntimeFailure::Refused(
+            "Account restart cannot start a fresh conversation".into(),
+        ));
+    }
     if let Some((snapshot, force)) = fresh_restart {
         svc.lifecycle_port()
             .require_fresh_restart_allowed(snapshot, force)
@@ -104,6 +148,11 @@ async fn restart_inner(
             return Ok(None);
         }
     }
+    let account_process = account
+        .map(|account| {
+            validate_account_restart(svc, tab, provider, old_nonce, session.as_ref(), account)
+        })
+        .transpose()?;
     if let Some(session) = &session {
         super::turn_requests::end_for_lifecycle(
             svc,
@@ -123,8 +172,17 @@ async fn restart_inner(
     let binding = svc
         .authorize_runtime_restart_binding(tab, provider, old_nonce, fresh)
         .map_err(RuntimeFailure::Refused)?;
-    let environment = super::environment::compose(svc, tab, provider, old_nonce)
-        .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
+    let environment = match account {
+        Some(target) => super::environment::compose_for_account_restart(
+            svc,
+            tab,
+            provider,
+            old_nonce,
+            target.invocation.as_deref(),
+        ),
+        None => super::environment::compose(svc, tab, provider, old_nonce),
+    }
+    .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
     for status in svc
         .chat_send_ledger
         .rpc_uncertain_for_launch(tab, Some(old_nonce))
@@ -238,20 +296,42 @@ async fn restart_inner(
         svc.prepare_agent_runtime_launch_env(tab, &environment)
             .map_err(RuntimeFailure::Refused)?;
         if let Some(session) = &session {
-            let process = session.process.lock().clone();
+            let process = account_process
+                .clone()
+                .or_else(|| session.process.lock().clone());
             if let Some(process) = process {
                 process.finish().await?;
             }
             session.process.lock().take();
         }
-        bridge_retired
+        bridge_retired?;
+        if let Some(account) = account {
+            let mut mux = svc.mux.write();
+            let target = mux.get_tab_mut(tab).ok_or(RuntimeFailure::Superseded)?;
+            if target.agent_type.as_deref() != Some(provider)
+                || target.agent_session_id != old_thread
+                || target.session_binding_nonce.as_deref() != Some(nonce.as_str())
+            {
+                return Err(RuntimeFailure::Superseded);
+            }
+            account
+                .commit_selection(target)
+                .map_err(RuntimeFailure::Refused)?;
+        }
+        Ok(())
     }
     .await;
     drop(_permit);
     let loaded = match result {
-        Ok(()) => engine::ensure(svc, tab)
-            .await
-            .or_else(|error| engine::login_pending_session(svc, tab, error))?,
+        Ok(()) => {
+            let result = match account {
+                Some(target) => {
+                    engine::ensure_with_invocation(svc, tab, target.invocation.clone()).await
+                }
+                None => engine::ensure(svc, tab).await,
+            };
+            result.or_else(|error| engine::login_pending_session(svc, tab, error))?
+        }
         Err(reason) => return Err(reason),
     };
     if fresh && old_thread.is_some() && loaded.context.lock().thread_id == old_thread {
@@ -300,4 +380,42 @@ fn publish_failure(
         }
     }
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
+}
+
+fn validate_account_restart(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    nonce: &str,
+    session: Option<&Arc<Session>>,
+    account: &crate::service::agent_lifecycle::AccountRestartTarget,
+) -> Result<Arc<super::process::Process>, RuntimeFailure> {
+    account.validate_target().map_err(RuntimeFailure::Refused)?;
+    let session = session.ok_or(RuntimeFailure::Superseded)?;
+    let epoch = session.state.lock().epoch;
+    let context = session.context.lock().clone();
+    if account.expected.provider != provider
+        || account.expected.binding_nonce != nonce
+        || account.expected.runtime_epoch != Some(epoch)
+        || context.epoch != epoch
+        || context.thread_id.as_deref() != Some(&account.expected.session_id)
+        || session.process.lock().is_none()
+        || super::update::busy(session)
+        || !session.turn_requests.lock().is_empty()
+    {
+        return Err(RuntimeFailure::Refused(
+            "Account restart requires the exact idle runtime epoch".into(),
+        ));
+    }
+    let mux = svc.mux.read();
+    let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+    account
+        .expected
+        .validate(target, Some(epoch))
+        .map_err(RuntimeFailure::Refused)?;
+    session
+        .process
+        .lock()
+        .clone()
+        .ok_or(RuntimeFailure::Superseded)
 }

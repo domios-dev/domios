@@ -5,6 +5,7 @@ impl NeighborRuntimeCommand {
         matches!(
             self,
             Self::History { .. }
+                | Self::ReceiverGrants { .. }
                 | Self::Permission { .. }
                 | Self::NotificationPreference { .. }
                 | Self::Status
@@ -67,6 +68,15 @@ impl NeighborsExt for ServiceContext {
         generation: u64,
     ) -> codeterm_neighbors::Result<Value> {
         match command {
+            NeighborRuntimeCommand::ReceiverGrants { friendship_id } => {
+                let status = self
+                    .neighbor_friend_receiver(friendship_id)
+                    .ok_or(Error::Transport)?;
+                self.neighbor_receiver_grants(metadata, friendship_id, &status)
+                    .await
+                    .map(|preview| json!(preview))
+                    .map_err(|_| Error::Transport)
+            }
             NeighborRuntimeCommand::History {
                 friendship_id,
                 before,

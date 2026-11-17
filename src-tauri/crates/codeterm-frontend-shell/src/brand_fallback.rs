@@ -18,7 +18,7 @@ const RETRY_ACTION: &str =
     r#"<a class="retry" href="domios-shell://retry" aria-label="Retry now">Retry now</a>"#;
 
 /// A stated refusal repeats on every attempt, so this page retries only when asked.
-const START_FAILED_ACTION: &str = r#"<p class="detail" hidden></p><a class="retry" href="domios-shell://retry">Retry</a><a class="retry" href="domios-shell://quit">Quit</a>"#;
+const START_FAILED_ACTION: &str = r#"<details hidden><summary>Details</summary><p class="detail"></p></details><a class="retry" href="domios-shell://retry">Retry</a><a class="retry" href="domios-shell://quit">Quit</a>"#;
 
 /// The reason travels in the fragment so the document stays fixed for navigation checks; textContent keeps it inert.
 const START_FAILED_SCRIPT: &str = r#"<script>
@@ -28,7 +28,7 @@ const START_FAILED_SCRIPT: &str = r#"<script>
     let text = "";
     try { text = decodeURIComponent(location.hash.slice(1)); } catch {}
     detail.textContent = text;
-    detail.hidden = !text;
+    detail.parentElement.hidden = !text;
   };
   addEventListener("hashchange", show);
   show();

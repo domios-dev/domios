@@ -414,6 +414,17 @@ impl RestoredFreshLaunchInput {
             self.prepared_command_scoped(service, tab_id)
         })
     }
+    pub fn prepared_command_with_invocation(
+        &self,
+        service: &crate::service::ServiceContext,
+        tab_id: &str,
+        invocation: Option<std::sync::Arc<codeterm_plugin::provider_account::InvocationContext>>,
+    ) -> Option<crate::service::orchestrator::PreparedAgentCommand> {
+        codeterm_plugin::provider_account::with_context(invocation, || {
+            self.prepared_command_scoped(service, tab_id)
+        })
+    }
+
     fn prepared_command_scoped(
         &self,
         service: &crate::service::ServiceContext,

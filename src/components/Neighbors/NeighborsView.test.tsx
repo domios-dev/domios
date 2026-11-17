@@ -344,7 +344,7 @@ it("tells the old machine that receiving moved, and warns before taking it over"
   expect(document.querySelector('[aria-label="Receive Ada on this machine"]')?.textContent)
     .toContain("Ada is received on Studio. Move here?");
   await act(async () => button("Receive this friend here").click());
-  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 4);
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 4, "set", { choice: "keep", expected_digest: "fixture" });
 });
 
 it.each([
@@ -395,11 +395,12 @@ it("requires a fresh confirmation if receiving moves while the active takeover p
   await render("paid", { runtimeClient });
   await act(async () => button("Ada, connected").click());
   await act(async () => button("Receive this friend here").click());
+  vi.mocked(runtimeClient.status).mockResolvedValue(channelStatus({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5 } } }));
   await act(async () => changed?.({ receiving_here: false, is_me: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5, friendship_id: "pair", friend_receivers_version: 1 }));
   await act(async () => button("Receive this friend here").click());
   expect(runtimeClient.receiveFriend).not.toHaveBeenCalled();
   await act(async () => button("Receive this friend here").click());
-  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 5);
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 5, "set", { choice: "keep", expected_digest: "fixture" });
 });
 
 it("draws the last known graph at once and says it is updating instead of loading", async () => {
