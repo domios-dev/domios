@@ -1,5 +1,6 @@
 export const ocHost = (over: Record<string, unknown>) => {
   const fixture = {
+  providerVersionJson: () => JSON.stringify({version:"1.19.0",status:"detected"}),
   manifestJson: () => JSON.stringify({
     models: [
       { id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" },

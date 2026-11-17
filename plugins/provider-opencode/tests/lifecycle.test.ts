@@ -16,6 +16,7 @@ test("every_launch_shape_scopes_the_resume_session_to_the_worker_environment", (
     const quoteFor = (value: string) => `'${value}'`;
     const context = {
       host: {
+        providerVersionJson: () => JSON.stringify({version:"1.19.0",status:"detected"}),
         platform: () => platform,
         envGet: () => null,
         expandHome: (value: string) => value,
