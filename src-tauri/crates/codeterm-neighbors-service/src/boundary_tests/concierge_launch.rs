@@ -33,9 +33,7 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
         let _storage = fixture.install_seeded_storage_desk();
         let executable = fixture.temp.path().join("trusted-cli.exe");
         std::fs::write(&executable, b"trusted-cli").unwrap();
-        service
-            .set_ext(agent_runtime::cli_exception::tests::Executable(executable))
-            .unwrap();
+        service.ext_or_init(|| agent_runtime::cli_exception::tests::Executable(executable));
         let binary = std::env::current_exe().unwrap();
         let manifest = PluginManifest::from_json_str(&json!({
             "id":"confined-runtime","version":"1.0.0","displayName":"Fixture",
@@ -57,9 +55,14 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
         let friendship = "a".repeat(64);
         service.set_neighbor_friend_receiver_for_test(&friendship, Some(true), 1);
         let metadata = Metadata::new(fixture.temp.path().into(), "owner");
+        let folder = fixture.temp.path().join("project");
+        std::fs::create_dir(&folder).unwrap();
         let permission = Permission {
             machine_access: access,
             allowed: true,
+            scope: "opaque topic".into(),
+            folder: (access == MachineAccess::Folder)
+                .then(|| folder.to_string_lossy().into_owned()),
             ..Default::default()
         };
         let registrations = Arc::new(parking_lot::Mutex::new(Vec::new()));
@@ -72,6 +75,10 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
                     let mut mux = service.mux.write();
                     let tab = mux.get_tab_mut(&id).unwrap();
                     tab.agent_type = Some("confined-runtime".into());
+                    tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+                        plugin_id: "confined-runtime".into(),
+                        session_id: String::new(),
+                    };
                     tab.cwd = Some(cwd.clone());
                     tab.neighbor_authority = Some(crate::multiplexer::types::NeighborAuthority {
                         uid:"owner".into(),friendship_id:"a".repeat(64),root_tab_id:None,
@@ -81,8 +88,10 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
                 let mut params = SpawnAgentParams { agent:Some("confined-runtime".into()),cwd:Some(cwd),
                     sandbox:Some(if grant.machine_access == MachineAccess::ReadOnly {"read-only"} else {"workspace-write"}.into()),
                     neighbor_authority:service.mux.read().get_tab(&id).unwrap().neighbor_authority.clone(), ..Default::default() };
-                service.configure_neighbor_launch_access("confined-runtime", grant.machine_access, &mut params)?;
-                service.prepare_agent_runtime_launch_options(&id, &params)?;
+                service.configure_neighbor_launch_access("confined-runtime", grant.machine_access, &mut params)
+                    .expect("fixture access is supported");
+                service.prepare_agent_runtime_launch_options(&id, &params)
+                    .expect("fixture runtime launch options are valid");
                 let bound = id.clone();
                 captured.lock().push(test_ports::register(&id, move || {
                     let (process, peer) = test_ports::connected();
@@ -104,7 +113,7 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
                 let owner = service.clone();
                 let target = id.clone();
                 tokio::task::spawn_blocking(move || agent_runtime::transport::launch(&owner, "confined-runtime", &target, json!({})))
-                    .await.unwrap()?;
+                    .await.unwrap().expect("confined runtime launches");
                 Ok(id)
             }).await.unwrap();
         let id = result["gateway_tab"].as_str().unwrap();

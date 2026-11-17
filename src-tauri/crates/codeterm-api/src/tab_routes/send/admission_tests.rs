@@ -93,8 +93,8 @@ async fn concierge_http_preserves_system_notices_and_typed_owner_refusals() {
             assert!(writes.texts.lock().is_empty());
         }
     }
-    writes.wait_for_flush();
     assert_eq!(writes.texts.lock().as_slice(), ["opaque build result"]);
+    assert!(!fixture.has_pending_agent_delivery(&target));
 }
 
 #[test]

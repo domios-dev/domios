@@ -186,7 +186,7 @@ pub(crate) fn insert_in(
     item: &NewMemItem,
     fingerprint: Option<&str>,
 ) -> StoreResult<String> {
-    store::guard_instruction(&ctx.author, item.kind.as_str(), item.pinned)?;
+    store::guard_save(ctx, item)?;
     let slug = ids::slugify(&item.title);
     let candidate = ids::compose(item.kind.as_str(), &slug);
     let id = if get_in(tx, &candidate)?.is_some() {
@@ -211,8 +211,8 @@ pub(crate) fn insert_in(
         .unwrap_or_default();
     let timestamp = now();
     let tags = serde_json::to_string(&item.tags).map_err(|_| "serialize memory tags")?;
-    tx.execute("INSERT INTO mem_items(id,uid,kind,scope,title,summary,area,tags_json,body_inline,body_blob_path,source,importance,created_at,updated_at,source_path,source_size,source_mtime,is_pinned_wakeup,seed_fingerprint,author_kind,author_uid,author_friendship,author_label) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)",
-        &[&id,&ulid::Ulid::new().to_string(),&item.kind.as_str(),&item.scope.as_str(),&item.title,&item.summary,&item.area,&tags,&inline,&blob,&source,&item.importance,&timestamp,&source_path,&size,&mtime,&i64::from(item.pinned),&fingerprint,&ctx.author.kind.as_str(),&ctx.author.account_uid,&ctx.author.friendship_id,&ctx.author.label]).map_err(db_error)?;
+    tx.execute("INSERT INTO mem_items(id,uid,kind,scope,title,summary,area,tags_json,body_inline,body_blob_path,source,importance,created_at,updated_at,source_path,source_size,source_mtime,is_pinned_wakeup,seed_fingerprint,author_kind,author_uid,author_friendship,author_label,neighbor_skill_authorized) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)",
+        &[&id,&ulid::Ulid::new().to_string(),&item.kind.as_str(),&item.scope.as_str(),&item.title,&item.summary,&item.area,&tags,&inline,&blob,&source,&item.importance,&timestamp,&source_path,&size,&mtime,&i64::from(item.pinned),&fingerprint,&ctx.author.kind.as_str(),&ctx.author.account_uid,&ctx.author.friendship_id,&ctx.author.label,&i64::from(store::neighbor_skill_save_authorized(ctx, item))]).map_err(db_error)?;
     if let Some(path) = source_path {
         tx.execute(
             "DELETE FROM mem_source_tombstones WHERE source_key=$1",
@@ -245,8 +245,8 @@ pub(crate) fn replace_in(
     item: &NewMemItem,
 ) -> StoreResult<()> {
     let previous = get_in(tx, id)?.ok_or("mem item not found")?;
-    store::guard_instruction(&ctx.author, item.kind.as_str(), item.pinned)?;
-    store::guard_instruction(&previous.author, item.kind.as_str(), item.pinned)?;
+    store::guard_save(ctx, item)?;
+    store::guard_save(&ctx.with_author(previous.author.clone()), item)?;
     let extra = tx
         .query_one(
             "SELECT source_path,is_pinned_wakeup FROM mem_items WHERE id=$1",
@@ -299,8 +299,8 @@ fn write_payload_in(
 ) -> StoreResult<()> {
     let (source, path) = sources(item);
     let (inline, blob) = body_in(tx, &item.body)?;
-    tx.execute("UPDATE mem_items SET title=$2,summary=$3,area=$4,tags_json=$5,body_inline=$6,body_blob_path=$7,source=$8,importance=$9,updated_at=$10,source_path=$11,is_pinned_wakeup=$12,scope=$13,seed_fingerprint=NULL,author_kind=$14,author_uid=$15,author_friendship=$16,author_label=$17 WHERE id=$1",
-        &[&id,&item.title,&item.summary,&item.area,&serde_json::to_string(&item.tags).map_err(|_| "serialize memory tags")?,&inline,&blob,&source,&item.importance,&now(),&path,&i64::from(item.pinned),&item.scope.as_str(),&ctx.author.kind.as_str(),&ctx.author.account_uid,&ctx.author.friendship_id,&ctx.author.label]).map_err(db_error)?;
+    tx.execute("UPDATE mem_items SET title=$2,summary=$3,area=$4,tags_json=$5,body_inline=$6,body_blob_path=$7,source=$8,importance=$9,updated_at=$10,source_path=$11,is_pinned_wakeup=$12,scope=$13,seed_fingerprint=NULL,author_kind=$14,author_uid=$15,author_friendship=$16,author_label=$17,neighbor_skill_authorized=$18 WHERE id=$1",
+        &[&id,&item.title,&item.summary,&item.area,&serde_json::to_string(&item.tags).map_err(|_| "serialize memory tags")?,&inline,&blob,&source,&item.importance,&now(),&path,&i64::from(item.pinned),&item.scope.as_str(),&ctx.author.kind.as_str(),&ctx.author.account_uid,&ctx.author.friendship_id,&ctx.author.label,&i64::from(store::neighbor_skill_save_authorized(ctx, item))]).map_err(db_error)?;
     fts_in(tx, id, item)?;
     Ok(())
 }

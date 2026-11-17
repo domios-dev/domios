@@ -1,12 +1,12 @@
 use crate::error::MemStoreResult;
 use rusqlite::Connection;
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 type Migration = fn(&Connection) -> MemStoreResult<()>;
 
 pub fn run(conn: &Connection) -> MemStoreResult<()> {
-    run_steps(conn, &[baseline, authorship])
+    run_steps(conn, &[baseline, authorship, neighbor_skill_saves])
 }
 
 fn run_steps(conn: &Connection, steps: &[Migration]) -> MemStoreResult<()> {
@@ -84,6 +84,11 @@ fn authorship(conn: &Connection) -> MemStoreResult<()> {
     Ok(())
 }
 
+fn neighbor_skill_saves(conn: &Connection) -> MemStoreResult<()> {
+    conn.execute_batch(include_str!("neighbor_skill_saves.sql"))?;
+    Ok(())
+}
+
 fn create_lesson_audit(conn: &Connection) -> MemStoreResult<()> {
     conn.execute_batch(
         r#"CREATE TABLE IF NOT EXISTS lesson_audit (
@@ -116,5 +121,7 @@ fn create_graph_purge_log(conn: &Connection) -> MemStoreResult<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod author_guard_tests;
 #[cfg(test)]
 mod tests;

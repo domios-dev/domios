@@ -26,6 +26,10 @@ impl ReplaceGuard {
         self
     }
 
+    pub(crate) fn allows_skill_save(&self, area: &str) -> bool {
+        self.allow_skills && self.allows(area)
+    }
+
     pub fn check_insert(&self, area: &str) -> Result<(), ReplaceGuardError> {
         if self.allows(area) {
             Ok(())
