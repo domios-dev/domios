@@ -2,4 +2,4 @@
 import type { RuntimeHttpRequestEvent } from "./RuntimeHttpRequestEvent";
 import type { RuntimeHttpRoute } from "./RuntimeHttpRoute";
 
-export type RuntimeHttpSse = { readinessPrefix: string, passwordEnv: string, username: string, usernameEnv: string, eventPath: string, eventMethod: string, requestEvents?: { [key in string]: RuntimeHttpRequestEvent }, responseHeaders?: Array<string>, routes: { [key in string]: RuntimeHttpRoute }, };
+export type RuntimeHttpSse = { alternatives?: Array<RuntimeHttpSse>, completionEvents?: boolean, readinessPrefix: string, passwordEnv: string, username: string, usernameEnv: string, eventPath: string, eventMethod: string, requestEvents?: { [key in string]: RuntimeHttpRequestEvent }, responseHeaders?: Array<string>, routes: { [key in string]: RuntimeHttpRoute }, };

@@ -93,17 +93,17 @@ function* ioThen(steps, then) {
 }
 
 // plugins/provider-shared/updatePrompt.ts
-function updatePromptSafeChoice(prompt) {
-  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
+function updatePromptSafeChoice(prompt2) {
+  if (prompt2.options.length < 2 || !prompt2.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
     return null;
   }
-  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
+  const safe = prompt2.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
   const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
   const chosen = safe.length === 1 ? safe : bare;
   if (chosen.length !== 1) return null;
   const [label, value] = chosen[0];
   if (!value || /\bupdate\b/i.test(label)) return null;
-  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
+  if (prompt2.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
   return value;
 }
 
@@ -137,19 +137,19 @@ function runPromptSteps(getHost, options = {}) {
       const timeout = params.timeout_ms ?? 6e5;
       if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed();
       const context = request2.inputs.context?.[0];
-      let prompt = params.prompt;
+      let prompt2 = params.prompt;
       if (context) {
         if (context.kind !== "text") return failed();
         const fence = "`".repeat(Math.max(3, ...Array.from(context.text.matchAll(/`+/g), (match) => match[0].length + 1)));
-        prompt += `
+        prompt2 += `
 
 Context:
 ${fence}text
 ${context.text}
 ${fence}`;
       }
-      if (bytes(prompt) > 48 * 1024) return failed();
-      return getHost().start({ prompt, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
+      if (bytes(prompt2) > 48 * 1024) return failed();
+      return getHost().start({ prompt: prompt2, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
         if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update(request2.context.operation, { state: "unknown" });
         return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed();
       });
@@ -401,6 +401,70 @@ function applyDomiosProviders(config, providers) {
 function providerKeyEnvName(id) {
   const snake = id.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[^a-zA-Z0-9]+/g, "_").toUpperCase();
   return `DOMIOS_PROVIDER_${snake}_KEY`;
+}
+
+// plugins/provider-opencode/src/cliLaunch.ts
+function generation(version) {
+  if (typeof version !== "string") return;
+  if (/^1\.\d+\.\d+(?:[-+].*)?$/.test(version)) return 1;
+  if (/^2\.3\.\d+(?:[-+].*)?$/.test(version)) return 2;
+}
+function* cliGeneration() {
+  let observation;
+  try {
+    observation = yield { op: "providerVersion" };
+  } catch {
+  }
+  const version = observation && typeof observation === "object" ? observation.version : void 0;
+  const known = generation(version);
+  if (known) return known;
+  if (version) throw new Error(`Unsupported OpenCode CLI version ${String(version)}; supported launch contracts are 1.x and 2.3.x`);
+  const result = yield* host.io.exec({ bin: "opencode", args: ["--help"], timeoutMs: 1e4 });
+  const help = result.stdout ?? "";
+  if (result.code !== 0 || result.error || result.truncated || help.length > 65536) throw new Error("OpenCode CLI capabilities could not be read");
+  if (/--standalone\b/.test(help) && /--server\b/.test(help) && !/--hostname\b/.test(help) && !/--model\b/.test(help)) return 2;
+  if (/--hostname\b/.test(help) && /--port\b/.test(help) && /--model\b/.test(help)) return 1;
+  throw new Error("Unsupported OpenCode CLI launch capabilities");
+}
+function v2Arguments(args) {
+  const retained = [];
+  let model, variant, agent;
+  for (let index = 0; index < args.length; index++) {
+    const arg = String(args[index]);
+    const take = (names) => names.includes(arg) ? String(args[++index] ?? "") : names.some((name) => arg.startsWith(name + "=")) ? arg.slice(arg.indexOf("=") + 1) : void 0;
+    const selectedModel2 = take(["-m", "--model"]);
+    if (selectedModel2 !== void 0) {
+      model = selectedModel2;
+      continue;
+    }
+    const selectedVariant = take(["--variant"]);
+    if (selectedVariant !== void 0) {
+      variant = selectedVariant;
+      continue;
+    }
+    const selectedAgent = take(["--agent"]);
+    if (selectedAgent !== void 0) {
+      agent = selectedAgent;
+      continue;
+    }
+    if (["--hostname", "--port", "--server", "--standalone"].some((name) => arg === name || arg.startsWith(name + "="))) throw new Error("OpenCode server ownership is controlled by the host");
+    retained.push(arg);
+  }
+  if (model && !/^[^/#\s]+\/[^#\s]+(?:#[^#\s]+)?$/.test(model)) throw new Error("OpenCode 2.x requires a qualified provider/model selection");
+  if (variant && !/^[a-zA-Z0-9_.-]+$/.test(variant)) throw new Error("Invalid OpenCode model variant");
+  if (variant && !model) throw new Error("OpenCode 2.x requires an explicit model for a variant override");
+  const selected2 = model ? model.split("#")[0] + (variant && variant !== "default" ? `#${variant}` : variant === void 0 && model.includes("#") ? `#${model.split("#")[1]}` : "") : void 0;
+  return { args: retained, config: { ...selected2 ? { model: selected2 } : {}, ...agent ? { default_agent: agent } : {} } };
+}
+function v2ConfigCommand(command, launchConfig, instructions, resumeSession, hostOwned) {
+  const permissions = [{ action: "*", resource: "*", effect: "ask" }];
+  const pad = host.envGet("CODETERM_PAD_DIR")?.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (pad) permissions.push({ action: "*", resource: pad + "/*", effect: "allow" });
+  permissions.push(...Object.entries({ question: hostOwned?.questions, todoread: hostOwned?.todos, todowrite: hostOwned?.todos }).filter(([, enabled]) => enabled).map(([action]) => ({ action, resource: "*", effect: "deny" })));
+  const config = { ...launchConfig, permissions, ...instructions ? { instructions } : {} };
+  const platform = host.platform(), quote = (value) => host.shell.quoteFor(value, platform);
+  if (platform === "windows") return `$ct_previous_config = $env:OPENCODE_CONFIG_CONTENT; $ct_previous_resume = $env:CODETERM_RESUME_SESSION_ID; $env:OPENCODE_CONFIG_CONTENT = ${quote(JSON.stringify(config))}; $env:CODETERM_RESUME_SESSION_ID = ${quote(resumeSession ?? "")}; try { ${command} } finally { $env:OPENCODE_CONFIG_CONTENT = $ct_previous_config; $env:CODETERM_RESUME_SESSION_ID = $ct_previous_resume }`;
+  return `( export OPENCODE_CONFIG_CONTENT=${quote(JSON.stringify(config))}; export CODETERM_RESUME_SESSION_ID=${quote(resumeSession ?? "")}; ${command} )`;
 }
 
 // plugins/provider-opencode/src/modelRejections.json
@@ -851,7 +915,9 @@ function completeModelOutput(result) {
 }
 function* probeModels(verbose) {
   try {
-    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 1e4 });
+    const generation2 = yield* cliGeneration();
+    if (generation2 === 2 && verbose) return null;
+    return yield* host.io.exec({ bin: "opencode", args: generation2 === 2 ? ["models", "--standalone"] : verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 1e4 });
   } catch {
     return null;
   }
@@ -976,13 +1042,13 @@ function* withGroupBalances(rows, then) {
   const now = host.unixNowMs();
   const group = rows.map((row) => row.g).find((group2) => typeof group2 === "string" && BALANCE_BY_GROUP[group2] && !balanceFresh(group2, now));
   if (typeof group !== "string") return yield* ioResolve(then());
-  const generation = ++balanceRequestGeneration;
+  const generation2 = ++balanceRequestGeneration;
   let response = null;
   try {
     response = yield* host.io.fetch(balanceRequest(group));
   } catch {
   }
-  if (generation === balanceRequestGeneration) balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
+  if (generation2 === balanceRequestGeneration) balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
   return yield* ioResolve(then());
 }
 function balanceRequest(group) {
@@ -1780,10 +1846,10 @@ function methods(ctx, providers, auth) {
 function authEvents(ctx, providers, auth) {
   const provider = modelParts(ctx.settings.model)?.providerID;
   const known = !!provider && list(object2(providers).all).map(object2).some((item) => item.id === provider);
-  const connected = !!provider && list(object2(providers).connected).includes(provider);
+  const connected2 = !!provider && list(object2(providers).connected).includes(provider);
   return [
-    { kind: "authentication", authentication: { state: !known ? "unknown" : connected ? "authenticated" : "needs_auth", methods: methods(ctx, providers, auth) } },
-    { kind: "auth", state: !known ? "unknown" : connected ? "signedIn" : "signedOut" }
+    { kind: "authentication", authentication: { state: !known ? "unknown" : connected2 ? "authenticated" : "needs_auth", methods: methods(ctx, providers, auth) } },
+    { kind: "auth", state: !known ? "unknown" : connected2 ? "signedIn" : "signedOut" }
   ];
 }
 function select(id) {
@@ -1849,13 +1915,13 @@ function loginResponse(ctx, op, state, body) {
   }
 }
 function providerSummary(value) {
-  const all = list(object2(value).all), connected = list(object2(value).connected);
-  if (all.length > 512 || connected.length > 512) fail("size_limit", "OpenCode provider discovery capacity exceeded");
+  const all = list(object2(value).all), connected2 = list(object2(value).connected);
+  if (all.length > 512 || connected2.length > 512) fail("size_limit", "OpenCode provider discovery capacity exceeded");
   return { all: all.map((raw) => {
     const provider = object2(raw), id = text(provider.id), name = text(provider.name) ?? id;
     if (!id || id.length > 256 || !name || name.length > 256) fail("invalid_schema", "Invalid provider discovery identity");
     return { id, name };
-  }), connected };
+  }), connected: connected2 };
 }
 
 // plugins/provider-opencode/src/runtimeProjection.ts
@@ -1993,10 +2059,528 @@ function loaded(ctx, sessionId, instructions, settings) {
 }
 function claimed(ctx, claim) {
   const state = binding(ctx);
-  state.sends = state.sends.filter((send) => ctx.claimedSends.some((current) => current.sendId === send.sendId));
+  state.sends = state.sends.filter((send) => ctx.claimedSends.some((current2) => current2.sendId === send.sendId));
   if (state.sends.some((send) => send.sendId === claim.sendId)) fail("provider_refused", "OpenCode prompt handoff already planned; replay refused");
   if (state.sends.length >= 32) fail("size_limit", "OpenCode unsettled prompt capacity reached");
   state.sends.push(claim);
+}
+
+// plugins/provider-opencode/src/runtimeV2Auth.ts
+function selected(ctx) {
+  const provider = modelParts(ctx.settings.model)?.providerID ?? "";
+  return binding(ctx).providers?.find((entry) => entry.id === provider)?.integration ?? provider;
+}
+function v2Providers(ctx, body) {
+  const entries = list(object2(body).data);
+  if (entries.length > 512) fail("size_limit", "OpenCode provider catalogue exceeds its bound");
+  binding(ctx).providers = entries.map((raw) => {
+    const item = object2(raw), id = text(item.id);
+    if (!id) fail("invalid_schema", "Provider has no identity");
+    return { id, integration: text(item.integrationID) ?? id };
+  });
+}
+function integration(ctx, body) {
+  const entries = list(object2(body).data);
+  if (entries.length > 1024) fail("size_limit", "OpenCode integration catalogue exceeds its bound");
+  return entries.map(object2).find((entry) => entry.id === selected(ctx));
+}
+function methods2(ctx, body) {
+  const entry = integration(ctx, body);
+  if (!entry) return [];
+  const entries = list(entry.methods);
+  if (entries.length > 32) fail("size_limit", "OpenCode authentication methods exceed their bound");
+  return entries.filter((raw) => ["key", "oauth"].includes(String(object2(raw).type))).map((raw) => {
+    const method = object2(raw), oauth = method.type === "oauth", id = oauth ? text(method.id) : "key";
+    if (!id || id.length > 256) fail("invalid_schema", "OpenCode auth method has no bounded identity");
+    const unavailable = list(method.form).some((raw2) => {
+      const field = object2(raw2);
+      return field.hidden !== true || field.default === void 0;
+    });
+    return { id: `v2:${encodeURIComponent(String(entry.id))}:${encodeURIComponent(id)}`, name: `${String(entry.name)}: ${String(method.label ?? (oauth ? id : "API key"))}`, input: oauth ? "none" : "apiKey", available: !unavailable, ...unavailable ? { unavailableReason: "This sign-in method requires provider-specific form fields" } : {} };
+  });
+}
+function connected(entry) {
+  return !!entry && list(entry.connections).some((raw) => object2(object2(raw).status).status !== "needs_auth");
+}
+function v2AuthEvents(ctx, body) {
+  const entry = integration(ctx, body), discovered = methods2(ctx, body);
+  const needsAuth = !!entry && list(entry.connections).length > 0 && !connected(entry);
+  const available = !needsAuth && !!binding(ctx).providers?.some((entry2) => entry2.id === modelParts(ctx.settings.model)?.providerID);
+  binding(ctx).methods = discovered;
+  if (binding(ctx).login?.observed) delete binding(ctx).login;
+  return [
+    { kind: "authentication", authentication: { state: available || connected(entry) ? "authenticated" : entry ? "needs_auth" : "unknown", methods: discovered } },
+    { kind: "auth", state: available || connected(entry) ? "signedIn" : entry ? "signedOut" : "unknown" }
+  ];
+}
+function v2LoginEvents(ctx, frames, nowMs = Date.now()) {
+  const pending = binding(ctx).login;
+  if (!pending || pending.observed || pending.integration !== selected(ctx) || nowMs >= pending.expires) return [];
+  for (const frame of frames) {
+    const event = object2(frame.params), data = object2(event.data), created = event.created;
+    if (frame.kind !== "notification" || frame.method !== "http/event" || event.type !== "credential.updated" || !text(event.id) || !text(data.credentialID) || data.integrationID !== pending.integration) continue;
+    if (typeof created !== "number" || !Number.isSafeInteger(created) || created <= pending.created || created > nowMs || created >= pending.expires) continue;
+    const directory3 = text(object2(event.location).directory);
+    if (directory3 && directory3.replace(/\\/g, "/").replace(/\/$/, "") !== ctx.cwd.replace(/\\/g, "/").replace(/\/$/, "")) continue;
+    pending.observed = true;
+    return [{ kind: "authLogin", login: { status: "completed", loginId: pending.loginId } }];
+  }
+  return [];
+}
+function identity(ctx, op) {
+  const value = object2(op.value), loginId = text(value.loginId), methodId = text(value.methodId), parts = methodId?.split(":");
+  if (!loginId || loginId.length > 128 || parts?.length !== 3 || parts[0] !== "v2") fail("binding_mismatch", "Sign-in requires its exact host challenge");
+  let provider, method;
+  try {
+    provider = decodeURIComponent(parts[1]);
+    method = decodeURIComponent(parts[2]);
+  } catch {
+    fail("invalid_schema", "Invalid sign-in method identity");
+  }
+  if (provider !== selected(ctx) || !method) fail("binding_mismatch", "Sign-in targets another selected provider");
+  return { loginId, methodId, integration: provider, method, value };
+}
+function query(ctx) {
+  return { "location[directory]": ctx.cwd };
+}
+function v2LoginPlan(ctx, op) {
+  const id = identity(ctx, op);
+  if (id.value.action === "start") return request("v2.integration.list", { query: query(ctx) }, { stage: "loginMethods" });
+  const pending = binding(ctx).login;
+  if (!pending || pending.loginId !== id.loginId || pending.methodId !== id.methodId) fail("binding_mismatch", "Sign-in callback has no matching OAuth attempt");
+  const path = { integrationID: pending.integration, attemptID: pending.attempt };
+  if (id.value.action === "cancel") return request("v2.integration.cancel", { path, query: query(ctx) }, { stage: "loginCancel" });
+  if (id.value.action === "complete") return request("v2.integration.status", { path, query: query(ctx) }, { stage: "loginStatus" });
+  if (id.value.action !== "code" || !text(id.value.code) || String(id.value.code).length > 16384) fail("invalid_schema", "A bounded sign-in code is required");
+  return request("v2.integration.complete", { path, query: query(ctx), body: { code: id.value.code } }, { stage: "loginCode" });
+}
+function v2LoginResponse(ctx, op, state, body) {
+  const id = identity(ctx, op), data = object2(object2(body).data);
+  if (binding(ctx).login?.observed && ["loginStatus", "loginCode", "loginVerify"].includes(String(state.stage))) return done();
+  const event = (status, error) => done([{ kind: "authLogin", login: { status, loginId: id.loginId, ...error ? { error } : {} } }]);
+  switch (state.stage) {
+    case "loginMethods": {
+      if (!methods2(ctx, body).some((method) => method.id === id.methodId && method.available)) return refused("The sign-in method is no longer available");
+      const path = { integrationID: id.integration };
+      if (id.method !== "key") {
+        const method = list(integration(ctx, body)?.methods).map(object2).find((method2) => method2.id === id.method);
+        const answer = Object.fromEntries(list(method?.form).map(object2).map((field) => [String(field.key), field.default]));
+        return next("v2.integration.authorize", { path, query: query(ctx), body: { methodID: id.method, ...Object.keys(answer).length ? { answer } : {} } }, { stage: "loginAuthorize" });
+      }
+      const key = text(id.value.apiKey);
+      if (!key || key.length > 16384) return refused("A bounded API key is required");
+      return next("v2.integration.key", { path, query: query(ctx), body: { key } }, { stage: "loginKey" });
+    }
+    case "loginAuthorize": {
+      const attempt = text(data.attemptID), url = text(data.url), instructions = text(data.instructions), expiry = object2(data.time).expires, created = object2(data.time).created;
+      if (!attempt || attempt.length > 256 || !url || !/^https?:\/\//.test(url) || url.length > 4096 || !["auto", "code"].includes(String(data.mode)) || instructions && instructions.length > 4096) return refused("Unsupported OpenCode OAuth challenge");
+      if (typeof created !== "number" || !Number.isSafeInteger(created) || typeof expiry !== "number" || !Number.isSafeInteger(expiry) || expiry <= created) return refused("OpenCode OAuth challenge has no bounded lifetime");
+      const challenge = { status: "pending", method: "browser", loginId: id.loginId, url, codeInput: data.mode === "code" || data.paste === true, ...instructions ? { instructions } : {}, expiresAtMs: expiry };
+      binding(ctx).login = { loginId: id.loginId, methodId: id.methodId, integration: id.integration, attempt, created, expires: expiry, challenge };
+      return done([{ kind: "authLogin", login: challenge }]);
+    }
+    case "loginKey":
+      if (body !== null) return event("failed", "OpenCode did not acknowledge authentication");
+      return next("v2.integration.list", { query: query(ctx) }, { stage: "loginVerify" });
+    case "loginCode": {
+      if (body !== null) return event("failed", "OpenCode did not acknowledge the sign-in code");
+      const pending = binding(ctx).login;
+      if (!pending) return refused("Sign-in code has no active OAuth attempt");
+      return next("v2.integration.status", { path: { integrationID: pending.integration, attemptID: pending.attempt }, query: query(ctx) }, { stage: "loginStatus" });
+    }
+    case "loginStatus":
+      if (data.status === "pending") {
+        const pending = binding(ctx).login;
+        return pending ? done([{ kind: "authLogin", login: pending.challenge }]) : refused("Sign-in status has no active OAuth attempt");
+      }
+      if (data.status !== "complete") {
+        delete binding(ctx).login;
+        return event("failed", "OpenCode sign-in did not complete");
+      }
+      return next("v2.integration.list", { query: query(ctx) }, { stage: "loginVerify" });
+    case "loginVerify": {
+      const success = connected(integration(ctx, body));
+      delete binding(ctx).login;
+      return event(success ? "completed" : "failed", success ? void 0 : "OpenCode did not confirm a connected account");
+    }
+    case "loginCancel":
+      delete binding(ctx).login;
+      return event("failed", "Sign-in canceled");
+    default:
+      return refused("Unknown OpenCode sign-in response");
+  }
+}
+
+// plugins/provider-opencode/src/runtimeV2Requests.ts
+function fields(form) {
+  const entries = list(form.fields).map(object2);
+  if (!entries.length || entries.length > 16 || entries.some((field) => !text(field.key) || !["string", "multiselect"].includes(String(field.type)) || field.hidden || list(field.when).length || list(field.options).length > 32)) fail("unsupported", "Unsupported OpenCode question form");
+  return entries;
+}
+function v2Prompt(ctx, frame) {
+  const params = object2(object2(frame.params).data);
+  if (frame.method === "permission.asked") {
+    if (params.sessionID !== ctx.threadId || params.id !== frame.requestId) return void 0;
+    const action = text(params.action);
+    if (!action) fail("invalid_schema", "Permission request has no action");
+    return {
+      kind: "prompt",
+      threadId: ctx.threadId,
+      requestId: frame.requestId,
+      prompt: { question: `${action}: ${list(params.resources).filter((value) => typeof value === "string").join(", ")}`, options: [{ label: "Allow once", value: "once" }, { label: "Always allow", value: "always" }, { label: "Reject", value: "reject" }] },
+      permission: { action: action === "shell" ? "command" : ["edit", "write"].includes(action) ? "write" : ["read", "glob", "grep"].includes(action) ? "read" : "other", options: [{ value: "once", decision: "allow_once" }, { value: "always", decision: "allow_always" }, { value: "reject", decision: "reject_once" }] }
+    };
+  }
+  const form = object2(params.form);
+  if (frame.method !== "form.created" || form.sessionID !== ctx.threadId || form.id !== frame.requestId) return void 0;
+  const entries = fields(form);
+  return { kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt: { question: String(form.title), options: entries.flatMap((field, index) => list(field.options).map((raw, optionIndex) => {
+    const option = object2(raw), label = text(option.label);
+    if (!label || !text(option.value)) fail("invalid_schema", "Question option is missing its identity");
+    return { label: entries.length > 1 ? `${String(field.title ?? field.key)}: ${label}` : label, value: `${index}:${optionIndex}` };
+  })), multi_select: entries.length > 1 || entries[0].type === "multiselect", submit_available: true } };
+}
+function v2Answer(ctx, op) {
+  const pending = ctx.pendingRequest;
+  if (!pending || pending.requestId !== op.requestId) fail("binding_mismatch", "Answer has no exact pending OpenCode request");
+  const data = object2(object2(pending.params).data);
+  if (pending.method === "permission.asked") {
+    own(ctx, text(data.sessionID));
+    if (data.id !== op.requestId) fail("binding_mismatch", "Permission identity differs");
+    const decision = op.answer.kind === "cancel" ? "reject" : op.answer.kind === "choice" && op.answer.values.length === 1 ? op.answer.values[0] : void 0;
+    if (!decision || !["once", "always", "reject"].includes(decision)) fail("invalid_schema", "Invalid OpenCode permission decision");
+    return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: { decision } } }, state: null };
+  }
+  const form = object2(data.form);
+  own(ctx, text(form.sessionID));
+  if (pending.method !== "form.created" || form.id !== op.requestId) fail("binding_mismatch", "Question form identity differs");
+  if (op.answer.kind === "cancel") return { action: { kind: "reply", requestId: op.requestId, result: { kind: "error", error: { code: -32800, message: "Question canceled" } } }, state: null };
+  const entries = fields(form), answer = {}, selected2 = op.answer;
+  if (selected2.kind === "text") {
+    if (entries.length !== 1 || entries[0].type !== "string" || entries[0].custom === false || !selected2.text.trim()) fail("invalid_schema", "This question requires its declared choices");
+    answer[String(entries[0].key)] = selected2.text;
+  } else {
+    const accepted = /* @__PURE__ */ new Set();
+    entries.forEach((field, index) => {
+      const options = list(field.options).map(object2);
+      const values = selected2.values.filter((value) => value.startsWith(`${index}:`)).map((value) => {
+        if (!/^\d+:\d+$/.test(value)) fail("invalid_schema", "Invalid question option identity");
+        const option = options[Number(value.split(":")[1])], identity2 = text(option?.value);
+        if (!identity2 || accepted.has(value)) fail("invalid_schema", "Unknown or duplicate question choice");
+        accepted.add(value);
+        return identity2;
+      });
+      if (!values.length && field.required !== false || field.type === "string" && values.length > 1) fail("invalid_schema", "Choose the required answers for every question");
+      answer[String(field.key)] = field.type === "multiselect" ? values : values[0] ?? "";
+    });
+    if (accepted.size !== selected2.values.length) fail("invalid_schema", "Answer includes a foreign question");
+  }
+  return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: json({ answer }) } }, state: null };
+}
+
+// plugins/provider-opencode/src/runtimeV2Projection.ts
+function contentId(message, ordinal) {
+  return `${message}:content:${ordinal}`;
+}
+function toolId(message, id) {
+  return `${message}:tool:${id}`;
+}
+function toolContent(raw) {
+  return list(raw).map(object2).filter((part) => part.type === "text" && typeof part.text === "string").map((part) => String(part.text)).join("\n");
+}
+function v2Content(message, raw, ordinal, seq, ts) {
+  const part = object2(raw), type = part.type;
+  const timestamp2 = ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {};
+  if (type === "text" || type === "reasoning") return { id: contentId(message, ordinal), seq, type: type === "text" ? "assistant" : "thinking", content: String(part.text ?? ""), ...timestamp2 };
+  if (type !== "tool" || !text(part.id) || !text(part.name)) return void 0;
+  const state = object2(part.state), time = object2(part.time), status = String(state.status);
+  return {
+    id: toolId(message, String(part.id)),
+    seq,
+    type: "tool_call",
+    content: "",
+    toolName: String(part.name),
+    toolId: String(part.id),
+    toolInput: object2(state.input),
+    toolStatus: status,
+    ...state.content ? { toolResult: toolContent(state.content) } : {},
+    ...state.error ? { toolResult: String(object2(state.error).message ?? "Tool failed"), toolError: true } : {},
+    ...typeof time.ran === "number" ? { toolStartedAtMs: time.ran } : {},
+    ...typeof time.completed === "number" ? { toolCompletedAtMs: time.completed } : {},
+    ...timestamp2
+  };
+}
+function v2History(raw) {
+  const entries = list(raw), rows = [];
+  for (const raw2 of entries) {
+    const message = object2(raw2), id = text(message.id), created = object2(message.time).created;
+    if (!id) fail("invalid_schema", "OpenCode history message is missing its identity");
+    const ts = typeof created === "number" ? created : void 0;
+    if (message.type === "user") {
+      rows.push({ id, seq: rows.length + 1, type: "user", content: String(message.text ?? ""), ...ts !== void 0 ? { timestamp: new Date(ts).toISOString() } : {}, attachments: list(message.files).map((raw3, index) => {
+        const file = object2(raw3);
+        return { id: `${id}:file:${index}`, mimeType: String(file.mime ?? "application/octet-stream"), url: String(file.uri) };
+      }) });
+    } else if (message.type === "assistant") {
+      const content = list(message.content);
+      if (content.length > 512) fail("size_limit", "OpenCode history content exceeds its bound");
+      content.forEach((part, index) => {
+        const row = v2Content(id, part, index, rows.length + 1, ts);
+        if (row) rows.push(row);
+      });
+    }
+  }
+  return rows;
+}
+
+// plugins/provider-opencode/src/runtimeV2.ts
+function v2Model(settings) {
+  const model = modelParts(settings.model);
+  return model ? { providerID: model.providerID, id: model.modelID, ...settings.effort ? { variant: settings.effort } : {} } : void 0;
+}
+function prompt(ctx, op, id) {
+  const plan = request("v2.session.prompt", { path: { sessionID: op.threadId }, body: { id, text: op.input.text, files: op.input.attachments.map((attachment) => ({ uri: attachmentUrl(attachment) })) } }, { stage: "prompt", id });
+  if (plan.action.kind === "request") plan.action.call.target = { threadId: op.threadId, turnId: id };
+  return plan;
+}
+function v2Plan(ctx, op) {
+  const state = binding(ctx);
+  switch (op.kind) {
+    case "initialize":
+      return request("health", {});
+    case "openThread": {
+      if (ctx.threadId) fail("binding_mismatch", "New OpenCode session requires an unbound runtime");
+      return request("v2.session.create", { body: { location: { directory: ctx.cwd }, permissions: [{ action: "*", resource: "*", effect: "ask" }], ...v2Model(op.settings) ? { model: v2Model(op.settings) } : {} } });
+    }
+    case "resumeThread":
+      return request("v2.session.get", { path: { sessionID: own(ctx, op.threadId) } });
+    case "readHistory": {
+      own(ctx, op.threadId);
+      if (op.order !== "desc" || op.cursor && op.cursor.length > 4096) fail("invalid_schema", "Invalid OpenCode history page");
+      return request("v2.session.messages", { path: { sessionID: op.threadId }, query: { limit: "40", ...op.cursor ? { cursor: op.cursor } : { order: "desc" } } });
+    }
+    case "submitTurn": {
+      own(ctx, state.sessionId);
+      if (op.activeTurnId) fail("provider_refused", "OpenCode does not accept concurrent prompt turns");
+      if (JSON.stringify(v2Model(op.settings)) !== JSON.stringify(v2Model(state.settings))) fail("unsupported", "OpenCode model changes require restarting the same session");
+      const id = messageIdentity(op.sendId, Date.now(), ++state.counter);
+      claimed(ctx, { sendId: op.sendId, messageId: id, turnId: id });
+      return prompt(ctx, op, id);
+    }
+    case "interrupt":
+      return request("v2.session.abort", { path: { sessionID: own(ctx, op.threadId) }, query: { resume: "false" }, body: {} });
+    case "answer":
+      return v2Answer(ctx, op);
+    case "control":
+      if (op.action === "auth") return request("v2.provider.list", { query: { "location[directory]": ctx.cwd } }, { stage: "authProviders" });
+      if (op.action === "login") return v2LoginPlan(ctx, op);
+      fail("unsupported", `OpenCode runtime control ${op.action} is unsupported`);
+    default:
+      fail("unsupported", `OpenCode runtime operation ${op.kind} is unsupported`);
+  }
+}
+function directory(value) {
+  return value.replace(/\\/g, "/").replace(/\/$/, "");
+}
+function v2Response(ctx, op, state, reply) {
+  if (reply.kind === "error") {
+    if (op.kind === "resumeThread" && reply.error.code === 404) return { kind: "refused", reason: { code: "thread_not_found", message: "The exact OpenCode session was not found" }, beforeAcceptance: false };
+    if (op.kind === "control" && op.action === "login") return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
+    return refused(`OpenCode request was refused (${reply.error.code})`);
+  }
+  const envelope = object2(reply.value), body = envelope.body, value = object2(body), data = object2(value.data);
+  switch (op.kind) {
+    case "initialize":
+      if (state.stage === "health") {
+        if (!text(value.version) || !Number.isSafeInteger(value.pid) || !Array.isArray(value.urls) || !text(object2(value.paths).tmp)) return refused("OpenCode did not confirm its v2 server capabilities");
+        return next("v2.provider.list", { query: { "location[directory]": ctx.cwd } }, { stage: "initializeProviders", version: value.version });
+      }
+      if (state.stage === "initializeProviders") {
+        v2Providers(ctx, body);
+        return next("v2.integration.list", { query: { "location[directory]": ctx.cwd } }, { stage: "initializeIntegrations", version: state.version });
+      }
+      if (state.stage !== "initializeIntegrations") return refused("Unexpected OpenCode initialization response");
+      return { kind: "complete", result: { kind: "initialized", binaryVersion: String(state.version), agentName: "OpenCode", midTurnInput: false }, events: v2AuthEvents(ctx, body) };
+    case "openThread":
+    case "resumeThread": {
+      const setup = state.stage === "instructions" || state.stage === "model";
+      const id = setup ? text(state.id) : text(data.id);
+      if (!id || op.kind === "resumeThread" && id !== op.threadId) fail("binding_mismatch", "OpenCode did not confirm the exact session");
+      if (!setup) {
+        const cwd = text(object2(data.location).directory);
+        if (!cwd || directory(cwd) !== directory(ctx.cwd)) fail("binding_mismatch", "OpenCode session directory differs from the launch directory");
+        const model = v2Model(op.settings);
+        if (model && op.kind === "resumeThread") return next("v2.session.model", { path: { sessionID: id }, body: { model } }, { stage: "model", id });
+      }
+      if (state.stage !== "instructions") {
+        if (setup && body !== null) return refused("OpenCode did not confirm the session model update");
+        return next("v2.session.instructions", { path: { sessionID: id, key: "domios" }, body: { value: op.instructions } }, { stage: "instructions", id });
+      }
+      if (body !== null) return refused("OpenCode did not confirm the instruction entry");
+      loaded(ctx, id, op.instructions, op.settings);
+      return { kind: "complete", result: { kind: "threadLoaded", threadId: id, settings: op.settings } };
+    }
+    case "submitTurn": {
+      const planned = binding(ctx).sends.find((send) => send.sendId === op.sendId && send.messageId === state.id);
+      if (!planned) return refused("Prompt response has no exact runtime handoff");
+      if (data.id !== planned.messageId || data.sessionID !== op.threadId || data.type !== "user" || object2(data.payload).text !== op.input.text) return refused("OpenCode did not acknowledge the exact prompt inbox entry");
+      const files = list(object2(data.payload).files).map(object2);
+      if (files.length !== op.input.attachments.length || files.some((file, index) => file.uri !== attachmentUrl(op.input.attachments[index]))) return refused("OpenCode did not acknowledge the exact prompt files");
+      return { kind: "complete", result: { kind: "turnAccepted", threadId: op.threadId, sendId: op.sendId, turnId: planned.turnId } };
+    }
+    case "readHistory": {
+      own(ctx, op.threadId);
+      if (!Array.isArray(value.data) || value.data.length > 40) return refused("Invalid bounded OpenCode history response");
+      const cursor = text(object2(value.cursor).next);
+      if (cursor && (cursor.length > 4096 || cursor === op.cursor)) return refused("OpenCode history cursor did not advance");
+      return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: v2History(value.data), openItems: [], order: "desc", ...cursor ? { nextCursor: cursor } : {} } };
+    }
+    case "interrupt":
+      if (typeof value.interrupted !== "boolean") return refused("OpenCode did not acknowledge the interrupt");
+      return done(value.interrupted && op.activeTurnId ? [{ kind: "turnState", threadId: op.threadId, turnId: op.activeTurnId, state: "idle", detail: "interrupted" }] : []);
+    case "answer":
+      return body === null ? done() : refused("OpenCode did not acknowledge the prompt answer");
+    case "control":
+      if (op.action === "auth") {
+        if (state.stage === "authProviders") {
+          v2Providers(ctx, body);
+          return next("v2.integration.list", { query: { "location[directory]": ctx.cwd } }, { stage: "authIntegrations" });
+        }
+        return done(v2AuthEvents(ctx, body));
+      }
+      if (op.action === "login") return v2LoginResponse(ctx, op, state, body);
+      return refused("Unsupported OpenCode control response");
+    default:
+      return refused("Unsupported OpenCode runtime response");
+  }
+}
+
+// plugins/provider-opencode/src/runtimeV2Reduce.ts
+function current(ctx, raw) {
+  const old = object2(raw);
+  if (old.epoch !== ctx.epoch || old.nonce !== ctx.bindingNonce || old.thread !== ctx.threadId) return { epoch: ctx.epoch, nonce: ctx.bindingNonce, thread: ctx.threadId, seq: ctx.restoredRowOrdinal ?? 0, seen: [], evidenced: [], completed: [], parts: /* @__PURE__ */ Object.create(null) };
+  const state = old;
+  return { ...state, seen: [...state.seen], evidenced: [...state.evidenced], completed: [...state.completed], parts: Object.fromEntries(Object.entries(state.parts).map(([id, part]) => [id, { ...part, part: { ...part.part } }])) };
+}
+function witness(ctx, sequence, sendId) {
+  return ctx.streamWindow?.turnRequests?.find((value) => (!sendId || value.sendId === sendId) && value.written && value.afterSequence !== void 0 && sequence !== void 0 && sequence > value.afterSequence);
+}
+function echoed(ctx, state, data, sequence, events) {
+  const id = text(data.inboxID), item = object2(data.item), payload = object2(item.payload);
+  const planned = binding(ctx).sends.find((send) => send.messageId === id);
+  if (!planned || item.type !== "user" || state.evidenced.includes(planned.sendId)) return;
+  const claim = ctx.claimedSends.find((claim2) => claim2.sendId === planned.sendId && claim2.threadId === ctx.threadId), proof = witness(ctx, sequence, planned.sendId);
+  if (!claim || !proof || payload.text !== claim.input.text) return;
+  const files = list(payload.files).map(object2);
+  if (files.length !== claim.input.attachments.length || files.some((file, index) => file.uri !== attachmentUrl(claim.input.attachments[index]))) return;
+  state.evidenced.push(planned.sendId);
+  events.push(
+    { kind: "chatItem", threadId: ctx.threadId, item: { id: planned.messageId, seq: ++state.seq, type: "user", content: claim.input.text, attachments: claim.input.attachments.map((attachment) => ({ id: attachment.id, mimeType: attachment.mimeType, url: attachmentUrl(attachment) })) } },
+    { kind: "sendEvidence", threadId: ctx.threadId, sendId: planned.sendId, turnId: proof.turnId, itemId: planned.messageId }
+  );
+}
+function v2Reduce(ctx, raw, frames) {
+  const loginEvents = v2LoginEvents(ctx, frames);
+  if (!ctx.threadId) return { state: raw, events: loginEvents };
+  const state = current(ctx, raw), events = [...loginEvents];
+  const emit = (row, known) => events.push({ kind: known ? "chatItemPatch" : "chatItem", threadId: ctx.threadId, item: row });
+  for (let index = 0; index < frames.length; index++) {
+    const frame = frames[index], event = object2(frame.params), data = object2(event.data), type = String(event.type), id = text(event.id);
+    if ((text(data.sessionID) ?? text(object2(data.form).sessionID)) !== ctx.threadId) continue;
+    if (event.location && text(object2(event.location).directory)?.replace(/\\/g, "/").replace(/\/$/, "") !== ctx.cwd.replace(/\\/g, "/").replace(/\/$/, "")) continue;
+    if (!id || state.seen.includes(id)) continue;
+    state.seen.push(id);
+    state.seen = state.seen.slice(-512);
+    const sequence = ctx.streamWindow?.frameSequences?.[index];
+    const turn = state.turn ?? ctx.activeTurnId ?? witness(ctx, sequence)?.turnId;
+    if (frame.kind === "request") {
+      const prompt2 = v2Prompt(ctx, frame);
+      if (prompt2) events.push(prompt2, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "needs_input", detail: frame.method === "permission.asked" ? "awaitingApproval" : "awaitingInput" });
+      continue;
+    }
+    if (type === "session.inbox.enqueued") {
+      echoed(ctx, state, data, sequence, events);
+      continue;
+    }
+    if (type === "session.execution.started") {
+      if (turn && !state.completed.includes(turn)) {
+        state.turn = turn;
+        events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "working" });
+      }
+      continue;
+    }
+    if (["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"].includes(type)) {
+      if (turn && !state.completed.includes(turn)) {
+        state.completed.push(turn);
+        const detail = type === "session.execution.failed" ? "failed" : type === "session.execution.interrupted" ? "interrupted" : void 0;
+        if (detail === "failed") events.push({ kind: "notice", threadId: ctx.threadId, message: String(object2(data.error).message ?? "OpenCode execution failed").slice(0, 4096) });
+        events.push({ kind: "turnState", threadId: ctx.threadId, turnId: turn, state: "idle", ...detail ? { detail } : {} });
+        delete state.turn;
+      }
+      continue;
+    }
+    if (["permission.replied", "form.replied", "form.cancelled"].includes(type)) {
+      const request2 = text(data.requestID) ?? text(data.formID) ?? text(data.id);
+      if (request2) events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: request2 });
+      continue;
+    }
+    const message = text(data.assistantMessageID);
+    if (!message) continue;
+    if (type === "session.step.started") {
+      const model = object2(data.model);
+      if (text(model.providerID) && text(model.id)) events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { model: `${model.providerID}/${model.id}`, ...text(model.variant) ? { effort: String(model.variant) } : {} } });
+      continue;
+    }
+    if (type === "session.step.ended") {
+      const tokens = object2(data.tokens), cache = object2(tokens.cache);
+      const counts = [tokens.input, tokens.output, tokens.reasoning, cache.read, cache.write];
+      if (counts.every((value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) events.push({ kind: "usage", threadId: ctx.threadId, usage: { response_id: message, input_tokens: Number(tokens.input) + Number(cache.read), output_tokens: Number(tokens.output) + Number(tokens.reasoning), cache_read_tokens: Number(cache.read), cache_write_tokens: Number(cache.write), ...typeof data.cost === "number" && Number.isFinite(data.cost) && data.cost >= 0 ? { cost_micros: Math.round(data.cost * 1e6) } : {} } });
+      continue;
+    }
+    if (/^session\.(text|reasoning)\./.test(type) && Number.isSafeInteger(data.ordinal) && Number(data.ordinal) >= 0) {
+      const rowId = contentId(message, Number(data.ordinal)), known = state.parts[rowId], kind = type.split(".")[1];
+      if (type.endsWith(".delta")) {
+        if (known && typeof data.delta === "string") {
+          events.push({ kind: "chatItemAppend", threadId: ctx.threadId, itemId: rowId, content: data.delta, offset: known.bytes });
+          known.bytes += utf8Length(data.delta);
+        }
+      } else {
+        const seq = known?.seq ?? ++state.seq, content = type.endsWith(".ended") ? String(data.text ?? "") : "";
+        const row = v2Content(message, { type: kind, text: content }, Number(data.ordinal), seq);
+        if (row) {
+          emit(row, !!known);
+          state.parts[rowId] = { seq, bytes: utf8Length(content), part: {} };
+        }
+      }
+      continue;
+    }
+    if (type.startsWith("session.tool.") && text(data.id)) {
+      const rowId = toolId(message, String(data.id)), known = state.parts[rowId];
+      if (!known && type !== "session.tool.input.started") continue;
+      const seq = known?.seq ?? ++state.seq, previous = known?.part ?? {}, previousState = object2(previous.state);
+      const part = { ...previous, type: "tool", id: data.id, name: data.name ?? previous.name, time: { ...object2(previous.time) } };
+      if (type === "session.tool.input.started") part.state = { status: "pending", input: {} };
+      else if (type === "session.tool.called") {
+        part.state = { status: "running", input: object2(data.input) };
+        object2(part.time).ran = event.created;
+      } else if (type === "session.tool.success" || type === "session.tool.failed") {
+        part.state = { ...previousState, status: type.endsWith("success") ? "completed" : "error", ...data.content ? { content: data.content } : {}, ...data.error ? { error: data.error } : {} };
+        object2(part.time).completed = event.created;
+      } else if (type === "session.tool.progress") part.state = { ...previousState, metadata: data.metadata };
+      else continue;
+      const row = v2Content(message, part, 0, seq);
+      if (row) {
+        emit(row, !!known);
+        state.parts[rowId] = { seq, bytes: 0, part };
+      }
+    }
+  }
+  state.evidenced = state.evidenced.slice(-256);
+  state.completed = state.completed.slice(-256);
+  const keys = Object.keys(state.parts);
+  for (const key of keys.slice(0, Math.max(0, keys.length - 256))) delete state.parts[key];
+  if (utf8Length(JSON.stringify(state)) > 240 * 1024) fail("size_limit", "OpenCode reducer state exceeds its bounded budget");
+  return { state: json(state), events };
 }
 
 // plugins/provider-opencode/src/runtimeReduce.ts
@@ -2019,8 +2603,8 @@ function evidence(ctx, state, part, sequence, events) {
   const messageId = text(part.messageID), planned = binding(ctx).sends.find((send) => send.messageId === messageId);
   if (!planned || state.evidenced.includes(planned.sendId)) return;
   const claim = ctx.claimedSends.find((claim2) => claim2.sendId === planned.sendId && claim2.threadId === ctx.threadId);
-  const witness = ctx.streamWindow?.turnRequests?.find((request2) => request2.sendId === planned.sendId);
-  if (!claim || !witness?.written || witness.afterSequence === void 0 || sequence === void 0 || sequence <= witness.afterSequence) return;
+  const witness2 = ctx.streamWindow?.turnRequests?.find((request2) => request2.sendId === planned.sendId);
+  if (!claim || !witness2?.written || witness2.afterSequence === void 0 || sequence === void 0 || sequence <= witness2.afterSequence) return;
   const echo = state.echoes[planned.sendId] ?? { text: false, files: [] };
   if (part.type === "text" && part.text === claim.input.text && part.synthetic !== true) {
     echo.text = true;
@@ -2037,10 +2621,11 @@ function evidence(ctx, state, part, sequence, events) {
   delete state.echoes[planned.sendId];
   events.push(
     { kind: "chatItem", threadId: ctx.threadId, item: { id: planned.messageId, seq: ++state.seq, type: "user", content: claim.input.text, attachments: claim.input.attachments.map((attachment) => ({ id: attachment.id, mimeType: attachment.mimeType, url: attachmentUrl(attachment) })) } },
-    { kind: "sendEvidence", threadId: ctx.threadId, sendId: planned.sendId, turnId: witness.turnId, itemId: planned.messageId }
+    { kind: "sendEvidence", threadId: ctx.threadId, sendId: planned.sendId, turnId: witness2.turnId, itemId: planned.messageId }
   );
 }
 function runtimeReduce(ctx, raw, frames) {
+  if (binding(ctx).protocol === "v2") return v2Reduce(ctx, raw, frames);
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = stateFor(ctx, raw), events = [];
   for (let index = 0; index < frames.length; index++) {
@@ -2048,9 +2633,9 @@ function runtimeReduce(ctx, raw, frames) {
     if (ownSession(event) !== ctx.threadId) continue;
     const params = object2(event.properties), type = event.type;
     if (frame.kind === "request") {
-      const prompt = requestPrompt(ctx, frame);
+      const prompt2 = requestPrompt(ctx, frame);
       const turn = state.turn ?? ctx.activeTurnId;
-      if (prompt) events.push(prompt, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "needs_input", detail: frame.method === "permission.asked" ? "awaitingApproval" : "awaitingInput" });
+      if (prompt2) events.push(prompt2, { kind: "turnState", threadId: ctx.threadId, ...turn ? { turnId: turn } : {}, state: "needs_input", detail: frame.method === "permission.asked" ? "awaitingApproval" : "awaitingInput" });
       continue;
     }
     if (type === "message.updated") {
@@ -2127,12 +2712,12 @@ function runtimeReduce(ctx, raw, frames) {
 }
 
 // plugins/provider-opencode/src/runtime.ts
-function directory(value) {
+function directory2(value) {
   return value.replace(/\\/g, "/").replace(/\/$/, "");
 }
 function session(ctx, raw, expected) {
   const value = object2(raw), id = text(value.id), cwd = text(value.directory);
-  if (!id || expected && expected !== id || !cwd || directory(cwd) !== directory(ctx.cwd)) fail("binding_mismatch", "OpenCode did not confirm the exact session and directory");
+  if (!id || expected && expected !== id || !cwd || directory2(cwd) !== directory2(ctx.cwd)) fail("binding_mismatch", "OpenCode did not confirm the exact session and directory");
   return id;
 }
 function historyPlan(ctx, op) {
@@ -2145,6 +2730,7 @@ function runtimePlan(ctx, op) {
   if (!ctx.tabId || !ctx.bindingNonce || !Number.isSafeInteger(ctx.epoch) || ctx.epoch <= 0) fail("binding_mismatch", "Runtime launch identity missing");
   if ("threadId" in op && op.threadId) own(ctx, op.threadId);
   const state = binding(ctx);
+  if (state.protocol === "v2" && op.kind !== "initialize") return v2Plan(ctx, op);
   switch (op.kind) {
     case "initialize":
       return request("health", {});
@@ -2190,6 +2776,7 @@ function runtimePlan(ctx, op) {
 }
 function runtimeResponse(ctx, op, raw, reply) {
   const state = object2(raw);
+  if (binding(ctx).protocol === "v2") return v2Response(ctx, op, state, reply);
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "login" && text(object2(op.value).loginId)) return done([{ kind: "authLogin", login: { status: "failed", loginId: String(object2(op.value).loginId), error: `Sign-in request was refused (${reply.error.code})` } }]);
     if (op.kind === "resumeThread" && reply.error.code === 404) return { kind: "refused", reason: { code: "thread_not_found", message: "The exact OpenCode session was not found" }, beforeAcceptance: false };
@@ -2199,7 +2786,13 @@ function runtimeResponse(ctx, op, raw, reply) {
   switch (op.kind) {
     case "initialize": {
       if (state.stage === "health") {
+        const health = object2(body);
+        if (text(health.version) && Number.isSafeInteger(health.pid) && Array.isArray(health.urls) && text(object2(health.paths).tmp)) {
+          binding(ctx).protocol = "v2";
+          return v2Response(ctx, op, state, reply);
+        }
         if (object2(body).healthy !== true || !text(object2(body).version)) return refused("OpenCode did not confirm authenticated server health");
+        binding(ctx).protocol = "v1";
         return next("provider.list", {}, { stage: "initializeProviders", version: object2(body).version });
       }
       if (state.stage === "initializeProviders") return next("provider.auth", {}, { stage: "initializeMethods", version: state.version, providers: providerSummary(body) });
@@ -2258,9 +2851,9 @@ function* queryRows(db, sql, params) {
 function likePattern(term) {
   return "%" + term.replace(/[\\%_]/g, "\\$&") + "%";
 }
-function* readOpencodeSessionContent(db, sessionId, query) {
-  const maxBytes = Math.max(0, Math.floor(Number(query && query.maxBytes) || 0));
-  const hints = query && Array.isArray(query.hintTerms) ? query.hintTerms.filter((term) => typeof term === "string" && term.length > 0) : [];
+function* readOpencodeSessionContent(db, sessionId, query2) {
+  const maxBytes = Math.max(0, Math.floor(Number(query2 && query2.maxBytes) || 0));
+  const hints = query2 && Array.isArray(query2.hintTerms) ? query2.hintTerms.filter((term) => typeof term === "string" && term.length > 0) : [];
   const totals = yield* queryRows(db, TOTAL_SQL, [sessionId]);
   if (!totals) return null;
   const total = Number(totals.length > 0 ? totals[0].total : 0) || 0;
@@ -2320,7 +2913,8 @@ function hostOwnedPermissions(hostOwned) {
     ...hostOwned?.todos ? { todoread: "deny", todowrite: "deny" } : {}
   };
 }
-function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}, resumeSession, hostOwned) {
+function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}, resumeSession, hostOwned, generation2 = 1) {
+  if (generation2 === 2) return v2ConfigCommand(command, launchConfig, instructions, resumeSession ?? void 0, hostOwned);
   const platform = host.platform();
   const config = {
     ...launchConfig,
@@ -2352,8 +2946,8 @@ var plugin = {
   ...modelSwitch,
   ...decisionModel,
   ...modelProviderExports,
-  starterPromptText(prompt) {
-    return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
+  starterPromptText(prompt2) {
+    return prompt2 === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt2 });
   },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
@@ -2437,8 +3031,8 @@ var plugin = {
     const target = optionIndex > 0 ? optionIndex : 0;
     const promptShape = screen && isVerticalPrompt(String(screen)) ? "vertical" : lastPromptShape;
     if (promptShape === "vertical") {
-      const current = screen ? verticalPromptHighlightIndex(String(screen)) : -1;
-      const start = current >= 0 ? current : 0;
+      const current2 = screen ? verticalPromptHighlightIndex(String(screen)) : -1;
+      const start = current2 >= 0 ? current2 : 0;
       const delta = target - start;
       const move = delta >= 0 ? DOWN : UP;
       for (let i = 0; i < Math.abs(delta); i++) steps.push(move);
@@ -2450,7 +3044,8 @@ var plugin = {
   },
   *buildLaunchCommand(params) {
     const p = params || {};
-    const launch = variantLaunch(p.args ?? []);
+    const generation2 = yield* cliGeneration();
+    const launch = generation2 === 2 ? v2Arguments(p.args ?? []) : variantLaunch(p.args ?? []);
     const parts = [];
     let taskPath = null;
     if (p.task) {
@@ -2458,9 +3053,10 @@ var plugin = {
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
     }
     parts.push("opencode");
+    if (generation2 === 2) parts.push("--standalone");
     if (p.skipPermissions) parts.push("--auto");
     const sps = p.structuredPromptServer;
-    if (sps && sps.port) {
+    if (generation2 === 1 && sps && sps.port) {
       const platform = host.platform();
       parts.push("--hostname", host.shell.quoteFor(String(sps.hostname || "127.0.0.1"), platform));
       parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
@@ -2471,23 +3067,25 @@ var plugin = {
     if (launch.args.length > 0) {
       for (const arg of launch.args) parts.push(host.shell.quoteFor(arg, host.platform()));
     }
-    const prompt = starterPrompt(p);
-    if (p.task && prompt) {
-      parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
+    const prompt2 = starterPrompt(p);
+    if (p.task && prompt2) {
+      parts.push("--prompt", host.shell.quoteFor(prompt2, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId, p.hostOwned);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId, p.hostOwned, generation2);
   },
   *buildResumeCommand(sessionId, skipPermissions) {
-    return withPadPermissionConfig((yield* resumeLaunch(sessionId, skipPermissions)).parts.join(" "), void 0, void 0, {}, sessionId);
+    const generation2 = yield* cliGeneration();
+    return withPadPermissionConfig((yield* resumeLaunch(sessionId, skipPermissions, generation2)).parts.join(" "), void 0, void 0, {}, sessionId, void 0, generation2);
   },
   // A resumed session re-reads `instructions`, so the composed prompt is
   // re-applied through the same session-config channel buildLaunchCommand uses.
   *buildResumeCommandWithContext(params) {
     const p = params || {};
+    const generation2 = yield* cliGeneration();
     const platform = host.platform();
-    const launch = yield* resumeLaunch(p.sessionId, p.skipPermissions);
+    const launch = yield* resumeLaunch(p.sessionId, p.skipPermissions, generation2);
     const parts = launch.parts;
-    const variant = variantLaunch(p.args ? yield* resumeLaunchArgs(p.args, p.sessionId) : []);
+    const variant = generation2 === 2 ? v2Arguments(p.args ?? []) : variantLaunch(p.args ? yield* resumeLaunchArgs(p.args, p.sessionId) : []);
     const args = variant.args;
     for (let i = 0; i < args.length; i++) {
       const arg = String(args[i]);
@@ -2499,12 +3097,12 @@ var plugin = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned, generation2);
     const taskPath = yield* host.io.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned, generation2);
     const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
     const prologue = project ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&` : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config, p.sessionId, p.hostOwned);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config, p.sessionId, p.hostOwned, generation2);
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
@@ -2541,11 +3139,11 @@ var plugin = {
     const rows = yield* host.io.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
     return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
   },
-  *readSessionContent(sessionId, query) {
+  *readSessionContent(sessionId, query2) {
     if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
     const db = opencodeDbPath();
     if (!db || !(yield* host.io.fs.fileExists(db))) return null;
-    return yield* readOpencodeSessionContent(db, sessionId, query);
+    return yield* readOpencodeSessionContent(db, sessionId, query2);
   },
   *checkIntegration() {
     const cfg = opencodeConfigPath();
@@ -2746,14 +3344,15 @@ function* resumeLaunchArgs(args, sessionId) {
   retained.push("-m", model);
   return retained;
 }
-function* resumeLaunch(sessionId, skipPermissions) {
+function* resumeLaunch(sessionId, skipPermissions, generation2 = 1) {
   const platform = host.platform();
-  const db = opencodeDbPath();
-  const directory2 = db && (yield* host.io.fs.fileExists(db)) ? yield* scanSessionDirectory(db, sessionId) : null;
+  const db = generation2 === 1 ? opencodeDbPath() : null;
+  const directory3 = db && (yield* host.io.fs.fileExists(db)) ? yield* scanSessionDirectory(db, sessionId) : null;
   const parts = ["opencode"];
-  if (directory2) parts.push(host.shell.quoteFor(directory2, platform));
+  if (generation2 === 2) parts.push("--standalone");
+  if (directory3) parts.push(host.shell.quoteFor(directory3, platform));
   parts.push("--session", host.shell.quoteFor(sessionId, platform));
   if (skipPermissions) parts.push("--auto");
-  return { parts, directory: directory2 };
+  return { parts, directory: directory3 };
 }
 var plugin_default = defineProviderIo(plugin, () => host.io);
