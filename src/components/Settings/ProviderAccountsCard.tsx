@@ -19,9 +19,10 @@ interface ProviderAccountsCardProps {
 
 function useAccountCardControls(snapshot: ProviderAccountsSnapshot | null, onAction: ProviderAccountsCardProps["onAction"]) {
   const list = useRef<HTMLDivElement>(null);
+  const add = useRef<HTMLButtonElement>(null);
   const active = useRef(false);
   const mounted = useRef(false);
-  const [busy, setBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<ProviderAccountsAction | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const feedback = useRef<{ loaded: boolean; id?: string }>({ loaded: false });
   useEffect(() => {
@@ -29,7 +30,7 @@ function useAccountCardControls(snapshot: ProviderAccountsSnapshot | null, onAct
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => {
-    if (!snapshot) return;
+    if (!snapshot || pendingAction) return;
     const next = snapshot.feedback;
     if (!feedback.current.loaded) {
       feedback.current = { loaded: true, id: next?.id };
@@ -37,25 +38,34 @@ function useAccountCardControls(snapshot: ProviderAccountsSnapshot | null, onAct
     }
     if (!next || feedback.current.id === next.id) return;
     feedback.current.id = next.id;
+    if (next.kind === "removed") {
+      setAnnouncement(next.identity ? `Removed ${next.identity}` : "Removed account");
+      const nextAccount = snapshot.accounts[next.position];
+      const nextRow = Array.from(list.current?.querySelectorAll<HTMLElement>("[data-account-id]") ?? [])
+        .find(row => row.dataset.accountId === nextAccount?.id);
+      if (nextRow) nextRow.focus();
+      else add.current?.focus();
+      return;
+    }
     const account = snapshot.accounts.find(row => row.id === next.accountId);
     if (!account) return;
     const identity = account.identity ?? account.name ?? "Account";
     setAnnouncement(next.kind === "added" ? `Added ${identity}` : `${identity} moved to position ${next.position + 1}`);
     Array.from(list.current?.querySelectorAll<HTMLElement>("[data-account-id]") ?? [])
       .find(row => row.dataset.accountId === next.accountId)?.focus();
-  }, [snapshot]);
+  }, [snapshot, pendingAction]);
   const act = async (action: ProviderAccountsAction): Promise<boolean> => {
     if (active.current) return false;
     active.current = true;
-    setBusy(true);
+    setPendingAction(action);
     try { await onAction(action); return mounted.current; }
     catch { return false; }
     finally {
       active.current = false;
-      if (mounted.current) setBusy(false);
+      if (mounted.current) setPendingAction(null);
     }
   };
-  return { list, busy, announcement, act };
+  return { list, add, busy: pendingAction !== null, pendingAction, announcement, act };
 }
 
 export function ProviderAccountsCard(props: ProviderAccountsCardProps): React.JSX.Element {
@@ -84,9 +94,10 @@ function ProviderAccountsContent({ provider, snapshot: supplied, loading, error,
       <div ref={controls.list} role="list" aria-label={`${name} accounts`} aria-busy={controls.busy} className="ct-rows !p-0">
         {snapshot.accounts.map((account, position) => <ProviderAccountRow key={account.id} account={account} providerId={provider.id} providerName={name}
           iconSvg={provider.icon_svg} position={position} count={snapshot.accounts.length} busy={controls.busy} continuation={snapshot.continuation}
+          retryingRemoval={controls.pendingAction?.action === "remove" && controls.pendingAction.accountId === account.id && account.status === "removing"}
           onAction={controls.act} onRefresh={onRefresh} />)}
         <div role="listitem">
-          <button type="button" disabled={controls.busy || Boolean(adding)} onClick={() => { void controls.act({ action: "add" }); }}
+          <button ref={controls.add} type="button" disabled={controls.busy || Boolean(adding)} onClick={() => { void controls.act({ action: "add" }); }}
             className="ct-row flex min-h-11 w-full items-center gap-2 px-2 text-left text-[13px] text-[var(--ct-muted-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-border-focus)] disabled:opacity-50">
             <Plus size={14} aria-hidden="true" />Add account
           </button>
