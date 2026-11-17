@@ -49,6 +49,8 @@ Every row has source **desktop**.
 | `canvas_opened` | `src/components/Canvas/CanvasView.tsx` · CanvasView / useProductViewEvent | View mounted once; StrictMode replay does not duplicate | None | Adoption |
 | `onboarding_completed` | `src/components/AgentPicker/useFirstRunStart.ts` · settle | Selected first-run General reaches agent_ready | None | Activation |
 | `settings_viewed` | `src/hooks/useSettingsNavigation.ts · useSettingsNavigation` | Settings route section changes | `section`: SettingsSection | Adoption |
+| `agent_provider_changed` | `codeterm-agent-lifecycle/src/service/agent_restart/provider_switch/operations.rs` · complete → core analytics/lifecycle | First terminal operation result for the current target session; duplicate terminal publication, stale session, refusal and failure excluded | `provider_id`: ProviderId, `outcome`: applied/pending | Agent configuration |
+| `agent_model_changed` | `codeterm-agent-lifecycle/src/service/agent_restart/model_switch.rs` · agent_switch_model_with_fallback; staging.rs · settle_staged_model_switch → core analytics/lifecycle | Successful PTY execution result; staged AfterTurn acknowledgement excluded. Existing staged claim enforces once-only completion. Current session/nonce or successful own restart PTY required; restored-source account, failure and unchanged model excluded | `mode`: live/restart/next_turn, `outcome`: observed/pending | Agent configuration |
 | `agent_tab_selected` | `src/store/multiplexer/index.tsx` · setActiveTab | Explicit human agent-tab selection acknowledged by the selection command; shell tabs, no-op selection, restore and programmatic focus excluded | None | Engagement |
 | `mesh_request_completed` | `codeterm-api/src/mesh_routes/rpc.rs` · handle_mesh_rpc | One completed owner-dispatched RPC; cached duplicate results emit nothing; invalid authority/request admission excluded | `operation`: MeshOperation, `outcome`: RequestOutcome | Mesh use |
 | `canvas_element_saved` | `codeterm-plan/src/service_plan/canvas_elements.rs` · commit_element_change, with row receipt from element_rows; `codeterm-service-core/src/service/local_preview.rs` · write_canvas → analytics/actions::canvas_file_events | Committed plan elements or post-rename file-backed canvas create/content update/delete; layout/frame-only writes, no-op content, conflicts and failed saves excluded | `operation`: CanvasOperation, `kind`: CanvasKind | Canvas use |
@@ -78,13 +80,15 @@ These are values of `feature_used.feature`, not separate event names. Each meani
 
 Desktop enum definitions and count bounds are authoritative in `src-tauri/crates/codeterm-analytics/catalog.schema.json`. Generated Rust, TypeScript and the in-app privacy catalog come from `node scripts/check-analytics-catalog.mjs --write`. The plan enum currently maps paid desktop plans to `pro`; Sponsor segmentation is unavailable in this catalog.
 
-## Deferred lifecycle completion integration
+## Lifecycle completion integration
 
-The catalog reserves `agent_provider_changed` (`provider_id`: ProviderId, `outcome`: applied/pending)
-and `agent_model_changed` (`mode`: live/restart/next_turn, `outcome`: observed/pending).
-Their completion instrumentation awaits the merged multi-account and OpenCode lifecycle lanes.
-The expected authorities are provider_switch/operations.rs and model_switch/staging/completion_records.rs;
-operation admission is not completion. No raw model identifier is part of either event.
+Provider switching records the existing operation's first terminal success, with its catalog provider
+and applied/pending result. Model switching records the completed execution result, including a
+committed next-turn request or successful restart whose model confirmation remains pending.
+A staged AfterTurn response is admission, so it emits nothing; the claimed execution emits once.
+Later confirmation does not repeat that action. No raw model identifier enters either payload.
+The Accounts lane is integrated. Runtime/OpenCode-specific control completion remains deferred
+until its owner supplies the integration pin. The catalog reserves no separate account-switch event.
 
 ## Backend events
 
@@ -155,4 +159,4 @@ After reviewed deployments, the owner should use the Amplitude UI to confirm a c
 
 The owner must also check the Amplitude project's IP/location ingestion settings: a project-level setting can discard IP and location despite the envelope. Application code cannot inspect that setting. Confirm country and platform on consented desktop/web events after reviewed rollout.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

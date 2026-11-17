@@ -253,8 +253,13 @@ fn complete(
     operation: &Operation,
     result: Result<ProviderSwitchOutcome, String>,
 ) {
-    let payload = {
+    let (payload, observation) = {
         let mut state = operation.state.lock();
+        let observation = if matches!(state.phase.as_str(), "pending" | "running") {
+            result.as_ref().ok().cloned()
+        } else {
+            None
+        };
         match result {
             Ok(outcome) => {
                 state.phase = "completed".into();
@@ -265,8 +270,14 @@ fn complete(
                 state.error = Some(error);
             }
         }
-        serde_json::to_value(&*state).unwrap_or_default()
+        (
+            serde_json::to_value(&*state).unwrap_or_default(),
+            observation,
+        )
     };
+    if let Some(outcome) = observation {
+        svc.record_product_provider_switch(&outcome);
+    }
     operation.changed.notify_all();
     svc.ui.emit("provider-switch-status", payload);
     svc.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
