@@ -75,6 +75,10 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
                     let mut mux = service.mux.write();
                     let tab = mux.get_tab_mut(&id).unwrap();
                     tab.agent_type = Some("confined-runtime".into());
+                    tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+                        plugin_id: "confined-runtime".into(),
+                        session_id: String::new(),
+                    };
                     tab.cwd = Some(cwd.clone());
                     tab.neighbor_authority = Some(crate::multiplexer::types::NeighborAuthority {
                         uid:"owner".into(),friendship_id:"a".repeat(64),root_tab_id:None,
@@ -84,8 +88,10 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
                 let mut params = SpawnAgentParams { agent:Some("confined-runtime".into()),cwd:Some(cwd),
                     sandbox:Some(if grant.machine_access == MachineAccess::ReadOnly {"read-only"} else {"workspace-write"}.into()),
                     neighbor_authority:service.mux.read().get_tab(&id).unwrap().neighbor_authority.clone(), ..Default::default() };
-                service.configure_neighbor_launch_access("confined-runtime", grant.machine_access, &mut params)?;
-                service.prepare_agent_runtime_launch_options(&id, &params)?;
+                service.configure_neighbor_launch_access("confined-runtime", grant.machine_access, &mut params)
+                    .expect("fixture access is supported");
+                service.prepare_agent_runtime_launch_options(&id, &params)
+                    .expect("fixture runtime launch options are valid");
                 let bound = id.clone();
                 captured.lock().push(test_ports::register(&id, move || {
                     let (process, peer) = test_ports::connected();
@@ -107,7 +113,7 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
                 let owner = service.clone();
                 let target = id.clone();
                 tokio::task::spawn_blocking(move || agent_runtime::transport::launch(&owner, "confined-runtime", &target, json!({})))
-                    .await.unwrap()?;
+                    .await.unwrap().expect("confined runtime launches");
                 Ok(id)
             }).await.unwrap();
         let id = result["gateway_tab"].as_str().unwrap();

@@ -124,7 +124,7 @@ pub fn guard_instruction(author: &MemAuthor, kind: &str, pinned: bool) -> Result
     Ok(())
 }
 
-pub(crate) fn guard_save(
+pub fn guard_save(
     context: &crate::backend::WriteContext,
     item: &super::NewMemItem,
 ) -> Result<(), String> {
@@ -134,7 +134,7 @@ pub(crate) fn guard_save(
     guard_instruction(&context.author, item.kind.as_str(), item.pinned)
 }
 
-pub(crate) fn neighbor_skill_save_authorized(
+pub fn neighbor_skill_save_authorized(
     context: &crate::backend::WriteContext,
     item: &super::NewMemItem,
 ) -> bool {
