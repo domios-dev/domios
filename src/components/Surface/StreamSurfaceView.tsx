@@ -85,14 +85,14 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   const state = withOwner(stream.state, ownerName);
   const [interactive, setInteractive] = useSurfaceTakeControl(surfaceTabId);
   const [inputFailure, setInputFailure] = useState<string | null>(null);
-  const wasInteractive = useRef(false);
+  const wasInteractive = useRef(interactive);
   useEffect(() => {
     if (interactive && !wasInteractive.current) {
       setInputFailure(null);
-      stream.onInteraction();
+      stream.takeControl();
     }
     wasInteractive.current = interactive;
-  }, [interactive, stream.onInteraction]);
+  }, [interactive, stream.takeControl]);
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [snipping, setSnipping] = useState(false);
@@ -321,7 +321,7 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   };
 
   return (
-    <section className="ct-surface" aria-label={label} data-testid="stream-surface" onPointerDownCapture={stream.onInteraction} onKeyDownCapture={stream.onInteraction} onKeyDown={onRootKeyDown}>
+    <section className="ct-surface" aria-label={label} data-testid="stream-surface" onKeyDown={onRootKeyDown}>
       <SurfaceToolbar
         label={label}
         items={items}
