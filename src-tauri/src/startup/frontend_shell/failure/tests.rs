@@ -5,9 +5,15 @@ fn every_failure_branch_has_a_distinct_bounded_detail() {
     let cases = [
         (FailureCode::NativeDisconnect, "native_disconnect"),
         (FailureCode::RootAckDeadline, "root_ack_deadline"),
+        (FailureCode::StartupRefused, "daemon_startup_refused"),
         (
-            FailureCode::FallbackNavigationFailed,
-            "fallback_navigation_failed",
+            FailureCode::ServerAttachmentRefused,
+            "server_attachment_refused",
+        ),
+        (FailureCode::ClientRetryRefused, "client_retry_refused"),
+        (
+            FailureCode::AutomaticRecoveryDeadline,
+            "automatic_recovery_deadline",
         ),
         (FailureCode::FallbackUnavailable, "fallback_unavailable"),
         (FailureCode::NavigationFailed, "navigation_failed"),

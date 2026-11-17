@@ -34,42 +34,34 @@ pub(crate) fn reveal_main(app: &codeterm_client_shell::app_runtime::AppHandle) {
 
 pub(super) fn show_unavailable(window: &WebviewWindow, code: FailureCode, reason: &str) {
     let detail = code.record(reason);
-    show_unavailable_recorded(window, &detail);
+    show_unavailable_recorded(window, code, &detail, reason);
 }
 
-pub(super) fn show_unavailable_recorded(window: &WebviewWindow, detail: &str) {
-    if let Some(starting) = window.app_handle().get_webview_window("starting") {
-        show_start_failure_recorded(&starting, detail);
+pub(super) fn show_unavailable_recorded(
+    window: &WebviewWindow,
+    code: FailureCode,
+    detail: &str,
+    reason: &str,
+) {
+    if reconnect::recover_before_failure(window.app_handle(), code, reason) {
         return;
     }
-    reveal_main(window.app_handle());
-    // Preserve the recovery document across repeated disconnection events.
-    let on_recovery_surface = ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel);
-    if !ON_START_FAILURE.swap(false, Ordering::AcqRel) && on_recovery_surface {
-        return;
-    }
-    match unavailable_url()
-        .map_err(|error| error.to_string())
-        .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
-    {
-        Ok(()) => {
-            log::debug!("[frontend-shell] native recovery surface selected");
-        }
-        Err(error) => {
-            ON_RECOVERY_SURFACE.store(false, Ordering::Release);
-            show_navigation_failure(window, FailureCode::RecoveryNavigationFailed, &error);
-            log::error!("[frontend-shell] recovery surface failed: {error}");
-        }
-    }
+    let target = window
+        .app_handle()
+        .get_webview_window("starting")
+        .unwrap_or_else(|| window.clone());
+    show_start_failure_recorded(&target, detail);
 }
 
 /// A fragment-only change keeps the document, so a repeated refusal just updates its reason.
 pub(crate) fn show_start_failure(window: &WebviewWindow, code: FailureCode, reason: &str) {
     let detail = code.record(reason);
-    show_start_failure_recorded(window, &detail);
+    if !reconnect::recover_before_failure(window.app_handle(), code, reason) {
+        show_start_failure_recorded(window, &detail);
+    }
 }
 
-fn show_start_failure_recorded(window: &WebviewWindow, detail: &str) {
+pub(super) fn show_start_failure_recorded(window: &WebviewWindow, detail: &str) {
     if window.label() == "main" {
         reveal_main(window.app_handle());
     }
@@ -87,6 +79,22 @@ fn show_start_failure_recorded(window: &WebviewWindow, detail: &str) {
             log::error!("[frontend-shell] start failure surface failed: {error}");
         }
     }
+}
+
+pub(super) fn show_reconnecting(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+) -> Result<(), String> {
+    ON_RECOVERY_SURFACE.store(true, Ordering::Release);
+    ON_START_FAILURE.store(false, Ordering::Release);
+    if app.get_webview_window("starting").is_none() {
+        crate::startup::starting_window::show(app).map_err(|error| error.to_string())?;
+    }
+    let starting = app
+        .get_webview_window("starting")
+        .ok_or("Starting window is unavailable")?;
+    starting
+        .navigate(unavailable_url().map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())
 }
 
 fn show_navigation_failure(window: &WebviewWindow, code: FailureCode, reason: &str) {

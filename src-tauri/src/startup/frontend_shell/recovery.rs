@@ -17,116 +17,122 @@ fn recovery_document(
     current_url.map(|url| same_navigation_document(&url, unavailable))
 }
 
-async fn reinitialize_client(app: codeterm_client_shell::app_runtime::AppHandle) {
-    match crate::host_ports::native_client::retry_initialize_client(app.clone()).await {
-        Ok(initialized) => {
-            #[cfg(debug_assertions)]
-            if initialized.native == crate::host_ports::native_client::NativeClientStatus::Attached
-            {
-                eprintln!(
-                    "DOMIOS_DEV_ATTACHMENT {}",
-                    serde_json::json!({ "protocol": initialized.ready.protocol,
-                            "client_pid": std::process::id(), "server_pid": initialized.ready.process.pid,
-                            "epoch": initialized.ready.epoch,
-                            "api_address": initialized.ready.api_address.to_string() })
-                );
-            }
-            if let Err(error) = recover_for_attachment(app.clone(), &initialized.ready).await {
-                log::error!("[frontend-shell] attachment recovery failed: {error}");
-                if let Some(window) = app
-                    .get_webview_window("starting")
-                    .or_else(|| app.get_webview_window("main"))
-                {
-                    show_start_failure(&window, FailureCode::AttachmentRecoveryFailed, &error);
-                }
-            }
-        }
-        Err(error) => {
-            log::error!(
-                "[frontend-shell] client retry refused (stated={}): {error}",
-                error.stated_refusal()
-            );
-            if let Some(window) = app
-                .get_webview_window("starting")
-                .or_else(|| app.get_webview_window("main"))
-            {
-                show_start_failure(&window, FailureCode::ClientRetryFailed, error.message());
-            }
-        }
+async fn reinitialize_client(
+    app: codeterm_client_shell::app_runtime::AppHandle,
+    recreate: bool,
+) -> Result<(), FrontendFailure> {
+    let initialized = crate::host_ports::native_client::retry_initialize_client(app.clone())
+        .await
+        .map_err(|error| {
+            FrontendFailure::new(
+                if error.retryable() {
+                    FailureCode::ClientRetryFailed
+                } else {
+                    FailureCode::ClientRetryRefused
+                },
+                error.message(),
+            )
+        })?;
+    if let crate::host_ports::native_client::NativeClientStatus::NativeHostUnavailable {
+        message,
+        retryable,
+    } = initialized.native
+    {
+        return Err(FrontendFailure::new(
+            if retryable {
+                FailureCode::ClientRetryFailed
+            } else {
+                FailureCode::ClientRetryRefused
+            },
+            message,
+        ));
     }
+    recover_attachment(app, &initialized.ready, recreate)
+        .await
+        .map_err(|mut error| {
+            if error.code == FailureCode::StartupStreamFailed {
+                error.code = FailureCode::AttachmentRecoveryFailed;
+            }
+            error
+        })
 }
 
 pub(crate) fn retry(app: &codeterm_client_shell::app_runtime::AppHandle) {
     cancel_recovery(app);
-    if let Some(starting) = app.get_webview_window("starting") {
-        if let Ok(url) = starting_url() {
-            let _ = starting.navigate(url);
-        }
-    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = reconnect::cancel_and_wait(&app).await {
+        let result = async {
+            reconnect::cancel_and_wait(&app).await.map_err(|reason| {
+                FrontendFailure::new(FailureCode::RetryCancellationFailed, reason)
+            })?;
+            reconnect::reset(&app);
+            run_on_main_thread(app.clone(), |handle| surfaces::show_reconnecting(&handle))
+                .await
+                .map_err(|reason| {
+                    FrontendFailure::new(FailureCode::RecoveryNavigationFailed, reason)
+                })?;
+            retry_once(app.clone(), false).await
+        }
+        .await;
+        if let Err(error) = result {
             if let Some(window) = app
                 .get_webview_window("starting")
                 .or_else(|| app.get_webview_window("main"))
             {
-                show_start_failure(&window, FailureCode::RetryCancellationFailed, &error);
-            }
-            return;
-        }
-        let Some(attachment) = app
-            .try_state::<ServerApiAttachmentSlot>()
-            .and_then(|slot| slot.current())
-        else {
-            reinitialize_client(app).await;
-            return;
-        };
-        let Some(window) = app.get_webview_window("main") else {
-            drop(attachment);
-            reinitialize_client(app).await;
-            return;
-        };
-        let initial_failed = {
-            let supervisor = app.state::<ShellSupervisor>();
-            supervisor
-                .initial_document
-                .failed(supervisor.active_view_generation.load(Ordering::Acquire))
-        };
-        if initial_failed {
-            drop(attachment);
-            reinitialize_client(app).await;
-            return;
-        }
-        let identity = attachment.identity().clone();
-        let server_epoch = attachment.epoch().to_owned();
-        let origin = attachment.api_origin();
-        drop(attachment);
-        let target = frontend_url(&app, &origin).await;
-        if !same_server_attachment(&app, &identity, &server_epoch) {
-            return;
-        }
-        match target {
-            Ok(url) => {
-                if let Err(error) = navigate_frontend(&app, &window, url) {
-                    log::error!("[frontend-shell] native frontend retry failed: {error}");
-                    show_unavailable(&window, FailureCode::RetryNavigationFailed, &error);
-                }
-            }
-            Err(error) => {
-                // A dead server keeps its stale attachment; attach to or launch a live one.
-                log::debug!(
-                    "[frontend-shell] attached interface unreachable ({error}); reinitializing"
-                );
-                reinitialize_client(app).await;
+                show_start_failure(&window, error.code, &error.reason);
             }
         }
     });
 }
 
-pub(crate) async fn recover_for_attachment(
+pub(super) async fn retry_once(
+    app: codeterm_client_shell::app_runtime::AppHandle,
+    full_bootstrap: bool,
+) -> Result<(), FrontendFailure> {
+    if full_bootstrap {
+        return reinitialize_client(app, true).await;
+    }
+    let attachment = app
+        .try_state::<ServerApiAttachmentSlot>()
+        .and_then(|slot| slot.current());
+    let Some(attachment) = attachment else {
+        return reinitialize_client(app, false).await;
+    };
+    let Some(window) = app.get_webview_window("main") else {
+        drop(attachment);
+        return reinitialize_client(app, false).await;
+    };
+    let initial_failed = {
+        let supervisor = app.state::<ShellSupervisor>();
+        supervisor
+            .initial_document
+            .failed(supervisor.active_view_generation.load(Ordering::Acquire))
+    };
+    if initial_failed {
+        drop(attachment);
+        return reinitialize_client(app, true).await;
+    }
+    let identity = attachment.identity().clone();
+    let server_epoch = attachment.epoch().to_owned();
+    let origin = attachment.api_origin();
+    drop(attachment);
+    let target = frontend_url(&app, &origin).await;
+    if !same_server_attachment(&app, &identity, &server_epoch) {
+        return reinitialize_client(app, true).await;
+    }
+    match target {
+        Ok(url) => navigate_frontend(&app, &window, url)
+            .map_err(|reason| FrontendFailure::new(FailureCode::RetryNavigationFailed, reason)),
+        Err(error) if !error.code.recoverable() => Err(error),
+        Err(_) => reinitialize_client(app, false).await,
+    }
+}
+
+async fn recover_attachment(
     app: codeterm_client_shell::app_runtime::AppHandle,
     expected: &codeterm_types::server_bootstrap::ServerReady,
-) -> Result<(), String> {
+    recreate: bool,
+) -> Result<(), FrontendFailure> {
     ensure_server_attachment(&app, expected)?;
     let Some(window) = app.get_webview_window("main") else {
         crate::deep_links::register_deep_links(&app).map_err(|error| error.to_string())?;
@@ -160,7 +166,7 @@ pub(crate) async fn recover_for_attachment(
             .initial_document
             .failed(supervisor.active_view_generation.load(Ordering::Acquire))
     };
-    if can_reuse_window && !initial_failed {
+    if can_reuse_window && !initial_failed && !recreate {
         ensure_server_attachment(&app, expected)?;
         let url = frontend_url(&app, &loopback_origin(expected.api_address)?).await?;
         ensure_server_attachment(&app, expected)?;

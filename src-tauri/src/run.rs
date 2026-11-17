@@ -193,7 +193,11 @@ pub fn run(
                             {
                                 startup::frontend_shell::show_start_failure(
                                     &window,
-                                    startup::frontend_shell::FailureCode::ServerAttachmentFailed,
+                                    if error.retryable() {
+                                        startup::frontend_shell::FailureCode::ServerAttachmentFailed
+                                    } else {
+                                        startup::frontend_shell::FailureCode::ServerAttachmentRefused
+                                    },
                                     error.message(),
                                 );
                             }

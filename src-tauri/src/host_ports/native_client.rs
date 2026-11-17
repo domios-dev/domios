@@ -16,6 +16,10 @@ pub(crate) use bootstrap::{
     ClientStartupStage,
 };
 
+pub(crate) fn record_frontend_recovery(detail: &str) {
+    startup_log::record("frontend", "recovery", Some(detail), None);
+}
+
 pub(crate) fn record_frontend_failure(detail: &str) {
     startup_log::record("frontend", "unavailable", Some(detail), None);
 }
