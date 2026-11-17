@@ -7,14 +7,14 @@
  * where every column starts. The record is kept regardless — the panel is the
  * complete log and is not one of these columns.
  */
-export type AgentLevelChoice = { level: string, 
+export type AgentLevelChoice = { level: string,
 /**
  * Retained and inert. No policy reads it: every record reaches the panel,
  * so this answers nothing. It stays a named field because `channels` is
  * flattened — drop it and every stored `bell = true` deserialises into that
  * map as a push channel called "bell" that no registry will ever resolve.
  */
-bell: boolean, desktop: boolean, 
+bell: boolean, desktop: boolean,
 /**
  * Whether this level chimes. A NAMED field, never a key of the flattened
  * map below, which would read a stored `sound` back as a push channel.

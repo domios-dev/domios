@@ -429,6 +429,9 @@ impl StagedSwitchExt for ServiceContext {
             }
             warn
         };
+        if !retry {
+            self.record_product_model_switch(&result, Some(&request.nonce));
+        }
         if let Err(error) = result {
             log::warn!("[agent-model/completion] tab={} request={} phase=staged_refused retry={} error={error}", request.tab_id, request.id, retry);
             if warn {

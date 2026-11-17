@@ -4,20 +4,20 @@
  * Status of the active backend — drives the Settings UI badge and dictates
  * which CLI commands can succeed.
  */
-export type StoreStatus = { "status": "logged_out", 
+export type StoreStatus = { "status": "logged_out",
 /**
  * Endpoint the backend will talk to once unlocked. Lets the
  * Bitwarden login UI confirm "you'll log in to <URL>".
  */
-endpoint?: string, } | { "status": "locked", endpoint?: string, } | { "status": "unlocked", 
+endpoint?: string, } | { "status": "locked", endpoint?: string, } | { "status": "unlocked",
 /**
  * Best-effort identity (email for Bitwarden, hostname for keychain, etc.).
  */
-user: string | null, 
+user: string | null,
 /**
  * Backend cannot persist creds across restarts (e.g. Linux without libsecret).
  */
-transient: boolean, 
+transient: boolean,
 /**
  * Where the backend is connected — Bitwarden server URL,
  * keychain service, etc. Lets the user confirm "I'm signed in to

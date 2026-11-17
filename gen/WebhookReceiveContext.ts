@@ -2,7 +2,7 @@
 import type { WebhookAudio } from "./WebhookAudio";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type WebhookReceiveContext = { payload: JsonValue, receivedAt: string, 
+export type WebhookReceiveContext = { payload: JsonValue, receivedAt: string,
 /**
  * Present only when an audio-capable receiver was sent an audio part; the bytes stay with the host.
  */

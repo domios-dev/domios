@@ -53,6 +53,7 @@ pub struct NeighborRuntimeCell {
     pub handling: super::handling::Cell,
     pub concierge_accounts: parking_lot::Mutex<HashMap<String, String>>,
     pub restore_grants: parking_lot::Mutex<HashMap<String, super::confinement::RestoreGrant>>,
+    pub restore_access_notices: parking_lot::Mutex<std::collections::HashSet<String>>,
     registry_snapshot: parking_lot::Mutex<Option<Value>>,
     owner: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<owner::Request>>>,
     pub generation: AtomicU64,
@@ -153,10 +154,14 @@ pub enum NeighborRuntimeCommand {
         permission: Value,
     },
     Send {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
         friendship_id: String,
         kind: Kind,
         body: String,
         in_reply_to: Option<String>,
+        #[serde(default)]
+        attach: Vec<String>,
     },
     DeliveryStatus {
         message_id: String,
@@ -164,6 +169,7 @@ pub enum NeighborRuntimeCommand {
 }
 
 pub struct Outgoing {
+    message_id: Option<String>,
     authority: authority::SendAuthority,
     friendship: String,
     kind: Kind,
@@ -177,6 +183,7 @@ pub enum OutboundBody {
     Files {
         text: Zeroizing<String>,
         paths: Vec<String>,
+        pad: Option<crate::service::agent_pad::AgentPad>,
     },
     Refusal,
 }
@@ -437,9 +444,14 @@ impl NeighborsExt for ServiceContext {
         if let NeighborRuntimeCommand::StopConcierge { friendship_id } = &command {
             return self.stop_neighbor_concierge(friendship_id).await;
         }
-        if let NeighborRuntimeCommand::Send { body, .. } = &command {
-            codeterm_neighbors::wire::validate_nonempty_text(body)
-                .map_err(|error| error.to_string())?;
+        if let NeighborRuntimeCommand::Send { body, attach, .. } = &command {
+            if attach.is_empty() {
+                codeterm_neighbors::wire::validate_nonempty_text(body)
+                    .map_err(|error| error.to_string())?;
+            }
+            if attach.len() > codeterm_neighbors::files::MAX_ATTACHMENTS {
+                return Err(Error::InvalidRequest.to_string());
+            }
             codeterm_neighbors::wire::validate_message_size(body)
                 .map_err(|error| error.to_string())?;
         }
@@ -844,20 +856,37 @@ impl NeighborsExt for ServiceContext {
                         .await
                 }
                 NeighborRuntimeCommand::Send {
+                    message_id,
                     friendship_id,
                     kind,
                     body,
                     in_reply_to,
+                    attach,
                 } => {
+                    let body = if attach.is_empty() {
+                        OutboundBody::Granted(Zeroizing::new(body))
+                    } else {
+                        if attach.len() > codeterm_neighbors::files::MAX_ATTACHMENTS {
+                            return Err(Error::InvalidRequest);
+                        }
+                        let tab = caller.ok_or(Error::PermissionDenied)?;
+                        let pad = self.ensure_agent_pad(tab).map_err(|_| Error::InvalidRequest)?;
+                        OutboundBody::Files {
+                            text: Zeroizing::new(body),
+                            paths: attach,
+                            pad: Some(pad),
+                        }
+                    };
                     self.send_neighbor(
                         &transport,
                         &lifecycle,
                         &metadata,
                         Outgoing {
+                            message_id,
                             authority: send_authority,
                             friendship: friendship_id,
                             kind,
-                            body: OutboundBody::Granted(Zeroizing::new(body)),
+                            body,
                             in_reply_to,
                             author: self.neighbor_author(caller)?,
                         },
@@ -1022,6 +1051,7 @@ impl NeighborsExt for ServiceContext {
         self.neighbor_pauses().clear();
         self.neighbor_cell().handling.clear();
         self.neighbor_cell().restore_grants.lock().clear();
+        self.neighbor_cell().restore_access_notices.lock().clear();
         self.neighbor_cell().control_cancel.notify_waiters();
         self.cancel_neighbor_restoration();
         self.neighbor_restoration_entitlement_changed();
@@ -1067,6 +1097,7 @@ impl NeighborsExt for ServiceContext {
         self.neighbor_pauses().clear();
         self.neighbor_cell().handling.clear();
         self.neighbor_cell().restore_grants.lock().clear();
+        self.neighbor_cell().restore_access_notices.lock().clear();
     }
 }
 

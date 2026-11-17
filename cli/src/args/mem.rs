@@ -3,9 +3,9 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum MemAction {
-    /// Save a fact or note through this friendship's live memory write grant.
+    /// Save a fact, note or (with Full access) skill through this friendship's live grant.
     NeighborSave {
-        #[arg(long, value_parser = ["fact", "note"])]
+        #[arg(long, value_parser = ["fact", "note", "skill"])]
         kind: String,
         #[arg(long)]
         area: String,

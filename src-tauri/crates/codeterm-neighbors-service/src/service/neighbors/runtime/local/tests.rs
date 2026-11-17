@@ -8,6 +8,8 @@ async fn oversized_sends_are_typed_before_the_network_operation_queue() {
     let (owner, mut queued) = tokio::sync::mpsc::channel(1);
     *fixture.service.neighbor_cell().owner.lock() = Some(owner);
     let command = NeighborRuntimeCommand::Send {
+        attach: vec![],
+        message_id: None,
         friendship_id: "a".repeat(64),
         kind: Kind::Question,
         body: "x".repeat(32753),

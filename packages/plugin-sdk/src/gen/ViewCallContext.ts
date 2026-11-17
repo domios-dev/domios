@@ -5,7 +5,7 @@ import type { ViewCallOrigin } from "./ViewCallOrigin";
 /**
  * Resolved by a host document or narrow host port; never deserialize from iframe args.
  */
-export type ViewCallContext = { plugin: string, origin: ViewCallOrigin, surface: string | null, instance: string | null, tab: string | null, owner: string | null, workspace: string | null, team: string | null, actor: ViewActor, 
+export type ViewCallContext = { plugin: string, origin: ViewCallOrigin, surface: string | null, instance: string | null, tab: string | null, owner: string | null, workspace: string | null, team: string | null, actor: ViewActor,
 /**
  * Non-secret document identity, distinct from the private authorization lease.
  */

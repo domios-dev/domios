@@ -471,6 +471,16 @@
               "aliases": [],
               "args": [
                 {
+                  "name": "attach",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PAD_RELATIVE_FILE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Attach a file from this tab's AgentPad; repeat for up to four files",
+                  "aliases": []
+                },
+                {
                   "name": "friendship_id",
                   "positional": true,
                   "required": true,
@@ -483,7 +493,7 @@
                 {
                   "name": "from-pad",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "FROM_PAD",
                   "possible_values": [],
                   "default": null,
@@ -1654,6 +1664,16 @@
           "about": "Spawn a new agent; roleless unless --role is provided.",
           "aliases": [],
           "args": [
+            {
+              "name": "account",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Harness account ID from Settings > Agents > Harness > Accounts. Defaults to workspace choice, then first available",
+              "aliases": []
+            },
             {
               "name": "agent",
               "positional": true,
@@ -6722,7 +6742,7 @@
         },
         {
           "name": "neighbor-save",
-          "about": "Save a fact or note through this friendship's live memory write grant",
+          "about": "Save a fact, note or (with Full access) skill through this friendship's live grant",
           "aliases": [],
           "args": [
             {
@@ -6752,7 +6772,8 @@
               "value_name": "KIND",
               "possible_values": [
                 "fact",
-                "note"
+                "note",
+                "skill"
               ],
               "default": null,
               "help": null,

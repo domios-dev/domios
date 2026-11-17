@@ -6,7 +6,7 @@ import type { JsonValue } from "./serde_json/JsonValue";
  * What the UI gets for one peer — always an honest envelope, never a silent
  * empty list: stale data is flagged stale, fetch errors are carried along.
  */
-export type PeerServicesView = { services: Array<JsonValue>, 
+export type PeerServicesView = { services: Array<JsonValue>,
 /**
  * True when `services` is last-known data, not a fresh fetch.
  */

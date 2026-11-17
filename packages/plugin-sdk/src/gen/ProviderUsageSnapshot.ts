@@ -2,7 +2,7 @@
 import type { BillingMode } from "./BillingMode";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type ProviderUsageSnapshot = { usage_details: JsonValue | null, provider: string, billing_mode: BillingMode, limits_reported: boolean, account_id: string | null, captured_at_ms: number, session_pct: number | null, session_resets_at_ms: number | null, weekly_pct: number | null, weekly_resets_at_ms: number | null, 
+export type ProviderUsageSnapshot = { usage_details: JsonValue | null, provider: string, billing_mode: BillingMode, limits_reported: boolean, account_id: string | null, captured_at_ms: number, session_pct: number | null, session_resets_at_ms: number | null, weekly_pct: number | null, weekly_resets_at_ms: number | null,
 /**
  * Spend-based providers (e.g. cursor): cents used in the current billing
  * cycle. None for percentage-based providers.

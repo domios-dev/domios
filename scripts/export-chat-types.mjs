@@ -35,7 +35,7 @@ async function synchronize(directory, sources) {
     const files = await generatedFiles(source);
     if (files.length === 0) throw new Error(`No generated TypeScript files under ${source}`);
     for (const relative of files) {
-      const body = await readFile(path.join(source, relative), "utf8");
+      const body = (await readFile(path.join(source, relative), "utf8")).replace(/[ \t]+(?=\r?$)/gm, "");
       if (contents.has(relative) && contents.get(relative) !== body) {
         throw new Error(`Conflicting Rust exports: ${relative}`);
       }

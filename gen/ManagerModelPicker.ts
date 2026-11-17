@@ -5,7 +5,7 @@ import type { RoleAuthority } from "./RoleAuthority";
 /**
  * A model/effort picker for a with_team manager the owner must choose for.
  */
-export type ManagerModelPicker = { 
+export type ManagerModelPicker = {
 /**
  * The manager's role name.
  */

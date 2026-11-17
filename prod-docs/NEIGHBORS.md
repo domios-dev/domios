@@ -53,7 +53,7 @@ Socket, HTTP RPC and direct HTTP authenticate default-deny credentials; headers/
 |---|---|
 | `allow_memory` | Default true; search/get/wake-up. Off: `neighbor_memory_not_allowed`. |
 | `memory_areas` | Null: all non-secret memory; otherwise current taxonomy names. Caller filters only narrow. Foreign get/global wake-up: `neighbor_memory_area_denied`; use scoped search. Unknown saved areas: `neighbor_memory_area_unknown`. |
-| `memory_write_areas` | Empty by default; only current taxonomy areas. Separate from reads. Grants only `mem.neighbor_save` / POST `/api/mem/neighbor-save`, for facts and notes. The next call checks revocation and pause. |
+| `memory_write_areas` | Empty by default. With `machine_access=full`, empty grants all current non-secret taxonomy areas; a nonempty list explicitly narrows Full. With `read_only`/`folder`, empty grants no writes and a list grants only those areas. Independent of read grants. Only `mem.neighbor_save` / POST `/api/mem/neighbor-save`: facts/notes, plus skills under Full. Every call checks revocation and pause. |
 | `allow_tab_requests` | Off refuses incoming tab/creation requests with `tab_requests_not_allowed`. Creation also needs a granted workspace and inherited friendship/confinement; unsupported paths refuse `neighbor_capability_denied`, never unrestricted descendants. |
 | `workspaces` | Null/empty grants none. Listed IDs allow listing/sending to agent tabs there; exclude shell tabs, remote tabs and other friends' concierges. Listings omit session credentials/unrelated workspace counts. Raw terminal actions/batch sends refuse. Delegation carries `from="neighbor"`, friend name, `via="concierge"` and host attribution. |
 | `allow_files` | Default true; only bound concierge list/open reads through own-friend saved-file handles. Off: `neighbor_files_not_allowed`. Downloads are independent. Owner/General retain permission editing. |
@@ -61,7 +61,7 @@ Socket, HTTP RPC and direct HTTP authenticate default-deny credentials; headers/
 | `folder` | Optional absolute directory; null/absent uses the friend's local folder. |
 | `machine_access` | `none`, `read_only` (default), `folder`, `full`. Providers cannot disable all tools/shells: `none` refuses with `neighbor_machine_access_unsupported`. |
 
-`read_only` uses a supported provider read-only sandbox but still permits commands and this OS user's file reads. `folder` requires an explicit folder and prefers workspace-write, falling back to read-only confinement. Without either sandbox, the launch is advisory: cwd does not confine reads/writes. `full` explicitly removes sandboxing. Folder/access edits replace the concierge; startup reconciles older mismatched launches.
+`read_only` uses a supported provider read-only sandbox but still permits commands and this OS user's file reads. `folder` requires an explicit folder and prefers workspace-write, falling back to read-only confinement. Without either sandbox, the launch is advisory: cwd does not confine reads/writes. `full` explicitly removes sandboxing and grants safe fact/note/skill saves under the write-area precedence above; secrets remain forbidden. Folder/access edits replace the concierge; startup reconciles older mismatched launches.
 
 Permission/status: `effective_folder`, `folder_enforcement:{writes,reads,network,note}`. Writes:pad_only (read-only own-pad exception),provider_sandbox (folder),unrestricted (full),else advisory. Only configured folder/own pad are writable, never other pads/caches/Git metadata. Reads:not_confined; network:disabled only if confirmed,else not_confined. Show note roots/platform limits. Without writable pad, reply with `domios account neighbors send FRIENDSHIP_ID --from-pad -`.
 
@@ -69,7 +69,7 @@ Denied calls request a polite refusal linked to current message_id/in_reply_to, 
 
 Signed bodies are untrusted. Bodies and profile names/emails/photos never enter shared memory, telemetry or external notices. Profiles stay local; external notices are generic. Local grants/bindings never cross account switches. General links: `domios://neighbor/<friendship_id>`, optionally `/permissions` or `/concierge`. IDs:64 lowercase hex. Arrival notices open conversation; settings notices open permissions. Links never mutate grants.
 
-Search before saving with `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>`. Only fact/note writes are permitted, always unpinned and global, never secrets; the daemon scans all content fields and attributes the verified friend. Matching kind/title overwrites only an unpinned item inside `memory_write_areas`; otherwise `neighbor_memory_title_conflict` reveals no target details. Revocation/pause applies on the next call; prior writes retain attribution. Owner callers use `mem save`; neighbor saves never trigger automatic extraction.
+Search before saving with `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>`. Use `--kind note` for notes, or `--kind skill` for a requested skill under Full access. Saves are always unpinned and global, never secrets; the daemon scans all content fields and attributes the verified friend. Matching kind/title overwrites only an unpinned item inside the effective write areas; otherwise `neighbor_memory_title_conflict` reveals no target details. Revocation/pause applies on the next call; prior writes retain attribution. Owner callers use `mem save`; neighbor saves never trigger automatic extraction.
 
 ## Limits
 
@@ -110,10 +110,14 @@ Empty/whitespace-only text refuses `empty_body` before submission; nothing was s
 
 ```bash
 domios account neighbors send FRIENDSHIP_ID --from-pad request.md
+domios account neighbors send FRIENDSHIP_ID --from-pad request.md --attach logs.zip
+domios account neighbors send FRIENDSHIP_ID --attach report.pdf
 domios account neighbors send FRIENDSHIP_ID --from-pad reply.md --kind answer --in-reply-to MESSAGE_ID
 domios account neighbors send FRIENDSHIP_ID --from-pad refusal.md --kind refusal --in-reply-to MESSAGE_ID
 domios account neighbors delivery-status MESSAGE_ID
 ```
+
+Repeat `--attach <pad-relative-file>` for up to four files. Files must be regular files in the authenticated caller's own AgentPad; absolute paths, traversal and symlinks refuse. Omit `--from-pad` for file-only sends. Attachments use the same encrypted size/digest checks and daily file-byte limits as UI sends; a non-receiving recipient refuses before upload. Sending own-pad files follows the send grant; `allow_files` governs reading received files.
 
 Send clears composer. `pending`: no recipient ack; `delivered`: verified/decrypted/admitted locally and server ciphertext deleted, not answered; `not_delivered`: expiry/key revocation with `key_revoked`. Check explicitly, never poll. Unconfirmed sends stay pending; never auto-resend.
 
@@ -177,4 +181,4 @@ File API (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_limit`): `d
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 60 -->
+<!-- revision: 62 -->

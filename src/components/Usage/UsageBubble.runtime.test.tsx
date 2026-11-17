@@ -187,6 +187,23 @@ const beforeBroadcast = latestReads;
 await act(async()=>emit());
 assert.equal(latestReads - beforeBroadcast, 1);
 assert.equal(container.querySelectorAll('button[aria-label="usage session 19% weekly 23%"]').length, 2);
+const resetAt = Date.now() + 3_600_000;
+const {formatResetsAt} = await import("./format");
+snapshot = {...snapshot,session_pct:null,weekly_pct:31,session_resets_at:null,weekly_resets_at:resetAt,
+ runtime_usage:[{...reading,rate_limits:{captured_at:snapshot.captured_at,value:[{window:"secondary",usedPercent:31,resetsAt:resetAt}]}}]};
+await act(async()=>root.render(<UsageBubble key="reset-projection" provider="fixture" tabId="own" threadId="thread" trackingEnabled/>));
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage weekly 31%");
+await act(async()=>container.querySelector("button")!.click());
+const resetDialog = document.querySelector('[role="dialog"][aria-label="usage details"]')!;
+assert.ok(resetDialog.textContent?.includes(formatResetsAt(resetAt,Date.now())));
+snapshot = {...snapshot,captured_at:snapshot.captured_at+1,weekly_pct:32,
+ runtime_usage:[{...reading,rate_limits:{captured_at:snapshot.captured_at+1,value:[{window:"secondary",usedPercent:32,resetsAt:resetAt}]}}]};
+await act(async()=>emit());
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage weekly 32%");
+assert.ok(resetDialog.textContent?.includes("32%"));
+assert.ok(resetDialog.textContent?.includes(formatResetsAt(resetAt,Date.now())));
+await act(async()=>container.querySelector("button")!.dispatchEvent(new MouseEvent("pointerenter",{bubbles:true})));
+assert.ok(resetDialog.textContent?.includes(formatResetsAt(resetAt,Date.now())));
 await act(async()=>root.unmount());bridge.__setInvokeForTest(null);bridge.__setListenForTest(null);dom.happyDOM.abort();
 console.log("PASS usage chip wiring: subscription metrics and API session breakdown");
 

@@ -2,4 +2,4 @@
 import type { RuntimeLoginMethod } from "./RuntimeLoginMethod";
 import type { RuntimeLoginStatus } from "./RuntimeLoginStatus";
 
-export type RuntimeLoginState = { status: RuntimeLoginStatus, loginId?: string, method?: RuntimeLoginMethod, url?: string, userCode?: string, expiresAtMs?: number, error?: string, };
+export type RuntimeLoginState = { status: RuntimeLoginStatus, instructions?: string, codeInput?: boolean, loginId?: string, method?: RuntimeLoginMethod, url?: string, userCode?: string, expiresAtMs?: number, error?: string, };

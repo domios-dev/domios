@@ -154,6 +154,7 @@ Rotate this installation's keys and revoke the previous pair
 
 Encrypt and send one authored message; prints only its ID and status
 
+- `--attach` — Attach a file from this tab's AgentPad; repeat for up to four files
 - `<friendship_id>`
 - `--from-pad`
 - `--in-reply-to`
@@ -413,6 +414,7 @@ Promote your own live roleless, team-less agent to Orchestrator (can spawn worke
 
 Spawn a new agent; roleless unless --role is provided.
 
+- `--account` — Harness account ID from Settings > Agents > Harness > Accounts. Defaults to workspace choice, then first available
 - `<agent>` — Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used
 - `--args` — Extra provider args. Put this after all Domios spawn options
 - `--authorized-gate` — Gate token this Worker may claim as executed; repeatable. Carried into its brief. For a task-bound Worker declare gates on the dispatch instead (`plan task dispatch --authorized-gate`)
@@ -1561,7 +1563,7 @@ Merge a near-duplicate into a keeper, reversibly: the lesser is archived (never 
 
 #### `domios mem neighbor-save`
 
-Save a fact or note through this friendship's live memory write grant
+Save a fact, note or (with Full access) skill through this friendship's live grant
 
 - `--area`
 - `--from-pad` — Body from your AgentPad; use - for UTF-8 stdin

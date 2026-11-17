@@ -626,3 +626,68 @@ async fn neighbor_save_replace_outside_grant() {
 async fn neighbor_save_replace_pinned() {
     neighbor_save_matrix("replace_pinned").await;
 }
+
+#[tokio::test]
+async fn neighbor_save_full_fact() {
+    neighbor_save_matrix("full_fact").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_note() {
+    neighbor_save_matrix("full_note").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_skill() {
+    neighbor_save_matrix("full_skill").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_skill_replace() {
+    neighbor_save_matrix("full_skill_replace").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_skill_pinned() {
+    neighbor_save_matrix("full_skill_pinned").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_unknown_area() {
+    neighbor_save_matrix("full_unknown_area").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_unassigned_area() {
+    neighbor_save_matrix("full_unassigned_area").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_secret() {
+    neighbor_save_matrix("full_secret").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_skill_credentials() {
+    neighbor_save_matrix("full_skill_credentials").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_narrowed() {
+    neighbor_save_matrix("full_narrowed").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_revoked() {
+    neighbor_save_matrix("full_revoked").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_full_paused() {
+    neighbor_save_matrix("full_paused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_folder_empty_write_list() {
+    neighbor_save_matrix("folder_empty_write_list").await;
+}

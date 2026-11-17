@@ -156,11 +156,14 @@ fn runtime_limits_view(snapshot: &Value, reading: &Value) -> Value {
     } else {
         &[]
     };
+    let has_named = windows
+        .iter()
+        .any(|window| window["window"] == "primary" || window["window"] == "secondary");
     let named = |name: &str, position: usize| {
         windows
             .iter()
             .find(|window| window["window"] == name)
-            .or(windows.get(position))
+            .or_else(|| (!has_named).then(|| windows.get(position)).flatten())
             .cloned()
             .unwrap_or(Value::Null)
     };

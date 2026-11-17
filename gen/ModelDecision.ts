@@ -7,7 +7,7 @@ import type { ModelOption } from "./ModelOption";
 /**
  * One ranked model decision for one role on one machine.
  */
-export type ModelDecision = { choice?: ModelOption | null, reason: ModelDecisionReason, alternatives?: Array<ModelOption>, blocked?: ModelBlockedReason | null, 
+export type ModelDecision = { choice?: ModelOption | null, reason: ModelDecisionReason, alternatives?: Array<ModelOption>, blocked?: ModelBlockedReason | null,
 /**
  * An automatic fallback within the role's own list.
  */

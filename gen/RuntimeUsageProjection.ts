@@ -6,4 +6,4 @@ import type { RuntimeRateLimit } from "./RuntimeRateLimit";
 import type { RuntimeUsageReading } from "./RuntimeUsageReading";
 import type { TokenUsage } from "./TokenUsage";
 
-export type RuntimeUsageProjection = { tab_id: string, thread_id: string | null, billing_mode: BillingMode, captured_at: number, token_usage: RuntimeUsageReading<TokenUsage> | null, rate_limits: RuntimeUsageReading<Array<RuntimeRateLimit>> | null, resets: ResetCredits | null, account_credits: RuntimeAccountCredits | null, };
+export type RuntimeUsageProjection = { tab_id: string, thread_id: string | null, account_id?: string, billing_mode: BillingMode, captured_at: number, token_usage: RuntimeUsageReading<TokenUsage> | null, rate_limits: RuntimeUsageReading<Array<RuntimeRateLimit>> | null, resets: ResetCredits | null, account_credits: RuntimeAccountCredits | null, };

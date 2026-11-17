@@ -6,11 +6,11 @@ import type { TeamLifecycle } from "./TeamLifecycle";
  * relation `tab.team_id` + role — there is no separate membership table. Bound
  * 1:1 to a plan (Phase 3); minted at the spawn edge (Phase 2).
  */
-export type Team = { 
+export type Team = {
 /**
  * Stable id, `team_` prefix.
  */
-id: string, name?: string, lifecycle: TeamLifecycle, created_at: number, workspace_id: string, 
+id: string, name?: string, lifecycle: TeamLifecycle, created_at: number, workspace_id: string,
 /**
  * Projection-only plan-limit mark; never persisted as authority.
  */

@@ -15,82 +15,82 @@ import type { SourceRecord } from "./SourceRecord";
  * `id` must be stable across polls so the UI merges an updated message in
  * place instead of duplicating it.
  */
-export type ChatMsg = { id: string, sourceRecord?: SourceRecord, runtimeSourceItemId?: string, inheritedFromSessionId?: string, type: string, content: string, segments?: Array<MessageSegment>, 
+export type ChatMsg = { id: string, sourceRecord?: SourceRecord, runtimeSourceItemId?: string, inheritedFromSessionId?: string, type: string, content: string, segments?: Array<MessageSegment>,
 /**
  * The envelope grammar that produced `segments`; a client built for
  * another grammar refuses them instead of re-parsing `content`.
  */
-segmentsVersion?: number, timestamp?: string, 
+segmentsVersion?: number, timestamp?: string,
 /**
  * Monotonic source-order ordinal (JSONL rich-message index / structured row
  * position). The client's stable transcript-sort tiebreaker when timestamps
  * are coarse (codex floors to seconds) or absent (cursor emits none).
  */
-seq: number, toolKind?: string, toolSummary?: string, toolDetail?: string, toolEdits?: unknown, 
+seq: number, toolKind?: string, toolSummary?: string, toolDetail?: string, toolEdits?: unknown,
 /**
  * Human description supplied by the tool call source; never inferred.
  */
-toolDescription?: string, 
+toolDescription?: string,
 /**
  * Short action title derived only from the call's own data.
  */
-toolTitle?: string, 
+toolTitle?: string,
 /**
  * Flow identity the source proves; `tool_flow` rows open or close it.
  */
-toolFlowId?: string, 
+toolFlowId?: string,
 /**
  * Set when the action re-reports a command another call in its flow represents.
  */
-toolEcho?: boolean, 
+toolEcho?: boolean,
 /**
  * Exact source row identity for a call/result link, when proven by the source.
  */
-toolCallSourceId?: string, 
+toolCallSourceId?: string,
 /**
  * Result-link evidence state; unavailable evidence must not use positional pairing.
  */
-toolPairing?: string, 
+toolPairing?: string,
 /**
  * Source-provided command outcome facts. Missing facts stay absent.
  */
-toolExitCode?: number, toolDurationMs?: number, toolStatus?: string, toolStartedAtMs?: number, toolCompletedAtMs?: number, toolInterrupted?: boolean, toolBackgroundTaskId?: string, 
+toolExitCode?: number, toolDurationMs?: number, toolStatus?: string, toolStartedAtMs?: number, toolCompletedAtMs?: number, toolInterrupted?: boolean, toolBackgroundTaskId?: string,
 /**
  * Per-file diffs with the exact hunks the provider's own edit record supplied.
  */
-fileDiffs?: unknown, 
+fileDiffs?: unknown,
 /**
  * Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
  */
-toolRichResult?: unknown, toolName?: string, 
+toolRichResult?: unknown, toolName?: string,
 /**
  * Short, human-readable summary of the tool input (file path, command, …).
  */
-toolArgs?: string, 
+toolArgs?: string,
 /**
  * Raw tool input (provider-shaped) so the chat can render diffs/args.
  */
-toolInput?: unknown, toolId?: string, toolResult?: string, toolError?: boolean, 
+toolInput?: unknown, toolId?: string, toolResult?: string, toolError?: boolean,
 /**
  * Images attached to a user message.
  */
-attachments?: Array<ChatAttachment>, 
+attachments?: Array<ChatAttachment>,
 /**
  * Standalone image payload (assistant image block).
  */
-imageData?: string, imageMimeType?: string, 
+imageData?: string, imageMimeType?: string,
 /**
  * System-message provenance (skill_context, <cmd>_meta, meta, …).
  */
-systemSubtype?: string, timelineMarker?: ChatTimelineMarker, sessionIntent?: ChatSessionIntent, fromLabel?: string, fromTab?: string, fromModel?: string, fromPurpose?: string, fromContext?: string, fromMesh?: string, fromPlugin?: string, pluginIconSvg?: string, inboundKind?: string, 
+systemSubtype?: string, timelineMarker?: ChatTimelineMarker, sessionIntent?: ChatSessionIntent, fromLabel?: string, fromTab?: string, fromModel?: string, fromPurpose?: string, fromContext?: string, fromMesh?: string, fromPlugin?: string, pluginIconSvg?: string, inboundKind?: string,
 /**
  * XML tag name for local-command entries.
  */
-tagName?: string, 
+tagName?: string,
 /**
  * Default-collapsed in the UI (tool calls/results, thinking).
  */
-collapsed?: boolean, 
+collapsed?: boolean,
 /**
  * Interactive prompts attached to this message (matched by tool_use id).
  */

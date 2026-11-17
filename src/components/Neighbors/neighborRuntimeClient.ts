@@ -36,7 +36,7 @@ export interface NeighborRuntimeClient {
   receiverGrants(friendship: string, signal?: AbortSignal): Promise<ReceiverGrantPreview>;
   rotate(): Promise<void>;
   permission(friendship: string, signal?: AbortSignal): Promise<NeighborPermission>;
-  send(friendship: string, body: string): Promise<NeighborReceipt>;
+  send(friendship: string, body: string, messageId: string): Promise<NeighborReceipt>;
   deliveryStatus(id: string): Promise<DeliveryResult>;
   retry(friendship: string): Promise<void>;
   subscribe(handler: (event: NeighborListenerEvent) => void): Promise<() => void>;
@@ -136,7 +136,7 @@ export const neighborRuntimeClient: NeighborRuntimeClient = {
     if (!record(value) || typeof value.allowed !== "boolean" || typeof value.scope !== "string" || typeof value.allow_tab_requests !== "boolean") throw new Error("Invalid Neighbor permission");
     return value as unknown as NeighborPermission;
   },
-  send: async (friendship, body) => receipt(await runtimeCall({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: null })),
+  send: async (friendship, body, messageId) => receipt(await runtimeCall({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: null, message_id: messageId })),
   deliveryStatus: async id => {
     const result = await runtimeCall({ operation: "delivery_status", message_id: id });
     if (!record(result)) throw new Error("Invalid Neighbor delivery status");

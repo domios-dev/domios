@@ -3,7 +3,7 @@
 /**
  * Cadence for the orchestrator reflection loop. Section `[orchestration.reflect]`.
  */
-export type ReflectConfig = { 
+export type ReflectConfig = {
 /**
  * Emit a self-review block every N gate/bounce events. 0 disables the cadence trigger.
  */

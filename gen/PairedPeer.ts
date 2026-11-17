@@ -3,15 +3,15 @@ import type { AccessLevel } from "./AccessLevel";
 import type { PeerAddress } from "./PeerAddress";
 import type { WebUiAnnouncement } from "./WebUiAnnouncement";
 
-export type PairedPeer = { instance_id: string, instance_name: string, addresses: Array<PeerAddress>, api_port: number, 
+export type PairedPeer = { instance_id: string, instance_name: string, addresses: Array<PeerAddress>, api_port: number,
 /**
  * Peer's Ed25519 public key (base64) — used to verify all signed requests.
  */
-public_key: string, 
+public_key: string,
 /**
  * ISO 8601 timestamp.
  */
-paired_at: string, last_seen: string | null, online: boolean, is_primary: boolean, access_level: AccessLevel, domios_version?: string | null, domios_build?: string | null, web_ui: WebUiAnnouncement | null, relay_protocol_version: number, 
+paired_at: string, last_seen: string | null, online: boolean, is_primary: boolean, access_level: AccessLevel, domios_version?: string | null, domios_build?: string | null, web_ui: WebUiAnnouncement | null, relay_protocol_version: number,
 /**
  * Learned from signed mesh gossip; not persisted to disk.
  */

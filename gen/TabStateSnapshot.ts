@@ -5,7 +5,7 @@
  * tab's OWN session/screen — the provider gets only what it needs and never
  * reaches back into core state.
  */
-export type TabStateSnapshot = { tabId: string, agentType: string, sessionId?: string, cwd?: string, 
+export type TabStateSnapshot = { tabId: string, agentType: string, sessionId?: string, cwd?: string,
 /**
  * Recent rendered screen tail (provider fingerprints match against this).
  */

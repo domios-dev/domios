@@ -5,19 +5,19 @@ import type { PackageFormat } from "./PackageFormat";
 /**
  * Bake a live Team: the package identity the owner chose plus the coordinator's runbook.
  */
-export type TemplateDistillRequest = { team_id: string, name: string, version: string, description: string, title?: string | null, license?: string | null, authors?: Array<PackageAuthor>, when?: Array<string>, 
+export type TemplateDistillRequest = { team_id: string, name: string, version: string, description: string, title?: string | null, license?: string | null, authors?: Array<PackageAuthor>, when?: Array<string>,
 /**
  * Written into the orchestrator's instructions; there is no top-level brief.
  */
-runbook?: string | null, 
+runbook?: string | null,
 /**
  * Payload item ids (from the Includes list) the owner leaves out.
  */
-opt_out?: Array<string>, format: PackageFormat, out?: string | null, 
+opt_out?: Array<string>, format: PackageFormat, out?: string | null,
 /**
  * Save the checked package to My templates.
  */
-save?: boolean, 
+save?: boolean,
 /**
  * Review only: return the exact YAML and Includes list without writing anything.
  */

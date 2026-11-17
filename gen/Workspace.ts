@@ -4,19 +4,19 @@ import type { WorkspaceTaskKeys } from "./WorkspaceTaskKeys";
 /**
  * A workspace contains multiple tabs and tracks which tab is active.
  */
-export type Workspace = { id: string, name: string, tabs: Array<string>, active_tab_id: string | null, cwd: string | null, cwd_missing: boolean, 
+export type Workspace = { id: string, name: string, tabs: Array<string>, active_tab_id: string | null, cwd: string | null, cwd_missing: boolean,
 /**
  * Directory the daemon created for this workspace; host provenance, never wire input.
  */
-provisioned_cwd?: string, 
+provisioned_cwd?: string,
 /**
  * Protected workspaces cannot be closed via API or UI.
  */
-protected: boolean, 
+protected: boolean,
 /**
  * Creation order for plan-limit locks; 0 until restore backfills a legacy item.
  */
-created_at_ms: number, locked?: boolean, 
+created_at_ms: number, locked?: boolean,
 /**
  * Sibling ordinal among workspaces. Only relative order within the group
  * matters; the frontend sorts by it. Legacy snapshots default to 0.

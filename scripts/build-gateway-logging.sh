@@ -75,7 +75,7 @@ build_gateway_logging_on_exit() {
     ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status" logging_failed
     finish_status=$?
     [ "$finish_status" -eq 0 ] || exit "$finish_status"
-    exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+    exit "$captured_status"
   fi
   ct_gateway_finish "$captured_status" "$command_status"
   finish_status=$?

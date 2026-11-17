@@ -126,6 +126,7 @@ impl NeighborsExt for ServiceContext {
             self.clear_neighbor_friend_restore_grants(uid, friendship);
             return Err(Error::RestoreGrantRequired.to_string());
         };
+        self.ensure_session_binding_nonce(tab_id);
         self.remember_neighbor_restore_grant(tab_id, permission.machine_access);
         let cwd = crate::service::neighbors::confinement::prepare_folder(
             metadata,

@@ -2,8 +2,8 @@
 
 const FRAME_EDGES = /^[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+|[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+$/g;
 const ENTER = "DQ==";
-const MOVE_DOWN = "ag==";
-const MOVE_UP = "aw==";
+const MOVE_DOWN = "G1tC";
+const MOVE_UP = "G1tB";
 
 interface OptionRow {
   focused: boolean;

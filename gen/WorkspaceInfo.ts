@@ -3,11 +3,11 @@
 /**
  * Lightweight workspace summary for listing.
  */
-export type WorkspaceInfo = { id: string, name: string, tab_count: number, is_active: boolean, cwd: string | null, cwd_missing: boolean, protected: boolean, tab_ids: Array<string>, locked?: boolean, 
+export type WorkspaceInfo = { id: string, name: string, tab_count: number, is_active: boolean, cwd: string | null, cwd_missing: boolean, protected: boolean, tab_ids: Array<string>, locked?: boolean,
 /**
  * Set to true when create_workspace deduped by cwd (no new ws was created).
  */
-existing?: boolean, 
+existing?: boolean,
 /**
  * True when the daemon created this workspace's directory.
  */

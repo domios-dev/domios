@@ -47,8 +47,9 @@ export function ownRuntimeUsage(snapshot: UsageLatestView | null, tabId?:string,
 
 export function runtimeLimitsSnapshot(snapshot:UsageLatestView, reading:RuntimeUsageProjection): UsageSnapshot {
   const windows = reading.billing_mode === "subscription" ? reading.rate_limits?.value ?? [] : [];
-  const primary = windows.find(window => window.window === "primary") ?? windows[0];
-  const secondary = windows.find(window => window.window === "secondary") ?? windows[1];
+  const named = windows.some(window => window.window === "primary" || window.window === "secondary");
+  const primary = named ? windows.find(window => window.window === "primary") : windows[0];
+  const secondary = named ? windows.find(window => window.window === "secondary") : windows[1];
   return {...snapshot,id:0,provider:snapshot.provider,account_id:reading.account_id ?? null,usage_details:snapshot.usage_details,
     captured_at:reading.rate_limits?.captured_at ?? reading.token_usage?.captured_at ?? reading.captured_at ?? snapshot.captured_at ?? 0,
     resets:reading.resets,

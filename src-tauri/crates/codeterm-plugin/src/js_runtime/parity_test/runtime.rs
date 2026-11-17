@@ -731,15 +731,36 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
         config_sha256: "b".repeat(64),
         rule_sha256: "c".repeat(64),
     });
-    assert_eq!(
-        native
-            .runtime_plan(&ctx, &RuntimeOperation::Initialize)
+    for mode in ["workspace-write", "read-only-with-writable-roots"] {
+        ctx.settings.mode = Some(mode.into());
+        assert_eq!(
+            native
+                .runtime_plan(&ctx, &RuntimeOperation::Initialize)
+                .await
+                .unwrap(),
+            js.runtime_plan(&ctx, &RuntimeOperation::Initialize)
+                .await
+                .unwrap()
+        );
+    }
+    for (mode, network) in [
+        ("full-access", false),
+        ("read-only", false),
+        ("auto", false),
+        ("read-only-with-writable-roots", true),
+    ] {
+        let mut changed = ctx.clone();
+        changed.settings.mode = Some(mode.into());
+        changed.settings.network_access = Some(network);
+        assert!(native
+            .runtime_plan(&changed, &RuntimeOperation::Initialize)
             .await
-            .unwrap(),
-        js.runtime_plan(&ctx, &RuntimeOperation::Initialize)
+            .is_err());
+        assert!(js
+            .runtime_plan(&changed, &RuntimeOperation::Initialize)
             .await
-            .unwrap()
-    );
+            .is_err());
+    }
     for field in [
         "tab",
         "nonce",

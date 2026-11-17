@@ -4,7 +4,7 @@ import type { BadgeStyle } from "./BadgeStyle";
 /**
  * Single state in a polled status badge.
  */
-export type BadgeVariant = { 
+export type BadgeVariant = {
 /**
  * Value returned by the query command (e.g. "installed", "missing", "update").
  */

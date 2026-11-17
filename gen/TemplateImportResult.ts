@@ -3,7 +3,7 @@ import type { PackageCheckReport } from "./PackageCheckReport";
 import type { TemplateSummary } from "./TemplateSummary";
 import type { TemplateUpdateDiff } from "./TemplateUpdateDiff";
 
-export type TemplateImportResult = { template: TemplateSummary, check: PackageCheckReport, 
+export type TemplateImportResult = { template: TemplateSummary, check: PackageCheckReport,
 /**
  * Present when My templates already holds another version; active Teams keep theirs.
  */

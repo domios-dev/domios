@@ -13,7 +13,7 @@ export interface ReceiverGrantPreview {
 }
 
 export function grantSummary(grant: NeighborPermission): string {
-  return `${grant.allowed ? "Enabled" : "Disabled"} · Machine: ${grant.machine_access} · Folder: ${grant.effective_folder || grant.folder || "friend's default folder"} · Writes: ${grant.folder_enforcement.writes} · Memory reads: ${grant.allow_memory ? (grant.memory_areas?.join(", ") ?? "all non-secret areas") || "none" : "off"} · Memory writes: ${grant.memory_write_areas.join(", ") || "none"} · Workspaces: ${grant.workspaces?.join(", ") || "none"} · Tab requests: ${grant.allow_tab_requests ? "on" : "off"} · Files: ${grant.allow_files ? "on" : "off"} · Interactive content: ${grant.allow_interactive_content ? "on" : "off"}`;
+  return `${grant.allowed ? "Enabled" : "Disabled"} · Machine: ${grant.machine_access} · Folder: ${grant.effective_folder || grant.folder || "friend's default folder"} · Writes: ${grant.folder_enforcement.writes} · Memory reads: ${grant.allow_memory ? (grant.memory_areas?.join(", ") ?? "all non-secret areas") || "none" : "off"} · Memory writes: ${grant.memory_write_areas.join(", ") || (grant.machine_access === "full" ? "all current areas" : "none")} (${grant.machine_access === "full" ? "facts, notes, skills" : "facts, notes"}; never secrets) · Workspaces: ${grant.workspaces?.join(", ") || "none"} · Tab requests: ${grant.allow_tab_requests ? "on" : "off"} · Files: ${grant.allow_files ? "on" : "off"} · Interactive content: ${grant.allow_interactive_content ? "on" : "off"}`;
 }
 
 export function useReceiverGrants(client: Pick<NeighborRuntimeClient, "receiverGrants">, friendship: string, revision: number, enabled: boolean) {

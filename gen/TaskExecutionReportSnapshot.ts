@@ -3,7 +3,7 @@ import type { AttachmentRef } from "./AttachmentRef";
 import type { LoadedPlanSkillEvidence } from "./LoadedPlanSkillEvidence";
 import type { PlanSkillManifestEntry } from "./PlanSkillManifestEntry";
 
-export type TaskExecutionReportSnapshot = { id: string, message: string | null, status: string | null, sha: string | null, reporter_tab_id?: string, changed_files: Array<string>, 
+export type TaskExecutionReportSnapshot = { id: string, message: string | null, status: string | null, sha: string | null, reporter_tab_id?: string, changed_files: Array<string>,
 /**
  * Evidence of a shared report in a project folder without git: each
  * changed declared path and its new content hash (`None` when removed).

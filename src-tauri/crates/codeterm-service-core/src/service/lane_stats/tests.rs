@@ -22,6 +22,7 @@ fn repository() -> tempfile::TempDir {
 
 fn git(cwd: &Path, args: &[&str]) -> Output {
     let mut command = Command::new("git");
+    crate::process_util::no_window_std(&mut command);
     let output = command.current_dir(cwd).args(args).output().unwrap();
     assert!(
         output.status.success(),
@@ -57,7 +58,7 @@ fn lane_turn_stats_capture_unstaged_staged_and_untracked_files() {
     let before = fs::read(&index).unwrap();
 
     let (unstaged, staged, _) =
-        capture_change_stats(root.path(), Instant::now() + Duration::from_secs(4)).unwrap();
+        capture_change_stats(root.path(), Instant::now() + CHECKPOINT_DEADLINE).unwrap();
 
     assert_eq!(fs::read(&index).unwrap(), before);
     assert!(unstaged.trim().is_empty(), "{unstaged}");
@@ -69,7 +70,7 @@ fn lane_turn_stats_capture_unstaged_staged_and_untracked_files() {
     fs::write(root.path().join("new.txt"), "untracked\n").unwrap();
 
     let (unstaged, staged, untracked) =
-        capture_change_stats(root.path(), Instant::now() + Duration::from_secs(4)).unwrap();
+        capture_change_stats(root.path(), Instant::now() + CHECKPOINT_DEADLINE).unwrap();
 
     assert!(unstaged.starts_with("1\t0\ttracked.txt"));
     assert!(staged.starts_with("1\t0\ttracked.txt"));

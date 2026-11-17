@@ -537,18 +537,29 @@ pub async fn send_text(
     let source_peer = body.source_peer.clone();
     let payload_bytes = route_payload_bytes(body.text.as_deref(), body.batch.as_deref());
     let has_service_token = svc_token_match.is_some();
+    let system_context = body
+        .system_context
+        .clone()
+        .filter(|_| !body.raw && body.actions.is_none() && body.batch.is_none());
     let (_origin, transport, target_has_agent) = tokio::task::spawn_blocking(move || {
         let state = owner;
         let tab_id = target;
         surface_send_refusal(&state, &tab_id)?;
 
-        state
-            .svc
-            .require_managed_send_allowed(&tab_id, source_tab.as_deref())
-            .map_err(|detail| DeliveryError::TabBusyRefused {
-                tab: tab_id.clone(),
-                detail,
-            })?;
+        let admission = match system_context.as_deref() {
+            Some(context) => state.svc.require_system_notice_send_allowed(
+                &tab_id,
+                source_tab.as_deref(),
+                context,
+            ),
+            None => state
+                .svc
+                .require_managed_send_allowed(&tab_id, source_tab.as_deref()),
+        };
+        admission.map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab_id.clone(),
+            detail,
+        })?;
 
         // Refuse over-bound programmatic payloads (16MB bound) before any delivery
         // machinery runs; user-origin sends keep today's behavior.

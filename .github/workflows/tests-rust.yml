@@ -226,6 +226,16 @@ jobs:
           RUST_WARNING_LOG: ci-rust-warnings.log
         shell: bash
         run: bash build.sh ci-tests ${{ matrix.suite }}
+      - name: Check app and CLI release manifests
+        if: runner.os == 'Linux' && matrix.suite == 'full'
+        shell: bash
+        run: |
+          cargo check --manifest-path src-tauri/Cargo.toml
+          cargo check --manifest-path cli/Cargo.toml
+      - name: Clippy app release gate
+        if: runner.os == 'Linux' && matrix.suite == 'full'
+        shell: bash
+        run: bash scripts/clippy-gate.sh
       - name: Compile ${{ matrix.suite }} Rust tests (Windows)
         if: runner.os == 'Windows'
         env:
