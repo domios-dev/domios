@@ -121,6 +121,15 @@ then sync them here. Never hand-edit the bundled snapshot.
    [upgrade restore](../../../evals/upgrade-restore/README.md), with isolated named instances,
    their documented commands, passing evidence contracts and real startup/restore results.
    Source fixtures or capture/import alone do not replace these gates.
+   When the diff selects **J5 Neighbors**, release clearance additionally requires the
+   [J5 two-peer journey](../../../evals/core-journeys/NEIGHBORS.md) on both Windows
+   (BLACKSTAR named QA peers) and macOS (qualified named QA peers on air/eight).
+   Each platform must prove `read_only`, `folder` and `full`: a fresh question,
+   a host-created concierge's trusted linked answer, the friend's received answer,
+   delivered receipts and the friend page returning to idle. Retain the Browser
+   evidence alongside the API run and check its evidence contract. Missing, failed,
+   unrun or API-only platform rows do not clear J5. Preserve the pre-fix Windows
+   `read_only` failure separately from the post-fix pass; never replay its payload.
 3. With version-bump GO, create the release branch from reviewed develop. Edit package.json's
    version, run `npm run sync:versions`, refresh the workspace lockfile offline, then run
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
@@ -706,4 +715,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

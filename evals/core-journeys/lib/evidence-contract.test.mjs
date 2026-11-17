@@ -218,7 +218,7 @@ test("a run without J4 needs no restart or verify phase and refuses one that ran
 test("an explicitly waived provider exclusion is valid and rendered verbatim; a silent or tampered one is not", () => {
   const waiver = "owner: opencode | provider outage";
   const exclude = (results) => {
-    results.selection = select({ exclude_providers: ["opencode"], waiver });
+    results.selection = select({ journeys: "J1,J2,J3,J4", exclude_providers: ["opencode"], waiver });
     const policy = results.state.model_policy;
     policy.roster = ["claude", "codex"];
     for (const map of [policy.selections, policy.catalogues]) delete map.opencode;
