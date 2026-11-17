@@ -254,6 +254,7 @@ pub trait ChatBackendProvider: Send + Sync {
     fn describe(&self) -> ProviderDescriptor {
         let catalog = model_catalog::registered_snapshot(self.id());
         ProviderDescriptor {
+            accounts: None,
             general_agent_offer_when_absent: self.general_agent_offer_when_absent(),
             attachments: Default::default(),
             remote_task: self.remote_task_capability(),

@@ -523,9 +523,12 @@ pub(super) fn start_with_host_env(
         return err("exec cancelled before spawn");
     };
     let worker_job_id = job_id.clone();
+    let account = crate::provider_account::current();
     std::thread::spawn(move || {
-        let _scope = control::Scope::new(process);
-        run_exec_worker(worker_job_id, owned, host_env, sandbox)
+        crate::provider_account::with_context(account, || {
+            let _scope = control::Scope::new(process);
+            run_exec_worker(worker_job_id, owned, host_env, sandbox)
+        })
     });
 
     serde_json::to_string(&codeterm_wire::plugin_host::HostJobStart { job_id })
@@ -535,6 +538,9 @@ pub(super) fn start_with_host_env(
 fn with_host_env(mut opts: ExecOpts, host_env: &HashMap<String, String>) -> ExecOpts {
     opts.env.insert("CODETERM_API_TOKEN".into(), String::new());
     opts.env.extend(host_env.clone());
+    if let Some(account) = crate::provider_account::current() {
+        account.apply_environment(&mut opts.env);
+    }
     opts
 }
 
@@ -882,14 +888,15 @@ fn spawn_json_worker<F>(job_id: String, work: F)
 where
     F: FnOnce() -> String + Send + 'static,
 {
+    let account = crate::provider_account::current();
     let failed_job = job_id.clone();
     let spawned = std::thread::Builder::new()
         .name("plugin-host-job".into())
         .spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-                .unwrap_or_else(|_| {
-                    serde_json::json!({ "error": "host job panicked" }).to_string()
-                });
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::provider_account::with_context(account, work)
+            }))
+            .unwrap_or_else(|_| serde_json::json!({ "error": "host job panicked" }).to_string());
             finish_json_job(&job_id, &result);
         });
     if spawned.is_err() {

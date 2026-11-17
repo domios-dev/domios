@@ -58,9 +58,17 @@ pub(super) fn execute(
             if !sandbox.secrets_allowed() {
                 return Ok(Value::Null);
             }
+            let Some(name) = crate::provider_account::secret_name(sandbox.plugin_id(), &name)
+            else {
+                return Ok(Value::Null);
+            };
             Ok(json!(service()?.secret_get(sandbox.plugin_id(), &name)))
         }
         SecretSet { name, value } => {
+            let Some(name) = crate::provider_account::secret_name(sandbox.plugin_id(), &name)
+            else {
+                return Ok(json!(false));
+            };
             if !sandbox.secrets_allowed() || !codeterm_decision::physical::effects_allowed() {
                 return Ok(json!(false));
             }
@@ -74,6 +82,10 @@ pub(super) fn execute(
             )))
         }
         SecretDelete { name } => {
+            let Some(name) = crate::provider_account::secret_name(sandbox.plugin_id(), &name)
+            else {
+                return Ok(json!(false));
+            };
             if !sandbox.secrets_allowed() || !codeterm_decision::physical::effects_allowed() {
                 return Ok(json!(false));
             }

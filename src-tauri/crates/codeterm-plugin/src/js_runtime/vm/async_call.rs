@@ -16,6 +16,7 @@ where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
+    let account = crate::provider_account::current();
     let artifacts = codeterm_util::task_files::current_capture();
     tokio::task::spawn_blocking(move || {
         struct Restore(bool);
@@ -25,7 +26,9 @@ where
             }
         }
         let _restore = Restore(BLOCKING_WORKER.with(|worker| worker.replace(true)));
-        codeterm_util::task_files::with_capture(artifacts, work)
+        crate::provider_account::with_context(account, || {
+            codeterm_util::task_files::with_capture(artifacts, work)
+        })
     })
 }
 

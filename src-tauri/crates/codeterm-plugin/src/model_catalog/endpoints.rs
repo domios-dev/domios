@@ -8,9 +8,11 @@ struct EndpointCatalogue {
     models: Vec<ModelInfo>,
 }
 
-fn catalogues() -> &'static RwLock<HashMap<String, EndpointCatalogue>> {
-    static CATALOGUES: OnceLock<RwLock<HashMap<String, EndpointCatalogue>>> = OnceLock::new();
-    CATALOGUES.get_or_init(RwLock::default)
+fn catalogues(
+) -> &'static crate::provider_account::cache::ScopedCache<HashMap<String, EndpointCatalogue>> {
+    static CACHE: crate::provider_account::cache::ScopedCache<HashMap<String, EndpointCatalogue>> =
+        crate::provider_account::cache::ScopedCache::new();
+    &CACHE
 }
 
 pub(super) fn refresh(provider: &dyn AgentProvider, stamp: &str) {

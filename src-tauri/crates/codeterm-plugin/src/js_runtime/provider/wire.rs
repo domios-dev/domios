@@ -42,7 +42,7 @@ const SESSION_HEAD_BYTES: u64 = 64 * 1024;
 pub(super) const SESSION_PARSE_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 
 pub(super) fn session_description_head(path: &Path) -> String {
-    let Ok(file) = std::fs::File::open(path) else {
+    let Ok(file) = crate::provider_account::open_read(path) else {
         return String::new();
     };
     // Bound the reader itself: a session whose first line is gigabytes long
