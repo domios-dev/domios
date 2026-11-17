@@ -193,6 +193,8 @@ fn authentication_declarations_are_cleared_with_the_runtime_epoch() {
                 id: "own-method".into(),
                 name: "Sign in".into(),
                 available: true,
+                input: None,
+                unavailable_reason: None,
             },
         ],
     };

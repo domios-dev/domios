@@ -1,4 +1,12 @@
 import type { ReactNode, RefObject } from "react";
+import type { Tab } from "../../lib/types";
+import { useTabAccounts } from "../../hooks/useAccountSelectors";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
+import { isReadOnlyTab } from "../../lib/tabInputPolicy";
+import { lockedView } from "../billing/freeLimitModel";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { describeError } from "../../lib/describeError";
+import { publishNotice } from "../../lib/notices";
 import {
   Bot,
   Check,
@@ -22,6 +30,7 @@ import { PluginIcon } from "../Extensions/PluginIcon";
 import { TAB_SESSION_LABELS } from "./tabSessionActions";
 import {
   TAB_MENU_LABELS,
+  tabAccountSubmenu,
   type TabMenuAction,
   type TabMenuEntry,
   type TabMenuGlyph,
@@ -107,6 +116,7 @@ function submenuEntry(entry: TabMenuSubmenuEntry, onAction: ActionHandler): Drop
     submenu: {
       label: entry.label,
       description: entry.description,
+      showDescription: entry.showDescription,
       items: entry.entries.map((child) => leafEntry(child, onAction)),
     },
   };
@@ -163,6 +173,7 @@ function TabMenuHead({ identity, session, onAction }: { identity?: TabMenuIdenti
 }
 
 interface TabMenuProps {
+  tab?: Tab;
   entries: TabMenuEntry[];
   onAction: ActionHandler;
   trigger: ReactNode;
@@ -173,7 +184,37 @@ interface TabMenuProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-export function TabMenu({ entries, onAction, identity, ...menu }: TabMenuProps) {
+export function TabMenu(props: TabMenuProps) {
+  return props.tab ? <TabMenuWithAccounts {...props} tab={props.tab} /> : <PlainTabMenu {...props} />;
+}
+
+function TabMenuWithAccounts(props: TabMenuProps & { tab: Tab }) {
+  const descriptor = useAgentDescriptor(props.tab.agent_type);
+  return descriptor?.accounts ? <AccountTabMenu {...props} providerName={descriptor.display_name} /> : <PlainTabMenu {...props} />;
+}
+
+function AccountTabMenu({ tab, entries, onAction, providerName, ...menu }: TabMenuProps & { tab: Tab; providerName: string }) {
+  const accounts = useTabAccounts(tab);
+  const entry = !isReadOnlyTab(tab) && !tab.locked && !lockedView("agent.tabs", tab).locked
+    ? tabAccountSubmenu(accounts, providerName) : null;
+  const allEntries = [...entries];
+  if (entry) {
+    const close = allEntries.findIndex(item => item.id === "close");
+    allEntries.splice(close < 0 ? allEntries.length : close, 0, entry);
+  }
+  return <PlainTabMenu {...menu} entries={allEntries} accountError={accounts.error} onAction={action => {
+    if (action.type === "switchAccount") {
+      void accounts.choose(action.accountId).catch(error => {
+        const description = describeError(error, { operation: "switching accounts" });
+        publishNotice({ kind: "toast", title: description.title, detail: description.cause, severity: "Warning", tabId: tab.id });
+      });
+      return;
+    }
+    onAction(action);
+  }} />;
+}
+
+function PlainTabMenu({ entries, onAction, identity, tab: _tab, accountError, ...menu }: TabMenuProps & { accountError?: string | null }) {
   const header = entries.find((entry): entry is TabMenuHeaderEntry => entry.kind === "header");
   const items = entries.flatMap((entry): DropdownMenuEntry[] => {
     if (entry.kind === "header") return [];
@@ -184,7 +225,8 @@ export function TabMenu({ entries, onAction, identity, ...menu }: TabMenuProps) 
       {...menu}
       items={items}
       menuLabel={TAB_MENU_LABELS.menu}
-      header={<TabMenuHead identity={identity} session={header} onAction={onAction} />}
+      header={<><TabMenuHead identity={identity} session={header} onAction={onAction} />
+        {accountError && <InlineErrorNotice error={accountError} operation="switching accounts" />}</>}
     />
   );
 }

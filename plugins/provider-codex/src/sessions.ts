@@ -179,7 +179,8 @@ export function* codexStateDbPath(): HostIoSteps<string | null> {
   const override = host.envGet(sessionStoreOverrides.state);
   if (override) return override;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
+  const selectedSqliteHome = host.envGet("CODEX_SQLITE_HOME");
+  const root = selectedSqliteHome ? trimTrailingSeparators(selectedSqliteHome) : codexSessionsRoot(sep);
   if (!root) return null;
   let entries: { name: string; isFile: boolean }[];
   try {

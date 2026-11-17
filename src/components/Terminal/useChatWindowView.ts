@@ -1,4 +1,5 @@
 import { useChatHistoryGaps } from "./useChatHistoryGaps";
+import { mergeAccountNoticeRows } from "./accountNoticeRows";
 import { useContextCompaction } from "./useContextCompaction";
 import { projectCompactionRows } from "./contextCompactionModel";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
@@ -66,9 +67,11 @@ export function useChatWindowView({
   loadOlderPage,
   loadHistoryPage,
   queueSendsBehindTurn = false,
+  hostRows,
 }: {
   tabId: string;
   queueSendsBehindTurn?: boolean;
+  hostRows?:readonly NormalizedChatMessage[];
   agentSessionId?: string | null;
   windowKey: string;
   transcript: TranscriptState;
@@ -117,10 +120,11 @@ export function useChatWindowView({
     const visible = hydration === "ready"
       ? visibleDeliveryRows(projection.rows, sends, projection.echoes)
       : projection.rows;
-    return projectContextEpochs(projectCompactionRows(hydration === "ready"
+    const rows=projectContextEpochs(projectCompactionRows(hydration === "ready"
       ? hideCompactedDismissals(visible, sends, projection.echoes, compactDismissals)
       : visible, compaction.history));
-  }, [compactDismissals, hydration, projection, sends, compaction.history]);
+    return hostRows?.length ? mergeAccountNoticeRows(rows,hostRows):rows;
+  }, [compactDismissals, hydration, projection, sends, compaction.history,hostRows]);
   useLayoutEffect(() => {
     if (hydration !== "ready") return;
     recordChatSendEchoes(tabId, projection.echoes);

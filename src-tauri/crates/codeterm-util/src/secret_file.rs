@@ -173,6 +173,51 @@ impl SecretFile {
         Ok(())
     }
 
+    pub fn delete_prefix(&self, prefix: &str) -> Result<usize, SecretFileError> {
+        if prefix.is_empty() {
+            return Err(SecretFileError::Other("Secret prefix is required".into()));
+        }
+        let _lock = self.lock_backend()?;
+        let mut shadow = self.shadow.lock();
+        let removed = match &self.backend {
+            Backend::File { path, service } => {
+                let raw = match std::fs::read_to_string(path) {
+                    Ok(raw) => raw,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+                    Err(_) => {
+                        return Err(SecretFileError::Other(
+                            "Secret bucket could not be read".into(),
+                        ))
+                    }
+                };
+                let mut entries: std::collections::HashMap<String, String> =
+                    if raw.trim().is_empty() {
+                        Default::default()
+                    } else {
+                        serde_json::from_str(&raw).map_err(|_| {
+                            SecretFileError::Other("Secret bucket could not be decoded".into())
+                        })?
+                    };
+                let before = entries.len();
+                let prefix = storage_account(service, prefix);
+                entries.retain(|key, _| !key.starts_with(&prefix));
+                let removed = before - entries.len();
+                if removed > 0 {
+                    let body = serde_json::to_vec(&entries).map_err(|_| {
+                        SecretFileError::Other("Secret bucket could not be encoded".into())
+                    })?;
+                    crate::private_file::write_atomic(path, &body).map_err(|_| {
+                        SecretFileError::Other("Secret bucket could not be written".into())
+                    })?;
+                }
+                removed
+            }
+            Backend::InMemory { .. } => shadow.keys().filter(|key| key.starts_with(prefix)).count(),
+        };
+        shadow.retain(|key, _| !key.starts_with(prefix));
+        Ok(removed)
+    }
+
     fn lock_backend(&self) -> Result<Option<std::fs::File>, SecretFileError> {
         match &self.backend {
             Backend::File { path, .. } => lock_store(path).map(Some),

@@ -1,5 +1,5 @@
 import {classifyAccessError, observationExtras} from "../../provider-shared/accessError";
-import type {ProviderAuthStatus, ProviderSessionObservations} from "@codeterm/plugin-sdk";
+import type {ProviderAuthStatus, ProviderSessionObservations, AccountIdentity} from "@codeterm/plugin-sdk";
 
 import {retryError} from "./retry";
 
@@ -9,6 +9,13 @@ export function authStatusProbe() {
 
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+export function accountIdentity(value: unknown): AccountIdentity | null {
+  const record = object(value);
+  const email = record?.email;
+  if (record?.loggedIn !== true || typeof email !== "string" || !email.includes("@") || email.length > 320 || !/^[\u0021-\u007e]+$/u.test(email)) return null;
+  return {subject:email,label:email};
 }
 
 export function parseAuthStatus(value: unknown): ProviderAuthStatus | null {

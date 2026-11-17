@@ -14,6 +14,7 @@ pub(super) fn into_params(
         neighbor_machine_access: None,
         context_skills: None,
         agent: body.agent,
+        account_id: body.account_id,
         agent_name: body.agent_name,
         args: body.args,
         cwd: body.cwd,

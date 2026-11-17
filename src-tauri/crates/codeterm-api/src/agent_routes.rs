@@ -40,6 +40,8 @@ use codeterm_service_core::provider::values_list_agent_provider_values as list_a
 pub struct SpawnAgentBody {
     /// Agent provider to run. Omitted resolves the configured General Agent.
     agent: Option<String>,
+    #[serde(default)]
+    account_id: Option<String>,
     /// Claude agent name from .claude/agents/ (e.g. "architect" → --agent architect)
     agent_name: Option<String>,
     /// Extra args for the agent

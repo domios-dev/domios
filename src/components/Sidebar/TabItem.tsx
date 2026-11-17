@@ -361,6 +361,7 @@ function TabItemInner({
 
   const tabMenu = menuEntries.length > 0 ? (
     <TabMenu
+      tab={tab}
       entries={menuEntries}
       onAction={runMenuAction}
       onOpenChange={(open) => {

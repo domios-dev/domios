@@ -158,6 +158,15 @@ pub(super) async fn observe(
     event: &RuntimeEvent,
     at: u64,
 ) -> Result<(), RuntimeFailure> {
+    if crate::service::provider_accounts::runtime_observe(svc, session, event) {
+        remove_pending(
+            svc,
+            &session.context.lock().tab_id,
+            &mut session.capacity_retry.lock(),
+        )
+        .map_err(RuntimeFailure::HookFailed)?;
+        return Ok(());
+    }
     let context = session.context.lock().clone();
     match event {
         RuntimeEvent::ItemUpdated { thread_id, item }
@@ -176,6 +185,7 @@ pub(super) async fn observe(
                             serde_json::from_value::<RuntimeErrorSignal>(value.clone()).ok()
                         })
                         .unwrap_or(RuntimeErrorSignal {
+                            account_limit: None,
                             retryable: false,
                             retryable_kind: None,
                             retry_at_ms: None,

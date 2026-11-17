@@ -6,6 +6,63 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 #[test]
+fn account_catalogue_events_keep_equal_versions_in_distinct_contexts() {
+    let provider = format!("catalogue-account-{}", uuid::Uuid::new_v4());
+    let context = |account: &str| {
+        crate::provider_account::InvocationContext::new(
+            provider.clone(),
+            account.into(),
+            Default::default(),
+            vec![],
+            vec![],
+        )
+        .unwrap()
+    };
+    let a = context("account-a");
+    let b = context("account-b");
+    let publish = |context, model_id: &str| {
+        crate::provider_account::with_context(Some(context), || {
+            registry().write().insert(
+                provider.clone(),
+                ProviderModels::live(
+                    vec![model(model_id)],
+                    Some(model_id.into()),
+                    SystemTime::now(),
+                ),
+            );
+            invalidate(&provider)
+        })
+    };
+    let first = publish(a.clone(), "model-a");
+    let second = publish(b.clone(), "model-b");
+    assert_eq!(first.version, 1);
+    assert_eq!(second.version, 1);
+    assert_eq!(first.account_id.as_deref(), Some("account-a"));
+    assert_eq!(second.account_id.as_deref(), Some("account-b"));
+    assert_ne!(first.context_key, second.context_key);
+    let usual = crate::provider_account::with_context(None, || current_version(&provider));
+    assert_eq!(usual, 0);
+    let snapshots = super::all_version_snapshots()
+        .into_iter()
+        .filter(|change| change.provider == provider)
+        .collect::<Vec<_>>();
+    assert!(snapshots.contains(&first));
+    assert!(snapshots.contains(&second));
+    crate::provider_account::with_context(Some(a.clone()), || {
+        super::versions().write().remove(&provider);
+    });
+    let recreated = publish(a.clone(), "model-a-recreated");
+    assert_eq!(recreated.version, 1);
+    assert_ne!(
+        recreated.context_key, first.context_key,
+        "recreated bounded cache entries need a fresh revision namespace"
+    );
+    for context in [a, b] {
+        crate::provider_account::with_context(Some(context), || super::cleanup(&provider));
+    }
+}
+
+#[test]
 fn catalogue_versions_advance_per_provider_and_ignore_other_catalogues() {
     let mut versions = HashMap::new();
 

@@ -33,7 +33,6 @@ pub struct UsageRollupQuery {
     pub provider: String,
     pub since: i64,
     #[serde(default)]
-    #[allow(dead_code)] // REST wire-contract field; handler consumption pending
     pub account_id: Option<String>,
 }
 
@@ -91,7 +90,7 @@ pub async fn usage_daily_rollup(
         let rows = state
             .svc
             .usage_store
-            .get_daily_rollup(&q.provider, q.since)
+            .get_daily_rollup(&q.provider, q.since, q.account_id.as_deref())
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage rollup failed"))?;
         Ok(Json(
             serde_json::to_value(rows).unwrap_or(serde_json::json!([])),

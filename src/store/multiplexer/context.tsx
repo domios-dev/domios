@@ -70,6 +70,7 @@ export interface MultiplexerActionsContextType {
     intent?: SessionLaunchIntent,
     executionMode?: string,
     launchProfile?: string,
+    accountId?: string,
   ) => Promise<SpawnedTab | null>;
   /** Paired creation (task_7e5f9354): create a plan plus an Orchestrator +
    *  Planner tab bound to it, in one call. */

@@ -1,8 +1,41 @@
 {
   "id": "claude",
   "version": "1.14.32",
-  "minCodeterm": "1.20.1",
+  "minCodeterm": "1.20.2",
   "hostApi": 2,
+  "accounts": {
+    "credentialFiles": [".credentials.json"],
+    "homeEnvironment": "CLAUDE_CONFIG_DIR",
+    "defaultHome": "~/.claude",
+    "secretEnvironment": [
+      "ANTHROPIC_API_KEY",
+      "CLAUDE_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_TOKEN"
+    ],
+    "excludedEnvironment": ["CODETERM_CLAUDE_PROCESS_REGISTRY_DIR"],
+    "isolatedPaths": [
+      ".credentials.json",
+      "settings.json",
+      ".claude.json"
+    ],
+    "sharedPaths": [
+      {
+        "path": "projects",
+        "kind": "directory"
+      },
+      {
+        "path": "history.jsonl",
+        "kind": "file"
+      },
+      {
+        "path": "sessions",
+        "kind": "directory"
+      }
+    ],
+    "sharedIndexPaths": ["projects/*/sessions-index.json"],
+    "continuation": "unverified"
+  },
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Claude Code",
   "binaryName": "claude",

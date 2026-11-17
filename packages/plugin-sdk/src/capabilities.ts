@@ -207,6 +207,8 @@ export interface AgentProvider {
   ): import("./gen/SessionDescription").SessionDescription | null;
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
+  /** Non-secret identity in the selected account home; null when the harness cannot report it. */
+  accountIdentity?(authStatusRecord: unknown | null): import("./gen/AccountIdentity").AccountIdentity | null;
   /** Host-observed CLI identity, computed before entering the plugin VM. */
   discoverModels?(binaryFingerprint?: string | null): ModelInfo[] | null;
   /** Cumulative usage per model group (matching manifest `modelGroups` ids, or a

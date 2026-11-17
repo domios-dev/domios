@@ -38,7 +38,7 @@ pub(super) fn sessions_dir(cwd: &str) -> Option<PathBuf> {
 /// first few JSONL lines, where every message carries a `cwd` field.
 fn read_session_cwd(file_path: &Path) -> Option<String> {
     use std::io::{BufRead, BufReader};
-    let f = std::fs::File::open(file_path).ok()?;
+    let f = crate::provider_account::open_read(file_path).ok()?;
     let reader = BufReader::new(f);
     // cwd appears on every message line but not on the permission-mode header, so bound the scan to the first ~20 lines.
     for line in reader.lines().take(20).map_while(Result::ok) {
@@ -54,10 +54,11 @@ fn read_session_cwd(file_path: &Path) -> Option<String> {
 pub(super) fn session_file_path(cwd: &str, session_id: &str) -> Option<PathBuf> {
     // Hook-reported evidence wins over id-based reconstruction; absence falls through.
     if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
-        return Some(stored);
+        return crate::provider_account::read_allowed(&stored).then_some(stored);
     }
     let dir = sessions_dir(cwd)?;
-    Some(dir.join(format!("{}.jsonl", session_id)))
+    let path = dir.join(format!("{}.jsonl", session_id));
+    crate::provider_account::read_allowed(&path).then_some(path)
 }
 
 /// Build a structured pending prompt for this session from its OWN JSONL — the
@@ -87,7 +88,7 @@ fn read_rich_tail(
     use codeterm_types::agent::chat_types::{MessageBlock, RichMessage};
     use std::io::{Read, Seek, SeekFrom};
 
-    let Ok(mut f) = std::fs::File::open(path) else {
+    let Ok(mut f) = crate::provider_account::open_read(path) else {
         return Vec::new();
     };
     let Ok(len) = f.metadata().map(|m| m.len()) else {
@@ -439,7 +440,7 @@ fn read_model_tail(path: &Path) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
 
     const TAIL_BYTES: u64 = 4 * 1024 * 1024;
-    let mut file = std::fs::File::open(path).ok()?;
+    let mut file = crate::provider_account::open_read(path).ok()?;
     let length = file.metadata().ok()?.len();
     let start = length.saturating_sub(TAIL_BYTES);
     file.seek(SeekFrom::Start(start)).ok()?;
@@ -462,7 +463,7 @@ pub(super) fn detect_session_reasoning_effort(cwd: &str, session_id: &str) -> Op
 
 fn scan_effort_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut file = std::fs::File::open(path).ok()?;
+    let mut file = crate::provider_account::open_read(path).ok()?;
     let len = file.metadata().ok()?.len();
     if len == 0 {
         return None;
@@ -531,7 +532,7 @@ fn session_entry_reasoning_effort(value: &serde_json::Value) -> Option<String> {
 
 fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(path).ok()?;
+    let mut f = crate::provider_account::open_read(path).ok()?;
     let len = f.metadata().ok()?.len();
     if len == 0 {
         return None;
@@ -650,7 +651,7 @@ pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
 }
 
 pub(crate) fn enumerate_sessions_under(projects_root: &Path) -> Vec<SessionMetadata> {
-    let Ok(entries) = std::fs::read_dir(projects_root) else {
+    let Ok(entries) = crate::provider_account::read_directory(projects_root) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -660,7 +661,7 @@ pub(crate) fn enumerate_sessions_under(projects_root: &Path) -> Vec<SessionMetad
         }
         let dir_path = entry.path();
         let index = read_sessions_index(&dir_path);
-        let Ok(files) = std::fs::read_dir(&dir_path) else {
+        let Ok(files) = crate::provider_account::read_directory(&dir_path) else {
             continue;
         };
         for f in files.filter_map(|e| e.ok()) {
@@ -690,7 +691,7 @@ pub(crate) fn find_session_under(
         return None;
     }
     let file_name = format!("{session_id}.jsonl");
-    std::fs::read_dir(projects_root)
+    crate::provider_account::read_directory(projects_root)
         .ok()?
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
@@ -703,7 +704,7 @@ pub(crate) fn find_session_under(
 }
 
 fn read_sessions_index(dir_path: &Path) -> SessionsIndex {
-    std::fs::read_to_string(dir_path.join("sessions-index.json"))
+    crate::provider_account::read_to_string(dir_path.join("sessions-index.json"))
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| {
@@ -748,7 +749,7 @@ fn session_metadata(stem: &str, file_path: &Path, index: &SessionsIndex) -> Sess
 
 pub(super) fn parse_session_messages(file_path: &Path) -> Vec<SessionMessage> {
     use std::io::{BufRead, BufReader};
-    let Ok(f) = std::fs::File::open(file_path) else {
+    let Ok(f) = crate::provider_account::open_read(file_path) else {
         return Vec::new();
     };
     let reader = BufReader::new(f);
@@ -818,7 +819,7 @@ pub(super) fn detect_session_id(
     let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
     let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
-    if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+    if let Ok(entries) = crate::provider_account::read_directory(&sessions_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.ends_with(".jsonl") {
@@ -852,272 +853,4 @@ pub(super) fn detect_session_id(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::provider::AgentProvider;
-
-    #[test]
-    fn find_session_under_returns_the_enumerated_record_for_exactly_that_id() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut env = codeterm_util::test_env::EnvGuard::lock();
-        env.set(
-            crate::session_evidence::EVIDENCE_DIR_ENV,
-            tmp.path().join("store"),
-        );
-        let root = tmp.path().join("projects");
-        let owned = "cccc3333-find-4ccc-8ccc-cccccccccccc";
-        let sibling = "dddd4444-find-4ddd-8ddd-dddddddddddd";
-        let other_dir = root.join("-other-project");
-        let owned_dir = root.join("-owned-project");
-        std::fs::create_dir_all(&other_dir).unwrap();
-        std::fs::create_dir_all(&owned_dir).unwrap();
-        std::fs::write(
-            other_dir.join(format!("{sibling}.jsonl")),
-            "{\"cwd\":\"/other\"}\n",
-        )
-        .unwrap();
-        std::fs::write(
-            owned_dir.join(format!("{owned}.jsonl")),
-            "{\"cwd\":\"/owned\"}\n",
-        )
-        .unwrap();
-        std::fs::write(
-            owned_dir.join("sessions-index.json"),
-            format!(r#"{{"entries":[{{"sessionId":"{owned}","title":"Owned","summary":"S"}}]}}"#),
-        )
-        .unwrap();
-
-        let found = find_session_under(&root, owned).expect("owned session resolves by id");
-        let enumerated = enumerate_sessions_under(&root)
-            .into_iter()
-            .find(|s| s.session_id == owned)
-            .expect("fixture session is enumerated");
-        assert_eq!(
-            serde_json::to_value(&found).unwrap(),
-            serde_json::to_value(&enumerated).unwrap()
-        );
-        assert_eq!(found.project_path.as_deref(), Some("/owned"));
-        assert_eq!(found.title.as_deref(), Some("Owned"));
-
-        assert!(find_session_under(&root, "eeee5555-none-4eee-8eee-eeeeeeeeeeee").is_none());
-        assert!(find_session_under(
-            &root,
-            "../-owned-project/cccc3333-find-4ccc-8ccc-cccccccccccc"
-        )
-        .is_none());
-        assert!(find_session_under(&root, "").is_none());
-    }
-
-    #[test]
-    fn test_encode_cwd() {
-        assert_eq!(encode_cwd("/home/user/project"), "-home-user-project");
-        assert_eq!(encode_cwd("C:\\Users\\test"), "C--Users-test");
-    }
-
-    #[test]
-    fn encode_cwd_matches_real_claude_project_dirs() {
-        let cases = [
-            ("/Users/user", "-Users-user"),
-            // /Users/user/.domios-dev/general : the '/' before '.domios' AND the '.'
-            // each become a dash -> the `--codeterm` double-dash. Real dir on disk.
-            (
-                "/Users/user/.domios-dev/general",
-                "-Users-user--domios-dev-general",
-            ),
-            (
-                "/Users/user/Developer/wk-cb-p1",
-                "-Users-user-Developer-wk-cb-p1",
-            ),
-            // Windows native path: drive colon + backslashes all collapse to dashes.
-            ("C:\\Users\\dev\\proj", "C--Users-dev-proj"),
-            // encoder is separator-agnostic, so a normalized cwd binds the same dir.
-            ("C:/Users/dev/proj", "C--Users-dev-proj"),
-        ];
-        for (cwd, want) in cases {
-            assert_eq!(encode_cwd(cwd), want, "encode_cwd({cwd:?})");
-        }
-    }
-
-    #[test]
-    fn detect_session_id_refuses_to_guess_when_ambiguous_in_shared_cwd() {
-        let tmp = tempfile::tempdir().unwrap();
-        let cwd = tmp.path().to_string_lossy().to_string();
-        let s1 = "aaaa1111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-        let s2 = "bbbb2222-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-        let Some(p1) = session_file_path(&cwd, s1) else {
-            return;
-        };
-        let Some(dir) = p1.parent().map(|d| d.to_path_buf()) else {
-            return;
-        };
-        if std::fs::create_dir_all(&dir).is_err() {
-            return;
-        }
-        let p2 = dir.join(format!("{s2}.jsonl"));
-        if std::fs::write(&p1, "{}\n").is_err() || std::fs::write(&p2, "{}\n").is_err() {
-            return;
-        }
-
-        // Two recent sibling sessions, nothing excluded → ambiguous → no guess.
-        assert_eq!(
-            detect_session_id(&cwd, &[], Some(Duration::from_secs(300))),
-            None,
-            "must refuse to guess when 2+ sibling sessions are viable candidates",
-        );
-
-        // Excluding the sibling disambiguates → the unique candidate binds.
-        let got = detect_session_id(&cwd, &[s2.to_string()], Some(Duration::from_secs(300)));
-        assert_eq!(
-            got.as_deref(),
-            Some(s1),
-            "with the sibling excluded there is exactly one candidate → bind it",
-        );
-
-        let _ = std::fs::remove_file(&p1);
-        let _ = std::fs::remove_file(&p2);
-    }
-
-    #[test]
-    fn detect_active_session_never_grabs_a_sibling_session_in_same_cwd() {
-        let p = super::super::ClaudeProvider::new();
-        let tmp = tempfile::tempdir().unwrap();
-        let cwd = tmp.path().to_string_lossy().to_string();
-        let my_sid = "mine-0000-0000-0000-000000000000"; // tab's own id (no file yet)
-        let sibling_sid = "sibl-1111-1111-1111-111111111111";
-        let Some(sib_path) = p.session_file_path(&cwd, sibling_sid) else {
-            return;
-        };
-        let Some(dir) = sib_path.parent().map(|d| d.to_path_buf()) else {
-            return;
-        };
-        if std::fs::create_dir_all(&dir).is_err() {
-            return;
-        }
-        // Materialize ONLY the sibling's session in this shared cwd.
-        if std::fs::write(&sib_path, "{\"cwd\":\"x\"}\n").is_err() {
-            return;
-        }
-        assert_eq!(
-            p.detect_active_session(&cwd, my_sid),
-            None,
-            "must never roll a tab onto a sibling's session (no newest-for-cwd)",
-        );
-        let _ = std::fs::remove_file(&sib_path);
-    }
-
-    #[test]
-    fn test_verbatim_cwd_encodes_like_plain_cwd() {
-        // SAME claude project dir as the plain cwd — otherwise resume never matches.
-        let plain = encode_cwd(r"C:\Users\dev\.domios-dev\general");
-        let verbatim = encode_cwd(&codeterm_paths::strip_verbatim_prefix(
-            r"\\?\C:\Users\dev\.domios-dev\general",
-        ));
-        assert_eq!(plain, verbatim);
-        assert_eq!(plain, "C--Users-dev--domios-dev-general");
-    }
-
-    #[test]
-    fn test_sessions_dir_real_cwd_has_no_verbatim_dashes() {
-        let cwd = std::env::temp_dir().to_string_lossy().to_string();
-        let dir = sessions_dir(&cwd).unwrap();
-        let leaf = dir.file_name().unwrap().to_string_lossy().to_string();
-        assert!(
-            !leaf.starts_with("----"),
-            "verbatim prefix leaked into encoded project dir: {leaf}"
-        );
-    }
-
-    #[test]
-    fn test_session_file_path() {
-        let path = session_file_path("/home/user/project", "abc-def-123-456").unwrap();
-        let path_str = path.to_string_lossy();
-        assert!(path_str.contains("abc-def-123-456.jsonl"));
-        assert!(path_str.contains(".claude"));
-        assert!(path_str.contains("projects"));
-        assert!(path_str.contains("-home-user-project"));
-    }
-
-    #[test]
-    fn session_file_path_prefers_stored_transcript_path_over_reconstruction() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut env = codeterm_util::test_env::EnvGuard::lock();
-        env.set(
-            crate::session_evidence::EVIDENCE_DIR_ENV,
-            tmp.path().join("store"),
-        );
-
-        // Stored transcript whose filename differs from the session id; the
-        // reconstructed <sid>.jsonl is never created — reads must not need it.
-        let sid = "aaaa1111-read-pref-4aaa-8aaa-aaaaaaaaaaaa";
-        let stored = tmp.path().join("vendor-drifted-uuid.jsonl");
-        std::fs::write(&stored, "{\"cwd\":\"x\"}\n").unwrap();
-        assert!(crate::session_evidence::record(
-            sid,
-            stored.to_str().unwrap()
-        ));
-
-        let cwd = tmp.path().to_string_lossy().to_string();
-        let resolved = session_file_path(&cwd, sid).expect("stored path resolves");
-        assert_eq!(resolved, stored, "stored path wins over reconstruction");
-        let reconstructed = sessions_dir(&cwd).unwrap().join(format!("{sid}.jsonl"));
-        assert!(
-            !reconstructed.exists(),
-            "fixture layout: the reconstructed path must not exist"
-        );
-        assert!(
-            std::fs::read_to_string(&resolved).is_ok(),
-            "the stored file itself is readable through the preferred path"
-        );
-    }
-
-    #[test]
-    fn session_file_path_without_transcript_path_evidence_reconstructs_as_today() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut env = codeterm_util::test_env::EnvGuard::lock();
-        env.set(
-            crate::session_evidence::EVIDENCE_DIR_ENV,
-            tmp.path().join("empty-store"),
-        );
-
-        let cwd = tmp.path().to_string_lossy().to_string();
-        let sid = "bbbb2222-no-evidence-4bbb-8bbb-bbbbbbbbbbbb";
-        let resolved = session_file_path(&cwd, sid).expect("reconstruction resolves");
-        let reconstructed = sessions_dir(&cwd).unwrap().join(format!("{sid}.jsonl"));
-        assert_eq!(
-            resolved, reconstructed,
-            "absence of evidence keeps today's reconstruction byte-for-byte"
-        );
-    }
-
-    #[test]
-    fn test_session_exists_default_via_file_path() {
-        let p = super::super::ClaudeProvider::new();
-        let tmp = tempfile::tempdir().unwrap();
-        let cwd = tmp.path().to_string_lossy().to_string();
-
-        // find it. Skips the test if HOME isn't writable.
-        let real_path = match p.session_file_path(&cwd, "session-real") {
-            Some(p) => p,
-            None => return,
-        };
-        if let Some(parent) = real_path.parent() {
-            if std::fs::create_dir_all(parent).is_err() {
-                return;
-            }
-        }
-        if std::fs::write(&real_path, "{}\n").is_err() {
-            return;
-        }
-
-        assert!(
-            p.session_exists(&cwd, "session-real") == Some(true),
-            "existing JSONL should be detected"
-        );
-        assert!(
-            p.session_exists(&cwd, "session-bogus-uuid-xxx") != Some(true),
-            "missing JSONL must report false"
-        );
-
-        let _ = std::fs::remove_file(&real_path);
-    }
-}
+mod tests;

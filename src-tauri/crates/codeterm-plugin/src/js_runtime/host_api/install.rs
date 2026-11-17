@@ -60,7 +60,7 @@ pub(in crate::js_runtime) fn install(
             log::warn!("[plugin] denied envGet({name}) for confined plugin");
             return None;
         }
-        std::env::var(&name).ok()
+        crate::provider_account::environment(&name).and_then(|value| value.into_string().ok())
     });
     bind!("unixNow", || -> i64 { since_epoch().as_secs() as i64 });
     bind!("unixNowMs", || -> i64 { since_epoch().as_millis() as i64 });

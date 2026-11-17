@@ -53,4 +53,38 @@ pub use launch::mark_tab_agent_launch_started;
 #[cfg(test)]
 pub(crate) use launch::reserve_launch_binding_nonce;
 
-pub use launch::launch_agent_in_background_with_env;
+pub use launch::launch_agent_in_background_with_invocation;
+
+#[allow(clippy::too_many_arguments)]
+pub fn launch_agent_in_background_with_env(
+    svc: crate::service::ServiceContext,
+    tab_id: String,
+    launch_cmd: impl Into<PreparedAgentCommand>,
+    agent_cmd: String,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+    has_startup_task_turn: bool,
+    startup_turn_text: Option<String>,
+    task: Option<String>,
+    fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
+    launch_env: std::collections::HashMap<String, String>,
+    task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
+    ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    resume_session_id: Option<String>,
+) -> Option<String> {
+    launch_agent_in_background_with_invocation(
+        svc,
+        tab_id,
+        launch_cmd,
+        agent_cmd,
+        origin,
+        has_startup_task_turn,
+        startup_turn_text,
+        task,
+        fallback_spec,
+        launch_env,
+        task_identity,
+        ready_tx,
+        resume_session_id,
+        None,
+    )
+}

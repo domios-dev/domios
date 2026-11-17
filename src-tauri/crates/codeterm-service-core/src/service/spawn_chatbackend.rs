@@ -44,6 +44,8 @@ fn stamp_chatbackend_launch_identity(
         tab.neighbor_authority = metadata.params.neighbor_authority.clone();
     }
     let agent = &metadata.agent;
+    tab.restorable_launch.account_id = agent.account_id.clone();
+    tab.restorable_launch.account_namespace = agent.account_namespace.clone();
     tab.worker_id = agent.worker_id.clone();
     tab.provisioned_cwd = agent.provisioned_cwd.clone();
     tab.report_target_tab_id = agent.report_target_tab_id.clone();

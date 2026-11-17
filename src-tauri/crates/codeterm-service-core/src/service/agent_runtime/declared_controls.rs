@@ -162,12 +162,14 @@ pub(super) async fn authenticate(
     tab: &str,
     session: &Arc<Session>,
     method: &str,
+    binding: Option<&super::login::LoginBinding>,
 ) -> Result<Value, String> {
     let _permit = tokio::time::timeout(Duration::from_secs(30), session.gate.acquire())
         .await
         .map_err(|_| "Sign-in deadline exceeded")?
         .map_err(|_| "Runtime unavailable")?;
     engine::validate_binding(svc, session).map_err(|e| e.to_string())?;
+    super::login::validate_login_binding(session, binding)?;
     let allowed = session
         .maps
         .lock()

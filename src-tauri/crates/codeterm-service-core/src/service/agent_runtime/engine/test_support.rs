@@ -38,6 +38,8 @@ pub fn loaded_runtime(
     let epoch = state.begin();
     assert!(state.load(epoch, tab.agent_session_id.as_deref().unwrap()));
     let session = Arc::new(Session {
+        account: Mutex::new("default".into()),
+        invocation: Mutex::new(None),
         update_generation: std::sync::atomic::AtomicU64::new(0),
         update_recovery_available: std::sync::atomic::AtomicBool::new(false),
         provider: tab.agent_type.clone().unwrap(),
