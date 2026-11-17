@@ -14,6 +14,8 @@ pub struct ProviderAccountConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ProviderAccountsConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_name: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub profiles: BTreeMap<String, ProviderAccountConfig>,
     pub order: Vec<String>,
@@ -25,6 +27,7 @@ pub struct ProviderAccountsConfig {
 impl Default for ProviderAccountsConfig {
     fn default() -> Self {
         Self {
+            default_name: None,
             profiles: BTreeMap::new(),
             order: vec![IMPLICIT_ACCOUNT.into()],
             automatic_switch: true,
@@ -35,6 +38,13 @@ impl Default for ProviderAccountsConfig {
 
 impl ProviderAccountsConfig {
     pub fn validate(&self) -> Result<(), String> {
+        if self
+            .default_name
+            .as_deref()
+            .is_some_and(|name| !valid_account_name(name))
+        {
+            return Err("Account names must contain 1 to 80 printable characters".into());
+        }
         if self.profiles.len() >= MAX_PROVIDER_ACCOUNTS {
             return Err(format!(
                 "A harness supports at most {MAX_PROVIDER_ACCOUNTS} accounts"
@@ -45,11 +55,7 @@ impl ProviderAccountsConfig {
                 return Err("Account ids must be non-default portable identifiers".into());
             }
             if let Some(name) = &profile.name {
-                if name.trim() != name
-                    || name.is_empty()
-                    || name.chars().count() > 80
-                    || name.chars().any(char::is_control)
-                {
+                if !valid_account_name(name) {
                     return Err("Account names must contain 1 to 80 printable characters".into());
                 }
             }
@@ -141,6 +147,13 @@ impl ProviderAccountsConfig {
         self.workspaces.retain(|_, account| account != id);
         Ok(())
     }
+}
+
+pub fn valid_account_name(name: &str) -> bool {
+    name.trim() == name
+        && !name.is_empty()
+        && name.chars().count() <= 80
+        && !name.chars().any(char::is_control)
 }
 
 pub fn valid_account_id(id: &str) -> bool {

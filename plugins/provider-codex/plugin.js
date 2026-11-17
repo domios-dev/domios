@@ -641,7 +641,8 @@ function* codexStateDbPath() {
   const override = host.envGet(sessionStoreOverrides.state);
   if (override) return override;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
+  const selectedSqliteHome = host.envGet("CODEX_SQLITE_HOME");
+  const root = selectedSqliteHome ? trimTrailingSeparators(selectedSqliteHome) : codexSessionsRoot(sep);
   if (!root) return null;
   let entries;
   try {
@@ -2967,7 +2968,10 @@ function runtimeError(value, willRetry = false, limits) {
   const limited = outputLimit(error) || outputLimit({ message: diagnostic });
   const message = diagnostic ?? (limited ? "Output limit reached" : "Provider request failed");
   const status = statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
-  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry, ...limited ? { retryableKind: "output_limit" } : retrySignal(code, status, limits) } };
+  const kind = runtimeClass(code, status);
+  const retry = limited ? { retryableKind: "output_limit" } : retrySignal(code, status, limits);
+  const accountQuota = !willRetry && !limited && (code === "usageLimitExceeded" && kind === "usage_limit" || code === "rateLimitExceeded" && retry.retryableKind === "rate_limited_until");
+  return { message, metadata: { ...code ? { code } : {}, class: kind, retryable: willRetry, ...retry, ...accountQuota ? { accountLimit: { ...retry.retryAtMs == null ? {} : { resetsAtMs: retry.retryAtMs } } } : {} } };
 }
 function retrySignal(code, status, limits) {
   if (status === 401 || status === 403) return {};

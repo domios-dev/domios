@@ -10,7 +10,8 @@ export interface ProviderAccountRow {
   name?: string;
   identity?: string;
   plan?: string;
-  status: "ready" | "signedOut" | "signingIn" | "exhausted" | "removing";
+  status: "ready" | "signedOut" | "signingIn" | "exhausted" | "removing" | "checking" | "probeFailed" | "unknown";
+  probeFailureReason?: string;
   tabsInUse: number;
   tabsToFinish?: number;
   resetsAtMs?: number;
@@ -37,7 +38,7 @@ export interface ProviderAccountsSnapshot {
 
 export type ProviderAccountsAction =
   | { action: "add" | "retryAdd" | "cancelAdd" }
-  | { action: "signIn" | "cancelSignIn" | "remove"; accountId: string }
+  | { action: "signIn" | "cancelSignIn" | "remove" | "check"; accountId: string }
   | { action: "rename"; accountId: string; name: string }
   | { action: "reorder"; accountId: string; position: number }
   | { action: "automaticSwitch"; enabled: boolean }

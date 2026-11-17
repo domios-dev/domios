@@ -530,7 +530,7 @@ fn on_success(inner: &Arc<UsagePollerInner>, key: &AccountKey) {
     state.consecutive_failures = 0;
     state.last_success_at = Some(Instant::now());
     drop(accounts);
-    let active_recently = provider_active(inner, &key.provider, Instant::now());
+    let active_recently = provider_active(inner, key, Instant::now());
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
     if active_recently {

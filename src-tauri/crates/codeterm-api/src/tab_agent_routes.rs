@@ -10,10 +10,20 @@ use super::{
     tab_chat_routes, tab_routes,
 };
 
+mod accounts;
 mod profiles;
 
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
     router
+        .route(
+            "/api/agents/providers/{id}/accounts",
+            get(accounts::list)
+                .post(accounts::update)
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024))
+                .route_layer(middleware::from_fn(
+                    super::plugin_host_action_routes::require_local_owner,
+                )),
+        )
         .route(
             "/api/agents/providers/{id}/profiles",
             get(profiles::list).merge(super::plugin_host_action_routes::owner_post(

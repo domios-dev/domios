@@ -1,5 +1,7 @@
 //! Account availability and switch claims; runtime lifecycle owns process and turn delivery.
 
+pub mod policy;
+pub mod roster;
 mod storage;
 pub mod switching;
 
@@ -10,6 +12,31 @@ use std::sync::Arc;
 #[derive(Default)]
 pub(crate) struct State {
     provisioning: parking_lot::Mutex<()>,
+    observations:
+        parking_lot::Mutex<std::collections::BTreeMap<(String, String), roster::Observation>>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Request {
+    revision: String,
+    operation: policy::PolicyAction,
+}
+
+pub fn update(
+    svc: &super::ServiceContext,
+    provider: &str,
+    request: Request,
+) -> Result<roster::Snapshot, String> {
+    if let policy::PolicyAction::Check { account_id } = &request.operation {
+        if policy::revision(&policy(svc, provider))? != request.revision {
+            return Err("The account list changed. Refresh it before trying again.".into());
+        }
+        roster::check(svc, provider, account_id)?;
+    } else {
+        policy::update(svc, provider, &request.revision, &request.operation)?;
+    }
+    roster::snapshot(svc, provider)
 }
 
 pub(crate) fn invocation_matches(
@@ -61,9 +88,9 @@ pub fn starting_account(
             Err("This harness does not support isolated accounts".into())
         };
     }
-    policy(svc, provider)
-        .starting_account(workspace, requested)
-        .map(|account| Some(account.to_owned()))
+    let policy = policy(svc, provider);
+    let starting = policy.starting_account(workspace, requested)?;
+    roster::starting_account(svc, provider, &policy, starting).map(Some)
 }
 
 pub(crate) fn spawn_params(

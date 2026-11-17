@@ -8,6 +8,7 @@ export interface ProviderConfig {
 }
 
 export interface ProviderAccountsConfig {
+  default_name?: string;
   profiles?: Record<string, { name?: string }>;
   order: string[];
   automatic_switch: boolean;
