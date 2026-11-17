@@ -15,12 +15,12 @@ async function main() {
   assert.deepEqual(projectionForPeer(null, "blackstar", blackstar), {});
   console.log("ok - grouping uses only the selected machine's projection");
 
-  const receiver = { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 7 };
+  const receiver = { is_me: false, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 7 };
   const known = observeNeighborProjection({ pair: { ...blackstar.pair, receiver } });
   const missed = observeNeighborProjection(blackstar, known);
   assert.equal(missed.pair.receiver, null);
   assert.deepEqual(missed.pair.observation, { receiver, concierge: undefined, stale: true });
-  const recovered = observeNeighborProjection({ pair: { ...blackstar.pair, receiver: { ...receiver, receiving_here: true, revision: 8 } } }, missed);
+  const recovered = observeNeighborProjection({ pair: { ...blackstar.pair, receiver: { ...receiver, is_me: true, receiving_here: true, revision: 8 } } }, missed);
   assert.equal(recovered.pair.observation?.stale, false);
   assert.equal(recovered.pair.observation?.receiver?.revision, 8);
   assert.deepEqual(observeNeighborProjection({}, known), {});
