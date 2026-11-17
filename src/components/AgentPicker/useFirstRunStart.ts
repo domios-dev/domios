@@ -12,26 +12,36 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void,
   const busy = phase === "installing" || phase === "signIn" || phase === "starting";
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const attempt = useRef<{ stop?: () => void; controller: AbortController } | null>(null);
-  useEffect(() => () => { attempt.current?.controller.abort(); attempt.current?.stop?.(); attempt.current = null; }, []);
+  const attempt = useRef<{ stop?: () => void; deadline?: ReturnType<typeof setTimeout>; controller: AbortController } | null>(null);
+  useEffect(() => () => { attempt.current?.controller.abort(); attempt.current?.stop?.(); clearTimeout(attempt.current?.deadline); attempt.current = null; }, []);
 
   const onConfirm = async (providerId: string, install = false) => {
     if (attempt.current) return;
-    const current: { stop?: () => void; controller: AbortController } = { controller: new AbortController() };
+    const current: NonNullable<typeof attempt.current> = { controller: new AbortController() };
     attempt.current = current;
     transition(install ? "install" : "start");
     setError(null);
     setProgress(install ? "Installing harness…" : "Starting General agent…");
     let target: TabRef | null = null;
     const stages = new Map<string, TabBootStageEvent>();
+    const fail = (reason: string) => {
+      if (attempt.current !== current) return;
+      setError(reason);
+      transition("failure");
+      setProgress(null);
+      current.stop?.();
+      clearTimeout(current.deadline);
+      attempt.current = null;
+    };
     const settle = (event: TabBootStageEvent) => {
       if (attempt.current !== current || event.tab_id !== target?.tabId) return;
-      if (event.stage === "agent_ready" || event.stage === "spawn_failed" || event.stage === "launch_deadline_elapsed" || event.stage === "launch_binding_unconfirmed") {
+      if (event.stage === "agent_ready" || event.stage === "spawn_failed") {
         setProgress(event.stage === "agent_ready" ? "Ready" : null);
         transition(event.stage === "agent_ready" ? "ready" : "failure");
         setError(event.stage === "agent_ready" ? null : event.reason || "Failed to start General agent");
         if (event.stage === "agent_ready") void recordProductEvent({ event_type: "onboarding_completed", event_properties: {} });
         current.stop?.();
+        clearTimeout(current.deadline);
         attempt.current = null;
       }
     };
@@ -51,6 +61,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void,
       if (attempt.current !== current) return;
       transition("authenticated");
       setProgress("Starting General agent…");
+      current.deadline = setTimeout(() => fail("Timed out waiting for the General agent to become ready."), 300_000);
       await invoke("complete_general_agent_first_run", { providerId });
       const state = await invoke<MultiplexerState>("mux_get_state");
       if (attempt.current !== current) return;
@@ -62,12 +73,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void,
       if (tab.boot_stage) settle({ tab_id: tab.id, stage: tab.boot_stage, reason: tab.boot_failure_reason });
       await show(target);
     } catch (failure) {
-      if (attempt.current !== current) return;
-      setError(failure instanceof Error ? failure.message : typeof failure === "string" ? failure : "Failed to start General agent");
-      transition("failure");
-      setProgress(null);
-      current.stop?.();
-      attempt.current = null;
+      fail(failure instanceof Error ? failure.message : typeof failure === "string" ? failure : "Failed to start General agent");
     }
   };
   return { busy, phase, error, progress, onConfirm, onInstall: (providerId: string) => { void onConfirm(providerId, true); } };
