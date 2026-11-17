@@ -475,6 +475,163 @@ fn manager_launch_config_uses_committed_team_after_placement() {
 }
 
 #[test]
+fn runtime_orchestrator_in_unfocused_folderless_workspace_delivers_brief_once() {
+    use crate::multiplexer::{state::MultiplexerState, types::TabBacking};
+    use crate::service::{agent_runtime, test_fixture::ServiceFixture, SpawnAgentParams};
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    use serde_json::Value;
+    use std::sync::Arc;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    const PROVIDER: &str = "orchestrator-runtime-fixture";
+    const BRIEF: &str = "fragment-97α\n$opaque `x` {task}";
+    const SOURCE: &str = r#"
+module.exports = {
+  runtimePlan(ctx, op) {
+    return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
+  },
+  runtimeResponse(ctx, op) {
+    const result = {
+      initialize: {kind:'initialized'},
+      openThread: {kind:'threadLoaded',threadId:ctx.bindingNonce,settings:op.settings},
+      submitTurn: {kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'fixture-turn'}
+    }[op.kind];
+    return {kind:'complete',result};
+  },
+  runtimeReduce() { return {state:null,events:[]}; }
+};
+"#;
+
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace = mux.create_workspace("unfocused fixture".into(), None);
+    let tab_id = mux.create_tab(&workspace.id).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    fixture.set_agent_full_access(false);
+    let _storage = fixture.install_seeded_storage_desk();
+    let binary = std::env::current_exe().unwrap();
+    let manifest = PluginManifest::from_json_str(
+        &json!({
+            "id":PROVIDER,"version":"1.0.0","displayName":"Runtime Fixture",
+            "capabilities":{
+                "agentProvider":true,
+                "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
+                "agentRuntime":{
+                    "runtime":"stdio-jsonrpc","command":{"binary":binary,"args":[]},
+                    "requestMethods":{"initialize":["initialize"],"openThread":["openThread"],"submitTurn":["submitTurn"]},
+                    "notificationMethods":[]
+                }
+            },
+            "spawn":{
+                "readinessStrategy":{"kind":"fixed_delay","durationMs":0},
+                "taskDelivery":"pty_input","verifySubmit":{"kind":"none"},
+                "systemPromptDelivery":{"kind":"session_config"}
+            },
+            "permissions":{"subprocess":{"allow":[binary]}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let service = &fixture.service;
+    service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source(PROVIDER, SOURCE.into()).unwrap()),
+        )));
+
+    let requests = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let captured = requests.clone();
+    let _process = agent_runtime::process::test_ports::register(&tab_id, move || {
+        let (process, peer) = agent_runtime::process::test_ports::connected();
+        let captured = captured.clone();
+        crate::async_runtime::spawn(async move {
+            let (reader, mut writer) = tokio::io::split(peer);
+            let mut lines = BufReader::new(reader).lines();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let reply = json!({"id":request["id"],"result":{}});
+                captured.lock().push(request);
+                writer
+                    .write_all(format!("{reply}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+        });
+        process
+    });
+
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let spawned = crate::async_runtime::block_on(async {
+        let spawned = service
+            .spawn_agent(
+                SpawnAgentParams {
+                    agent: Some(PROVIDER.into()),
+                    role: Some("orchestrator".into()),
+                    can_spawn: Some(true),
+                    workspace_id: Some(workspace.id.clone()),
+                    existing_tab_id: Some(tab_id.clone()),
+                    task: Some(BRIEF.into()),
+                    ..Default::default()
+                },
+                Some(ready_tx),
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), ready_rx)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        spawned
+    });
+
+    let thread = {
+        let mux = service.mux.read();
+        assert_ne!(mux.get_active_workspace().unwrap().id, workspace.id);
+        assert!(mux.get_workspace(&workspace.id).unwrap().cwd.is_none());
+        assert_eq!(spawned.tab_id, tab_id);
+        assert!(spawned.team_id.is_none());
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
+        let thread = tab
+            .agent_session_id
+            .clone()
+            .filter(|id| !id.is_empty())
+            .unwrap();
+        assert_eq!(
+            tab.backing,
+            TabBacking::ChatBackend {
+                plugin_id: PROVIDER.into(),
+                session_id: thread.clone(),
+            }
+        );
+        thread
+    };
+    assert_eq!(
+        agent_runtime::process::test_ports::spawned_cwd(&tab_id),
+        Some(codeterm_paths::strip_verbatim_prefix(
+            std::env::current_dir().unwrap().to_str().unwrap()
+        ))
+    );
+
+    {
+        let requests = requests.lock();
+        let frames: Vec<_> = requests
+            .iter()
+            .filter_map(|request| request["method"].as_str())
+            .collect();
+        assert_eq!(frames, ["initialize", "openThread", "submitTurn"]);
+        let instructions = requests[1]["params"]["instructions"].as_str().unwrap();
+        assert_eq!(instructions.matches(BRIEF).count(), 1);
+        assert_eq!(requests[2]["params"]["threadId"], thread);
+        let turn = requests[2]["params"]["input"]["text"].as_str().unwrap();
+        assert!(!turn.contains(BRIEF));
+    }
+    agent_runtime::engine::stop_blocking(service, &tab_id).unwrap();
+    crate::service::session_persist::stop_worker(service).unwrap();
+}
+
+#[test]
 fn runtime_fresh_brief_survives_launch_ensure_for_every_role_and_system_channel() {
     use crate::agent::test_provider::MockProvider;
     use crate::service::orchestrator::{compose_runtime_system_prompt, ensure_tab_runtime_prompt};
