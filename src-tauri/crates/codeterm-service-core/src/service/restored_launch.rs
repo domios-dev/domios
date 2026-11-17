@@ -83,6 +83,10 @@ pub(crate) fn capture_tab_launch_parameters(
         })
         .unwrap_or_default();
     let launch = RestorableLaunchParameters {
+        account_namespace: mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.restorable_launch.account_namespace.clone()),
         account_id: mux
             .read()
             .get_tab(tab_id)
@@ -293,6 +297,7 @@ pub fn restored_fresh_launch_input(
             .unwrap_or_else(|| "default".into()),
     );
     params.context_files = launch_parameters.context_files.clone();
+    params.account_namespace = launch_parameters.account_namespace.clone();
     params.context_skills = launch_parameters.context_skills.clone();
     params.task = None;
     params.starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;

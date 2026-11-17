@@ -13,9 +13,19 @@ use std::{
     time::Duration,
 };
 
+mod account_context;
 mod cli;
 mod declared;
 mod relay;
+pub(crate) use account_context::OpenedContext;
+pub(crate) use account_context::{close as close_account_context, open as open_account_context};
+
+struct Completion(tokio::sync::watch::Sender<bool>);
+impl Completion {
+    fn complete(self) {
+        self.0.send_replace(true);
+    }
+}
 pub(crate) fn close_cli(tab: &str) {
     cli::close(tab);
 }
@@ -224,6 +234,9 @@ pub async fn operate(
     let label = request_label(&request);
     let secret = request.api_key.clone().or_else(|| request.code.clone());
     cli::cleanup(svc);
+    if !crate::service::provider_accounts::login_permitted(svc, tab) {
+        return Err("This account sign-in is finishing; refresh its account card".into());
+    }
     let owner = svc.clone();
     let target = tab.to_owned();
     let requested = request.provider_id.clone();

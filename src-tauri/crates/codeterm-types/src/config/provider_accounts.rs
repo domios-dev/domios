@@ -4,11 +4,40 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const IMPLICIT_ACCOUNT: &str = "default";
 pub const MAX_PROVIDER_ACCOUNTS: usize = 32;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
+pub struct AccountIdentity {
+    pub subject: String,
+    pub label: String,
+}
+
+impl AccountIdentity {
+    pub fn validate(&self) -> Result<(), String> {
+        let bounded = |value: &str, limit: usize| {
+            !value.is_empty()
+                && value.trim() == value
+                && value.chars().count() <= limit
+                && !value.chars().any(char::is_control)
+        };
+        if bounded(&self.subject, 512) && bounded(&self.label, 320) {
+            Ok(())
+        } else {
+            Err("The harness returned an invalid account identity".into())
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderAccountConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<AccountIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained_namespaces: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,6 +45,8 @@ pub struct ProviderAccountConfig {
 pub struct ProviderAccountsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_identity: Option<AccountIdentity>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub profiles: BTreeMap<String, ProviderAccountConfig>,
     pub order: Vec<String>,
@@ -28,6 +59,7 @@ impl Default for ProviderAccountsConfig {
     fn default() -> Self {
         Self {
             default_name: None,
+            default_identity: None,
             profiles: BTreeMap::new(),
             order: vec![IMPLICIT_ACCOUNT.into()],
             automatic_switch: true,
@@ -38,6 +70,9 @@ impl Default for ProviderAccountsConfig {
 
 impl ProviderAccountsConfig {
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(identity) = &self.default_identity {
+            identity.validate()?;
+        }
         if self
             .default_name
             .as_deref()
@@ -50,7 +85,35 @@ impl ProviderAccountsConfig {
                 "A harness supports at most {MAX_PROVIDER_ACCOUNTS} accounts"
             ));
         }
+        let mut owners = BTreeMap::<&str, &str>::new();
         for (id, profile) in &self.profiles {
+            for namespace in std::iter::once(profile.credential_namespace.as_deref().unwrap_or(id))
+                .chain(profile.retained_namespaces.iter().map(String::as_str))
+            {
+                if owners.insert(namespace, id).is_some() {
+                    return Err("Account credential namespaces cannot be shared".into());
+                }
+            }
+            let namespaces = profile
+                .credential_namespace
+                .iter()
+                .chain(profile.retained_namespaces.iter());
+            if profile.retained_namespaces.len() > MAX_PROVIDER_ACCOUNTS
+                || namespaces
+                    .clone()
+                    .any(|namespace| !valid_account_id(namespace) || namespace == IMPLICIT_ACCOUNT)
+            {
+                return Err(
+                    "Account credential namespaces must be bounded portable identifiers".into(),
+                );
+            }
+            let declared: Vec<_> = namespaces.collect();
+            if declared.iter().collect::<BTreeSet<_>>().len() != declared.len() {
+                return Err("Account credential namespaces must be unique".into());
+            }
+            if let Some(identity) = &profile.identity {
+                identity.validate()?;
+            }
             if id == IMPLICIT_ACCOUNT || !valid_account_id(id) {
                 return Err("Account ids must be non-default portable identifiers".into());
             }

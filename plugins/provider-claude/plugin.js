@@ -1125,6 +1125,12 @@ function authStatusProbe() {
 function object3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
+function accountIdentity(value) {
+  const record3 = object3(value);
+  const email = record3?.email;
+  if (record3?.loggedIn !== true || typeof email !== "string" || !email.includes("@") || email.length > 320 || !/^[\u0021-\u007e]+$/u.test(email)) return null;
+  return { subject: email, label: email };
+}
 function parseAuthStatus(value) {
   const record3 = object3(value);
   if (!record3 || typeof record3.loggedIn !== "boolean") return null;
@@ -2901,6 +2907,7 @@ var plugin = {
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
+  accountIdentity,
   tracksBackgroundWork: () => true,
   parseBackgroundWork,
   reasoningEffortLaunchArgsForModel,

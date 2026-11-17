@@ -4,6 +4,7 @@
   "minCodeterm": "1.20.2",
   "hostApi": 2,
   "accounts": {
+    "credentialFiles": ["auth.json"],
     "homeEnvironment": "CODEX_HOME",
     "defaultHome": "~/.codex",
     "secretEnvironment": [

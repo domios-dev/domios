@@ -389,6 +389,7 @@ impl ServiceContext {
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.restorable_launch.account_id = agent.account_id.clone();
+                tab.restorable_launch.account_namespace = agent.account_namespace.clone();
                 tab.role_profile = agent.role_profile.clone();
                 tab.taskless_authorized_gates = taskless_authorized_gates.clone();
                 if tab.neighbor_authority.is_none() {
@@ -833,6 +834,7 @@ impl ServiceContext {
             let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance, &gate)?;
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.restorable_launch.account_id = agent.account_id.clone();
+                tab.restorable_launch.account_namespace = agent.account_namespace.clone();
                 tab.hidden = true;
                 tab.show_in_tabbar = false;
                 tab.audience = spec.audience;

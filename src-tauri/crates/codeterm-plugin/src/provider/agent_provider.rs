@@ -29,6 +29,13 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn account_identity(
+        &self,
+        _record: Option<&serde_json::Value>,
+    ) -> Result<Option<crate::provider_account::storage::AccountIdentity>, String> {
+        Ok(None)
+    }
+
     agent_provider_runtime_defaults!();
 
     fn supports_subagent_visibility(&self) -> bool {

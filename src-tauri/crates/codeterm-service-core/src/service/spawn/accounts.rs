@@ -39,15 +39,28 @@ pub(super) fn prepare(
         Some(&workspace),
         agent.account_id.as_deref(),
     )?;
-    let context =
-        crate::service::provider_accounts::invocation(svc, &provider, account.as_deref())?;
+    let namespace = crate::service::provider_accounts::credential_namespace(
+        svc,
+        &provider,
+        account.as_deref(),
+        agent.account_namespace.as_deref(),
+    )?;
+    let context = crate::service::provider_accounts::invocation_at(
+        svc,
+        &provider,
+        account.as_deref(),
+        namespace.as_deref(),
+    )?;
     if let TabCommand::Agent(agent) = &mut spec.command {
         agent.provider = provider.clone();
         agent.account_id = account.clone();
+        agent.account_namespace = namespace.clone();
     }
     if let Some(metadata) = &mut spec.chatbackend_launch {
         metadata.agent.provider = provider;
         metadata.agent.account_id = account.clone();
+        metadata.agent.account_namespace = namespace.clone();
+        metadata.params.account_namespace = namespace;
         metadata.params.account_id = account;
     }
     spec.workspace_id = Some(workspace);

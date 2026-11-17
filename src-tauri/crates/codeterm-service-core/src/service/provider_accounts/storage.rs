@@ -209,6 +209,52 @@ fn link_shared(target: &Path, link: &Path, directory: bool) -> Result<(), String
     result.map_err(|error| format!("Shared account history could not be linked: {error}"))
 }
 
+fn home_path(data_root: &Path, provider: &str, account: &str) -> Result<PathBuf, String> {
+    codeterm_plugin::plugin_id::validate(provider)?;
+    if !codeterm_types::config::provider_accounts::valid_account_id(account) || account == "default"
+    {
+        return Err("A named account requires a non-default portable identity".into());
+    }
+    absolute(data_root.into())?;
+    Ok(data_root
+        .join("provider-accounts")
+        .join(provider)
+        .join(account))
+}
+
+pub(super) fn discard(data_root: &Path, provider: &str, account: &str) -> Result<(), String> {
+    let home = home_path(data_root, provider, account)?;
+    match std::fs::symlink_metadata(&home) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err("The account home was replaced; credentials were retained".into())
+        }
+        Ok(_) => {}
+    }
+    let host_root = std::fs::canonicalize(data_root).map_err(|error| error.to_string())?;
+    let parent = home
+        .parent()
+        .ok_or("The account home has no owner directory")?;
+    let parent_path = std::fs::canonicalize(parent).map_err(|error| error.to_string())?;
+    if parent_path != host_root.join("provider-accounts").join(provider) {
+        return Err("The account home is outside its owner directory".into());
+    }
+    for path in [parent, home.as_path()] {
+        codeterm_util::private_file::open_directory_owner_only(path)
+            .map_err(|error| error.to_string())?;
+    }
+    let resolved = std::fs::canonicalize(&home).map_err(|error| error.to_string())?;
+    if resolved.parent() != Some(parent_path.as_path())
+        || resolved.file_name() != Some(std::ffi::OsStr::new(account))
+    {
+        return Err("The account home changed; credentials were retained".into());
+    }
+    std::fs::remove_dir_all(home)
+        .map_err(|error| format!("Account credentials could not be removed: {error}"))
+}
+
+#[cfg(test)]
 pub(super) fn provision(
     data_root: &Path,
     provider: &str,
@@ -216,21 +262,26 @@ pub(super) fn provision(
     capability: &AccountCapability,
     usual: &Path,
 ) -> Result<Arc<InvocationContext>, String> {
+    provision_namespace(data_root, provider, account, account, capability, usual)
+}
+
+pub(super) fn provision_namespace(
+    data_root: &Path,
+    provider: &str,
+    account: &str,
+    namespace: &str,
+    capability: &AccountCapability,
+    usual: &Path,
+) -> Result<Arc<InvocationContext>, String> {
     capability.validate()?;
     validate_environment_authority(capability)?;
     validate_isolation(capability)?;
-    codeterm_plugin::plugin_id::validate(provider)?;
-    if !codeterm_types::config::provider_accounts::valid_account_id(account) || account == "default"
-    {
-        return Err("A named account requires a non-default portable identity".into());
-    }
-    absolute(data_root.into())?;
+    let home = home_path(data_root, provider, namespace)?;
     absolute(usual.into())?;
     let accounts_root = data_root.join("provider-accounts");
     private_directory(&accounts_root)?;
     let provider_root = accounts_root.join(provider);
     private_directory(&provider_root)?;
-    let home = provider_root.join(account);
     private_directory(&home)?;
     let canonical_home = std::fs::canonicalize(&home).map_err(|error| error.to_string())?;
     for isolated in &capability.isolated_paths {

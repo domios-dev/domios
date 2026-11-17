@@ -7,6 +7,8 @@ pub struct AgentSpawnSpec {
     pub provider: String,
     #[serde(default)]
     pub account_id: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub account_namespace: Option<String>,
     #[serde(skip)]
     pub remote_task_bound: bool,
     #[serde(default)]
