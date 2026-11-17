@@ -1,6 +1,69 @@
 use super::*;
 
 #[tokio::test]
+async fn committed_canvas_file_actions_exclude_frames_conflicts_refusals_and_optout() {
+    use codeterm_local_preview::html_preview::{preview_test_root, write_canvas_file, CanvasWrite};
+    let sink = Sink::new(Consent::On).await;
+    let path = preview_test_root(sink.dir.path()).join("board.canvas.json");
+    let path = path.to_str().unwrap();
+    let initial = r#"{"format":"domios.canvas/1","items":[{"id":"anchor","kind":"note","markdown":"private"}]}"#;
+    std::fs::write(path, initial).unwrap();
+    let created = initial.replace(
+        "\"items\":[",
+        "\"items\":[{\"id\":\"new\",\"kind\":\"note\",\"markdown\":\"new\"},",
+    );
+    let updated = created.replace("\"markdown\":\"new\"", "\"markdown\":\"edited\"");
+    let moved = updated.replace("\"id\":\"new\"", "\"id\":\"new\",\"x\":40,\"y\":20");
+    let persist = |before: &str, after: &str| {
+        let outcome = write_canvas_file(path, |_, _| Ok(()), before, after);
+        for event in super::super::super::actions::canvas_file_events(&outcome, before, after) {
+            sink.worker.record_nowait(event).unwrap();
+        }
+        outcome
+    };
+    assert_eq!(persist(initial, &created), Ok(CanvasWrite::Written));
+    assert!(matches!(
+        persist(initial, &updated),
+        Ok(CanvasWrite::Conflict(_))
+    ));
+    assert_eq!(persist(&created, &updated), Ok(CanvasWrite::Written));
+    assert_eq!(persist(&updated, &moved), Ok(CanvasWrite::Written));
+    assert_eq!(persist(&moved, initial), Ok(CanvasWrite::Written));
+    assert_eq!(persist(initial, initial), Ok(CanvasWrite::Written));
+    let refused = write_canvas_file(
+        path,
+        |_, _| Err("private refusal".into()),
+        initial,
+        &created,
+    );
+    assert!(refused.is_err());
+    assert!(
+        super::super::super::actions::canvas_file_events(&refused, initial, &created).is_empty()
+    );
+    assert_eq!(std::fs::read_to_string(path).unwrap(), initial);
+    assert_eq!(
+        sink.events().await,
+        vec![
+            Event::CanvasElementSaved {
+                operation: codeterm_analytics::CanvasOperation::Create,
+                kind: codeterm_analytics::CanvasKind::Note
+            },
+            Event::CanvasElementSaved {
+                operation: codeterm_analytics::CanvasOperation::Update,
+                kind: codeterm_analytics::CanvasKind::Note
+            },
+            Event::CanvasElementSaved {
+                operation: codeterm_analytics::CanvasOperation::Delete,
+                kind: codeterm_analytics::CanvasKind::Note
+            },
+        ]
+    );
+    sink.worker.set_consent(Consent::Off).await.unwrap();
+    assert_eq!(persist(initial, &created), Ok(CanvasWrite::Written));
+    assert_eq!(sink.events().await.len(), 3);
+}
+
+#[tokio::test]
 async fn committed_canvas_actions_exclude_layout_noops_failures_and_optout() {
     use codeterm_plan::{plan::OrchestratorRef, service_plan::PlanStore};
     let sink = Sink::new(Consent::On).await;

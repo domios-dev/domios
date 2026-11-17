@@ -35,6 +35,16 @@ pub(crate) fn agent_spawned(provider: Option<&str>, role: Option<&str>) -> Optio
     })
 }
 impl ServiceContext {
+    pub(crate) fn record_product_canvas_file(
+        &self,
+        outcome: &Result<codeterm_local_preview::html_preview::CanvasWrite, String>,
+        before: &str,
+        after: &str,
+    ) {
+        for event in actions::canvas_file_events(outcome, before, after) {
+            self.record_product_event(event);
+        }
+    }
     pub async fn set_product_analytics_consent(
         &self,
         consent: codeterm_analytics::Consent,

@@ -232,8 +232,9 @@ pub fn write_canvas(
         |path, canonical| policy.authorize_write(path, canonical),
         base,
         document,
-    )?;
-    Ok(match outcome {
+    );
+    svc.record_product_canvas_file(&outcome, base, document);
+    Ok(match outcome? {
         html_preview::CanvasWrite::Written => CanvasWriteResponse::Written,
         html_preview::CanvasWrite::Conflict(current) => CanvasWriteResponse::Conflict { current },
     })
