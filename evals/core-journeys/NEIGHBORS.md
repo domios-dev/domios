@@ -59,6 +59,9 @@ fact. Read the controlled fixture independently to choose its exact expected
 answer; do not widen the stored scope to fit the default code question. Only B
 needs an idle bound concierge before grant edits: A's owner conversation can
 receive its linked answer without a live concierge.
+For the one-question pre-fix diagnostic set `access_levels` to `["read_only"]`.
+Omit it for release qualification; the evidence contract requires all three
+levels and cannot clear a passing diagnostic subset as a full matrix.
 
 ## Run and inspect
 

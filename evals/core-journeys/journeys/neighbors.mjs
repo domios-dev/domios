@@ -142,6 +142,8 @@ export async function journeyFive(ctx) {
     config = JSON.parse(readFileSync(ctx.options.neighborsConfig, "utf8"));
     demand((config.question === undefined && config.expected_answer === undefined)
       || (typeof config.question === "string" && config.question.includes("{nonce}") && typeof config.expected_answer === "string" && config.expected_answer.trim().length > 0), "J5 custom question needs a {nonce} and a nonempty expected_answer matching the public grant");
+    demand(config.access_levels === undefined || (Array.isArray(config.access_levels) && config.access_levels.length > 0
+      && config.access_levels.every(access => ACCESS_LEVELS.includes(access)) && new Set(config.access_levels).size === config.access_levels.length), "J5 access_levels must be a nonempty subset of read_only, folder and full");
     demand(/^[0-9a-f]{40}$/.test(config.candidate ?? "") && /^[0-9a-f]{64}$/.test(config.friendship ?? ""), "J5 requires a full candidate SHA and friendship ID");
     demand(config.qa_accounts_confirmed === true, "J5 requires private confirmation of the authorized QA account aliases");
     a = { dev: ctx.dev, api: ctx.api };
@@ -163,7 +165,7 @@ export async function journeyFive(ctx) {
   }
   let changed = false;
   try {
-    for (const access of ACCESS_LEVELS) {
+    for (const access of config.access_levels ?? ACCESS_LEVELS) {
       const row = { access };
       state.rows.push(row);
       const ready = await ctx.check("J5", "host_concierge_ready", access, async () => {
