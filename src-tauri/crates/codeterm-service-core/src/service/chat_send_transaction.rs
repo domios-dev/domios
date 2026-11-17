@@ -168,6 +168,16 @@ pub struct ChatSendLedger {
 }
 
 impl ChatSendLedger {
+    pub(crate) fn has_unsettled_update_input(&self, tab_id: &str) -> bool {
+        self.state.lock().by_id.values().any(|send| {
+            send.tab_id == tab_id
+                && matches!(
+                    send.state,
+                    ChatSendState::Pending | ChatSendState::Written | ChatSendState::Unknown
+                )
+        })
+    }
+
     pub(crate) fn restore_before_user_admission(
         &self,
         tab_id: &str,

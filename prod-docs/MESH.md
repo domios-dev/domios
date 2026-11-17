@@ -52,10 +52,12 @@ Access is enforced on direct signed requests and relayed requests. Secret routes
 |---|---|
 | Full | All peer API operations except local-only secret routes and token minting. Sync may refresh metadata of peers this machine already connected. |
 | ReadOnly | `GET` routes permitted by peer policy, excluding local-only secret routes and token minting. `POST /api/mesh/sync` carries only the sender's liveness and identity. |
-| AgentIsolated | Spawn agents; list only tabs spawned by this peer; read tab text and send input or attachments, exec, respond, report, or clear only on those tabs. It cannot read other tabs or workspace lists, mesh inventory, memory, configuration, secrets, or notifications. |
+| AgentIsolated | Spawn agents; list only tabs spawned by this peer; read tab text and send input or attachments, exec, respond, report, clear, or close only on those tabs. It cannot read other tabs or workspace lists, mesh inventory, memory, configuration, secrets, or notifications. |
 | Custom | Only operations granted by the configured `Permission` values; `Admin` grants ordinary peer API access and sender-only sync, except local-only routes. |
 
 AgentIsolated ownership is stamped from the authenticated signed peer identity when an agent is spawned. Caller-supplied ownership fields cannot claim another peer's tabs. Every tab-scoped route checks the stored owner before dispatch.
+
+Remote tab close requires stored creator ownership at every access level: a signed agent must match both peer and controller tab; an authenticated paired machine must match the peer. Plan-dispatched Workers record their origin Orchestrator as controller. Released ownership and foreign creators are refused; coordinator and busy-Worker close guards remain in force.
 
 Remote ownership remains until the local owner releases it. Closing the controller tab or Team on the remote machine does not currently send a reliable release signal. On the machine hosting the tab, run:
 
@@ -158,4 +160,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 78 -->
+<!-- revision: 79 -->

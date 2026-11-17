@@ -22,6 +22,27 @@ function planned(ctx: RuntimeContext, operation: Operation): RuntimePlan {
   }
   return plan;
 }
+for (const mode of ["workspace-write", "read-only-with-writable-roots"]) {
+  const cwd = "C:/Users/fixture/existing-git/friend";
+  const settings: RuntimeSettings = {mode,networkAccess:false,additionalDirectories:["C:/own-pad"]};
+  const ctx: RuntimeContext = {...context,threadId:"pre-existing-session",cwd,settings,restrictedCli:{
+    tabId:context.tabId,bindingNonce:context.bindingNonce,epoch:context.epoch,cwd,metadataDirectory:".codex",
+    executable:"C:/trusted/cli.exe",executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64),
+  }};
+  const operation: Operation = {kind:"resumeThread",threadId:"pre-existing-session",instructions:"opaque",settings};
+  const plan = planned(ctx,operation);
+  if (plan.action.kind !== "request") throw new Error("Missing resume request");
+  assert.equal(plan.action.call.method,"thread/resume");
+  const params = plan.action.call.params as Record<string, unknown>;
+  assert.equal(params.threadId,"pre-existing-session");
+  assert.equal(params.cwd,cwd);
+  const config = params.config as Record<string,unknown>;
+  assert.deepEqual(config.project_root_markers,[]);
+  assert.deepEqual(config.projects,{[cwd]:{trust_level:"trusted"}});
+  assert.deepEqual(config["sandbox_workspace_write.writable_roots"],settings.additionalDirectories);
+  assert.equal(config["sandbox_workspace_write.network_access"],false);
+  assert.equal(config.CODEX_HOME,undefined);
+}
 for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.mutating!, "workspaceWrite"]] as const) {
   const settings: RuntimeSettings = { mode: mode.runtimeMode!, additionalDirectories: [], networkAccess: false };
   for (const operation of [

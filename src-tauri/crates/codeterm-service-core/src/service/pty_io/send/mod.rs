@@ -410,6 +410,7 @@ impl ServiceContext {
         delivery: AuthenticatedPtyDelivery,
         frame: crate::service::messenger::FramedDelivery,
     ) -> Result<(), String> {
+        let _update_input = self.admit_update_pty_input(&delivery.pty_id)?;
         log::debug!(
             "[agent-delivery] branch=send_authenticated_delivery_with_routed_frame provider={} pty={}",
             delivery.provider_id,
@@ -522,6 +523,12 @@ impl ServiceContext {
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
+        let _update_input =
+            self.admit_update_input(tab_id)
+                .map_err(|detail| DeliveryError::TabBusyRefused {
+                    tab: tab_id.into(),
+                    detail,
+                })?;
         if submit && matches!(text, crate::service::messenger::AgentInput::Human(_)) {
             if let Err(error) = crate::service::agent_runtime::capacity_retry::cancel(self, tab_id)
             {
@@ -650,6 +657,12 @@ impl ServiceContext {
         claim: super::submit_transaction::SubmitCycleClaim,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
+        let _update_input = self.admit_update_pty_input(pty_id).map_err(|detail| {
+            DeliveryError::TabBusyRefused {
+                tab: pty_id.into(),
+                detail,
+            }
+        })?;
         let (tab_id, agent_type) = self.resolve_tab_and_agent(pty_id);
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
         if matches!(text, crate::service::messenger::AgentInput::Shell(_)) && agent_type.is_some() {
@@ -1023,6 +1036,7 @@ impl ServiceContext {
         tab_id: &str,
         input: &crate::service::messenger::HumanKeys,
     ) -> Result<(), String> {
+        let _update_input = self.admit_update_input(tab_id)?;
         self.wake_frozen_tab(tab_id)?;
         let pty_id = self.resolve_pty_id(tab_id)?;
         let data = input.as_bytes();
@@ -1041,9 +1055,11 @@ impl ServiceContext {
         tab_id: &str,
         writes: Vec<crate::service::messenger::HumanKeys>,
     ) -> Result<(), String> {
+        let update_input = self.admit_update_input(tab_id)?;
         let pty_id = self.resolve_pty_id(tab_id)?;
         let pty = self.pty.clone();
         std::thread::spawn(move || {
+            let _update_input = update_input;
             for bytes in writes {
                 let _ = pty.lock().write(&pty_id, bytes.as_bytes());
             }

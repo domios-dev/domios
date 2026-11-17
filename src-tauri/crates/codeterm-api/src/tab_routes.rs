@@ -12,7 +12,9 @@ use send::wait_for_pty_link as await_pty_link;
 
 mod exec;
 mod metadata;
+mod remote_close;
 use metadata::map_metadata_error;
+pub(crate) use remote_close::close_remote_tab;
 mod utility_timeout;
 pub use utility_timeout::set_timeout;
 mod send;
@@ -479,18 +481,32 @@ pub async fn get_tab_output(
 #[derive(Deserialize, Default)]
 pub struct CloseTabQuery {
     #[serde(default)]
-    force: bool,
+    pub(crate) force: bool,
 }
 
 pub async fn close_tab(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: crate::auth::AgentHeaders,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(s, m)| (s, m.to_string()))?;
+    if let crate::auth::RequestActor::RemoteAgent(agent) = &headers.actor {
+        return close_remote_tab(
+            &state,
+            &agent.instance_id,
+            Some(&agent.tab_id),
+            &tab_id,
+            query.force,
+        )
+        .await;
+    }
+    if let Some(peer_id) = crate::auth::caller_peer_id(&state, &headers) {
+        return close_remote_tab(&state, &peer_id, None, &tab_id, query.force).await;
+    }
+    let headers = crate::auth::ActorHeaders::authenticate(&state, (*headers).clone())?;
     if let Some(caller_tab_id) = caller_tab_header(&headers) {
         let result = codeterm_service_core::dispatch::dispatch_blocking(
             codeterm_service_core::dispatch::Command::TabClose {
@@ -689,6 +705,7 @@ pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
         || e.starts_with(codeterm_service_core::service::TEAM_CLOSE_REFUSAL_PREFIX)
         || e.starts_with("Cannot close protected workspace")
         || e.starts_with("Cannot close protected Tab")
+        || e.starts_with(codeterm_service_core::service::tab::REMOTE_TAB_CLOSE_REFUSAL_PREFIX)
     {
         StatusCode::FORBIDDEN
     } else if e.starts_with("Workspace not found:")

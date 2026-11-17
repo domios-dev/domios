@@ -409,9 +409,7 @@ pub(crate) fn initialize_ordinary_pty_agent_tab(
     tab: &mut crate::multiplexer::types::Tab,
     params: &SpawnAgentParams,
 ) {
-    if tab.neighbor_authority.is_none() {
-        tab.neighbor_authority = params.neighbor_authority.clone();
-    }
+    crate::service::spawn::stamp_launch_authority(tab, params);
     tab.role_profile = params.role_profile.clone();
     tab.audience = params.audience;
     if params.description.is_some() {

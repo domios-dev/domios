@@ -560,6 +560,13 @@ fn runtime_worker_identity_is_stamped_before_launch() {
         friendship_id: "a".repeat(64),
         root_tab_id: None,
     };
+    let ownership = codeterm_types::pty::RemoteOwnership {
+        peer_id: "origin-peer".into(),
+        peer_name: "Origin".into(),
+        controller_tab_id: Some("origin-controller".into()),
+        controller_title: "Controller".into(),
+        team: None,
+    };
     let mut metadata = crate::service::spawn::ChatBackendLaunchMetadata {
         agent: crate::service::spawn::AgentSpawnSpec {
             provider: "runtime-fixture".into(),
@@ -573,6 +580,8 @@ fn runtime_worker_identity_is_stamped_before_launch() {
         },
         params: crate::service::SpawnAgentParams {
             neighbor_authority: Some(authority.clone()),
+            ownership: Some(ownership.clone()),
+            report_target_mesh_peer: Some("origin-peer".into()),
             ..Default::default()
         },
         owner_linkage: None,
@@ -581,13 +590,19 @@ fn runtime_worker_identity_is_stamped_before_launch() {
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     super::stamp_chatbackend_launch_identity(tab, &metadata);
     assert_eq!(tab.neighbor_authority.as_ref(), Some(&authority));
+    assert_eq!(tab.ownership.as_ref(), Some(&ownership));
+    assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("origin-peer"));
     metadata.params.neighbor_authority = None;
+    metadata.params.ownership = None;
+    metadata.params.report_target_mesh_peer = None;
     super::stamp_chatbackend_launch_identity(tab, &metadata);
     assert_eq!(tab.neighbor_authority.as_ref(), Some(&authority));
     assert_eq!(
         tab.restorable_launch.account_id.as_deref(),
         Some("account-runtime")
     );
+    assert_eq!(tab.ownership.as_ref(), Some(&ownership));
+    assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("origin-peer"));
     assert_eq!(tab.worker_id.as_deref(), Some("worker-exact"));
     assert_eq!(tab.agent_type.as_deref(), Some("runtime-fixture"));
     assert_eq!(tab.report_target_tab_id.as_deref(), Some("report-exact"));

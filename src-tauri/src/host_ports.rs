@@ -625,15 +625,33 @@ mod tests {
             request_forwarded: true,
             detail: Some("opaque-cause-17".into()),
         });
-        assert!(failure.stated_refusal());
+        assert!(!failure.retryable());
         assert!(failure.message().ends_with(": opaque-cause-17"));
-        assert!(!ClientStartupFailure::launch(&HelperFailure::Exit {
+
+        let without_detail = ClientStartupFailure::launch(&HelperFailure::Exit {
             code: Some(1),
             request_forwarded: true,
             detail: None,
-        })
-        .stated_refusal());
-        assert!(!ClientStartupFailure::from("opaque-cause-17").stated_refusal());
+        });
+        assert!(!without_detail.retryable());
+        assert_eq!(
+            without_detail.message(),
+            "Server helper exited with status Some(1)"
+        );
+
+        let unclassified = ClientStartupFailure::from("opaque-cause-17");
+        assert!(!unclassified.retryable());
+        assert_eq!(unclassified.message(), "opaque-cause-17");
+
+        for forwarded in [false, true] {
+            let retry = ClientStartupFailure::launch(&HelperFailure::Exit {
+                code: Some(3),
+                request_forwarded: forwarded,
+                detail: Some("opaque-cause-17".into()),
+            });
+            assert_eq!(retry.retryable(), forwarded);
+            assert!(retry.message().ends_with(": opaque-cause-17"));
+        }
     }
 
     #[test]

@@ -53,6 +53,8 @@ pub(crate) fn normalize_optional_tab_description(
 pub const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
 mod ownership;
+mod remote_close;
+pub use remote_close::REMOTE_TAB_CLOSE_REFUSAL_PREFIX;
 mod rename_guard;
 mod respond_screen;
 mod scrollback;

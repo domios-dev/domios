@@ -14,9 +14,9 @@ const cliContext: RuntimeContext = {
   restrictedCli:{tabId:"own-tab",bindingNonce:"own-binding",epoch:4,cwd:"C:/opaque/project",metadataDirectory:".codex",executable:"C:/trusted/cli.exe",
     executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64)},
 };
-assert.deepEqual(codexRestrictedCliConfig(cliContext),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
+assert.deepEqual(codexRestrictedCliConfig(cliContext),{project_root_markers:[],projects:{"C:/opaque/project":{trust_level:"trusted"}}});
 const padCliContext: RuntimeContext = {...cliContext,settings:{mode:"read-only-with-writable-roots",networkAccess:false,additionalDirectories:["C:/own-pad"]}};
-assert.deepEqual(codexRestrictedCliConfig(padCliContext),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
+assert.deepEqual(codexRestrictedCliConfig(padCliContext),{project_root_markers:[],projects:{"C:/opaque/project":{trust_level:"trusted"}}});
 assert.ok(codexRestrictedCliInstructions(padCliContext)!.includes(cliContext.restrictedCli!.executable));
 for (const kind of ["openThread","resumeThread"] as const) {
   const operation: Operation = kind === "openThread" ? {kind,settings:padCliContext.settings,instructions:"opaque"}
@@ -27,7 +27,7 @@ for (const kind of ["openThread","resumeThread"] as const) {
   assert.equal(config.action.call.method,"config/read");
   assert.throws(()=>sourceResponse(padCliContext,operation,config.state,{kind:"success",value:{config:{projects:{"C:/opaque/project":{trust_level:"untrusted"}}}}}));
 }
-assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:{...cliContext.restrictedCli!,executable:"C:/USERNA~1/bin/cli.exe"}}),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
+assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:{...cliContext.restrictedCli!,executable:"C:/USERNA~1/bin/cli.exe"}}),{project_root_markers:[],projects:{"C:/opaque/project":{trust_level:"trusted"}}});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined}),{});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined,settings:{mode:"full-access"},providerSettings:{restrictedCli:cliContext.restrictedCli as never}}),{});
 for (const changed of [
@@ -37,7 +37,7 @@ for (const changed of [
 ]) assert.throws(()=>codexRestrictedCliConfig({...cliContext,restrictedCli:{...cliContext.restrictedCli!,...changed}}));
 assert.throws(()=>codexRestrictedCliConfig({...cliContext,settings:{mode:"full-access",networkAccess:false}}));
 assert.throws(()=>codexRestrictedCliConfig({...cliContext,settings:{mode:"workspace-write",networkAccess:true}}));
-for (const config of [{},{projects:{"C:/opaque/project":{trust_level:"trusted"}}},{projects:{"C:/other":{trust_level:"untrusted"}}}])
+for (const config of [{},{project_root_markers:[],projects:{"C:/opaque/project":{trust_level:"trusted"}}},{projects:{"C:/other":{trust_level:"untrusted"}}}])
   assert.doesNotThrow(()=>codexValidateCliTrust(cliContext,{config}));
 for (const config of [{projects:{"C:/opaque/project":{trust_level:"untrusted"}}},{projects:{"C:\\opaque":{trust_level:"untrusted"}}},{projects:[]}])
   assert.throws(()=>codexValidateCliTrust(cliContext,{config}));
