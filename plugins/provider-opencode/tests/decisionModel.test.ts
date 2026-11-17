@@ -65,6 +65,7 @@ test("adapter executes once and maps unavailable timeout and process errors with
     },
   });
   scope.host = { exec,
+    providerVersionJson: () => JSON.stringify({version:"1.19.0",status:"detected"}),
     unixNowMs: () => 1_000_000,
     fs: { readFile: () => null, fileExists: () => false }, platform: () => "linux", envGet: () => null, expandHome: (path: string) => path };
   try {

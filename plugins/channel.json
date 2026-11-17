@@ -19,7 +19,7 @@
     {
       "id": "opencode",
       "path": "provider-opencode",
-      "version": "1.14.20",
+      "version": "1.14.23",
       "minCodeterm": "1.20.2"
     },
     {

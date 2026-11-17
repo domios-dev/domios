@@ -4,6 +4,7 @@ import {attachmentUrl, done, fail, messageIdentity, modelParts, next, object, ow
 import {historyRows} from "./runtimeProjection";
 import {answerPlan} from "./runtimeRequests";
 import {binding, claimed, loaded} from "./runtimeState";
+import {v2Plan, v2Response} from "./runtimeV2";
 export {runtimeReduce} from "./runtimeReduce";
 
 function directory(value:string):string { return value.replace(/\\/g,"/").replace(/\/$/,""); }
@@ -22,6 +23,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
   if (!ctx.tabId || !ctx.bindingNonce || !Number.isSafeInteger(ctx.epoch) || ctx.epoch <= 0) fail("binding_mismatch","Runtime launch identity missing");
   if ("threadId" in op && op.threadId) own(ctx,op.threadId);
   const state=binding(ctx);
+  if (state.protocol === "v2" && op.kind !== "initialize") return v2Plan(ctx,op);
   switch (op.kind) {
     case "initialize": return request("health",{});
     case "openThread":
@@ -58,6 +60,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
 }
 export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue, reply:RpcReply):RuntimeStep {
   const state=object(raw);
+  if (binding(ctx).protocol === "v2") return v2Response(ctx,op,state,reply);
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "login" && text(object(op.value).loginId)) return done([{kind:"authLogin",login:{status:"failed",loginId:String(object(op.value).loginId),error:`Sign-in request was refused (${reply.error.code})`}}]);
     if (op.kind === "resumeThread" && reply.error.code === 404) return {kind:"refused",reason:{code:"thread_not_found",message:"The exact OpenCode session was not found"},beforeAcceptance:false};
@@ -67,7 +70,13 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
   switch (op.kind) {
     case "initialize": {
       if (state.stage === "health") {
+        const health=object(body);
+        if (text(health.version) && Number.isSafeInteger(health.pid) && Array.isArray(health.urls) && text(object(health.paths).tmp)) {
+          binding(ctx).protocol="v2";
+          return v2Response(ctx,op,state,reply);
+        }
         if (object(body).healthy !== true || !text(object(body).version)) return refused("OpenCode did not confirm authenticated server health");
+        binding(ctx).protocol="v1";
         return next("provider.list",{}, {stage:"initializeProviders",version:object(body).version});
       }
       if (state.stage === "initializeProviders") return next("provider.auth",{}, {stage:"initializeMethods",version:state.version,providers:providerSummary(body)});

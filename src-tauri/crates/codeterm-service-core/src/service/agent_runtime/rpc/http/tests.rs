@@ -72,6 +72,41 @@ async fn http_readiness_requires_exact_owned_origin_and_stdout_signal() {
         .is_err());
 }
 
+#[tokio::test]
+async fn http_readiness_selects_the_declared_protocol_without_version_guessing() {
+    let mut declaration: RuntimeHttpSse = serde_json::from_value(json!({"readinessPrefix":"legacy listening on ","passwordEnv":"FIXTURE_PASSWORD","username":"fixture","usernameEnv":"FIXTURE_USERNAME","eventPath":"/event","eventMethod":"fixture/event","routes":{}})).unwrap();
+    let mut modern = declaration.clone();
+    modern.readiness_prefix = "server listening on ".into();
+    modern.event_path = "/api/event".into();
+    declaration.alternatives.push(modern);
+    let launch = Launch {
+        args: vec![],
+        password: "opaque".into(),
+        declaration,
+        url: Url::parse("http://127.0.0.1:12345/").unwrap(),
+    };
+    let selected = readiness(
+        &mut &b"server listening on http://127.0.0.1:12345\n"[..],
+        &launch,
+    )
+    .await
+    .unwrap();
+    assert_eq!(selected.event_path, "/api/event");
+    let selected = readiness(
+        &mut &b"legacy listening on http://127.0.0.1:12345\n"[..],
+        &launch,
+    )
+    .await
+    .unwrap();
+    assert_eq!(selected.event_path, "/event");
+    assert!(readiness(
+        &mut &b"server listening on http://127.0.0.1:54321\n"[..],
+        &launch
+    )
+    .await
+    .is_err());
+}
+
 #[test]
 fn http_requests_drop_foreign_and_duplicate_events_and_claim_answers_once() {
     let (client, _messages) = Client::channel(None, 16, 16);
@@ -113,4 +148,87 @@ fn http_requests_drop_foreign_and_duplicate_events_and_claim_answers_once() {
         .frame(&client, &declaration, own)
         .unwrap()
         .is_none());
+}
+
+#[test]
+fn http_v2_recorded_permission_and_form_use_exact_session_routes() {
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tests/fixtures/runtime-http-sse.json"
+    )))
+    .unwrap();
+    let declaration: RuntimeHttpSse =
+        serde_json::from_value(fixture["capability"]["httpSse"]["alternatives"][0].clone())
+            .unwrap();
+    let (client, _messages) = Client::channel(None, 16, 16);
+    client.trace_binding(&codeterm_plugin::agent_runtime::RuntimeContext {
+        thread_id: Some("ses_owned".into()),
+        ..Default::default()
+    });
+    let mut requests = requests::Requests::default();
+    for frame in fixture["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|frame| frame["kind"] == "request")
+    {
+        let params = frame["params"].clone();
+        let foreign: Value =
+            serde_json::from_str(&params.to_string().replace("ses_owned", "ses_foreign")).unwrap();
+        assert!(requests
+            .frame(&client, &declaration, foreign)
+            .unwrap()
+            .is_none());
+        let Some(RuntimeFrame::Request { request_id, .. }) =
+            requests.frame(&client, &declaration, params).unwrap()
+        else {
+            panic!("own request required")
+        };
+        let (_, reply) = requests
+            .reply(&json!({"id":request_id,"result":{"opaque":true}}))
+            .unwrap();
+        assert_eq!(reply["params"]["path"]["sessionID"], "ses_owned");
+        assert_eq!(
+            reply["method"],
+            if frame["method"] == "permission.asked" {
+                "v2.permission.reply"
+            } else {
+                "v2.form.reply"
+            }
+        );
+        requests.claim(&request_id).unwrap();
+        assert!(requests
+            .reply(&json!({"id":request_id,"result":{}}))
+            .is_err());
+    }
+}
+
+#[test]
+fn http_protocol_candidates_preserve_bounded_auth_and_route_declarations() {
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tests/fixtures/runtime-http-sse.json"
+    )))
+    .unwrap();
+    let capability: AgentRuntimeCapability =
+        serde_json::from_value(fixture["capability"].clone()).unwrap();
+    let declaration = capability.http_sse.as_ref().unwrap();
+    assert!(declaration.valid_for(&capability));
+    for malformed in ["nested", "duplicate", "completion", "missing-route"] {
+        let mut candidate = declaration.clone();
+        match malformed {
+            "nested" => candidate.alternatives[0]
+                .alternatives
+                .push(declaration.alternatives[0].clone()),
+            "duplicate" => {
+                candidate.alternatives[0].readiness_prefix = candidate.readiness_prefix.clone()
+            }
+            "completion" => candidate.alternatives[0].completion_events = false,
+            "missing-route" => {
+                candidate.alternatives[0].routes.remove("v2.session.prompt");
+            }
+            _ => unreachable!(),
+        }
+        assert!(!candidate.valid_for(&capability), "{malformed}");
+    }
 }

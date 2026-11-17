@@ -88,13 +88,14 @@ where
 async fn run<R: AsyncRead + Unpin>(
     client: &Client,
     stdout: R,
-    launch: Launch,
+    mut launch: Launch,
     mut messages: mpsc::Receiver<Write>,
 ) -> Result<(), RuntimeFailure> {
     let mut stdout = BufReader::new(stdout);
-    tokio::time::timeout(Duration::from_secs(15), readiness(&mut stdout, &launch))
-        .await
-        .map_err(|_| RuntimeFailure::Deadline)??;
+    launch.declaration =
+        tokio::time::timeout(Duration::from_secs(15), readiness(&mut stdout, &launch))
+            .await
+            .map_err(|_| RuntimeFailure::Deadline)??;
     let http = reqwest::Client::builder()
         .no_proxy()
         .redirect(Policy::none())
@@ -165,12 +166,7 @@ async fn run<R: AsyncRead + Unpin>(
 async fn readiness<R: tokio::io::AsyncBufRead + Unpin>(
     stdout: &mut R,
     launch: &Launch,
-) -> Result<(), RuntimeFailure> {
-    let expected = format!(
-        "{}{}",
-        launch.declaration.readiness_prefix,
-        launch.url.as_str().trim_end_matches('/')
-    );
+) -> Result<RuntimeHttpSse, RuntimeFailure> {
     let mut consumed = 0;
     loop {
         let line = sse::read_line(stdout, 8192)
@@ -180,8 +176,17 @@ async fn readiness<R: tokio::io::AsyncBufRead + Unpin>(
         if consumed > 65536 {
             return Err(failure("HTTP readiness output limit"));
         }
-        if line.trim_end_matches(['\r', '\n']) == expected {
-            return Ok(());
+        for declaration in
+            std::iter::once(&launch.declaration).chain(&launch.declaration.alternatives)
+        {
+            let expected = format!(
+                "{}{}",
+                declaration.readiness_prefix,
+                launch.url.as_str().trim_end_matches('/')
+            );
+            if line.trim_end_matches(['\r', '\n']) == expected {
+                return Ok(declaration.clone());
+            }
         }
     }
 }
