@@ -95,10 +95,10 @@ test("proximity then agents outrank match quality except exact title/id", async 
   assert.equal((await registry.search("peer", ctx))[0].id, "tabs:peer");
 });
 test("title prefixes precede nearby fuzzy matches and generic Agent metadata is not searched", async () => {
-  const rows = {
-    main: { ...tab("main", null, "ws2", "Main"), role: "general", description: "General assistant" },
+  const rows: Record<string, Tab> = {
+    main: { ...tab("main", null, "ws2", "Main"), role: "Manager", role_profile: "general", description: "General assistant" },
     general: tab("general", null, "ws2", "General"),
-    worker: { ...tab("worker", "team1", "ws1", "Chip"), role: "Agent", description: "Agent" },
+    worker: { ...tab("worker", "team1", "ws1", "Chip"), role: "Worker", description: "Agent" },
   };
   const result = await createMentionRegistry([tabMentionSource(() => ({ tabs: rows, workspaces }))]).search("Gen", ctx);
   assert.deepEqual(result.map(row => row.label), ["General", "Main"]);

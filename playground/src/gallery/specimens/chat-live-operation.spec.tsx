@@ -1,7 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import { MessageBubble } from "@codeterm/chat-ui";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
-import { ChatLiveOperation } from "../../../../src/components/Terminal/ChatLiveOperation";
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
 import { ChatBottomBar } from "../ChatBottomBar";
 import { agentTab } from "../fixtures";
@@ -26,7 +25,7 @@ function LiveChatStage() {
       <div role="log" aria-label="Conversation" className="min-h-0 flex-1 overflow-y-auto">
         <MessageBubble message={{ id: "fixture-user", type: "user", content: "Check the chat layout in both themes." }} />
         <MessageBubble message={{ id: "fixture-assistant", type: "assistant", content: "I’m inspecting the chat fixture and capturing the current operation." }} />
-        <ChatLiveOperation message={operation} />
+        <MessageBubble message={operation} />
       </div>
       <ChatBottomBar tab={tab} />
     </div>
@@ -35,6 +34,6 @@ function LiveChatStage() {
 
 export default defineSpecimen({
   id: "chat-live-operation", title: "Chat live operation", category: "Chat", stage: "wide",
-  where: "src/components/Terminal/ChatLiveOperation.tsx", Component: LiveChatStage,
+  where: "packages/chat-ui/src/MessageBubble.tsx", Component: LiveChatStage,
   states: [{ id: "running", label: "Running operation · transcript tail", props: {} }],
 });
