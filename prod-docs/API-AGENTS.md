@@ -231,6 +231,12 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 
 | Method | Path | Operation |
 |--------|------|-----------|
+| GET | `/api/agents/providers/{id}/accounts` | Local owner only: read the provider roster, revision, fallback policy, continuation support and pending sign-in/removal feedback. |
+| POST | `/api/agents/providers/{id}/accounts` | Local owner only: mutate the roster/policy with `{revision, signInId?, operation}`; returns the updated roster. |
+| GET | `/api/tabs/{id}/account` | Read `{transition, canVerify, turnActive}` for this tab; missing tabs return 404. |
+| POST | `/api/tabs/{id}/account` | Owner or authenticated peer: request a same-conversation move to a different account with proven continuation support. |
+| POST | `/api/tabs/{id}/account/refresh` | Owner or authenticated peer: apply refreshed saved sign-in to the exact retained binding with `{nonce, epoch?}`; returns a transition or null. |
+| POST | `/api/tabs/{id}/account/verify` | Owner or authenticated peer: explicitly try the same-conversation move between two distinct signed-in identities while idle, recording authenticated support or refusal. |
 | DELETE | `/api/remote-workers` | Forget a remote Worker record. |
 | GET | `/api/agents/done` | List completed agent runs. |
 | GET | `/api/agents/providers/{id}/cli` | Read provider CLI status; `?refresh=true` re-observes its launch profiles. |
@@ -251,4 +257,7 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
 | POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
 
-<!-- revision: 82 -->
+Account roster mutations use the latest roster `revision`. `operation.action` is `add`, `retryAdd`, `cancelAdd`, `signIn`, `cancelSignIn`, `check`, `remove`, `dismissRemovalNotice`, `rename`, `reorder`, `automaticSwitch`, `workspace`, or `resetWorkspace`; account actions carry `accountId`, rename adds `name`, reorder adds `position`, automatic switching adds `enabled`, workspace actions carry `workspaceId` (and `accountId` for selection), and dismissal adds `noticeId`. Pending sign-in operations also carry the matching `signInId`. Invalid changes return 400; forbidden callers return 403.
+
+Account selection and verification share `{providerId, accountId, previousAccountId, accountNamespace?, nonce, epoch?, revision, resumeWork?, turnId?}`. `accountNamespace` identifies the current credential namespace, not a caller-selected target home. Stale revisions or bindings refuse with 409. `resumeWork` defaults to false; true requires the exact failed-turn boundary and `turnId`, and is forbidden for verification. Accepted requests return a transition initially marked `waiting`; read the tab account status to observe its eventual result. Acceptance alone does not prove continuation. Refresh binding refusals also return 409; worker failures return 500. Bodies are limited to 16 KiB (refresh: 4 KiB), with unknown fields rejected. Credentials never appear in roster/status responses.
+<!-- revision: 83 -->
