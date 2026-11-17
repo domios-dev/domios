@@ -461,6 +461,9 @@ it("sets machine access: the folder with its honest note, and a warning for full
   expect(document.body.textContent).toContain("Writes are advisory with this agent; reads are not confined.");
   await act(async () => button("Full access").click());
   expect(document.body.textContent).toContain("Their requests can change anything your agents on this machine can reach.");
+  expect(button("Memory write areas: All current areas")).toBeDefined();
+  expect(document.body.textContent).toContain("Full access includes saving facts, notes and skills in all current memory areas, attributed to this friend.");
+  expect(document.body.textContent).toContain("Content is scanned; secrets are never allowed.");
   await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ machine_access: "full" }));
 });
@@ -749,6 +752,10 @@ it("defaults write areas to empty and saves only selected known memory areas", a
   expect(button("Memory write areas: 2 areas")).toBeDefined();
   await act(async () => options.find(option => option.textContent === "family")!.click());
   expect(button("Memory write areas: work")).toBeDefined();
+  await act(async () => button("Full access").click());
+  expect(button("Memory write areas: work")).toBeDefined();
+  expect(document.body.textContent).toContain("Full access includes saving facts, notes and skills in the selected memory areas, attributed to this friend.");
+  await act(async () => button("Read only").click());
   await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ memory_write_areas: ["work"] }));
 });

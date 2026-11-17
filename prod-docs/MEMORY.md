@@ -47,7 +47,7 @@ Only after verified success, select the destination backend and start Domios. Fa
 
 Memory items and history carry an author: owner, neighbor, or system. Neighbor authors carry the registered friend's account UID and friendship ID, resolved by the daemon from authenticated friendship data. Request fields cannot choose an author. Replacement re-signs the item while history retains the prior author and body.
 
-A concierge may save only through `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>` (also kind `note`, optional `--summary` and repeated `--tag`). The live `memory_write_areas` grant defaults to empty. The daemon forces global scope and unpinned content, clamps importance to 1–5, scans all content fields for credentials, and enforces byte caps of 200 title / 16384 body / 32752 total. Matching kind/title replacement requires a granted area and an unpinned target; conflict refuses without exposing the item. Revocation stops the next save and retains past authorship. These saves never schedule extraction and are excluded from wake-up/promotion; all other concierge memory mutations remain denied.
+A concierge may save only through `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>` (also kind `note`, or `skill` under Full machine access; optional `--summary` and repeated `--tag`). The live `memory_write_areas` grant defaults to empty: Full machine access then grants all current non-secret taxonomy areas, while read_only/folder grants no writes. A nonempty list narrows Full and explicitly grants those areas for read_only/folder. Read grants remain independent. The daemon forces global scope and unpinned content, clamps importance to 1–5, scans all content fields for credentials, and enforces byte caps of 200 title / 16384 body / 32752 total. Matching kind/title replacement requires a granted area and an unpinned target; conflict refuses without exposing the item. Revocation stops the next save and retains past authorship. These saves never schedule extraction and are excluded from wake-up/promotion; all other concierge memory mutations remain denied.
 
 `mem save` uses kind plus title as its identity. An unchanged normalized body increments `recurrence_count` and schedules no extraction. A changed body updates the existing row in place and adds the prior body to history. `--replace` also updates in place and preserves the row's uid and creation time.
 
@@ -213,4 +213,4 @@ Stop the daemon before `domios mem backup restore --from ARCHIVE`. Restore holds
 
 Use a Domios cron for online creation and encrypted off-machine archive storage. Postgres needs pg_dump --format=custom and, with the daemon stopped, pg_restore --single-transaction --exit-on-error; back up storage with writers quiesced. Supply database credentials through protected service/password files, never argv.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->
