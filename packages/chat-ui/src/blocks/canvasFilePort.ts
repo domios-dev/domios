@@ -23,3 +23,14 @@ export function canvasFilePort(): CanvasFilePort | null {
 
 /** The `<ds-canvas src>` file whose items are being read; its items are authorized through it. */
 export const CanvasSourceContext = createContext<string | undefined>(undefined);
+
+export class CanvasItemRecovery {
+  private listeners = new Set<() => void>();
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+  changed() { for (const listener of this.listeners) listener(); }
+}
+
+export const CanvasItemRecoveryContext = createContext<CanvasItemRecovery | null>(null);

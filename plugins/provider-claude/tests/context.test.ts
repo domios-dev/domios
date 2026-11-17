@@ -72,6 +72,8 @@ check(() => assert.equal(statuslineSettings({statusLine:{type:"command",command:
 check(() => assert.deepEqual(composeSettingsArgs(["--model","opaque"]), ["--model","opaque","--settings",'{"showThinkingSummaries":true}']));
 let reads = 0;
 (globalThis as any).host = {
+  envGet: () => null, platform: () => "linux",
+  envGet: () => null, platform: () => "linux",
   expandHome: () => "/fixture/settings.json",
   fs: {fileExists: () => true,readFileHead: () => { reads++; return original; }},
 };
@@ -82,11 +84,21 @@ check(() => assert.deepEqual(JSON.parse(args[3]), {...settings,showThinkingSumma
 (globalThis as any).host.fs.readFileHead = () => "x".repeat(65_537);
 check(() => assert.deepEqual(composeSettingsArgs([STATUSLINE_FLAG]), ["--settings",'{"showThinkingSummaries":true}']));
 check(() => assert.equal(composeSettingsArgs(["--settings","opaque"]), null));
+
+const selectedSettingsReads: string[] = [];
+(globalThis as unknown as {host: unknown}).host = {
+  envGet: (name: string) => name === "CLAUDE_CONFIG_DIR" ? "/account" : null,
+  platform: () => "linux", expandHome: () => "/usual/settings.json",
+  fs: {fileExists: () => true, readFileHead: (path: string) => {selectedSettingsReads.push(path); return original;}},
+};
+check(() => assert.ok(composeSettingsArgs([STATUSLINE_FLAG])));
+check(() => assert.deepEqual(selectedSettingsReads, ["/account/settings.json"]));
+
 const source = fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8");
 let writes = 0;
 const launchFiles = new Map<string, string>();
 const readonlyHost = {
-  platform: () => "linux", log: () => {}, expandHome: () => "/fixture/settings.json",
+  envGet: () => null, platform: () => "linux", log: () => {}, expandHome: () => "/fixture/settings.json",
   shell: {quoteFor: (value: string) => value},
   fs: {fileExists: () => true, readFileHead: () => original,
     writeTempFile: (body: string, suffix: string) => {

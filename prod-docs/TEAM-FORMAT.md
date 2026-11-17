@@ -32,7 +32,7 @@ Required: `name`, `version`, `description` and `roles.orchestrator`. Every other
 
 ## Roles
 
-`roles` is one map of every team role. The key is the role name (`[a-z][a-z0-9_]*`, unique because keys are unique); the value is the role. A team has exactly the roles it lists: there are no host default roles and no field inheritance, so a package without `planner` has no Planner and one without `curator` has no Curator.
+`roles` is one map of every team role. The key is the role name (`[a-z][a-z0-9_]*`, unique because keys are unique); the value is the role. A package recommends its registered roles; builtin Workers remain available even when omitted. Custom roles require registrations. A package without `planner` has no Planner and one without `curator` has no Curator.
 
 - `kind` (required, written first): `manager` lives with the team across tasks, one live instance per name; `worker` takes one task or assignment and ends, and many may run. The kinds differ by lifecycle, not by authority.
 - `orchestrator` is required and is kind `manager`. `orchestrator`, `planner`, `cartographer` and `curator` are the built-in manager names: any of them with `kind: worker` is `reserved_worker_name`.
@@ -54,4 +54,4 @@ YAML 1.2, one document. No anchors, aliases, tags or duplicate keys; tabs never 
 
 Errors make a package invalid; warnings do not. A skill a role names but the package lacks is the warning `unresolved_skill`, and the role starts without it. Host gaps such as a missing harness, MCP tool or secret binding are shown at start, not reported by the format check. Every finding carries a stable code, for example `missing_role_kind`, `reserved_worker_name`, `missing_instructions`, `invalid_role_name`, `invalid_start`, `removed_field`, `unknown_field`, `missing_field`, `missing_file`, `unreferenced_entry`, `path_escape`, `linked_entry`, `unknown_same_as`, `same_as_cycle`, `icon_not_image`, `svg_script`, `yaml_alias` or `tab_indentation`.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

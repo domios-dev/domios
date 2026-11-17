@@ -43,6 +43,7 @@ fn remote_respawn_keeps_peer_gates_and_respects_model_override() {
         provider: Some("provider".into()),
         model: Some("original-model".into()),
         reasoning_effort: Some("high".into()),
+        role_profile: Some("qa".into()),
         authorized_gates: Some(vec!["gate".into()]),
         ..Default::default()
     };
@@ -55,6 +56,11 @@ fn remote_respawn_keeps_peer_gates_and_respects_model_override() {
     assert_eq!(params["agent"], "provider");
     assert_eq!(params["model"], "replacement-model");
     assert_eq!(params["reasoning_effort"], "high");
+    assert_eq!(params["role"], "qa");
+    assert_eq!(
+        remote_respawn_params(&Some(json!({"role":"reviewer"})), &attempt)["role"],
+        "reviewer"
+    );
     assert_eq!(params["authorized_gates"], json!(["gate"]));
     assert_eq!(params["plan_id"], "plan");
     let rest_params =

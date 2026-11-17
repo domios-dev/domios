@@ -27,9 +27,20 @@ fn value_at<'a>(doc: &'a Value, path: &str) -> Option<&'a Value> {
 }
 
 fn credential_path(cred: &CredentialConfig) -> Option<std::path::PathBuf> {
+    if let Some(environment) = &cred.file_environment {
+        if crate::provider_account::current().is_some() {
+            if !crate::provider_account::environment_is_selected(&environment.variable) {
+                return None;
+            }
+            return environment
+                .resolve(crate::provider_account::environment(&environment.variable));
+        }
+    }
     cred.file_environment
         .as_ref()
-        .and_then(|environment| environment.resolve(std::env::var_os(&environment.variable)))
+        .and_then(|environment| {
+            environment.resolve(crate::provider_account::environment(&environment.variable))
+        })
         .or_else(|| PluginManifest::expand_home(&cred.file))
 }
 
@@ -39,6 +50,11 @@ pub(super) fn resolved_files(credentials: &[CredentialConfig]) -> Vec<std::path:
 
 fn read_document(cred: &CredentialConfig) -> Option<Value> {
     let path = credential_path(cred)?;
+    if crate::provider_account::current()
+        .is_some_and(|context| context.read_access(&path) == Some(false))
+    {
+        return None;
+    }
     let file = std::fs::File::open(path).ok()?;
     let mut text = String::new();
     file.take(1024 * 1024 + 1).read_to_string(&mut text).ok()?;

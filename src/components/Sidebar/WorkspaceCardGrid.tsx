@@ -17,6 +17,7 @@ interface WorkspaceCardGridProps {
   workspaces: Workspace[];
   selectedWorkspaceId: string | null;
   statuses: Record<string, TabStatus | null>;
+  workingByWorkspace: Record<string, boolean>;
   sortIds: string[];
   onSelect: (workspaceId: string) => void;
   onCreate: () => void;
@@ -53,7 +54,7 @@ export function mergeVisibleOrder(all: readonly string[], visibleOrdered: readon
   return all.map((id) => (visibleSet.has(id) ? visibleOrdered[next++] : id));
 }
 
-export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, sortIds, onSelect, onCreate }: WorkspaceCardGridProps) {
+export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, workingByWorkspace, sortIds, onSelect, onCreate }: WorkspaceCardGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(3);
@@ -184,7 +185,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                       <Pencil size={9} />
                     </button>
                   )}
-                  {status === "Working" && !selected && (
+                  {workingByWorkspace[workspace.id] && (
                     <span className="sidebar-workspace-card-working" role="status" aria-label={`${workspace.name} has working tabs`}>
                       <ActivityDots size="micro" tone="on-accent" variant="workspace-badge" active />
                     </span>

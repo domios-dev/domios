@@ -1,18 +1,4 @@
-import { frameMatchesViewport, sameViewport, type FrameMetadata, type StreamViewport } from "./streamModel";
-
-export interface ResizeState {
-  inFlight: StreamViewport | null;
-  pending: StreamViewport | null;
-}
-
-export function requestResize(state: ResizeState, viewport: StreamViewport): ResizeState {
-  if (state.inFlight) return { ...state, pending: sameViewport(state.inFlight, viewport) ? null : viewport };
-  return { inFlight: viewport, pending: null };
-}
-
-export function completeResize(state: ResizeState): ResizeState {
-  return { inFlight: state.pending, pending: null };
-}
+import { frameMatchesViewport, type FrameMetadata, type StreamViewport } from "./streamModel";
 
 export function acceptViewportFrame(metadata: FrameMetadata, viewport: StreamViewport | null): boolean {
   if (!viewport) return false;

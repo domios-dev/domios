@@ -30,6 +30,12 @@ impl JsProvider {
             None => self.owned_session_file_path_checked(cwd, session_id)?,
         };
         let Some(path) = path else { return Ok(None) };
+        if !crate::provider_account::read_allowed(&path) {
+            return Ok(None);
+        }
+        if !crate::provider_account::read_allowed(&path) {
+            return Ok(None);
+        }
         if self
             .manifest
             .commands
@@ -62,6 +68,7 @@ impl JsProvider {
         .into_iter()
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
+        .filter(|path| crate::provider_account::read_allowed(path))
         .collect()
     }
 
@@ -131,6 +138,12 @@ impl JsProvider {
         session_id: &str,
     ) -> Option<std::path::PathBuf> {
         let path = self.session_jsonl_path_unchecked(cwd, session_id)?;
+        if !crate::provider_account::read_allowed(&path) {
+            return None;
+        }
+        if !crate::provider_account::read_allowed(&path) {
+            return None;
+        }
         if self
             .manifest
             .commands

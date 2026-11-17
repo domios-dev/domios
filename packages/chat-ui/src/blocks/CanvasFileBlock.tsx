@@ -5,7 +5,7 @@ import type { LocalPreviewFile } from "../localArtifactLoader";
 import { CanvasPreview } from "./CanvasBlock";
 import { CanvasNotice } from "./CanvasNotice";
 import type { CanvasEditor } from "./canvasEditing";
-import { CanvasSourceContext } from "./canvasFilePort";
+import { CanvasItemRecoveryContext, CanvasSourceContext } from "./canvasFilePort";
 import { DsRenderContext } from "./DsRenderContext";
 import { useCanvasFile } from "./useCanvasFile";
 
@@ -45,7 +45,9 @@ function LoadedCanvasFile({ src, view, fullscreenRequest = 0, onLoaded }: { src:
   return <>
     {invalid !== null && <CanvasNotice text={file.canvas ? LAST_GOOD : "This canvas could not be shown because its description is not valid."} reason={invalid} />}
     {file.canvas && <CanvasSourceContext value={src}>
+      <CanvasItemRecoveryContext value={file.itemRecovery}>
       <CanvasPreview canvas={file.canvas} view={view} editor={editor} fullscreenRequest={fullscreenRequest} details={file.unwatched ?? undefined} notice={stale} />
+      </CanvasItemRecoveryContext>
     </CanvasSourceContext>}
   </>;
 }

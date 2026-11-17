@@ -195,6 +195,7 @@ impl BrowserRuntime {
 
     /// Starts (or reuses) Chromium under the requested profile and binds its page listener.
     async fn ensure_page(&self) -> Result<PageChannel, String> {
+        self.viewport.lock().await.start(self.host.viewport());
         let layout = self.layout.clone();
         self.swept
             .get_or_init(|| async move {

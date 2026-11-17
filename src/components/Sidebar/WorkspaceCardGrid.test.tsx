@@ -46,7 +46,8 @@ async function run() {
       <WorkspaceCardGrid
         workspaces={workspaces}
         selectedWorkspaceId="one"
-        statuses={{ one: "Working", two: "Working" }}
+        statuses={{ one: "Waiting", two: "Working" }}
+        workingByWorkspace={{ one: true, two: true }}
         sortIds={["ws:one", "ws:two"]}
         onSelect={(id) => selected.push(id)}
         onCreate={() => { creates += 1; }}
@@ -62,11 +63,7 @@ async function run() {
   assert.equal(secondGridItem.nextElementSibling, createButton, "create sits in the next free cell right after the last card");
   await act(async () => createButton.click());
   assert.equal(creates, 1, "create card owns the workspace creation action");
-  assert.equal(
-    host.querySelector('[role="status"][aria-label="CodeTerm has working tabs"]'),
-    null,
-    "selected workspace does not duplicate its active state with an activity badge",
-  );
+  assert(host.querySelector('[role="status"][aria-label="CodeTerm has working tabs"]'), "selected working workspace exposes accessible activity");
   const workingIndicator = host.querySelector('[role="status"][aria-label="team_smoke has working tabs"]');
   assert(workingIndicator, "unselected working workspace exposes accessible activity");
   assert.equal(

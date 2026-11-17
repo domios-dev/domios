@@ -148,8 +148,6 @@ fn a_team_has_exactly_its_roles_and_no_fallback_fragments() {
     for (role, kind) in [
         (AgentRole::Manager, builtins::ORCHESTRATOR),
         (AgentRole::Manager, builtins::PLANNER),
-        (AgentRole::Worker, builtins::REVIEWER),
-        (AgentRole::Worker, builtins::WORKER),
         (AgentRole::Worker, "legacy-subtype"),
     ] {
         let preset = resolve_in(&team, Some(role), Some(kind), None).unwrap();
@@ -278,4 +276,30 @@ fn managers_see_the_team_managers_and_workers_and_every_role_its_own_files_and_s
     assert_eq!(authority_label(AgentRole::Worker, builtins::QA), "none");
     assert!(!lead.contains("`worker`"));
     assert!(!lead.contains("fixture-skill"));
+}
+
+#[test]
+fn unlisted_builtin_workers_keep_builtin_prose_and_leaf_authority() {
+    let team = [registration(RoleKind::Worker, "checker", TEAM_PROSE)];
+    for kind in [
+        builtins::QA,
+        builtins::REVIEWER,
+        builtins::RELEASE_MANAGER,
+        builtins::WORKER,
+    ] {
+        let preset = resolve_in(
+            &team,
+            Some(AgentRole::Worker),
+            Some(kind),
+            Some(TASK_PERSONA),
+        )
+        .unwrap();
+        assert_eq!(
+            preset.fragments[0].text,
+            builtin_roles::builtin_prose(kind).unwrap().trim()
+        );
+        assert_eq!(preset.fragments[0].source.label(), "builtin");
+        assert_eq!(preset.task_guidance(), TASK_PERSONA);
+        assert_eq!(authority_label(preset.role, kind), "none");
+    }
 }

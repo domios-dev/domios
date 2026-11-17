@@ -53,7 +53,7 @@ impl JsProvider {
         let Some((root, dot_ext)) = self.manifest_session_store() else {
             return Vec::new();
         };
-        let Ok(entries) = std::fs::read_dir(&root) else {
+        let Ok(entries) = crate::provider_account::read_directory(&root) else {
             return Vec::new();
         };
         let mut out = Vec::new();
@@ -61,7 +61,7 @@ impl JsProvider {
             if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
                 continue;
             }
-            let Ok(files) = std::fs::read_dir(entry.path()) else {
+            let Ok(files) = crate::provider_account::read_directory(entry.path()) else {
                 continue;
             };
             for f in files.flatten() {
@@ -151,7 +151,7 @@ impl JsProvider {
         }
         let (root, dot_ext) = self.manifest_session_store()?;
         let file_name = format!("{session_id}{dot_ext}");
-        std::fs::read_dir(&root)
+        crate::provider_account::read_directory(&root)
             .ok()?
             .flatten()
             .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
@@ -173,10 +173,16 @@ impl JsProvider {
                 if !self.vm.can_read_environment(&environment.variable) {
                     return None;
                 }
-                environment.resolve(std::env::var_os(&environment.variable))
+                environment.resolve(crate::provider_account::environment(&environment.variable))
             }
             None => None,
         };
+        if cfg.root_environment.as_ref().is_some_and(|environment| {
+            crate::provider_account::environment_is_selected(&environment.variable)
+        }) && overridden.is_none()
+        {
+            return None;
+        }
         let root = overridden.or_else(|| PluginManifest::expand_home(&cfg.root_dir))?;
         self.vm.can_read_path(&root).then_some(root)
     }
@@ -231,7 +237,7 @@ impl JsProvider {
 const MAX_SESSION_SEARCH_DIRECTORY_DEPTH: usize = 8;
 
 fn collect_session_files(root: &Path, directory_depth: usize, files: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(root) else {
+    let Ok(entries) = crate::provider_account::read_directory(root) else {
         return;
     };
     for entry in entries.flatten() {

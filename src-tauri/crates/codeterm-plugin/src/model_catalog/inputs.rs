@@ -1,9 +1,10 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
-fn generations() -> &'static RwLock<HashMap<String, u64>> {
-    static GENERATIONS: OnceLock<RwLock<HashMap<String, u64>>> = OnceLock::new();
-    GENERATIONS.get_or_init(RwLock::default)
+fn generations() -> &'static crate::provider_account::cache::ScopedCache<HashMap<String, u64>> {
+    static CACHE: crate::provider_account::cache::ScopedCache<HashMap<String, u64>> =
+        crate::provider_account::cache::ScopedCache::new();
+    &CACHE
 }
 
 pub fn invalidate_inputs(provider: &str) {
@@ -43,6 +44,8 @@ fn stamp(provider: &dyn AgentProvider, generation: u64) -> String {
         "binary": provider.cli_binary().and_then(fingerprint_bin),
         "files": files,
         "generation": generation,
+        "account": crate::provider_account::cache_key(provider.id()),
+        "seed": seed_fingerprint(provider.id()),
     })
     .to_string();
     format!("{:x}", Sha256::digest(inputs.as_bytes()))

@@ -132,8 +132,8 @@ Managers then receive the Team's managers (display name, start mode, Domios auth
 
 `service/role_preset.rs` is the sole role registry. It resolves a role by
 precedence task > Team registration, never by provider literal or a separate
-Worker path. A Team has exactly the roles it registers: there is no per-role
-fallback, and a name the Team does not list resolves to no role prose. A Team
+Worker path. Team registrations override builtin Worker prose. Builtin Workers
+remain available when omitted; unknown custom names require a registration. A Team
 with no registrations is the builtin default package as a whole (host policy).
 Registrations live per Team in `<data-dir>/teams/<team_id>/roles.json`
 (`service/team_roles.rs`), carry each role's `kind`, are immutable once stored,
