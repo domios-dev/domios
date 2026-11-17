@@ -11,6 +11,38 @@ fn status(here: bool, revision: u64) -> FriendReceiver {
     })
 }
 
+#[tokio::test]
+async fn account_identity_change_notifies_once_for_each_dropped_local_receiver() {
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
+    let service = &fixture.service;
+    let first = "a".repeat(64);
+    let second = "b".repeat(64);
+    let elsewhere = "c".repeat(64);
+    service.set_neighbor_friend_receiver_for_test(&first, Some(true), 3);
+    service.set_neighbor_friend_receiver_for_test(&second, Some(true), 5);
+    service.set_neighbor_friend_receiver_for_test(&elsewhere, Some(false), 2);
+    service.neighbor_identity_changed();
+    service.neighbor_identity_changed();
+    assert!(service.neighbor_friend_receiver_snapshot().0.is_empty());
+    let events = fixture.ui.0.lock();
+    let actions: Vec<_> = events
+        .iter()
+        .filter(|(event, _)| event == "notification-created")
+        .map(|(_, payload)| {
+            assert_eq!(payload["actions"][0]["label"], "Receive here");
+            payload["actions"][0]["value"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    assert_eq!(
+        actions,
+        vec![
+            format!("domios://neighbor/{first}/concierge"),
+            format!("domios://neighbor/{second}/concierge")
+        ]
+    );
+}
+
 #[test]
 fn friendship_admission_requires_known_enabled_current_generation_and_exact_revision() {
     let fixture =

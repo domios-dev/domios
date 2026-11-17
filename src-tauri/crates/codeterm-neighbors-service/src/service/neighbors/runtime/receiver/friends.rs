@@ -78,6 +78,7 @@ pub trait NeighborsExt {
         revision: Option<u64>,
     ) -> codeterm_neighbors::Result<()>;
     fn forget_neighbor_friend_receivers(&self) -> u64;
+    fn retire_neighbor_friend_receivers(&self) -> Vec<String>;
     #[cfg(test)]
     fn forget_neighbor_friend_receiver(&self, friendship: &str) -> u64;
     fn remember_neighbor_friend_receiver(
@@ -216,6 +217,25 @@ impl NeighborsExt for ServiceContext {
         cell.version.fetch_add(1, Ordering::AcqRel) + 1
     }
 
+    fn retire_neighbor_friend_receivers(&self) -> Vec<String> {
+        let cell = self.extensions.get_or_init(Cell::default);
+        let mut known = cell.known.lock();
+        let generation = self
+            .neighbor_cell()
+            .generation
+            .fetch_add(1, Ordering::AcqRel);
+        cell.version.fetch_add(1, Ordering::AcqRel);
+        std::mem::take(&mut *known)
+            .into_iter()
+            .filter(|(id, entry)| {
+                hex_id(id, 64)
+                    && entry.generation == generation
+                    && entry.receiver.status.receiving_here()
+            })
+            .map(|(id, _)| id)
+            .collect()
+    }
+
     #[cfg(test)]
     fn forget_neighbor_friend_receiver(&self, friendship: &str) -> u64 {
         let cell = self.extensions.get_or_init(Cell::default);
@@ -230,9 +250,9 @@ impl NeighborsExt for ServiceContext {
         receiver: FriendReceiver,
         generation: u64,
     ) -> Result<Vec<Change>, String> {
-        self.require_neighbor_generation(generation)?;
         let cell = self.extensions.get_or_init(Cell::default);
         let mut known = cell.known.lock();
+        self.require_neighbor_generation(generation)?;
         let previous = known
             .get(friendship)
             .filter(|known| known.generation == generation)
@@ -261,9 +281,9 @@ impl NeighborsExt for ServiceContext {
         receivers: BTreeMap<String, FriendReceiver>,
         generation: u64,
     ) -> Result<Vec<Change>, String> {
-        self.require_neighbor_generation(generation)?;
         let cell = self.extensions.get_or_init(Cell::default);
         let mut known = cell.known.lock();
+        self.require_neighbor_generation(generation)?;
         let mut changes = Vec::new();
         for friendship in known
             .keys()

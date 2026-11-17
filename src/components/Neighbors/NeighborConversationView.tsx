@@ -90,7 +90,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const workspaces = useMuxSelector(state => state.workspaces);
   const tabs = useMuxSelector(state => state.tabs);
   // This friend's own receiver: another friend, or the account, may be received elsewhere.
-  const receiver = useReceiverState(runtimeClient, enabled, friendship);
+  const receiver = useReceiverState(runtimeClient, enabled, friendship, friend.my_receiver);
   const machineLabel = useNeighborStatus(runtimeClient, enabled)?.machine_label;
   const receive = useFriendReceiveRequest();
   const { permission } = useNeighborPermission(runtimeClient, conciergeClient, friendship);

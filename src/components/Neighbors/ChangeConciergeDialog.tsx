@@ -31,17 +31,21 @@ export function ChangeConciergeDialog({ friendship, name, currentProvider, machi
 }) {
   const title = useId();
   const description = useId();
-  const { providers: all } = useAgentProviders();
+  const { providers: all, loading } = useAgentProviders();
   const providers = useMemo(() => conciergeProviders(all, machineAccess), [all, machineAccess]);
   const unavailable = useMemo(() => new Set(providers.filter(entry => !isProviderSelectable(entry)).map(entry => entry.id)), [providers]);
-  const [providerId, setProviderId] = useState(currentProvider ?? "");
+  const [selectedProvider, setProviderId] = useState<string | null>(null);
   const [model, setModel] = useState<string | undefined>(undefined);
   const [effort, setEffort] = useState<string | undefined>(undefined);
   const [tier, setTier] = useState<RuntimeServiceTierSelection>({ id: null });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const provider = providers.find(entry => entry.id === providerId);
-  const modelId = model ?? resolveProviderModel(provider) ?? "";
+  const requestedProvider = selectedProvider ?? currentProvider;
+  const provider = providers.find(entry => entry.id === requestedProvider)
+    ?? providers.find(entry => !unavailable.has(entry.id) && resolveProviderModel(entry))
+    ?? providers.find(entry => !unavailable.has(entry.id));
+  const providerId = provider?.id ?? "";
+  const modelId = resolveProviderModel(provider, model) ?? "";
   const effortId = resolveEffort(provider, modelId, effort);
   const tiers = provider?.agent_runtime?.serviceTiers ?? [];
   // Where this machine cannot confine the friend's access, the folder is a guideline the concierge is asked to keep.
@@ -59,6 +63,7 @@ export function ChangeConciergeDialog({ friendship, name, currentProvider, machi
     <h2 id={title} className="font-semibold">Change {name}'s concierge</h2>
     <p id={description} className="text-sm text-[var(--ct-muted-fg)]">The agent that reads {name}'s messages and answers within the permissions you set.</p>
     <OrchestrationRoleRow label="Agent" providers={providers} providerId={providerId} modelId={modelId} effortId={effortId} disabledProviderIds={unavailable}
+      providerPlaceholder={loading ? "Loading providers…" : "Choose a provider"}
       onProviderChange={id => {
         setProviderId(id);
         setModel(resolveProviderModel(providers.find(entry => entry.id === id)));
@@ -68,7 +73,7 @@ export function ChangeConciergeDialog({ friendship, name, currentProvider, machi
       onModelChange={next => { setModel(next); setEffort(current => resolveEffort(provider, next, current)); }}
       onEffortChange={setEffort} />
     {tiers.length > 0 && <ServiceTierPicker declared={tiers} available={undefined} selection={tier} busy={busy} onChange={setTier} />}
-    {providers.length === 0 && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">No installed agent can be a concierge with this friend's machine access.</p>}
+    {!loading && providers.length === 0 && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">No installed agent can be a concierge with this friend's machine access.</p>}
     {advisory && <p className="text-xs text-[var(--ct-muted-fg)]">On this machine its file access is a guideline the agent is asked to keep, not a sandbox.</p>}
     {receiveControl}
     {error && <InlineErrorNotice error={error} operation="changing the concierge" role="alert" />}

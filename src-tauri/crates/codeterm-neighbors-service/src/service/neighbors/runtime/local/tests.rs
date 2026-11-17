@@ -127,6 +127,54 @@ async fn status_uses_known_local_receiver_and_real_concierge_lifecycle_while_act
 }
 
 #[tokio::test]
+async fn receiver_grants_preview_unassigned_friend_from_current_list_without_installing_authority()
+{
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = crate::test_support::fixture(mux);
+    let service = &fixture.service;
+    let friendship = "a".repeat(64);
+    fixture
+        .seed_neighbor_concierge(&tab, &friendship, Permission::default())
+        .await;
+    service.forget_neighbor_friend_receivers();
+    service.neighbor_projection_unavailable();
+    let session = service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .get()
+        .unwrap()
+        .session()
+        .await
+        .unwrap();
+    let list = json!({"access":"paid","friends":[{"friendship_id":friendship,"my_receiver":{
+        "installation_id":null,"enc_key_id":null,"machine_label":null,"receiving":false,"revision":7
+    }}]});
+    service
+        .neighbor_backend_read(
+            "friendsList",
+            &session.identity.uid,
+            session.login_generation,
+            async { Ok(list) },
+        )
+        .await
+        .unwrap();
+    let result = service
+        .neighbor_runtime(
+            NeighborRuntimeCommand::ReceiverGrants {
+                friendship_id: friendship.clone(),
+            },
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["revision"], 7);
+    assert_eq!(result["previous"], Value::Null);
+    assert_eq!(result["unavailable"], false);
+    assert!(service.neighbor_friend_receiver(&friendship).is_none());
+}
+
+#[tokio::test]
 async fn flag_message_persists_without_entering_the_network_operation_queue() {
     let (mut mux, concierge) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&concierge).unwrap();

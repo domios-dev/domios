@@ -132,7 +132,7 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
       const needsAttention = conciergeNeedsAttention(lifecycle);
       const paused = isPaused(friend.friendship_id, listedPaused(friend));
       // A friend received on another machine says where; its concierge there, not here, is the one that answers.
-      const receiver = enabled ? friendReceiverState(status, friend.friendship_id) : null;
+      const receiver = enabled ? friendReceiverState(status, friend.friendship_id, "my_receiver" in friend ? friend.my_receiver : undefined) : null;
       const displayedReceiver = receiver ?? observation?.receiver;
       const elsewhere = displayedReceiver != null && !displayedReceiver.receiving_here;
       const localKnown = concierge !== undefined && !elsewhere;

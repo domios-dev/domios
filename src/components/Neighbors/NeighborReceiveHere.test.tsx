@@ -108,3 +108,20 @@ it("keeps receiving unchanged on cancel and on a failed grant comparison", async
   await act(async () => button("Cancel").click());
   expect(receive).not.toHaveBeenCalled();
 });
+
+it("retries grant preview and an entitlement refusal without changing the reviewed revision", async () => {
+  const client = { receiverGrants: vi.fn(async () => preview).mockRejectedValueOnce(new Error("Preview unavailable")) };
+  const receive = vi.fn(async () => {}).mockRejectedValueOnce(new NeighborRuntimeFailure("entitlements_unavailable", "opaque"));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<NeighborReceiveHere friendship="friend" client={client} receiver={receiver} friendName="Ada" initiallyOpen onReceive={receive} />));
+  expect(button("Receive this friend here").disabled).toBe(true);
+  await act(async () => button("Retry reading permissions").click());
+  await act(async () => button("Receive this friend here").click());
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain("couldn't verify your account access");
+  await act(async () => button("Retry receiving").click());
+  expect(receive.mock.calls).toEqual([
+    [9, { choice: "keep", expected_digest: "snapshot" }],
+    [9, { choice: "keep", expected_digest: "snapshot" }],
+  ]);
+});

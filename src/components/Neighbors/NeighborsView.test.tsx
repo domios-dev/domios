@@ -263,13 +263,20 @@ it("rejects malformed server referral status and requires explicit invite permis
   expect(() => parseNeighbors({ schema_version: 1, access: "paid", can_invite: "yes", friends: [], incoming: [], outgoing: [] })).toThrow();
 });
 
-it("changes the concierge with the shared agent row instead of bespoke dropdowns", async () => {
-  await render("paid");
-  await act(async () => button("Ada, connected").click());
-  await act(async () => button("Set up concierge").click());
-  expect(document.querySelector('[data-testid="orchestration-role-agent"]')).not.toBeNull();
-  expect(document.querySelector('[role="dialog"] select')).toBeNull();
-  expect(document.body.textContent).toContain("Change Ada's concierge");
+it("setup selects an eligible live provider and exposes its models without an existing concierge", async () => {
+  catalogue.providers = [{ schema_version: 1, id: "fixture-harness", display_name: "Harness Display", transport: "pty",
+    system_prompt_delivery: "external", available_models: [{ id: "model-wire", display_name: "Model Display" }],
+    neighbor_concierge: { supported: true, machine_access: ["read_only"], enforced_machine_access: ["read_only"] } }];
+  try {
+    await render("paid");
+    await act(async () => button("Ada, connected").click());
+    await act(async () => button("Set up concierge").click());
+    expect(hasButton("Agent provider: Harness Display")).toBe(true);
+    expect(hasButton("Agent model: Model Display")).toBe(true);
+    expect(button("Change agent").disabled).toBe(false);
+  } finally {
+    catalogue.providers = [];
+  }
 });
 
 it("saves permissions directly and refuses an allowed grant without a scope", async () => {
