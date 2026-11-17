@@ -4,24 +4,25 @@ use axum::{
 };
 use codeterm_service_core::service::tab_credentials::TabCaller;
 
-use super::{authenticate_caller, CallerIdentity};
+use super::CallerIdentity;
 use crate::routes::AppState;
 
 pub(crate) fn tab_caller(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<Option<TabCaller>, (StatusCode, String)> {
-    let auth = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    let (identity, origin) = authenticate_caller(state, auth).map_err(|()| {
-        (
-            StatusCode::FORBIDDEN,
-            "Authenticated actor credential required".into(),
-        )
-    })?;
-    super::actor::resolve(&identity, origin)
+    let actor =
+        super::RequestActor::authenticate(state, headers).map_err(|(status, message)| {
+            if status == StatusCode::UNAUTHORIZED {
+                (
+                    StatusCode::FORBIDDEN,
+                    "Authenticated actor credential required".into(),
+                )
+            } else {
+                (status, message)
+            }
+        })?;
+    super::actor::resolve(actor)
 }
 
 pub(crate) fn caller_claim(

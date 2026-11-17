@@ -368,6 +368,24 @@ struct UpdateServerStop {
 
 #[async_trait::async_trait]
 impl ServerStop for UpdateServerStop {
+    async fn reserve_install_shutdown(
+        &self,
+        request: codeterm_update::holders::ReserveHolders,
+    ) -> Result<String, String> {
+        self.inner.reserve_install_shutdown(request).await
+    }
+
+    async fn release_install_shutdown(&self, id: &str) -> Result<(), String> {
+        self.inner.release_install_shutdown(id).await
+    }
+
+    async fn describe_install_holders(
+        &self,
+        processes: Vec<codeterm_update::holders::HolderProcess>,
+    ) -> Result<Vec<codeterm_update::holders::HolderTab>, String> {
+        self.inner.describe_install_holders(processes).await
+    }
+
     #[cfg(target_os = "linux")]
     fn debian_quit_target(&self) -> Result<codeterm_update::debian::handoff::QuitTarget, String> {
         self.inner.debian_quit_target()

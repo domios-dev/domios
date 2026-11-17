@@ -224,7 +224,7 @@ pub(crate) fn remote_worker_spawn_params(
     workspace_id: String,
     worktree_path: String,
     origin_peer_id: String,
-    _origin_peer_name: &str,
+    origin_peer_name: &str,
 ) -> codeterm_service_core::service::SpawnAgentParams {
     let suffix: String = request.attempt_id.chars().take(6).collect();
     codeterm_service_core::service::SpawnAgentParams {
@@ -245,6 +245,13 @@ pub(crate) fn remote_worker_spawn_params(
         execution_intent: Some(codeterm_service_core::plan::ExecutionIntent::Mutating),
         workspace_id: Some(workspace_id),
         task: Some(request.brief),
+        ownership: Some(codeterm_types::pty::RemoteOwnership {
+            controller_title: request.origin_tab_id.clone(),
+            controller_tab_id: Some(request.origin_tab_id.clone()),
+            peer_id: origin_peer_id.clone(),
+            peer_name: origin_peer_name.into(),
+            team: None,
+        }),
         report_target_tab_id: Some(request.origin_tab_id),
         report_target_mesh_peer: Some(origin_peer_id.clone()),
         remote_task_binding: Some(codeterm_service_core::service::RemoteTaskBinding {
@@ -566,6 +573,12 @@ mod tests {
             let mux = fixture.service.mux.read();
             let tab = mux.get_tab(&result.tab_id).unwrap();
             assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("peer-origin"));
+            let ownership = tab.ownership.as_ref().expect("stamped remote ownership");
+            assert_eq!(ownership.peer_id, "peer-origin");
+            assert_eq!(
+                ownership.controller_tab_id.as_deref(),
+                Some("origin-orchestrator")
+            );
             assert_eq!(
                 tab.report_target_tab_id.as_deref(),
                 Some("origin-orchestrator")

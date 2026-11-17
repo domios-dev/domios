@@ -18,6 +18,7 @@ impl ServiceContext {
         bytes: &[u8],
         queued: &std::cell::Cell<usize>,
     ) -> Result<usize, String> {
+        let _update_input = self.admit_update_pty_input(pty_id)?;
         #[cfg(windows)]
         {
             let signal = self.screen_state.arm_screen_change_signal(pty_id);
@@ -52,6 +53,7 @@ impl ServiceContext {
         command: &str,
         queued: Option<&dyn Fn(usize)>,
     ) -> Result<crate::service::ExecWaiter, String> {
+        let _update_input = self.admit_update_pty_input(pty_id)?;
         let _input = super::submit_transaction::reserve_command_input(
             pty_id,
             std::time::Instant::now() + std::time::Duration::from_secs(15),

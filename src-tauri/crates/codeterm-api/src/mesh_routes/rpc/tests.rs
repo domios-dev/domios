@@ -1,5 +1,28 @@
 use super::{method_allowed, sanitize_remote_context, ResponseCache, CACHE_CAPACITY};
 
+#[test]
+fn completed_requests_project_closed_operation_and_outcome_without_private_errors() {
+    for (code, expected) in [
+        (None, "success"),
+        (Some(-32003), "refused"),
+        (Some(-32603), "failure"),
+    ] {
+        let response = super::MeshRpcResponse {
+            result: None,
+            error: code.map(|code| codeterm_service_core::ports::socket::RpcError {
+                code,
+                message: "private error".into(),
+                data: Some(serde_json::json!({"peer":"private"})),
+            }),
+        };
+        let event = super::completed_event("plan.private-method", &response);
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            serde_json::json!({"event_type":"mesh_request_completed","event_properties":{"operation":"plan","outcome":expected}})
+        );
+    }
+}
+
 fn app_state(
     fixture: &codeterm_service_core::service::test_fixture::ServiceFixture,
     peer: Option<codeterm_service_core::mesh::types::PairedPeer>,

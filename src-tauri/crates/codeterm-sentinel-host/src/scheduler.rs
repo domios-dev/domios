@@ -203,6 +203,20 @@ pub fn start(
         apply_lock: Arc::new(Mutex::new(())),
     };
     super::blueprint_memory::subscribe_changes(&svc);
+    let service = Arc::downgrade(&svc);
+    handle
+        .store
+        .lock()
+        .bind_run_observer(Arc::new(move |outcome| {
+            if let (Some(service), Some(outcome)) = (
+                service.upgrade(),
+                codeterm_analytics::BlueprintOutcome::from_catalog(outcome),
+            ) {
+                service.record_product_event(codeterm_analytics::Event::BlueprintRunCompleted {
+                    outcome,
+                });
+            }
+        }));
     if svc
         .host_extension::<crate::pipeline::plugin::PluginStepStoreRoot>()
         .is_none()
