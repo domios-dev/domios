@@ -14,7 +14,7 @@ pub async fn restart(
     fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
     retry_refused_start: bool,
 ) -> Result<Arc<Session>, RuntimeFailure> {
-    restart_with_account(
+    restart_with_selection(
         svc,
         tab,
         provider,
@@ -27,6 +27,20 @@ pub async fn restart(
     .session
 }
 
+#[derive(PartialEq, Eq)]
+pub struct ModelSelection {
+    pub provider: String,
+    pub binding_nonce: String,
+    pub thread_id: Option<String>,
+    pub model: String,
+    pub effort: Option<String>,
+}
+
+pub enum RestartSelection<'a> {
+    Account(&'a crate::service::agent_lifecycle::AccountRestartTarget),
+    Model(&'a ModelSelection),
+}
+
 pub struct AccountRestartResult {
     pub session: Result<Arc<Session>, RuntimeFailure>,
     pub target_refusal: Option<String>,
@@ -34,16 +48,23 @@ pub struct AccountRestartResult {
     pub account_refusal_nonce: Option<String>,
 }
 
-pub async fn restart_with_account(
+pub async fn restart_with_selection(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,
     old_nonce: &str,
     fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
     retry_refused_start: bool,
-    account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
+    requested: Option<RestartSelection<'_>>,
 ) -> AccountRestartResult {
-    let trigger = if retry_refused_start {
+    let (account, selection) = match requested {
+        Some(RestartSelection::Account(account)) => (Some(account), None),
+        Some(RestartSelection::Model(model)) => (None, Some(model)),
+        None => (None, None),
+    };
+    let trigger = if let Some(selection) = selection {
+        Trigger::Model(selection)
+    } else if retry_refused_start {
         Trigger::RetryRefused
     } else {
         Trigger::Request
@@ -130,7 +151,7 @@ pub async fn restart_with_account(
         .get_tab(tab)
         .is_none_or(|target| target.session_binding_nonce.as_deref() != Some(old_nonce));
     if let Err(reason) = &result {
-        if account.is_some() && !changed {
+        if (account.is_some() || selection.is_some()) && !changed {
             svc.clear_runtime_restart_binding(tab);
             return AccountRestartResult {
                 session: result,
@@ -170,7 +191,8 @@ pub async fn restart_idle(
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Trigger {
+enum Trigger<'a> {
+    Model(&'a ModelSelection),
     IdleUpdate,
     Request,
     /// Only this trigger retires a retained provider refusal, so it relaunches.
@@ -183,9 +205,13 @@ async fn restart_inner(
     provider: &str,
     old_nonce: &str,
     fresh_restart: Option<(&crate::service::agent_lifecycle::TabRestartSnapshot, bool)>,
-    trigger: Trigger,
+    trigger: Trigger<'_>,
     mut transition: Option<AccountTransition<'_>>,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
+    let selection = match trigger {
+        Trigger::Model(selection) => Some(selection),
+        _ => None,
+    };
     let account = transition.as_ref().map(AccountTransition::target);
     let idle_only = trigger == Trigger::IdleUpdate;
     let session = engine::for_tab(tab);
@@ -198,6 +224,38 @@ async fn restart_inner(
         ),
         None => None,
     };
+    if let Some(selection) = selection {
+        let mux = svc.mux.read();
+        let target = mux.get_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+        if selection.provider != provider
+            || selection.binding_nonce != old_nonce
+            || target.agent_type.as_deref() != Some(selection.provider.as_str())
+            || target.session_binding_nonce.as_deref() != Some(selection.binding_nonce.as_str())
+            || target.agent_session_id != selection.thread_id
+            || target
+                .agent_runtime_config
+                .as_ref()
+                .is_none_or(|config| !config.is_object())
+        {
+            return Err(RuntimeFailure::Superseded);
+        }
+    }
+    if selection.is_some() && (fresh_restart.is_some() || transition.is_some()) {
+        return Err(RuntimeFailure::Refused(
+            "Model selection requires a same-session restart".into(),
+        ));
+    }
+    if selection.is_some()
+        && session.as_ref().is_some_and(|session| {
+            super::update::busy(session)
+                || !session.prompts.lock().is_empty()
+                || !session.turn_requests.lock().is_empty()
+        })
+    {
+        return Err(RuntimeFailure::Refused(
+            "RestartResume requires an idle runtime".into(),
+        ));
+    }
     let fresh = fresh_restart.is_some();
     if account.is_some() && (fresh || trigger != Trigger::Request) {
         return Err(RuntimeFailure::Refused(
@@ -395,6 +453,23 @@ async fn restart_inner(
             }
             if let TabBacking::ChatBackend { session_id, .. } = &mut target.backing {
                 session_id.clear();
+            }
+        }
+        if let Some(selection) = selection {
+            let config = target
+                .agent_runtime_config
+                .as_mut()
+                .and_then(serde_json::Value::as_object_mut)
+                .ok_or_else(|| RuntimeFailure::Refused("Runtime configuration missing".into()))?;
+            config.insert("model".into(), serde_json::json!(selection.model));
+            if let Some(effort) = &selection.effort {
+                config.insert("effort".into(), serde_json::json!(effort));
+            }
+            target.restorable_launch.model = Some(selection.model.clone());
+            target.restorable_launch.requested_model = Some(selection.model.clone());
+            if let Some(effort) = &selection.effort {
+                target.restorable_launch.requested_reasoning_effort = Some(effort.clone());
+                target.restorable_launch.resolved_reasoning_effort = Some(effort.clone());
             }
         }
         if let Some(options) = target.restorable_launch.runtime_launch_options.as_mut() {

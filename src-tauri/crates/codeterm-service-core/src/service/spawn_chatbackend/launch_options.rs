@@ -1,5 +1,31 @@
 use crate::service::{permission_policy, ServiceContext, SpawnAgentParams};
 
+pub(super) fn apply_model(
+    svc: &ServiceContext,
+    provider: &str,
+    config: &mut serde_json::Value,
+    resume: Option<&str>,
+) -> Result<(), String> {
+    let requested = config
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+        &svc.configuration(),
+        &svc.agent_registry,
+        provider,
+        requested,
+        resume,
+    );
+    if let Some(model) = resolution.model {
+        config
+            .as_object_mut()
+            .ok_or("Runtime spawn config must be an object")?
+            .insert("model".into(), serde_json::json!(model));
+    }
+    Ok(())
+}
+
 fn permission_request(requested: Option<bool>, authorized: bool) -> bool {
     requested.unwrap_or(authorized) && authorized
 }

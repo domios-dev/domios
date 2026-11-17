@@ -39,6 +39,14 @@ pub trait RuntimeRestartExt {
         fresh: bool,
         retry_refused_start: bool,
     ) -> Result<RestartOutcome, RestartAttemptError>;
+    fn restart_runtime_agent_with_selection(
+        &self,
+        tab_id: &str,
+        force: bool,
+        fresh: bool,
+        retry_refused_start: bool,
+        selection: Option<agent_runtime::restart::RestartSelection<'_>>,
+    ) -> Result<RestartOutcome, RestartAttemptError>;
     fn restart_runtime_agent_with_account(
         &self,
         tab_id: &str,
@@ -82,6 +90,27 @@ impl RuntimeRestartExt for ServiceContext {
         retry_refused_start: bool,
         account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        self.restart_runtime_agent_with_selection(
+            tab_id,
+            force,
+            fresh,
+            retry_refused_start,
+            account.map(agent_runtime::restart::RestartSelection::Account),
+        )
+    }
+
+    fn restart_runtime_agent_with_selection(
+        &self,
+        tab_id: &str,
+        force: bool,
+        fresh: bool,
+        retry_refused_start: bool,
+        selection: Option<agent_runtime::restart::RestartSelection<'_>>,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        let account = match &selection {
+            Some(agent_runtime::restart::RestartSelection::Account(account)) => Some(*account),
+            _ => None,
+        };
         if account.is_some() && (fresh || retry_refused_start) {
             return Err(AgentRestartError::BadRequest(
                 "Account restart requires a same-session restart".into(),
@@ -177,15 +206,16 @@ impl RuntimeRestartExt for ServiceContext {
         if fresh {
             outcome.session_id = None;
         }
-        let attempt = crate::async_runtime::block_on(agent_runtime::restart::restart_with_account(
-            self,
-            tab_id,
-            &provider,
-            &nonce,
-            fresh.then_some((&snap, force)),
-            retry_refused_start,
-            account,
-        ));
+        let attempt =
+            crate::async_runtime::block_on(agent_runtime::restart::restart_with_selection(
+                self,
+                tab_id,
+                &provider,
+                &nonce,
+                fresh.then_some((&snap, force)),
+                retry_refused_start,
+                selection,
+            ));
         outcome.source_account_restored = attempt.source_account_restored;
         outcome.account_target_refused = attempt.target_refusal.is_some();
         outcome.account_refusal_nonce = attempt.account_refusal_nonce;

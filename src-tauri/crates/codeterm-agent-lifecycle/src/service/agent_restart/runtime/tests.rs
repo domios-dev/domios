@@ -10,6 +10,7 @@ mod account;
 mod account_integration;
 mod failed_start;
 mod launch_directory;
+mod model_selection;
 mod provider_switch;
 mod rebind;
 mod recovery;
@@ -209,6 +210,7 @@ impl RuntimeFixture {
         .collect::<serde_json::Map<String, Value>>();
         let mut raw_manifest = json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture","binaryName":"node",
+            "commands":{"modelSwitch":"restart_resume"},
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
                 "agentRuntime":{"runtimeModes":[{"id":"auto-accept-edits","displayName":"Auto accept edits"}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[],"login":{"methods":["browser"]}}},
             "spawn":{"readinessStrategy":{"kind":"poll_shell_prompt","timeoutSecs":1},
