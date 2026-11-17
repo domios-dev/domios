@@ -6,6 +6,8 @@ import { pluginTabMenuEntries, type PluginTabMenuEntry, type PluginTabMenuState 
 import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
 import { isPlanner } from "../../lib/roleKind";
 import type { ProviderDescriptor, Tab, TabStatus } from "../../lib/types";
+import type { useTabAccounts } from "../../hooks/useAccountSelectors";
+import { accountChoiceDescription, accountChoiceName, accountChoices } from "../shared/accountChoices";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { orchestratorRecoveryMenuView, type OrchestratorRecoveryMenuView } from "../Sidebar/orchestratorRecoveryMenu";
 import { tabModelEntryLabel, tabModelMenuView, type TabModelMenuView } from "../Sidebar/tabModelMenu";
@@ -57,6 +59,7 @@ function modelHint(providerName: string): string {
 }
 
 export type TabMenuAction =
+  | { type: "switchAccount"; accountId: string }
   | { type: "rename" }
   | { type: "makeOrchestrator" }
   | { type: "makePlanner"; planId: string }
@@ -146,6 +149,23 @@ export interface TabMenuSubmenuEntry extends TabMenuEntryBase {
 }
 
 export type TabMenuEntry = TabMenuHeaderEntry | TabMenuLeafEntry | TabMenuSubmenuEntry;
+
+export function tabAccountSubmenu(view: Pick<ReturnType<typeof useTabAccounts>, "snapshot" | "currentAccountId" | "switching" | "blockedReason">,
+  providerName: string): TabMenuSubmenuEntry | null {
+  const { snapshot, currentAccountId, switching, blockedReason } = view;
+  const accounts = snapshot ? accountChoices(snapshot) : [];
+  if (!snapshot || accounts.length < 2) return null;
+  const canContinue = snapshot.continuation === "proven";
+  return { kind: "submenu", id: "account", label: "Account", icon: null, entries: accounts.map((account): TabMenuItemEntry => {
+    const current = account.id === currentAccountId;
+    const blocked = !canContinue || Boolean(blockedReason) || account.status === "signedOut";
+    return { kind: "item", id: `account-${account.id}`, label: accountChoiceName(account, providerName), icon: null,
+      selected: current, disabled: switching || current, unavailable: !current && blocked,
+      hint: !current && blocked ? blockedReason ?? (account.status === "signedOut" ? "Sign in to this account first." : "Account switching is unavailable.") : accountChoiceDescription(account),
+      action: current || switching || blocked ? null : { type: "switchAccount", accountId: account.id },
+    };
+  }) };
+}
 
 export interface TabMenuContext {
   lock?: LockedView;

@@ -529,6 +529,7 @@ function DropdownMenuRow({
 export interface DropdownSelectOption {
   value: string;
   label: string;
+  description?: string;
   disabled?: boolean;
   /** Native-title suffix appended to the label (e.g. " (not installed)"). */
   suffix?: string;
@@ -590,6 +591,7 @@ export function DropdownSelect({
   const toItem = (o: DropdownSelectOption): DropdownMenuItem => ({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
     labelContent: o.content,
+    description: o.description,
     badge: o.badge,
     disabled: o.disabled,
     icon: o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />,
