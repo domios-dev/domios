@@ -466,17 +466,10 @@ pub(super) fn secret_environment(
     provider: &str,
     profile: &RuntimeLaunchProfile,
 ) -> Result<BTreeMap<String, String>, super::model::RuntimeFailure> {
-    let prefix = format!("domios:provider:{provider}:");
-    if profile
-        .secret_env
-        .values()
-        .any(|key| !key.starts_with(&prefix))
-    {
-        return Err(super::model::RuntimeFailure::Refused(
-            "Profile secret reference is outside its provider namespace".into(),
-        ));
-    }
+    let invocation = codeterm_plugin::provider_account::current();
+    let references = scoped_secret_references(provider, profile, invocation.as_deref())?;
     compose_secret_environment(profile, |key| {
+        let key = references.get(key)?;
         crate::async_runtime::block_on(async {
             let store = svc.secrets.read().await.clone();
             tokio::time::timeout(std::time::Duration::from_secs(10), store.get(key))
@@ -486,4 +479,24 @@ pub(super) fn secret_environment(
                 .map(|secret| secret.value.into_inner())
         })
     })
+}
+
+fn scoped_secret_references(
+    provider: &str,
+    profile: &RuntimeLaunchProfile,
+    invocation: Option<&codeterm_plugin::provider_account::InvocationContext>,
+) -> Result<BTreeMap<String, String>, super::model::RuntimeFailure> {
+    profile
+        .secret_env
+        .values()
+        .map(|key| {
+            codeterm_plugin::provider_account::secret_reference(provider, key, invocation)
+                .map(|reference| (key.clone(), reference))
+                .ok_or_else(|| {
+                    super::model::RuntimeFailure::Refused(
+                        "Profile secret reference is outside its provider credential scope".into(),
+                    )
+                })
+        })
+        .collect()
 }

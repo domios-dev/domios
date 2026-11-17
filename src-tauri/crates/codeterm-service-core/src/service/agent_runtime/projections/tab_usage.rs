@@ -87,6 +87,7 @@ impl TabLimitsSource {
 
 struct TabFacts {
     provider: String,
+    account: Option<String>,
     thread_id: Option<String>,
     /// Present only while the tab's runtime binding is authoritative; it gates the session's own reading.
     nonce: Option<String>,
@@ -96,7 +97,7 @@ struct TabFacts {
 }
 
 fn tab_facts(svc: &ServiceContext, tab_id: &str) -> Result<TabFacts, String> {
-    let (provider, thread_id, nonce, profile, context, chat_backend) = {
+    let (provider, account, thread_id, nonce, profile, context, chat_backend) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(tab_id).ok_or("Tab not found")?;
         let provider = tab.agent_type.clone().ok_or("Tab has no provider")?;
@@ -106,6 +107,10 @@ fn tab_facts(svc: &ServiceContext, tab_id: &str) -> Result<TabFacts, String> {
             .filter(|value| tab.reported_session_binding_nonce.as_ref() == Some(value));
         (
             provider,
+            tab.restorable_launch
+                .account_id
+                .clone()
+                .filter(|id| id != codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT),
             tab.agent_session_id.clone(),
             nonce,
             launch_profile::of_tab(tab),
@@ -128,6 +133,7 @@ fn tab_facts(svc: &ServiceContext, tab_id: &str) -> Result<TabFacts, String> {
     let source = TabLimitsSource::resolve(&provider, chat_backend, runtime_usage, declared);
     Ok(TabFacts {
         provider,
+        account,
         thread_id,
         nonce,
         profile,
@@ -174,7 +180,7 @@ fn runtime_limits_view(snapshot: &Value, reading: &Value) -> Value {
     .unwrap_or(Value::Null);
     let mut view = snapshot.clone();
     view["id"] = json!(0);
-    view["account_id"] = Value::Null;
+    view["account_id"] = reading["account_id"].clone();
     view["captured_at"] = captured_at;
     view["parsed_ok"] = json!(true);
     view["billing_mode"] = reading["billing_mode"].clone();
@@ -317,9 +323,15 @@ pub fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<Value, String> {
                 provider,
                 account_id,
             } => latest(svc, provider, Some(account_id.as_str()))?,
-            TabLimitsSource::Account { provider } => account_view(&latest(svc, provider, None)?),
+            TabLimitsSource::Account { provider } => account_view(&latest(
+                svc,
+                provider,
+                (provider == &facts.provider)
+                    .then_some(facts.account.as_deref())
+                    .flatten(),
+            )?),
             TabLimitsSource::Meter { provider } => own_view(
-                &latest(svc, provider, None)?,
+                &latest(svc, provider, facts.account.as_deref())?,
                 tab_id,
                 facts.thread_id.as_deref(),
             ),
@@ -343,6 +355,7 @@ pub fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<Value, String> {
         .get(tab_id)
         .filter(|reading| {
             reading.provider == facts.provider
+                && reading.account_id == facts.account
                 && Some(&reading.nonce) == facts.nonce.as_ref()
                 && (reading.thread_id == facts.thread_id || reading.thread_id.is_none())
         })

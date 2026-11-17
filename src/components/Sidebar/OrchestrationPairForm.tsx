@@ -20,6 +20,7 @@ export interface OrchestrationPairValues {
 }
 
 interface RoleRowProps {
+  accountSlot?: ReactNode;
   modelControls?: boolean;
   /** One row: harness, then a model · effort pill that opens the unified model picker. */
   compact?: boolean;
@@ -58,6 +59,7 @@ interface RoleRowProps {
 }
 
 export function OrchestrationRoleRow({
+  accountSlot,
   modelControls = true,
   compact = false,
   heading,
@@ -146,6 +148,7 @@ export function OrchestrationRoleRow({
             menuMaxHeight={MODEL_MENU_MAX_HEIGHT}
           />
         </div>}
+        {accountSlot && <div className="min-w-0 max-w-full">{accountSlot}</div>}
       </div>
       {!pill && modelControls && efforts.length > 0 && onEffortChange && (
         <div className="min-w-0">

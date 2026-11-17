@@ -95,6 +95,9 @@ fn exercise_login(method: RuntimeLoginMethod, fresh: bool, outcome: Option<&str>
     assert!(items.is_empty());
     crate::async_runtime::block_on(async {
         let start = || login::LoginRequest {
+            owner_confirmed: false,
+            binding: None,
+            login_id: None,
             method_id: None,
             provider_id: None,
             account: None,
@@ -131,6 +134,9 @@ fn exercise_login(method: RuntimeLoginMethod, fresh: bool, outcome: Option<&str>
                 &fixture.service,
                 &id,
                 login::LoginRequest {
+                    owner_confirmed: false,
+                    binding: None,
+                    login_id: None,
                     method_id: None,
                     provider_id: None,
                     account: None,
@@ -154,6 +160,9 @@ fn exercise_login(method: RuntimeLoginMethod, fresh: bool, outcome: Option<&str>
                 &fixture.service,
                 &id,
                 login::LoginRequest {
+                    owner_confirmed: false,
+                    binding: None,
+                    login_id: None,
                     method_id: None,
                     provider_id: None,
                     account: None,

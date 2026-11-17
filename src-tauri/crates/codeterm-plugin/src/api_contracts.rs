@@ -57,6 +57,9 @@ pub struct Reading<T> {
 pub struct UsageProjection {
     pub tab_id: String,
     pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub account_id: Option<String>,
     #[serde(skip)]
     #[ts(skip)]
     pub provider: String,

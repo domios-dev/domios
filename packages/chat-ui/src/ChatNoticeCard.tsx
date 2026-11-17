@@ -16,15 +16,16 @@ interface Props {
   /** Stays in the header whether or not the body is expanded. */
   status?: ReactNode;
   children: ReactNode;
+  quiet?:boolean;
 }
 
 /** Collapsible inline notice in the transcript, on the shared ct-card surface. */
-export function ChatNoticeCard({ testId, icon, title, subtitle, tone, expanded, onToggle, bodyClassName = "", role, status, children }: Props) {
+export function ChatNoticeCard({ testId, icon, title, subtitle, tone, expanded, onToggle, bodyClassName = "", role, status, children,quiet=false }: Props) {
   return (
     <ExpandableReader label={typeof title === "string" ? title : "Notice"} enabled={true} openerPlacement="header">{(fullscreen, opener) => (
 
     <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" role={role}>
-      <div data-testid={testId} className="ct-card" style={tone ? ({ "--ct-card-tone": tone } as CSSProperties) : undefined}>
+      <div data-testid={testId} className={`ct-card${quiet?" ct-card--quiet":""}`} style={tone ? ({ "--ct-card-tone": tone } as CSSProperties) : undefined}>
         <div className="ct-card__head ct-reader-row">
         <button type="button" aria-expanded={expanded} onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
           <span className="ct-card__icon">{icon}</span>

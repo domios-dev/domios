@@ -409,9 +409,13 @@ pub(super) async fn cancel_pending(
             request_id: request_id.clone(),
             answer: PromptAnswer::Cancel,
         };
-        let plan = tokio::time::timeout(
-            codeterm_plugin::agent_runtime::RUNTIME_HOOK_DEADLINE,
-            adapter.runtime_plan(&context, &operation),
+        let invocation = session.invocation.lock().clone();
+        let plan = codeterm_plugin::provider_account::scope(
+            invocation,
+            tokio::time::timeout(
+                codeterm_plugin::agent_runtime::RUNTIME_HOOK_DEADLINE,
+                adapter.runtime_plan(&context, &operation),
+            ),
         )
         .await;
         let result = match plan {

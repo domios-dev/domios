@@ -27,10 +27,10 @@ pub(super) fn build_relaunch(
         if provider_changed {
             return None;
         }
-        return recorded_launch_relaunch(svc, snap, session_present);
+        return recorded_launch_relaunch(svc, snap, session_present, None);
     }
     if !provider_changed {
-        if let Some(relaunch) = recorded_launch_relaunch(svc, snap, session_present) {
+        if let Some(relaunch) = recorded_launch_relaunch(svc, snap, session_present, None) {
             return Some(relaunch);
         }
     }
@@ -67,10 +67,19 @@ pub(super) fn build_relaunch(
 /// The restore seam: model, effort, args and identity instructions come from
 /// the tab's recorded spawn. `None` when the spawn recorded nothing or the
 /// provider resumes through a structured prompt server without model config.
+pub(super) fn build_account_relaunch(
+    svc: &ServiceContext,
+    snap: &TabRestartSnapshot,
+    target: &crate::service::agent_lifecycle::AccountRestartTarget,
+) -> Option<Relaunch> {
+    recorded_launch_relaunch(svc, snap, true, Some(target))
+}
+
 fn recorded_launch_relaunch(
     svc: &ServiceContext,
     snap: &TabRestartSnapshot,
     session_present: bool,
+    account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
 ) -> Option<Relaunch> {
     let structured_prompt_server = svc
         .agent_registry
@@ -78,7 +87,7 @@ fn recorded_launch_relaunch(
             provider.needs_structured_prompt_server()
         })
         .unwrap_or(false);
-    let (launch_parameters, resolved_model) = {
+    let (mut launch_parameters, resolved_model) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(&snap.tab_id)?;
         (
@@ -92,7 +101,9 @@ fn recorded_launch_relaunch(
             provider.model_provider_config().is_some()
         })
         .unwrap_or(false);
-    if (structured_prompt_server && !model_config_capable) || !launch_parameters.captured {
+    if account.is_none()
+        && ((structured_prompt_server && !model_config_capable) || !launch_parameters.captured)
+    {
         return None;
     }
     let permission_bypass_authorization = match restore_permission_bypass_authorization(
@@ -111,6 +122,10 @@ fn recorded_launch_relaunch(
             return None;
         }
     };
+    if let Some(account) = account {
+        launch_parameters.account_id = account.account_id.clone();
+        launch_parameters.account_namespace = account.account_namespace.clone();
+    }
     let input = restored_fresh_launch_input(
         &svc.agent_registry,
         crate::service::SpawnAgentParams {
@@ -126,7 +141,15 @@ fn recorded_launch_relaunch(
         },
         launch_parameters,
     );
-    let command = input.prepared_command(svc, &snap.tab_id)?;
+    let command = match account {
+        Some(account) => {
+            input.prepared_command_with_invocation(svc, &snap.tab_id, account.invocation.clone())
+        }
+        None => input.prepared_command(svc, &snap.tab_id),
+    }?;
+    if command.trim().is_empty() {
+        return None;
+    }
     // The fresh builder already wrapped its command in the dev stub.
     let command = if input.params.resume_session_id.is_some() {
         command.with_stub(&snap.provider)

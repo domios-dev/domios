@@ -236,6 +236,7 @@ pub(super) fn handle(
         workspace,
         model,
         launch_profile,
+        account_id,
         reasoning_effort,
         speed,
         system_prompt,
@@ -274,6 +275,7 @@ pub(super) fn handle(
             || reasoning_effort.is_some()
             || speed.is_some()
             || launch_profile.is_some()
+            || account_id.is_some()
             || system_prompt.is_some()
         {
             crate::cmd::print::fail(
@@ -322,6 +324,9 @@ pub(super) fn handle(
     if let Err(error) = validate_spawn_context(&context) {
         crate::cmd::print::fail(1, error.to_string());
     }
+    if unplanned && account_id.is_some() {
+        crate::cmd::print::fail(2, "--account is not supported for unplanned task dispatch; use the workspace account choice");
+    }
     if unplanned {
         let reason = reason
             .as_deref()
@@ -365,6 +370,7 @@ pub(super) fn handle(
             ("--reasoning-effort", reasoning_effort.is_some()),
             ("--speed", speed.is_some()),
             ("--profile", launch_profile.is_some()),
+            ("--account", account_id.is_some()),
             ("--system", system_prompt.is_some()),
             ("--preset", preset.is_some()),
             ("--charter", charter.is_some() || charter_file.is_some()),
@@ -548,6 +554,9 @@ pub(super) fn handle(
     }
     if let Some(m) = model {
         body["model"] = serde_json::json!(m);
+    }
+    if let Some(account) = account_id {
+        body["account_id"] = serde_json::json!(account);
     }
     if let Some(profile) = launch_profile {
         body["launch_profile"] = serde_json::json!(profile);

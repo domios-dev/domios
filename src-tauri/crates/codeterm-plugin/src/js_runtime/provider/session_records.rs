@@ -13,6 +13,9 @@ impl JsProvider {
         &self,
         file_path: &Path,
     ) -> Result<Vec<SessionMessage>, String> {
+        if !crate::provider_account::read_allowed(file_path) {
+            return Err("provider account transcript read denied".into());
+        }
         if self
             .manifest
             .capabilities
@@ -28,7 +31,7 @@ impl JsProvider {
                 None => Ok(Vec::new()),
             };
         }
-        let file = std::fs::File::open(file_path)
+        let file = crate::provider_account::open_read(file_path)
             .map_err(|error| format!("session transcript unreadable: {error}"))?;
         let mut reader = BufReader::new(file);
         let mut out = Vec::new();

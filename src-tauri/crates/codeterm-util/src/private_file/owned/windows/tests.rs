@@ -3,7 +3,7 @@ use std::mem::size_of;
 use windows_sys::Win32::Security::{CreateWellKnownSid, WinWorldSid};
 
 #[test]
-fn descriptor_owner_must_be_the_current_user() {
+fn descriptor_owner_must_be_the_current_user_or_token_default_owner() {
     let user = CurrentUser::open().unwrap();
     let mut length = 0;
     unsafe { CreateWellKnownSid(WinWorldSid, null_mut(), null_mut(), &mut length) };
@@ -14,7 +14,9 @@ fn descriptor_owner_must_be_the_current_user() {
         unsafe { CreateWellKnownSid(WinWorldSid, null_mut(), foreign, &mut length) },
         0
     );
-    assert!(same_owner(user.sid(), user.sid()));
-    assert!(!same_owner(foreign, user.sid()));
-    assert!(!same_owner(null_mut(), user.sid()));
+    assert!(same_owner(user.sid(), user.sid(), user.owner_sid()));
+    assert!(same_owner(user.owner_sid(), user.sid(), user.owner_sid()));
+    assert!(same_owner(foreign, user.sid(), foreign));
+    assert!(!same_owner(foreign, user.sid(), user.owner_sid()));
+    assert!(!same_owner(null_mut(), user.sid(), user.owner_sid()));
 }

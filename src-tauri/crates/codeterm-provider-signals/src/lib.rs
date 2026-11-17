@@ -68,6 +68,18 @@ pub struct RuntimeErrorSignal {
     pub retryable: bool,
     pub retryable_kind: Option<RuntimeRetryableErrorKind>,
     pub retry_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub account_limit: Option<RuntimeAccountLimit>,
+}
+
+/// Provider-authenticated account quota exhaustion, distinct from request throttling.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeAccountLimit {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resets_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

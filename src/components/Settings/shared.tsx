@@ -122,13 +122,26 @@ export function Label({ text, children }: { text: string; children: React.ReactN
   );
 }
 
-export function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({ label, checked, onChange, disabled = false, description }: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  description?: string;
+}) {
+  const descriptionId = useId();
   return (
     <label className="ct-settings-toggle" data-testid="settings-toggle-row" data-settings-toggle={testIdPart(label)}>
-      <span>{label}</span>
+      <span className="min-w-0">
+        <span>{label}</span>
+        {description && <span id={descriptionId} className="mt-1 block text-xs text-[var(--ct-muted-fg)]">{description}</span>}
+      </span>
       <LiquidToggle
         // A role="switch" button is not labelable, so the wrapping <label> never named it.
         aria-label={label}
+        aria-describedby={description ? descriptionId : undefined}
+        aria-disabled={disabled || undefined}
+        disabled={disabled}
         data-testid="settings-toggle"
         data-settings-toggle={testIdPart(label)}
         checked={checked}

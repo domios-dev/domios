@@ -65,12 +65,14 @@ fn projection<'a>(
     readings: &'a mut HashMap<String, UsageProjection>,
     provider: &str,
     context: &RuntimeContext,
+    account: Option<&str>,
 ) -> &'a mut UsageProjection {
     let reading = readings
         .entry(context.tab_id.clone())
         .or_insert_with(|| UsageProjection {
             tab_id: context.tab_id.clone(),
             thread_id: context.thread_id.clone(),
+            account_id: account.map(str::to_owned),
             provider: provider.into(),
             nonce: context.binding_nonce.clone(),
             epoch: context.epoch,
@@ -81,8 +83,12 @@ fn projection<'a>(
             resets: None,
             account_credits: None,
         });
-    if reading.provider != provider || reading.nonce != context.binding_nonce {
+    if reading.provider != provider
+        || reading.nonce != context.binding_nonce
+        || reading.account_id.as_deref() != account
+    {
         reading.provider = provider.into();
+        reading.account_id = account.map(str::to_owned);
         reading.nonce = context.binding_nonce.clone();
         reading.thread_id = context.thread_id.clone();
         reading.billing_mode = Default::default();
@@ -97,6 +103,12 @@ fn projection<'a>(
     }
     reading.epoch = context.epoch;
     reading
+}
+
+fn selected_account(session: &Session) -> Option<String> {
+    let account = session.account.lock();
+    (account.as_str() != codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT)
+        .then(|| account.clone())
 }
 
 fn publishes_usage(svc: &ServiceContext, session: &Session) -> bool {
@@ -119,8 +131,14 @@ pub fn billing(
         return;
     }
     let context = session.context.lock().clone();
+    let account = selected_account(session);
     let mut readings = USAGE.lock();
-    let reading = projection(&mut readings, &session.provider, &context);
+    let reading = projection(
+        &mut readings,
+        &session.provider,
+        &context,
+        account.as_deref(),
+    );
     reading.billing_mode = mode;
     reading.captured_at = at;
     if mode != codeterm_usage::contract::BillingMode::Subscription {
@@ -136,7 +154,7 @@ pub fn billing(
         "usage-snapshot-updated",
         serde_json::json!(codeterm_usage::contract::UsageSnapshotEvent::Billing {
             provider: &session.provider,
-            account_id: None,
+            account_id: account.as_deref(),
             tab_id: &context.tab_id,
             captured_at: at
         }),
@@ -191,8 +209,14 @@ pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64
     if !publishes_usage(svc, session) {
         return;
     }
+    let account = selected_account(session);
     let mut readings = USAGE.lock();
-    let reading = projection(&mut readings, &session.provider, &context);
+    let reading = projection(
+        &mut readings,
+        &session.provider,
+        &context,
+        account.as_deref(),
+    );
     reading.captured_at = at;
     reading.token_usage = Some(Reading {
         captured_at: at,
@@ -203,7 +227,7 @@ pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64
         "usage-snapshot-updated",
         serde_json::json!(codeterm_usage::contract::UsageSnapshotEvent::Runtime {
             provider: &session.provider,
-            account_id: None
+            account_id: account.as_deref()
         }),
     );
 }
@@ -221,13 +245,20 @@ pub async fn rate_limits(
     }
     let supported = super::reset_credits::supported(session).await;
     let context = session.context.lock().clone();
+    let account = selected_account(session);
     let reported = rate_sample(&session.provider, &limits, at);
     let merged = {
         let mut readings = USAGE.lock();
-        let reading = projection(&mut readings, &session.provider, &context);
+        let reading = projection(
+            &mut readings,
+            &session.provider,
+            &context,
+            account.as_deref(),
+        );
         limits::merge(reading.rate_limits.clone(), limits.clone(), at)?
     };
     let mut sample = rate_sample(&session.provider, &merged.value, at);
+    sample.account_id = account.clone();
     sample.session_resets_at_ms = reported.session_resets_at_ms;
     sample.weekly_resets_at_ms = reported.weekly_resets_at_ms;
     let store = svc.usage_store.clone();
@@ -243,7 +274,12 @@ pub async fn rate_limits(
     };
     {
         let mut readings = USAGE.lock();
-        let reading = projection(&mut readings, &session.provider, &context);
+        let reading = projection(
+            &mut readings,
+            &session.provider,
+            &context,
+            account.as_deref(),
+        );
         let merged = limits::merge(reading.rate_limits.clone(), limits, at)?;
         reading.captured_at = reading.captured_at.max(at);
         reading.resets = if supported { resets } else { None };
@@ -253,12 +289,12 @@ pub async fn rate_limits(
     let event = match snapshot_id {
         Some(snapshot_id) => codeterm_usage::contract::UsageSnapshotEvent::Snapshot {
             provider: &session.provider,
-            account_id: None,
+            account_id: account.as_deref(),
             snapshot_id,
         },
         None => codeterm_usage::contract::UsageSnapshotEvent::Runtime {
             provider: &session.provider,
-            account_id: None,
+            account_id: account.as_deref(),
         },
     };
     svc.notify_event("usage-snapshot-updated", serde_json::json!(event));
@@ -329,9 +365,6 @@ pub fn latest(
     let row = svc
         .usage_store
         .get_latest_with_stale_reason(provider, account)?;
-    if account.is_some() {
-        return enrich_latest(row, provider, vec![]);
-    }
     // A profile's plugin-read balance is its own reading, never the provider's account meter.
     let row = row.filter(|row| {
         row.account_id
@@ -348,8 +381,13 @@ pub fn latest(
         .values()
         .filter(|reading| {
             reading.provider == provider
+                && reading.account_id.as_deref() == account
                 && mux.get_tab(&reading.tab_id).is_some_and(|tab| {
                     tab.agent_type.as_deref() == Some(provider)
+                        && crate::service::provider_accounts::selected_account(tab)
+                            == account.unwrap_or(
+                                codeterm_types::config::provider_accounts::IMPLICIT_ACCOUNT,
+                            )
                         && (tab.agent_session_id == reading.thread_id
                             || reading.thread_id.is_none())
                         && tab.session_binding_nonce.as_deref() == Some(&reading.nonce)

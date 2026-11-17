@@ -157,6 +157,18 @@ pub fn validate_config_value(value: &Value) -> Result<(), String> {
             validate_bound(bound, candidate)?;
         }
     }
+    if let Some(agents) = value.get("agents").and_then(Value::as_object) {
+        for (provider, settings) in agents {
+            if let Some(accounts) = settings.get("accounts").filter(|value| !value.is_null()) {
+                let accounts: codeterm_types::config::provider_accounts::ProviderAccountsConfig =
+                    serde_json::from_value(accounts.clone())
+                        .map_err(|error| format!("agents.{provider}.accounts: {error}"))?;
+                accounts
+                    .validate()
+                    .map_err(|error| format!("agents.{provider}.accounts: {error}"))?;
+            }
+        }
+    }
     Ok(())
 }
 

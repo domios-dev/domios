@@ -9,7 +9,7 @@ use crate::provider::{LaunchSessionDetection, LaunchSessionEvidence, LaunchSessi
 pub(crate) const PROCESS_REGISTRY_DIR_ENV: &str = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
 
 fn registry_dir() -> Option<PathBuf> {
-    match std::env::var_os(PROCESS_REGISTRY_DIR_ENV) {
+    match crate::provider_account::environment(PROCESS_REGISTRY_DIR_ENV) {
         Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
         _ => super::read_home::config_root().map(|home| home.join("sessions")),
     }
@@ -24,7 +24,9 @@ pub(super) fn detect_launch_session(
     processes
         .into_iter()
         .find_map(|process| {
-            let raw = std::fs::read_to_string(dir.join(format!("{}.json", process.pid))).ok()?;
+            let raw =
+                crate::provider_account::read_to_string(dir.join(format!("{}.json", process.pid)))
+                    .ok()?;
             registry_session_id(&raw, process.pid, &process.start_token)
         })
         .map(|session_id| LaunchSessionDetection {

@@ -2,8 +2,16 @@ use std::path::{Path, PathBuf};
 
 use crate::provider::PreTrustOutcome;
 
+const ROOT_ENVIRONMENT: &str = "CLAUDE_CONFIG_DIR";
+
 pub(super) fn record_path() -> Option<PathBuf> {
-    match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|value| !value.is_empty()) {
+    if crate::provider_account::current().is_some()
+        && (!crate::provider_account::environment_is_selected(ROOT_ENVIRONMENT)
+            || crate::provider_account::environment(ROOT_ENVIRONMENT).is_none())
+    {
+        return None;
+    }
+    match crate::provider_account::environment(ROOT_ENVIRONMENT).filter(|value| !value.is_empty()) {
         Some(root) => {
             let root = PathBuf::from(root);
             root.is_absolute().then(|| root.join(".claude.json"))

@@ -694,5 +694,75 @@
       "retryAtMs": null
     },
     "succeeded": false
+  },
+  {
+    "name": "explicit-account-quota",
+    "record": {
+      "type": "assistant",
+      "uuid": "account-quota",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "error": {
+        "code": "usage_limit"
+      },
+      "apiErrorResetAtMs": 5000
+    },
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null,
+      "accountLimit": {
+        "resetsAtMs": 5000
+      }
+    }
+  },
+  {
+    "name": "untrusted-quota-text",
+    "record": {
+      "type": "assistant",
+      "uuid": "account-quota",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "error": {
+        "message": "usage_limit"
+      },
+      "apiErrorResetAtMs": 5000
+    },
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "quota-sidechain",
+    "record": {
+      "type": "assistant",
+      "uuid": "account-quota",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "error": {
+        "code": "usage_limit"
+      },
+      "apiErrorResetAtMs": 5000,
+      "isSidechain": true
+    },
+    "signal": null
+  },
+  {
+    "name": "quota-still-retrying",
+    "record": {
+      "type": "assistant",
+      "uuid": "account-quota",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "error": {
+        "code": "usage_limit"
+      },
+      "apiErrorResetAtMs": 5000,
+      "willRetry": true
+    },
+    "signal": {
+      "retryable": true,
+      "retryAtMs": null
+    }
   }
 ]

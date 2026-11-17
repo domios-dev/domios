@@ -442,6 +442,7 @@ export function SettingsPanel({
               <div className="max-w-[720px] mx-auto">
                 <AgentProviderScreen
                   providerId={top.providerId}
+                  focusCard={top.card}
                   fullConfig={localConfig}
                   onUpdateFullConfig={saveDraft}
                   onProviderGone={pop}

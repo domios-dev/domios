@@ -59,7 +59,7 @@ export function sectionTitle(id: SectionId): string {
   return SETTINGS_SECTIONS.find((s) => s.id === id)?.label ?? id;
 }
 
-export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge" | "subscription-plans" | "team-channels";
+export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge" | "subscription-plans" | "team-channels" | "provider-accounts";
 
 export interface SettingsCardRoute {
   section: SectionId;
@@ -68,11 +68,12 @@ export interface SettingsCardRoute {
 
 /** Links straight to one card inside a section. */
 export type CardLinkId = "messengers" | "plans" | "team-channels";
-export type SettingsLinkId = SectionId | CardLinkId;
+export type SettingsLinkId = SectionId | CardLinkId | `accounts:${string}`;
 
 export interface SettingsLinkRoute {
   section: SectionId;
   card?: SettingsCardAnchorId;
+  providerId?:string;
 }
 
 const CARD_ROUTES: Record<CardLinkId, SettingsLinkRoute> = {
@@ -84,11 +85,12 @@ const CARD_ROUTES: Record<CardLinkId, SettingsLinkRoute> = {
 const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);
 
 export function isSettingsLinkId(id: string): id is SettingsLinkId {
-  return own(CARD_ROUTES, id) || own(SECTION_ICONS, id);
+  return own(CARD_ROUTES, id) || own(SECTION_ICONS, id) || /^accounts:[a-z0-9][a-z0-9._-]{0,127}$/.test(id);
 }
 
 export function resolveSettingsLink(id: SettingsLinkId | undefined): SettingsLinkRoute | undefined {
   if (!id) return undefined;
+  if(id.startsWith("accounts:") && isSettingsLinkId(id))return {section:"agents",providerId:id.slice("accounts:".length),card:"provider-accounts"};
   return own(CARD_ROUTES, id) ? CARD_ROUTES[id as CardLinkId] : { section: id as SectionId };
 }
 

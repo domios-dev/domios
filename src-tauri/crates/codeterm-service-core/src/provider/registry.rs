@@ -150,7 +150,10 @@ impl ProviderRegistry {
         }
         let started = std::time::Instant::now();
         let revision = self.cli_revision(id);
-        let key = format!("{id}:{platform}");
+        let key = format!(
+            "{}:{platform}",
+            codeterm_plugin::provider_account::cache_key(id)
+        );
         let cached = self.cli_status_cache.lock().get(&key, &revision);
         if let Some(status) = cached.filter(|status| {
             super::catalogue_cache::misses_still_hold(

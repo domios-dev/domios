@@ -274,6 +274,13 @@ function quoteNativeArgument(value, platform, quote) {
   return `$(if ($PSVersionTable.PSVersion -ge [version]'7.3') { ${literal} } else { ${quote(quoteWindowsArgument(value), platform)} })`;
 }
 
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
 // plugins/provider-claude/model-capabilities.json
 var model_capabilities_default = {
   profiles: {
@@ -417,7 +424,7 @@ function* composeSettingsArgs(args) {
     overlay = { ...overlay, ...value };
   }
   if (enabled) {
-    const path = host.expandHome("~/.claude/settings.json");
+    const path = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome("~/.claude/settings.json"), "settings.json", host.platform() === "windows" ? "\\" : "/");
     const user = path ? settingsObject((yield* host.io.fs.fileExists(path)) ? yield* host.io.fs.readFileHead(path, 65537) : "{}") : null;
     const composed = user ? statuslineSettings({ ...user, ...overlay }) : null;
     if (composed) overlay = { ...overlay, ...JSON.parse(composed) };
@@ -751,13 +758,6 @@ function manifest() {
   }
 }
 
-// plugins/provider-shared/readHome.ts
-function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
-  if (!inheritedHome) return fallback;
-  if (!subpath) return inheritedHome;
-  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
-}
-
 // plugins/provider-claude/src/session.ts
 var CLAUDE_SESSION_DELTA_TYPES = {
   system: true,
@@ -1078,6 +1078,16 @@ function outputLimit(value) {
 // plugins/provider-claude/src/retry.ts
 var networkCodes = ["ENOTFOUND", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "EPIPE", "UND_ERR_CONNECT_TIMEOUT", "api_connection_error", "connection_error"];
 function retryError(record3) {
+  const result = retrySignal(record3);
+  const error = record3.error && typeof record3.error === "object" ? record3.error : {};
+  const explicitQuota = record3.apiErrorCode === "usage_limit" || error.code === "usage_limit" || error.type === "usage_limit";
+  if (result.retry_error && !result.retry_error.retryable && result.retry_error.retryableKind !== "output_limit" && explicitQuota && classifyAccessError(record3.error, record3) === "usage_limit") {
+    const reset = record3.apiErrorResetAtMs ?? error.retryAtMs;
+    result.retry_error.accountLimit = { ...typeof reset === "number" && Number.isSafeInteger(reset) && reset >= 0 ? { resetsAtMs: reset } : {} };
+  }
+  return result;
+}
+function retrySignal(record3) {
   if (record3.type !== "assistant" || record3.isSidechain === true) return {};
   if (outputLimit(record3.message) || record3.isApiErrorMessage === true && outputLimit(record3.error)) return { retry_error: { retryable: false, retryableKind: "output_limit" } };
   if (record3.isApiErrorMessage !== true) return {};
@@ -1114,6 +1124,12 @@ function authStatusProbe() {
 }
 function object3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function accountIdentity(value) {
+  const record3 = object3(value);
+  const email = record3?.email;
+  if (record3?.loggedIn !== true || typeof email !== "string" || !email.includes("@") || email.length > 320 || !/^[\u0021-\u007e]+$/u.test(email)) return null;
+  return { subject: email, label: email };
 }
 function parseAuthStatus(value) {
   const record3 = object3(value);
@@ -2891,6 +2907,7 @@ var plugin = {
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
+  accountIdentity,
   tracksBackgroundWork: () => true,
   parseBackgroundWork,
   reasoningEffortLaunchArgsForModel,

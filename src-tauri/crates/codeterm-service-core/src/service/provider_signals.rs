@@ -242,10 +242,15 @@ pub(crate) fn refresh_auth(svc: &ServiceContext, tab_id: &str) {
     super::capability_probe::refresh_tab(svc, tab_id);
     let launch = {
         let mux = svc.mux.read();
-        mux.get_tab(tab_id)
-            .and_then(|tab| Some((tab.agent_type.clone()?, tab.session_binding_nonce.clone()?)))
+        mux.get_tab(tab_id).and_then(|tab| {
+            Some((
+                tab.agent_type.clone()?,
+                tab.session_binding_nonce.clone()?,
+                super::provider_accounts::selected_account(tab).to_owned(),
+            ))
+        })
     };
-    let Some((provider_id, nonce)) = launch else {
+    let Some((provider_id, nonce, account)) = launch else {
         return;
     };
     if !enabled(svc, &provider_id) {
@@ -283,18 +288,27 @@ pub(crate) fn refresh_auth(svc: &ServiceContext, tab_id: &str) {
     if let Err(error) = std::thread::Builder::new()
         .name("provider-auth-probe".into())
         .spawn(move || {
-            let result = super::provider_signals_probe::capture(&binary, &probe);
-            let auth = result.as_ref().and_then(|record| {
-                svc.agent_registry
-                    .with_provider(&provider_id, |provider| provider.parse_auth_status(record))
-                    .flatten()
-            });
+            let auth = super::provider_accounts::invocation(&svc, &provider_id, Some(&account))
+                .ok()
+                .and_then(|invocation| {
+                    codeterm_plugin::provider_account::with_context(invocation, || {
+                        let result = super::provider_signals_probe::capture(&binary, &probe);
+                        result.as_ref().and_then(|record| {
+                            svc.agent_registry
+                                .with_provider(&provider_id, |provider| {
+                                    provider.parse_auth_status(record)
+                                })
+                                .flatten()
+                        })
+                    })
+                });
             let enabled = enabled(&svc, &provider_id);
             let mut mux = svc.mux.write();
             let Some(tab) = mux.get_tab_mut(&tab_id) else {
                 return;
             };
-            if tab.agent_type.as_deref() != Some(&provider_id)
+            if super::provider_accounts::selected_account(tab) != account
+                || tab.agent_type.as_deref() != Some(&provider_id)
                 || tab.session_binding_nonce.as_deref() != Some(&nonce)
             {
                 return;

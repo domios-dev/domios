@@ -59,6 +59,7 @@ fn token_only_reading_is_visible_without_fabricating_allowance() {
     let reading = UsageProjection {
         tab_id: "own".into(),
         thread_id: Some("thread".into()),
+        account_id: None,
         provider: "fixture".into(),
         nonce: "nonce".into(),
         epoch: 1,
@@ -101,7 +102,7 @@ fn runtime_usage_binding_changes_clear_tokens_but_keep_account_limits() {
         "activeTurns":[],"threadParents":[],"claimedSends":[]
     }))
     .unwrap();
-    let first = projection(&mut readings, "fixture", &context);
+    let first = projection(&mut readings, "fixture", &context, None);
     first.billing_mode = codeterm_usage::contract::BillingMode::Subscription;
     first.rate_limits = Some(Reading {
         captured_at: 10,
@@ -116,7 +117,7 @@ fn runtime_usage_binding_changes_clear_tokens_but_keep_account_limits() {
         balance: "12.50".into(),
     });
     context.thread_id = Some("thread".into());
-    let loaded = projection(&mut readings, "fixture", &context);
+    let loaded = projection(&mut readings, "fixture", &context, None);
     assert_eq!(
         loaded.billing_mode,
         codeterm_usage::contract::BillingMode::Subscription
@@ -132,8 +133,13 @@ fn runtime_usage_binding_changes_clear_tokens_but_keep_account_limits() {
             balance: "12.50".into()
         })
     );
+    let other_account = projection(&mut readings, "fixture", &context, Some("work"));
+    assert_eq!(other_account.account_id.as_deref(), Some("work"));
+    assert!(other_account.rate_limits.is_none());
+    assert!(other_account.resets.is_none());
+    assert!(other_account.account_credits.is_none());
     context.binding_nonce = "new".into();
-    let rebound = projection(&mut readings, "fixture", &context);
+    let rebound = projection(&mut readings, "fixture", &context, None);
     assert_eq!(
         rebound.billing_mode,
         codeterm_usage::contract::BillingMode::Unknown
@@ -250,6 +256,7 @@ fn declare_usage(svc: &ServiceContext, provider: &str, enabled: bool) {
 fn runtime_and_stored_views_keep_resets_after_partial_and_credit_only_events() {
     let (fixture, tab, _peer, _cleanup) = super::super::engine::test_support::runtime_fixture();
     let session = super::super::engine::for_tab(&tab).unwrap();
+    *session.account.lock() = "usage-account".into();
     declare_usage(&fixture.service, &session.provider, true);
     let at = chrono::Utc::now().timestamp_millis() as u64;
     let mut primary = window("primary", 20.0, 300);
@@ -276,7 +283,7 @@ fn runtime_and_stored_views_keep_resets_after_partial_and_credit_only_events() {
     let stored = fixture
         .service
         .usage_store
-        .get_latest_with_stale_reason(&session.provider, None)
+        .get_latest_with_stale_reason(&session.provider, Some("usage-account"))
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -287,7 +294,14 @@ fn runtime_and_stored_views_keep_resets_after_partial_and_credit_only_events() {
         stored.weekly_resets_at,
         secondary.resets_at.map(|at| at as i64)
     );
+    assert!(fixture
+        .service
+        .usage_store
+        .get_latest(&session.provider, None)
+        .unwrap()
+        .is_none());
     let readings = USAGE.lock();
+    assert_eq!(readings[&tab].account_id.as_deref(), Some("usage-account"));
     let runtime = readings[&tab].rate_limits.as_ref().unwrap();
     assert_eq!(runtime.value.len(), 2);
     assert_eq!(runtime.value[0].resets_at, primary.resets_at);

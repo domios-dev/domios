@@ -24,7 +24,7 @@ import type { LaunchParams, LaunchSessionDetection, LaunchSessionEvidence, Parse
 import { manifest } from "./shared";
 
 import { parseContextUsage, statuslineLaunchArgs } from "./context";
-import { authStatusProbe, parseAuthStatus, parseSessionObservations } from "./signals";
+import { accountIdentity, authStatusProbe, parseAuthStatus, parseSessionObservations } from "./signals";
 import { parseBackgroundWork } from "./backgroundWork";
 import { detectClaudeLaunchSession } from "./launchSession";
 import { fetchClaudeUsage, parseFetchedClaudeUsage, usageBlockIsComplete, usageNormalize, usageParseBlock } from "./usage";
@@ -142,6 +142,7 @@ const plugin = {
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
+  accountIdentity,
   tracksBackgroundWork: () => true,
   parseBackgroundWork,
   reasoningEffortLaunchArgsForModel,

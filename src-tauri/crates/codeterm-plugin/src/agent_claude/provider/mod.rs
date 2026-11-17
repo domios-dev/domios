@@ -65,6 +65,12 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn account_capability(&self) -> Option<crate::provider_account::storage::AccountCapability> {
+        serde_json::from_str::<crate::js_runtime::PluginManifest>(MANIFEST_JSON)
+            .ok()?
+            .accounts
+    }
+
     fn general_agent_offer_when_absent(&self) -> bool {
         true
     }
@@ -114,6 +120,13 @@ impl AgentProvider for ClaudeProvider {
 
     fn parse_auth_status(&self, record: &serde_json::Value) -> Option<crate::provider::AuthStatus> {
         signals::auth(record)
+    }
+
+    fn account_identity(
+        &self,
+        record: Option<&serde_json::Value>,
+    ) -> Result<Option<crate::provider_account::storage::AccountIdentity>, String> {
+        Ok(record.and_then(signals::identity))
     }
 
     fn parse_session_observations(

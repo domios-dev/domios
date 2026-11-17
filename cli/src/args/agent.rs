@@ -380,6 +380,9 @@ pub enum AgentAction {
         /// ACP launch profile declared by the provider.
         #[arg(long = "profile", value_name = "ID")]
         launch_profile: Option<String>,
+        /// Harness account ID from Settings > Agents > Harness > Accounts. Defaults to workspace choice, then first available.
+        #[arg(long = "account", value_name = "ID")]
+        account_id: Option<String>,
         #[arg(
             long,
             value_name = "TIER",

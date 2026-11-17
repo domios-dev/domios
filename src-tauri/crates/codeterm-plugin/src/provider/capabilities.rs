@@ -185,11 +185,9 @@ impl ModelCatalogueCapability {
                 .iter()
                 .filter_map(|path| crate::js_runtime::PluginManifest::expand_home(path)),
         );
-        files.extend(
-            self.config_file_environments
-                .iter()
-                .filter_map(|source| source.resolve(std::env::var_os(&source.variable))),
-        );
+        files.extend(self.config_file_environments.iter().filter_map(|source| {
+            source.resolve(crate::provider_account::environment(&source.variable))
+        }));
         files = files
             .into_iter()
             .filter_map(|path| {
