@@ -13,7 +13,7 @@ pub struct AccountRestartBinding {
     pub lifecycle_epoch: Option<u64>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AccountRestartTarget {
     pub expected: AccountRestartBinding,
     pub account_id: Option<String>,
