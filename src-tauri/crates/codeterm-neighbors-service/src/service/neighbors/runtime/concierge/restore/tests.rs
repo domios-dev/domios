@@ -323,7 +323,7 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
         MachineAccess::Full,
     ]
     .into_iter()
-    .flat_map(|access| [Some("same-restored-session"), None].map(|session| (access, session)))
+    .flat_map(|access| [Some("same-restored-session"), None].map(move |session| (access, session)))
     {
         let data_dir = tempfile::tempdir().unwrap();
         let (mut mux, general) = MultiplexerState::new();
