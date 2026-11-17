@@ -21,6 +21,20 @@ base64-inlining them into runtime claims and hook arguments. Omission keeps
 inline bytes for protocols that require them. Declare this only when the runtime
 shares the host filesystem; native/JS capability declarations must agree.
 
+HTTP/SSE runtimes may declare up to four `httpSse.alternatives`, each with its
+own readiness prefix, event route, request routes and request-event pointers.
+The host matches the child's exact allocated loopback origin before selecting
+a transport; the provider verifies the authenticated health shape before
+selecting a mapper. Alternatives cannot nest or repeat readiness prefixes.
+They share the username and completion model; every candidate's declared
+password environment variable receives the same fresh private password.
+`httpSse.completionEvents: true` means a prompt reply acknowledges input while
+stream events own turn completion. Interrupt remains eligible after that reply.
+The host retains the written request witness until the exact turn completes;
+correlated responses still cannot confirm delivery.
+The default retains response-completed behavior. These declarations add no
+filesystem, SQLite, arbitrary network destination or subprocess authority.
+
 
 `spawn.launchPermissions.scopedFilesystem` declares session-local tool preapproval:
 `noPromptArgs`, `readAllRules`, `readRootRule`, `writeRootRule`, and

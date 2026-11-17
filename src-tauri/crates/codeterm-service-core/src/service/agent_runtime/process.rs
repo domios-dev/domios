@@ -176,8 +176,11 @@ pub(super) fn spawn(
         };
     }
     if let Some(http) = &http {
-        command.env(&http.declaration.password_env, &http.password);
-        command.env(&http.declaration.username_env, &http.declaration.username);
+        for declaration in std::iter::once(&http.declaration).chain(&http.declaration.alternatives)
+        {
+            command.env(&declaration.password_env, &http.password);
+            command.env(&declaration.username_env, &declaration.username);
+        }
     }
     command
         .args(http.as_ref().map_or(&cap.command.args, |http| &http.args))

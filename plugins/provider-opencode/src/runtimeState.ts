@@ -1,8 +1,11 @@
-import type {RuntimeAuthentication, RuntimeContext, RuntimeSettings} from "@codeterm/plugin-sdk";
+import type {RuntimeAuthentication, RuntimeContext, RuntimeSettings, RuntimeLoginState} from "@codeterm/plugin-sdk";
 import {fail} from "./runtimeProtocol";
 
 export interface PromptClaim {sendId:string;messageId:string;turnId:string}
 interface Binding {
+  protocol?:"v1"|"v2";
+  providers?:{id:string;integration:string}[];
+  login?:{loginId:string;methodId:string;integration:string;attempt:string;created:number;expires:number;challenge:RuntimeLoginState;observed?:boolean};
   epoch:number; nonce:string; sessionId?:string; instructions:string; settings:RuntimeSettings;
   counter:number; sends:PromptClaim[];
   methods:RuntimeAuthentication["methods"];

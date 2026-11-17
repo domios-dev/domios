@@ -4,6 +4,10 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeHttpSse {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<RuntimeHttpSse>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub completion_events: bool,
     pub readiness_prefix: String,
     pub password_env: String,
     pub username: String,
@@ -39,6 +43,32 @@ pub struct RuntimeHttpRequestEvent {
 
 impl RuntimeHttpSse {
     pub fn valid_for(&self, capability: &super::AgentRuntimeCapability) -> bool {
+        self.alternatives.len() <= 4
+            && self
+                .alternatives
+                .iter()
+                .enumerate()
+                .all(|(index, candidate)| {
+                    candidate.alternatives.is_empty()
+                        && candidate.completion_events == self.completion_events
+                        && candidate.username == self.username
+                        && candidate.readiness_prefix != self.readiness_prefix
+                        && self.alternatives[..index]
+                            .iter()
+                            .all(|previous| previous.readiness_prefix != candidate.readiness_prefix)
+                        && candidate.valid_transport(capability)
+                })
+            && self.valid_transport(capability)
+            && capability.request_methods.values().flatten().all(|method| {
+                self.routes.contains_key(method)
+                    || self
+                        .alternatives
+                        .iter()
+                        .any(|candidate| candidate.routes.contains_key(method))
+            })
+    }
+
+    fn valid_transport(&self, capability: &super::AgentRuntimeCapability) -> bool {
         let bounded = |value: &str, limit| {
             !value.is_empty() && value.len() <= limit && !value.chars().any(char::is_control)
         };
@@ -119,11 +149,6 @@ impl RuntimeHttpSse {
                     )
                     && valid_path(&route.path, true)
             })
-            && capability
-                .request_methods
-                .values()
-                .flatten()
-                .all(|method| self.routes.contains_key(method))
     }
 }
 
@@ -143,4 +168,8 @@ pub fn valid_path(path: &str, templates: bool) -> bool {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || b"_-./".contains(&byte))
         })
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }

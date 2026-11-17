@@ -1,0 +1,1377 @@
+{
+  "source": {
+    "cli": "OpenCode 2.3.0",
+    "commit": "a6b15d33daf6ab7d35569f6d711fdb630b9f04e7",
+    "binarySha256": "38153a142354634c82b5cfe6c00b19df15a71e6cf8c17ef5f5c1a4cc684a6917",
+    "capture": "Official Windows binary, isolated XDG homes, loopback deterministic OpenAI-compatible model; real permission-approved shell tool, text stream, form and API history. Identifiers/paths normalized; timestamps and wire fields retained.",
+    "credentialCapture": "Separate isolated XDG home: official 2.3.0 key connection returned 204 and the captured global credential.updated event. It has no location field. Credential/event IDs normalized; rejection cases are explicit valid-shape mutations."
+  },
+  "health": {
+    "version": "2.3.0",
+    "pid": 12345,
+    "hostname": "fixture-host",
+    "urls": [
+      "http://127.0.0.1:12345"
+    ],
+    "paths": {
+      "tmp": "/fixture/tmp"
+    },
+    "capabilities": {
+      "persistentPty": true
+    }
+  },
+  "providers": {
+    "data": [
+      {
+        "id": "opencode",
+        "name": "OpenCode",
+        "integrationID": "opencode",
+        "activation": "enabled"
+      },
+      {
+        "id": "fixture",
+        "name": "fixture",
+        "activation": "enabled"
+      }
+    ]
+  },
+  "integrations": {
+    "data": [
+      {
+        "id": "fixture",
+        "name": "fixture",
+        "methods": [
+          {
+            "type": "key",
+            "label": "Manually enter API Key"
+          }
+        ],
+        "connections": []
+      },
+      {
+        "id": "openai",
+        "name": "OpenAI",
+        "methods": [
+          {
+            "type": "key"
+          },
+          {
+            "type": "env",
+            "names": [
+              "OPENAI_API_KEY"
+            ]
+          },
+          {
+            "id": "chatgpt-token-sharing",
+            "type": "oauth",
+            "label": "Sign in with ChatGPT"
+          },
+          {
+            "id": "chatgpt-browser",
+            "type": "oauth",
+            "label": "Codex browser (legacy)"
+          },
+          {
+            "id": "chatgpt-headless",
+            "type": "oauth",
+            "label": "Codex device code (legacy)"
+          }
+        ],
+        "connections": []
+      },
+      {
+        "id": "opencode",
+        "name": "OpenCode Console",
+        "methods": [
+          {
+            "type": "key",
+            "label": "API key (service account)"
+          },
+          {
+            "type": "env",
+            "names": [
+              "OPENCODE_API_KEY"
+            ]
+          },
+          {
+            "id": "device",
+            "type": "oauth",
+            "label": "OpenCode Console account",
+            "form": [
+              {
+                "key": "server",
+                "hidden": true,
+                "type": "string",
+                "format": "uri",
+                "default": "https://opencode.ai/console"
+              }
+            ]
+          }
+        ],
+        "connections": []
+      }
+    ]
+  },
+  "session": {
+    "data": {
+      "id": "ses_owned",
+      "projectID": "ae841f7bb75675f630c09553ced389a9bf1e833c",
+      "model": {
+        "id": "fixture",
+        "providerID": "fixture",
+        "variant": "default"
+      },
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "time": {
+        "created": 1794938564186,
+        "updated": 1794938564186
+      },
+      "permissions": [
+        {
+          "action": "*",
+          "resource": "*",
+          "effect": "ask"
+        }
+      ],
+      "location": {
+        "directory": "/fixture"
+      }
+    }
+  },
+  "receipt": {
+    "data": {
+      "id": "@message",
+      "sessionID": "ses_owned",
+      "time": {
+        "created": 1794938564192
+      },
+      "type": "user",
+      "payload": {
+        "text": "Run the bash tool to echo fixture-tool, then reply."
+      },
+      "delivery": "steer"
+    }
+  },
+  "history": {
+    "data": [
+      {
+        "id": "msg_1eaacf145001yS3DbimQjA5sil",
+        "time": {
+          "created": 1794938564933
+        },
+        "type": "idle",
+        "outcome": "succeeded"
+      },
+      {
+        "id": "msg_1eaacf12d001LPq0wAfH5B0hFF",
+        "time": {
+          "created": 1794938564913,
+          "firstToken": 1794938564921,
+          "streamed": 1794938564928,
+          "completed": 1794938564929
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "fixture",
+          "providerID": "fixture",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Fixture tool turn complete."
+          }
+        ],
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 12,
+          "output": 8,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1eaacee80001SPuY9hHEt56S1o",
+        "time": {
+          "created": 1794938564255,
+          "firstToken": 1794938564264,
+          "streamed": 1794938564273,
+          "completed": 1794938564901
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "fixture",
+          "providerID": "fixture",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "tool",
+            "id": "call_fixture",
+            "name": "bash",
+            "executed": false,
+            "state": {
+              "status": "completed",
+              "input": {
+                "command": "echo fixture-tool",
+                "description": "Print fixture marker"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "fixture-tool\r\n"
+                },
+                {
+                  "type": "text",
+                  "text": "There is no \"bash\" tool, so this ran as \"shell\". Call \"shell\" directly."
+                }
+              ],
+              "metadata": {
+                "status": "completed",
+                "truncated": false,
+                "exit": 0
+              }
+            },
+            "time": {
+              "created": 1794938564266,
+              "ran": 1794938564271,
+              "completed": 1794938564899
+            }
+          }
+        ],
+        "finish": "tool-calls",
+        "rawFinish": "tool_calls",
+        "cost": 0,
+        "tokens": {
+          "input": 12,
+          "output": 8,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "@message",
+        "time": {
+          "created": 1794938564210
+        },
+        "text": "Run the bash tool to echo fixture-tool, then reply.",
+        "type": "user"
+      }
+    ],
+    "cursor": {
+      "previous": "eyJpZCI6Im1zZ18xZWFhY2YxNDUwMDF5UzNEYmltUWpBNXNpbCIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6InByZXZpb3VzIn0",
+      "next": "eyJpZCI6Im1zZ19jNzQ4ZGZiMGZiNDA0YjRiODZhZDc0NTM5ODgzODEyMSIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6Im5leHQifQ"
+    }
+  },
+  "interrupt": {
+    "interrupted": false
+  },
+  "frames": [
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacee5a0015TeydG5DxZEve4",
+        "created": 1794938564186,
+        "type": "session.created",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "slug": "mighty-engine",
+          "version": "2.3.0",
+          "projectID": "ae841f7bb75675f630c09553ced389a9bf1e833c",
+          "location": {
+            "directory": "/fixture"
+          },
+          "subpath": "",
+          "permissions": [
+            {
+              "action": "*",
+              "resource": "*",
+              "effect": "ask"
+            }
+          ],
+          "model": {
+            "id": "fixture",
+            "providerID": "fixture"
+          }
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 0,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacee60001OFWnneyVAsptAp",
+        "created": 1794938564192,
+        "type": "session.inbox.enqueued",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "inboxID": "@message",
+          "sessionID": "ses_owned",
+          "item": {
+            "type": "user",
+            "payload": {
+              "text": "Run the bash tool to echo fixture-tool, then reply."
+            },
+            "delivery": "steer"
+          }
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 1,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacee6200137K294zb6JVBAB",
+        "created": 1794938564194,
+        "type": "session.execution.started",
+        "data": {
+          "sessionID": "ses_owned"
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 2,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacee70001N9W5GWw8ydgMw0",
+        "created": 1794938564208,
+        "metadata": {
+          "instructions": {
+            "initial": true
+          }
+        },
+        "type": "session.instructions.updated",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "delta": {
+            "core/codemode": "a0a59ea3eb2128517230fe948673e658ada640a226832989dd3c728fd7fd45ff",
+            "core/skill-guidance": "d9eaf7085a8c11b75405f3783823da1d3f6f5985453ceb37d9edf1db948d7a1a",
+            "core/date": "3d17b206ff2634609acb962741ec4036e713d2bb93dbf400730be53db71ae2c3",
+            "core/environment": "51562ddac3805fcc01dec4e3671d5917f460a01bd99d66ad9762f169a2a0bb8e"
+          }
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 3,
+          "version": 2
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacee72001Ppe4WwJazMawr3",
+        "created": 1794938564210,
+        "type": "session.inbox.delivered",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "inboxID": "@message"
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 4,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaaceea6001wEHsO4THsFtF9C",
+        "created": 1794938564262,
+        "type": "session.step.started",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "agent": "build",
+          "model": {
+            "id": "fixture",
+            "providerID": "fixture",
+            "variant": "default"
+          },
+          "assistantMessageID": "msg_1eaacee80001SPuY9hHEt56S1o",
+          "started": 1794938564255
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 5,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaaceea8001zMN5fcCVP4IlhD",
+        "created": 1794938564264,
+        "type": "session.step.first-token",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacee80001SPuY9hHEt56S1o"
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 6,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaaceeaa001Jdx2PZP0hNb5mh",
+        "created": 1794938564266,
+        "type": "session.tool.input.started",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacee80001SPuY9hHEt56S1o",
+          "id": "call_fixture",
+          "name": "bash"
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 7,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaaceead001liHHu1gLEy3HHk",
+        "created": 1794938564269,
+        "type": "session.tool.input.ended",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacee80001SPuY9hHEt56S1o",
+          "id": "call_fixture",
+          "text": "{\"command\": \"echo fixture-tool\", \"description\": \"Print fixture marker\"}"
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 8,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaaceeaf001p2cgRybP0BjQLb",
+        "created": 1794938564271,
+        "type": "session.tool.called",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacee80001SPuY9hHEt56S1o",
+          "id": "call_fixture",
+          "input": {
+            "command": "echo fixture-tool",
+            "description": "Print fixture marker"
+          },
+          "executed": false
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 9,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaaceeb1001ezkBkvqJN0G355",
+        "created": 1794938564273,
+        "type": "session.step.streamed",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacee80001SPuY9hHEt56S1o"
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 10,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaaceeb5001tVEHAo9Zmaq7lR",
+        "created": 1794938564277,
+        "type": "session.usage.updated",
+        "data": {
+          "sessionID": "ses_owned",
+          "cost": 0,
+          "tokens": {
+            "input": 12,
+            "output": 8,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "request",
+      "requestId": "per_1eaaceeb8001PmYzKAiwrJmPYp",
+      "method": "permission.asked",
+      "params": {
+        "id": "evt_1eaaceeb8002luuMVwLO4KzibV",
+        "created": 1794938564280,
+        "type": "permission.asked",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "id": "per_1eaaceeb8001PmYzKAiwrJmPYp",
+          "sessionID": "ses_owned",
+          "action": "shell",
+          "resources": [
+            "echo fixture-tool"
+          ],
+          "save": [
+            "echo *"
+          ],
+          "source": {
+            "type": "tool",
+            "messageID": "msg_1eaacee80001SPuY9hHEt56S1o",
+            "id": "call_fixture"
+          }
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacef01001M0KVFBwQVjKZtL",
+        "created": 1794938564353,
+        "type": "permission.replied",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "requestID": "per_1eaaceeb8001PmYzKAiwrJmPYp",
+          "reply": "once"
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf034002eRREELfnW8R6sA",
+        "created": 1794938564660,
+        "type": "session.tool.progress",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacee80001SPuY9hHEt56S1o",
+          "id": "call_fixture",
+          "metadata": {
+            "shellID": "sh_1eaacef02001oC5aaYM6DyIK3u"
+          }
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf123001lBe1hGgjQUtFdX",
+        "created": 1794938564899,
+        "type": "session.tool.success",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacee80001SPuY9hHEt56S1o",
+          "id": "call_fixture",
+          "content": [
+            {
+              "type": "text",
+              "text": "fixture-tool\r\n"
+            },
+            {
+              "type": "text",
+              "text": "There is no \"bash\" tool, so this ran as \"shell\". Call \"shell\" directly."
+            }
+          ],
+          "metadata": {
+            "status": "completed",
+            "truncated": false,
+            "exit": 0
+          },
+          "executed": false
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 12,
+          "version": 2
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf125001bEtwl31Xv3GYTU",
+        "created": 1794938564901,
+        "type": "session.step.ended",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacee80001SPuY9hHEt56S1o",
+          "finish": "tool-calls",
+          "rawFinish": "tool_calls",
+          "tokens": {
+            "input": 12,
+            "output": 8,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "cost": 0
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 13,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf127001OWqd5mnzp3KhkC",
+        "created": 1794938564903,
+        "type": "session.usage.updated",
+        "data": {
+          "sessionID": "ses_owned",
+          "cost": 0,
+          "tokens": {
+            "input": 24,
+            "output": 16,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf137001gK0raQY3bzbnrS",
+        "created": 1794938564919,
+        "type": "session.step.started",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "agent": "build",
+          "model": {
+            "id": "fixture",
+            "providerID": "fixture",
+            "variant": "default"
+          },
+          "assistantMessageID": "msg_1eaacf12d001LPq0wAfH5B0hFF",
+          "started": 1794938564913
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 14,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf1390010Cqvi3SkwykOiH",
+        "created": 1794938564921,
+        "type": "session.step.first-token",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacf12d001LPq0wAfH5B0hFF"
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 15,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf13b001AW3Y6oLQihA6kn",
+        "created": 1794938564923,
+        "type": "session.text.started",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacf12d001LPq0wAfH5B0hFF",
+          "ordinal": 0
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 16,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf13d001k3Zbcp3Wm1ifZx",
+        "created": 1794938564925,
+        "type": "session.text.delta",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacf12d001LPq0wAfH5B0hFF",
+          "ordinal": 0,
+          "delta": "Fixture tool turn complete."
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf13d002NyS3iQK1ZmvBZk",
+        "created": 1794938564925,
+        "type": "session.text.ended",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacf12d001LPq0wAfH5B0hFF",
+          "ordinal": 0,
+          "text": "Fixture tool turn complete."
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 17,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf1400018omioAmviwvwRK",
+        "created": 1794938564928,
+        "type": "session.step.streamed",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacf12d001LPq0wAfH5B0hFF"
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 18,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf141001Ua3yjpKubjDcPB",
+        "created": 1794938564929,
+        "type": "session.step.ended",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "sessionID": "ses_owned",
+          "assistantMessageID": "msg_1eaacf12d001LPq0wAfH5B0hFF",
+          "finish": "stop",
+          "rawFinish": "stop",
+          "tokens": {
+            "input": 12,
+            "output": 8,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "cost": 0
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 19,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf1430015YC96ZVcrdm1el",
+        "created": 1794938564931,
+        "type": "session.usage.updated",
+        "data": {
+          "sessionID": "ses_owned",
+          "cost": 0,
+          "tokens": {
+            "input": 36,
+            "output": 24,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf145001yS3DbimQjA5sil",
+        "created": 1794938564933,
+        "type": "session.execution.succeeded",
+        "data": {
+          "sessionID": "ses_owned"
+        },
+        "durable": {
+          "aggregateID": "ses_owned",
+          "seq": 20,
+          "version": 1
+        }
+      }
+    },
+    {
+      "kind": "request",
+      "requestId": "frm_1eaacf16a001lUnqy7ws6P1INh",
+      "method": "form.created",
+      "params": {
+        "id": "evt_1eaacf16a002BluZR9yba4XoUu",
+        "created": 1794938564970,
+        "type": "form.created",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "form": {
+            "id": "frm_1eaacf16a001lUnqy7ws6P1INh",
+            "sessionID": "ses_owned",
+            "title": "Fixture question",
+            "fields": [
+              {
+                "key": "choice",
+                "title": "Choose a fixture",
+                "type": "string",
+                "options": [
+                  {
+                    "value": "alpha",
+                    "label": "Alpha"
+                  },
+                  {
+                    "value": "beta",
+                    "label": "Beta"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "kind": "notification",
+      "method": "http/event",
+      "params": {
+        "id": "evt_1eaacf16d001jykBcjylFbHPUV",
+        "created": 1794938564973,
+        "type": "form.replied",
+        "location": {
+          "directory": "/fixture"
+        },
+        "data": {
+          "id": "frm_1eaacf16a001lUnqy7ws6P1INh",
+          "sessionID": "ses_owned",
+          "answer": {
+            "choice": "beta"
+          }
+        }
+      }
+    }
+  ],
+  "context": {
+    "epoch": 1,
+    "tabId": "opencode-runtime-fixture",
+    "bindingNonce": "owned-runtime-nonce",
+    "cwd": "/fixture",
+    "hostVersion": "1.20.2",
+    "hostOwned": {
+      "questions": false,
+      "todos": false
+    },
+    "threadParents": [],
+    "activeTurns": [],
+    "threadId": "ses_owned",
+    "claimedSends": [
+      {
+        "sendId": "send-owned",
+        "threadId": "ses_owned",
+        "input": {
+          "text": "Run the bash tool to echo fixture-tool, then reply.",
+          "attachments": []
+        }
+      }
+    ],
+    "settings": {
+      "model": "fixture/fixture"
+    },
+    "providerSettings": {}
+  },
+  "capability": {
+    "runtime": "http-sse",
+    "command": {
+      "binary": "opencode",
+      "args": [
+        "serve",
+        "--hostname={httpHost}",
+        "--port={httpPort}"
+      ]
+    },
+    "httpSse": {
+      "readinessPrefix": "opencode server listening on ",
+      "passwordEnv": "OPENCODE_SERVER_PASSWORD",
+      "username": "opencode",
+      "usernameEnv": "OPENCODE_SERVER_USERNAME",
+      "eventPath": "/event",
+      "eventMethod": "http/event",
+      "requestEvents": {
+        "permission.asked": {
+          "typePointer": "/type",
+          "idPointer": "/properties/id",
+          "threadPointer": "/properties/sessionID",
+          "replyMethod": "permission.reply",
+          "rejectMethod": "permission.reply",
+          "rejectBody": {
+            "reply": "reject"
+          },
+          "pathParams": {
+            "requestID": "/properties/id"
+          }
+        },
+        "question.asked": {
+          "typePointer": "/type",
+          "idPointer": "/properties/id",
+          "threadPointer": "/properties/sessionID",
+          "replyMethod": "question.reply",
+          "rejectMethod": "question.reject",
+          "pathParams": {
+            "requestID": "/properties/id"
+          }
+        }
+      },
+      "responseHeaders": [
+        "x-next-cursor"
+      ],
+      "routes": {
+        "health": {
+          "method": "GET",
+          "path": "/global/health"
+        },
+        "provider.list": {
+          "method": "GET",
+          "path": "/provider"
+        },
+        "provider.auth": {
+          "method": "GET",
+          "path": "/provider/auth"
+        },
+        "provider.authorize": {
+          "method": "POST",
+          "path": "/provider/{providerID}/oauth/authorize"
+        },
+        "provider.callback": {
+          "method": "POST",
+          "path": "/provider/{providerID}/oauth/callback"
+        },
+        "provider.key": {
+          "method": "PUT",
+          "path": "/auth/{providerID}"
+        },
+        "session.create": {
+          "method": "POST",
+          "path": "/session"
+        },
+        "session.get": {
+          "method": "GET",
+          "path": "/session/{sessionID}"
+        },
+        "session.messages": {
+          "method": "GET",
+          "path": "/session/{sessionID}/message"
+        },
+        "session.prompt": {
+          "method": "POST",
+          "path": "/session/{sessionID}/prompt_async"
+        },
+        "session.abort": {
+          "method": "POST",
+          "path": "/session/{sessionID}/abort"
+        },
+        "permission.reply": {
+          "method": "POST",
+          "path": "/permission/{requestID}/reply"
+        },
+        "question.reply": {
+          "method": "POST",
+          "path": "/question/{requestID}/reply"
+        },
+        "question.reject": {
+          "method": "POST",
+          "path": "/question/{requestID}/reject"
+        }
+      },
+      "alternatives": [
+        {
+          "readinessPrefix": "server listening on ",
+          "passwordEnv": "OPENCODE_PASSWORD",
+          "username": "opencode",
+          "usernameEnv": "OPENCODE_SERVER_USERNAME",
+          "eventPath": "/api/event",
+          "eventMethod": "http/event",
+          "responseHeaders": [],
+          "routes": {
+            "health": {
+              "method": "GET",
+              "path": "/api/info"
+            },
+            "v2.integration.list": {
+              "method": "GET",
+              "path": "/api/integration"
+            },
+            "v2.integration.authorize": {
+              "method": "POST",
+              "path": "/api/integration/{integrationID}/connect/oauth"
+            },
+            "v2.integration.status": {
+              "method": "GET",
+              "path": "/api/integration/{integrationID}/connect/oauth/{attemptID}"
+            },
+            "v2.integration.complete": {
+              "method": "POST",
+              "path": "/api/integration/{integrationID}/connect/oauth/{attemptID}/complete"
+            },
+            "v2.integration.cancel": {
+              "method": "DELETE",
+              "path": "/api/integration/{integrationID}/connect/oauth/{attemptID}"
+            },
+            "v2.integration.key": {
+              "method": "POST",
+              "path": "/api/integration/{integrationID}/connect/key"
+            },
+            "v2.session.create": {
+              "method": "POST",
+              "path": "/api/session"
+            },
+            "v2.session.get": {
+              "method": "GET",
+              "path": "/api/session/{sessionID}"
+            },
+            "v2.session.messages": {
+              "method": "GET",
+              "path": "/api/session/{sessionID}/message"
+            },
+            "v2.session.prompt": {
+              "method": "POST",
+              "path": "/api/session/{sessionID}/prompt"
+            },
+            "v2.session.model": {
+              "method": "POST",
+              "path": "/api/session/{sessionID}/model"
+            },
+            "v2.session.instructions": {
+              "method": "PUT",
+              "path": "/api/experimental/session/{sessionID}/instructions/entries/{key}"
+            },
+            "v2.session.abort": {
+              "method": "POST",
+              "path": "/api/session/{sessionID}/interrupt"
+            },
+            "v2.permission.reply": {
+              "method": "POST",
+              "path": "/api/session/{sessionID}/permission/{requestID}/reply"
+            },
+            "v2.form.reply": {
+              "method": "POST",
+              "path": "/api/session/{sessionID}/form/{formID}/reply"
+            },
+            "v2.form.reject": {
+              "method": "DELETE",
+              "path": "/api/session/{sessionID}/form/{formID}"
+            },
+            "v2.provider.list": {
+              "method": "GET",
+              "path": "/api/provider"
+            }
+          },
+          "requestEvents": {
+            "permission.asked": {
+              "typePointer": "/type",
+              "idPointer": "/data/id",
+              "threadPointer": "/data/sessionID",
+              "replyMethod": "v2.permission.reply",
+              "rejectMethod": "v2.permission.reply",
+              "rejectBody": {
+                "decision": "reject"
+              },
+              "pathParams": {
+                "sessionID": "/data/sessionID",
+                "requestID": "/data/id"
+              }
+            },
+            "form.created": {
+              "typePointer": "/type",
+              "idPointer": "/data/form/id",
+              "threadPointer": "/data/form/sessionID",
+              "replyMethod": "v2.form.reply",
+              "rejectMethod": "v2.form.reject",
+              "pathParams": {
+                "sessionID": "/data/form/sessionID",
+                "formID": "/data/form/id"
+              }
+            }
+          },
+          "completionEvents": true
+        }
+      ],
+      "completionEvents": true
+    },
+    "hostApprovals": true,
+    "interrupt": {
+      "beforeFirstTurn": true
+    },
+    "localImagePaths": true,
+    "usage": true,
+    "turnScopedRequests": [
+      "submitTurn"
+    ],
+    "requestMethods": {
+      "initialize": [
+        "health",
+        "provider.list",
+        "provider.auth",
+        "v2.integration.list",
+        "v2.provider.list"
+      ],
+      "openThread": [
+        "session.create",
+        "v2.session.create",
+        "v2.session.instructions"
+      ],
+      "resumeThread": [
+        "session.get",
+        "v2.session.get",
+        "v2.session.instructions",
+        "v2.session.model"
+      ],
+      "readHistory": [
+        "session.messages",
+        "v2.session.messages"
+      ],
+      "submitTurn": [
+        "session.prompt",
+        "v2.session.prompt"
+      ],
+      "interrupt": [
+        "session.abort",
+        "v2.session.abort"
+      ],
+      "answer": [
+        "permission.reply",
+        "question.reply",
+        "question.reject",
+        "v2.permission.reply",
+        "v2.form.reply",
+        "v2.form.reject"
+      ],
+      "control": [
+        "provider.list",
+        "provider.auth",
+        "provider.authorize",
+        "provider.callback",
+        "provider.key",
+        "v2.integration.list",
+        "v2.integration.authorize",
+        "v2.integration.status",
+        "v2.integration.complete",
+        "v2.integration.cancel",
+        "v2.integration.key",
+        "v2.provider.list"
+      ]
+    },
+    "notificationMethods": [
+      "http/event"
+    ]
+  },
+  "credentialFrame": {
+    "kind": "notification",
+    "method": "http/event",
+    "params": {
+      "id": "evt_credential",
+      "created": 1794940505432,
+      "type": "credential.updated",
+      "data": {
+        "integrationID": "fixture",
+        "credentialID": "cred_fixture"
+      }
+    }
+  },
+  "credentialCases": [
+    {
+      "name": "accepted",
+      "createdOffset": -10,
+      "nowOffset": 1,
+      "expected": 1
+    },
+    {
+      "name": "pre-challenge",
+      "createdOffset": 1,
+      "nowOffset": 2,
+      "expected": 0
+    },
+    {
+      "name": "wrong-directory",
+      "createdOffset": -10,
+      "nowOffset": 1,
+      "directory": "/foreign",
+      "expected": 0
+    },
+    {
+      "name": "foreign-integration",
+      "createdOffset": -10,
+      "nowOffset": 1,
+      "integration": "foreign",
+      "expected": 0
+    },
+    {
+      "name": "expired",
+      "createdOffset": -10,
+      "nowOffset": 1000,
+      "expected": 0
+    },
+    {
+      "name": "stale-epoch",
+      "createdOffset": -10,
+      "nowOffset": 1,
+      "newEpoch": true,
+      "expected": 0
+    }
+  ]
+}
