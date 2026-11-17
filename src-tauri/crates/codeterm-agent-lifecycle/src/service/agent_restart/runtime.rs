@@ -82,6 +82,12 @@ impl RuntimeRestartExt for ServiceContext {
         retry_refused_start: bool,
         account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        if account.is_some() && (fresh || retry_refused_start) {
+            return Err(AgentRestartError::BadRequest(
+                "Account restart requires a same-session restart".into(),
+            )
+            .into());
+        }
         if let Some(refusal) = self.tab_write_lock(tab_id) {
             return Err(AgentRestartError::BadRequest(refusal.to_string()).into());
         }

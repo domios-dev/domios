@@ -148,9 +148,11 @@ async fn restart_inner(
             return Ok(None);
         }
     }
-    if let Some(account) = account {
-        validate_account_restart(svc, tab, provider, old_nonce, session.as_ref(), account)?;
-    }
+    let account_process = account
+        .map(|account| {
+            validate_account_restart(svc, tab, provider, old_nonce, session.as_ref(), account)
+        })
+        .transpose()?;
     if let Some(session) = &session {
         super::turn_requests::end_for_lifecycle(
             svc,
@@ -294,7 +296,9 @@ async fn restart_inner(
         svc.prepare_agent_runtime_launch_env(tab, &environment)
             .map_err(RuntimeFailure::Refused)?;
         if let Some(session) = &session {
-            let process = session.process.lock().clone();
+            let process = account_process
+                .clone()
+                .or_else(|| session.process.lock().clone());
             if let Some(process) = process {
                 process.finish().await?;
             }
@@ -385,7 +389,7 @@ fn validate_account_restart(
     nonce: &str,
     session: Option<&Arc<Session>>,
     account: &crate::service::agent_lifecycle::AccountRestartTarget,
-) -> Result<(), RuntimeFailure> {
+) -> Result<Arc<super::process::Process>, RuntimeFailure> {
     account.validate_target().map_err(RuntimeFailure::Refused)?;
     let session = session.ok_or(RuntimeFailure::Superseded)?;
     let epoch = session.state.lock().epoch;
@@ -408,5 +412,10 @@ fn validate_account_restart(
     account
         .expected
         .validate(target, Some(epoch))
-        .map_err(RuntimeFailure::Refused)
+        .map_err(RuntimeFailure::Refused)?;
+    session
+        .process
+        .lock()
+        .clone()
+        .ok_or(RuntimeFailure::Superseded)
 }

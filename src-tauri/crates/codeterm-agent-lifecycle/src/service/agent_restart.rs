@@ -303,6 +303,16 @@ impl AgentRestartExt for ServiceContext {
         mode: RestartMode,
         account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        if account.is_some()
+            && (mode != RestartMode::Standard
+                || model_switch.is_some()
+                || snap.target_provider.is_some())
+        {
+            return Err(AgentRestartError::BadRequest(
+                "Account restart cannot change restart mode or provider/model".into(),
+            )
+            .into());
+        }
         self.require_background_work_safe(&snap.tab_id, force)?;
         crate::service::agent_lifecycle::timing::stage(&snap.tab_id, &snap.pty_id, "request");
         let target_provider = snap.target_provider.as_deref().unwrap_or(&snap.provider);
