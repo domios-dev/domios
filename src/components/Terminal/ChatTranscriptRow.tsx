@@ -163,18 +163,19 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             message={message}
             onContentLayout={context.onContentLayout}
             streaming={streaming}
-            userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
+            userProgress={deliveryView === "sending" && deliverySend?.draft?.voiceTranscribing
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {!transcriptionFailed && pendingDelivery && <ChatDeliveryState state={deliveryView} error={error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />}
+              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />}
               <div className="mt-1.5 min-w-0 break-words empty:hidden">
               {transcriptionFailed && <TranscriberSetupAction reason={error!} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
               </div>
             </> : undefined}
-            noticeStatus={transcriptionFailed ? <TranscriberSetupAction reason={error!} /> : pendingDelivery
-              ? <ChatDeliveryState inline state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />
-              : undefined}
+            noticeStatus={pendingDelivery ? <>
+              <ChatDeliveryState inline state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />
+              {transcriptionFailed && <TranscriberSetupAction reason={error!} />}
+            </> : transcriptionFailed ? <TranscriberSetupAction reason={error!} /> : undefined}
             item={item.kind === "tool" ? item : undefined}
             isLatestFailedToolCall={latestFailedToolCall}
             origin={originProps?.origin ?? origin}

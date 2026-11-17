@@ -1,7 +1,7 @@
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { composerAttachmentError } from "./composerAttachmentAdmission";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
-import type { ChatSessionIntent } from "@codeterm/chat-core";
+import { formatAttachmentMarker, type ChatSessionIntent } from "@codeterm/chat-core";
 import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
 import { onResync } from "../../lib/resync";
@@ -72,7 +72,6 @@ import { useComposerReply } from "./useComposerReply";
 import { useStartupSend } from "./useStartupSend";
 import { isTranscriptionFailure, TranscriberSetupAction } from "./voice/TranscriberSetupAction";
 
-const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "Voice transcription failed";
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
@@ -448,9 +447,11 @@ function ChatComposerImpl({
     lastSendRef.current = { text: dupKey, at: Date.now() };
     pendingDraftsRef.current.add(dupKey);
     onWillSendMessage(text);
+    const voicePendingContent = recordedVoiceAttachments.map(path => formatAttachmentMarker(path, "voice", "voice")).join("\n");
     const optimisticId = addOptimistic(recordedVoiceAttachments.length > 0
-      ? VOICE_TRANSCRIBING_PLACEHOLDER : portable || allAttachments.join(" "));
-    const deliveryDraft = { text, attachments: allAttachments, recordedVoiceAttachments, capsules: registry, reply: quoted };
+      ? voicePendingContent : portable || allAttachments.join(" "));
+    const deliveryDraft = { text, attachments: allAttachments, recordedVoiceAttachments,
+      ...(recordedVoiceAttachments.length ? { voiceTranscribing: true } : {}), capsules: registry, reply: quoted };
     setChatSendDraft(tabId, optimisticId, deliveryDraft);
     setComposerInvalid(false);
     refocusComposer();
@@ -466,7 +467,7 @@ function ChatComposerImpl({
         throw new Error(dropped?.length ? `No message was sent because its attachments failed: ${dropped.join(", ")}`
           : "No message was sent because the prepared message is empty.");
       }
-      const readyDraft = { ...deliveryDraft, ...resolved };
+      const readyDraft = { ...deliveryDraft, ...resolved, voiceTranscribing: false };
       setChatSendDraft(tabId, optimisticId, readyDraft);
       const delivery = prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
       composed = await delivery;
@@ -477,6 +478,7 @@ function ChatComposerImpl({
       }
       updateOptimistic(optimisticId, composed);
     } catch (error) {
+      if (recordedVoiceAttachments.length) setChatSendDraft(tabId, optimisticId, { ...deliveryDraft, voiceTranscribing: false });
       failChatSendRequest(tabId, optimisticId, error);
       pendingDraftsRef.current.delete(dupKey);
       return;
