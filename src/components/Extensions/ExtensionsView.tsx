@@ -192,7 +192,7 @@ export function ExtensionsView({
           </div>
         )}
         {error && (
-          <div data-testid="extensions-error"><InlineErrorNotice error={error} operation="loading plugins" blocking /></div>
+          <div data-testid="extensions-error"><InlineErrorNotice error={error} operation="loading plugins" actions={[{ label: "Retry", onClick: () => { void ensurePluginSnapshot({ force: true }).catch(() => undefined); } }]} /></div>
         )}
         {snapshotState.refreshing && snapshotState.lastSuccessfulSnapshot && (
           <div data-testid="extensions-stale-refresh" style={{ fontSize: 12, color: "var(--ct-muted)", marginBottom: 12, flex: "none" }}>
@@ -311,6 +311,15 @@ export function ExtensionsView({
                   void ensurePluginSnapshot({ force: true });
                 }}
               />
+            ) : selectedId ? (
+              <div data-testid="extensions-detail-error">
+                <InlineErrorNotice
+                  error={snapshotState.error ?? new Error(`Plugin details for ${selectedId} are unavailable.`)}
+                  operation="loading plugin details"
+                  role="alert"
+                  actions={[{ label: "Retry", onClick: () => { void ensurePluginSnapshot({ force: true }).catch(() => undefined); } }]}
+                />
+              </div>
             ) : (
               <EmptyState count={catalog.length} />
             )}
