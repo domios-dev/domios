@@ -48,7 +48,7 @@ fn read_only_pad_policy_provisions_only_the_pinned_cli_exception() {
     context.settings.mode = sandbox.runtime_mode.clone();
     context.settings.additional_directories = sandbox.writable_roots.clone();
     let before = sandbox.clone();
-    let policy = provision(&context, &sandbox, &executable, ".codex").unwrap();
+    let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
     verify_files(&policy).unwrap();
     assert_eq!(sandbox, before);
     assert_eq!(
