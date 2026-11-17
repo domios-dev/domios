@@ -6,6 +6,7 @@ import { FormRow } from "../shared/FormRow";
 import { UI_INPUT } from "../shared/design";
 import { UpdateScreen } from "../UpdateProgressLayer";
 import { updateStageView, type UpdateStage } from "../../lib/updateStageView";
+import { MentionChipGallery } from "./MentionChipGallery";
 
 const BUTTON_VARIANTS: ButtonVariant[] = ["primary", "ghost", "accent", "danger", "icon"];
 const BUTTON_SIZES: ButtonSize[] = ["compact", "sm", "md", "lg"];
@@ -50,6 +51,8 @@ export function ComponentGallery() {
       <h1 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "2rem" }}>
         Component Gallery — shared primitives
       </h1>
+
+      <Section title="Participant mentions"><MentionChipGallery /></Section>
 
       <Section title="Button — variants">
         {BUTTON_VARIANTS.map((v) => (

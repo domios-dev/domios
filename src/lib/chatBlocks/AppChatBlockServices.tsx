@@ -1,4 +1,7 @@
 import type { PlanView as Plan } from "../../components/Canvas/planProjection";
+import { AgentIcon } from "../../components/AgentIcon";
+import { SurfaceIcon } from "../../components/Surface/surfaceIcon";
+import { surfaceBacking } from "../surfaceTab";
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { ChatBlockHostProvider, decodeTasksBlockKey, type ChatBlockHost, type ChatMentionValue } from "@codeterm/chat-ui";
 import { hostAutomationAdapter, AUTOMATION_GRAPH_EVENT } from "../../components/Automation/hostAdapter";
@@ -114,6 +117,10 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
       interacted: (kind, action) => { void recordProductEvent({ event_type: "ds_block_interacted", event_properties: { kind, action } }); },
       mentions: createMentionHost({
         mux, plans: plainPlans, taskReferences:references,
+        providerName: (id) => getAgentDescriptor(id)?.display_name,
+        renderAvatar: (value) => value.tabKind === "agent" ? <AgentIcon providerId={value.providerId} tab={mux.getState().tabs[value.id]} style={{ width: 12, height: 12 }} />
+          : value.tabKind === "browser" && value.state === "closed" ? undefined
+          : value.tabKind === "browser" || value.tabKind === "surface" ? <SurfaceIcon backing={surfaceBacking(mux.getState().tabs[value.id])} size={11} /> : undefined,
         readGraph: async (scope, signal) => {
           const graphs = await Promise.all((scope.teamId ? [scope.teamId, null] : [null]).map((teamId) => hostAutomationAdapter.read({ connection_id: "composer", workspace_id: scope.workspaceId!, team_id: teamId }, signal)));
           return { ...graphs[0], nodes: graphs.flatMap((graph) => graph.nodes) };

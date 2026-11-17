@@ -61,3 +61,55 @@ describe("task reference chip", () => {
     expect(item.textContent).toContain(`${chip.textContent}: waiting for your choice`);
   });
 });
+
+describe("participant mentions", () => {
+  it("opens an agent through the host and exposes its live identity and status", async () => {
+    let opened = 0;
+    const el = await mount(<ReferenceChip kind="tab" presentation="mention" label="Elgar" fullRef="agent" disabled={false}
+      participant={{ tabKind: "agent", providerName: "Claude", role: "Orchestrator", workspaceName: "codeterm", activity: "working" }} onOpen={() => opened++} />);
+    const chip = el.querySelector("button")!;
+    expect(chip.textContent).toBe("Elgar");
+    expect(chip.getAttribute("aria-label")).toBe("Elgar, Claude agent tab, working");
+    await act(async () => { chip.click(); chip.focus(); });
+    expect(opened).toBe(1);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("Elgar · Orchestrator · Claude · codeterm");
+    expect(chip.tabIndex).toBe(0);
+  });
+
+  it("keeps closed and loading chips focusable with status in the name and blocks activation", async () => {
+    let opened = 0;
+    const el = await mount(<>
+      <ReferenceChip kind="tab" presentation="mention" label="build" fullRef="closed" state="closed" disabled onOpen={() => opened++} />
+      <ReferenceChip kind="tab" presentation="mention" label="opaque-id" fullRef="pending" state="loading" disabled />
+    </>);
+    const [closed, pending] = Array.from(el.querySelectorAll("button"));
+    expect(closed.disabled).toBe(false);
+    expect(closed.getAttribute("aria-disabled")).toBe("true");
+    expect(closed.getAttribute("aria-label")).toBe("build, closed tab");
+    await act(async () => { closed.click(); closed.focus(); });
+    expect(opened).toBe(0);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("build · Closed");
+    expect(pending.textContent).toBe("Tab");
+    expect(pending.getAttribute("aria-label")).toBe("Tab, loading tab");
+  });
+
+  it("renders unknown ids as plain text, preserves full long names and names shell/Browser/waiting/error states", async () => {
+    const el = await mount(<>
+      <ReferenceChip kind="tab" presentation="mention" label="id" fullRef="unknown" state="missing" disabled />
+      <ReferenceChip kind="tab" presentation="mention" label="build" fullRef="shell" disabled={false} participant={{ tabKind: "shell" }} />
+      <ReferenceChip kind="tab" presentation="mention" label="Browser" fullRef="browser" disabled={false} participant={{ tabKind: "browser" }} />
+      <ReferenceChip kind="tab" presentation="mention" label={LONG_TITLE} fullRef="long" disabled={false} participant={{ tabKind: "agent", activity: "waiting" }} />
+      <ReferenceChip kind="tab" presentation="mention" label="Broken" fullRef="error" disabled={false} participant={{ tabKind: "agent", activity: "error" }} />
+    </>);
+    expect(el.querySelector('[data-ref-state="missing"]')?.tagName).toBe("SPAN");
+    expect(el.textContent).toContain("Unknown tab");
+    const buttons = Array.from(el.querySelectorAll("button"));
+    expect(buttons.map(button => button.getAttribute("aria-label"))).toEqual([
+      "build, shell tab", "Browser, Browser tab", `${LONG_TITLE}, agent tab, waiting for you`, "Broken, agent tab, error",
+    ]);
+    expect(buttons[2].textContent?.length).toBeLessThanOrEqual(24);
+    expect(buttons[2].textContent?.endsWith("…")).toBe(true);
+    await act(async () => buttons[2].focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(LONG_TITLE);
+  });
+});

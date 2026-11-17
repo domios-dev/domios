@@ -51,6 +51,12 @@ console.log("themeCss tests");
 {
   const vars = themeToCSS(DEFAULT_THEME);
   assert("light blue accent uses black text", vars["--ct-on-accent"] === "#000000");
+  assert("dark mentions retain accent", vars["--ct-mention-text"] === "var(--ct-accent)");
+}
+
+{
+  const vars = themeToCSS({ ...lightTheme, blue: "#58a6ff" });
+  assert("low contrast light mentions use the specified darker token mix", vars["--ct-mention-text"] === "color-mix(in srgb, var(--ct-accent) 80%, var(--ct-fg))");
 }
 
 {

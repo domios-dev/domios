@@ -1,6 +1,6 @@
 import { commitSidebarDrag, type ReorderHandlers, type SortableGroupData } from "./sidebarReorderModel";
 export { commitSidebarDrag, rawId, sortByOrder, WS_PREFIX, TAB_PREFIX, TEAM_PREFIX, type ReorderHandlers, type SortableGroupData } from "./sidebarReorderModel";
-import { useMemo, useRef, type ComponentProps, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ComponentProps, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   type CollisionDetection,
   type DragEndEvent,
@@ -17,6 +17,8 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { sidebarDropEdge, sidebarDropTarget } from "./sidebarDropGeometry";
+import { rawId } from "./sidebarReorderModel";
+import { trackComposerMentionDrop } from "./composerMentionDrop";
 import { SidebarDragPreview } from "./SidebarDragPreview";
 import { sortableSensorConfiguration } from "./sortableSensors";
 export { POINTER_DRAG_ACTIVATION_DISTANCE } from "./sortableSensors";
@@ -110,9 +112,16 @@ export function SidebarDnd({
     useSensor(TOUCH_SENSOR.sensor, TOUCH_SENSOR.options),
     useSensor(MOUSE_SENSOR.keyboard.sensor, MOUSE_SENSOR.keyboard.options),
   );
+  const finishMentionDrop = useRef<ReturnType<typeof trackComposerMentionDrop> | null>(null);
+  useEffect(() => () => { finishMentionDrop.current?.(); }, []);
 
   const onDragEnd = useMemo(
-    () => (event: DragEndEvent) => commitSidebarDrag(event, handlers),
+    () => (event: DragEndEvent) => {
+      const tabId = String(event.active.id).startsWith("tab:") ? rawId(String(event.active.id)) : undefined;
+      const dropped = finishMentionDrop.current?.(tabId);
+      finishMentionDrop.current = null;
+      if (!dropped) commitSidebarDrag(event, handlers);
+    },
     [handlers],
   );
 
@@ -123,6 +132,8 @@ export function SidebarDnd({
       modifiers={LIST_AXIS_MODIFIERS}
       autoScroll={false}
       onDragEnd={onDragEnd}
+      onDragStart={() => { finishMentionDrop.current?.(); finishMentionDrop.current = trackComposerMentionDrop(); }}
+      onDragCancel={() => { finishMentionDrop.current?.(); finishMentionDrop.current = null; }}
     >
       {children}
       <SidebarDragPreview />
