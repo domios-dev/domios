@@ -1,3 +1,8 @@
+mod plan_transfer;
+#[cfg(test)]
+use plan_transfer::authorize_plan_transfer;
+use plan_transfer::{authorize_plan_orchestrator, transfer_plan_request};
+
 use codeterm_service_core::service::MuxEmitCause;
 use codeterm_types::agent::role_kind::{self, builtins::ORCHESTRATOR, builtins::PLANNER};
 use codeterm_types::team::Team;
@@ -844,12 +849,18 @@ fn adopt_plan_request(
     caller: TeamMutationCaller,
 ) -> Result<codeterm_service_core::service::agent_transition::AgentTransitionRequest, TeamPlanError>
 {
-    authorize_team_mutation(mux, team_id, &caller).map_err(|error| {
+    authorize_plan_orchestrator(mux, team_id, &caller).map_err(|error| {
         TeamPlanError::Team(format!(
             "Plan adoption requires manager authority in destination Team {team_id}: {error}. \
 Safe recovery: old-team member transfers ownership, then new owner adopts."
         ))
     })?;
+    let source = plan_store
+        .plan_identity_projection(plan_id)
+        .map_err(TeamPlanError::Plan)?;
+    if let Some(source_team) = source.team_id.as_deref() {
+        reject_remote_team_mutation(mux, source_team).map_err(TeamPlanError::Team)?;
+    }
     let owner_tab_id = team_plan_owner(mux, plan_store, team_id, plan_id, &caller)?;
     let planner = live_team_planner_ref(mux, team_id);
     codeterm_service_core::service::agent_transition::plan_owner_request(
@@ -908,101 +919,6 @@ fn transfer_team_plan_core(
     plan_store
         .team_plan_mutation_projection(plan_id)
         .map_err(TeamPlanError::Plan)
-}
-
-fn transfer_plan_request(
-    mux: &MultiplexerState,
-    plan_store: &codeterm_service_core::service::plan::PlanStore,
-    plan_id: &str,
-    to: codeterm_service_core::plan::OrchestratorRef,
-    reason: &str,
-    caller: TeamMutationCaller,
-) -> Result<codeterm_service_core::service::agent_transition::AgentTransitionRequest, TeamPlanError>
-{
-    let source_plan = plan_store
-        .plan_identity_projection(plan_id)
-        .map_err(TeamPlanError::Plan)?;
-    let source_team_id = source_plan
-        .team_id
-        .as_deref()
-        .filter(|team_id| !team_id.trim().is_empty())
-        .ok_or_else(|| {
-            TeamPlanError::Plan(PlanError::ActivePlanRequiresTeam {
-                plan_id: plan_id.into(),
-            })
-        })?;
-    let tab_id = to
-        .tab_id
-        .as_deref()
-        .filter(|tab_id| !tab_id.trim().is_empty())
-        .ok_or_else(|| {
-            TeamPlanError::Team("plan transfer requires a destination Orchestrator tab".into())
-        })?
-        .to_string();
-    let tab = mux
-        .get_tab(&tab_id)
-        .ok_or_else(|| TeamPlanError::Team(format!("Destination tab {tab_id} not found")))?;
-    if !tab.anchors_team() {
-        return Err(TeamPlanError::Team(format!(
-            "Destination tab {tab_id} is not an Orchestrator"
-        )));
-    }
-    let destination_team_id = tab
-        .team_id
-        .as_deref()
-        .filter(|team_id| mux.get_team(team_id).is_some())
-        .ok_or_else(|| {
-            TeamPlanError::Team(format!(
-                "Destination Orchestrator {tab_id} does not belong to a live Team"
-            ))
-        })?
-        .to_string();
-    authorize_plan_transfer(mux, source_team_id, &destination_team_id, &tab_id, caller)
-        .map_err(TeamPlanError::Team)?;
-    codeterm_service_core::service::agent_transition::plan_owner_request(
-        to,
-        plan_id,
-        &destination_team_id,
-        reason,
-        false,
-        Some((plan_id.to_string(), None)),
-        true,
-    )
-    .map_err(TeamPlanError::Team)
-}
-
-fn authorize_plan_transfer(
-    mux: &MultiplexerState,
-    source_team_id: &str,
-    destination_team_id: &str,
-    destination_owner_tab_id: &str,
-    caller: TeamMutationCaller,
-) -> Result<(), String> {
-    let source_denial = match authorize_team_mutation(mux, source_team_id, &caller) {
-        Ok(()) => return Ok(()),
-        Err(denial) => denial,
-    };
-    match caller {
-        TeamMutationCaller::AgentTab(tab_id) if tab_id == destination_owner_tab_id => {
-            authorize_team_manager(
-                mux,
-                destination_team_id,
-                &TeamMutationCaller::AgentTab(tab_id),
-            )
-        }
-        TeamMutationCaller::AgentTab(tab_id) => Err(format!(
-            "Caller tab {tab_id} lacks plan rebind authority: a source Team {source_team_id} \
-manager or destination Orchestrator {destination_owner_tab_id} in Team \
-{destination_team_id} must authorize the transfer. Safe recovery: old-team member \
-transfers ownership, then new owner adopts."
-        )),
-        // A human has no destination-owner identity to fall back on, so the
-        // source refusal (missing or remote-owned Team) stands verbatim.
-        TeamMutationCaller::AuthenticatedMeshPeer(_)
-        | TeamMutationCaller::Human
-        | TeamMutationCaller::HumanConfirmedHeaderless
-        | TeamMutationCaller::Unattributed => Err(source_denial),
-    }
 }
 
 /// Resolution is local to the caller's own placement, so several anchors stay

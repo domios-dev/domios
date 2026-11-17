@@ -16,6 +16,8 @@ A Team may attach one optional Cartographer Manager for stable product contracts
 
 The owner can start the Cartographer from the workspace Map view with Create map or Refresh map, choosing focus sources, provider and model, and an optional typed or dictated project description. The request prefers a workspace Team with live agents, then its most recent Team, and creates a Team with an Orchestrator when neither exists. A retained Team without a staffing manager receives an Orchestrator. An attached Cartographer receives the brief instead of a second attachment. Asking the Orchestrator remains available.
 
+Plan transfer moves bound local Workers' hierarchy, Team membership and report destination atomically with plan ownership. Their tab, session, task, attempt and lane identities continue. Only an involved Orchestrator or the owner may authorize the transfer. A Team retains at most one active plan; consolidation does not merge independent task histories.
+
 ## Dispatch, reports and review
 
 An unbound remote Worker may join a local Team or change its report parent without restarting its session. Only its authenticated current parent or the local owner may initiate the transfer, and both peers require Full access. The destination is a live local Team Orchestrator; it cannot pull another parent's Worker. Membership records the peer, tab and exact worker session durably. A prepared intent and authenticated worker receipt make uncertain responses and local persistence failures recoverable without a second transfer. Task-bound Workers keep their Plan ownership path. Remote members remain visible when their peer is unavailable; a replacement session never inherits an older member's control surface.

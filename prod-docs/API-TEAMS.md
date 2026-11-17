@@ -34,9 +34,13 @@ An orchestrator's first plan creation is atomic: its response includes `plan.tea
 
 ## Team-bound plan activation and transfer
 
-Every active plan must reference exactly one live Team, and a live Team may have only one active plan. `POST /api/plans/{id}/unarchive` and `POST /api/plans/{id}/resume` reject a missing or stale Team binding; unarchive also rejects a Team that already owns another active plan. `team.adopt_plan` activates an archived/teamless plan atomically, replaces its retired owner with the target Team's sole live Orchestrator, records owner history, clears the stale planner binding, and relinks live task hierarchy to that Orchestrator. A Team with zero or multiple live Orchestrators cannot adopt implicitly; use an explicit transfer destination when applicable.
+Every active plan must reference exactly one live Team, and a live Team may have only one active plan. `POST /api/plans/{id}/unarchive` and `POST /api/plans/{id}/resume` reject a missing or stale Team binding; unarchive also rejects a Team that already owns another active plan. `team.adopt_plan` activates an archived/teamless plan atomically, replaces its retired owner with the target Team's sole live Orchestrator, records owner history, clears the stale planner binding, and relinks live task hierarchy to that Orchestrator. Adoption requires the destination Orchestrator or local owner. A Team with zero or multiple live Orchestrators cannot adopt implicitly; use an explicit transfer destination when applicable.
 
-`POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Tab-Id` to identify the source Team's Orchestrator or planner-profile Manager. Missing callers, Workers, and foreign-Team tabs receive `403` without mutation. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
+`POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Tab-Id` to identify the source Team's Orchestrator or the destination Orchestrator. Missing callers, Planner Managers, Workers, and unrelated tabs are refused without mutation. Team authority remains local; a mirrored remote Team cannot be transferred on this machine. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, stale planner retirement, and local bound Workers' parent, Team, depth and report destination change in one lifecycle transaction. Task, attempt, lane, session, nonce and tab identities stay intact, including paused Workers and Workers awaiting review. A failed commit restores the prior placement. Remote-owned Workers refuse local transfer.
+
+A Worker stranded by an earlier transfer can be recovered by its current source parent with `domios agent link --parent-tab <plan-owner> --tab <worker>`, even when the source Team became forming. The destination must own that Worker's exact plan; all existing live session, nonce, acknowledged attempt and isolated-lane checks still apply. The destination cannot pull it through `agent link`. The current plan owner can also reapply `domios team adopt-plan <current-team> <plan>` to reconcile all bound local Workers atomically while retaining its live Planner.
+
+A Team cannot absorb a second active plan. To retain the incoming plan, first finish and archive the destination's current plan, then transfer the incoming plan. To retain the destination plan, finish or explicitly cancel the source plan's tasks and archive it, then move reusable unbound tabs using the procedure below. This reorganizes tabs; it does not merge task histories between plans. Keep both Teams while either plan still needs active Workers.
 
 `team.adopt_plan` returns `{team_id, plan}` with a committed summary in `plan`: `id`, `title`, `owner`, `status`, `team_id`, `planner`, `orphaned`, and `latest_owner_transfer`. Optional fields are omitted when absent; `latest_owner_transfer` contains only the latest transfer record. task bodies and historical records are available through their explicit read endpoints.
 
@@ -51,6 +55,8 @@ A Team holds **at most one live Orchestrator**, enforced as a headcount of live 
 `X-CodeTerm-Tab-Id` is optional on this endpoint alone: a Team whose Orchestrator is gone has no membership left to spend. A caller-less add can place only an anchoring role; `worker`, `planner`, and `cartographer` still need a spawn-capable member. This bootstrap action only creates a member and cannot delete Team state; destructive Team and workspace closes without a caller tab require explicit target confirmation. Every structural refusal leads with a stable error code and is logged with Team, requested role, and cause: `team_orchestrator_already_live`, `team_member_role_unknown`, `team_role_requires_spawner`, `team_caller_unauthorized`, `team_caller_cannot_spawn`, `team_workspace_unresolved`. A structural refusal is never surfaced as a retry prompt.
 
 ## Move a running tab into a Team
+
+To move a roleless tab already in another Team, the source Orchestrator first runs `domios agent unlink --tab <tab>`, then the destination Orchestrator runs `domios team adopt-agent <destination-team> <tab>`. The local owner may coordinate both steps. This retains the tab id, running process, session and context; the tab is temporarily outside a Team between the two commands. Use this for idle Browser surfaces and utility shells, not bound Workers. Each step checks its own caller authority.
 
 `domios team adopt-agent <team> <tab>` attaches a running roleless agent or a plain shell to a Team you belong to. A shell joins the Team's utility shells and keeps its process (for example a dev server); describe it with `domios tab describe`.
 
@@ -157,4 +163,4 @@ Team staffing and closing use the authority and confirmation rules above.
 
 Exchange errors are HTTP 400 (bad request), 404 (unknown template) or 422 (refused package) with `{code, message, diagnostics?}`.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
