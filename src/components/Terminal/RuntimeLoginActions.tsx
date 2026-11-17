@@ -40,13 +40,15 @@ const field = "min-w-0 flex-1 rounded-full border border-[var(--ct-border)] bg-[
  */
 interface RuntimeLoginActionsProps {
   providerId?: string; tabId: string; state: AgentRuntimeState; iconSvg?: string | null; onCheck?: () => void; variant?: "center" | "inline";
+  title?: string;
+  hint?: string;
 }
 
 export function RuntimeLoginActions(props: RuntimeLoginActionsProps) {
   return <RuntimeLoginContext key={JSON.stringify([props.tabId,props.providerId,props.state.loginBinding?.nonce,props.state.epoch])} {...props} />;
 }
 
-function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, variant = "inline" }: RuntimeLoginActionsProps) {
+function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, variant = "inline", title: customTitle, hint: customHint }: RuntimeLoginActionsProps) {
   const [keyEntry, setKeyEntry] = useState(false);
   const [keyMethod, setKeyMethod] = useState<string | undefined>();
   const [code, setCode] = useState("");
@@ -69,12 +71,12 @@ function RuntimeLoginContext({ tabId, state, iconSvg, onCheck, providerId, varia
     event.preventDefault();
     void nativeBridge.openUrl(url);
   };
-  const title = pending ? login.userCode ? "Enter this code to sign in" : "Finish signing in in your browser" : `Sign in to ${provider}`;
-  const hint = pending ? login.instructions ?? (login.userCode ? "Open the sign-in page and enter the code. This tab continues on its own."
+  const title = customTitle ?? (pending ? login.userCode ? "Enter this code to sign in" : "Finish signing in in your browser" : `Sign in to ${provider}`);
+  const hint = customHint ?? (pending ? login.instructions ?? (login.userCode ? "Open the sign-in page and enter the code. This tab continues on its own."
     : "This tab continues on its own once you are signed in."
     )
     : state.requiredSecrets?.length ? `Add ${state.requiredSecrets.join(", ")} in Settings › Secrets, then check again.`
-    : "Choose how to sign in. The conversation starts once you are signed in.";
+    : "Choose how to sign in. The conversation starts once you are signed in.");
   const askGeneral = () => helper.launch(() => spawnAiHelper({ title: "Sign in", description: `Sign in to ${provider}`,
     task: withAiHelperContext(`Help me sign in to ${provider} for a Domios agent tab that is waiting for it. Check what it needs, guide me through it here, then confirm the tab can start. Reply in my language.`) }));
 
