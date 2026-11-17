@@ -6,6 +6,7 @@ import type { RestrictedCliCapability } from "./RestrictedCliCapability";
 import type { RuntimeClientBridges } from "./RuntimeClientBridges";
 import type { RuntimeGoalCapability } from "./RuntimeGoalCapability";
 import type { RuntimeHostMcpDeclaration } from "./RuntimeHostMcpDeclaration";
+import type { RuntimeHttpSse } from "./RuntimeHttpSse";
 import type { RuntimeInterruptCapability } from "./RuntimeInterruptCapability";
 import type { RuntimeLaunchProfile } from "./RuntimeLaunchProfile";
 import type { RuntimeLoginCapability } from "./RuntimeLoginCapability";
@@ -14,7 +15,7 @@ import type { RuntimeRegistryDefaults } from "./RuntimeRegistryDefaults";
 import type { RuntimeServiceTier } from "./RuntimeServiceTier";
 import type { RuntimeThreadHistoryCapability } from "./RuntimeThreadHistoryCapability";
 
-export type AgentRuntimeCapability = { localImagePaths?: boolean, hostMcp?: RuntimeHostMcpDeclaration, envelope?: AgentRuntimeEnvelope, interrupt?: RuntimeInterruptCapability, clientBridges?: RuntimeClientBridges, launchProfiles?: { [key in string]: RuntimeLaunchProfile }, 
+export type AgentRuntimeCapability = { httpSse?: RuntimeHttpSse, localImagePaths?: boolean, hostMcp?: RuntimeHostMcpDeclaration, envelope?: AgentRuntimeEnvelope, interrupt?: RuntimeInterruptCapability, clientBridges?: RuntimeClientBridges, launchProfiles?: { [key in string]: RuntimeLaunchProfile }, 
 /**
  * Declarations a profile installed from this registry id inherits unless it declares its own.
  */

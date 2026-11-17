@@ -181,4 +181,4 @@ File API (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_limit`): `d
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 61 -->
+<!-- revision: 62 -->

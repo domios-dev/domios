@@ -1,10 +1,12 @@
 {
   "id": "claude",
-  "version": "1.14.32",
+  "version": "1.14.33",
   "minCodeterm": "1.20.2",
   "hostApi": 2,
   "accounts": {
-    "credentialFiles": [".credentials.json"],
+    "credentialFiles": [
+      ".credentials.json"
+    ],
     "homeEnvironment": "CLAUDE_CONFIG_DIR",
     "defaultHome": "~/.claude",
     "secretEnvironment": [
@@ -13,7 +15,9 @@
       "ANTHROPIC_AUTH_TOKEN",
       "CLAUDE_CODE_OAUTH_TOKEN"
     ],
-    "excludedEnvironment": ["CODETERM_CLAUDE_PROCESS_REGISTRY_DIR"],
+    "excludedEnvironment": [
+      "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR"
+    ],
     "isolatedPaths": [
       ".credentials.json",
       "settings.json",
@@ -33,7 +37,9 @@
         "kind": "directory"
       }
     ],
-    "sharedIndexPaths": ["projects/*/sessions-index.json"],
+    "sharedIndexPaths": [
+      "projects/*/sessions-index.json"
+    ],
     "continuation": "unverified"
   },
   "generalAgentOfferWhenAbsent": true,
