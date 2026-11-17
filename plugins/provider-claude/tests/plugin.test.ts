@@ -410,8 +410,8 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   const cases = JSON.parse(fs.readFileSync(path.join(dir, "cases.json"), "utf8")) as Array<{ file: string; expect: string }>;
   const keys: Record<string, string[] | null> = {
     enter: ["DQ=="],
-    "move-down": ["ag=="],
-    "move-up": ["aw=="],
+    "move-down": ["G1tC"],
+    "move-up": ["G1tB"],
     hold: [],
     none: null,
   };
@@ -431,8 +431,8 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     /^yes(?:$|[, .])/i.test(label) && /\btrust\b/i.test(label),
   );
   assert(affirmativeIndex >= 0, "the parsed trust option identifies the affirmative choice");
-  eq(hostPlugin.directoryTrustPromptResponse(preapproved), ["ag=="], "pre-approved trust advances away from the focused refusal");
-  eq(hostPlugin.buildPromptResponse(affirmativeIndex, preapproved), ["ag==", "DQ=="], "pre-approved trust selection moves down then confirms");
+  eq(hostPlugin.directoryTrustPromptResponse(preapproved), ["G1tC"], "pre-approved trust advances away from the focused refusal");
+  eq(hostPlugin.buildPromptResponse(affirmativeIndex, preapproved), ["G1tC", "DQ=="], "pre-approved trust selection moves down then confirms");
   const focusedAffirmative = preapproved.split(/\r?\n/).map((row) => {
     const normalized = row.replace(/[│┃║]/g, "").trim();
     const label = normalized.replace(/^[❯>]\s*/, "").trim();
@@ -444,6 +444,7 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   }).join("\n");
   eq(hostPlugin.directoryTrustPromptResponse(focusedAffirmative), ["DQ=="], "focused affirmative trust confirms without moving");
   eq(hostPlugin.buildPromptResponse(affirmativeIndex, focusedAffirmative), ["DQ=="], "focused affirmative selection only confirms");
+  eq(hostPlugin.buildPromptResponse(1 - affirmativeIndex, focusedAffirmative), ["G1tB", "DQ=="], "declining trust moves up before confirming");
 
   const unnumbered = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8");
   const parsed = hostPlugin.parsePrompt(unnumbered);
@@ -452,7 +453,7 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   eq(parsed?.options?.map(([, value]) => value), ["1", "2"], "folder trust options retain screen order");
   eq(trustPrompt, parsed, "dedicated trust parser exposes the same classified choices");
   eq(parsed?.options?.map(([label]) => label.match(/^[A-Za-z]+/)?.[0].toLowerCase()), ["no", "yes"], "folder trust options expose refusal before trust");
-  eq(hostPlugin.buildPromptResponse(1, unnumbered), ["ag==", "DQ=="], "responding with option two moves off refusal before confirming");
+  eq(hostPlugin.buildPromptResponse(1, unnumbered), ["G1tC", "DQ=="], "responding with option two moves off refusal before confirming");
   eq(hostPlugin.permissionPromptResponse("Bash", parsed, unnumbered), null, "directory trust is never a tool permission approval");
 
   const continueWithoutPermissions = fs.readFileSync(
