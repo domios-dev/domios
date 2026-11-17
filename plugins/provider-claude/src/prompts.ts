@@ -381,10 +381,13 @@ function normalizeOnboardingLabel(label: string): string {
 }
 
 export function moveToOption(targetIndex: number, screen: string): string[] {
-  const current = currentHighlightedOptionIndex(screen);
+  const trustIndex = claudeFolderTrustHighlightedOptionIndex(screen);
+  const current = trustIndex ?? currentHighlightedOptionIndex(screen);
   const delta = targetIndex - current;
   const steps: string[] = [];
-  const key = delta >= 0 ? "ag==" : "aw==";
+  const key = trustIndex !== null
+    ? (delta >= 0 ? "G1tC" : "G1tB")
+    : (delta >= 0 ? "ag==" : "aw==");
   for (let i = 0; i < Math.abs(delta); i++) steps.push(key);
   return steps;
 }

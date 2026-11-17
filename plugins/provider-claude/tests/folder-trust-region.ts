@@ -21,7 +21,7 @@ export function runFolderTrustRegionTests(
   eq(claudeFolderTrustPrompt(quoted), null, "transcript quote has no trust prompt");
   eq(claudeFolderTrustHighlightedOptionIndex(quoted), null, "transcript quote has no trust focus");
   const trailingBlanks = fs.readFileSync(path.join(dir, "claude-2.1.296-trailing-blanks.txt"), "utf8");
-  eq(hostPlugin.directoryTrustPromptResponse(trailingBlanks), ["ag=="], "blank tail preserves the live trust response");
+  eq(hostPlugin.directoryTrustPromptResponse(trailingBlanks), ["G1tC"], "blank tail preserves the live trust response");
   assert(Boolean(claudeFolderTrustPrompt(trailingBlanks)), "blank tail preserves the live trust prompt");
   eq(claudeFolderTrustHighlightedOptionIndex(trailingBlanks), 0, "blank tail preserves the live trust focus");
 }

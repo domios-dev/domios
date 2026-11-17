@@ -1988,8 +1988,8 @@ function* subAgentUsageSources(sessionFilePath, sessionId) {
 // plugins/provider-claude/src/folderTrust.ts
 var FRAME_EDGES = /^[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+|[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+$/g;
 var ENTER = "DQ==";
-var MOVE_DOWN = "ag==";
-var MOVE_UP = "aw==";
+var MOVE_DOWN = "G1tC";
+var MOVE_UP = "G1tB";
 function frameContent(line) {
   return line.replace(FRAME_EDGES, "");
 }
@@ -2487,10 +2487,11 @@ function normalizeOnboardingLabel(label) {
   return label.toLowerCase().replace(/[’‘]/g, "'").trim();
 }
 function moveToOption(targetIndex, screen) {
-  const current = currentHighlightedOptionIndex(screen);
+  const trustIndex = claudeFolderTrustHighlightedOptionIndex(screen);
+  const current = trustIndex ?? currentHighlightedOptionIndex(screen);
   const delta = targetIndex - current;
   const steps = [];
-  const key = delta >= 0 ? "ag==" : "aw==";
+  const key = trustIndex !== null ? delta >= 0 ? "G1tC" : "G1tB" : delta >= 0 ? "ag==" : "aw==";
   for (let i = 0; i < Math.abs(delta); i++) steps.push(key);
   return steps;
 }
