@@ -29,6 +29,9 @@ pub(crate) fn prepare(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     {
         return Ok(());
     }
+    if target.agent_booting {
+        return Err("Wait for this account's launch to finish before closing its tab".into());
+    }
     let state = svc.ext_or_init::<State>(State::default);
     let previous = state.closing.lock().get(tab).cloned();
     if let Some(previous) = previous {

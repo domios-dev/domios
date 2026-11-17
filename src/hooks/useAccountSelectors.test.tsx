@@ -8,7 +8,7 @@ vi.mock("../lib/daemonRuntime",()=>({selectedDaemonTransport:{json:fixture.json}
 vi.mock("../lib/bridge",()=>({listen:async()=>()=>{}}));
 vi.mock("./useAgentProviders",()=>({useAgentProviders:()=>({providers:[{id:"fixture",accounts:{},display_name:"Fixture"}],loading:false,error:null})}));
 vi.mock("./useProviderAccounts",()=>({useProviderAccounts:()=>({snapshot:{providerId:"fixture",revision:"rendered",continuation:fixture.continuation,accounts:[{id:"default",status:"ready"},{id:"work",status:fixture.status}],workspaceOverrides:[]} as ProviderAccountsSnapshot,error:null})}));
-vi.mock("./useAccountTransition",()=>({useAccountTransition:()=>({canVerify:fixture.canVerify,turnActive:fixture.turnActive,error:null,transition:null})}));
+vi.mock("./useAccountTransition",()=>({useAccountTransition:()=>({canVerify:fixture.canVerify,turnActive:fixture.turnActive,error:null,transition:null,onRefresh:()=>{}})}));
 import {useTabAccounts} from "./useAccountSelectors";
 const tab={id:"own",agent_type:"fixture",session_binding_nonce:"own-nonce",agent_runtime_state:{epoch:9},restorable_launch:{account_id:"default",account_namespace:null}} as unknown as Tab;
 

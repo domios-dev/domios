@@ -19,14 +19,15 @@ export function useAccountTransition(tabId:string|null,providerId:string|null,bo
       const request=++sequence;
       try {
         const status=await selectedDaemonTransport.json<TabAccountStatus>("GET",`/api/tabs/${encodeURIComponent(tabId)}/account`,undefined,{signal:controller.signal});
-        if(active)setView(current=>({...current,canVerify:status.canVerify===true,turnActive:status.turnActive!==false,...(request===sequence?{key,transition:status.transition?.providerId===providerId?status.transition:null,loading:false,error:null}:{})}));
+        if(active && request===sequence)setView({key,canVerify:status.canVerify===true,turnActive:status.turnActive!==false,transition:status.transition?.providerId===providerId?status.transition:null,loading:false,error:null});
       }catch(error){if(active && request===sequence && !controller.signal.aborted)setView(current=>({...current,key,loading:false,error:String(error)}));}
     };
     refresh.current=()=>{void read();};
     void listen<{tabId:string;transition:AccountTransition|null}>("provider-account-transition",({payload})=>{
       if(!active || payload.tabId!==tabId || (payload.transition && payload.transition.providerId!==providerId))return;
       sequence++;
-      setView(current=>({...current,key,transition:payload.transition,loading:false,error:null}));
+      setView(current=>({...current,key,transition:payload.transition,loading:false,error:null,canVerify:false,turnActive:true}));
+      void read();
     }).then(unlisten=>{if(!active){unlisten();return;}stop=unlisten;void read();}).catch(error=>{if(active)setView({key,transition:null,loading:false,error:String(error),canVerify:false,turnActive:true});});
     return()=>{active=false;sequence++;controller.abort();stop?.();};
   },[key,tabId,providerId]);

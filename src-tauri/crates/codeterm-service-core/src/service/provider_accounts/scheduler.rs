@@ -314,7 +314,12 @@ pub(crate) fn runtime_observe(
                 signal.and_then(|signal| signal.account_limit),
                 item.tool_flow_id.as_ref(),
             ) {
-                if *session.auth.lock() != RuntimeAuthState::SignedIn {
+                if *session.auth.lock() != RuntimeAuthState::SignedIn
+                    || !(context.active_turn_id.as_ref() == Some(turn)
+                        || context.active_turns.iter().any(|active| {
+                            active.thread_id == *thread_id && active.turn_id == *turn
+                        }))
+                {
                     return false;
                 }
                 let Ok(expected) = capture(svc, &context.tab_id) else {
