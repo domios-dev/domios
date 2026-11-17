@@ -13,20 +13,16 @@ pub(super) struct PreparedHolders {
 }
 
 impl PreparedHolders {
-    pub(super) async fn reserve_shutdown(
+    pub(super) fn shutdown_reservation_request(
         &self,
-        _stop: &dyn crate::application_host::ServerStop,
-    ) -> Result<Option<String>, String> {
+    ) -> Option<codeterm_update::holders::ReserveHolders> {
         #[cfg(windows)]
-        return _stop
-            .reserve_install_shutdown(codeterm_update::holders::ReserveHolders {
-                tabs: self.tabs.clone(),
-                initiating_tab: self.initiating_tab.clone(),
-            })
-            .await
-            .map(Some);
+        return Some(codeterm_update::holders::ReserveHolders {
+            tabs: self.tabs.clone(),
+            initiating_tab: self.initiating_tab.clone(),
+        });
         #[cfg(not(windows))]
-        Ok(None)
+        None
     }
 
     pub(super) async fn confirm_exited(self) -> Result<(), String> {
