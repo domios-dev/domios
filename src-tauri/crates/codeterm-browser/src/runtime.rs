@@ -1,5 +1,7 @@
 use super::cdp::{CdpClient, PageChannel, CONNECT_DEADLINE};
-use super::cdp_wire::{parse_targets, pick_page_target, EventFilter, SessionFilter};
+use super::cdp_wire::{
+    headful_user_agent, parse_targets, pick_page_target, EventFilter, SessionFilter,
+};
 use super::launch::{launch_args, validate_loopback_endpoint, LaunchSpec};
 use super::locator::locate;
 #[cfg(test)]
@@ -34,8 +36,6 @@ impl BrowserMode {
 
 /// One browser connection: a launched or attached Chromium, its CDP socket and tracked page.
 pub struct Runtime {
-    pub visible: bool,
-    return_url: Option<String>,
     pub mode: BrowserMode,
     pub endpoint: String,
     pub binary: Option<PathBuf>,
@@ -44,7 +44,7 @@ pub struct Runtime {
     pub page: PageChannel,
     pub window_id: Option<i64>,
     lease: Mutex<Option<ProfileLease>>,
-    _screencast: Option<ScreencastDriver>,
+    _screencast: ScreencastDriver,
 }
 
 impl Runtime {
@@ -70,14 +70,7 @@ pub(super) async fn launch(
         let launch_profile = profile.clone();
         let launch_dir = dir.clone();
         let lease = ProfileLease::acquire_with(dir, move || async move {
-            launch_shared(
-                configured_binary,
-                launch_dir,
-                launch_profile,
-                viewport,
-                false,
-            )
-            .await
+            launch_shared(configured_binary, launch_dir, launch_profile, viewport).await
         })
         .await?;
         from_lease(lease, viewport, frames).await
@@ -91,7 +84,6 @@ async fn launch_shared(
     profile_dir: PathBuf,
     profile: ProfileKind,
     viewport: Viewport,
-    visible: bool,
 ) -> Result<SharedBrowser, String> {
     let located = tokio::task::spawn_blocking(move || locate(configured_binary.as_deref()))
         .await
@@ -111,7 +103,6 @@ async fn launch_shared(
         }
     }
     let args = launch_args(&LaunchSpec {
-        visible,
         profile_dir: &profile_dir,
         width: viewport.width,
         height: viewport.height,
@@ -150,7 +141,6 @@ async fn launch_shared(
         }
     });
     Ok(SharedBrowser {
-        visible,
         client,
         process: Some(process),
         binary: Some(located.binary),
@@ -165,14 +155,10 @@ pub(crate) async fn from_lease(
     frames: Arc<FrameHub>,
 ) -> Result<Runtime, String> {
     let browser = lease.browser.clone();
-    let (page, window_id, native_dpr) =
-        prepare(&browser.client, (!browser.visible).then_some(viewport)).await?;
+    let (page, window_id, native_dpr) = prepare(&browser.client, Some(viewport)).await?;
     lease.target_id = Some(page.target_id().to_string());
-    let screencast =
-        (!browser.visible).then(|| ScreencastDriver::spawn(page.clone(), frames, native_dpr));
+    let screencast = ScreencastDriver::spawn(page.clone(), frames, native_dpr);
     Ok(Runtime {
-        visible: browser.visible,
-        return_url: None,
         mode: BrowserMode::Launched {
             profile: browser.profile.clone(),
         },
@@ -208,8 +194,6 @@ pub(super) async fn attach(http_base: &str, frames: Arc<FrameHub>) -> Result<Run
     let (client, page, window_id, native_dpr) = connect(&endpoint, None).await?;
     let screencast = ScreencastDriver::spawn(page.clone(), frames, native_dpr);
     Ok(Runtime {
-        visible: false,
-        return_url: None,
         mode: BrowserMode::Attached {
             http_base: http_base.to_string(),
         },
@@ -220,7 +204,7 @@ pub(super) async fn attach(http_base: &str, frames: Arc<FrameHub>) -> Result<Run
         page,
         window_id,
         lease: Mutex::new(None),
-        _screencast: Some(screencast),
+        _screencast: screencast,
     })
 }
 
@@ -384,6 +368,18 @@ async fn prepare_target(
         "[browser-viewport] native target={} dpr={native_dpr}",
         page.target_id()
     );
+    let version = client
+        .send("Browser.getVersion", json!({}))
+        .await
+        .map_err(cdp)?;
+    if let Some(user_agent) = version.get("userAgent").and_then(Value::as_str) {
+        page.send(
+            "Network.setUserAgentOverride",
+            json!({ "userAgent": headful_user_agent(user_agent), "acceptLanguage": "en-US,en" }),
+        )
+        .await
+        .map_err(cdp)?;
+    }
     let window_id = client
         .send(
             "Browser.getWindowForTarget",
@@ -462,42 +458,6 @@ pub(super) async fn current_url(runtime: &Runtime) -> Option<String> {
         .get("url")?
         .as_str()
         .map(str::to_string)
-}
-
-pub(super) async fn switch_visibility(
-    runtime: Arc<Runtime>,
-    visible: bool,
-    viewport: Viewport,
-    frames: Arc<FrameHub>,
-) -> Result<Runtime, String> {
-    let url = current_url(&runtime)
-        .await
-        .and_then(|url| carry_url(&url))
-        .or_else(|| runtime.return_url.clone());
-    let mut lease = runtime
-        .lease
-        .lock()
-        .take()
-        .ok_or("profile lease is closed")?;
-    let dir = lease.browser.dir.clone();
-    let profile = lease.browser.profile.clone();
-    let binary = lease.browser.binary.clone();
-    if let Err(error) = lease
-        .switch_with(|| launch_shared(binary, dir, profile, viewport, visible))
-        .await
-    {
-        *runtime.lease.lock() = Some(lease);
-        return Err(error);
-    }
-    let mut next = from_lease(lease, viewport, frames).await?;
-    next.return_url = url.clone();
-    if let Some(url) = url {
-        next.page
-            .send("Page.navigate", json!({ "url": url }))
-            .await
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(next)
 }
 
 /// Graceful close flushes cookies into a named profile; attach mode only disconnects.

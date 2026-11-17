@@ -47,14 +47,6 @@ Rules:
 
 Stop when `status` reports `needs human` other than `none`: captcha, missing login, consent you cannot decide, native file picker, permission prompt or JavaScript dialog. Name the blocker; the user can use *Take control*. Re-snapshot before continuing.
 
-## Visible sign-in
-
-For sites that refuse headless sign-in, select a named profile and choose **Sign in visibly** in the Browser toolbar. Chromium opens a normal window on the daemon's machine using that same profile. Close other Browser pages using the profile first; a shared profile refuses the handoff. Temporary and attached sessions cannot use it.
-
-Complete sign-in yourself in that window, then choose **Continue headless**. You may close the Chromium window first. The Browser resumes with the same profile and saved cookies. Preview and agent page commands pause during visible sign-in. No credentials are copied or extracted.
-
-`domios plugin browser sign-in` asks the owner to use the toolbar; it never launches a window automatically. After the owner finishes, `domios plugin browser continue` resumes headless. The owner-authenticated surface API also exposes `signin.visible` and `signin.continue` through the surface call endpoint; agents cannot invoke the visible-launch method. A window opens on the host, so a remote owner needs access to that desktop.
-
 ## User annotations
 
 `inbox` lists unread annotations; `inbox all` lists retained ones. Notices carry page/element/React pointers, text, attributes, styles, box, context, screenshot and intent. Find the code, act and verify.

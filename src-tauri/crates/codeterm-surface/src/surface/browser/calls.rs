@@ -79,15 +79,6 @@ impl BrowserRuntime {
         args: Value,
     ) -> Result<SurfaceCallOutcome, String> {
         let value = match method {
-            "signin.visible" => {
-                self.switch_signin(true).await?;
-                Value::Null
-            }
-            "signin.continue" => {
-                self.switch_signin(false).await?;
-                self.ensure_page().await?;
-                Value::Null
-            }
             "resize" | "viewport.claim" => {
                 let size: ResizeArgs = parse(method, args)?;
                 let _guard = self.action_gate.lock().await;
@@ -113,9 +104,6 @@ impl BrowserRuntime {
                 json!({ "owner": model.owner() })
             }
             "input" => {
-                if self.host.is_visible() {
-                    return Err("Complete sign-in in the visible Chromium window".into());
-                }
                 let input: InputArgs = parse(method, args)?;
                 let page = self.host.page().ok_or("the browser has no page")?;
                 self.viewer_input(&page, &input).await?;

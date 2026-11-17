@@ -1,7 +1,7 @@
 {
   "id": "browser",
-  "version": "1.15.5",
-  "minCodeterm": "1.20.2",
+  "version": "1.15.4",
+  "minCodeterm": "1.20.0",
   "hostApi": 2,
   "displayName": "Browser",
   "description": "An agent-owned live browser: the agent drives a real Chromium, the user watches it inside the agent's tab, joins in, and points at elements to ask the agent about them.",
@@ -92,7 +92,6 @@
     "help (any verb + --of <agent>: act in that agent's browser)",
     "open [url] [--profile NAME] | open --profile NAME --origin URL [--expect-build SHA] [--ephemeral]",
     "status",
-    "sign-in (ask the owner to choose Sign in visibly) | continue (resume headless after sign-in)",
     "profiles",
     "goto <url>",
     "back | forward | reload",

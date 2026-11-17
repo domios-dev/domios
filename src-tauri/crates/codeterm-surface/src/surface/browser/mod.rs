@@ -20,7 +20,6 @@ mod page;
 mod redaction;
 mod resume;
 mod sessions;
-mod signin;
 mod snapshots;
 mod snip;
 mod stream;
@@ -196,12 +195,6 @@ impl BrowserRuntime {
 
     /// Starts (or reuses) Chromium under the requested profile and binds its page listener.
     async fn ensure_page(&self) -> Result<PageChannel, String> {
-        if self.host.is_visible() {
-            return Err(
-                "Visible sign-in is active. Finish in Chromium, then choose Continue headless"
-                    .into(),
-            );
-        }
         self.viewport.lock().await.start(self.host.viewport());
         let layout = self.layout.clone();
         self.swept
@@ -336,12 +329,6 @@ impl BrowserRuntime {
 
     /// `""` or `"clean"` is the throwaway profile; a named one keeps logins across restarts.
     async fn use_profile(&self, raw: &str) -> Result<(), String> {
-        if self.host.is_visible() {
-            return Err(
-                "Finish visible sign-in and choose Continue headless before switching profiles"
-                    .into(),
-            );
-        }
         let wanted = if raw.trim().is_empty() || raw.trim().eq_ignore_ascii_case(CLEAN_PROFILE) {
             String::new()
         } else {
@@ -423,12 +410,7 @@ impl BrowserRuntime {
 #[async_trait::async_trait]
 impl SurfaceRuntime for BrowserRuntime {
     fn view_only_methods(&self) -> &[&str] {
-        &[
-            "profiles.create",
-            "profiles.delete",
-            "viewport.claim",
-            "signin.visible",
-        ]
+        &["profiles.create", "profiles.delete", "viewport.claim"]
     }
 
     fn set_owner_name(&self, name: &str) {

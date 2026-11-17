@@ -12,7 +12,6 @@ use std::time::Duration;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 pub(crate) struct SharedBrowser {
-    pub visible: bool,
     pub client: CdpClient,
     pub process: Option<Arc<BrowserProcess>>,
     pub binary: Option<PathBuf>,
@@ -134,19 +133,9 @@ impl ProfileLease {
             let acquired = async {
                 let mut model = slot.lock().await;
                 if model.handle().is_some_and(|browser| !browser.is_alive()) {
-                    if let Some(browser) = model.handle() {
-                        let outcome = browser.stop(CLOSE_DEADLINE, model.generation()).await;
-                        if outcome.is_some_and(|outcome| !outcome.confirms_exit()) {
-                            return Err("profile process exit is unconfirmed".into());
-                        }
-                        model.retire();
+                    if let Some(browser) = model.retire() {
+                        browser.stop(CLOSE_DEADLINE, model.generation()).await;
                     }
-                }
-                if model.handle().is_some_and(|browser| browser.visible) {
-                    return Err(
-                        "profile is in use; close its other Browser pages before visible sign-in"
-                            .into(),
-                    );
                 }
                 if model.handle().is_none() {
                     model.begin_launch();
@@ -166,36 +155,6 @@ impl ProfileLease {
         result
             .await
             .map_err(|_| "profile launch task stopped".to_string())?
-    }
-
-    pub(crate) async fn switch_with<F, Fut>(&mut self, launch: F) -> Result<(), String>
-    where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<SharedBrowser, String>>,
-    {
-        let slot = self.slot.as_ref().ok_or("profile lease is closed")?;
-        let mut model = slot.lock().await;
-        if !model.is_exclusive(self.id)
-            || !model
-                .handle()
-                .is_some_and(|browser| Arc::ptr_eq(&browser, &self.browser))
-        {
-            return Err(
-                "profile is shared; close its other Browser pages before visible sign-in".into(),
-            );
-        }
-        let outcome = self.browser.stop(CLOSE_DEADLINE, model.generation()).await;
-        if outcome.is_some_and(|outcome| !outcome.confirms_exit()) {
-            return Err("profile process exit is unconfirmed; cannot change browser mode".into());
-        }
-        model.retire();
-        model.begin_launch();
-        model.install(Arc::new(launch().await?));
-        let (id, browser) = model.acquire().ok_or("profile has no browser")?;
-        self.id = id;
-        self.browser = browser;
-        self.target_id = None;
-        Ok(())
     }
 
     pub fn leased_dirs() -> HashSet<PathBuf> {

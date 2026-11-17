@@ -35,10 +35,6 @@ impl<H: Clone> LeaseModel<H> {
         self.handle.clone()
     }
 
-    pub fn is_exclusive(&self, id: u64) -> bool {
-        self.leases.len() == 1 && self.leases.contains(&id)
-    }
-
     pub fn install(&mut self, handle: H) {
         self.generation += 1;
         self.handle = Some(handle);

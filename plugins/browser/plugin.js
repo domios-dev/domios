@@ -201,7 +201,7 @@ function* runBatch(ctx, execute) {
 }
 
 // plugins/browser/plugin.json
-var version = "1.15.5";
+var version = "1.15.4";
 
 // plugins/browser/src/plugin.ts
 function hostSurfaceCall() {

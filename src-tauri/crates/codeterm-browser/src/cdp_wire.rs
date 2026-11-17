@@ -273,5 +273,10 @@ pub fn pick_page_target(targets: &[TargetInfo]) -> Option<&TargetInfo> {
         .find(|target| target.kind == "page" && !target.url.starts_with("devtools://"))
 }
 
+/// Headless Chrome advertises `HeadlessChrome`, which search engines answer with a captcha.
+pub fn headful_user_agent(user_agent: &str) -> String {
+    user_agent.replace("HeadlessChrome", "Chrome")
+}
+
 #[cfg(test)]
 mod tests;

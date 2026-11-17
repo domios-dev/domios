@@ -175,7 +175,6 @@ async fn acquire(
     ProfileLease::acquire_with(dir, move || async move {
         launches.fetch_add(1, Ordering::SeqCst);
         Ok(SharedBrowser {
-            visible: false,
             client: CdpClient::from_connection(connection),
             process: None,
             binary: None,
@@ -643,49 +642,4 @@ async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates(
         assert_eq!(start.2["maxHeight"], height);
     }
     host.close().await;
-}
-
-#[tokio::test]
-async fn visible_signin_requires_exclusive_profile_and_blocks_headless_acquire() {
-    let dir = PathBuf::from(format!("/fake-profile/{}", uuid::Uuid::new_v4()));
-    let connection = FakeConnection::new();
-    let launches = Arc::new(AtomicUsize::new(0));
-    let mut first = acquire(dir.clone(), connection.clone(), launches.clone()).await;
-    let second = acquire(dir.clone(), connection.clone(), launches.clone()).await;
-    let refused = first
-        .switch_with(|| async { panic!("shared profile must not launch") })
-        .await;
-    assert!(refused.unwrap_err().contains("shared"));
-    assert_eq!(connection.count("Browser.close"), 0);
-    second.release(CLOSE_DEADLINE).await;
-    let visible_connection = FakeConnection::new();
-    let next = visible_connection.clone();
-    let next_dir = dir.clone();
-    first
-        .switch_with(|| async move {
-            assert!(connection.closed.borrow().is_some());
-            Ok(SharedBrowser {
-                visible: true,
-                client: CdpClient::from_connection(next),
-                process: None,
-                binary: None,
-                profile: ProfileKind::Named {
-                    name: "shared-test".into(),
-                },
-                dir: next_dir,
-            })
-        })
-        .await
-        .unwrap();
-    let refused = ProfileLease::acquire_with(dir.clone(), || async {
-        panic!("visible profile must not launch headless")
-    })
-    .await;
-    assert!(refused.err().unwrap().contains("in use"));
-    first.release(CLOSE_DEADLINE).await;
-    assert_eq!(visible_connection.count("Browser.close"), 1);
-    let final_connection = FakeConnection::new();
-    let final_lease = acquire(dir, final_connection, launches.clone()).await;
-    assert_eq!(launches.load(Ordering::SeqCst), 2);
-    final_lease.release(CLOSE_DEADLINE).await;
 }
