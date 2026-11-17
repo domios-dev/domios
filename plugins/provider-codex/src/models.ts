@@ -49,7 +49,10 @@ function* discoverCodexModelsFromCache(): HostIoSteps<ModelInfo[] | null> {
     if (isNonChatModel(id)) continue;
     kept.push(item);
   }
-  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
+  kept.sort((a, b) => {
+    const visibilityOrder = Number(a.visibility === "none") - Number(b.visibility === "none");
+    return visibilityOrder || priorityOf(a) - priorityOf(b);
+  });
   const models: ModelInfo[] = [];
   for (let i = 0; i < kept.length; i++) {
     const item = kept[i];

@@ -604,7 +604,10 @@ pub async fn refresh_models(
 ) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
     register_catalogue_capability(&provider_id, &provider.model_catalogue_capability());
-    if !force && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
+    if !force
+        && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now())
+        && !catalogue_inputs_changed(provider.clone()).await
+    {
         refresh_endpoints(provider).await;
         log::debug!("[model_catalog] {provider_id} live cache fresh — skipping refresh");
         return None;
@@ -629,23 +632,27 @@ pub async fn refresh_after_catalogue_input_change(
 /// semantics; interactive picker surfaces subscribe to catalogue changes.
 pub async fn refresh_for_reader(provider: Arc<dyn AgentProvider>) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
-    // Compare declared credentials with the live provider; the registry cannot
-    // see files that appeared or vanished since its snapshot.
-    let credential_changed = {
-        let recorded = registry()
-            .read()
-            .get(&provider_id)
-            .map(|snapshot| snapshot.credentials.clone())
-            .unwrap_or_default();
-        credentials_changed(provider.as_ref(), &recorded)
-    };
-    let must_retry = provider_binary_changed(&provider_id)
-        || credential_changed
-        || has_unknown_verdict(&provider_id);
-    if !must_retry && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
+    if !has_unknown_verdict(&provider_id)
+        && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now())
+        && !catalogue_inputs_changed(provider.clone()).await
+    {
         return None;
     }
     refresh_models(provider, true).await
+}
+
+async fn catalogue_inputs_changed(provider: Arc<dyn AgentProvider>) -> bool {
+    crate::js_runtime::spawn_blocking(move || {
+        let provider_id = provider.id();
+        let recorded = registry()
+            .read()
+            .get(provider_id)
+            .map(|snapshot| snapshot.credentials.clone())
+            .unwrap_or_default();
+        provider_binary_changed(provider_id) || credentials_changed(provider.as_ref(), &recorded)
+    })
+    .await
+    .unwrap_or(true)
 }
 
 /// True when the active snapshot still carries a verdict a probe could not
@@ -682,16 +689,12 @@ fn is_non_chat_id(id: &str) -> bool {
     lower.contains("embed") || lower.contains("embedding") || lower.contains("text-moderation")
 }
 
-/// If the seed default still names a model present in the live list, keep it;
-/// otherwise fall back to the first live model so a vanished hardcoded default
-/// doesn't dangle. `None` when the list is empty.
 fn resolve_live_default(models: &[ModelInfo], seed_default: Option<String>) -> Option<String> {
-    if let Some(d) = seed_default {
-        if models.iter().any(|m| m.id.eq_ignore_ascii_case(&d)) {
-            return Some(d);
-        }
-    }
-    models.first().map(|m| m.id.clone())
+    seed_default
+        .as_deref()
+        .and_then(|id| find_model(models, id))
+        .or_else(|| models.iter().find(|model| model.available != Some(false)))
+        .map(|model| model.id.clone())
 }
 
 /// Read-side: returns the resolved model list using these rules —

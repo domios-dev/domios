@@ -54,13 +54,16 @@ export function attachModelCatalogueChangedRefresh(
   scope?: { providerId: string; accountId?: string | null; contextKey?: string },
 ): () => void {
   let active = true;
-  const observed = new Map<string, ProviderCatalogueRevision>(scope ? [] : listAgentDescriptors().map((provider) => [
+  const observed = new Map<string, number>(scope ? [] : listAgentDescriptors().map((provider) => [
     provider.id,
-    { revision: provider.catalogue_version ?? 0 },
+    provider.catalogue_version ?? 0,
   ]));
   let unlisten: UnlistenFn | undefined;
   const reset = () => observed.clear();
-  if (typeof window !== "undefined") window.addEventListener("codeterm-peer-switch-reset", reset);
+  if (typeof window !== "undefined") {
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener(WEB_BOOT_CHANGED_EVENT, reset);
+  }
 
   void listenImpl<ModelCatalogueChanged>("model-catalogue-changed", (event) => {
     if (!active) return;
@@ -71,11 +74,10 @@ export function attachModelCatalogueChangedRefresh(
       if (scope.contextKey && change.context_key !== scope.contextKey) return;
     } else if (change.account_id != null || change.context_key != null) return;
     const key = scope ? JSON.stringify([change.provider, account, change.context_key]) : change.provider;
-    const next: ProviderCatalogueRevision = { revision: change.version };
-    if (!shouldRefetch(observed.get(key), next)) return;
-    observed.set(key, next);
-    if (scope?.accountId && scope.accountId !== "default") refetch();
-    else if (acceptModelCatalogueChange(change)) refetch();
+    if (change.version <= (observed.get(key) ?? 0)) return;
+    observed.set(key, change.version);
+    if (!scope) acceptModelCatalogueChange(change);
+    refetch();
   }).then((fn) => {
     if (active) {
       unlisten = fn;
@@ -88,7 +90,10 @@ export function attachModelCatalogueChangedRefresh(
 
   return () => {
     active = false;
-    if (typeof window !== "undefined") window.removeEventListener("codeterm-peer-switch-reset", reset);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("codeterm-peer-switch-reset", reset);
+      window.removeEventListener(WEB_BOOT_CHANGED_EVENT, reset);
+    }
     unlisten?.();
   };
 }

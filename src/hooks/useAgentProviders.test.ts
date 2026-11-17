@@ -1,6 +1,7 @@
 // Run: npx tsx src/hooks/useAgentProviders.test.ts
 
 import { agentDescriptorsRefreshing, acceptModelCatalogueChange, getAgentDescriptor, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
+import { createProviderCatalogueResource } from "../lib/providerCatalogueResource";
 import type { ProviderDescriptor } from "../lib/types";
 import {
   agentProvidersFromResponse,
@@ -150,20 +151,33 @@ test("catalogue listener refetches a newer provider version while mounted", () =
   assert(refetches === 1, "listener should refetch while active");
 });
 
-test("catalogue revisions trigger one refresh across mounted consumers", () => {
-  setAgentDescriptors([provider("shared-catalogue")]);
+test("a catalogue revision reaches each mounted consumer through one shared fetch", async () => {
+  const older = { ...provider("shared-catalogue"), catalogue_version: 1 };
+  const newer = { ...older, catalogue_version: 2,
+    available_models: [{ id: "new-model", display_name: "New model" }],
+    default_model: "new-model" };
+  setAgentDescriptors([older]);
   const handlers: Array<(event: {payload: {provider: string; version: number}}) => void> = [];
-  const counts = [0, 0];
+  const reads: Array<Promise<ProviderDescriptor>> = [];
+  let fetches = 0;
+  const resource = createProviderCatalogueResource(async () => ++fetches === 1 ? older : newer);
+  await resource.load();
   const listen = async <T>(_event: string, handler: (event: {payload: T}) => void) => {
     handlers.push(handler as typeof handlers[number]);
     return () => {};
   };
-  const cleanups = counts.map((_, index) => attachModelCatalogueChangedRefresh(() => counts[index]++, listen));
-  for (const version of [1, 1, 2, 1]) {
+  const cleanups = [0, 1].map(() => attachModelCatalogueChangedRefresh(() => {
+    resource.invalidate();
+    reads.push(resource.load());
+  }, listen));
+  for (const version of [1, 2, 2, 1]) {
     for (const handler of handlers) handler({payload: {provider: "shared-catalogue", version}});
   }
-  assert(counts.reduce((total, count) => total + count, 0) === 2, "only one consumer refreshes each new revision");
-  assert(counts.filter((count) => count > 0).length === 1, "unchanged revision does not fan out duplicate requests");
+  assert(reads.length === 2, "each consumer refreshes once for a new revision");
+  for (const descriptor of await Promise.all(reads)) {
+    assert(descriptor === newer, "every consumer receives the new models and default");
+  }
+  assert(fetches === 2, "the refresh requires only one additional fetch");
   cleanups.forEach((cleanup) => cleanup());
 });
 test("catalogue listener releases a late registration after cleanup", async () => {
