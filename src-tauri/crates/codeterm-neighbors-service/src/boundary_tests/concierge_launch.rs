@@ -20,7 +20,7 @@ module.exports = {
 };
 "#;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy() {
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
