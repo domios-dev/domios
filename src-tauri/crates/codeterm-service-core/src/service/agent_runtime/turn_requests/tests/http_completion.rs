@@ -8,7 +8,7 @@ fn adapter(completion_events: bool, source: &str) -> Arc<JsProvider> {
     )))
     .unwrap();
     let capability = fixture["capability"].clone();
-    let mut manifest = json!({"id":"sync-send-fixture","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"agentRuntime":capability},"permissions":{"subprocess":{"allow":[capability["command"]["binary"]]}}});
+    let mut manifest = json!({"id":"sync-send-fixture","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":capability},"permissions":{"subprocess":{"allow":[capability["command"]["binary"]]}}});
     manifest["capabilities"]["agentRuntime"]["httpSse"]["completionEvents"] =
         json!(completion_events);
     for alternative in manifest["capabilities"]["agentRuntime"]["httpSse"]["alternatives"]
