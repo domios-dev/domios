@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ownsReleaseAsset } from './release-asset-scope.mjs';
 import { sourceRepository } from './source-repository.mjs';
-import { verifyAssetDigests, promotionPlan } from './release-promote.mjs';
+import { verifyAssetDigests, promotionPlan } from './release-asset-inventory.mjs';
 
 const exec = promisify(execFile);
 export async function gh(args, env = process.env) {

@@ -12,6 +12,9 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HEADLESS_TARGETS } from './headless-release-package.mjs';
+import { promotionPlan, verifyAssetDigests } from './release-asset-inventory.mjs';
+
+export { promotionPlan, verifyAssetDigests } from './release-asset-inventory.mjs';
 
 const SOURCE_REPO = sourceRepository();
 // 1.19 transition mirror: PUBLISH_MIRROR also writes this repository; delete after 1.19 ships.
@@ -56,30 +59,6 @@ export function checkQualifiedRun({ run, jobs, sourceSha, branch, waiver }) {
     if (!matching.length) refuse(`run ${run.id} has no ${required.replace(/ \/ $/, '')} job`);
     const unfinished = matching.find(job => job.conclusion !== 'success');
     if (unfinished) refuse(`${unfinished.name} is ${unfinished.conclusion}`);
-  }
-}
-
-// Mirrors release-publish-platform.mjs: the source draft also takes the updater fragments, the public mirror does not.
-export function promotionPlan(receipt) {
-  const retained = receipt.files.map(file => file.name);
-  return {
-    source: retained,
-    mirror: retained.filter(name => !/^updater-.*\.json$/.test(name)),
-  };
-}
-
-export function verifyAssetDigests(files, assets, repository) {
-  for (const file of files) {
-    const matching = assets.filter(asset => asset.name === file.name);
-    if (matching.length !== 1) refuse(`${repository} expected one uploaded asset ${file.name}`);
-    const asset = matching[0];
-    if (!/^sha256:[a-f0-9]{64}$/.test(asset.digest ?? '')) {
-      refuse(`${repository} ${file.name} has no valid sha256 API digest`);
-    }
-    if (!/^[a-f0-9]{64}$/.test(file.sha256 ?? '') || asset.digest !== `sha256:${file.sha256}` ||
-        asset.size !== file.size || asset.state !== 'uploaded') {
-      refuse(`${repository} ${file.name} differs from its retained receipt`);
-    }
   }
 }
 

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import { admitDraft, draftNotes, qualificationTag, requireQualificationPush, prepareDraft, resetPlatform, sealDraft, uploadDraft } from './release-qualification-draft.mjs';
 import { promoteQualifiedDrafts } from './release-promote.mjs';
 import { fetchPlatformEvidence, PLATFORMS, storeAsync } from './release-dry-run-manifest.mjs';
@@ -11,6 +12,34 @@ const repository = 'domios-dev/domios';
 const draft = { databaseId: 7, isDraft: true, tagName: qualificationTag(tag, runId), targetCommitish: sourceSha,
   body: draftNotes(sourceSha, runId) + '\n<!-- qualification-complete -->' };
 const identity = { tag, sourceSha, runId, repository, env: {} };
+
+test('capture can load draft helpers while its manifest module is still evaluating', () => {
+  const manifest = new URL('./release-dry-run-manifest.mjs', import.meta.url).href;
+  const draftModule = new URL('./release-qualification-draft.mjs', import.meta.url).href;
+  const run = restoreCycle => {
+    const loader = `export async function load(url, context, nextLoad) {
+      const loaded = await nextLoad(url, context);
+      if (url === ${JSON.stringify(draftModule)} && ${restoreCycle}) return { ...loaded,
+        source: Buffer.from(loaded.source).toString('utf8').replace('./release-asset-inventory.mjs', './release-promote.mjs') };
+      if (url !== ${JSON.stringify(manifest)}) return loaded;
+      const source = Buffer.from(loaded.source).toString('utf8');
+      const entrypoint = source.lastIndexOf('if (process.argv[1]');
+      if (entrypoint < 0) throw new Error('Capture entrypoint not found');
+      return { ...loaded, source: source.slice(0, entrypoint) +
+        "await import('./release-qualification-draft.mjs');" };
+    }`;
+    return spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import { register } from 'node:module';
+      register(${JSON.stringify('data:text/javascript,' + encodeURIComponent(loader))});
+      await import(${JSON.stringify(manifest)});
+    `], { encoding: 'utf8', timeout: 10_000 });
+  };
+  const broken = run(true);
+  assert.equal(broken.status, 13, broken.stderr);
+  assert.match(broken.stderr, /unsettled top-level await/i);
+  const captured = run(false);
+  assert.equal(captured.status, 0, captured.stderr);
+});
 
 test('qualification mutation rejects dispatches, foreign actors, sources and versions', () => {
   const env = { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/release/1.20.1', GITHUB_SHA: sourceSha,
