@@ -55,9 +55,14 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
         let friendship = "a".repeat(64);
         service.set_neighbor_friend_receiver_for_test(&friendship, Some(true), 1);
         let metadata = Metadata::new(fixture.temp.path().into(), "owner");
+        let folder = fixture.temp.path().join("project");
+        std::fs::create_dir(&folder).unwrap();
         let permission = Permission {
             machine_access: access,
             allowed: true,
+            scope: "opaque topic".into(),
+            folder: (access == MachineAccess::Folder)
+                .then(|| folder.to_string_lossy().into_owned()),
             ..Default::default()
         };
         let registrations = Arc::new(parking_lot::Mutex::new(Vec::new()));

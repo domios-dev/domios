@@ -128,16 +128,23 @@ pub(crate) fn guard_save(
     context: &crate::backend::WriteContext,
     item: &super::NewMemItem,
 ) -> Result<(), String> {
-    if item.kind == super::MemKind::Skill
+    if neighbor_skill_save_authorized(context, item) {
+        return Ok(());
+    }
+    guard_instruction(&context.author, item.kind.as_str(), item.pinned)
+}
+
+pub(crate) fn neighbor_skill_save_authorized(
+    context: &crate::backend::WriteContext,
+    item: &super::NewMemItem,
+) -> bool {
+    context.author.is_neighbor()
+        && item.kind == super::MemKind::Skill
         && !item.pinned
         && context
             .replace_guard
             .as_ref()
             .is_some_and(|guard| guard.allows_skill_save(item.area.as_deref().unwrap_or("")))
-    {
-        return Ok(());
-    }
-    guard_instruction(&context.author, item.kind.as_str(), item.pinned)
 }
 
 pub fn refuse_neighbor_promotion(conn: &Connection, id: &str) -> Result<(), String> {
