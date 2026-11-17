@@ -135,10 +135,17 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
   const accessibleName = attachmentAccessibleName(kind, path, label);
   const inline = nativeImage ? inlineAttachmentSrc(nativeImage) : null;
   const local = useLocalImage(kind === "image" && !inline ? attachment.previewPath ?? path : undefined);
-  const image = inline ? { ...local, src: inline, failed: false } : local;
   const [open, setOpen] = useState<FullscreenImage | null>(null);
   const [playing, setPlaying] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [failedInline, setFailedInline] = useState<string | null>(null);
+  const image = inline ? {
+    ...local,
+    src: failedInline === inline ? undefined : inline,
+    failed: failedInline === inline,
+    markFailed: () => { setFailedInline(inline); setPreviewing(false); },
+    retry: () => setFailedInline(null),
+  } : local;
   const anchorRef = useRef<HTMLSpanElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -153,11 +160,11 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
     setPreviewing(false);
   }, []);
   return (
-    <span ref={anchorRef} className="relative" onPointerEnter={(event) => { if (event.pointerType === "mouse") setPreviewing(true); }} onPointerLeave={(event) => { if (event.pointerType === "mouse" && (!(event.relatedTarget instanceof Node) || !previewRef.current?.contains(event.relatedTarget))) setPreviewing(false); }}>
+    <span ref={anchorRef} className="relative" onPointerEnter={(event) => { if (event.pointerType === "mouse" && !(kind === "image" && image.failed)) setPreviewing(true); }} onPointerLeave={(event) => { if (event.pointerType === "mouse" && (!(event.relatedTarget instanceof Node) || !previewRef.current?.contains(event.relatedTarget))) setPreviewing(false); }}>
       <button
         ref={triggerRef}
         type="button"
-        aria-expanded={previewing && !open && !playing}
+        aria-expanded={previewing && !open && !playing && !(kind === "image" && image.failed)}
         data-testid="chat-inline-attachment"
         data-kind={kind}
         data-attachment-kind={kind}
@@ -165,16 +172,23 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
         data-attachment-label={label}
         aria-label={kind === "image" ? `Open image ${accessibleName}` : kind === "video" ? `Play video ${accessibleName}` : `${localArtifactOpeningAvailable() ? "Reveal" : "Preview"} ${KIND_NAMES[kind].toLowerCase()} ${accessibleName}`}
         title={path}
-        onFocus={() => { if (skipPreviewFocus.current) { skipPreviewFocus.current = false; return; } if (!restoringFocus.current) setPreviewing(true); }}
+        onFocus={() => { if (skipPreviewFocus.current) { skipPreviewFocus.current = false; return; } if (!restoringFocus.current && !(kind === "image" && image.failed)) setPreviewing(true); }}
         onBlur={(event) => { if (!previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}
         onClick={(event) => {
-          if (event.detail > 0 && window.matchMedia?.("(hover: none)").matches) { setPreviewing(true); return; }
+          if (event.detail > 0 && window.matchMedia?.("(hover: none)").matches) {
+            if (kind === "image" && image.failed) image.retry();
+            else setPreviewing(true);
+            return;
+          }
           event.currentTarget.focus();
           setPreviewing(false);
           if (opensImage || kind === "video") skipPreviewFocus.current = true;
           if (opensImage && image.src) setOpen({ name: accessibleName, src: image.src, path });
           else if (kind === "video") setPlaying(true);
-          else if (kind === "image") setPreviewing(true);
+          else if (kind === "image") {
+            if (image.failed) { image.retry(); setPreviewing(false); }
+            else setPreviewing(true);
+          }
           else if (localArtifactOpeningAvailable()) revealLocalFile(path);
           else setPreviewing(true);
         }}
@@ -182,7 +196,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
       >
         <CapsuleContent attachment={attachment} labelContent={labelContent} decoration={decoration} spanProps={spanProps} />
       </button>
-      <AnchoredPopover open={previewing && !open && !playing} anchor={triggerRef} floatingRef={previewRef} placement="top-start" gap={0} onClose={closePreview} style={{ overflow: "auto" }} onPointerEnter={() => setPreviewing(true)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setPreviewing(false); }}>
+      <AnchoredPopover open={previewing && !open && !playing && !(kind === "image" && image.failed)} anchor={triggerRef} floatingRef={previewRef} placement="top-start" gap={0} onClose={closePreview} style={{ overflow: "auto" }} onPointerEnter={() => setPreviewing(true)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setPreviewing(false); }}>
           <CapsulePreview kind={kind} path={path} label={label} image={image} onClose={closePreview} closeLabel={`Close preview ${accessibleName}`} actions={<>{actions}
             {(opensImage || kind === "video") && <Button variant="icon" aria-label={`Expand ${kind} ${accessibleName}`} title="Expand" onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: accessibleName, src: image.src, path }); }} style={{ minWidth: 44, minHeight: 44 }}><Maximize2 size={16} aria-hidden /></Button>}
           </>} />
