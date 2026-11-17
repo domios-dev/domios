@@ -67,6 +67,7 @@ export function UsageBubble({
   const { usage: modelUsage, refresh: refreshModelUsage } = useProviderModelUsageState(
     provider,
     trackingEnabled,
+    accountId,
   );
   const groupUsage = modelId ? usageForModel(modelUsage, modelGroups, modelId) : null;
   const groupSnapshot = useMemo(

@@ -2,12 +2,15 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../lib/types";
+import type { ProviderAccountsSnapshot } from "../../hooks/providerAccountsTypes";
 
 const fixture = vi.hoisted(() => {
   const workspace = {
     id: "workspace", name: "Workspace", tabs: [] as string[], active_tab_id: null, cwd: "/workspace", cwd_missing: false,
   };
   return {
+    accounts: { snapshot: null as ProviderAccountsSnapshot | null, selectedAccountId: null as string | null, select: vi.fn(), loading: false, error: null as string | null },
+    accountHook: vi.fn(),
     workspace,
     state: { workspaces: [workspace], active_workspace_id: workspace.id, focused_tab_id: "manager",
       tabs: { manager: { id: "manager", role: "Manager", agent_type: "opencode", session_binding_nonce: "manager-nonce" } } },
@@ -45,6 +48,10 @@ vi.mock("../../hooks/useAgentProviders", () => ({
   useAgentProviders: () => fixture.providers,
 }));
 vi.mock("../../hooks/useModelPresets", () => ({ useModelPresets: () => fixture.presets }));
+vi.mock("../../hooks/useAccountSelectors", () => ({ useSpawnAccounts: (providerId: string | null, workspaceId: string) => {
+  fixture.accountHook(providerId, workspaceId);
+  return fixture.accounts;
+} }));
 vi.mock("../../lib/providerInstallStatus", () => ({
   probeProviderInstallMap: vi.fn(async () => ({})),
 }));
@@ -69,6 +76,8 @@ let root: Root | null = null;
 let host: HTMLDivElement;
 
 beforeEach(() => {
+  Object.assign(fixture.accounts, { snapshot: null, selectedAccountId: null, loading: false, error: null });
+  fixture.accounts.select.mockReset(); fixture.accountHook.mockClear();
   vi.mocked(invoke).mockClear();
   localStorage.clear();
   localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode" }));
@@ -547,4 +556,27 @@ it("explains how to configure a Team provider with no ready profiles and prevent
   expect(start.disabled).toBe(true);
   await act(async () => start.click());
   expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
+});
+
+it("passes the selected account after the launch-profile position for a single-provider session", async () => {
+  fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [], accounts: {} }] as never[];
+  fixture.accounts.snapshot = { providerId: "opencode", revision: "opaque", accounts: [
+    { id: "default", identity: "usual", status: "ready", tabsInUse: 0 },
+    { id: "work", identity: "work", status: "signedOut", tabsInUse: 0 },
+  ], continuation: "unverified", automaticSwitch: true, workspaceOverrides: [] };
+  fixture.accounts.selectedAccountId = "work";
+  await renderPicker();
+  expect(fixture.accountHook).toHaveBeenLastCalledWith("opencode", workspace.id);
+  expect(buttonNamed("Account")?.getAttribute("data-value")).toBe("work");
+  await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+  expect(fixture.actions.spawnAgentTab).toHaveBeenCalledExactlyOnceWith("workspace", "opencode", "/workspace", undefined, undefined, undefined, undefined, undefined, undefined, "work");
+});
+
+it("waits for an account choice from the hook before enabling a capable single-provider start", async () => {
+  fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [], accounts: {} }] as never[];
+  fixture.accounts.loading = true;
+  await renderPicker();
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.disabled).toBe(true);
+  await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+  expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
 });

@@ -528,6 +528,39 @@ fn stage_after_update_prompt(
 }
 
 impl ServiceContext {
+    pub(crate) fn continue_after_account(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        binding_nonce: &str,
+        previous_nonce: &str,
+    ) -> Result<(), String> {
+        {
+            let mut mux = self.mux.write();
+            let tab = mux
+                .get_tab_mut(tab_id)
+                .ok_or("The account tab closed before work could resume")?;
+            if tab.agent_session_id.as_deref() != Some(session_id)
+                || tab.session_binding_nonce.as_deref() != Some(binding_nonce)
+                || tab.reported_session_binding_nonce.as_deref() != Some(binding_nonce)
+            {
+                return Err(SESSION_CHANGED.into());
+            }
+            crate::multiplexer::types::request_continue(&mut tab.turn_resume,session_id,previous_nonce,
+                "Your same conversation resumed on another signed-in account after the previous account reached its limit. Continue the interrupted work.".into());
+        }
+        match step_for_service(self, tab_id, binding_nonce) {
+            Step::Claimed(claim) => self.deliver_turn_resume(tab_id, claim, binding_nonce),
+            Step::Settled => {
+                Err("The continuation was already settled; no input was replayed".into())
+            }
+            Step::Waiting => {
+                Err("The resumed conversation is not ready for its continuation".into())
+            }
+            Step::Skipped(reason) => Err(reason.into()),
+        }
+    }
+
     pub(crate) fn continue_recovered_runtime(
         &self,
         tab_id: &str,
@@ -552,7 +585,7 @@ impl ServiceContext {
             nonce
         };
         if let Step::Claimed(claim) = step_for_service(self, tab_id, &resumed_epoch) {
-            self.deliver_turn_resume(tab_id, claim, &resumed_epoch);
+            let _ = self.deliver_turn_resume(tab_id, claim, &resumed_epoch);
         }
     }
     /// Fold a live turn edge into the tab's durable mark. Frozen once a graceful
@@ -715,7 +748,9 @@ impl ServiceContext {
         let tab = tab_id.to_string();
         let spawned = std::thread::Builder::new()
             .name("turn-resume".into())
-            .spawn(move || service.deliver_turn_resume(&tab, claim, start_epoch));
+            .spawn(move || {
+                let _ = service.deliver_turn_resume(&tab, claim, start_epoch);
+            });
         if let Err(error) = spawned {
             log::error!("[turn-resume] tab={tab_id} delivery thread failed to start: {error}");
             self.withdraw_turn_resume(tab_id, start_epoch, "delivery_thread_unavailable");
@@ -724,7 +759,12 @@ impl ServiceContext {
 
     /// The claim is made durable before the payload is written, so a crash
     /// after the write can never deliver a second continue for this turn.
-    fn deliver_turn_resume(&self, tab_id: &str, claim: Claim, start_epoch: &str) {
+    fn deliver_turn_resume(
+        &self,
+        tab_id: &str,
+        claim: Claim,
+        start_epoch: &str,
+    ) -> Result<(), String> {
         let delivery = deliver_claim(
             &claim,
             || {
@@ -756,20 +796,24 @@ impl ServiceContext {
             },
         );
         match delivery {
-            Ok(()) => log::debug!(
-                "[turn-resume] tab={tab_id} session={} outcome=submitted",
-                claim.session_id
-            ),
+            Ok(()) => {
+                log::debug!(
+                    "[turn-resume] tab={tab_id} session={} outcome=submitted",
+                    claim.session_id
+                );
+                Ok(())
+            }
             Err(failure) => {
                 let incident = delivery_incident(tab_id, &claim.session_id, &failure);
-                let reason = incident["code"].as_str().unwrap_or(SEND_REFUSED);
-                self.withdraw_turn_resume(tab_id, start_epoch, reason);
+                let reason = incident["code"].as_str().unwrap_or(SEND_REFUSED).to_owned();
+                self.withdraw_turn_resume(tab_id, start_epoch, &reason);
                 self.log_system_notice(
                     "Restart continuation was not confirmed".into(),
                     Some(incident.to_string()),
                     Some("warning"),
                 );
                 self.ui.emit("turn-resume-incident", incident);
+                Err(reason.into())
             }
         }
     }

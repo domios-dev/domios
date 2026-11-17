@@ -13,7 +13,9 @@ pub(super) fn usage_sources(session_file: &Path, session_id: &str) -> Vec<PathBu
     let Some(parent) = session_file.parent() else {
         return Vec::new();
     };
-    let Ok(entries) = std::fs::read_dir(parent.join(session_id).join("subagents")) else {
+    let Ok(entries) =
+        crate::provider_account::read_directory(parent.join(session_id).join("subagents"))
+    else {
         return Vec::new();
     };
     let mut paths: Vec<PathBuf> = entries

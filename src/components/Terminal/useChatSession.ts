@@ -114,6 +114,7 @@ export function useChatSession({
   history,
   live = true,
   queueSendsBehindTurn = false,
+  hostRows,
 }: {
   tabId: string;
   agentSessionId: string | null;
@@ -132,6 +133,7 @@ export function useChatSession({
   /** Rows keep committing to the store; a held view renders them when live again. */
   live?: boolean;
   queueSendsBehindTurn?: boolean;
+  hostRows?:readonly ChatMessage[];
 }) {
   const activatedRef = useRef(false);
   if (active) activatedRef.current = true;
@@ -464,6 +466,7 @@ export function useChatSession({
   }, [tabId]);
 
   const view = useChatWindowView({
+    hostRows,
     queueSendsBehindTurn,
     localAttempt,
     tabId,

@@ -41,7 +41,7 @@ pub(super) fn owner_only(file: &File) -> io::Result<bool> {
         return Err(io::Error::from_raw_os_error(result as i32));
     }
     let descriptor = LocalAllocation(descriptor);
-    if !same_owner(owner, user.sid()) {
+    if !same_owner(owner, user.sid(), user.owner_sid()) {
         return Ok(false);
     }
     descriptor_mode_ok(&descriptor, dacl, &user)
@@ -50,8 +50,11 @@ pub(super) fn owner_only(file: &File) -> io::Result<bool> {
 fn same_owner(
     owner: windows_sys::Win32::Security::PSID,
     expected: windows_sys::Win32::Security::PSID,
+    default_owner: windows_sys::Win32::Security::PSID,
 ) -> bool {
-    !owner.is_null() && unsafe { EqualSid(owner, expected) } != 0
+    !owner.is_null()
+        && (unsafe { EqualSid(owner, expected) } != 0
+            || unsafe { EqualSid(owner, default_owner) } != 0)
 }
 
 #[cfg(test)]

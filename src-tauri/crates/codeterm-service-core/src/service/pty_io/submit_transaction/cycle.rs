@@ -234,6 +234,7 @@ impl Drop for ClaimLease {
 pub struct SubmitCycleClaim {
     pty_id: String,
     pub(super) trace_id: Option<String>,
+    pub(super) user_send_id: Option<String>,
     pub(super) cycle: Arc<SubmitCycle>,
     pub(super) generation: u64,
     _lease: Arc<ClaimLease>,
@@ -251,7 +252,8 @@ impl SubmitCycleClaim {
             .is_some_and(|observed| observed.load(Ordering::Acquire))
     }
 
-    pub(crate) fn with_trace_id(mut self, id: &str) -> Self {
+    pub(crate) fn with_user_send_id(mut self, id: &str) -> Self {
+        self.user_send_id = Some(id.into());
         if crate::flow_trace::enabled() {
             self.trace_id = Some(id.into());
         }
@@ -332,6 +334,7 @@ fn claim_cycle(
     SubmitCycleClaim {
         pty_id: pty_id.to_string(),
         trace_id: None,
+        user_send_id: None,
         cycle: Arc::clone(&cycle),
         generation,
         _lease: Arc::new(ClaimLease {

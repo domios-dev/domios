@@ -5,6 +5,7 @@ import { tabActivity } from "../../lib/tabActivity";
 
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { useChatTabNameResolver } from "./useChatTabNameResolver";
+import { accountNoticeRows } from "./accountNoticeRows";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { useTabLock } from "../billing/useTabLock";
@@ -14,7 +15,9 @@ import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { ChatColumn } from "./ChatColumn";
 import { heldMessagesForLaunch } from "./chatSetupModel";
 import { useComposerPresentation } from "./useComposerPresentation";
-import { RuntimeLoginActions, signInPlacement } from "./RuntimeLoginActions";
+import { signInPlacement } from "./RuntimeLoginActions";
+import { AccountRuntimeLoginActions } from "./AccountRuntimeLoginActions";
+import { AccountTransitionActions } from "./AccountTransitionActions";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeSessionUnavailable, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
@@ -274,6 +277,7 @@ function TabSessionChatBody({
   const composerErrorNotice = useMemo(() => createChatErrorNotice(tabId, { upsertToast, dismissToast }), [tabId, upsertToast, dismissToast]);
   const showComposerError = composerErrorNotice.show;
 
+  const hostAccountRows=useMemo(()=>accountNoticeRows(tab?.restorable_launch?.account_notices ?? [],tab?.agent_type,agentSessionId),[tab?.restorable_launch?.account_notices,tab?.agent_type,agentSessionId]);
   const {
     loading,
     recovering,
@@ -300,6 +304,7 @@ function TabSessionChatBody({
     updateOptimistic,
     observeChatSendStatus,
   } = useChatSession({
+    hostRows:hostAccountRows,
     tabId,
     agentSessionId,
     sessionBindingNonce: tab?.session_binding_nonce,
@@ -926,7 +931,7 @@ function TabSessionChatBody({
       <div className="relative flex-1 min-h-0">
       {signInState && signIn === "center" && (
         <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto p-4" data-testid="chat-sign-in">
-          <RuntimeLoginActions key={`${tabId}:${signInState.epoch}`} variant="center" tabId={tabId} state={signInState}
+          <AccountRuntimeLoginActions tab={tab} key={`${tabId}:${signInState.epoch}`} variant="center" tabId={tabId} state={signInState}
             iconSvg={provider?.iconSvg} providerId={tabProvider ?? undefined} onCheck={() => { void runtime.retry(); }} />
         </div>
       )}
@@ -1134,7 +1139,8 @@ function TabSessionChatBody({
           void runThreadHistory("revert", turnId, true);
         }}
       />}
-        {signInState && signIn === "inline" && <RuntimeLoginActions key={`${tabId}:${signInState.epoch}`} variant="inline" tabId={tabId} state={signInState}
+        {tab && !signInState && <AccountTransitionActions tab={tab}/>}
+        {signInState && signIn === "inline" && <AccountRuntimeLoginActions tab={tab} key={`${tabId}:${signInState.epoch}`} variant="inline" tabId={tabId} state={signInState}
           iconSvg={provider?.iconSvg} providerId={tabProvider ?? undefined} onCheck={() => { void runtime.retry(); }} />}
         {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
           idlePlaceholder={signInState ? "Sign in to start" : undefined}

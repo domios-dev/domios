@@ -6,6 +6,74 @@ use crate::plan::{
 use crate::service::plan::interruption::{checkpoint_digest, PROVIDER_EXHAUSTED_LABEL};
 use crate::service::plan::{NewTask, PlanStore};
 
+#[test]
+fn account_quota_targets_only_tabs_on_the_observed_provider_account() {
+    let (mut mux, implicit) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&implicit).unwrap();
+    let a = mux.create_tab(&workspace).unwrap();
+    let b = mux.create_tab(&workspace).unwrap();
+    for (tab, account) in [
+        (&implicit, None),
+        (&a, Some("account-a")),
+        (&b, Some("account-b")),
+    ] {
+        let tab = mux.get_tab_mut(tab).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.restorable_launch.account_id = account.map(str::to_owned);
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    assert!(account_matches(
+        &fixture.service,
+        &a,
+        "fixture-provider",
+        Some("account-a")
+    ));
+    assert!(!account_matches(
+        &fixture.service,
+        &b,
+        "fixture-provider",
+        Some("account-a")
+    ));
+    assert!(!account_matches(
+        &fixture.service,
+        &implicit,
+        "fixture-provider",
+        Some("account-a")
+    ));
+    assert!(account_matches(
+        &fixture.service,
+        &implicit,
+        "fixture-provider",
+        None
+    ));
+    assert!(!account_matches(
+        &fixture.service,
+        &a,
+        "different-provider",
+        Some("account-a")
+    ));
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&a)
+        .unwrap()
+        .restorable_launch
+        .account_id = Some("account-b".into());
+    assert!(!account_matches(
+        &fixture.service,
+        &a,
+        "fixture-provider",
+        Some("account-a")
+    ));
+    assert!(!account_matches(
+        &fixture.service,
+        "closed-tab",
+        "fixture-provider",
+        None
+    ));
+}
+
 fn allowance(remaining_pct: f32, observed_at: u64) -> ProviderAllowance {
     ProviderAllowance {
         remaining_pct,

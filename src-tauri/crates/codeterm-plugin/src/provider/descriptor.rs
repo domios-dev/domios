@@ -11,6 +11,7 @@ pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         settings.push(usage_store_tracking_section());
     }
     ProviderDescriptor {
+        accounts: provider.account_capability(),
         neighbor_concierge: super::neighbor_concierge::describe(provider, platform),
         general_agent_offer_when_absent: provider.general_agent_offer_when_absent(),
         attachments: provider.attachment_capabilities(),

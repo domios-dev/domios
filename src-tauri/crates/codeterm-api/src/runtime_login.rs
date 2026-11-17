@@ -91,6 +91,9 @@ pub(super) async fn login(
     Path(tab): Path<String>,
     Json(request): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
+    if request.action.as_deref() == Some("backupCredentials") {
+        require_permission_authority(&state, &headers)?;
+    }
     if request.api_key.is_some() && !super::auth::is_local_caller(&state, &headers) {
         return Err((
             StatusCode::FORBIDDEN,

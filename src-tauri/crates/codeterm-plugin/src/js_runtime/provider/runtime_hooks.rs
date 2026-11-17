@@ -28,7 +28,7 @@ impl JsProvider {
         }
         let op = op.clone();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
-        tokio::task::spawn_blocking(move || {
+        crate::js_runtime::spawn_blocking(move || {
             validate_runtime_operation(&ctx, &op)?;
             let plan = super::super::vm::call_runtime_hook(
                 &vm,
@@ -65,7 +65,7 @@ impl JsProvider {
         let reply = reply.clone();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
         let queued = std::time::Instant::now();
-        tokio::task::spawn_blocking(move || {
+        crate::js_runtime::spawn_blocking(move || {
             let executing = std::time::Instant::now();
             validate_runtime_operation(&ctx, &op)?;
             validate_runtime_state(&state)?;
@@ -109,7 +109,7 @@ impl JsProvider {
         let state = state.clone();
         let frames = frames.to_vec();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
-        tokio::task::spawn_blocking(move || {
+        crate::js_runtime::spawn_blocking(move || {
             validate_runtime_context(&ctx)?;
             if ctx
                 .stream_window

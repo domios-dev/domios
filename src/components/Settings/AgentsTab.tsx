@@ -9,6 +9,7 @@ import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
+import { ProviderAccountsSection } from "./ProviderAccountsSection";
 import { AcpProfilesCard } from "./AcpProfilesCard";
 import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
 import { ModelEndpointsCard } from "./model_endpoints/ModelEndpointsCard";
@@ -102,11 +103,13 @@ export function AgentsOverview({
 
 export function AgentProviderScreen({
   providerId,
+  focusCard,
   fullConfig,
   onUpdateFullConfig,
   onProviderGone,
 }: {
   providerId: string;
+  focusCard?:SettingsCardAnchorId;
   fullConfig: AppConfig;
   onUpdateFullConfig: (next: AppConfig) => void;
   onProviderGone: () => void;
@@ -156,6 +159,7 @@ export function AgentProviderScreen({
         </div>
       </div>
       <ProviderInstallCard provider={provider} />
+      {provider.accounts && <SettingsCardAnchor id="provider-accounts" focused={focusCard==="provider-accounts"}><ProviderAccountsSection key={provider.id} provider={provider} /></SettingsCardAnchor>}
       {provider.agent_runtime?.launchProfiles && <AcpProfilesCard provider={provider} />}
       {sections.integration && <ProviderIntegrationHealthCard provider={provider} />}
       {sections.modelEndpoints && (

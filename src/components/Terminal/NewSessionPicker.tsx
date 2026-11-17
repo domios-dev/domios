@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { useSpawnAccounts } from "../../hooks/useAccountSelectors";
+import { SpawnAccountPill } from "./SpawnAccountPill";
 import { useModelPresets } from "../../hooks/useModelPresets";
 import { invoke } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
@@ -100,6 +102,8 @@ export function NewSessionPicker({
   const remote = cloudExecution.enabled && section === "workspace" ? remoteProvider(menuProviders, localId) : undefined;
   const location = remote && execution.providerId === localId ? execution.location : "local";
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
+  const accountProviderId = location === "local" && selectedProvider?.accounts ? selectedProvider.id : null;
+  const accounts = useSpawnAccounts(accountProviderId, workspaceId);
   const [busy, setBusy] = useState(false);
   const [dismissing, setDismissing] = useState(false);
   const [startError, setStartError] = useState<StartErrorView | null>(null);
@@ -260,6 +264,7 @@ export function NewSessionPicker({
     preset?: string,
     executionMode?: string,
     profile?: string,
+    accountId?: string,
   ) => {
     if (!executionMode && disabledProviderIds.has(providerId)) return;
     const targetCwd = section === "general" ? workspaceCwd ?? selectedWorkspace?.cwd : selectedWorkspace?.cwd ?? workspaceCwd;
@@ -268,7 +273,8 @@ export function NewSessionPicker({
       return;
     }
     if (profile) {
-      await finishSpawn(() => spawnAgentTab(workspaceId, providerId, targetCwd ?? undefined, modelId, effortId, preset, undefined, undefined, profile));
+      await finishSpawn(() => spawnAgentTab(workspaceId, providerId, targetCwd ?? undefined, modelId, effortId, preset, undefined, undefined, profile,
+        ...(accountId ? [accountId] as const : [] as const)));
       return;
     }
     await finishSpawn(() =>
@@ -279,13 +285,15 @@ export function NewSessionPicker({
         modelId,
         effortId,
         preset,
-        ...(section === "general" ? ["fresh_general" as const] : []),
+        ...(accountId ? [section === "general" ? "fresh_general" as const : undefined, undefined, undefined, accountId] as const
+          : section === "general" ? ["fresh_general" as const] : [] as const),
       ),
     );
   }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd, section]);
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
+    if (accountProviderId && (accounts.loading || !accounts.snapshot || !accounts.selectedAccountId)) return;
     if (location === "cloud") {
       const target = remoteSpawnSelection(menuProviders, choice.providerId, environmentId);
       await runProviderSpawn(target.providerId, undefined, undefined, target.preset, target.executionMode);
@@ -293,11 +301,11 @@ export function NewSessionPicker({
     }
     if (!profileReady) return;
     if (launchProfile) {
-      await runProviderSpawn(choice.providerId, profileModel.model || undefined, profileModel.effort || undefined, choice.preset, undefined, launchProfile);
+      await runProviderSpawn(choice.providerId, profileModel.model || undefined, profileModel.effort || undefined, choice.preset, undefined, launchProfile, accounts.selectedAccountId ?? undefined);
       return;
     }
-    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset);
-  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort]);
+    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset, undefined, undefined, accounts.selectedAccountId ?? undefined);
+  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort, accountProviderId, accounts.loading, accounts.snapshot, accounts.selectedAccountId]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")
@@ -399,6 +407,7 @@ export function NewSessionPicker({
     && remote.remote_task.environments.some(environment => environment.id === environmentId);
   const canStart = choice.mode === "single"
     ? location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady
+      && (!accountProviderId || (!accounts.loading && Boolean(accounts.snapshot && accounts.selectedAccountId)))
     : choice.orchestratorProviderId.length > 0
       && choice.plannerProviderId.length > 0
       && !disabledProviderIds.has(choice.orchestratorProviderId)
@@ -503,7 +512,10 @@ export function NewSessionPicker({
                   effortTestId="picker-effort-single"
                   onInstallProvider={handleInstallProvider}
                   modelSlot={singleProfile.modelSlot}
+                  accountSlot={accountProviderId ? <SpawnAccountPill snapshot={accounts.snapshot} providerName={selectedProvider?.display_name ?? ""}
+                    selectedAccountId={accounts.selectedAccountId} disabled={busy || accounts.loading} onSelect={accounts.select} /> : undefined}
                 />
+                {accountProviderId && accounts.error && <InlineErrorNotice error={accounts.error} operation="choosing an account" />}
                 {singleProfile.details}</>
               ) : (
                 <TeamTemplateSection

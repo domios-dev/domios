@@ -121,12 +121,20 @@ impl AgentLifecyclePort for LifecyclePortImpl {
         self.svc().resume_exited_member_on_shell_ready(tab_id)
     }
 
-    fn signal_provider_exhaustion(&self, provider: &str) -> Result<usize, PlanError> {
-        self.svc().signal_provider_exhaustion(provider)
+    fn signal_provider_exhaustion(
+        &self,
+        provider: &str,
+        account: Option<&str>,
+    ) -> Result<usize, PlanError> {
+        self.svc().signal_provider_exhaustion(provider, account)
     }
 
-    fn signal_provider_recovery(&self, provider: &str) -> Result<usize, PlanError> {
-        self.svc().signal_provider_recovery(provider)
+    fn signal_provider_recovery(
+        &self,
+        provider: &str,
+        account: Option<&str>,
+    ) -> Result<usize, PlanError> {
+        self.svc().signal_provider_recovery(provider, account)
     }
 
     fn signal_worker_interruption(

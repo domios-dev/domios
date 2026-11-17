@@ -570,6 +570,7 @@ fn runtime_worker_identity_is_stamped_before_launch() {
     let mut metadata = crate::service::spawn::ChatBackendLaunchMetadata {
         agent: crate::service::spawn::AgentSpawnSpec {
             provider: "runtime-fixture".into(),
+            account_id: Some("account-runtime".into()),
             worker_id: Some("worker-exact".into()),
             provisioned_cwd: Some("/fixture".into()),
             report_target_tab_id: Some("report-exact".into()),
@@ -596,6 +597,10 @@ fn runtime_worker_identity_is_stamped_before_launch() {
     metadata.params.report_target_mesh_peer = None;
     super::stamp_chatbackend_launch_identity(tab, &metadata);
     assert_eq!(tab.neighbor_authority.as_ref(), Some(&authority));
+    assert_eq!(
+        tab.restorable_launch.account_id.as_deref(),
+        Some("account-runtime")
+    );
     assert_eq!(tab.ownership.as_ref(), Some(&ownership));
     assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("origin-peer"));
     assert_eq!(tab.worker_id.as_deref(), Some("worker-exact"));

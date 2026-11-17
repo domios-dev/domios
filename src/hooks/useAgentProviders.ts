@@ -51,9 +51,10 @@ export function syncAgentDescriptorCache(
 export function attachModelCatalogueChangedRefresh(
   refetch: () => void,
   listenImpl: typeof listen = listen,
+  scope?: { providerId: string; accountId?: string | null; contextKey?: string },
 ): () => void {
   let active = true;
-  const observed = new Map<string, ProviderCatalogueRevision>(listAgentDescriptors().map((provider) => [
+  const observed = new Map<string, ProviderCatalogueRevision>(scope ? [] : listAgentDescriptors().map((provider) => [
     provider.id,
     { revision: provider.catalogue_version ?? 0 },
   ]));
@@ -63,10 +64,18 @@ export function attachModelCatalogueChangedRefresh(
 
   void listenImpl<ModelCatalogueChanged>("model-catalogue-changed", (event) => {
     if (!active) return;
-    const next: ProviderCatalogueRevision = { revision: event.payload.version };
-    if (!shouldRefetch(observed.get(event.payload.provider), next)) return;
-    observed.set(event.payload.provider, next);
-    if (acceptModelCatalogueChange(event.payload)) refetch();
+    const change = event.payload;
+    const account = change.account_id ?? "default";
+    if (scope) {
+      if (change.provider !== scope.providerId || account !== (scope.accountId ?? "default")) return;
+      if (scope.contextKey && change.context_key !== scope.contextKey) return;
+    } else if (change.account_id != null || change.context_key != null) return;
+    const key = scope ? JSON.stringify([change.provider, account, change.context_key]) : change.provider;
+    const next: ProviderCatalogueRevision = { revision: change.version };
+    if (!shouldRefetch(observed.get(key), next)) return;
+    observed.set(key, next);
+    if (scope?.accountId && scope.accountId !== "default") refetch();
+    else if (acceptModelCatalogueChange(change)) refetch();
   }).then((fn) => {
     if (active) {
       unlisten = fn;

@@ -44,6 +44,7 @@ pub mod plugin_manager;
 pub mod prompt;
 pub mod prompts;
 pub mod provider;
+pub mod provider_account;
 pub mod provider_cli;
 pub mod provider_command;
 pub mod provider_compat;

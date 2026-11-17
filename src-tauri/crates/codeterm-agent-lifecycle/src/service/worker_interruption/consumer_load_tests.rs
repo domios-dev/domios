@@ -38,7 +38,7 @@ fn signal_provider_exhaustion_never_loads_unmatched_plans() {
 
     assert_eq!(
         fx.service
-            .signal_provider_exhaustion("fixture-provider-a")
+            .signal_provider_exhaustion("fixture-provider-a", None)
             .unwrap(),
         0,
         "no task names an interruption owner"
@@ -77,7 +77,7 @@ fn signal_provider_recovery_never_loads_unmatched_plans() {
 
     assert_eq!(
         fx.service
-            .signal_provider_recovery("fixture-provider-a")
+            .signal_provider_recovery("fixture-provider-a", None)
             .unwrap(),
         0,
         "another provider paused it"

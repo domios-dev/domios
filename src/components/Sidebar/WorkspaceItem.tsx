@@ -3,6 +3,11 @@ import { invoke, webCapability } from "../../lib/bridge";
 import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus, AlertTriangle } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { useWorkspaceAccounts } from "../../hooks/useAccountSelectors";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { workspaceAccountMenu } from "./workspaceAccountMenu";
+import { describeError } from "../../lib/describeError";
+import { publishNotice } from "../../lib/notices";
 import { useShellProfiles } from "../../hooks/useShellProfiles";
 import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
@@ -93,6 +98,7 @@ function WorkspaceItemInner({
   const agentsConfig = config.agents ?? {};
   // plugins with a `src/index.ts` FE module, which left drop-in `~/.domios/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
   const { providers } = useAgentProviders();
+  const accounts = useWorkspaceAccounts(workspace.id);
   const workspaceText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const workspaceTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
   const workspaceCountText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
@@ -154,6 +160,13 @@ function WorkspaceItemInner({
         },
       },
     ];
+    const accountMenu = workspaceAccountMenu(workspace.id,
+      accounts.providers.filter(accountProvider => Boolean(providers.find(provider => provider.id === accountProvider.providerId)?.accounts)),
+      (providerId, accountId) => { void accounts.choose(providerId, accountId).catch(error => {
+        const description = describeError(error, { operation: "choosing a workspace account" });
+        publishNotice({ kind: "toast", title: description.title, detail: description.cause, severity: "Warning", workspaceId: workspace.id });
+      }); });
+    if (accountMenu) items.push(accountMenu);
     if (workspace.cwd) {
       const reveal = webCapability("open_folder");
       items.push({
@@ -175,7 +188,7 @@ function WorkspaceItemInner({
       });
     }
     return workspace.cwd_missing ? items.filter((item) => !["New session", "Quick spawn", "New Terminal"].includes(item.label ?? "")) : items;
-  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.protected, workspace.cwd, workspace.cwd_missing, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError]);
+  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.id, workspace.protected, workspace.cwd, workspace.cwd_missing, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError, accounts.providers, accounts.choose]);
 
   return <>
     <div
@@ -267,6 +280,7 @@ function WorkspaceItemInner({
       <div className="flex shrink-0 items-center gap-0.5">
         <DropdownMenu
           items={menuItems}
+          header={accounts.error ? <InlineErrorNotice error={accounts.error} operation="choosing a workspace account" /> : undefined}
           className={
             touchMode
               ? "shrink-0 flex h-11 w-11 items-center justify-center"

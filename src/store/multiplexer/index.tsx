@@ -869,6 +869,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     intent?: SessionLaunchIntent,
     executionMode?: string,
     launchProfile?: string,
+    accountId?: string,
   ): Promise<SpawnedTab | null> => {
     if (precheckFreeLimit(["agent.tabs"])) return null;
     if (intent === "fresh_general") {
@@ -892,7 +893,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     spawnInFlight.current.add(guardKey);
     try {
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...(launchProfile ? { launchProfile } : {}), ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
+        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...(launchProfile ? { launchProfile } : {}), ...(accountId ? { accountId } : {}), ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {

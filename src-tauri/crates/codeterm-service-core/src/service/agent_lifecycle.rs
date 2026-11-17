@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 
 use crate::pty::screen_state::ScreenChangeSignal;
 
+pub mod account_restart;
 pub mod model_request;
 mod model_switch;
 pub mod sleep_transition;
@@ -16,6 +17,7 @@ mod staged_completion;
 pub mod staged_switches;
 pub mod timing;
 pub mod worker_binding;
+pub use account_restart::{AccountRestartBinding, AccountRestartTarget};
 
 pub use model_switch::{
     ControlChange, ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence,
@@ -75,6 +77,9 @@ pub struct RestartOutcome {
     /// The tab's plan/task caller binding was re-established against its own
     /// authoritative session. Always settled before `agent_ready` is returned.
     pub binding_restored: bool,
+    pub source_account_restored: bool,
+    pub account_target_refused: bool,
+    pub account_refusal_nonce: Option<String>,
     /// An exited provider was relaunched in its own shell PTY; nothing was torn down.
     pub recovered_in_place: bool,
     pub old_pty_id: Option<String>,
@@ -98,6 +103,9 @@ impl RestartOutcome {
             old_pty_torn_down: false,
             agent_ready: false,
             binding_restored: false,
+            source_account_restored: false,
+            account_target_refused: false,
+            account_refusal_nonce: None,
             recovered_in_place: false,
             old_pty_id: (!snap.pty_id.is_empty()).then(|| snap.pty_id.clone()),
             new_pty_id: None,
@@ -159,6 +167,7 @@ pub fn screen_shows_agent_tui(
 
 #[derive(Default)]
 pub struct RestartOptions {
+    pub account_restart: Option<AccountRestartTarget>,
     pub force: bool,
     pub grace_secs: u64,
     pub target_provider: Option<String>,

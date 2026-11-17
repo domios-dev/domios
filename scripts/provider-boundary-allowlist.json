@@ -860,13 +860,6 @@
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/context.rs",
-      "token": "claude",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/context.rs",
       "token": "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
@@ -1484,7 +1477,7 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/sessions.rs",
       "token": "claude",
-      "count": 6,
+      "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -1499,20 +1492,6 @@
       "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/sessions.rs",
       "token": "claude_projects_root",
       "count": 3,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/sessions.rs",
-      "token": "ClaudeProvider",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/sessions.rs",
-      "token": "encode_cwd_matches_real_claude_project_dirs",
-      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -5075,7 +5054,7 @@
     {
       "file": "src-tauri/crates/codeterm-usage/src/store.rs",
       "token": "claude",
-      "count": 12,
+      "count": 11,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -10678,6 +10657,14 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/input_attach.rs",
       "reason": "Provider-owned native/JavaScript parity proof that the provider declares bracketed-paste input attach."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/sessions/tests.rs",
+      "reason": "Native provider-owned session storage tests moved intact from the provider implementation."
+    },
+    {
+      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/account_home.rs",
+      "reason": "Provider-owned native/QuickJS fixtures for account credential isolation, selected homes and declared shared history storage."
     }
   ]
 }

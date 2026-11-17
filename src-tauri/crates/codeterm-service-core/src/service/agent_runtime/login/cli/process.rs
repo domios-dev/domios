@@ -54,11 +54,26 @@ pub(super) struct Request {
     pub(super) codes: mpsc::Receiver<CodeSubmission>,
 }
 
-pub(super) async fn run(
+pub(super) struct RunResult {
+    pub outcome: Result<(), String>,
+    pub cleanup_confirmed: bool,
+}
+
+pub(super) async fn run(svc: &ServiceContext, tab: &str, id: &str, request: Request) -> RunResult {
+    let mut cleanup_confirmed = true;
+    let outcome = run_inner(svc, tab, id, request, &mut cleanup_confirmed).await;
+    RunResult {
+        outcome,
+        cleanup_confirmed,
+    }
+}
+
+async fn run_inner(
     svc: &ServiceContext,
     tab: &str,
     id: &str,
     request: Request,
+    cleanup_confirmed: &mut bool,
 ) -> Result<(), String> {
     let Request {
         provider,
@@ -94,12 +109,14 @@ pub(super) async fn run(
     let _lease = crate::service::agent_runtime::lease::Lease::configure(&mut command)
         .map_err(|error| error.to_string())?;
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    *cleanup_confirmed = false;
+    let outcome = async {
     #[cfg(windows)]
     let _job = crate::service::windows_job::Job::attach(&child)?;
     let mut input = child.stdin.take().ok_or("Sign-in stdin is unavailable")?;
     let stdout = child.stdout.take().ok_or("Sign-in stdout is unavailable")?;
     let stderr = child.stderr.take().ok_or("Sign-in stderr is unavailable")?;
-    let outcome = {
+    {
         let read = async {
             tokio::try_join!(
                 capture(stdout, |url| observe(svc, tab, id, url), &pattern),
@@ -140,18 +157,19 @@ pub(super) async fn run(
                 }
             }
         }
-    };
-    if outcome.is_err()
-        && child
-            .try_wait()
-            .map_err(|error| error.to_string())?
-            .is_none()
+    }
+    }.await;
+    if child
+        .try_wait()
+        .map_err(|error| error.to_string())?
+        .is_none()
     {
         child
             .kill()
             .await
             .map_err(|error| format!("Sign-in process cleanup failed: {error}"))?;
     }
+    *cleanup_confirmed = true;
     outcome
 }
 

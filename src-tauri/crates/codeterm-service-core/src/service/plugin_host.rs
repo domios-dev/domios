@@ -9,6 +9,9 @@ use crate::secrets::secret_file::SecretFile;
 use crate::service::spawn::{SpawnTabSpec, TabVisibility};
 use crate::service::ServiceContext;
 
+mod credentials;
+pub use credentials::cleanup_credential_secrets;
+
 // ── Progress activity id map (mirrors host_compute) ─────────────────────────
 
 static PROGRESS_ACTIVITY_IDS: LazyLock<Mutex<std::collections::HashMap<String, String>>> =

@@ -61,8 +61,9 @@ fn valid_key(value: &str) -> bool {
     !value.trim().is_empty() && value.len() <= MAX_KEY_BYTES && !value.contains('\0')
 }
 
+#[cfg(test)]
 fn in_namespace(provider: &str, secret: &str) -> bool {
-    secret.starts_with(&format!("domios:provider:{provider}:"))
+    codeterm_plugin::provider_account::secret_reference(provider, secret, None).is_some()
 }
 
 pub(super) fn auth_environment(
@@ -70,16 +71,11 @@ pub(super) fn auth_environment(
     provider: &str,
     profile: &RuntimeLaunchProfile,
 ) -> Result<BTreeMap<String, String>, super::model::RuntimeFailure> {
-    if profile
-        .auth_env
-        .values()
-        .any(|entry| !in_namespace(provider, &entry.secret))
-    {
-        return Err(super::model::RuntimeFailure::Refused(
-            "Profile secret reference is outside its provider namespace".into(),
-        ));
-    }
+    let invocation = codeterm_plugin::provider_account::current();
+    let references = scoped_auth_references(provider, profile, invocation.as_deref())
+        .map_err(super::model::RuntimeFailure::Refused)?;
     Ok(compose_auth_environment(profile, |key| {
+        let key = references.get(key)?;
         crate::async_runtime::block_on(async {
             let store = svc.secrets.read().await.clone();
             tokio::time::timeout(Duration::from_secs(10), store.get(key))
@@ -89,6 +85,26 @@ pub(super) fn auth_environment(
                 .map(|secret| secret.value.into_inner())
         })
     }))
+}
+
+fn scoped_auth_references(
+    provider: &str,
+    profile: &RuntimeLaunchProfile,
+    invocation: Option<&codeterm_plugin::provider_account::InvocationContext>,
+) -> Result<BTreeMap<String, String>, String> {
+    profile
+        .auth_env
+        .values()
+        .map(|entry| {
+            let reference = codeterm_plugin::provider_account::secret_reference(
+                provider,
+                &entry.secret,
+                invocation,
+            )
+            .ok_or("Profile secret reference is outside its provider credential scope")?;
+            Ok((entry.secret.clone(), reference))
+        })
+        .collect()
 }
 
 /// The tab's selected launch profile, read from its runtime configuration.
@@ -131,9 +147,13 @@ pub(super) async fn sign_in_with_key(
         .as_ref()
         .and_then(|profile| key_secret_for_method(profile, method).map(str::to_owned))
         .ok_or("This sign-in method does not take an API key")?;
-    if !in_namespace(&session.provider, &secret) {
-        return Err("Profile secret reference is outside its provider namespace".into());
-    }
+    let invocation = session.invocation.lock().clone();
+    let secret = codeterm_plugin::provider_account::secret_reference(
+        &session.provider,
+        &secret,
+        invocation.as_deref(),
+    )
+    .ok_or("Profile secret reference is outside its provider credential scope")?;
     let store = svc.secrets.read().await.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -159,7 +179,7 @@ pub(super) async fn sign_in_with_key(
     .map_err(|_| "Runtime restart failed")?
     .map_err(restart_reason)?;
     let session = engine::for_tab(tab).ok_or("Runtime binding unavailable")?;
-    super::declared_controls::authenticate(svc, tab, &session, method).await
+    super::declared_controls::authenticate(svc, tab, &session, method, None).await
 }
 
 fn restart_reason(error: crate::service::agent_lifecycle::AgentRestartError) -> String {

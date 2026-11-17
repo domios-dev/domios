@@ -2,11 +2,13 @@ import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import {authStatusProbe, parseAuthStatus, parseSessionObservations} from "../src/signals";
+import {accountIdentity, authStatusProbe, parseAuthStatus, parseSessionObservations} from "../src/signals";
 
 let checks = 0;
 function check(run: () => void) { run(); checks++; }
 check(() => assert.deepEqual(authStatusProbe(), {args:["auth","status"], timeoutMs:15000}));
+check(() => assert.deepEqual(accountIdentity({loggedIn:true,email:"alex@fixture.test"}), {subject:"alex@fixture.test",label:"alex@fixture.test"}));
+for (const record of [{loggedIn:false,email:"alex@fixture.test"},{loggedIn:true},{loggedIn:true,email:" alex@fixture.test"},{loggedIn:true,email:"alex@fixture.test\n"}]) check(() => assert.equal(accountIdentity(record),null));
 const status = {loggedIn:true,authMethod:"oauth",subscriptionType:"max",configDirectory:"fixture"};
 check(() => assert.deepEqual(parseAuthStatus(status), status));
 check(() => assert.equal(parseAuthStatus({loggedIn:"true"}), null));
