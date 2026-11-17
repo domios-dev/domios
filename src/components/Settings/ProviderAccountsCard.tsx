@@ -83,7 +83,7 @@ function ProviderAccountsContent({ provider, snapshot: supplied, loading, error,
     {snapshot && <>
       <div ref={controls.list} role="list" aria-label={`${name} accounts`} aria-busy={controls.busy} className="ct-rows !p-0">
         {snapshot.accounts.map((account, position) => <ProviderAccountRow key={account.id} account={account} providerId={provider.id} providerName={name}
-          iconSvg={provider.icon_svg} position={position} count={snapshot.accounts.length} busy={controls.busy}
+          iconSvg={provider.icon_svg} position={position} count={snapshot.accounts.length} busy={controls.busy} continuation={snapshot.continuation}
           onAction={controls.act} onRefresh={onRefresh} />)}
         <div role="listitem">
           <button type="button" disabled={controls.busy || Boolean(adding)} onClick={() => { void controls.act({ action: "add" }); }}
@@ -94,7 +94,7 @@ function ProviderAccountsContent({ provider, snapshot: supplied, loading, error,
       </div>
       {adding?.status === "signingIn" && <div>
         <RuntimeLoginActions providerId={provider.id} tabId={adding.context.tabId} state={adding.context.state} iconSvg={provider.icon_svg}
-          variant="inline" title={`Add a ${name} account`} hint={adding.context.state.login?.status === "pending" ? undefined : "Choose how to sign in to the new account."} onCheck={onRefresh} />
+          variant="inline" title={`Add a ${name} account`} hint={adding.context.state.notice ?? (adding.context.state.login?.status === "pending" ? "Finish signing in to add this account." : "Choose how to sign in to the new account.")} onCheck={onRefresh} />
         {adding.context.state.login?.status !== "pending" && <button type="button" className="ct-bar-pill min-h-11 px-3 text-xs text-[var(--ct-muted-fg)]"
           disabled={controls.busy} onClick={() => { void controls.act({ action: "cancelAdd" }); }}>Cancel</button>}
       </div>}

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
-import type { ProviderAccountRow as Account, ProviderAccountsAction } from "../../hooks/providerAccountsTypes";
+import type { ProviderAccountRow as Account, ProviderAccountsAction, ProviderAccountsSnapshot } from "../../hooks/providerAccountsTypes";
 import { BusyState } from "../shared/BusyState";
 import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { KebabGlyph, RowMenuButton } from "../shared/RowMenuButton";
 import { RuntimeLoginActions } from "../Terminal/RuntimeLoginActions";
 
@@ -23,24 +24,33 @@ function accountStatus(account: Account): string {
   return account.plan ?? (account.id === "default" ? "Your usual sign-in" : "");
 }
 
-function useRowEditor(account: Account) {
+function useRowEditor(account: Account, busy: boolean, removalBlocked: boolean) {
   const [mode, setMode] = useState<"rename" | "remove" | null>(null);
   const [draft, setDraft] = useState("");
   const menu = useRef<HTMLButtonElement>(null);
   const editor = useRef<HTMLInputElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const previous = useRef(mode);
+  const noticeDismissal = useRef<string | null>(null);
   useEffect(() => {
     if (mode === "remove") cancel.current?.focus();
     if (mode === "rename") { editor.current?.focus(); editor.current?.select(); }
     if (mode === null && previous.current !== null) menu.current?.focus();
     previous.current = mode;
   }, [mode]);
-  return { mode, setMode, draft, setDraft, menu, editor, cancel,
+  useEffect(() => {
+    if (removalBlocked && mode === "remove") setMode(null);
+  }, [mode, removalBlocked]);
+  useEffect(() => {
+    if (!noticeDismissal.current || busy || account.removalNotice?.id === noticeDismissal.current) return;
+    if (!account.removalNotice) menu.current?.focus();
+    noticeDismissal.current = null;
+  }, [account.removalNotice, busy]);
+  return { mode, setMode, draft, setDraft, menu, editor, cancel, noticeDismissal,
     rename: () => { setDraft(account.name ?? account.identity ?? ""); setMode("rename"); } };
 }
 
-export function ProviderAccountRow({ account, providerId, providerName, iconSvg, position, count, busy, onAction, onRefresh }: {
+export function ProviderAccountRow({ account, providerId, providerName, iconSvg, position, count, busy, continuation, onAction, onRefresh }: {
   account: Account;
   providerId: string;
   providerName: string;
@@ -48,13 +58,16 @@ export function ProviderAccountRow({ account, providerId, providerName, iconSvg,
   position: number;
   count: number;
   busy: boolean;
+  continuation: ProviderAccountsSnapshot["continuation"];
   onAction: (action: ProviderAccountsAction) => Promise<boolean>;
   onRefresh: () => void;
 }) {
-  const edit = useRowEditor(account);
+  const removalBlocked = continuation !== "proven" && account.tabsInUse > 0 && account.id !== "default";
+  const edit = useRowEditor(account, busy, removalBlocked);
   const identity = account.identity ?? account.name ?? (account.status === "signedOut" ? "Signed out" : account.id === "default" ? "Your usual sign-in" : "Account");
   const name = account.name ?? identity;
   const status = accountStatus(account);
+  const removalNotice = account.removalNotice;
   const disabled = busy || account.status === "removing";
   const move = (next: number) => {
     if (!disabled && next >= 0 && next < count && next !== position) void onAction({ action: "reorder", accountId: account.id, position: next });
@@ -66,7 +79,9 @@ export function ProviderAccountRow({ account, providerId, providerName, iconSvg,
     { label: "Rename", disabled, onClick: edit.rename },
     { separator: true, key: "remove" },
     { label: "Sign out and remove", disabled: disabled || account.id === "default",
-      description: account.id === "default" ? `This is your usual sign-in. Sign out from ${providerName} itself.` : undefined,
+      unavailable: removalBlocked,
+      description: account.id === "default" ? `This is your usual sign-in. Sign out from ${providerName} itself.`
+        : removalBlocked ? `${account.tabsInUse === 1 ? "1 tab still uses" : `${account.tabsInUse} tabs still use`} it. Close them first.` : undefined,
       onClick: () => edit.setMode("remove") },
   ];
   if (account.status === "probeFailed" && account.probeFailureReason) {
@@ -89,9 +104,9 @@ export function ProviderAccountRow({ account, providerId, providerName, iconSvg,
     <div className="flex min-h-11 min-w-0 flex-wrap items-center gap-2">
       <span aria-hidden="true" className="ct-settings-card__icon !h-[26px] !w-[26px] shrink-0 text-xs">{Array.from(name)[0]?.toLocaleUpperCase()}</span>
       {edit.mode === "remove" ? <>
-        <p className="min-w-0 flex-1 text-[13px] text-[var(--ct-fg)]">Remove {identity}?{account.tabsInUse > 0 ? " Its tabs continue on the next account." : ""}</p>
+        <p className="min-w-0 flex-1 text-[13px] text-[var(--ct-fg)]">Remove {identity}?{continuation === "proven" && account.tabsInUse > 0 ? " Its tabs continue on the next account." : ""}</p>
         <div className="ml-auto flex items-center">
-          <button type="button" className={`${quiet} text-[var(--ct-red)]`} disabled={busy} onClick={() => { void onAction({ action: "remove", accountId: account.id }).then(accepted => { if (accepted) edit.setMode(null); }); }}>Remove</button>
+          <button type="button" className={`${quiet} text-[var(--ct-red)]`} disabled={busy || removalBlocked} onClick={() => { void onAction({ action: "remove", accountId: account.id }).then(accepted => { if (accepted) edit.setMode(null); }); }}>Remove</button>
           <button ref={edit.cancel} type="button" className={quiet} disabled={busy} onClick={cancelEdit}>Cancel</button>
         </div>
       </> : edit.mode === "rename" ? <form aria-label={`Rename ${identity}`} className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
@@ -123,6 +138,13 @@ export function ProviderAccountRow({ account, providerId, providerName, iconSvg,
         </div>
       </>}
     </div>
+    {removalNotice?.kind === "inUse" && <InlineErrorNotice
+      description={{ title: "Close this account's tabs before removing it.", cause: "", actions: [], raw: "" }}
+      actions={[{ label: "Got it", disabled: busy, onClick: () => {
+        const noticeId = removalNotice.id;
+        edit.noticeDismissal.current = noticeId;
+        void onAction({ action: "dismissRemovalNotice", accountId: account.id, noticeId }).then(accepted => { if (!accepted) edit.noticeDismissal.current = null; });
+      } }]} />}
     {account.login && account.status === "signingIn" && <RuntimeLoginActions providerId={providerId} tabId={account.login.tabId} state={account.login.state}
       iconSvg={iconSvg} variant="inline" title={`Sign in to ${providerName} as ${identity}`} onCheck={onRefresh} />}
   </div>;

@@ -115,6 +115,7 @@ it("confirms removal inline, starts on Cancel, and restores menu focus on Escape
   await render();
   await click("Sign out and remove", await menu("work"));
   expect(onAction).not.toHaveBeenCalled();
+  expect(row("work").textContent).toContain("Its tabs continue on the next account.");
   expect(document.activeElement).toBe(button("Cancel", row("work")));
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   await act(async () => button("Cancel", row("work")).dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
@@ -280,4 +281,96 @@ it("does not infer readiness or signed-out state when identity reporting is unsu
   expect(row("default").textContent).not.toContain("opaque plan");
   expect(row("default").textContent).not.toContain("Signed out");
   expect(row("default").querySelectorAll("button")).toHaveLength(1);
+});
+
+it.each([
+  { continuation: "unverified", tabs: 1 }, { continuation: "unverified", tabs: 2 },
+  { continuation: "unsupported", tabs: 1 }, { continuation: "unsupported", tabs: 2 },
+] as const)("keeps removal focusable and inert for $tabs tabs with $continuation continuation", async ({ continuation, tabs }) => {
+  snapshot.continuation = continuation;
+  snapshot.accounts[1] = { ...snapshot.accounts[1], tabsInUse: tabs };
+  await render();
+  const actions = await menu("work");
+  const remove = button("Sign out and remove", actions);
+  expect(remove.disabled).toBe(false);
+  expect(remove.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(remove.getAttribute("aria-describedby")!)?.textContent)
+    .toBe(tabs === 1 ? "1 tab still uses it. Close them first." : "2 tabs still use it. Close them first.");
+  remove.focus();
+  expect(document.activeElement).toBe(remove);
+  await act(async () => {
+    remove.click();
+    remove.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(onAction).not.toHaveBeenCalled();
+  expect(row("work").querySelector('[role="status"]')).toBeNull();
+  expect(Array.from(row("work").querySelectorAll("button")).some(node => node.textContent === "Remove")).toBe(false);
+});
+
+it.each(["unverified", "unsupported"] as const)("allows unused account removal without promising %s continuation", async continuation => {
+  snapshot.continuation = continuation;
+  snapshot.accounts[1] = { ...snapshot.accounts[1], tabsInUse: 0 };
+  await render();
+  await click("Sign out and remove", await menu("work"));
+  expect(row("work").textContent).not.toContain("Its tabs continue");
+  expect(document.activeElement).toBe(button("Cancel", row("work")));
+  await click("Remove", row("work"));
+  expect(onAction).toHaveBeenCalledExactlyOnceWith({ action: "remove", accountId: "work" });
+});
+
+it("withdraws an open removal confirmation when a fresh snapshot shows tabs that cannot continue", async () => {
+  snapshot.continuation = "unverified";
+  snapshot.accounts[1] = { ...snapshot.accounts[1], tabsInUse: 0 };
+  await render();
+  await click("Sign out and remove", await menu("work"));
+  snapshot = { ...snapshot, accounts: [snapshot.accounts[0], { ...snapshot.accounts[1], tabsInUse: 1 }] };
+  await render();
+  expect(Array.from(row("work").querySelectorAll("button")).some(node => node.textContent === "Remove")).toBe(false);
+  expect(document.activeElement).toBe(button("Actions for other@example.test"));
+  expect(onAction).not.toHaveBeenCalled();
+});
+
+it("retains the row on a race refusal and dismisses only the exact accepted notice with focus restoration", async () => {
+  snapshot.continuation = "unverified";
+  snapshot.accounts[1] = { ...snapshot.accounts[1], tabsInUse: 0 };
+  await render();
+  await click("Sign out and remove", await menu("work"));
+  await click("Remove", row("work"));
+  snapshot = { ...snapshot, accounts: [snapshot.accounts[0], { ...snapshot.accounts[1], tabsInUse: 2, removalNotice: { id: "notice-one", kind: "inUse" } }] };
+  await render();
+  expect(host.querySelectorAll("[data-account-id]")).toHaveLength(2);
+  expect(row("work").querySelector('[role="status"]')?.textContent).toContain("Close this account's tabs before removing it.");
+  expect(Array.from(row("work").querySelectorAll("button")).some(node => node.textContent === "Remove")).toBe(false);
+  await click("Got it", row("work"));
+  expect(onAction).toHaveBeenLastCalledWith({ action: "dismissRemovalNotice", accountId: "work", noticeId: "notice-one" });
+  snapshot = { ...snapshot, accounts: [snapshot.accounts[0], { ...snapshot.accounts[1], removalNotice: undefined }] };
+  await render();
+  expect(row("work").querySelector('[role="status"]')).toBeNull();
+  expect(document.activeElement).toBe(button("Actions for other@example.test"));
+});
+
+it("keeps a newer removal notice when an earlier dismissal resolves", async () => {
+  snapshot.accounts[1] = { ...snapshot.accounts[1], removalNotice: { id: "old-notice", kind: "inUse" } };
+  let resolve!: () => void;
+  onAction.mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
+  await render();
+  await click("Got it", row("work"));
+  expect(onAction).toHaveBeenLastCalledWith({ action: "dismissRemovalNotice", accountId: "work", noticeId: "old-notice" });
+  snapshot = { ...snapshot, accounts: [snapshot.accounts[0], { ...snapshot.accounts[1], removalNotice: { id: "new-notice", kind: "inUse" } }] };
+  await render();
+  await act(async () => resolve());
+  expect(button("Got it", row("work")).disabled).toBe(false);
+  await click("Got it", row("work"));
+  expect(onAction).toHaveBeenLastCalledWith({ action: "dismissRemovalNotice", accountId: "work", noticeId: "new-notice" });
+});
+
+it("uses account-add progress hints instead of promising a hidden context will continue a conversation", async () => {
+  const context = { tabId: "hidden-account-login", state: { state: "loginPending" as const, epoch: 20,
+    login: { status: "pending" as const, url: "https://example.test/login" } } };
+  snapshot.adding = { context, status: "signingIn" };
+  await render();
+  expect(login.render).toHaveBeenLastCalledWith(expect.objectContaining({ hint: "Finish signing in to add this account." }));
+  snapshot = { ...snapshot, adding: { context: { ...context, state: { ...context.state, notice: "opaque account-check progress" } }, status: "signingIn" } };
+  await render();
+  expect(login.render).toHaveBeenLastCalledWith(expect.objectContaining({ hint: "opaque account-check progress" }));
 });
