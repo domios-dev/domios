@@ -1,7 +1,7 @@
 import { kind, textContent } from "../../restart-endurance/oracle.mjs";
 
 export const REQUIRED_PROVIDERS = ["claude", "codex", "opencode"];
-const TERMINAL_STAGES = new Set(["spawn_failed", "launch_deadline_elapsed", "launch_binding_unconfirmed", "awaiting_owner_prompt"]);
+const TERMINAL_STAGES = new Set(["spawn_failed", "awaiting_owner_prompt"]);
 const READY_STAGES = new Set(["agent_ready", "pty_reattached"]);
 const FAILED_RUNTIME = new Set(["degraded", "failed"]);
 

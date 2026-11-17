@@ -113,6 +113,7 @@ impl ServiceContext {
             }
             .ledger_message());
         };
+        let declares_input_attach = self.declares_input_attach(tab_id);
         let (pty_id, provider_id) = {
             let mux = self.mux.read();
             let resolved = mux
@@ -121,13 +122,18 @@ impl ServiceContext {
             let tab = mux
                 .get_tab(&resolved)
                 .ok_or_else(|| "agent_unavailable: recipient missing".to_string())?;
-            queued_delivery_target(tab, payload).map_err(|detail| {
-                DeliveryError::TabBusyRefused {
-                    tab: tab_id.to_string(),
-                    detail,
-                }
-                .ledger_message()
-            })?
+            queued_delivery_target(tab, payload)
+                .and_then(|target| {
+                    input_attach_hold(tab, declares_input_attach)?;
+                    Ok(target)
+                })
+                .map_err(|detail| {
+                    DeliveryError::TabBusyRefused {
+                        tab: tab_id.to_string(),
+                        detail,
+                    }
+                    .ledger_message()
+                })?
         };
         log::debug!(
             "[agent-delivery] tab={tab_id} provider={provider_id} pty={pty_id} branch=resolved"
@@ -234,6 +240,21 @@ fn queued_delivery_target(
         }
         None => Err("recipient launch is awaiting readiness".into()),
     }
+}
+
+/// A provider that declares an input attach is input-ready only at `AgentReady`,
+/// so its in-flight or provisional launch keeps queued input held, never written.
+fn input_attach_hold(
+    tab: &crate::multiplexer::types::Tab,
+    declares_input_attach: bool,
+) -> Result<(), String> {
+    let awaiting_ready = tab
+        .boot_stage
+        .is_some_and(|stage| is_pre_ready_launch_stage(stage) || stage.is_provisional());
+    if declares_input_attach && awaiting_ready {
+        return Err("recipient launch is awaiting its input attach".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

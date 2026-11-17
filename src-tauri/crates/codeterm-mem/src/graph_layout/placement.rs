@@ -70,27 +70,65 @@ pub fn weighted_average(neighbors: &[(Position, f64)]) -> Option<Position> {
     })
 }
 
-/// Normalize projected 2D points into `[-COORD_RANGE, COORD_RANGE]` on both
-/// axes, preserving aspect via a single shared scale. Returns points in input order.
 pub fn normalize(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    normalize_radial(points, 0.4)
+}
+
+#[cfg(any(feature = "embeddings", test))]
+pub fn normalize_seed(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    normalize_radial(points, 0.0)
+}
+
+fn normalize_radial(points: &[(f32, f32)], core_blend: f64) -> Vec<(f32, f32)> {
     if points.is_empty() {
         return Vec::new();
     }
-    let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
-    let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
-    for &(x, y) in points {
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
-    let span = ((max_x - min_x).max(max_y - min_y)).max(1e-6);
-    let scale = (2.0 * COORD_RANGE) / span;
-    let cx = (min_x + max_x) / 2.0;
-    let cy = (min_y + max_y) / 2.0;
+    let mut xs: Vec<f32> = points.iter().map(|p| p.0).collect();
+    let mut ys: Vec<f32> = points.iter().map(|p| p.1).collect();
+    xs.sort_unstable_by(f32::total_cmp);
+    ys.sort_unstable_by(f32::total_cmp);
+    let middle = points.len() / 2;
+    let lower = (points.len() - 1) / 2;
+    let cx = (xs[lower] as f64 + xs[middle] as f64) / 2.0;
+    let cy = (ys[lower] as f64 + ys[middle] as f64) / 2.0;
+    let radii: Vec<f64> = points
+        .iter()
+        .map(|&(x, y)| (x as f64 - cx).hypot(y as f64 - cy))
+        .collect();
+    let mut sorted = radii.clone();
+    sorted.sort_unstable_by(f64::total_cmp);
+    let robust_index = (points.len() - 1) * 95 / 100;
+    let radius = sorted[robust_index];
+    let radius = if radius > 0.0 {
+        radius
+    } else {
+        sorted[points.len() - 1].max(f64::EPSILON)
+    };
+    let halo = 0.15 * radius;
+    let scale = COORD_RANGE as f64 / (radius + halo);
     points
         .iter()
-        .map(|&(x, y)| ((x - cx) * scale, (y - cy) * scale))
+        .zip(radii)
+        .map(|(&(x, y), r)| {
+            if r == 0.0 {
+                return (0.0, 0.0);
+            }
+            let opened = if r <= radius {
+                let lower = sorted.partition_point(|&value| value < r);
+                let upper = sorted.partition_point(|&value| value <= r);
+                let rank = (lower + upper - 1) as f64 / 2.0;
+                let target = radius * (rank / robust_index.max(1) as f64).min(1.0).sqrt();
+                r + core_blend * (target - r).max(0.0)
+            } else {
+                let excess = r - radius;
+                radius + halo * (excess / (halo + excess))
+            };
+            let radial_scale = opened / r * scale;
+            (
+                ((x as f64 - cx) * radial_scale) as f32,
+                ((y as f64 - cy) * radial_scale) as f32,
+            )
+        })
         .collect()
 }
 
@@ -233,76 +271,4 @@ pub fn place_incremental(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decode_encode_round_trip() {
-        let v = vec![1.5f32, -2.0, 3.25];
-        assert_eq!(decode_vector(&encode_vector(&v)), v);
-    }
-
-    #[test]
-    fn strip_chunk_suffix_works() {
-        assert_eq!(strip_chunk_suffix("fact_abc_chunk_3"), "fact_abc");
-        assert_eq!(strip_chunk_suffix("fact_abc"), "fact_abc");
-    }
-
-    #[test]
-    fn normalize_centers_and_scales() {
-        let pts = vec![(0.0, 0.0), (10.0, 10.0), (-10.0, -10.0)];
-        let out = normalize(&pts);
-        assert!(out
-            .iter()
-            .all(|&(x, y)| x.abs() <= COORD_RANGE + 1.0 && y.abs() <= COORD_RANGE + 1.0));
-        // Center point maps near origin.
-        assert!(out[0].0.abs() < 1.0 && out[0].1.abs() < 1.0);
-    }
-
-    #[test]
-    fn grid_cluster_separates_two_far_blobs() {
-        let mut pts = Vec::new();
-        for i in 0..50 {
-            let f = i as f32 * 0.1;
-            pts.push((-800.0 + f, -800.0 + f));
-        }
-        for i in 0..50 {
-            let f = i as f32 * 0.1;
-            pts.push((800.0 + f, 800.0 + f));
-        }
-        let clusters = grid_cluster(&pts);
-        let left: std::collections::HashSet<u32> = clusters[..50].iter().copied().collect();
-        let right: std::collections::HashSet<u32> = clusters[50..].iter().copied().collect();
-        assert!(
-            left.is_disjoint(&right),
-            "far blobs must land in different clusters"
-        );
-    }
-
-    #[test]
-    fn weighted_average_lands_near_closest_neighbor() {
-        let neighbors = vec![
-            (
-                Position {
-                    x: 100.0,
-                    y: 100.0,
-                    cluster_id: 5,
-                },
-                0.01,
-            ),
-            (
-                Position {
-                    x: -500.0,
-                    y: -500.0,
-                    cluster_id: 9,
-                },
-                2.0,
-            ),
-        ];
-        let p = weighted_average(&neighbors).unwrap();
-        // Closest neighbor dominates → near (100,100) and inherits its cluster.
-        assert!((p.x - 100.0).abs() < 60.0, "x={}", p.x);
-        assert!((p.y - 100.0).abs() < 60.0, "y={}", p.y);
-        assert_eq!(p.cluster_id, 5);
-    }
-}
+mod tests;

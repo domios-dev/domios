@@ -41,21 +41,21 @@ test('changed digests, sizes, states, or invalid receipt digests refuse publicat
   assert.throws(() => verifyAssetDigests([{ ...files[0], sha256: null }], [asset(files[0])], 'owner/repo'), /differs from its retained receipt/);
 });
 
-test('publication starts three concurrent tasks and starts another only when a slot is free', async () => {
+test('publication starts six concurrent tasks and starts another only when a slot is free', async () => {
   const started = [];
   const releases = [];
-  const fourthStarted = Promise.withResolvers();
-  const work = publishConcurrently([0, 1, 2, 3], async task => {
+  const seventhStarted = Promise.withResolvers();
+  const work = publishConcurrently([0, 1, 2, 3, 4, 5, 6], async task => {
     started.push(task);
     const gate = Promise.withResolvers();
     releases[task] = gate.resolve;
-    if (task === 3) fourthStarted.resolve();
+    if (task === 6) seventhStarted.resolve();
     await gate.promise;
   });
-  assert.deepEqual(started, [0, 1, 2]);
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5]);
   releases[1]();
-  await fourthStarted.promise;
-  assert.deepEqual(started, [0, 1, 2, 3]);
+  await seventhStarted.promise;
+  assert.deepEqual(started, [0, 1, 2, 3, 4, 5, 6]);
   for (const release of releases) release();
   await work;
 });
@@ -232,4 +232,166 @@ test('CI result requires the complete release push graph and refuses a missing r
   for (const id of Object.keys(needs)) for (const result of ['skipped', 'failure', 'cancelled'])
     assert.ok(ciFailures('push', { ...needs, [id]: { result } }, '', { releaseHead: true }).includes(id));
   assert.ok(ciFailures('workflow_dispatch', needs, 'fast').includes('qualification'));
+});
+
+import { parseTestWaiver, verifyTestWaiver, waiverReleaseNotes } from './release-test-waiver.mjs';
+import { PLATFORMS } from './release-dry-run-manifest.mjs';
+
+const testJob = 'Fast checks / ts unit (1/4)';
+function waivedFixture() {
+  const failedRun = { ...run, conclusion: 'failure', updated_at: new Date().toISOString() };
+  const jobs = structuredClone(qualifiedJobs);
+  const fail = (job, step) => {
+    job.conclusion = 'failure';
+    job.steps[0] = { ...job.steps[0], name: step, conclusion: 'failure' };
+  };
+  const unit = jobs.find(job => job.name === 'Fast checks / ts unit');
+  unit.name = testJob;
+  fail(unit, 'Run TS unit tests');
+  fail(jobs.find(job => job.name === 'CI result'), 'Require the complete event graph');
+  Object.assign(jobs.find(job => job.name === 'qualification receipt'), { conclusion: 'skipped', steps: [] });
+  for (const name of ['rust-warnings / report', ...REQUIRED_JOBS.map(name => 'Release packaging / ' + name + (name.endsWith(' / ') ? 'build and sign' : ''))]) {
+    jobs.push({ ...structuredClone(qualifiedJobs[0]), id: jobs.length + 1, name });
+  }
+  const tag = 'v1.20.0';
+  const receipts = PLATFORMS.map(platform => ({ schema: 1, platform, source_sha: sha, tag,
+    files: [{ name: platform+'.bin', sha256: 'c'.repeat(64), size: 42 }] }));
+  const assets = receipts.flatMap((receipt, index) => [asset(receipt.files[0]),
+    { id: 100+index, name: `qualification-${receipt.platform}.json`, state: 'uploaded' }]);
+  return { waiver: { run_id: String(run.id), jobs: [testJob] }, run: failedRun, jobs, sha, repository, attempts: [failedRun],
+    draft: { id: 10, draft: true, tag_name: `qualification-${tag}-${run.id}`, target_commitish: sha,
+      body: `<!-- qualification:${JSON.stringify({ source_sha: sha, run_id: String(run.id) })} -->\n<!-- qualification-complete -->` },
+    assets, receipts };
+}
+
+test('explicit test waiver admits the failed exact run with six green builds and matching hidden draft assets', () => {
+  const input = waivedFixture();
+  const result = verifyTestWaiver(input);
+  assert.deepEqual(result.test_waiver.jobs, [testJob]);
+  assert.deepEqual(result.test_waiver.derived_jobs, [
+    { name: 'CI result', conclusion: 'failure' }, { name: 'qualification receipt', conclusion: 'skipped' }]);
+  assert.equal(result.run_id, run.id);
+  assert.equal(selectReleasePushRun([input.run], sha, branch, repository, input.waiver).id, run.id);
+  assert.throws(() => selectReleasePushRun([input.run], sha, branch, repository));
+  assert.throws(() => selectReleasePushRun([input.run, { ...input.run, id: 124 }], sha, branch, repository, input.waiver));
+});
+
+test('waivers refuse build/sign names, aggregate names, unknown names, duplicates, wrong runs and non-failing tests', () => {
+  for (const name of ['Release packaging / Windows arm64 / build and sign', 'Fast checks / frontend producer',
+    'CI result', 'unknown test']) {
+    const input = waivedFixture();
+    input.waiver.jobs = [name];
+    assert.throws(() => verifyTestWaiver(input), /only exact test jobs/);
+  }
+  for (const change of [{ jobs: [testJob, testJob] }, { run_id: '124' }, { run_id: 123 },
+    { jobs: ['Fast checks / ts vitest'] }]) {
+    const input = waivedFixture();
+    input.waiver = { ...input.waiver, ...change };
+    assert.throws(() => verifyTestWaiver(input));
+  }
+});
+
+test('unnamed failures, incomplete builds, cancellation, foreign authority and missing or changed assets refuse', () => {
+  const mutations = [
+    input => { input.jobs.find(job => job.name === 'Fast checks / ts vitest').conclusion = 'failure'; },
+    input => { input.jobs.find(job => job.name.startsWith('Release packaging / Windows arm64')).conclusion = 'failure'; },
+    input => { input.jobs.find(job => job.name.startsWith('Release packaging / macOS x64')).conclusion = 'skipped'; },
+    input => { input.jobs = input.jobs.filter(job => !job.name.startsWith('Release packaging / Linux arm64')); },
+    input => { input.jobs.find(job => job.name === 'CI result').steps[0].name = 'Checkout'; },
+    input => { input.run.conclusion = 'cancelled'; },
+    input => { input.run.actor = { login: 'other' }; },
+    input => { input.run.head_sha = 'b'.repeat(40); },
+    input => { input.run.updated_at = '2000-01-01T00:00:00Z'; },
+    input => { input.draft = null; },
+    input => { input.draft.draft = false; },
+    input => { input.draft.body = input.draft.body.replace('qualification-complete', 'partial'); },
+    input => { input.assets.splice(0, 1); },
+    input => { input.assets[0].digest = 'sha256:'+'d'.repeat(64); },
+    input => { input.receipts.pop(); },
+  ];
+  for (const mutate of mutations) {
+    const input = waivedFixture();
+    mutate(input);
+    assert.throws(() => verifyTestWaiver(input), mutate.toString());
+  }
+});
+
+test('Rust waiver derives only dependency failures and the named tests incomplete warning collections', () => {
+  const input = waivedFixture();
+  const unit = input.jobs.find(job => job.name === testJob);
+  unit.conclusion = unit.steps[0].conclusion = 'success';
+  const full = input.jobs.find(job => job.name === 'Rust tests / rust tests (full suite)');
+  input.waiver.jobs = [full.name];
+  for (const [name, step] of [[full.name, 'Run full Rust tests (Unix)'],
+    ['Rust tests / rust test receipts', 'Require every Rust test job'],
+    ['rust-warnings / report', 'Report advisory warnings and verify collection completeness']]) {
+    const job = input.jobs.find(job => job.name === name);
+    job.conclusion = job.steps[0].conclusion = 'failure';
+    job.steps[0].name = step;
+  }
+  input.warningLog = '2026-11-16T00:00:00Z Rust warning evidence incomplete: tests-full-Linux-x86_64-unknown-linux-gnu\n';
+  assert.equal(verifyTestWaiver(input).test_waiver.derived_jobs.length, 4);
+  for (const warningLog of ['', input.warningLog+'Rust warning evidence missing: release-Windows\n',
+    input.warningLog.replace('tests-full-Linux-x86_64-unknown-linux-gnu', 'release-Linux-x86_64-unknown-linux-gnu')]) {
+    assert.throws(() => verifyTestWaiver({ ...input, warningLog }), /Warning report/);
+  }
+  full.steps[0].name = 'Compile full Rust tests (Unix)';
+  assert.throws(() => verifyTestWaiver(input), /Unrelated failure/);
+});
+
+function waiverRequest(input, route) {
+  if (route.includes('/jobs?')) return { jobs: input.jobs, total_count: input.jobs.length };
+  if (route.includes('/releases/tags/')) return input.draft;
+  if (route.includes('/releases/10/assets?')) return input.assets;
+  const assetId = /\/releases\/assets\/(\d+)$/.exec(route);
+  if (assetId) return JSON.stringify(input.receipts[Number(assetId[1])-100]);
+  if (/\/actions\/runs\/123(?:\/attempts\/1)?$/.test(route)) return input.run;
+  assert.fail('unexpected request: '+route);
+}
+
+test('CLI and hosted PR waiver readers verify direct run evidence without requiring a skipped receipt artifact', async () => {
+  const input = waivedFixture();
+  const cli = requireQualification(sha, { repository, runId: run.id, waiver: input.waiver,
+    request: route => waiverRequest(input, route), retain: value => value });
+  assert.deepEqual(cli.test_waiver.jobs, [testJob]);
+  const github = { request: async route => ({ data: waiverRequest(input, route.slice(5)) }) };
+  const hosted = await requireQualificationWithGithub(github, context, sha, { runId: run.id, waiver: input.waiver, retain: value => value });
+  assert.deepEqual(hosted, cli);
+  await assert.rejects(requireQualificationWithGithub(github, context, sha, { runId: 999, waiver: input.waiver }), /different run/);
+});
+
+test('owner PR field pins exact test names and release notes keep that decision visible and idempotent', async () => {
+  const input = waivedFixture();
+  const body = 'Release notes\nRelease-Test-Waiver: '+JSON.stringify(input.waiver);
+  assert.deepEqual(parseTestWaiver(body), input.waiver);
+  assert.equal(parseTestWaiver('No waiver'), undefined);
+  assert.throws(() => parseTestWaiver(body+'\n'+body), /Ambiguous/);
+  const notes = waiverReleaseNotes('Substantive release notes.', input.waiver);
+  assert.match(notes, /qualification run 123/);
+  assert.ok(notes.includes(testJob));
+  assert.equal(waiverReleaseNotes(notes, input.waiver), notes);
+  let selected;
+  const github = { rest: { actions: { listWorkflowRuns() {} },
+    pulls: { get: async () => ({ data: { ...context.payload.pull_request, body } }) },
+    repos: { getBranch: async () => ({ data: { commit: { sha } } }) } }, paginate: async () => [input.run] };
+  await requireReleasePrQualification(github, context, async (...args) => { selected = args[3]; });
+  assert.deepEqual(selected, { runId: run.id, waiver: input.waiver });
+});
+
+test('publication retries require an already recorded identical waiver; PR admission still requires a hidden draft', () => {
+  const input = waivedFixture();
+  const admission = verifyTestWaiver(input);
+  assert.doesNotThrow(() => checkQualifiedRun({ run: input.run, jobs: input.jobs, sourceSha: sha, branch, waiver: admission.test_waiver }));
+  assert.throws(() => checkQualifiedRun({ run: { ...input.run, conclusion: 'cancelled' }, jobs: input.jobs,
+    sourceSha: sha, branch, waiver: admission.test_waiver }));
+  assert.throws(() => checkQualifiedRun({ run: input.run, jobs: input.jobs, sourceSha: sha, branch, waiver: input.waiver }));
+  input.draft.draft = false;
+  input.draft.tag_name = 'v1.20.0';
+  assert.throws(() => verifyTestWaiver({ ...input, admission }), /hidden draft/);
+  assert.doesNotThrow(() => verifyTestWaiver({ ...input, publicationRecovery: true, admission }));
+  for (const change of [{ run_id: 999 }, { sha: 'b'.repeat(40) }, { run_attempt: 2 },
+    { test_waiver: { ...admission.test_waiver, jobs: ['Fast checks / ts vitest'] } }]) {
+    assert.throws(() => verifyTestWaiver({ ...input, publicationRecovery: true, admission: { ...admission, ...change } }), /hidden draft/);
+  }
+  assert.throws(() => verifyTestWaiver({ ...input, publicationRecovery: true }), /hidden draft/);
 });

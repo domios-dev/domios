@@ -5,6 +5,9 @@ import {
   pluginDisplayName,
   pluginProviderMetaFromSnapshot,
   setPluginProviderMeta,
+  pluginProviderMetaRecord,
+  subscribePluginProviderMeta,
+  pluginCatalogChanged,
 } from "./pluginProviderMeta";
 
 const tests: Array<[string, () => void]> = [];
@@ -59,6 +62,28 @@ test("set/get round-trips by id", () => {
 });
 
 let failed = 0;
+test("unchanged metadata keeps its snapshot and does not wake subscribers", () => {
+  const list = [{ id: "one", displayName: "One" }, { id: "two", displayName: "Two" }];
+  setPluginProviderMeta(list);
+  const snapshot = pluginProviderMetaRecord();
+  let changes = 0;
+  const release = subscribePluginProviderMeta(() => changes++);
+  try {
+    setPluginProviderMeta([...list].reverse().map(meta => ({ ...meta })));
+    assert(pluginProviderMetaRecord() === snapshot && changes === 0, "equivalent snapshots stay quiet");
+    setPluginProviderMeta([{ ...list[0], iconColor: "red" }, list[1]]);
+    assert(Number(changes) === 1 && pluginProviderMetaRecord() !== snapshot, "changed icon notifies");
+    setPluginProviderMeta([list[0]]);
+    assert(Number(changes) === 2 && !getPluginProviderMeta("two"), "removal notifies");
+  } finally { release(); }
+});
+
+test("bubble completion does not invalidate the plugin catalog", () => {
+  assert(!pluginCatalogChanged("status_bubble:fixture"), "bubble data has its own refresh path");
+  for (const kind of ["agent_provider", "plugin_index", "plugin_view:fixture", "receiver_target"]) {
+    assert(pluginCatalogChanged(kind), `${kind} still invalidates`);
+  }
+});
 test("display name resolves only a real manifest name, never the id echoed back", () => {
   const record = {
     lmstudio: { id: "lmstudio", displayName: "LM Studio" },

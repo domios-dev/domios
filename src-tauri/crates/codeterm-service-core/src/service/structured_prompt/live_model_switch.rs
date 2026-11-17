@@ -11,7 +11,7 @@ pub(crate) struct ModelId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum LiveModelSwitchResult {
+pub enum LiveModelSwitchResult {
     Unsupported {
         reason: String,
     },
@@ -73,7 +73,7 @@ pub(crate) fn parse_session_model(session_id: &str, document: &Value) -> Option<
     (!provider_id.is_empty() && !model_id.is_empty()).then(|| format!("{provider_id}/{model_id}"))
 }
 
-pub(crate) fn same_model_id(left: &str, right: &str) -> bool {
+pub fn same_model_id(left: &str, right: &str) -> bool {
     parse_model_id(left)
         .zip(parse_model_id(right))
         .is_some_and(|(left, right)| {
@@ -82,7 +82,7 @@ pub(crate) fn same_model_id(left: &str, right: &str) -> bool {
         })
 }
 
-pub(crate) fn live_switch_for_tab(
+pub fn live_switch_for_tab(
     tab_id: &str,
     session_id: &str,
     requested_model: &str,

@@ -1,0 +1,82 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFileSync } from "node:fs";
+import { parseDsBlocks } from "./dsBlocks";
+import { DS_CANVAS_FILE_FORMAT, dsCanvasFilePaths, isDsCanvasFilePath, parseDsCanvas, parseDsCanvasFile } from "./dsCanvas";
+
+const corpus = JSON.parse(readFileSync(new URL("./dsBlocks.fixtures.json", import.meta.url), "utf8")) as { fixtures: { name: string; expectedBlocks: { block: { kind: string; body?: string }; paths?: string[] }[] }[] };
+
+test("canvas fixtures name exactly the file paths the native preview guard admits", () => {
+  const canvases = corpus.fixtures.flatMap((fixture) => fixture.expectedBlocks.filter((span) => span.block.kind === "canvas" && span.block.body !== undefined).map((span) => ({ name: fixture.name, span })));
+  assert.ok(canvases.length >= 5);
+  for (const { name, span } of canvases) assert.deepEqual(dsCanvasFilePaths(span.block.body!), span.paths, name);
+});
+
+test("a canvas reads items with optional frames, default ids and named views", () => {
+  const parsed = parseDsCanvas(JSON.stringify({
+    title: "Options",
+    items: [
+      { kind: "image", src: "/work/a.png", x: 0, y: 0, w: 640, h: 400 },
+      { id: "mock", kind: "html", html: "<b>B</b>", title: "Mock" },
+      { kind: "note", markdown: "**A** wins" },
+    ],
+    views: [{ name: "compare", x: 0, y: 0, w: 1160, h: 400 }],
+  }));
+  assert.ok(parsed.ok);
+  assert.equal(parsed.canvas.title, "Options");
+  assert.deepEqual(parsed.canvas.items.map((item) => [item.id, item.kind]), [["item-1", "image"], ["mock", "html"], ["item-3", "note"]]);
+  assert.deepEqual(parsed.canvas.items[0], { id: "item-1", kind: "image", src: "/work/a.png", x: 0, y: 0, w: 640, h: 400 });
+  assert.deepEqual(parsed.canvas.views, [{ name: "compare", x: 0, y: 0, w: 1160, h: 400 }]);
+});
+
+test("an unreadable canvas explains itself in one sentence", () => {
+  const cases: [string, RegExp][] = [
+    ["{\"items\":[}", /^The JSON is invalid: /],
+    ["{\"items\":[{\"kind\":\"note\",\"markdown\":\"\\ud800\"}]}", /unpaired surrogate/],
+    ["[]", /must be a JSON object/],
+    ["{\"items\":[]}", /needs 1 to 64 items/],
+    ["{\"items\":[{\"kind\":\"image\"}]}", /Item 1 \(image\) needs "src" text/],
+    ["{\"items\":[{\"kind\":\"html\",\"html\":\"x\",\"src\":\"/a\"}]}", /Item 1 has an unknown field "src"/],
+    ["{\"items\":[{\"kind\":\"note\",\"markdown\":\"x\",\"x\":\"1\"}]}", /Item 1 has an invalid x/],
+    ["{\"items\":[{\"kind\":\"note\",\"markdown\":\"x\",\"h\":-4}]}", /Item 1 has an invalid h/],
+    ["{\"items\":[{\"kind\":\"note\",\"markdown\":\"x\"}],\"views\":[{\"name\":\"a\",\"x\":0,\"y\":0,\"w\":1}]}", /View 1 needs x, y and positive w and h/],
+    ["{\"items\":[{\"kind\":\"note\",\"markdown\":\"x\"}],\"layout\":\"grid\"}", /unknown field "layout"/],
+  ];
+  for (const [body, reason] of cases) {
+    const parsed = parseDsCanvas(body);
+    assert.equal(parsed.ok, false, body);
+    if (!parsed.ok) assert.match(parsed.reason, reason, body);
+  }
+});
+
+test("a canvas keeps the ds-html byte bound and the 32-file preview bound", () => {
+  const oversized = parseDsCanvas(JSON.stringify({ items: [{ kind: "html", html: "x".repeat(200_000) }] }));
+  assert.equal(oversized.ok, false);
+  const files = (count: number) => JSON.stringify({ items: Array.from({ length: count }, (_, index) => ({ kind: "image", src: `/work/${index}.png` })) });
+  assert.equal(parseDsCanvas(files(32)).ok, true);
+  assert.equal(parseDsCanvas(files(33)).ok, false);
+  const [segment] = parseDsBlocks(`<ds-canvas>${files(33)}</ds-canvas>`);
+  assert.equal(segment.type, "block", "an over-limit canvas still renders its explanation");
+});
+
+test("a canvas file is NAME.canvas.json and opens with the format header as its first field", () => {
+  const items = `"items":[{"kind":"image","src":"/work/a.png"}]`;
+  const file = parseDsCanvasFile(`\n{ "format": "${DS_CANVAS_FILE_FORMAT}", ${items} }`);
+  assert.ok(file.ok && file.canvas.items.length === 1);
+  assert.ok(parseDsCanvasFile(`{"format":"domios.canvas/1.4",${items}}`).ok, "a minor version still reads");
+  for (const [text, reason] of [
+    [`{${items}}`, /first field/],
+    [`{${items},"format":"domios.canvas/1"}`, /first field/],
+    [`{"format":1,${items}}`, /first field/],
+    [`{"format":"domios.canvas/2",${items}}`, /"domios\.canvas\/2", which this version cannot read/],
+    [`{"format":"domios.canvas/1.",${items}}`, /cannot read/],
+    [`{"format":"domios.canvas/1","extra":true,${items}}`, /unknown field "extra"/],
+  ] as const) {
+    const parsed = parseDsCanvasFile(text);
+    assert.ok(!parsed.ok && reason.test(parsed.reason), text);
+  }
+  assert.ok(!parseDsCanvas(`{"format":"domios.canvas/1",${items}}`).ok, "an inline body has no header");
+  assert.ok(parseDsCanvas(`{${items}}`).ok);
+  for (const path of ["/work/board.canvas.json", "C:\\work\\Board.Canvas.JSON"]) assert.ok(isDsCanvasFilePath(path), path);
+  for (const path of ["/work/board.canvas", "/work/board.json", "/work/.canvas.json", "/work/board.dscanvas"]) assert.ok(!isDsCanvasFilePath(path), path);
+});

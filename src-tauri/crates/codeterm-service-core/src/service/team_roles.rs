@@ -1,4 +1,4 @@
-//! Per-Team role registrations: durable, immutable once stored, and consulted by every
+//! Per-Team role registrations: durable, pinned until explicit owner sync, and consulted by every
 //! launch through the one role resolver. Registering never spawns or grants authority.
 
 use std::collections::HashMap;
@@ -15,6 +15,8 @@ use crate::persisted_state::{Loaded, StateFile};
 
 const FILE_NAME: &str = "roles.json";
 const MAX_REGISTRATIONS: usize = 64;
+
+pub(crate) mod sync;
 
 /// One `roles.json` per Team under `<root>/<team_id>/`, written atomically with backups.
 pub struct TeamRoleStore {

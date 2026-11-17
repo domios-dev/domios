@@ -7,7 +7,7 @@ pub(super) fn capture(binary: &str, probe: &AuthStatusProbe) -> Option<Value> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum ProbeFailure {
+pub enum ProbeFailure {
     TimedOut,
     Unavailable,
 }
@@ -26,7 +26,7 @@ async fn await_probe(
         .ok_or(ProbeFailure::Unavailable)
 }
 
-pub(super) fn capture_result(binary: &str, probe: &AuthStatusProbe) -> Result<Value, ProbeFailure> {
+pub fn capture_result(binary: &str, probe: &AuthStatusProbe) -> Result<Value, ProbeFailure> {
     let codeterm_plugin::js_runtime::BinResolution::Found(binary) =
         codeterm_plugin::js_runtime::probe_bin(binary).resolution
     else {

@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_orchestration::traits::HierarchyTeamPlanCreationExt;
 use codeterm_plan::service_plan::state::window::StateWindowRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

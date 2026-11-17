@@ -148,7 +148,7 @@ pub fn build_service_context(
     extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
         Arc::new(parking_lot::Mutex::new(())),
     ));
-    extensions.insert(crate::service::account::AccountCell(Arc::new(
+    extensions.insert(crate::service::neighbor_account::AccountCell(Arc::new(
         tokio::sync::OnceCell::new(),
     )));
     extensions.insert(crate::service::billing::BillingCell(Arc::new(
@@ -160,8 +160,12 @@ pub fn build_service_context(
     extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(
         parking_lot::Mutex::new(std::collections::HashMap::new()),
     )));
+    crate::ports::neighbors::register_extensions(&mut extensions);
+    extensions.insert(crate::ports::neighbors::InstalledNeighbors::default());
     crate::ports::orchestration::register_extensions(&mut extensions);
     extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
+    crate::ports::lifecycle::register_extensions(&mut extensions);
+    extensions.insert(crate::ports::lifecycle::InstalledLifecycle::default());
     extensions.insert::<crate::ShellCapabilityState>(Arc::new(parking_lot::Mutex::new(
         Default::default(),
     )));
@@ -199,8 +203,8 @@ pub fn build_service_context(
             ),
         ),
     ));
-    extensions.insert::<crate::service::agent_restart::RestartTracker>(
-        crate::service::agent_restart::new_restart_tracker(),
+    extensions.insert::<crate::service::agent_lifecycle::RestartTracker>(
+        crate::service::agent_lifecycle::new_restart_tracker(),
     );
     extensions.insert::<crate::delayed_send::DelayedSendQueue>(delayed_send);
     extensions.insert::<Arc<crate::secrets::SecretRegistry>>(secret_registry.clone());
@@ -256,7 +260,7 @@ pub fn build_service_context(
         ),
     )));
     extensions.insert(crate::service::mux_emitter::MuxEmitter::default());
-    extensions.insert(crate::service::hierarchy::PlannerReplayCoalescer::default());
+    extensions.insert(crate::service::planner_replay::PlannerReplayCoalescer::default());
     extensions.insert(crate::service::MuxEmitPending(Arc::new(
         std::sync::atomic::AtomicBool::new(false),
     )));
@@ -297,9 +301,7 @@ pub fn build_service_context(
     extensions.insert(crate::service::PlanStartupLoaded(Arc::new(
         std::sync::atomic::AtomicBool::new(false),
     )));
-    extensions.insert::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(Arc::new(
-        Default::default(),
-    ));
+    extensions.insert::<Arc<crate::service::heartbeat_gate::Gate>>(Arc::new(Default::default()));
     extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(
         parking_lot::Mutex::new(crate::service::WorkerPersonaReservations::default()),
     )));

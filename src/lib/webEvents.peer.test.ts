@@ -5,7 +5,7 @@ import { withFailureDeadline } from "../test/withFailureDeadline";
 async function main() {
   const win = new Window({ url: "http://gateway:7685" });
   Object.assign(globalThis, {
-    window: win, localStorage: win.localStorage, sessionStorage: win.sessionStorage,
+    window: win, document: win.document, localStorage: win.localStorage, sessionStorage: win.sessionStorage,
     Event: win.Event, CustomEvent: win.CustomEvent,
   });
   const { setRelayTarget, clearRelayTarget } = await import("./webApi");

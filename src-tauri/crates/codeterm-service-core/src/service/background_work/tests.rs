@@ -28,7 +28,7 @@ fn background_roster_uses_provider_agent_description() {
 fn restart_guard_refuses_named_work_and_allows_explicit_force() {
     let items = vec!["shell-fixture".into(), "agent-fixture".into()];
     assert!(
-        matches!(restart_guard(items.clone(),false),Err(super::super::agent_restart::AgentRestartError::BackgroundWork{items:running}) if running==items)
+        matches!(restart_guard(items.clone(),false),Err(super::super::agent_lifecycle::AgentRestartError::BackgroundWork{items:running}) if running==items)
     );
     assert!(restart_guard(items, true).is_ok());
     assert!(restart_guard(Vec::new(), false).is_ok());

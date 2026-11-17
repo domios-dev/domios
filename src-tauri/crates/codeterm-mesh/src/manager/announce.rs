@@ -50,6 +50,8 @@ impl MeshManager {
         let addresses = self.local_announce_addresses();
         let online = self.local_http_healthy && !addresses.is_empty();
         types::PeerAnnounce {
+            domios_version: Some(crate::version::local_version().into()),
+            domios_build: (!self.build_hash.is_empty()).then(|| self.build_hash.clone()),
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
             addresses: if online { addresses } else { Vec::new() },
@@ -118,11 +120,25 @@ impl MeshManager {
                 addresses_changed: !addresses_equal(&previous_addresses, &next_addresses),
                 online_changed: peer.online != ann.online,
                 web_ui_changed: peer.web_ui != normalized_web_ui,
-                metadata_changed: peer.api_port != api_port
+                metadata_changed: ann.domios_version.as_ref().is_some_and(|value| {
+                    !value.is_empty() && peer.domios_version.as_ref() != Some(value)
+                }) || ann.domios_build.as_ref().is_some_and(|value| {
+                    !value.is_empty() && peer.domios_build.as_ref() != Some(value)
+                }) || peer.api_port != api_port
                     || peer.relay_protocol_version != ann.relay_protocol_version
                     || (!ann.instance_name.is_empty() && peer.instance_name != ann.instance_name),
                 previous_addresses,
             };
+            if let Some(version) = ann
+                .domios_version
+                .as_ref()
+                .filter(|value| !value.is_empty())
+            {
+                peer.domios_version = Some(version.clone());
+            }
+            if let Some(build) = ann.domios_build.as_ref().filter(|value| !value.is_empty()) {
+                peer.domios_build = Some(build.clone());
+            }
             peer.addresses = next_addresses;
             peer.api_port = api_port;
             peer.online = ann.online;

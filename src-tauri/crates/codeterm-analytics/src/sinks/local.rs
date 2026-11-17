@@ -8,6 +8,7 @@ pub struct Local {
     secrets: SecretReader,
     vendor: Option<Http>,
     key: OnceLock<Option<String>>,
+    context: crate::Context,
 }
 impl Local {
     pub fn new(config: Config, secrets: SecretReader) -> Self {
@@ -28,7 +29,12 @@ impl Local {
             secrets,
             vendor: None,
             key: OnceLock::new(),
+            context: crate::Context::default(),
         }
+    }
+    pub fn with_context(mut self, context: crate::Context) -> Self {
+        self.context = context;
+        self
     }
     fn key(&self) -> Option<&String> {
         self.key
@@ -45,9 +51,10 @@ impl AnalyticsSink for Local {
             return DeliveryResult::Unavailable;
         }
         if self.vendor.is_none() {
-            let Ok(vendor) = Http::with_key(self.config, self.key().cloned()) else {
+            let Ok(mut vendor) = Http::with_key(self.config, self.key().cloned()) else {
                 return DeliveryResult::Unavailable;
             };
+            vendor.context = self.context.clone();
             self.vendor = Some(vendor);
         }
         match &mut self.vendor {

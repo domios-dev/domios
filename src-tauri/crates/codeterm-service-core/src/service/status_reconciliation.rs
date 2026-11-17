@@ -89,7 +89,7 @@ pub(crate) fn try_snapshot_with_reconciled_status(
 
 /// The reconciled snapshot every tab status surface reads, waiting for the
 /// state locks until `deadline` instead of refusing on a concurrent reader.
-pub(crate) fn snapshot_with_reconciled_status_until(
+pub fn snapshot_with_reconciled_status_until(
     mux: &MuxState,
     tracker: &AgentTrackerState,
     registry: &AgentRegistry,

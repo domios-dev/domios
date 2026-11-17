@@ -147,7 +147,7 @@ fn supporter_pending_reason(error: &str) -> &'static str {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum UserWake {
+pub enum UserWake {
     Readiness,
     Admission,
     Housekeeping,
@@ -254,7 +254,7 @@ impl super::ServiceContext {
         self.claim_lazy_first_turn_input(authority, &record.send_id)
     }
 
-    pub(crate) fn claim_lazy_first_turn_input(
+    pub fn claim_lazy_first_turn_input(
         &self,
         authority: &UserSendAuthority,
         send_id: &str,
@@ -700,7 +700,7 @@ impl super::ServiceContext {
         }
     }
 
-    pub(crate) fn wake_user_owner(&self, tab_id: &str, reason: UserWake) {
+    pub fn wake_user_owner(&self, tab_id: &str, reason: UserWake) {
         let owner = self.pending_delivery_payloads.user_sends.tab(tab_id);
         if reason != UserWake::Housekeeping {
             let generation = owner.dispatch_generation.fetch_add(1, Ordering::AcqRel) + 1;

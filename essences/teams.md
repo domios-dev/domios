@@ -20,7 +20,7 @@ A role's model is an ordered preference list, a reference to another role's reso
 
 ## Consent and provenance
 
-Packages received from others stay unverified with no default grants. Builtin packages and templates saved by the owner or their agents on this machine need no consent. Imported or shared packages require the owner's consent once per exact name, version and content hash, enforced by the host and remembered across restarts. Package updates never change an active Team's registrations. Lineage records which package a baked template was derived from.
+Packages received from others stay unverified with no default grants. Builtin packages and templates saved by the owner or their agents on this machine need no consent. Imported or shared packages require the owner's consent once per exact name, version and content hash, enforced by the host and remembered across restarts. Package updates never automatically change an active Team's registrations. The owner may explicitly sync one built-in manager's instructions from the shipped default after reviewing a diff and approving both content hashes; other role settings remain pinned and new instructions take effect on the next fresh launch. Lineage records which package a baked template was derived from.
 
 ## Scope
 

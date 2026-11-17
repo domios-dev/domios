@@ -49,6 +49,9 @@ pub enum Error {
     Gateway,
     Locked,
     Revoked,
+    LocalFence {
+        phase: &'static str,
+    },
     KeyNotFound,
     KeyLimit {
         limit: u64,
@@ -129,6 +132,9 @@ impl std::fmt::Display for Error {
         if let Self::ListenProtocol { kind } = self {
             return write!(f, "Firestore Listen failed ({kind})");
         }
+        if let Self::LocalFence { phase } = self {
+            return write!(f, "neighbor_local_fence: {phase}");
+        }
         if let Self::DailyLimit { limit, resets_at }
         | Self::AggregateDailyLimited { limit, resets_at } = self
         {
@@ -179,6 +185,7 @@ impl std::fmt::Display for Error {
             Self::Gateway => "Neighbor gateway unavailable",
             Self::Locked => "friends_locked: Upgrade to use your Neighbors channel",
             Self::Revoked => "key_revoked: Neighbor installation key revoked",
+            Self::LocalFence { .. } => unreachable!(),
             Self::KeyNotFound => "key_not_found: Neighbor installation key not found",
             Self::EntitlementsUnavailable => "entitlements_unavailable: The service could not verify access; try again",
             Self::ReceiverElsewhere => "receiver_elsewhere: Receiving on another machine",

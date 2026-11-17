@@ -118,7 +118,7 @@ pub async fn rename_team(
     Json(body): Json<RenameTeamBody>,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
     let team = rename_team_adapter(&headers, team_id, body, |team_id, caller_tab_id, name| {
-        codeterm_commands::commands::mux_commands::mux_rename_team_service_core(
+        crate::mux_team::mux_rename_team_service_core(
             &state.svc,
             team_id,
             name,

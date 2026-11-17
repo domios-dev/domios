@@ -43,7 +43,7 @@ pub struct MessageEnvelope {
     pub every_ms: Option<u64>,
     pub next_at_ms: Option<u64>,
     pub skipped_ticks: Option<u64>,
-    pub(crate) delivery_observer: Option<DeliveryWriteObserver>,
+    pub delivery_observer: Option<DeliveryWriteObserver>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
@@ -102,7 +102,7 @@ pub enum Delivery {
 }
 
 impl Delivery {
-    pub(crate) fn is_written(&self) -> bool {
+    pub fn is_written(&self) -> bool {
         !matches!(self, Self::Pending { .. })
     }
 }
@@ -349,7 +349,7 @@ impl Messenger {
         mut envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
-        envelope = svc.stamp_neighbor_message(envelope);
+        envelope = svc.neighbors().stamp_neighbor_message(envelope);
         let kind = envelope.kind;
         if crate::paths::is_dev_instance() && envelope.id.is_none() {
             envelope.id = Some(uuid::Uuid::new_v4().to_string());
@@ -1163,4 +1163,4 @@ pub fn delivery_message(
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

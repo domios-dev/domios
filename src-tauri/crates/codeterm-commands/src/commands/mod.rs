@@ -2,7 +2,6 @@ mod agent;
 mod clipboard;
 mod context_epochs;
 mod essence_map;
-pub mod mux_commands;
 pub mod plugins;
 mod pty;
 pub mod repo_watch;

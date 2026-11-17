@@ -27,7 +27,13 @@ export function loginResponse(state:Record<string,unknown>,value:Record<string,u
   if (method === "device" && !userCode) throw {code:"invalid_schema",message:"Missing device code"};
   return {kind:"complete",result:{kind:"done"},events:[{kind:"authLogin",login:{status:"pending",method,loginId,url,...(userCode ? {userCode} : {})}}]};
 }
+// App-server login errors are user-facing reasons; links may carry OAuth state, so they are elided and the text is bounded.
+export function loginFailureReason(message:unknown,fallback:string):string {
+  const reason=typeof message === "string" ? message.replace(/\bhttps?:\/\/\S+/gi,"<link>").replace(/\s+/g," ").trim() : "";
+  if (!reason) return fallback;
+  return `${fallback.replace(/\. Try again\.$/,"")}: ${reason.length > 240 ? `${reason.slice(0,239)}…` : reason}`;
+}
 export function loginCompleted(value:Record<string,unknown>):AgentEvent {
   const loginId=text(value.loginId);
-  return {kind:"authLogin",login:{status:value.success === true ? "completed" : "failed",...(loginId ? {loginId} : {}),...(value.success === true ? {} : {error:"Sign-in did not complete. Try again."})}};
+  return {kind:"authLogin",login:{status:value.success === true ? "completed" : "failed",...(loginId ? {loginId} : {}),...(value.success === true ? {} : {error:loginFailureReason(value.error,"Sign-in did not complete. Try again.")})}};
 }

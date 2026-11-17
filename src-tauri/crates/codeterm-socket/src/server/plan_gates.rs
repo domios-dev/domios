@@ -1,3 +1,4 @@
+use codeterm_orchestration::traits::{HierarchyExt, HierarchyGateDeliveryExt};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};

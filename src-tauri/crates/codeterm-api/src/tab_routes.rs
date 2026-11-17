@@ -4,6 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_neighbors_service::prelude::*;
 use serde::Deserialize;
 
 use crate::routes::{resolve_tab, AppState};
@@ -959,6 +960,10 @@ pub async fn get_tab_text(
                 "Text projection worker failed",
             )
         })?,
+        Err(error) if error == codeterm_service_core::dispatch::TAB_ASLEEP => Err((
+            StatusCode::CONFLICT,
+            codeterm_service_core::dispatch::TAB_ASLEEP,
+        )),
         Err(_) => Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY")),
     }
 }

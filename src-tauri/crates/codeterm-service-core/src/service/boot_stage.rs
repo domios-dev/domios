@@ -47,7 +47,7 @@ pub fn classify_restart_readiness(
     }
 }
 
-pub(crate) fn wait_for_restart_readiness(
+pub fn wait_for_restart_readiness(
     mux: &crate::MuxState,
     tab_id: &str,
     replaced_pty_id: Option<&str>,
@@ -79,7 +79,7 @@ pub(crate) fn wait_for_restart_readiness(
     RestartReadiness::TimedOut { pty_id }
 }
 
-pub(crate) fn first_turn_input_is_ready(tab: &Tab) -> bool {
+pub fn first_turn_input_is_ready(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::ProviderReady)
         && !tab.agent_booting
         && !tab.frozen
@@ -438,6 +438,9 @@ impl ServiceContext {
         reason: Option<&str>,
         transition: impl FnOnce(&mut Tab) -> bool,
     ) -> bool {
+        if stage == BootStage::AgentReady && self.agent_ready_awaits_input_attach(tab_id) {
+            return false;
+        }
         let reason = stage.carries_reason().then_some(reason).flatten();
         commit_boot_stage_transition(&self.mux, tab_id, transition, |tab| {
             self.publish_boot_stage_transition(tab_id, tab, stage, reason);
@@ -503,7 +506,8 @@ impl ServiceContext {
         self.schedule_restore_report();
         crate::startup::boot_timing::mark(tab_id, None, "finish_restore_done");
         if stage == BootStage::ShellReady {
-            self.resume_exited_member_on_shell_ready(tab_id);
+            self.lifecycle_port()
+                .resume_exited_member_on_shell_ready(tab_id);
         }
         if stage == BootStage::AgentReady {
             if let Ok(authority) = self.user_send_authority(tab_id) {
@@ -517,7 +521,7 @@ impl ServiceContext {
                 crate::session::lifecycle::LifecycleTransition::LaunchReady,
             );
             crate::startup::boot_timing::mark(tab_id, None, "finish_journal_done");
-            self.schedule_planner_replay(tab_id);
+            self.orchestration().schedule_planner_replay(tab_id);
             crate::startup::boot_timing::mark(tab_id, None, "finish_planner_done");
             self.schedule_parked_user_send(tab_id);
             crate::startup::boot_timing::mark(tab_id, None, "finish_user_wake_done");
@@ -565,7 +569,7 @@ impl ServiceContext {
     /// The output deadline elapsed: provisional evidence about one PTY and one
     /// launch attempt, never a verdict. The reason rides along so the deadline
     /// stays diagnosable whichever way recovery goes.
-    pub(crate) fn record_launch_output_deadline(
+    pub fn record_launch_output_deadline(
         &self,
         attempt: &crate::service::launch_readiness::LaunchAttempt,
         reason: &str,
@@ -576,7 +580,7 @@ impl ServiceContext {
     /// Latch a provisional launch: uncertainty about one PTY and one launch
     /// attempt, carrying the evidence that made this observer give up. Only a
     /// nonce-verified binding for the same pair retires it.
-    pub(crate) fn record_provisional_launch(
+    pub fn record_provisional_launch(
         &self,
         attempt: &crate::service::launch_readiness::LaunchAttempt,
         stage: BootStage,
@@ -585,7 +589,7 @@ impl ServiceContext {
         self.record_provisional_launch_with_binding_wait(attempt, stage, reason, false, false);
     }
 
-    pub(crate) fn record_first_turn_input_ready(
+    pub fn record_first_turn_input_ready(
         &self,
         attempt: &crate::service::launch_readiness::LaunchAttempt,
         reason: &str,
@@ -798,9 +802,8 @@ mod in_tab_launch_tests;
 
 #[cfg(test)]
 mod first_turn_tests;
-#[cfg(test)]
-mod late_binding_tests;
+
 #[cfg(test)]
 mod publish_tests;
 #[cfg(test)]
-mod tests;
+pub mod tests;

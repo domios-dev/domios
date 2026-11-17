@@ -72,8 +72,10 @@ Neighbor outgoing history: optional UNIX-ms `delivered_at`, `read_at` (implies d
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | POST | `/api/tabs/{id}/preview/prepare` | — | Index the tab's own session transcript for file references; returns `{state: "ready"\|"indexing", index_id}`. Indexing completion arrives as event `preview-index-state-{id}` (`ready` or `failed`); tabs without a transcript are `ready` at once. Rate-limited |
-| POST | `/api/tabs/{id}/preview/read` | `{path, kind}` | Tab-scoped read; see `API-STATE` |
+| POST | `/api/tabs/{id}/preview/read` | `{path, kind, canvas?}` | Tab-scoped read; see `API-STATE`. `kind: "canvas"` reads a `.canvas.json`; `canvas` names the canvas file that lists `path` as an item |
 | POST | `/api/tabs/{id}/preview/check` | `{paths}` | Tab-scoped existence check |
+| POST | `/api/tabs/{id}/preview/canvas/watch` | `{path, watch}` | Start (`true`) or release (`false`) change events `local-canvas-changed-{id}` `{path}` for a referenced canvas file; returns `{writable, watching}`. `watching: false` means all 16 slots are held by open viewers, none of which is evicted. Owner token only |
+| POST | `/api/tabs/{id}/preview/canvas/write` | `{path, base, document}` | Atomically replace a referenced canvas file that still holds `base`; returns `{status: "written"}` or `{status: "conflict", current}`. Writers in the daemon are serialized per file; an external writer can still land in the instant between the last comparison and the rename. Refuses upload and mesh-delivered copies and new file items; undo may restore exactly a file item (same id, kind and src) an earlier owner write removed from that file. Owner token only |
 
 #### System
 | Method | Path | Body | Description |
@@ -209,4 +211,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 249 -->
+<!-- revision: 252 -->

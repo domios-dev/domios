@@ -56,7 +56,7 @@ vi.mock("qrcode", () => ({ default: { toDataURL: async () => "data:image/png;bas
 vi.mock("@codeterm/canvas-camera", async (original) => ({
   ...await original<typeof import("@codeterm/canvas-camera")>(),
   formatLayerTransform: () => "",
-  useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: () => {}, zoomBy: () => {} }),
+  useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, transformRef: { current: { x: 0, y: 0, scale: 1 } }, setTransform: () => {}, fitToView: () => {}, zoomBy: () => {} }),
 }));
 
 it("wires the toolbar Refresh to the account registry as well as inventory", async () => {

@@ -16133,6 +16133,74 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "sync",
+          "about": "Preview a shipped manager's instructions or ask the owner to approve their sync",
+          "aliases": [],
+          "args": [
+            {
+              "name": "apply",
+              "positional": false,
+              "required": false,
+              "value_name": "APPLY",
+              "possible_values": [],
+              "default": null,
+              "help": "Request the owner's notification choice; this flag never grants approval",
+              "aliases": []
+            },
+            {
+              "name": "current-hash",
+              "positional": false,
+              "required": false,
+              "value_name": "CURRENT_HASH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "preview",
+              "positional": false,
+              "required": false,
+              "value_name": "PREVIEW",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "replacement-hash",
+              "positional": false,
+              "required": false,
+              "value_name": "REPLACEMENT_HASH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "role",
+              "positional": true,
+              "required": true,
+              "value_name": "ROLE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "team",
+              "positional": false,
+              "required": true,
+              "value_name": "TEAM",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         }
       ]
     },

@@ -308,7 +308,10 @@ pub(crate) fn recover(
                     );
                     return true;
                 }
-                if let Err(error) = service.recover_general_agent_provider_exit(observed) {
+                if let Err(error) = service
+                    .lifecycle_port()
+                    .recover_general_agent_provider_exit(observed)
+                {
                     crate::service::supporter_notify::owner(
                         service,
                         tab_id,

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { validateTestWaiver } from './release-test-waiver.mjs';
 
 const PLATFORMS = ['darwin-aarch64', 'darwin-x86_64', 'windows-x86_64',
   'windows-aarch64', 'linux-x86_64', 'linux-aarch64'];
@@ -25,6 +26,16 @@ export function authorizeClosure(record, debRecord, version) {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid closure version');
   verifyRecord(record, version, PLATFORMS, false);
   verifyRecord(debRecord, version, ['linux-x86_64', 'linux-aarch64'], true);
+  if (record.mode === 'qualified_metadata' || debRecord.mode === 'qualified_metadata') {
+    if (record.mode !== 'qualified_metadata' || debRecord.mode !== 'qualified_metadata' ||
+        !/^[a-f0-9]{40}$/.test(record.qualification?.source_sha ?? '') ||
+        !/^[1-9]\d*$/.test(record.qualification?.run_id ?? '') ||
+        JSON.stringify(record.qualification) !== JSON.stringify(debRecord.qualification)) {
+      throw new Error('Closure requires the same qualified source and run for both manifests');
+    }
+    const waiver = record.qualification.test_waiver;
+    if (waiver && validateTestWaiver(waiver).run_id !== record.qualification.run_id) throw new Error('Foreign closure waiver');
+  }
 }
 
 export async function closeVerifiedIssues(plan, record, debRecord, version, close) {
@@ -34,7 +45,10 @@ export async function closeVerifiedIssues(plan, record, debRecord, version, clos
     || typeof action.comment !== 'string' || !action.comment.startsWith(`Released in v${version}\n`))) {
     throw new Error('Invalid public issue close plan');
   }
-  for (const action of plan) await close(action);
+  const waiver = record.qualification?.test_waiver;
+  for (const action of plan) await close(waiver ? { ...action,
+    comment: action.comment + `\n\nOwner test waiver, qualification run ${waiver.run_id}:\n` + waiver.jobs.map(name => '- ' + name).join('\n'),
+  } : action);
 }
 
 async function main(argv) {

@@ -6,9 +6,7 @@ use axum::{
     routing::get,
     Router,
 };
-use codeterm_service_core::{
-    multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
-};
+use codeterm_service_core::multiplexer::state::MultiplexerState;
 use tower::ServiceExt;
 
 #[test]
@@ -35,7 +33,7 @@ fn sidebar_admits_verified_owner_origin_only_including_relayed_owners() {
 
 #[tokio::test]
 async fn sidebar_route_is_read_only_and_omits_account_state() {
-    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let fixture = codeterm_neighbors_service::test_support::fixture(MultiplexerState::new().0);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     state.config.lock().account = serde_json::json!({"provider":"local"});
     let (key, public) = codeterm_service_core::mesh::crown::generate_peer_keypair();

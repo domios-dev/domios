@@ -18,7 +18,7 @@ impl ServiceContext {
         self.bind_worker_plan_task_or_rollback_tab(&prepared, tab_id)
     }
 
-    pub(crate) fn finalize_runtime_worker_session(
+    pub fn finalize_runtime_worker_session(
         &self,
         tab_id: &str,
         thread: &str,
@@ -28,7 +28,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn report_runtime_worker_session_finalization(
+    pub fn report_runtime_worker_session_finalization(
         &self,
         tab_id: &str,
         thread: &str,
@@ -51,7 +51,7 @@ impl ServiceContext {
         nonce: &str,
     ) -> Result<(), PlanBindingFailure> {
         self.restore_runtime_attempt_binding(tab_id)?;
-        self.bind_planner_session(tab_id)?;
+        self.orchestration().bind_planner_session(tab_id)?;
         if self.carry_authorized_runtime_restart_binding(tab_id, thread, nonce)? {
             return Ok(());
         }

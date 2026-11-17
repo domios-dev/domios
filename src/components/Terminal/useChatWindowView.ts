@@ -132,7 +132,8 @@ export function useChatWindowView({
   const gaps = useChatHistoryGaps(windowKey, loadHistoryPage);
   const baseEntries = useMemo(() => stableDeliveryEntries(
     conversationEntries(allMessages, enrichmentCacheRef.current), liveSends, projection.echoes, deliveryMemory.current,
-  ), [allMessages, liveSends, projection.echoes, windowKey]);
+    projection.outside,
+  ), [allMessages, liveSends, projection.echoes, projection.outside, windowKey]);
   const gapEntries = useMemo(() => gaps.project(baseEntries), [baseEntries, gaps.project]);
   const leadingGap = gapEntries[0]?.msg.timelineMarker?.kind === "history_gap" ? gapEntries[0].msg : null;
   const allEntries = useMemo(() => leadingGap ? gapEntries.slice(1) : gapEntries, [gapEntries, leadingGap]);

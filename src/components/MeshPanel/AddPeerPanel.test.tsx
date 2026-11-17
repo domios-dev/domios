@@ -36,7 +36,7 @@ async function mount(client: FakeAccountMeshClient, account: AccountPresence, pr
 }
 
 const button = (name: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)
-  ?? [...host.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === name && !candidate.hasAttribute("aria-label"))
+  ?? [...document.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === name && !candidate.hasAttribute("aria-label"))
   ?? null;
 const row = (list: string, name: string) => host.querySelector<HTMLLIElement>(`ul[aria-label="${list}"] li[aria-label="${name}"]`);
 const account = (name: string) => row("Your account's machines", name);
@@ -44,6 +44,15 @@ const click = async (target: HTMLElement | null) => {
   expect(target).not.toBeNull();
   await act(async () => target!.click());
 };
+async function openMore(name: string) {
+  const trigger = button(`More for ${name}`)!;
+  expect(trigger).not.toBeNull();
+  await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+}
+async function choose(name: string, action: string) {
+  await openMore(name);
+  await click(button(action));
+}
 function type(input: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -53,11 +62,11 @@ function type(input: HTMLInputElement, value: string) {
 it("requires a named confirmation before signing out another machine and allows cancel", async () => {
   const client = new FakeAccountMeshClient(snapshot());
   await mount(client, "signed_in");
-  await click(button("Sign out MacBook"));
+  await choose("MacBook", "Sign out this machine");
   expect(client.sessionRevokeCalls).toEqual([]);
   await click(button("Cancel"));
   expect(client.sessionRevokeCalls).toEqual([]);
-  await click(button("Sign out MacBook"));
+  await choose("MacBook", "Sign out this machine");
   await click(button("Confirm sign out"));
   expect(client.sessionRevokeCalls).toEqual([macRow.installation_id]);
   expect(client.revokeCalls).toEqual([]);
@@ -65,7 +74,7 @@ it("requires a named confirmation before signing out another machine and allows 
 it("removes the exact selected installation only after confirmation", async () => {
   const client = new FakeAccountMeshClient(snapshot());
   await mount(client, "signed_in");
-  await click(button("Remove MacBook from mesh"));
+  await choose("MacBook", "Remove from mesh");
   expect(client.revokeCalls).toEqual([]);
   const checkbox = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
   expect(checkbox.checked).toBe(false);
@@ -78,13 +87,14 @@ it("keeps a stale installation removable and names green's sign-in cause", async
   const client = new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [selfRow, green] } }));
   await mount(client, "signed_in");
   expect(account("green")?.textContent).toContain("Sign in on green");
-  expect(button("Remove green from mesh")).not.toBeNull();
-  expect(button("Sign out green")).toBeNull();
+  await openMore("green");
+  expect(button("Remove from mesh")).not.toBeNull();
+  expect(button("Sign out this machine")).toBeNull();
 });
 it("connects through account state without Add, Approve or Disconnect controls", async () => {
   const client = new FakeAccountMeshClient(snapshot({ pairs: [pair("transport", "MacBook", { installation_id: macRow.installation_id })] }));
   await mount(client, "signed_in");
-  expect(account("MacBook")?.textContent).toContain("Connected over your account mesh");
+  expect(account("MacBook")?.textContent).toContain("Connected");
   expect([...host.querySelectorAll("button")].some(element => /^(Connect|Add|Approve|Decline|Disconnect)/.test(element.textContent ?? ""))).toBe(false);
 });
 it("uses the startup registry on mount and refreshes only on request", async () => {
@@ -122,7 +132,7 @@ it("shows a failed machine action with shared error details and its cause", asyn
   const client = new FakeAccountMeshClient(snapshot());
   client.revokeOutcomes.push({ ok: false, failure: { reason: "forbidden" } });
   await mount(client, "signed_in");
-  await click(button("Remove MacBook from mesh"));
+  await choose("MacBook", "Remove from mesh");
   await click(button("Confirm remove"));
   const failure = account("MacBook")?.querySelector('[role="alert"]');
   expect(failure?.textContent).toContain("Your account does not allow this action.");

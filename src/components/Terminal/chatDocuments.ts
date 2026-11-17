@@ -1,4 +1,4 @@
-import { attachmentPreviewKind, parseAttachmentMarkers, parseDomiosMessage, parseDsBlocks, rawEnvelopeExclusions, type LocalArtifactKind, type MessageSegment } from "@codeterm/chat-core";
+import { attachmentPreviewKind, isDsCanvasFilePath, parseAttachmentMarkers, parseDomiosMessage, parseDsBlocks, rawEnvelopeExclusions, type LocalArtifactKind, type MessageSegment } from "@codeterm/chat-core";
 
 export interface ChatDocument { path: string; kind: LocalArtifactKind; name: string; shownAt: string | number | null; }
 export interface TranscriptMessage { id?: string; sourceSessionId?: string; content: string; timestamp?: string | number | null; type?: string; inboundKind?: string; segments?: readonly MessageSegment[] | null }
@@ -34,6 +34,7 @@ function directivesOf(message: TranscriptMessage): { kind: LocalArtifactKind; pa
     if (segment.type !== "block" || exclusions.some((range) => segment.start < range.end && range.start < segment.end)) return [];
     const block = segment.block;
     if (block.kind === "page" || block.kind === "document") return [{ kind: block.kind, path: block.src }];
+    if (block.kind === "canvas") return "src" in block && isDsCanvasFilePath(block.src) ? [{ kind: "canvas" as const, path: block.src }] : [];
     return block.kind === "image" ? block.sources.map((path) => ({ kind: "image" as const, path })) : [];
   });
 }

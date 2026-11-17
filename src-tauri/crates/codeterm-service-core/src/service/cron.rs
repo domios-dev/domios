@@ -489,7 +489,7 @@ impl ServiceContext {
     }
 
     /// Agents get a framed system notice; plain shells keep the bare text.
-    pub(crate) fn deliver_cron_report(
+    pub fn deliver_cron_report(
         &self,
         target: &str,
         envelope: MessageEnvelope,

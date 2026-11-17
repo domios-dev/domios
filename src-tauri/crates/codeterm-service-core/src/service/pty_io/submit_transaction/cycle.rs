@@ -245,7 +245,7 @@ impl SubmitCycleClaim {
         self._lease._input.as_ref().err().cloned()
     }
 
-    pub(crate) fn provider_exited(&self) -> bool {
+    pub fn provider_exited(&self) -> bool {
         self.provider_exit
             .as_ref()
             .is_some_and(|observed| observed.load(Ordering::Acquire))
@@ -267,8 +267,8 @@ impl SubmitCycleClaim {
                 || self.cycle.is_current(self.generation))
     }
 
-    #[cfg(test)]
-    pub(crate) fn enqueue_test_payload(&self) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn enqueue_test_payload(&self) {
         let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
         self.payload_enqueued(sender);
     }
@@ -282,7 +282,7 @@ impl SubmitCycleClaim {
     }
 }
 
-pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
+pub fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     claim_cycle(
         pty_id,
         None,
@@ -290,7 +290,7 @@ pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     )
 }
 
-pub(crate) fn claim_exit_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
+pub fn claim_exit_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     claim_cycle(
         pty_id,
         Some(Arc::new(AtomicBool::new(false))),
@@ -298,7 +298,7 @@ pub(crate) fn claim_exit_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     )
 }
 
-pub(crate) fn claim_command_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
+pub fn claim_command_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     claim_cycle(pty_id, None, Ok(None))
 }
 
@@ -345,7 +345,7 @@ fn claim_cycle(
     }
 }
 
-pub(crate) fn notify_submit_cycle_provider_exit(pty_id: &str) {
+pub fn notify_submit_cycle_provider_exit(pty_id: &str) {
     super::input_reservation::command_pty_exited(pty_id);
     let cycle = submit_cycles().lock().get(pty_id).and_then(Weak::upgrade);
     if let Some(cycle) = cycle {
@@ -353,11 +353,11 @@ pub(crate) fn notify_submit_cycle_provider_exit(pty_id: &str) {
     }
 }
 
-pub(crate) fn wake_submit_cycle(pty_id: &str) {
+pub fn wake_submit_cycle(pty_id: &str) {
     wake_submit_cycle_with(pty_id, SubmitCycleSignal::SessionEvidence);
 }
 
-pub(crate) fn wake_submit_cycle_output(pty_id: &str) {
+pub fn wake_submit_cycle_output(pty_id: &str) {
     wake_submit_cycle_with(pty_id, SubmitCycleSignal::Output);
 }
 

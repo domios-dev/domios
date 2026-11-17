@@ -1,13 +1,13 @@
-pub(in crate::service::agent_runtime) use super::tests::sync_send::{
+pub use super::sync_fixture::{
     runtime_fixture, runtime_fixture_host_approvals, runtime_fixture_host_approvals_with,
     runtime_fixture_turn_scoped, runtime_fixture_with,
 };
 use super::*;
 use crate::multiplexer::types::Tab;
 
-pub(crate) struct LiveRuntime {
+pub struct LiveRuntime {
     tab_id: String,
-    pub(crate) peer: tokio::io::DuplexStream,
+    pub peer: tokio::io::DuplexStream,
 }
 
 impl Drop for LiveRuntime {
@@ -16,11 +16,11 @@ impl Drop for LiveRuntime {
     }
 }
 
-pub(crate) fn live_runtime(tab: &Tab) -> LiveRuntime {
+pub fn live_runtime(tab: &Tab) -> LiveRuntime {
     loaded_runtime(tab, None)
 }
 
-pub(crate) fn loaded_runtime(
+pub fn loaded_runtime(
     tab: &Tab,
     adapter: Option<Arc<dyn crate::agent::provider::AgentProvider>>,
 ) -> LiveRuntime {
@@ -86,7 +86,7 @@ pub(crate) fn loaded_runtime(
     }
 }
 
-pub(super) fn stop_test(tab: &str) {
+pub fn stop_test(tab: &str) {
     let session = SESSIONS.lock().remove(tab);
     if let Some(session) = session {
         if let Some(process) = session.process.close() {

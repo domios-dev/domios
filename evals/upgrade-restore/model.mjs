@@ -1,3 +1,5 @@
+import {requireUtility, utilityVerdict} from './utility.mjs';
+
 export function leaves(document) {
   const result = [];
   function visit(node) {
@@ -106,7 +108,7 @@ export function requireBackings(document) {
     if (transcript?.status === 'unavailable' && !capturedUnavailable(document, tab)) {
       throw new Error(`tab=${tab.tab_id}: transcript unavailable (backing=${transcript.backing_kind}, provider=${transcript.provider ?? 'none'})`);
     }
-    if (!tab.agent_type) throw new Error(`tab=${tab.tab_id}: fake shell/surface backing missing`);
+    if (!tab.agent_type) requireUtility(tab, document.histories.find(row => row.tab_id === tab.tab_id));
     if (tab.agent_type && !(tab.claude_session_id ?? tab.agent_session_id)) {
       throw new Error(`tab=${tab.tab_id}: provider thread identity missing`);
     }
@@ -187,7 +189,7 @@ export function verdict(expected, actual) {
   const identity = identityVerdict(expected, actual);
   if (identity) return identity;
   const id = expected.tab_id;
-  if (!expected.agent_type) return {tab_id: id, ready: false, reason: 'shell/surface readiness backing missing'};
+  if (!expected.agent_type) return utilityVerdict(expected, actual);
   const runtime = actual.agent_runtime_state;
   if (runtime?.state !== 'loaded' || !(runtime.epoch > 0)) {
     return {tab_id: id, ready: false, reason: runtime?.reason ?? `runtime ${runtime?.state ?? 'missing'}`};

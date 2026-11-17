@@ -1,43 +1,26 @@
+import assert from "node:assert/strict";
 import { deriveMemoryGraphPalette } from "./memoryGraphTheme";
 
-let passed = 0;
-let failed = 0;
-
-function assert(label: string, ok: boolean, detail?: string) {
-  if (ok) {
-    console.log(`  ✓ ${label}`);
-    passed++;
-  } else {
-    console.error(`  ✗ ${label}${detail ? ` — ${detail}` : ""}`);
-    failed++;
+const dark = deriveMemoryGraphPalette("#000000", "#ffffff", "#646464");
+assert.equal(dark.edgeColor(0.1), "rgb(10,10,10)");
+assert.equal(dark.edgeColor(0.14), "rgb(14,14,14)");
+assert.equal(dark.edgeColor(0.18), "rgb(18,18,18)");
+assert.equal(dark.edgeColor(0.08), "rgb(8,8,8)");
+assert.equal(dark.edgeColor(0.18, true), "rgb(9,9,9)");
+assert.equal(dark.hoverEdgeColor, "rgb(115,115,115)");
+assert.equal(dark.selectedEdgeColor, "rgb(166,166,166)");
+assert.equal(dark.labelColor, "#ffffff");
+const light = deriveMemoryGraphPalette("#ffffff", "#000000", "#646464");
+assert.equal(light.edgeColor(0.1), "rgb(233,233,233)");
+assert.equal(light.edgeColor(0.18), "rgb(221,221,221)");
+assert.equal(light.edgeColor(0.18, true), "rgb(238,238,238)");
+assert.equal(light.hoverEdgeColor, "rgb(140,140,140)");
+assert.equal(light.selectedEdgeColor, "rgb(89,89,89)");
+assert.equal(deriveMemoryGraphPalette("#aaaaaa", "#000000", "#646464").edgeColor(0.1), "rgb(160,160,160)");
+for (const palette of [dark, light]) {
+  for (const strength of [0.08, 0.1, 0.14, 0.18]) {
+    assert.match(palette.edgeColor(strength), /^rgb\(\d+,\d+,\d+\)$/);
+    assert.match(palette.edgeColor(strength, true), /^rgb\(\d+,\d+,\d+\)$/);
   }
 }
-
-console.log("memoryGraphTheme tests");
-
-{
-  const palette = deriveMemoryGraphPalette("#f6f8fa", "#1f2328");
-  assert("light theme uses foreground RGB for edges", palette.edgeRgb === "31,35,40");
-  assert("light theme detail edges are visible", palette.realEdgeAlpha(0.5) >= 0.14);
-  assert("light theme labels use foreground", palette.labelColor === "#1f2328");
-}
-
-{
-  const palette = deriveMemoryGraphPalette("#0d1117", "#c9d1d9");
-  assert("dark theme uses foreground RGB for edges", palette.edgeRgb === "201,209,217");
-  assert("dark theme detail edges stay subtle", palette.realEdgeAlpha(0.5) < 0.1);
-  assert("dark theme labels use foreground", palette.labelColor === "#c9d1d9");
-}
-
-{
-  const palette = deriveMemoryGraphPalette("#0d1117", "#c9d1d9");
-  assert(
-    "edge colors are premultiplied for sigma's blending",
-    palette.edgeColor(0.5) === "rgba(101,105,109,0.5)",
-    palette.edgeColor(0.5),
-  );
-  assert("an opaque edge keeps the foreground", palette.edgeColor(1) === "rgba(201,209,217,1)");
-}
-
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) throw new Error(`${failed} test(s) failed`);
+console.log("Dark/light palette mixes, long-edge colours, opaque output and ego strengths passed");

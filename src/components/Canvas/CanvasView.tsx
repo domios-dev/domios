@@ -1,3 +1,5 @@
+import { useProductViewEvent } from "../../hooks/useProductViewEvent";
+import { useCanvasStage, CANVAS_ZOOM_STEP } from "@codeterm/chat-ui/useCanvasStage";
 import type { PlanView as Plan, PlanSectionView as Section } from "./planProjection";
 import { returnToOrigin } from "../../lib/returnTo";
 import { useReturnToChat } from "../../hooks/useReturnToChat";
@@ -31,7 +33,7 @@ import type { PlanGhostModel } from "./canvasView/models";
 import type { TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport, paintLayer, AUTO_FIT_MAX_SCALE, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "@codeterm/canvas-camera";
+import { paintLayer, AUTO_FIT_MAX_SCALE, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "@codeterm/canvas-camera";
 import { buildSectionGroups, resolveSceneLod } from "./canvasRender/sceneLod";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
@@ -120,7 +122,6 @@ export function CanvasViewInner({
   viewportPadding,
 }: CanvasViewInnerProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState({ width: 800, height: 600 });
   useEffect(() => {
     bumpCanvasChurn("canvasCommits");
   });
@@ -212,14 +213,21 @@ export function CanvasViewInner({
   const canvasApiRef = useRef<CanvasRenderApi | null>(null);
   const hoverRafRef = useRef<number | null>(null);
   const onPaintImpl = useRef<(t: ViewportTransform) => void>(() => {});
-  const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, layerRef, transformRef } = useCanvasViewport({
-    width: size.width,
-    height: size.height,
-    panButton: "middle",
-    minScale: CANVAS_MIN_SCALE,
-    maxScale: CANVAS_MAX_SCALE,
-    onPaint: (t) => onPaintImpl.current(t),
+  const stage = useCanvasStage({
+    initialSize: { width: 800, height: 600 }, measureRef: shellRef,
+    contextKey: canvasFitContextKey(mode, focusTabId, workspaceTarget),
+    fit: () => {
+      if (layout.bounds.width <= 0) return false;
+      if (workspaceFocusIds.length) focusOnNodes(workspaceFocusIds);
+      else if (tabTaskIds.length) focusOnNodes(tabTaskIds);
+      else fitToView(layout.frames.find(frame => frame.planId === activePlanId)?.box ?? layout.bounds, { maxScale: AUTO_FIT_MAX_SCALE });
+    },
+    panButton: "middle", minScale: CANVAS_MIN_SCALE, maxScale: CANVAS_MAX_SCALE,
+    onPaint: t => onPaintImpl.current(t),
   });
+  const { camera, size } = stage;
+  const { transform, handlers, fitToView, animateTo, animateToView, setTransform, isDragging, containerRef, layerRef, transformRef } = camera;
+  const zoomBy = stage.zoom;
   onPaintImpl.current = (t) => {
     bumpCanvasChurn("cameraPaints");
     paintLayer(layerRef.current, t);
@@ -448,22 +456,6 @@ export function CanvasViewInner({
     [mode, workspaceTarget, filteredPlans],
   );
 
-  const fittedRef = useRef<string | null>(null);
-  const fitContextKey = canvasFitContextKey(mode, focusTabId, workspaceTarget);
-  useEffect(() => {
-    if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
-    if (fittedRef.current === fitContextKey) return;
-    fittedRef.current = fitContextKey;
-    // frames the active plan (§23.4), not fit-all (which lands at 5% on a big board).
-    if (workspaceFocusIds.length) focusOnNodes(workspaceFocusIds);
-    else if (tabTaskIds.length) focusOnNodes(tabTaskIds);
-    else if (activePlanId) {
-      const frame = layout.frames.find((f) => f.planId === activePlanId);
-      if (frame) fitToView(frame.box, { maxScale: AUTO_FIT_MAX_SCALE });
-      else fitToView(layout.bounds, { maxScale: AUTO_FIT_MAX_SCALE });
-    } else fitToView(layout.bounds, { maxScale: AUTO_FIT_MAX_SCALE });
-  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, tabTaskIds, activePlanId, size.width, size.height]);
-
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let active = true;
@@ -483,19 +475,6 @@ export function CanvasViewInner({
       unlisten?.();
     };
   }, [focusOnNodes, filteredPlans]);
-
-  useEffect(() => {
-    const el = shellRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect;
-      if (!rect) return;
-      setSize({ width: rect.width, height: rect.height });
-    });
-    ro.observe(el);
-    setSize({ width: el.clientWidth, height: el.clientHeight });
-    return () => ro.disconnect();
-  }, []);
 
   const legendFacets = useMemo(() => {
     const byKey = new Map<string, TagFacet>();
@@ -720,6 +699,8 @@ export function CanvasViewInner({
       )}
       <div
         ref={containerRef}
+        {...stage.interactions}
+        tabIndex={0}
         className="relative h-full w-full overflow-hidden"
         onMouseDown={handlers.onMouseDown}
         onClick={onCanvasClick}
@@ -815,8 +796,8 @@ export function CanvasViewInner({
       )}
       {showsData && filteredPlans.length > 0 && (
         <CanvasToolbar
-          onZoomIn={() => zoomBy(0.2)}
-          onZoomOut={() => zoomBy(-0.2)}
+          onZoomIn={() => zoomBy(CANVAS_ZOOM_STEP)}
+          onZoomOut={() => zoomBy(-CANVAS_ZOOM_STEP)}
           onFit={fitView}
           extras={<>
             <span data-testid="canvas-zoom-level">{Math.round(transform.scale * 100)}%</span>
@@ -900,6 +881,7 @@ export interface CanvasViewProps {
 }
 
 export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focusTabId, api, onClose }: CanvasViewProps) {
+  useProductViewEvent("canvas_opened");
   const { setFocusedTab, setActiveTab, selectTabByTab, deleteNotification } = useMultiplexer();
   const clearNotifications = useCallback(
     (ids: string[]) => ids.forEach((id) => deleteNotification(id)),

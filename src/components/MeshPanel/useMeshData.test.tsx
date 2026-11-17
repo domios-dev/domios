@@ -226,3 +226,41 @@ it("keeps peer inventory failures local and refreshes again only on an external 
     __setListenForTest(null);
   }
 });
+
+
+it("retains the last peer version across missing metadata and updates on a new announce", async () => {
+  installDom();
+  configureDaemonTransport({ origin: "http://localhost", token: "mesh-peer-version" });
+  setFrontendCacheStorageForTests(new FakeStorage());
+  let metadata: { domios_version?: string; domios_build?: string } = { domios_version: "1.20.0", domios_build: "abc1234" };
+  const commands: string[] = [];
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    commands.push(command);
+    if (command === "mesh_inventory_list") return { resources: [] } as T;
+    if (command === "mesh_get_status") return { instance_name: "Local" } as T;
+    if (command === "mesh_list_peers") return { paired: [{ instance_id: "peer-version", instance_name: "Peer", addresses: [], api_port: 7685, online: false, access_level: "full", last_seen: null, relay_protocol_version: 3, ...metadata }] } as T;
+    if (command === "mesh_peer_services_list") return { services: [], stale: true } as T;
+    throw new Error(command);
+  });
+  let state: MeshDataResult | undefined;
+  function Probe() { state = useMeshData(0); return null; }
+  const view = await mount(<Probe />);
+  try {
+    await settle(() => state?.loading === false && state.peers.length === 1);
+    assert.equal(state?.peers[0].domios_version, "1.20.0");
+    metadata = {};
+    await act(async () => { await state?.refresh(); });
+    assert.equal(state?.peers[0].domios_version, "1.20.0");
+    assert.equal(state?.peers[0].domios_build, "abc1234");
+    metadata = { domios_version: "1.20.1", domios_build: "def5678" };
+    await act(async () => { await state?.refresh(); });
+    assert.equal(state?.peers[0].domios_version, "1.20.1");
+    assert.equal(state?.peers[0].domios_build, "def5678");
+    assert(!commands.some(command => command.includes("identify")));
+  } finally {
+    await view.close();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});

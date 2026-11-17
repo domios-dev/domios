@@ -204,6 +204,11 @@ even with a numbered permission prompt on screen. Guards that remain are ownersh
 and authority only (PTY owner, launch latch, model-command ownership, session
 authority). Delivery evidence stays exact own-session turn evidence.
 
+A utility command (`tab exec`, `tab new --cmd`, shell restart) targets an idle
+prompt and writes exactly one Enter after its payload, with no recovery keys. A
+later key reaches the started command, and on Windows it returns to the next
+PowerShell prompt as a literal `m` that prefixes the following command.
+
 The `pasted by Domios` marker paste follows the provider capability
 `paste.pasteMarkerWhen`: `multiline` adds it only when the body contains a line
 break (single-line bodies arrive plain); the default `always` keeps old behaviour.
@@ -235,4 +240,4 @@ Expected turn evidence and the Chat reader follow the same rule.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

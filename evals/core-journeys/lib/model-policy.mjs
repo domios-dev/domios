@@ -157,10 +157,12 @@ export async function refreshAfterStartup(ctx, provider) {
   }
 }
 
-export async function freshCatalogue(api, provider, selected, expectedRoster, fixture = () => undefined, observedRefresh, context) {
+/** `expected.ids` is the run roster; an owner-excluded provider may stay installed without changing it. */
+export async function freshCatalogue(api, provider, selected, expected, fixture = () => undefined, observedRefresh, context) {
   const read = async () => {
     const descriptors = (await api("/api/agents/providers")).filter(descriptor => descriptor.id !== fixture());
-    if (expectedRoster && !same(descriptors.filter(installed).map(descriptor => descriptor.id), expectedRoster)) refuse("installed provider roster changed");
+    const current = descriptors.filter(installed).map(descriptor => descriptor.id).filter(id => !expected?.excluded.includes(id));
+    if (expected && !same(current, expected.ids)) refuse("installed provider roster changed");
     return descriptors;
   };
   const descriptors = await read();
@@ -187,6 +189,7 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
     { required: (required ?? REQUIRED_PROVIDERS).filter((id) => !excluded.includes(id)) });
   if (roster.missing.length) refuse(`required providers missing: ${roster.missing.map((entry) => entry.id).join(",")}`);
   const ids = roster.run.map((provider) => provider.id);
+  const expected = { ids, excluded };
   if (ctx.options.providers && !same(ctx.options.providers, ids)) refuse("provider roster narrowing is forbidden");
   if (!same(Object.keys(selections), ids)) {
     const hints = [];
@@ -203,7 +206,7 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
   const catalogues = {}, build = ctx.health?.build_sha ?? ctx.health?.build;
   for (const provider of ids) {
     if (profileBacked(descriptors.find(descriptor => descriptor.id === provider))) {
-      catalogues[provider] = await freshCatalogue(ctx.api, provider, selectedModel(selections, provider), ids, fixture);
+      catalogues[provider] = await freshCatalogue(ctx.api, provider, selectedModel(selections, provider), expected, fixture);
       continue;
     }
     const { startup_event_deadline, ...refresh } = await refreshAfterStartup(ctx, provider);
@@ -214,7 +217,7 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
       qualification: { verified_live_in_setup: true, post_restart_refresh_in_flight: true,
         model_present_in_cache: true, model_id: selected, run: ctx.state.run, build_sha: build },
     } : undefined;
-    catalogues[provider] = await freshCatalogue(ctx.api, provider, selected, ids, fixture, refresh, context);
+    catalogues[provider] = await freshCatalogue(ctx.api, provider, selected, expected, fixture, refresh, context);
   }
   const policy = previous ?? { selections: { ...selections }, roster: ids, catalogues: {}, launches: [], identities: {}, first_sends: {} };
   Object.assign(policy.catalogues, catalogues);
@@ -263,7 +266,7 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
     roster,
     async launch(provider, path, call) {
       const model = selectedModel(selections, provider);
-      const catalogue = await freshCatalogue(ctx.api, provider, model, ids, fixture);
+      const catalogue = await freshCatalogue(ctx.api, provider, model, expected, fixture);
       await assertConfiguration(provider);
       policy.catalogues[provider] = catalogue;
       const profile = catalogue.kind === "profile";
@@ -278,7 +281,7 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
       let record = await readRecord(id);
       const provider = record?.agent_type;
       const selected = selectedModel(selections, provider);
-      policy.catalogues[provider] = await freshCatalogue(ctx.api, provider, selected, ids, fixture);
+      policy.catalogues[provider] = await freshCatalogue(ctx.api, provider, selected, expected, fixture);
       await assertConfiguration(provider);
       record = await readRecord(id);
       if (record?.id !== id) refuse(`tab ${id} own identity unavailable`);

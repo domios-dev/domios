@@ -1,14 +1,18 @@
 import { useLayoutEffect, useRef, useState, type HTMLAttributes } from "react";
-import { useCanvasViewport, type ViewportBox } from "@codeterm/canvas-camera";
+import { type ViewportBox } from "@codeterm/canvas-camera";
 import { swipeDirection } from "./galleryModel";
-import { createImageCanvasCamera, type InitialCanvasFit } from "./imageCanvasCamera";
+import { type InitialCanvasFit } from "./imageCanvasCamera";
+import { useCanvasStage } from "./useCanvasStage";
 import { canvasGrid } from "./canvasGrid";
+import { nextCameraRest, type CameraRest, type CameraRestEvent } from "./canvasRest";
 
 export interface CanvasFocus { request: number; bounds: ViewportBox }
 type ViewMode = "fit" | "focus" | "custom" | "natural";
 
-export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect }: {
+export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect, followContent = true }: {
   bounds: ViewportBox;
+  /** `false` keeps the camera when the content's bounds change, as when a canvas file reloads. */
+  followContent?: boolean;
   focus?: CanvasFocus | null;
   cameraKey?: string;
   initialFit: InitialCanvasFit;
@@ -16,14 +20,27 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
   onNavigate?: (direction: number) => void;
   onSelect?: (index: number) => void;
 }) {
-  const [size, setSize] = useState({ width: 0, height: 0 });
   const [mode, setMode] = useState<ViewMode>("fit");
-  const modeRef = useRef<ViewMode>("fit");
   const focusRequest = useRef<number | null>(null);
   const scaleOutput = useRef<HTMLOutputElement>(null);
-  const [imageCamera] = useState(() => cameraKey === undefined ? null : createImageCanvasCamera(cameraKey));
-  const camera = useCanvasViewport({ ...size, minScale: 0.0001, maxScale: 8, wheelBehavior, touch: true, constrainToFit: false,
+  const imageCamera = cameraKey !== undefined;
+  const [rest, setRest] = useState<CameraRest>(null);
+  const restRef = useRef<CameraRest>(null);
+  const moveRest = (event: CameraRestEvent) => {
+    const next = nextCameraRest(restRef.current, event);
+    if (next === restRef.current) return;
+    restRef.current = next;
+    setRest(next);
+  };
+  const stage = useCanvasStage({ minScale: 0.0001, maxScale: 8, wheelBehavior, constrainToFit: false,
+    memoryKey: cameraKey === undefined ? undefined : `image:${cameraKey}`,
+    ready: initialFit === "ready", cancelled: initialFit === "cancelled",
+    followFit: !imageCamera,
+    fitRevision: followContent ? `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}` : "",
+    fit: (camera, _size, initial) => { camera.fitToView(initial ? focus?.bounds ?? bounds : bounds); if (!initial) setMode("fit"); else if (focus) setMode("custom"); },
+    onUserControl: () => setMode("custom"), onReset: () => natural(), onNavigate,
     onPaint: transform => {
+      moveRest({ kind: "paint", scale: transform.scale });
       if (scaleOutput.current) scaleOutput.current.textContent = `${Math.round(transform.scale * 100)}%`;
       const style = camera.containerRef.current?.style;
       const grid = canvasGrid(transform);
@@ -31,21 +48,26 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
       style?.setProperty("--canvas-dot", `${grid.radius}px`);
       style?.setProperty("--canvas-x", `${grid.x}px`);
       style?.setProperty("--canvas-y", `${grid.y}px`);
-      imageCamera?.remember(transform);
     },
   });
-  const { containerRef, fitToView, animateToView, setTransform } = camera;
+  const { camera, size } = stage;
+  const { animateToView } = camera;
+  const previousSize = useRef(size);
+  useLayoutEffect(() => moveRest({ kind: "settle", scale: camera.transform.scale }), [camera.transform]);
+  useLayoutEffect(() => { if (imageCamera && stage.restored) setMode("custom"); }, [imageCamera, stage.restored]);
+  useLayoutEffect(() => {
+    const previous = previousSize.current;
+    if (imageCamera && mode === "fit" && previous.width > 0 && (previous.width !== size.width || previous.height !== size.height)) setMode("custom");
+    previousSize.current = size;
+  }, [imageCamera, mode, size]);
   const touch = useRef<{ x: number; y: number; time: number; pinched: boolean } | null>(null);
   const lastTap = useRef<{ x: number; y: number; time: number } | null>(null);
   const mouseStart = useRef<{ x: number; y: number } | null>(null);
   const handledTap = useRef<{ x: number; y: number; time: number } | null>(null);
-  const changeMode = (next: ViewMode) => { imageCamera?.takeControl(camera.transformRef.current); modeRef.current = next; setMode(next); };
+  const changeMode = (next: ViewMode) => { stage.takeControl(); setMode(next); };
   const fit = () => {
     changeMode("fit");
-    if (imageCamera) {
-      const transform = imageCamera.fit(bounds, size.width, size.height);
-      if (transform) setTransform(transform);
-    } else fitToView(bounds);
+    stage.fit();
   };
   const zoom = (delta: number) => { changeMode("custom"); camera.zoomBy(delta); };
   const natural = () => {
@@ -53,36 +75,11 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
     camera.setTransform({ x: size.width / 2 - bounds.x - bounds.width / 2, y: size.height / 2 - bounds.y - bounds.height / 2, scale: 1 });
   };
   useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const measure = () => {
-      const rect = el.getBoundingClientRect();
-      setSize(previous => previous.width === rect.width && previous.height === rect.height ? previous : { width: rect.width, height: rect.height });
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [containerRef]);
-  useLayoutEffect(() => {
-    if (imageCamera) {
-      if (initialFit === "cancelled") imageCamera.takeControl(camera.transformRef.current);
-      const initial = imageCamera.initialize(focus?.bounds ?? bounds, size.width, size.height, initialFit === "ready");
-      if (initial) {
-        if (imageCamera.restored || focus) { modeRef.current = "custom"; setMode("custom"); }
-        setTransform(initial);
-      }
-      return;
-    }
-    if (focus && focus.request !== focusRequest.current) {
-      focusRequest.current = focus.request;
-      modeRef.current = "focus";
-      setMode("focus");
-    }
-    if (modeRef.current === "fit") fitToView(bounds);
-    else if (modeRef.current === "focus" && focus) animateToView(focus.bounds);
-  }, [bounds, focus, fitToView, animateToView, imageCamera, initialFit, camera.transformRef, size.width, size.height, setTransform]);
+    if (imageCamera || size.width <= 0 || size.height <= 0 || !focus || focus.request === focusRequest.current) return;
+    focusRequest.current = focus.request;
+    changeMode("focus");
+    animateToView(focus.bounds);
+  });
   const interactions: HTMLAttributes<HTMLDivElement> = {
     onWheelCapture: () => changeMode("custom"),
     onMouseDownCapture: event => { changeMode("custom"); mouseStart.current = { x: event.clientX, y: event.clientY }; },
@@ -125,20 +122,7 @@ export function useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehav
         }
       }
     },
-    onKeyDown: event => {
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-      if (["Equal", "NumpadAdd"].includes(event.code)) zoom(0.25);
-      else if (["Minus", "NumpadSubtract"].includes(event.code)) zoom(-0.2);
-      else if (event.code === "Digit0") natural();
-      else if (event.code === "Home" && !imageCamera) fit();
-      else if (onNavigate && ["ArrowRight", "ArrowLeft"].includes(event.code)) onNavigate(event.code === "ArrowRight" ? 1 : -1);
-      else if (event.code.startsWith("Arrow")) {
-        changeMode("custom");
-        const t = camera.transformRef.current;
-        camera.setTransform({ ...t, x: t.x + (event.code === "ArrowLeft" ? 40 : event.code === "ArrowRight" ? -40 : 0), y: t.y + (event.code === "ArrowUp" ? 40 : event.code === "ArrowDown" ? -40 : 0) });
-      } else return;
-      event.preventDefault(); event.stopPropagation();
-    },
+    onKeyDown: stage.interactions.onKeyDown,
   };
-  return { camera, mode, scaleOutput, interactions, fit, zoom, natural };
+  return { camera, mode, rest, scaleOutput, interactions, fit, zoom, natural };
 }

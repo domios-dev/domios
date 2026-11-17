@@ -13,7 +13,7 @@ pub(crate) fn skip_local_worker_role(
 
 pub use super::launch_env::PreparedAgentCommand;
 pub(crate) use crate::agent::registry::AgentRegistry;
-pub(crate) use command::prepare_agent_command_for_service;
+pub use command::prepare_agent_command_for_service;
 mod credentials;
 mod generation_registry;
 use generation_registry::LaunchRegistry;
@@ -99,7 +99,7 @@ pub fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -
         .lock()
         .record_provider_session(tab_id, binding);
     if recorded {
-        crate::service::agent_restart::timing::stage(tab_id, &binding.pty_id, "session-bound");
+        crate::service::agent_lifecycle::timing::stage(tab_id, &binding.pty_id, "session-bound");
     }
     recorded
 }
@@ -371,7 +371,7 @@ pub fn launch_agent_in_background_with_env(
                 return;
             }
         };
-        crate::service::agent_restart::timing::stage(&tab_id, "pending", "relaunch-worker");
+        crate::service::agent_lifecycle::timing::stage(&tab_id, "pending", "relaunch-worker");
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
@@ -493,7 +493,7 @@ pub fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;
         }
-        crate::service::agent_restart::timing::stage(&tab_id, &pty_id, "relaunch-spawn");
+        crate::service::agent_lifecycle::timing::stage(&tab_id, &pty_id, "relaunch-spawn");
         // Off the boot critical path: reading the provider's install report
         // touches disk, and the tab is already up by here.
         svc.announce_integration_silence(&tab_id, &agent_cmd);

@@ -141,7 +141,7 @@ pub struct JournalRepairReport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TabRepairResponse {
     pub(crate) ok: bool,
-    pub(crate) tab_id: String,
+    pub tab_id: String,
     pub(crate) source: TabRepairSource,
     pub(crate) provider: RepairField<String>,
     pub(crate) session: RepairField<String>,
@@ -249,8 +249,8 @@ fn live_task_plan(svc: &ServiceContext, tab: &Tab) -> Result<Option<String>, Tab
 }
 
 impl ServiceContext {
-    #[cfg(test)]
-    pub(crate) fn authorize_tab_repair(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn authorize_tab_repair(
         &self,
         tab_id: &str,
         caller: &AuthenticatedPlanCaller,

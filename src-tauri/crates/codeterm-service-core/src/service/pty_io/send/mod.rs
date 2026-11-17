@@ -621,7 +621,7 @@ impl ServiceContext {
         self.deliver_pty_input_claimed(pty_id, text, submit, claim)
     }
 
-    pub(crate) fn deliver_pty_input_claimed(
+    pub fn deliver_pty_input_claimed(
         &self,
         pty_id: &str,
         text: &crate::service::messenger::AgentInput,
@@ -717,6 +717,7 @@ impl ServiceContext {
                 text,
                 claim,
                 Some(&on_queued),
+                super::submit_transaction::ShellSubmitKeys::Send,
             );
             if result.is_ok()
                 || matches!(

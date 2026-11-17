@@ -56,13 +56,7 @@ impl ApplicationHost for NativeApplicationHost {
         let service = self.service.clone();
         let prepare_tab = tab.clone();
         tokio::task::spawn_blocking(move || {
-            if let Some(tab) = prepare_tab.as_deref() {
-                service.request_turn_resume_for_caller(
-                    tab,
-                    tab,
-                    codeterm_service_core::service::turn_resume::DEFAULT_CONTINUE,
-                )?;
-            }
+            register_update_continuation(&service, prepare_tab.as_deref())?;
             codeterm_commands::update::shutdown::persist_session(&service)
         })
         .await
@@ -115,6 +109,30 @@ impl ApplicationHost for NativeApplicationHost {
         }
         outcome
     }
+}
+
+fn register_update_continuation(
+    service: &codeterm_service_core::service::ServiceContext,
+    tab_id: Option<&str>,
+) -> Result<(), String> {
+    let Some(tab_id) = tab_id else {
+        return Ok(());
+    };
+    let shell = service.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.agent_type.is_none()
+            && matches!(
+                tab.backing,
+                codeterm_service_core::multiplexer::types::TabBacking::Pty
+            )
+    });
+    if shell {
+        return Ok(());
+    }
+    service.request_turn_resume_for_caller(
+        tab_id,
+        tab_id,
+        codeterm_service_core::service::turn_resume::DEFAULT_CONTINUE,
+    )
 }
 
 fn admission_error(reason: codeterm_types::native_host::NativeHostRejection) -> String {

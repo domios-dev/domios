@@ -32,9 +32,9 @@ describe("capabilities HTTP transport", () => {
     ]);
   });
 
-  it("has all 95 lane commands and rejects unregistered schema commands", async () => {
+  it("has all 97 lane commands and rejects unregistered schema commands", async () => {
     const { transport, calls } = fixture();
-    expect(Object.keys(transport)).toHaveLength(95);
+    expect(Object.keys(transport)).toHaveLength(97);
     for (const removed of ["account_mesh_link", "mesh_disconnect", "mesh_exit"]) {
       await expect(invokeCapability(transport, removed)).rejects.toThrow("No audited HTTP route");
     }

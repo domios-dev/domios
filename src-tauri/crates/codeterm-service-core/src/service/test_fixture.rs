@@ -11,7 +11,7 @@ use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanStore;
 
-mod schema;
+pub mod schema;
 
 pub(crate) struct FixtureLimitGate(pub super::billing::LimitGate);
 
@@ -183,7 +183,7 @@ pub struct RecordingHierarchyReportDelivery {
     pub writes: Mutex<Vec<(String, String)>>,
 }
 
-impl super::hierarchy::HierarchyReportDelivery for RecordingHierarchyReportDelivery {
+impl super::report_delivery::HierarchyReportDelivery for RecordingHierarchyReportDelivery {
     fn deliver(
         &self,
         recipient_tab_id: &str,
@@ -202,7 +202,7 @@ pub struct FailFirstHierarchyReportDelivery {
     pub writes: Mutex<Vec<(String, String)>>,
 }
 
-impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDelivery {
+impl super::report_delivery::HierarchyReportDelivery for FailFirstHierarchyReportDelivery {
     fn deliver(
         &self,
         recipient_tab_id: &str,
@@ -443,10 +443,8 @@ impl ServiceFixture {
         extensions.insert(crate::service::launch_credentials::Directory::reset(&data_dir).unwrap());
         extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
         extensions.insert_service_slots();
-        extensions.insert_late::<super::neighbors::runtime::logout::LogoutKeyPorts>();
         extensions.insert_late::<FixtureLimitGate>();
         extensions.insert(config);
-        extensions.insert(crate::service::account::AccountDataRoot(data_dir.clone()));
         let (private_key, public_key) = crate::mesh::crown::generate_peer_keypair();
         extensions.insert::<crate::MeshStateHandle>(Arc::new(Mutex::new(
             crate::mesh::MeshManager::in_memory(
@@ -463,7 +461,7 @@ impl ServiceFixture {
         extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
             Arc::new(parking_lot::Mutex::new(())),
         ));
-        extensions.insert(crate::service::account::AccountCell(Arc::new(
+        extensions.insert(crate::service::neighbor_account::AccountCell(Arc::new(
             tokio::sync::OnceCell::new(),
         )));
         extensions.insert(crate::service::billing::BillingCell(Arc::new(
@@ -475,8 +473,12 @@ impl ServiceFixture {
         extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(
             Mutex::new(HashMap::new()),
         )));
+        crate::ports::neighbors::register_fixture_extensions(&mut extensions);
+        extensions.insert(crate::ports::neighbors::InstalledNeighbors::default());
         crate::ports::orchestration::register_fixture_extensions(&mut extensions);
         extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
+        crate::ports::lifecycle::register_fixture_extensions(&mut extensions);
+        extensions.insert(crate::ports::lifecycle::InstalledLifecycle::default());
         extensions.insert::<crate::ShellCapabilityState>(Arc::new(Mutex::new(Default::default())));
         extensions.insert::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(Arc::new(
             crate::service::protocol_recorder::ProtocolRecorder::new(
@@ -505,8 +507,8 @@ impl ServiceFixture {
                 codeterm_bridge::bridge::threads::ThreadRegistry::in_memory(),
             ),
         ));
-        extensions.insert::<crate::service::agent_restart::RestartTracker>(
-            crate::service::agent_restart::new_restart_tracker(),
+        extensions.insert::<crate::service::agent_lifecycle::RestartTracker>(
+            crate::service::agent_lifecycle::new_restart_tracker(),
         );
         extensions.insert::<crate::delayed_send::DelayedSendQueue>(
             crate::delayed_send::DelayedSendQueue::open(data_dir.join("delayed_send.json"))
@@ -586,7 +588,7 @@ impl ServiceFixture {
             ),
         )));
         extensions.insert(crate::service::mux_emitter::MuxEmitter::default());
-        extensions.insert(crate::service::hierarchy::PlannerReplayCoalescer::default());
+        extensions.insert(crate::service::planner_replay::PlannerReplayCoalescer::default());
         extensions.insert(crate::service::MuxEmitPending(Arc::new(AtomicBool::new(
             false,
         ))));
@@ -627,9 +629,8 @@ impl ServiceFixture {
         extensions.insert(crate::service::PlanStartupLoaded(Arc::new(
             AtomicBool::new(false),
         )));
-        extensions.insert::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(Arc::new(
-            Default::default(),
-        ));
+        extensions
+            .insert::<Arc<crate::service::heartbeat_gate::Gate>>(Arc::new(Default::default()));
         extensions.insert::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>(Arc::new(
             Default::default(),
         ));
@@ -724,9 +725,16 @@ impl ServiceFixture {
             extensions: Arc::new(extensions.finish()),
             host_extensions: Default::default(),
         };
+        assert!(service
+            .set_ext(crate::service::neighbor_account::AccountDataRoot(
+                data_dir.clone()
+            ))
+            .is_ok());
         let owner = Arc::new(service.clone());
         assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
+        crate::ports::neighbors::install_fixture(&owner);
         crate::ports::orchestration::install_fixture(&owner);
+        crate::ports::lifecycle::install_fixture(&owner);
         Self {
             service,
             ui,

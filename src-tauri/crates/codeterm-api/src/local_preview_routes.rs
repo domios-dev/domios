@@ -14,6 +14,7 @@ use serde::Deserialize;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::routes::AppState;
+use crate::auth::CallerIdentity;
 
 const WINDOW: Duration = Duration::from_secs(60);
 const REQUESTS_PER_WINDOW: usize = 120;
@@ -76,7 +77,25 @@ impl Admission {
 pub(super) struct ReadBody {
     path: String,
     kind: String,
+    /// The `<ds-canvas src>` file that names this item.
+    #[serde(default)]
+    canvas: Option<String>,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CanvasWriteBody {
+    path: String,
+    base: String,
+    document: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CanvasWatchBody {
+    path: String,
+    watch: bool,
+}
+/// A canvas write carries its base and its new text, each up to the 200,000-byte canvas bound.
+const CANVAS_BODY_LIMIT: usize = 1024 * 1024;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct CheckBody {
@@ -93,6 +112,15 @@ pub(super) fn bounded(
 ) -> MethodRouter<AppState> {
     route
         .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(64 * 1024))
+        .layer::<_, std::convert::Infallible>(Extension(admission.clone()))
+}
+
+pub(super) fn canvas_bounded(
+    route: MethodRouter<AppState>,
+    admission: &Arc<Admission>,
+) -> MethodRouter<AppState> {
+    route
+        .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(CANVAS_BODY_LIMIT))
         .layer::<_, std::convert::Infallible>(Extension(admission.clone()))
 }
 
@@ -136,13 +164,18 @@ pub(super) async fn read(
     };
     let result = crate::blocking_json::prepare(permit, move || {
         let configured = state.config.lock().api.preview_secret_paths.clone();
-        codeterm_service_core::service::local_preview::read(
-            &state.svc,
-            &tab,
-            &configured,
-            &body.path,
-            &body.kind,
-        )
+        use codeterm_service_core::service::local_preview::{read as read_file, read_canvas_item};
+        match &body.canvas {
+            Some(canvas) => read_canvas_item(
+                &state.svc,
+                &tab,
+                &configured,
+                canvas,
+                &body.path,
+                &body.kind,
+            ),
+            None => read_file(&state.svc, &tab, &configured, &body.path, &body.kind),
+        }
         .map(Json)
     })
     .await;
@@ -222,6 +255,90 @@ pub(super) async fn check(
             refusal()
         }
     }
+}
+
+async fn canvas_respond<R: serde::Serialize + Send + 'static>(
+    admission: &Admission,
+    operation: &'static str,
+    work: impl FnOnce() -> Result<R, String> + Send + 'static,
+) -> Response {
+    let permit = match admission.admit((admission.clock)()).await {
+        Ok(permit) => permit,
+        Err(status) => return status.into_response(),
+    };
+    match crate::blocking_json::prepare(permit, move || work().map(Json)).await {
+        Ok(Ok(response)) => response,
+        Ok(Err(error)) => {
+            log::debug!(
+                "[local-preview] canvas {operation} refused: {}",
+                codeterm_service_core::service::local_preview::html_preview::refusal_reason(&error)
+            );
+            refusal()
+        }
+        Err(_) => {
+            log::debug!("[local-preview] canvas {operation} refused: worker_failed");
+            refusal()
+        }
+    }
+}
+
+/// Canvas write-back and watches belong to the local owner: a tab credential, a relayed caller or a
+/// peer never acts on any tab's canvas, its own included. Reads keep the preview read rules.
+fn owner_refusal(caller: Option<&Extension<CallerIdentity>>) -> Option<Response> {
+    (!matches!(caller, Some(Extension(CallerIdentity::Local)))).then(|| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Canvas edits require the local owner"})),
+        )
+            .into_response()
+    })
+}
+
+pub(super) async fn canvas_write(
+    State(state): State<AppState>,
+    Path(tab): Path<String>,
+    Extension(admission): Extension<Arc<Admission>>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(body): Json<CanvasWriteBody>,
+) -> Response {
+    if let Some(refusal) = owner_refusal(caller.as_ref()) {
+        return refusal;
+    }
+    canvas_respond(&admission, "write", move || {
+        let configured = state.config.lock().api.preview_secret_paths.clone();
+        codeterm_service_core::service::local_preview::write_canvas(
+            &state.svc,
+            &tab,
+            &configured,
+            &body.path,
+            &body.base,
+            &body.document,
+        )
+    })
+    .await
+}
+
+pub(super) async fn canvas_watch(
+    State(state): State<AppState>,
+    Path(tab): Path<String>,
+    Extension(admission): Extension<Arc<Admission>>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(body): Json<CanvasWatchBody>,
+) -> Response {
+    if let Some(refusal) = owner_refusal(caller.as_ref()) {
+        return refusal;
+    }
+    canvas_respond(&admission, "watch", move || {
+        let configured = state.config.lock().api.preview_secret_paths.clone();
+        codeterm_service_core::service::local_preview::watch_canvas(
+            &state.svc,
+            &tab,
+            &configured,
+            &body.path,
+            body.watch,
+        )
+    })
+    .await
 }
 
 pub(super) async fn secure_headers(req: Request, next: Next) -> Response {

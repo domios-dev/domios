@@ -106,6 +106,20 @@ pub(super) fn create_router_with_preview_admission(
             ),
         )
         .route(
+            "/api/tabs/{id}/preview/canvas/write",
+            super::local_preview_routes::canvas_bounded(
+                post(super::local_preview_routes::canvas_write),
+                &super::local_preview_routes::admission(),
+            ),
+        )
+        .route(
+            "/api/tabs/{id}/preview/canvas/watch",
+            super::local_preview_routes::canvas_bounded(
+                post(super::local_preview_routes::canvas_watch),
+                &super::local_preview_routes::admission(),
+            ),
+        )
+        .route(
             "/api/automation/blueprints/solutions/list",
             post(super::blueprint_solution_routes::list),
         )

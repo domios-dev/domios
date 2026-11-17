@@ -9,7 +9,7 @@ import { loadHtmlFile } from "./htmlFileLoader";
 export const HTML_PREVIEW_MIN_HEIGHT = 80;
 export const HTML_PREVIEW_MAX_HEIGHT = 720;
 export const HTML_PREVIEW_LENGTH_LIMIT = 200_000;
-const HTML_PREVIEW_MESSAGE_SOURCE = "ct-html-preview";
+export const HTML_PREVIEW_MESSAGE_SOURCE = "ct-html-preview";
 const HTML_PREVIEW_MAX_FILE_BYTES = 5 * 1024 * 1024;
 const HTML_TAILWIND_RUNTIME = typeof __CODETERM_HTML_TAILWIND_RUNTIME__ === "string"
   ? __CODETERM_HTML_TAILWIND_RUNTIME__
@@ -30,6 +30,7 @@ const HTML_PREVIEW_CSP = [
 const HEIGHT_REPORTER = `<script>(function(){
 var post=function(){var d=document;var h=Math.max(d.documentElement.scrollHeight,d.body?d.body.scrollHeight:0);parent.postMessage({source:${JSON.stringify(HTML_PREVIEW_MESSAGE_SOURCE)},height:h},'*')};
 document.addEventListener('keydown',function(event){if(event.key==='Escape'){event.preventDefault();parent.postMessage({source:'ct-html-preview',action:'close'},'*')}});
+window.addEventListener('message',function(event){var d=event.data;if(event.source===parent&&d&&d.source==='ct-html-preview'&&typeof d.zoom==='number'&&d.zoom>0&&d.zoom<=1){document.documentElement.style.zoom=d.zoom===1?'':String(d.zoom)}});
 window.addEventListener('load',post);
 document.addEventListener('DOMContentLoaded',post);
 if(window.ResizeObserver){new ResizeObserver(post).observe(document.documentElement)}
@@ -93,13 +94,13 @@ function inlineScript(source: string): string {
   return `<script>${source.replace(/<\/script/gi, "<\\/script")}<\/script>`;
 }
 
-type ThemeVars = { bg: string; fg: string; accent: string; muted: string; border: string };
+export type ThemeVars = { bg: string; fg: string; accent: string; muted: string; border: string };
 type FileSourceState =
   | { status: "idle" | "loading"; source: ""; error: "" }
   | { status: "ready"; source: string; error: "" }
   | { status: "error"; source: ""; error: string };
 
-function readThemeVars(): ThemeVars {
+export function readThemeVars(): ThemeVars {
   const fallback = { bg: "#0d1117", fg: "#c9d1d9", accent: "#58a6ff", muted: "#8b949e", border: "#30363d" };
   if (typeof window === "undefined") {
     return fallback;
@@ -158,18 +159,19 @@ function PreviewFrame({
     return () => window.removeEventListener("message", onMessage);
   }, [onHeight]);
 
-  return (
-    <iframe
-      ref={frameRef}
-      title="HTML preview"
-      data-testid="chat-html-preview-frame"
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-      srcDoc={doc}
-      className="block w-full border-0"
-      style={{ height: fill ? "100%" : `${height}px`, background: "var(--ct-bg)" }}
-    />
-  );
+  return <SandboxedHtmlFrame ref={frameRef} doc={doc} title="HTML preview" testId="chat-html-preview-frame" className="block w-full border-0" style={{ height: fill ? "100%" : `${height}px`, background: "var(--ct-bg)" }} />;
+}
+
+/** The one ds-html sandbox: scripts only, an opaque origin, and the CSP carried by `doc`. */
+export function SandboxedHtmlFrame({ ref, doc, title, testId, className, style }: {
+  ref?: React.Ref<HTMLIFrameElement>;
+  doc: string;
+  title: string;
+  testId: string;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  return <iframe ref={ref} title={title} data-testid={testId} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={doc} className={className} style={style} />;
 }
 
 type HtmlPreviewProps = ({ text: string; filePath?: never } | { filePath: string; text?: never }) & {

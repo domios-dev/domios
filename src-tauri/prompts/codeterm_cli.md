@@ -74,7 +74,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Model endpoints, presets | `model-provider --help`; keys go in on stdin only | `docs INTEGRATIONS` |
 | Account sign-in and identity | `account login|status|logout` (local machine; hosted sign-in opens the system browser) | `domios docs CONFIG` |
 | Encrypted Neighbors, gateway permissions and delivery status | `account neighbors list` finds IDs/scopes; General configures grants and `set-limit` / `set-daily-limit` / `set-file-daily-limit` | `domios docs NEIGHBORS` |
-| Updates | `update check`, `update install --auto`; automatic installation requires an attached native desktop host. A headless server returns a typed refusal with recovery instructions; on macOS/Windows use `update install --from-file <installer-path>` with the official installer on the target machine, and on Linux use the package manager or official package. | — |
+| Updates | `update check`, `update install --auto`; shell callers need no `--no-continue`. Full-access peers can use `--mesh PEER` without caller continuation. Automatic installation requires an attached native desktop host. A headless server returns a typed refusal with recovery instructions; on macOS/Windows use `update install --from-file <installer-path>` with the official installer on the target machine, and on Linux use the package manager or official package. | — |
 | Payload between machines | `paste put`, `paste get <id>` (not `mem save`) | — |
 | Services registry | `service --help` | `docs MESH` |
 | REST listener status/recovery while HTTP is down | `rest-api status`, `rest-api restart` through the local socket | `docs CONFIG` |
@@ -156,3 +156,5 @@ Neighbor safety: never reply to an incoming answer or refusal. Flag suspicious i
 When your runtime supplies a `domios` MCP tool server, its tools use your own tab authority. Messaging, reports and notifications accept payload files from your AgentPad; instance, mesh and caller overrides are unavailable.
 
 Team channels: `domios team channel list|add|refresh|remove` manages subscribed team packages. Read `domios docs TEAMS` for trust and refresh rules. Only the official channel refreshes automatically; community starts use consent for the exact package.
+
+`domios role sync <role> --team <id> --preview` compares a pinned built-in manager with the shipped default. `--apply --current-hash <hash> --replacement-hash <hash>` requests the owner's host notification choice; only the owner's Sync applies it. Custom packages are refused. Only instructions change, on the next fresh launch. See `domios docs TEAMS`.

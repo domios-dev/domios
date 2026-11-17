@@ -439,6 +439,11 @@ async fn session_start(
         session_id.is_some(),
         report_nonce.is_some(),
     );
+    // The provider accepts submitted input once it runs this hook, before the binding
+    // below may wait for PTY custody, so readiness is observed on arrival.
+    if let Some(nonce) = report_nonce.as_deref() {
+        state.svc.observe_session_start_hook(&tab_id, nonce);
+    }
 
     let Some(sid) = session_id else {
         log::warn!(

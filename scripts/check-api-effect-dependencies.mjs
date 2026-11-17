@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import ts from "typescript";
+import * as ts from "typescript/unstable/ast";
+import { API, SignatureKind, TypeFlags } from "typescript/unstable/sync";
 
 const root = process.cwd();
 const sourceRoot = path.join(root, "src");
@@ -33,70 +34,79 @@ function reachesApi(effect) {
       found = true;
       return;
     }
-    ts.forEachChild(node, visit);
+    node.forEachChild(visit);
   }
   visit(effect.body);
   return found;
 }
 
 function isPrimitive(type, checker) {
-  if (type.isUnion()) return type.types.every((member) => isPrimitive(member, checker));
-  const typeNames = [type.symbol?.name, type.aliasSymbol?.name, checker.typeToString(type)];
+  if (type.isUnionType()) return type.getTypes().every((member) => isPrimitive(member, checker));
+  const typeNames = [type.getSymbol()?.name, type.getAliasSymbol()?.name, checker.typeToString(type)];
   if (typeNames.some((name) => /(?:^|[.< ])(?:MutableRefObject|RefObject)(?:<|$)/u.test(name ?? ""))) return true;
-  if (checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0) return true;
+  if (checker.getSignaturesOfType(type, SignatureKind.Call).length > 0) return true;
   return Boolean(
     type.flags & (
-      ts.TypeFlags.StringLike |
-      ts.TypeFlags.NumberLike |
-      ts.TypeFlags.BooleanLike |
-      ts.TypeFlags.BigIntLike |
-      ts.TypeFlags.ESSymbolLike |
-      ts.TypeFlags.Null |
-      ts.TypeFlags.Undefined |
-      ts.TypeFlags.Void |
-      ts.TypeFlags.Never
+      TypeFlags.StringLike |
+      TypeFlags.NumberLike |
+      TypeFlags.BooleanLike |
+      TypeFlags.BigIntLike |
+      TypeFlags.ESSymbolLike |
+      TypeFlags.Null |
+      TypeFlags.Undefined |
+      TypeFlags.Void |
+      TypeFlags.Never
     ),
   );
 }
 
 export function findViolations(files = sourceFiles(sourceRoot)) {
-  const options = ts.getDefaultCompilerOptions();
-  options.jsx = ts.JsxEmit.ReactJSX;
-  const program = ts.createProgram(files, options);
-  const checker = program.getTypeChecker();
-  const violations = [];
+  const api = new API();
+  try {
+    const snapshot = api.updateSnapshot({ openProjects: [path.join(root, "tsconfig.json")] });
+    try {
+      const project = snapshot.getProject(path.join(root, "tsconfig.json"));
+      if (!project) throw new Error("TypeScript effect-check project was not loaded");
+      const { program, checker } = project;
+      const violations = [];
 
-  for (const file of files) {
-    const source = program.getSourceFile(file);
-    if (!source) continue;
-    function visit(node) {
-      if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        effectHookNames.has(node.expression.text) &&
-        node.arguments.length >= 2 &&
-        ts.isArrowFunction(node.arguments[0]) &&
-        ts.isArrayLiteralExpression(node.arguments[1]) &&
-        reachesApi(node.arguments[0])
-      ) {
-        for (const dependency of node.arguments[1].elements) {
-          const type = checker.getTypeAtLocation(dependency);
-          if (!isPrimitive(type, checker)) {
-            const position = source.getLineAndCharacterOfPosition(dependency.getStart(source));
-            violations.push({
-              file: path.relative(root, file).replaceAll(path.sep, "/"),
-              line: position.line + 1,
-              dependency: dependency.getText(source),
-              type: checker.typeToString(type),
-            });
+      for (const file of files) {
+        const source = program.getSourceFile(file);
+        if (!source) throw new Error(`TypeScript did not load ${file}`);
+        function visit(node) {
+          if (
+            ts.isCallExpression(node) &&
+            ts.isIdentifier(node.expression) &&
+            effectHookNames.has(node.expression.text) &&
+            node.arguments.length >= 2 &&
+            ts.isArrowFunction(node.arguments[0]) &&
+            ts.isArrayLiteralExpression(node.arguments[1]) &&
+            reachesApi(node.arguments[0])
+          ) {
+            for (const dependency of node.arguments[1].elements) {
+              const type = checker.getTypeAtLocation(dependency);
+              if (!type || !isPrimitive(type, checker)) {
+                const position = source.getLineAndCharacterOfPosition(dependency.getStart(source));
+                violations.push({
+                  file: path.relative(root, file).replaceAll(path.sep, "/"),
+                  line: position.line + 1,
+                  dependency: dependency.getText(source),
+                  type: type ? checker.typeToString(type) : "<unresolved>",
+                });
+              }
+            }
           }
+          node.forEachChild(visit);
         }
+        visit(source);
       }
-      ts.forEachChild(node, visit);
+      return violations;
+    } finally {
+      snapshot.dispose();
     }
-    visit(source);
+  } finally {
+    api.close();
   }
-  return violations;
 }
 
 const violations = findViolations();

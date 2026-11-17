@@ -129,7 +129,7 @@ async fn neighbor_disabled_response_keeps_a_typed_reason() {
 async fn pending_login_route_is_compiled_out_without_debug_assertions() {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     let state = crate::transport_tabs::fixture::app_state(&fixture);
@@ -159,7 +159,7 @@ async fn pending_login_route_is_compiled_out_without_debug_assertions() {
 async fn pending_login_route_requires_local_auth_and_returns_404_when_idle() {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     let state = crate::transport_tabs::fixture::app_state(&fixture);
@@ -198,7 +198,7 @@ async fn gift_redemption_route_requires_auth_and_redacts_malformed_payloads() {
         http::Request,
     };
     use tower::ServiceExt;
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     let state = crate::transport_tabs::fixture::app_state(&fixture);
@@ -241,7 +241,7 @@ async fn gift_redemption_route_requires_auth_and_redacts_malformed_payloads() {
         assert!(!String::from_utf8_lossy(&bytes).contains("private-material"));
         assert!(fixture
             .service
-            .ext::<codeterm_service_core::service::account::AccountCell>()
+            .ext::<codeterm_neighbors_service::service::account::AccountCell>()
             .0
             .get()
             .is_none());
@@ -255,7 +255,7 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
         http::Request,
     };
     use tower::ServiceExt;
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     *fixture.service.secrets.write().await =
@@ -335,7 +335,7 @@ async fn account_plan_routes_local_journey() {
     };
     use std::sync::Arc;
     use tower::ServiceExt;
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     *fixture.service.secrets.write().await =
@@ -535,7 +535,7 @@ async fn account_callback_http_rejects_before_initializing_account() {
         http::Request,
     };
     use tower::ServiceExt;
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     let state = crate::transport_tabs::fixture::app_state(&fixture);
@@ -598,7 +598,7 @@ async fn account_callback_http_rejects_before_initializing_account() {
         assert!(!String::from_utf8_lossy(&bytes).contains("secret"));
         assert!(fixture
             .service
-            .ext::<codeterm_service_core::service::account::AccountCell>()
+            .ext::<codeterm_neighbors_service::service::account::AccountCell>()
             .0
             .get()
             .is_none());
@@ -628,7 +628,7 @@ async fn explicit_plan_refresh_fetches_each_time_while_passive_focus_is_throttle
     use axum::{body::Body, http::Request};
     use std::sync::Arc;
     use tower::ServiceExt;
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_neighbors_service::test_support::fixture(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     *fixture.service.secrets.write().await =
@@ -763,7 +763,7 @@ async fn refusal_preflight_errors_keep_typed_codes_and_byte_counts() {
 
 #[tokio::test]
 async fn neighbor_flags_have_a_typed_local_api_contract_without_body_fields() {
-    use codeterm_service_core::service::neighbors::{FlagCategory, NeighborRuntimeCommand};
+    use codeterm_neighbors_service::service::neighbors::{FlagCategory, NeighborRuntimeCommand};
     let request = serde_json::json!({"operation":"flag_message","friendship_id":"a".repeat(64),"message_id":"1".repeat(32),"category":"spam","reason":"Unsolicited repetition"});
     let command: NeighborRuntimeCommand = serde_json::from_value(request.clone()).unwrap();
     assert!(matches!(

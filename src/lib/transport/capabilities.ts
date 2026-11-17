@@ -11,6 +11,10 @@ function previewTab(args: CapabilityArgs): string {
   if (!tabId) throw new Error("Local previews require a tab identity");
   return enc(tabId);
 }
+/** A canvas item names the `<ds-canvas src>` file that lists it. */
+function canvasSource(args: CapabilityArgs): { canvas?: string } {
+  return typeof args.canvas === "string" ? { canvas: args.canvas } : {};
+}
 export function createCapabilitiesTransport(client: CapabilitiesClient) {
   const webJson = client.json.bind(client);
   const localJson = client.localJson.bind(client);
@@ -187,10 +191,12 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     provider_cli_status: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli` + (a.refresh === true ? "?refresh=true" : "")),
     push_channel_roster: () => webJson("GET", "/api/notifications/channels"),
     read_html_preview_file: async (a) => {
-      const file = await webJson<{ data: string }>("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: "page" });
+      const file = await webJson<{ data: string }>("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: "page", ...canvasSource(a) });
       return file.data;
     },
-    read_local_preview_file: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: a.kind }),
+    read_local_preview_file: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: a.kind, ...canvasSource(a) }),
+    write_local_canvas_file: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/canvas/write`, { path: a.path, base: a.base, document: a.document }),
+    watch_local_canvas_file: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/canvas/watch`, { path: a.path, watch: a.watch === true }),
     read_workspace_essence_maps: (a) => {
       const paths = Array.isArray(a.projectPaths) ? a.projectPaths : [];
       return webJson("POST", "/api/essence-maps", { path: paths });

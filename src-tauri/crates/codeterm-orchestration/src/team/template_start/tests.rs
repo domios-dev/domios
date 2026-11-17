@@ -774,3 +774,55 @@ roles:
         }
     );
 }
+
+#[test]
+fn pair_profile_choices_reach_shared_target_validation_for_both_managers() {
+    use codeterm_service_core::agent::test_provider::MockProvider;
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::test_fixture::ServiceFixture::new(mux);
+    let binary = std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("profile-pair-fixture").with_agent_runtime(
+            serde_json::from_value(serde_json::json!({
+                "runtime": "stdio-jsonrpc", "command": {"binary": binary, "args": []},
+                "launchProfiles": {
+                    "alpha": {"binary": binary, "args": []},
+                    "beta": {"binary": binary, "args": []}
+                },
+                "requestMethods": {"initialize": ["initialize"]}, "notificationMethods": []
+            }))
+            .unwrap(),
+        ),
+    ));
+    let params = OrchestrationPairParams {
+        orchestrator_agent: "profile-pair-fixture".into(),
+        planner_agent: "profile-pair-fixture".into(),
+        orchestrator_launch_profile: Some("alpha".into()),
+        planner_launch_profile: Some("beta".into()),
+        ..Default::default()
+    };
+    let picks = super::owner_picks(&params);
+    for (role, profile) in [("orchestrator", "alpha"), ("planner", "beta")] {
+        assert_eq!(picks[role].launch_profile.as_deref(), Some(profile));
+        assert!(super::outside_catalogue(&fixture.service, role, &picks[role]).unwrap());
+        let mut missing = picks[role].clone();
+        missing.launch_profile = None;
+        assert!(super::outside_catalogue(&fixture.service, role, &missing)
+            .unwrap_err()
+            .starts_with("launch_profile_required:"));
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let rail = runtime
+        .block_on(super::prepare(&fixture.service, &params))
+        .expect("profile runtime choices use their own session catalogue");
+    let seats = rail.seats;
+    assert_eq!(seats.len(), 2);
+    assert_eq!(seats["orchestrator"].provider, "profile-pair-fixture");
+    assert_eq!(seats["planner"].provider, "profile-pair-fixture");
+}

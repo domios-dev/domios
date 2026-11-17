@@ -130,7 +130,7 @@ impl Messenger {
         }
     }
 
-    pub(crate) fn restore_framed_delivery(text: &str) -> Result<FramedDelivery, String> {
+    pub fn restore_framed_delivery(text: &str) -> Result<FramedDelivery, String> {
         if !text.starts_with("<domios ") {
             return Err("persisted agent delivery has no leading frame".into());
         }
@@ -196,7 +196,7 @@ pub enum AgentInput {
 }
 
 impl AgentInput {
-    pub(crate) fn text(&self) -> std::borrow::Cow<'_, str> {
+    pub fn text(&self) -> std::borrow::Cow<'_, str> {
         match self {
             Self::Framed(frame) => frame.to_message().into(),
             Self::Human(input) => input.0.as_str().into(),

@@ -99,11 +99,7 @@ impl ServiceContext {
         )
     }
 
-    pub(crate) fn clear_tab_agent_identity_after_confirmed_exit(
-        &self,
-        tab_id: &str,
-        cause: &str,
-    ) -> bool {
+    pub fn clear_tab_agent_identity_after_confirmed_exit(&self, tab_id: &str, cause: &str) -> bool {
         self.clear_tab_agent_identity_after_confirmed_exit_with_evidence(
             tab_id,
             cause,
@@ -168,7 +164,7 @@ impl ServiceContext {
         finished
     }
 
-    pub(crate) fn clear_tab_agent_identity_explicitly(&self, tab_id: &str, cause: &str) -> bool {
+    pub fn clear_tab_agent_identity_explicitly(&self, tab_id: &str, cause: &str) -> bool {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
@@ -363,11 +359,7 @@ impl ServiceContext {
         self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(tab_id, cause)
     }
 
-    pub(crate) fn clear_tab_spawn_failed_identity_if_absent(
-        &self,
-        tab_id: &str,
-        cause: &str,
-    ) -> bool {
+    pub fn clear_tab_spawn_failed_identity_if_absent(&self, tab_id: &str, cause: &str) -> bool {
         if !self.lifecycle_clear_allowed(
             tab_id,
             cause,
@@ -467,13 +459,13 @@ impl ServiceContext {
         log::info!(
             "[agent-lifecycle] cleared Tab identity: tab={tab_id} cause={cause} verdict_source={source} tree_evidence={tree_evidence}"
         );
-        if let Err(error) = self.signal_worker_interruption(
+        if let Err(error) = self.lifecycle_port().signal_worker_interruption(
             tab_id,
-            crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
+            crate::service::agent_lifecycle::WorkerInterruptionEvent::ProcessExited,
         ) {
             log::error!("[worker-interruption] signal failed: {error}");
         }
-        self.clear_dead_planner_binding(tab_id);
+        self.orchestration().clear_dead_planner_binding(tab_id);
         self.prompt_detector.lock().clear(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
         self.emit_state_changed(MuxEmitCause::AgentIdentity);

@@ -28,7 +28,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
@@ -52,7 +52,7 @@ jobs:
             const path = require('node:path');
             core.addPath(path.dirname(process.execPath));
             core.info('Using runner Node ' + process.version);
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
           node-version: 22.22.0
@@ -86,7 +86,14 @@ jobs:
           if [ "$(jq -r .retained_via "$work/output/manifest-local-verification.json")" = ci-artifact ]; then
             echo '::warning::Some evidence was retained as run artifacts while the private store was unreachable; manifest-local-verification.json names each location'
           fi
+          node -e 'const fs=require("fs");const p=process.argv[1];const r=JSON.parse(fs.readFileSync(p));r.run_id=process.argv[2];fs.writeFileSync(p,JSON.stringify(r))' "$work/output/manifest-local-verification.json" "$ARTIFACT_RUN_ID"
           bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/manifest-dry-run/manifest-local-verification.json" "$work/output/manifest-local-verification.json"
+      - name: Seal completed hidden qualification drafts
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        run: node scripts/release-qualification-draft.mjs seal "${{ inputs.tag }}" "${{ inputs.source_ref }}" "${{ inputs.artifact_run_id }}"
       - name: Upload artifacts spooled while the private store was unreachable
         if: always()
         uses: ./.github/actions/ci-artifact-spool

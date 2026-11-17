@@ -35,7 +35,7 @@ pub struct Session {
     pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
     pub context: Mutex<RuntimeContext>,
     pub(super) controls_confirmation: Mutex<Option<RuntimeSettings>>,
-    pub(crate) control_changes: tokio::sync::watch::Sender<()>,
+    pub control_changes: tokio::sync::watch::Sender<()>,
     pub(super) reverted_thread: Mutex<Option<String>>,
     pub(super) completions: Mutex<super::completions::Completions>,
     pub state: Mutex<RuntimeState>,
@@ -84,7 +84,7 @@ pub(super) fn login_pending_session(
     }
     Err(error)
 }
-pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
+pub fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
     let Some(session) = for_tab(&tab.id) else {
         return false;
     };
@@ -115,9 +115,9 @@ mod launch;
 mod resume;
 use launch::{require_launch_authority, validate_loaded_settings};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "engine/test_support.rs"]
-pub(crate) mod test_support;
+pub mod test_support;
 
 pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     stop_blocking_with(svc, tab, None)
@@ -533,7 +533,7 @@ async fn ensure_with_fork(
     Ok(session)
 }
 
-async fn ensure_locked(
+pub async fn ensure_locked(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,
@@ -1092,7 +1092,7 @@ pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Optio
 mod binding;
 pub use binding::validate_binding;
 pub(super) use binding::validate_restart_binding;
-pub(crate) use binding::{conversation_unavailable, session_load_refused};
+pub use binding::{conversation_unavailable, session_load_refused};
 
 fn bind(
     svc: &ServiceContext,
@@ -1190,4 +1190,10 @@ fn validate_restored_arguments(
 
 #[cfg(test)]
 #[path = "engine/tests.rs"]
-mod tests;
+pub mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod sync_fixture;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use publication::hold_publication_for_test;

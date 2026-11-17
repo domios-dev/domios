@@ -6,7 +6,9 @@ import {useLaunchProfiles} from "./useLaunchProfiles";
 export function useLaunchProfileSelection(provider: ProviderDescriptor | undefined, testId: string) {
   const catalog = useLaunchProfiles(provider);
   const [selection, setSelection] = useState({providerId: "", id: ""});
-  const profile = selection.providerId === provider?.id ? selection.id : "";
+  const profile = selection.providerId === provider?.id ? selection.id
+    : Object.keys(provider?.agent_runtime?.launchProfiles ?? {}).find(id => catalog.profiles.some(entry =>
+      entry.id === id && (entry.install === "installed" || entry.install === "detected"))) ?? "";
   const [choice, setChoice] = useState({key: "", model: "", effort: ""});
   const key = `${provider?.id}:${profile}`;
   const {model, effort} = choice.key === key ? choice : {model: "", effort: ""};

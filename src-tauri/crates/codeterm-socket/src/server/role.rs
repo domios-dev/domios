@@ -35,9 +35,32 @@ fn listing(team_id: Option<&str>) -> Result<Value, JsonRpcError> {
     encode(inspect::list(team_id, &team))
 }
 
-pub(super) fn dispatch(method: &str, params: &Option<Value>) -> Result<Value, JsonRpcError> {
+pub(super) fn dispatch(
+    method: &str,
+    params: &Option<Value>,
+    svc: &codeterm_service_core::service::ServiceState,
+) -> Result<Value, JsonRpcError> {
     let team_id = field(params, "team_id");
     match method {
+        "role.sync" => {
+            let team = team_id.ok_or_else(|| invalid("team_id is required"))?;
+            let role = field(params, "role").ok_or_else(|| invalid("role is required"))?;
+            let preview = params
+                .as_ref()
+                .and_then(|p| p.get("preview"))
+                .and_then(Value::as_bool)
+                .ok_or_else(|| invalid("preview must be a boolean"))?;
+            if preview {
+                svc.preview_role_sync(team, role).map_err(invalid)
+            } else {
+                let current = field(params, "current_hash")
+                    .ok_or_else(|| invalid("current_hash is required"))?;
+                let replacement = field(params, "replacement_hash")
+                    .ok_or_else(|| invalid("replacement_hash is required"))?;
+                svc.request_role_sync(team, role, current, replacement)
+                    .map_err(invalid)
+            }
+        }
         "role.list" => listing(team_id),
         "role.reload" => {
             TeamRoleStore::global().reload(team_id);

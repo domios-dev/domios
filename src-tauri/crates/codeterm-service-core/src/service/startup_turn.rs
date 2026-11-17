@@ -2,7 +2,7 @@ use crate::agent::provider::StarterPrompt;
 use crate::service::launch_delivery::FallbackDeliverySpec;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct StartupTurnPlan {
+pub struct StartupTurnPlan {
     pub expected_turn: Option<String>,
     pub first_turn_will_be_delivered: bool,
 }
@@ -14,7 +14,7 @@ pub(crate) fn visible_spawn_starter_prompt(
     startup_handshake.or(provider_starter)
 }
 
-pub(crate) fn resolve(
+pub fn resolve(
     registry: &crate::agent::registry::AgentRegistry,
     provider_id: &str,
     starter_prompt: StarterPrompt,

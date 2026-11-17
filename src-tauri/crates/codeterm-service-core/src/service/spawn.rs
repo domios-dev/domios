@@ -32,7 +32,8 @@ pub use spawn_model::CatalogBackgroundModelPort;
 pub use spawn_model::ModelFallbackNotice;
 pub use spawn_model_catalogue::{
     catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
-    resolve_agent_model_selection, validate_agent_model, InvalidModelError,
+    resolve_agent_model_selection, resolve_agent_model_selection_with_default,
+    validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -102,7 +103,7 @@ pub struct SpawnTabSpec {
 #[derive(Debug, Clone)]
 pub struct ChatBackendLaunchMetadata {
     pub(crate) agent: AgentSpawnSpec,
-    pub(crate) params: super::SpawnAgentParams,
+    pub params: super::SpawnAgentParams,
     pub(crate) owner_linkage: Option<RuntimeOwnerLinkage>,
     pub(crate) runtime_fork: Option<RuntimeForkLaunch>,
 }
@@ -256,7 +257,7 @@ impl ServiceContext {
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
         let _neighbor_launch = self.neighbor_tab_launch_guard(&spec)?;
-        self.prepare_neighbor_tab_spawn(&mut spec)?;
+        self.neighbors().prepare_neighbor_tab_spawn(&mut spec)?;
         if !matches!(&spec.command, TabCommand::Shell) {
             self.validate_request_cwd(
                 spec.workspace_id.as_deref(),
@@ -529,7 +530,10 @@ impl ServiceContext {
             }
             if role_str == "Worker" || role_str == "Manager" {
                 if let Some(ref parent) = spec.parent_tab_id {
-                    if let Err(e) = self.expect_spawn_parent_link(&tab_id, parent) {
+                    if let Err(e) = self
+                        .orchestration()
+                        .expect_spawn_parent_link(&tab_id, parent)
+                    {
                         if tab_created_by_spawn {
                             self.rollback_provisional_tab_via_close(&tab_id);
                         }
@@ -1177,7 +1181,7 @@ fn visible_agent_launch_command_for_service(
 
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
-mod tests;
+pub mod tests;
 
 #[cfg(test)]
 #[path = "spawn_tests_chatbackend.rs"]

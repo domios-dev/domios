@@ -296,6 +296,22 @@ pub fn resolve_agent_model_selection(
     })
 }
 
+pub fn resolve_agent_model_selection_with_default(
+    registry: &AgentRegistry,
+    explicit_provider: Option<&str>,
+    explicit_model: Option<&str>,
+    recommended_model: Option<&str>,
+    default_provider: &str,
+) -> Result<AgentModelSelection, InvalidModelError> {
+    let recommendation = recommended_model.filter(|_| explicit_provider.is_none());
+    resolve_agent_model_selection(
+        registry,
+        explicit_provider,
+        explicit_model.or(recommendation),
+        default_provider,
+    )
+}
+
 fn provider_mismatch_error(
     provider_id: &str,
     requested_model: &str,

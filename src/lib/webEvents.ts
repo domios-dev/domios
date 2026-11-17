@@ -207,12 +207,19 @@ const seqGaps = createSeqGapTracker();
 
 function saveCursor(next: string): void {
   cursor = next;
+}
+
+function persistCursor(): void {
+  if (cursorTarget === null || cursor === null) return;
   try {
-    cursorTarget = cursorKey();
-    sessionStorage.setItem(cursorTarget, next);
+    sessionStorage.setItem(cursorTarget, cursor);
   } catch {
     /* storage unavailable (private mode) — memory-only cursor still works */
   }
+}
+
+function persistHiddenCursor(): void {
+  if (document.hidden) persistCursor();
 }
 
 function dispatch(event: string, payload: unknown): void {
@@ -378,6 +385,8 @@ async function runStream(): Promise<void> {
 function ensureStarted(): void {
   if (started) return;
   started = true;
+  window.addEventListener("pagehide", persistCursor);
+  document.addEventListener("visibilitychange", persistHiddenCursor);
   void runStream();
 }
 
@@ -403,6 +412,7 @@ export function webListen(event: string, handler: Handler): () => void {
 /** Tear down the SSE connection (peer switch) — it reconnects to the
  * current apiHost automatically, replaying from the last cursor. */
 export function resetWebEvents(): void {
+  persistCursor();
   stopReconnect();
   hasAttemptedConnection = true;
   seqGaps.reset();
@@ -427,6 +437,8 @@ function stopReconnect(): void {
 }
 
 export function __resetWebEventsForTest(): void {
+  window.removeEventListener("pagehide", persistCursor);
+  document.removeEventListener("visibilitychange", persistHiddenCursor);
   stopReconnect();
   seqGaps.reset();
   started = false;

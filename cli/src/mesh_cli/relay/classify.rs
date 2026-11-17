@@ -140,9 +140,7 @@ struct PeerVerdict {
 }
 
 fn peer_delivery_verdict(data: &serde_json::Value) -> PeerVerdict {
-    let Some(error) = data.get("error").filter(|e| !e.is_null()) else {
-        return PeerVerdict::default();
-    };
+    let error = data.get("error").filter(|e| !e.is_null()).unwrap_or(data);
     let text = |key: &str| error.get(key).and_then(|v| v.as_str()).map(str::to_string);
     PeerVerdict {
         code: text("code"),
@@ -332,9 +330,11 @@ pub(crate) fn classify_relay_answer(
                     .as_str()
                     .map(str::to_string)
             })
+            .filter(|reason| reason != &format!("HTTP {envelope_status}"))
             .or_else(|| match (&code, &message) {
                 (Some(code), Some(message)) => Some(format!("{code}: {message}")),
                 (Some(code), None) => Some(code.clone()),
+                (None, Some(message)) => Some(message.clone()),
                 _ => None,
             })
             .unwrap_or_else(|| format!("HTTP {envelope_status}"));

@@ -27,6 +27,25 @@ fn account_generation_and_monotonic_versions_gate_every_projection() {
 }
 
 #[test]
+fn withdrawn_snapshot_drops_data_and_keeps_the_account_version_watermark() {
+    let mut store = AccountSnapshot::default();
+    store.select("owner", 1);
+    assert!(store.apply("owner", 1, Snapshot::parse(document(2)).unwrap()));
+    store.withdraw("other", 1);
+    assert!(store.read("owner", 1, "friendsList", "desk", 100).is_some());
+    store.withdraw("owner", 1);
+    assert_eq!(store.version("owner", 1), Some(2));
+    for route in ["friendsList", "friendsOwnKeys", "friendsReceiverStatus"] {
+        assert!(store.read("owner", 1, route, "desk", 100).is_none());
+    }
+    for version in [1, 2] {
+        assert!(!store.apply("owner", 1, Snapshot::parse(document(version)).unwrap()));
+    }
+    assert!(store.apply("owner", 1, Snapshot::parse(document(3)).unwrap()));
+    assert!(store.read("owner", 1, "friendsList", "desk", 100).is_some());
+}
+
+#[test]
 fn projection_preserves_referral_and_active_keys_and_expires_invites_without_a_cloud_read() {
     let mut value = document(1);
     value["own_keys"] = json!([{"verifier_key_id":"vk_active","enc_key_id":null,"installation_id":null,"machine_label":null,"created_at":1}]);

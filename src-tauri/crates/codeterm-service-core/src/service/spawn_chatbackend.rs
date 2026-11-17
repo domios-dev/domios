@@ -747,7 +747,7 @@ impl ServiceContext {
 
         let replay_tab = tab_id.clone();
         self.spawn_chatbackend_poll_loop(tab_id, plugin_id, session_id, history_meta);
-        self.schedule_planner_replay(&replay_tab);
+        self.orchestration().schedule_planner_replay(&replay_tab);
         Ok(())
     }
 
@@ -1144,7 +1144,8 @@ impl ServiceContext {
                 );
             },
             |message| {
-                self.submit_report(tab_id, message, ReportDetails::default(), None, None, None)
+                self.orchestration()
+                    .submit_report(tab_id, message, ReportDetails::default(), None, None, None)
                     .map(|_| ())
                     .map_err(|error| error.message)
             },

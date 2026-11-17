@@ -59,6 +59,7 @@ export function queuedDeliveryIds(sends: readonly DeliverySend[], turnRunning: b
 
 export function stableDeliveryEntries(
   entries: readonly EnrichedChatEntry[], sends: readonly DeliverySend[], echoes: ReadonlyMap<string, SendEcho>, memory: DeliveryProjectionMemory,
+  outside: ReadonlySet<string> = new Set(),
 ): EnrichedChatEntry[] {
   const reconciled = sends.map(send => ({ ...send, echo: send.echo ?? echoes.get(send.id) }));
   const present = new Set<string>();
@@ -85,7 +86,7 @@ export function stableDeliveryEntries(
   const byId = new Map(reconciled.map(send => [send.id, send]));
   for (const [id, entry] of memory.pending) {
     const send = byId.get(id);
-    if (!send || send.dismissed) { memory.pending.delete(id); continue; }
+    if (!send || send.dismissed || outside.has(id)) { memory.pending.delete(id); continue; }
     if (present.has(id)) continue;
     if (echoes.has(id) && entries.some(entry => sendsForRow([send], entry.msg).length > 0)) {
       memory.pending.delete(id);

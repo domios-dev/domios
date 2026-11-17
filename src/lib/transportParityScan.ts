@@ -1,4 +1,5 @@
-import ts from "typescript";
+import * as ts from "typescript/unstable/ast";
+import { parseTypeScriptSource } from "../../scripts/typescript-sources.mjs";
 
 export interface TransportViolation {
   file: string;
@@ -8,7 +9,7 @@ export interface TransportViolation {
 }
 
 export function scanTransportSource(file: string, source: string): TransportViolation[] {
-  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith("tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const ast = parseTypeScriptSource(file, source);
   const violations: TransportViolation[] = [];
   const invokes = new Map<string, "invoke" | "audited-command">();
   const add = (node: ts.Node, kind: TransportViolation["kind"], target: string) => {
@@ -47,7 +48,7 @@ export function scanTransportSource(file: string, source: string): TransportViol
         && ["__TAURI_INTERNALS__", "__TAURI__"].includes(node.argumentExpression.text)))) {
       add(node, "native-global", "direct native runtime access");
     }
-    ts.forEachChild(node, visit);
+    node.forEachChild(visit);
   };
   visit(ast);
   return violations;

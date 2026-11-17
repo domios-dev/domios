@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_orchestration::traits::{CuratorAuthorityExt, CuratorEventsExt, CuratorExt};
 use codeterm_service_core::cron::store::{
     commit, CronChange, CronRunInfo, CronRunStatus, Prepared,
 };
@@ -20,6 +21,7 @@ async fn journey(finish: bool, deadline: bool) {
     tab.agent_type = Some(PROVIDER.into());
     tab.session_binding_nonce = Some(NONCE.into());
     tab.pty_id = Some("fixture-pty".into());
+    codeterm_orchestration::register_orchestration();
     let fixture = ServiceFixture::new(mux);
     let storage = crate::cron_routes::off_runtime_gate::StorageCron::open();
     let mut state = crate::test_support::app_state(&fixture);

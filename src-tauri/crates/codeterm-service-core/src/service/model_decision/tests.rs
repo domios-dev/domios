@@ -519,3 +519,24 @@ fn exhausted_allowance_is_quota_until_its_window_resets() {
         1_000
     ));
 }
+
+#[test]
+fn explicit_model_wins_over_template_harness_and_tool_recommendations() {
+    let preference = list(&["harness-a:opus"]);
+    let owner = ["harness-b:gpt-6-astra".to_string()];
+    let required = ["absent-harness".to_string()];
+    let tools = ["absent-tool".to_string()];
+    for kind in [RoleKind::Manager, RoleKind::Worker] {
+        let request = RoleModelRequest {
+            owner_choices: &owner,
+            requires_harnesses: &required,
+            tools: &tools,
+            ..request(kind, Some(&preference))
+        };
+        let mut target = target();
+        target.tools = Some(BTreeSet::new());
+        let decision = decide_model(&request, None, &target);
+        assert_eq!(decision.reason, ModelDecisionReason::OwnerChoice);
+        assert_eq!(choice(&decision), Some("harness-b:gpt-6-astra"));
+    }
+}

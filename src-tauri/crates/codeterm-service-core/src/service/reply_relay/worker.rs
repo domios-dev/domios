@@ -169,3 +169,11 @@ pub(super) fn completed_brief_ack_eligible(
             &turn.user_text,
         )
 }
+
+#[cfg(any(test, feature = "test-support"))]
+#[path = "worker/fixture.rs"]
+mod fixture;
+
+#[cfg(feature = "test-support")]
+#[path = "worker/integration.rs"]
+pub mod integration;

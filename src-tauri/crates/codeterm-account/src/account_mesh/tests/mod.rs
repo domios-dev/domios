@@ -7,6 +7,7 @@ mod dropout_review;
 mod endpoint_gossip;
 mod enrollment_refusals;
 mod entitlements;
+mod key_compatibility;
 mod lifecycle;
 mod membership;
 mod naming;

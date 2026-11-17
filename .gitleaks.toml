@@ -43,6 +43,6 @@ paths = [
   '''^src-tauri/crates/codeterm-entitlements/src/policy\.rs$''',
   '''^src-tauri/crates/codeterm-plan/src/service_plan/review_gate/tests/plan_evidence_persistence\.rs$''',
   '''^src-tauri/crates/codeterm-service-core/src/service/analytics/tests/outcomes\.rs$''',
-  '''^src-tauri/crates/codeterm-service-core/src/service/hierarchy/report_plan_ctx/tests/plan_evidence_session_test\.rs$''',
+  '''^src-tauri/crates/codeterm-orchestration/src/hierarchy/report_plan_ctx_tests/plan_evidence_session_test\.rs$''',
   '''^src-tauri/crates/codeterm-socket/src/server/plan_task_dispatch/tests/brief_tests\.rs$''',
 ]

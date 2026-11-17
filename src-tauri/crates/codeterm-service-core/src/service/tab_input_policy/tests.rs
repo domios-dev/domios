@@ -79,7 +79,7 @@ fn curator_input_resolves_the_current_plan_owner_instead_of_any_sender() {
     let fixture = ServiceFixture::new(mux);
     let service = &fixture.service;
     service
-        .set_ext(super::super::curator::CuratorTabs::default())
+        .set_ext(super::super::curator_runtime::CuratorTabs::default())
         .ok()
         .unwrap();
     let mut plan = Plan::new(
@@ -89,7 +89,7 @@ fn curator_input_resolves_the_current_plan_owner_instead_of_any_sender() {
     );
     service.plan_store.save(&mut plan, 1).unwrap();
     service
-        .ext::<super::super::curator::CuratorTabs>()
+        .ext::<super::super::curator_runtime::CuratorTabs>()
         .0
         .write()
         .insert(curator.clone(), plan.id.clone());

@@ -809,6 +809,18 @@
         "/api/tabs/tab/preview/read"
       ]
     ],
+    "write_local_canvas_file": [
+      [
+        "POST",
+        "/api/tabs/tab/preview/canvas/write"
+      ]
+    ],
+    "watch_local_canvas_file": [
+      [
+        "POST",
+        "/api/tabs/tab/preview/canvas/watch"
+      ]
+    ],
     "read_workspace_essence_maps": [
       [
         "POST",

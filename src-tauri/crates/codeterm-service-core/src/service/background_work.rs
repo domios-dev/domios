@@ -2,18 +2,18 @@ use super::ServiceContext;
 use crate::service::MuxEmitCause;
 use codeterm_types::agent::background_work::{BackgroundWorkObservation, BackgroundWorkState};
 
-pub(crate) fn restart_guard(
+pub fn restart_guard(
     items: Vec<String>,
     force: bool,
-) -> Result<(), super::agent_restart::AgentRestartError> {
+) -> Result<(), super::agent_lifecycle::AgentRestartError> {
     if items.is_empty() || force {
         Ok(())
     } else {
-        Err(super::agent_restart::AgentRestartError::BackgroundWork { items })
+        Err(super::agent_lifecycle::AgentRestartError::BackgroundWork { items })
     }
 }
 
-pub(crate) fn running(svc: &ServiceContext, tab_id: &str) -> Vec<String> {
+pub fn running(svc: &ServiceContext, tab_id: &str) -> Vec<String> {
     let provider = svc
         .mux
         .read()
@@ -200,7 +200,7 @@ fn observe_background_records(
     roster
 }
 
-pub(crate) fn force_notice(svc: &ServiceContext, tab: &str, items: &[String]) {
+pub fn force_notice(svc: &ServiceContext, tab: &str, items: &[String]) {
     if items.is_empty() {
         return;
     }

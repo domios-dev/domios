@@ -361,7 +361,7 @@ pub(crate) fn init_states(
     #[allow(unused_mut)]
     let mut mux_state_inner = mux_state_inner;
     if storage.storage().is_some() {
-        for (tab_id, reason) in service::mark_legacy_role_shell_failures(&mut mux_state_inner) {
+        for (tab_id, reason) in codeterm_agent_lifecycle::service::restore_exited_member::mark_legacy_role_shell_failures(&mut mux_state_inner) {
             log::warn!("[restore] Tab {tab_id} remains a role shell: {reason}");
         }
     }
@@ -459,7 +459,7 @@ pub(crate) fn init_states(
     // Nothing is observable yet — no PTY has materialized — so the wave is
     // armed here and settles on real launch transitions.
     if storage.storage().is_some() {
-        service::apply_restore_decisions(
+        codeterm_agent_lifecycle::service::restore_exited_member::apply_restore_decisions(
             codeterm_service_core::session::lifecycle::TabLifecycleJournal::shared(),
             &mux_state_inner,
             &mut agent_panes_at_shutdown,

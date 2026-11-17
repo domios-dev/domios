@@ -20,7 +20,8 @@ each failed run. An untested proposal must not become an established recipe.
 
 - Publication, tags, version bumps, installation and production restart require owner GO.
   Dry-run authorization does not authorize shipping. Never move a published tag, overwrite a
-  published version with rebuilt bytes, force-push master or bypass a failed gate.
+  published version with rebuilt bytes or force-push master. Failed tests may use only the explicit
+  owner test waiver below; all other failed gates refuse publication.
 - Use the exact reviewed committed candidate. Real-merge lanes; never reconstruct their tree
   by copying patches. Exclude unrelated dirty files. Record workflow-ref SHA separately from
   application `source_ref` SHA when they differ.
@@ -174,6 +175,47 @@ then sync them here. Never hand-edit the bundled snapshot.
    three days of the green run: its qualification artifact expires after that. Synchronize develop
    through an admin merge PR. A later correction takes a new version.
 
+## Owner waiver for defective tests
+
+When the owner judges failed tests defective, the owner may publish that run's existing
+hidden draft without rerunning the full qualification. Put exactly one field on its own
+line in the owner release PR body, using the exact Actions job names (including matrix suffixes):
+
+```text
+Release-Test-Waiver: {"run_id":"123456789","jobs":["Fast checks / ts unit (1/4)","Rust tests / rust platform (Windows)"]}
+```
+
+This is an explicit release decision. The owner names only failed test jobs. A green job,
+unknown job, build/sign job, duplicate name, different run ID, newer superseding run,
+cancellation or expired evidence refuses admission. Waivable jobs are TS unit/Vitest,
+plugin tests, script test contracts and the Rust full/platform/embeddings suites. A mixed
+job qualifies only when its failed steps are the test steps: compilation, formatting,
+generated-bundle checks, setup, receipt storage and cleanup failures cannot be waived.
+
+Admission checks the exact completed owner tests.yml push run directly because its normal
+qualification receipt may be skipped. It derives only the fixed test reporting consequences:
+CI result, Rust test receipts, Rust warning report and qualification receipt. A report must
+fail only in its known dependency-check step; the warning log must prove no missing
+collections and incomplete collections only from the explicitly waived Rust tests. Any
+unrelated or unverifiable aggregate failure refuses. The owner never lists these reports.
+
+All six platform build/sign job groups and consolidated manifest verification must succeed.
+The own-run draft must already be hidden and complete, bind the exact SHA/run, and contain
+every platform's completion receipt and assets matching its SHA256/size inventory. The
+waiver path has no missing-draft upload fallback. Evidence expires after three days.
+A master publication retry may continue after the draft became public only when its retained
+release-admission.json proves the identical source, run/attempt and waiver; PR admission still
+requires a hidden draft.
+The normal rollacode actor, release-environment approval, owner publication GO and exact
+master/head tree equality remain mandatory. PR qualification, master admission and each
+publication recheck apply the same waiver; removing the field restores green-only admission.
+
+Publication uploads release-admission.json with the named tests and derived reporting
+consequences, adds a visible Owner test waiver section to the release notes, and carries
+the waiver into both manifest verification records and issue-closure-boundary.json. Public
+issue closure comments name the run and waived jobs. Fix the defective tests on the next
+version's line; do not change this qualified head or mix runs' assets.
+
 ## PR CI tiers
 
 All PRs into develop, including forks and Dependabot, use tests-side.yml:
@@ -213,8 +255,19 @@ ID and its workflow/source identity. Do not identify a run merely as the latest 
 Dispatched dry runs require the exact-SHA qualification receipt. In the release push run,
 packaging starts once the fast tier resolves the source SHA, even when a fast check failed, so one
 push surfaces build and test failures together. Promotion still requires the whole push run green.
-Dry runs skip release creation/public uploads/publication, public served-byte verification and promotion;
-they cannot prove write permissions or CDN behavior.
+Dispatched dry runs create no drafts, uploads, tags or public releases. Release-push qualification
+has one exception: it creates hidden drafts in the source and transition mirror repositories and
+uploads each platform immediately after signing and local verification. It still creates no git
+tag, public release, channel publication or issue closure. It proves draft writes, not public CDN behavior.
+
+Each qualification run owns `qualification-vX.Y.Z-RUN_ID`, with its exact source SHA and run ID in
+the draft body. Platform jobs clear only their own assets at startup; successful uploads are
+API-digest checked against the signed-byte receipts and leave `qualification-PLATFORM.json`.
+A failed run keeps its partial hidden drafts and completion receipts. Failed-job reruns reuse
+the same run draft. A newer run starts its own draft; platform startup deletes older hidden
+drafts of that version, never published releases. Uploads target the admitted numeric draft ID,
+so a cancelled older job cannot upload into the replacement. Consolidated local verification
+seals the draft complete after every platform succeeds.
 
 Dry-run platform jobs retain original updater bytes, signed fragments and digest/source receipts
 in the existing private MinIO CI store under `<run-id>/release-dry-run/<platform>/`, with its
@@ -231,7 +284,10 @@ Embeddings start independently of the platform matrix because they consume no pl
 Targets remain per workspace.
 
 The only application publication path is the admin merge of the release PR; its master push
-promotes the qualified run's retained bytes. There is no dispatch fallback: a failed publication is
+admits only that run's completed draft by its recorded source SHA and run ID, retargets it to
+`vX.Y.Z`, and publishes it with the qualified manifests. It does not download or hash payloads.
+A missing or incomplete own-run draft restores verified retained bytes; platforms download in
+parallel and uploads use concurrency six. A foreign draft refuses publication. There is no dispatch fallback: a failed publication is
 repaired by rerunning the failed jobs of that same master push run, and a further change takes a new
 version. `release-publish.yml` remains as a rehearsal only and refuses `rehearsal=false`:
 
@@ -403,7 +459,7 @@ Verify those prompts on owner installs; source/config checks are not permission 
 The old 1.15.1 updater otherwise installs side by side on Windows, replaces the
 bundle at its old path on macOS, and risks side-by-side/conflicting packages on
 Linux (or an AppImage with the old filename). New clients exclusively use
-`domios-latest*.json`. Both publication paths generate `latest*.json` refusals
+`domios-latest*.json`. Application publication generates `latest*.json` refusals
 for the old channels and Deb/RPM transports with manual notes and no platforms.
 Old discovery reports incompatible with these notes; forced install fails before
 artifact download or server shutdown. Metadata cannot add a custom old-binary dialog.
@@ -550,6 +606,10 @@ Every release-branch push restarts the full graph, so a fix must not introduce t
 
 ### Known traps
 
+- Include the admitted `tag_name` when PATCHing a qualification draft's body, then read back
+  its identity. A body-only update can replace an unpublished tag with an `untagged-*` placeholder.
+- Draft helpers must depend only on pure asset checks, outside the promotion/qualification graph.
+  Capture imports them during top-level await; indirect imports back to its manifest also deadlock.
 - rustc hides link.exe progress output (`Creating library ...`) only when the linker is the bare
   name `link.exe`; an absolute linker path produces advisory `linker_messages` warnings.
   Put the native MSVC tool directory first on PATH during warning cleanup.
@@ -573,9 +633,15 @@ Manifest URLs must be anonymously reachable public assets. macOS updater uses ar
 .app.tar.gz, Linux AppImage, Windows NSIS .exe; a DMG is not a macOS updater archive.
 Keep signatures/fragments paired to the exact bytes from their producing run.
 
-The final job assembles all six updater keys (darwin/windows/linux × aarch64/x86_64), verifies
-private draft bytes, publishes and verifies public served bytes with a cache-busted URL and required
-version/platforms using `scripts/verify-updater-manifest.mjs`. HTTP 200 alone proves no installability.
+Qualification assembles and cryptographically verifies all updater payloads with
+`scripts/verify-updater-manifest.mjs`, retaining exact manifests, sha256 and sizes in
+`manifest-local-verification.json`. Publication reads only that small qualified-run record,
+uploads those manifests and publishes the draft. `scripts/release-served-metadata.mjs` then
+compares cache-busted public manifests (source, Debian and mirror) to that record, authenticates
+the signatures' trusted version comments, and checks every signed asset with HEAD: HTTP 200 and
+the qualified size are required. It downloads no payloads and does not re-hash them. Payload
+signature validation belongs to qualification; publication checks signature, URL and sha256
+metadata equality plus public availability. HEAD and size alone do not establish byte equality.
 A partial recovery cannot mint complete release evidence. Manual mirror repair needs owner GO and
 must reuse original verified artifacts/fragments, not handwrite a reduced domios-latest.json.
 
@@ -602,7 +668,7 @@ Public-Issue: rollacode/codeterm-releases#<number>
 Integration PRs use metadata; the final master PR gets generated closing keywords through
 `release_issue_contract.py repository-closes`, `reconcile` and `audit-commits`. Record investigated
 and deferred issues with reasons; do not invent fixes or handwrite a second closing set.
-Public issues close only after this version's complete served-byte verification passes
+Public issues close only after qualification plus this version's served metadata/status/size verification passes
 `check-release-closure.mjs`. The closure boundary records validator run ID/repository/URL and source
 SHA; readers confirm that run through Actions. A failed/cancelled run qualifies only when its
 exact-attempt jobs prove published-source verification, Debian verification and boundary minting
@@ -613,7 +679,7 @@ The legacy mirror's publication and assets are diagnostic only; after the public
 the source repository also serves the verified public manifests. Actions evidence is still read
 from the authoritative source repository; a boundary cannot redirect verification to a foreign repository.
 Missing source assets, absent legacy mirror releases/assets and unreadable validator runs are
-reported separately. The source-SHA, workflow, run/attempt and served-byte checks remain required.
+reported separately. The source-SHA, workflow, run/attempt and served metadata checks remain required.
 Set repository variable `RELEASE_CLOSE_PUBLIC_ISSUES=false` when the owner closes public issues
 manually; this skips only automatic closure, preserving publication verification and boundary evidence.
 Included-history resolution first atomically fetches the exact source history and remote product tags without force. Fetch failures, conflicting tags and absence of a verified published boundary refuse resolution. It retains the fully qualified tag ref in evidence and prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
@@ -622,6 +688,10 @@ Associated PRs come from closed PRs sorted by update time, filtered by included 
 The scan ends at history exhaustion or two days before the boundary commit date; hitting its page bound first refuses.
 
 ## Handoff and closeout
+
+For release pipeline edits, run `node scripts/test-catalogue.mjs run --entry release-promotion`
+and inspect changed workflow YAML and runner-group coverage. These lightweight checks run in PR
+CI; live qualification and publication prove GitHub behavior and elapsed time.
 
 Keep a handoff file current with candidate and workflow SHAs, run URL/ID, inputs, actual per-job
 runner names, first failures and owners, build counts per target, artifact names/sizes/SHA256,
@@ -636,4 +706,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 28 -->
+<!-- revision: 32 -->

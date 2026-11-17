@@ -12,6 +12,7 @@ use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for
 use super::plan_task_dispatch::dispatch_with_spawn;
 use super::plan_task_dispatch::set_local_task_name_description as set_task_description;
 use super::{get_string_param, JsonRpcError};
+use codeterm_agent_lifecycle::prelude::*;
 use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::plan::task_queries::TaskListFilter;
 use codeterm_service_core::service::plan::{hints, NewTask, PlanError};

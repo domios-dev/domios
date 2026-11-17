@@ -67,7 +67,8 @@ fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
         online: true,
         is_primary: false,
         access_level: types::AccessLevel::Full,
-        version: None,
+        domios_version: None,
+        domios_build: None,
         web_ui: None,
         relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         consecutive_misses: 0,
@@ -120,6 +121,8 @@ fn peer_inventory_uses_authenticated_lease_without_mutating_cached_registry() {
 fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.99.99.99")],
@@ -145,6 +148,8 @@ fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
 fn apply_announce_stores_and_clears_web_ui() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let with_https = PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.5")],
@@ -177,6 +182,8 @@ fn apply_announce_stores_and_clears_web_ui() {
 fn apply_announce_rejects_spoofed_sender() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.99.99.99")],
@@ -197,6 +204,8 @@ fn apply_announce_rejects_spoofed_sender() {
 fn apply_announce_empty_list_is_noop() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![],
@@ -214,6 +223,8 @@ fn apply_announce_empty_list_is_noop() {
 fn apply_announce_same_addrs_returns_no_change() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let ann = PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.5")],
@@ -228,6 +239,8 @@ fn apply_announce_same_addrs_returns_no_change() {
 
 fn announce_with_protocol(relay_protocol_version: u16) -> PeerAnnounce {
     PeerAnnounce {
+        domios_version: None,
+        domios_build: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.5")],
@@ -410,7 +423,8 @@ fn client_for_picks_tailscale_via_tier_ranking() {
         online: true,
         is_primary: false,
         access_level: types::AccessLevel::Full,
-        version: None,
+        domios_version: None,
+        domios_build: None,
         web_ui: None,
         relay_protocol_version: 0,
         consecutive_misses: 0,
@@ -439,4 +453,56 @@ fn mesh_rename_announce_stays_queued_until_the_peer_acknowledges() {
     );
     m.record_announce_outcome("peer-1", true);
     assert!(!m.has_unacked_announce("peer-1"));
+}
+
+#[test]
+fn announce_carries_and_retains_peer_product_version() {
+    let mut manager = make_mesh_with_peer("peer-A", vec![]);
+    manager.build_hash = "66576d9".into();
+    let local = manager.build_announce();
+    assert_eq!(
+        local.domios_version.as_deref(),
+        Some(crate::version::local_version())
+    );
+    assert_eq!(local.domios_build.as_deref(), Some("66576d9"));
+    let mut announce = announce_with_protocol(types::RELAY_PROTOCOL_VERSION);
+    announce.instance_id = "peer-A".into();
+    announce.domios_version = Some("1.20.0".into());
+    announce.domios_build = Some("1234567".into());
+    assert!(
+        manager
+            .apply_announce("peer-A", &announce)
+            .unwrap()
+            .metadata_changed
+    );
+    let encoded = serde_json::to_value(&manager.paired_peers["peer-A"]).unwrap();
+    assert_eq!(encoded["domios_version"], "1.20.0");
+    assert_eq!(encoded["domios_build"], "1234567");
+    announce.domios_version = None;
+    announce.domios_build = None;
+    manager.apply_announce("peer-A", &announce).unwrap();
+    assert_eq!(
+        manager.paired_peers["peer-A"].domios_version.as_deref(),
+        Some("1.20.0")
+    );
+    assert_eq!(
+        manager.paired_peers["peer-A"].domios_build.as_deref(),
+        Some("1234567")
+    );
+    announce.domios_version = Some("1.20.1".into());
+    announce.domios_build = Some("abcdef0".into());
+    assert!(
+        manager
+            .apply_announce("peer-A", &announce)
+            .unwrap()
+            .metadata_changed
+    );
+    assert_eq!(
+        manager.paired_peers["peer-A"].domios_version.as_deref(),
+        Some("1.20.1")
+    );
+    assert_eq!(
+        manager.paired_peers["peer-A"].domios_build.as_deref(),
+        Some("abcdef0")
+    );
 }

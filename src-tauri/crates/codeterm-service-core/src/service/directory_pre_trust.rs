@@ -1,7 +1,7 @@
 use crate::agent::registry::AgentRegistry;
 use crate::service::ServiceContext;
 
-pub(crate) fn for_tab(
+pub fn for_tab(
     service: &ServiceContext,
     registry: &AgentRegistry,
     provider_id: &str,

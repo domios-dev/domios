@@ -3,6 +3,7 @@ import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, RefreshCw, Maximize2, FolderOpen } from "lucide-react";
 import { LocalImageGallery } from "./LocalImageGallery";
+import { CanvasFileBlock } from "./blocks/CanvasFileBlock";
 import { FullscreenOverlay, useFullscreenViewer } from "./FullscreenOverlay";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import {
@@ -60,6 +61,7 @@ export function LocalArtifactBlock({
   onLoaded,
 }: LocalArtifactProps) {
   if (directive.kind === "image") return <LocalImageGallery directive={directive} fullscreenRequest={fullscreenRequest} onLoaded={onLoaded} bare={bare} renderError={renderError} />;
+  if (directive.kind === "canvas") return <CanvasFileBlock src={directive.path} view={directive.view} fullscreenRequest={fullscreenRequest} onLoaded={onLoaded} />;
   if (directive.kind === "page" && !/\.(md|markdown)$/i.test(directive.path)) {
     return <HtmlPreviewBlock filePath={directive.path} renderError={renderError} fullscreenRequest={fullscreenRequest} />;
   }
