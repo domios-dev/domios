@@ -37,6 +37,43 @@ impl std::fmt::Display for PreparedAgentCommand {
 }
 
 impl PreparedAgentCommand {
+    fn account_environment_prefix(&mut self) -> String {
+        let Some(context) = codeterm_plugin::provider_account::current() else {
+            return String::new();
+        };
+        let mut prefix = String::new();
+        for (key, value) in context.environment_entries() {
+            if let Some(spec) = &mut self.direct {
+                spec.env_set.retain(|existing, _| {
+                    existing != key && !(cfg!(windows) && existing.eq_ignore_ascii_case(key))
+                });
+                spec.env_unset.retain(|existing| {
+                    existing != key && !(cfg!(windows) && existing.eq_ignore_ascii_case(key))
+                });
+                match value {
+                    Some(value) => {
+                        spec.env_set.insert(key.into(), value.into());
+                    }
+                    None => spec.env_unset.push(key.into()),
+                }
+            }
+            match value {
+                Some(value) if cfg!(windows) => {
+                    prefix.push_str(&format!("$env:{key}='{}'; ", value.replace('\'', "''")))
+                }
+                Some(value) => prefix.push_str(&format!(
+                    "export {key}='{}'; ",
+                    value.replace('\'', "'\"'\"'")
+                )),
+                None if cfg!(windows) => prefix.push_str(&format!(
+                    "Remove-Item -LiteralPath 'Env:{key}' -ErrorAction SilentlyContinue; "
+                )),
+                None => prefix.push_str(&format!("unset {key}; ")),
+            }
+        }
+        prefix
+    }
+
     pub(crate) fn with_execution_environment(
         mut self,
         policy: Option<&codeterm_types::plan::ExecutionSandboxPolicy>,
@@ -44,25 +81,33 @@ impl PreparedAgentCommand {
         if self.shell_command.is_empty() {
             return self;
         }
-        let Some(policy) = policy else {
-            return self;
-        };
-        if let Some(spec) = &mut self.direct {
-            spec.env_set.extend(policy.environment.clone());
-            spec.env_unset
-                .retain(|key| !policy.environment.contains_key(key));
-        }
         let mut prefix = String::new();
-        for (key, value) in &policy.environment {
-            if cfg!(windows) {
-                prefix.push_str(&format!("$env:{key}='{}'; ", value.replace('\'', "''")));
-            } else {
-                prefix.push_str(&format!(
-                    "export {key}='{}'; ",
-                    value.replace('\'', "'\"'\"'")
-                ));
+        let account = codeterm_plugin::provider_account::current();
+        if let Some(policy) = policy {
+            if let Some(spec) = &mut self.direct {
+                spec.env_set.extend(policy.environment.clone());
+                spec.env_unset
+                    .retain(|key| !policy.environment.contains_key(key));
+            }
+            for (key, value) in &policy.environment {
+                if account.as_ref().is_some_and(|account| {
+                    account.environment_entries().any(|(owned, _)| {
+                        owned == key || (cfg!(windows) && owned.eq_ignore_ascii_case(key))
+                    })
+                }) {
+                    continue;
+                }
+                if cfg!(windows) {
+                    prefix.push_str(&format!("$env:{key}='{}'; ", value.replace('\'', "''")));
+                } else {
+                    prefix.push_str(&format!(
+                        "export {key}='{}'; ",
+                        value.replace('\'', "'\"'\"'")
+                    ));
+                }
             }
         }
+        prefix.push_str(&self.account_environment_prefix());
         self.shell_command = format!("{prefix}{}", self.shell_command);
         self
     }

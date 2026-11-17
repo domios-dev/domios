@@ -27,6 +27,9 @@ impl Store {
             move |repo| repo.write_blueprint_journal(id, write),
             finishing(move |store, outcome| match outcome {
                 Ok(commit) => {
+                    if let Some(state) = commit.terminal_run {
+                        super::product_observer::publish(store.run_observer.clone(), state);
+                    }
                     let applied = commit.outcome == MutationOutcome::Applied;
                     let changed = applied
                         || matches!(commit.outcome, MutationOutcome::Fenced(Fence::Claimed));

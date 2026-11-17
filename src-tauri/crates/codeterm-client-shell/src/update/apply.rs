@@ -90,19 +90,6 @@ async fn check_and_apply_plugin(
                 .read_timeout(std::time::Duration::from_secs(60))
                 .timeout(std::time::Duration::from_secs(15 * 60))
         });
-    #[cfg(windows)]
-    {
-        let app_handle = app.clone();
-        builder = builder.on_before_exit(move || {
-            if let Err(error) = super::restart::schedule_cleanup(&app_handle).and_then(|receiver| {
-                receiver
-                    .recv()
-                    .map_err(|error| format!("application cleanup was interrupted: {error}"))
-            }) {
-                log::error!("[updater] cleanup before installer exit failed: {error}");
-            }
-        });
-    }
     if let Some(target) = platform_key {
         builder = builder.target(target);
     }
@@ -190,6 +177,14 @@ async fn check_and_apply_plugin(
     };
 
     let target_version = update.version.clone();
+    let evidence_target = target_version.clone();
+    let evidence = tokio::task::spawn_blocking(move || {
+        codeterm_update::installer_evidence::Evidence::begin(&evidence_target)
+    })
+    .await
+    .map_err(|e| format!("installer evidence task failed: {e}"))??;
+    let preflight_stop = server_stop.clone();
+    let initiating_tab = opts.initiating_tab_id;
     let server_identity = server_stop.install_identity()?;
     #[cfg(windows)]
     if let Some(root) = std::env::current_exe()
@@ -215,21 +210,54 @@ async fn check_and_apply_plugin(
             })
             .await
             .map_err(|e| format!("viability probe task failed: {e}"))??;
-            super::install_holders::preflight(server_identity).await
+            super::install_holders::preflight(
+                server_identity,
+                preflight_stop.as_ref(),
+                initiating_tab.as_deref(),
+            )
+            .await
         },
         |holders| async {
             server_stop.prepare_update(&target_version).await?;
+            evidence.record_async("server_stop_requested", None).await?;
             update_state.lock().set_phase(UpdatePhase::Applying);
             stop_pair_server(server_stop.as_ref(), &server_stopped, holders).await?;
+            evidence.record_async("server_stopped", None).await?;
             Ok(Vec::new())
         },
-        move |verified_bytes| async move {
+        |verified_bytes| async {
             log::info!("[updater] starting verified installer after the server stopped");
+            let evidence = evidence.clone();
+            let install_app = app.clone();
             tokio::task::spawn_blocking(move || {
+                #[cfg(windows)]
+                {
+                    evidence.record("client_cleanup_started", None)?;
+                    super::restart::schedule_cleanup(&install_app)?
+                        .recv_timeout(std::time::Duration::from_secs(30))
+                        .map_err(|e| {
+                            format!(
+                                "installer launch cancelled: client cleanup did not complete: {e}"
+                            )
+                        })?;
+                    evidence.record("client_cleanup_completed", None)?;
+                }
+                #[cfg(not(windows))]
+                let _ = install_app;
                 codeterm_update::receipt::stage_app(&update.version);
-                update
+                evidence.record("installer_call_started", None)?;
+                let outcome = update
                     .install(verified_bytes)
-                    .map_err(|e| format!("installer launch failed: {}", e))
+                    .map_err(|e| format!("installer launch failed: {}", e));
+                evidence.record(
+                    if outcome.is_ok() {
+                        "installer_call_returned"
+                    } else {
+                        "installer_call_failed"
+                    },
+                    outcome.as_ref().err().map(String::as_str),
+                )?;
+                outcome
             })
             .await
             .map_err(|e| format!("installer launch task failed: {e}"))?
@@ -238,6 +266,9 @@ async fn check_and_apply_plugin(
     )
     .await;
     if let Err(cause) = outcome {
+        if let Err(error) = evidence.record_async("failed", Some(&cause)).await {
+            log::error!("[updater] failed to preserve installer failure: {error}");
+        }
         if server_stopped.load(std::sync::atomic::Ordering::SeqCst) {
             log::error!(
                 "[updater] install failed after the server stopped; relaunching the installed pair: {cause}"
@@ -262,7 +293,14 @@ async fn stop_pair_server(
     holders: super::install_holders::PreparedHolders,
 ) -> Result<(), String> {
     log::info!("[updater] stopping the attached server before installing the pair");
-    let result = stop.stop_server().await;
+    let request = holders.shutdown_reservation_request();
+    let reservation = async move {
+        match request {
+            Some(request) => stop.reserve_install_shutdown(request).await.map(Some),
+            None => Ok(None),
+        }
+    };
+    let result = stop_reserved_server(stop, reservation).await;
     if server_stop_owes_relaunch(&result) {
         stopped.store(true, std::sync::atomic::Ordering::SeqCst);
     }
@@ -273,7 +311,29 @@ async fn stop_pair_server(
         )
     })?;
     holders.confirm_exited().await?;
-    super::install_holders::release_before_installer().await
+    Ok(())
+}
+
+async fn stop_reserved_server(
+    stop: &dyn ServerStop,
+    reservation: impl std::future::Future<Output = Result<Option<String>, String>> + Send,
+) -> Result<(), ServerStopError> {
+    let reservation = reservation.await.map_err(|reason| ServerStopError {
+        dispatched: false,
+        reason,
+    })?;
+    let result = stop.stop_server().await;
+    if result.as_ref().is_err_and(|error| !error.dispatched) {
+        if let Some(id) = reservation {
+            stop.release_install_shutdown(&id)
+                .await
+                .map_err(|reason| ServerStopError {
+                    dispatched: false,
+                    reason,
+                })?;
+        }
+    }
+    result
 }
 
 #[cfg(windows)]

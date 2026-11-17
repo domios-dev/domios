@@ -18,6 +18,7 @@ export interface ProviderModelUsageState {
 export function useProviderModelUsageState(
   providerId: string | null,
   enabled = true,
+  accountId: string | null = null,
 ): ProviderModelUsageState {
   const [usage, setUsage] = useState<ModelGroupUsage[]>(EMPTY_USAGE);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -27,10 +28,10 @@ export function useProviderModelUsageState(
     let active = true;
     let stop: (() => void) | undefined;
     void listen<UsageSnapshotEvent>("usage-snapshot-updated", ({payload}) => {
-      if (active && payload.provider === providerId) setRefreshToken(value => value + 1);
+      if (active && payload.provider === providerId && (payload.account_id ?? null) === accountId) setRefreshToken(value => value + 1);
     }).then(unlisten => { if (active) stop = unlisten; else unlisten(); });
     return () => { active = false; stop?.(); };
-  }, [providerId, enabled]);
+  }, [providerId, enabled, accountId]);
 
   useEffect(() => {
     let active = true;
@@ -38,7 +39,7 @@ export function useProviderModelUsageState(
       setUsage(EMPTY_USAGE);
       return;
     }
-    void invoke<unknown>("provider_model_usage", { providerId })
+    void invoke<unknown>("provider_model_usage", { providerId, accountId: accountId ?? undefined })
       .then((result) => {
         if (active) setUsage(modelGroupUsageFromResponse(result));
       })
@@ -49,7 +50,7 @@ export function useProviderModelUsageState(
     return () => {
       active = false;
     };
-  }, [providerId, enabled, refreshToken]);
+  }, [providerId, enabled, accountId, refreshToken]);
 
   const refresh = useCallback(() => setRefreshToken((v) => v + 1), []);
 

@@ -641,7 +641,8 @@ function* codexStateDbPath() {
   const override = host.envGet(sessionStoreOverrides.state);
   if (override) return override;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
+  const selectedSqliteHome = host.envGet("CODEX_SQLITE_HOME");
+  const root = selectedSqliteHome ? trimTrailingSeparators(selectedSqliteHome) : codexSessionsRoot(sep);
   if (!root) return null;
   let entries;
   try {
@@ -2738,9 +2739,9 @@ function codexRestrictedCliConfig(ctx) {
   const policy = ctx.restrictedCli;
   if (!policy) return {};
   const hash = (value) => /^[0-9a-f]{64}$/.test(value);
-  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false || !/^[A-Za-z0-9/\\:._~-]+$/.test(policy.executable) || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash))
+  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || !["workspace-write", "read-only-with-writable-roots"].includes(ctx.settings.mode ?? "") || ctx.settings.networkAccess !== false || !/^[A-Za-z0-9/\\:._~-]+$/.test(policy.executable) || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash))
     throw { code: "binding_mismatch", message: "Restricted CLI policy differs from the bound launch" };
-  return { projects: { [ctx.cwd]: { trust_level: "trusted" } } };
+  return { project_root_markers: [], projects: { [ctx.cwd]: { trust_level: "trusted" } } };
 }
 function codexValidateCliTrust(ctx, raw) {
   if (!ctx.restrictedCli) return;
@@ -2888,7 +2889,7 @@ function codexWritableRootsConfirmed(settings, reply) {
   const sandbox = object2(reported.sandboxPolicy ?? reported.sandbox);
   const expected = settings.additionalDirectories ?? [];
   const same = (value) => Array.isArray(value) && value.length === expected.length && value.every((path) => typeof path === "string" && expected.includes(path));
-  return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
+  return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.networkAccess === settings.networkAccess && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
 }
 function codexRestrictedCliInstructions(ctx, instructions) {
   if (!ctx.restrictedCli) return instructions;
@@ -2967,7 +2968,10 @@ function runtimeError(value, willRetry = false, limits) {
   const limited = outputLimit(error) || outputLimit({ message: diagnostic });
   const message = diagnostic ?? (limited ? "Output limit reached" : "Provider request failed");
   const status = statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
-  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry, ...limited ? { retryableKind: "output_limit" } : retrySignal(code, status, limits) } };
+  const kind = runtimeClass(code, status);
+  const retry = limited ? { retryableKind: "output_limit" } : retrySignal(code, status, limits);
+  const accountQuota = !willRetry && !limited && (code === "usageLimitExceeded" && kind === "usage_limit" || code === "rateLimitExceeded" && retry.retryableKind === "rate_limited_until");
+  return { message, metadata: { ...code ? { code } : {}, class: kind, retryable: willRetry, ...retry, ...accountQuota ? { accountLimit: { ...retry.retryAtMs == null ? {} : { resetsAtMs: retry.retryAtMs } } } : {} } };
 }
 function retrySignal(code, status, limits) {
   if (status === 401 || status === 403) return {};
@@ -3729,7 +3733,7 @@ function planOperation(ctx, op) {
       return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
     case "openThread":
     case "resumeThread":
-      return op.settings.mode === "workspace-write" ? request("config/read", { includeLayers: false, cwd: ctx.cwd }, { stage: "windowsSandboxConfig" }) : threadPlan(ctx, op);
+      return ["workspace-write", "read-only-with-writable-roots"].includes(op.settings.mode ?? "") ? request("config/read", { includeLayers: false, cwd: ctx.cwd }, { stage: "windowsSandboxConfig" }) : threadPlan(ctx, op);
     case "forkThread":
       return forkThreadPlan(ctx, op);
     case "readHistory":
@@ -5130,6 +5134,11 @@ function cleanPromptText(value) {
 // plugins/provider-codex/src/usage.ts
 var CODEX_USAGE_KIND = "codeterm_usage_v1";
 var CODEX_AUTH_CREDENTIAL2 = "codexAuth";
+function* codexAccountIdentity() {
+  const subject = stringAt(safeJson(yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL2 }, true)), "accountId");
+  if (!subject || subject.trim() !== subject || [...subject].length > 320 || /[\u0000-\u001f\u007f-\u009f]/u.test(subject)) return null;
+  return { subject, label: subject };
+}
 function* fetchCodexUsage(host2) {
   const accountId = stringAt(safeJson(yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL2 }, true)), "accountId");
   if (!accountId) return null;
@@ -7095,6 +7104,9 @@ var plugin = {
   },
   *fetchUsage() {
     return yield* fetchCodexUsage(host);
+  },
+  *accountIdentity() {
+    return yield* codexAccountIdentity();
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;

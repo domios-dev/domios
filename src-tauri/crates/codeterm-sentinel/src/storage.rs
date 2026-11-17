@@ -110,6 +110,7 @@ impl Store {
         };
         let committed_revisions = scope_revisions(&jobs);
         Self {
+            run_observer: None,
             jobs,
             active: HashMap::new(),
             wake_pending: BTreeSet::new(),
@@ -596,6 +597,7 @@ impl Store {
         let repo = storage.sentinels();
         let loaded = repo.inventory().wait(COMMIT_DEADLINE);
         let mut store = Store {
+            run_observer: None,
             jobs: Vec::new(),
             active: HashMap::new(),
             wake_pending: BTreeSet::new(),

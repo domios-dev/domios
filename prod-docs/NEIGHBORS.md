@@ -1,6 +1,6 @@
 # Encrypted Neighbors
 
-A confined concierge may receive a host-verified trusted CLI executable. Use that exact bare token instead of `domios` in command examples, without another interpreter, executable quotes or a PowerShell call operator. Single-quote opaque string arguments, especially friendship and message IDs beginning with digits; keep the executable itself unquoted. The exception applies to CLI execution; receiver, tab credential, nonce and friendship grants still decide every service operation. Stage replies in the current AgentPad with the native file tool and pass `--from-pad <relative_file>`; arbitrary `--from-file` reads and local administration are not granted by the execution exception.
+Use the host-verified CLI's bare token, with inherited credentials and no interpreter/quotes/PowerShell `&`. Single-quote IDs. Receiver/nonce/friendship checks remain. Stage replies in AgentPad with native tools and `--from-pad`; arbitrary `--from-file` reads/local administration stay forbidden.
 
 Encrypted account messages; manage friends in Neighborhood/sidebar. Free retains connections, locks messaging.
 
@@ -8,7 +8,7 @@ Default on. Off retains data/keys but stops receive/send/notices; sends/grants/b
 
 ## Receiving and keys
 
-Each friend receives on their concierge machine, with no account receiver, compatibility layer or migration. Setup registers a missing machine key and selects only that friend at its observed revision (0 unassigned). Unassigned friends wait in the inbox; moves require owner consent. One installation key pair serves local concierges; revocation makes pending messages `not_delivered,reason:key_revoked`.
+Each friend has one concierge machine, no account receiver. Setup registers a missing installation key and selects only that friend at its observed revision (0 unassigned). Unassigned messages wait; moves need owner consent. One local key pair serves all concierges; revocation yields `not_delivered,reason:key_revoked`.
 
 ```bash
 domios account neighbors status
@@ -26,7 +26,11 @@ Receiver loss closes agents to Recently Closed and revokes credentials; return s
 
 Transient setup/listen failures use capped backoff; permanent failures await rearm or account/registry changes. Auth/revocation/off/generation/receiver changes stop. Retry retains cursors; uncertain mutations never replay. Errors:status.watches/neighbors-watch-status; details:API-LIFECYCLE.
 
-General uses `receive-here` with the observed revision. For moves ask “<friend> is received on <machine>. Move here?”; add `--takeover-confirmed` only after approval. Refresh/reconfirm stale requests. No grant edits or background invitation claim/retry; Workers/concierges/peers refused.
+Grants stay local. Friend pages show the receiver and its effective access (or unavailable). Only the owner's same-account mesh supplies comparisons; keys/keyrings/files stay put.
+
+General previews `receive-here FRIENDSHIP_ID --expected-receiver-revision N --preview`. Show both grants (access,folder/writes,memory/workspaces,scope); ask keep/adopt. Warn: fresh session, retained history. Apply once with `--takeover-confirmed --grant-choice keep|adopt --expected-grant-digest DIGEST`. UI shares Apply. Missing/stale choices refuse; refresh/reconfirm. Unreadable grants cannot be adopted.
+
+Adoption validates target folders/areas/workspaces. Reconcile scope/access conflicts without removing sharing restrictions, via the UI or `--adopt-scope-from-pad SCOPE_FILE`. The grant saves before moving: `receiver_move_unconfirmed` means it was adopted but receiving needs a status refresh; never replay uncertain moves. General cannot reset receiving; Workers/concierges/peers cannot move it.
 
 ## Authority and permissions
 
@@ -77,13 +81,11 @@ Owner/General set their inbound limits. Include `friendship_id`; POST routes are
 | Incoming requests/hour | base route: `set_limit` / `per_hour` | Required integer; no null | `set-limit ID --per-hour N` |
 | File bytes/day | `/files`: `set_daily_limit` / `file_daily_limit_bytes` | `null` = 50 MiB default; 0 blocks files | `set-file-daily-limit ID --file-daily-limit-bytes N` |
 
-Example: `domios account neighbors set-limit FRIENDSHIP_ID --per-hour 2`. `null` only where supported; limits are separate from Apply.
+`null` only where supported; limits are separate from Apply.
 
 ## General permission command
 
 Partial grants preserve omitted fields. Boolean flags:--allowed,--allow-memory,--allow-files,--allow-tab-requests,--allow-interactive-content. --from-pad reads scope and implies --allowed true unless overridden. --memory-areas: all=null, none=[], or comma-separated areas. --workspaces: none=null or comma-separated IDs. --folder: absolute path/default=null. --machine-access: none/read_only/folder/full; folder requires a folder.
-
-Grant examples/presets: headless Linux guide.
 
 Deny sets only allowed=false; set_permission merges partial grants, null clears nullable fields. Invalid input refuses typed before saving. CLI/UI share Apply; limits stay separate.
 
@@ -175,4 +177,4 @@ File API (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_limit`): `d
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->

@@ -51,21 +51,23 @@ fn recursive_viewers_joining_after_a_resize_never_emit_another_resize() {
 }
 
 #[test]
-fn owner_departure_transfers_once_and_stale_disconnect_cannot_remove_reconnect() {
+fn owner_departure_and_reconnect_never_transfer_or_resize() {
     let mut model = ViewportOwner::default();
     let old = join(&mut model, "first".into(), size(800.0, 600.0)).unwrap();
     model.next_resize();
     let second = join(&mut model, "second".into(), size(640.0, 480.0)).unwrap();
-    let fresh = join(&mut model, "first".into(), size(800.0, 600.0)).unwrap();
+    let fresh = join(&mut model, "first".into(), size(1000.0, 700.0)).unwrap();
+    assert_eq!(model.next_resize(), None);
     assert!(!model.leave("first", old));
     assert_eq!(model.owner().as_deref(), Some("first"));
     assert!(model.leave("first", fresh));
-    assert_eq!(model.owner().as_deref(), Some("second"));
-    assert_eq!(model.next_resize(), clamp(size(640.0, 480.0)));
+    assert_eq!(model.owner().as_deref(), Some("first"));
+    assert_eq!(model.current(), clamp(size(800.0, 600.0)));
+    assert_eq!(model.next_resize(), None);
     assert!(!model.leave("first", fresh));
     assert_eq!(model.next_resize(), None);
     assert!(model.leave("second", second));
-    assert_eq!(model.owner(), None);
+    assert_eq!(model.owner().as_deref(), Some("first"));
     assert_eq!(model.next_resize(), None);
 }
 
@@ -74,9 +76,10 @@ fn explicit_agent_viewport_survives_viewers_until_user_claims_control() {
     let mut model = ViewportOwner::default();
     let first = join(&mut model, "first".into(), size(800.0, 600.0)).unwrap();
     model.next_resize();
-    model.agent();
+    model.agent(clamp(size(390.0, 844.0)).unwrap());
     join(&mut model, "second".into(), size(640.0, 480.0));
     assert_eq!(model.request("first", size(900.0, 700.0), false), None);
+    assert_eq!(model.current(), clamp(size(390.0, 844.0)));
     model.leave("first", first);
     assert_eq!(model.next_resize(), None);
     assert_eq!(model.owner(), None);
@@ -119,12 +122,40 @@ fn a_recursive_viewer_never_inherits_or_claims_the_page_viewport() {
     );
     assert_eq!(model.request("recursive", size(474.0, 240.0), true), None);
     assert!(model.leave("outer", outer));
-    assert_eq!(model.owner(), None);
+    assert_eq!(model.owner().as_deref(), Some("outer"));
     assert_eq!(model.next_resize(), None);
     assert_eq!(
         model.join("recursive-reconnect".into(), size(474.0, 240.0), true),
         None
     );
+    assert_eq!(model.owner().as_deref(), Some("outer"));
+    assert_eq!(model.next_resize(), None);
+}
+
+#[test]
+fn owner_layout_changes_do_not_resize_until_explicit_take_control() {
+    let mut model = ViewportOwner::default();
+    join(&mut model, "desktop".into(), size(1200.0, 800.0));
+    assert_eq!(model.next_resize(), clamp(size(1200.0, 800.0)));
+    join(&mut model, "phone".into(), size(390.0, 844.0));
+    for viewer in ["desktop", "phone"] {
+        assert_eq!(model.request(viewer, size(900.0, 700.0), false), None);
+        assert_eq!(model.next_resize(), None);
+    }
+    model.request("desktop", size(900.0, 700.0), true);
+    assert_eq!(model.next_resize(), clamp(size(900.0, 700.0)));
+    model.request("phone", size(390.0, 844.0), true);
+    assert_eq!(model.owner().as_deref(), Some("phone"));
+    assert_eq!(model.next_resize(), clamp(size(390.0, 844.0)));
+}
+
+#[test]
+fn an_agent_spawn_keeps_its_initial_size_before_any_viewer_joins() {
+    let mut model = ViewportOwner::default();
+    model.start(Viewport::default());
+    join(&mut model, "phone".into(), size(390.0, 844.0));
+    model.start(clamp(size(640.0, 480.0)).unwrap());
+    assert_eq!(model.current(), Some(Viewport::default()));
     assert_eq!(model.owner(), None);
     assert_eq!(model.next_resize(), None);
 }

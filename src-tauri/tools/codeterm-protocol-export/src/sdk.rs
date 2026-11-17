@@ -1,6 +1,7 @@
 use ts_rs::{Config, TS};
 
 pub(super) fn export_sdk(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    codeterm_types::config::provider_accounts::AccountIdentity::export_all(config)?;
     codeterm_plugin::agent_runtime::RuntimeStep::export_all(config)?;
     codeterm_plan::service_plan::state::analytics::AnalyticsSnapshot::export_all(config)?;
     codeterm_plugin::agent_runtime::RuntimeContext::export_all(config)?;

@@ -8,6 +8,7 @@ struct Job {
     binary: PathBuf,
     project: PathBuf,
     until: Instant,
+    invocation: Option<std::sync::Arc<codeterm_plugin::provider_account::InvocationContext>>,
     response: mpsc::SyncSender<Result<InitializeCapabilities, ProbeFailure>>,
 }
 fn executor() -> Result<&'static mpsc::SyncSender<Job>, ProbeFailure> {
@@ -23,7 +24,9 @@ fn executor() -> Result<&'static mpsc::SyncSender<Job>, ProbeFailure> {
                         let result = if remaining.is_zero() {
                             Err(ProbeFailure::Deadline)
                         } else {
-                            super::process::capture(&job.binary, &job.project, remaining)
+                            codeterm_plugin::provider_account::with_context(job.invocation, || {
+                                super::process::capture(&job.binary, &job.project, remaining)
+                            })
                         };
                         let _ = job.response.send(result);
                     }
@@ -47,6 +50,7 @@ pub(super) fn capture(
             project: project.into(),
             until,
             response: tx,
+            invocation: codeterm_plugin::provider_account::current(),
         })
         .map_err(|error| match error {
             mpsc::TrySendError::Full(_) => ProbeFailure::Busy,

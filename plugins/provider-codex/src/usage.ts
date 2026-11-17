@@ -1,4 +1,4 @@
-import { ioJson, ioEncoded, type HostIoSteps } from "@codeterm/plugin-sdk";
+import { ioJson, ioEncoded, type HostIoSteps, type AccountIdentity } from "@codeterm/plugin-sdk";
 interface CodexGauge {
   pct: number | null;
   resetsMs: number | null;
@@ -19,6 +19,12 @@ interface CodexRateLimit {
 
 const CODEX_USAGE_KIND = "codeterm_usage_v1";
 const CODEX_AUTH_CREDENTIAL = "codexAuth";
+
+export function* codexAccountIdentity(): HostIoSteps<AccountIdentity | null> {
+  const subject = stringAt(safeJson((yield* ioJson({op:"credentialPublic",id:CODEX_AUTH_CREDENTIAL}, true))), "accountId");
+  if (!subject || subject.trim() !== subject || [...subject].length > 320 || /[\u0000-\u001f\u007f-\u009f]/u.test(subject)) return null;
+  return {subject,label:subject};
+}
 
 export function* fetchCodexUsage(host: UsageHost): HostIoSteps<string | null> {
   const accountId = stringAt(safeJson((yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL }, true))), "accountId");

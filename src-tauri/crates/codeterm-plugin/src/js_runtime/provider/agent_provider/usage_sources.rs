@@ -46,6 +46,8 @@ impl JsProvider {
                     path: PathBuf::from(source.path),
                     session_id: source.session_id.filter(|id| !id.is_empty()),
                 })
+                .filter(|source| crate::provider_account::read_allowed(&source.path))
+                .filter(|source| crate::provider_account::read_allowed(&source.path))
                 .collect();
         }
         provider::usage_sources_from_session_file(self, cwd, session_id)

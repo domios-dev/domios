@@ -70,6 +70,17 @@ pub enum NeighborAction {
         /// Pass only after the owner explicitly agrees to move receiving from the named machine
         #[arg(long)]
         takeover_confirmed: bool,
+        /// Read both local and previous receiver grants without moving receiving
+        #[arg(long)]
+        preview: bool,
+        /// Owner-confirmed grant decision after reviewing --preview
+        #[arg(long, value_parser = ["keep", "adopt"], requires = "expected_grant_digest")]
+        grant_choice: Option<String>,
+        #[arg(long, requires = "grant_choice")]
+        expected_grant_digest: Option<String>,
+        /// Reconciled sharing scope for adoption, read from this tab's pad
+        #[arg(long, requires = "grant_choice")]
+        adopt_scope_from_pad: Option<String>,
     },
     /// Rotate this installation's keys and revoke the previous pair
     Rotate,

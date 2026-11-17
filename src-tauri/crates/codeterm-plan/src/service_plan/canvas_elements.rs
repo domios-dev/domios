@@ -3,6 +3,21 @@ use super::store_db::hot_write::ElementChange;
 use super::{PlanError, PlanStore};
 use crate::plan::{CanvasElement, ElementCanvas};
 
+pub type ElementObserver = std::sync::Arc<dyn Fn(&'static str, &'static str) + Send + Sync>;
+
+pub(super) fn observed_kind(kind: &str) -> &'static str {
+    match kind {
+        "note" => "note",
+        "mermaid" => "mermaid",
+        "image" => "image",
+        "html" => "html",
+        "page" => "page",
+        "document" => "document",
+        "canvas" => "canvas",
+        _ => "other",
+    }
+}
+
 fn normalize_layout_element_id(element_id: &str) -> &str {
     element_id
         .strip_prefix("task:")
@@ -16,6 +31,9 @@ fn normalize_layout_element_id(element_id: &str) -> &str {
 }
 
 impl PlanStore {
+    pub fn bind_element_observer(&self, observer: ElementObserver) {
+        *self.element_observer.write() = Some(observer);
+    }
     pub fn add_note(
         &self,
         plan_id: &str,
@@ -130,7 +148,12 @@ impl PlanStore {
     ) -> Result<(), PlanError> {
         let turn = self.mutation_writer.enter();
         let receipt = self.database.change_element(plan_id, change, now_ms)?;
+        let action = receipt.element_action;
         self.publish_hot_receipt(&turn, receipt);
+        let observer = self.element_observer.read().clone();
+        if let (Some((operation, kind)), Some(observer)) = (action, observer) {
+            observer(operation, kind);
+        }
         Ok(())
     }
 }

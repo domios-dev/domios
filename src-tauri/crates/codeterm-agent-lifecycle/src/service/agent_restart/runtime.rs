@@ -39,6 +39,14 @@ pub trait RuntimeRestartExt {
         fresh: bool,
         retry_refused_start: bool,
     ) -> Result<RestartOutcome, RestartAttemptError>;
+    fn restart_runtime_agent_with_account(
+        &self,
+        tab_id: &str,
+        force: bool,
+        fresh: bool,
+        retry_refused_start: bool,
+        account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
+    ) -> Result<RestartOutcome, RestartAttemptError>;
 }
 
 impl RuntimeRestartExt for ServiceContext {
@@ -63,6 +71,23 @@ impl RuntimeRestartExt for ServiceContext {
         fresh: bool,
         retry_refused_start: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        self.restart_runtime_agent_with_account(tab_id, force, fresh, retry_refused_start, None)
+    }
+
+    fn restart_runtime_agent_with_account(
+        &self,
+        tab_id: &str,
+        force: bool,
+        fresh: bool,
+        retry_refused_start: bool,
+        account: Option<&crate::service::agent_lifecycle::AccountRestartTarget>,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        if account.is_some() && (fresh || retry_refused_start) {
+            return Err(AgentRestartError::BadRequest(
+                "Account restart requires a same-session restart".into(),
+            )
+            .into());
+        }
         if let Some(refusal) = self.tab_write_lock(tab_id) {
             return Err(AgentRestartError::BadRequest(refusal.to_string()).into());
         }
@@ -152,14 +177,20 @@ impl RuntimeRestartExt for ServiceContext {
         if fresh {
             outcome.session_id = None;
         }
-        let result = crate::async_runtime::block_on(agent_runtime::restart::restart(
+        let attempt = crate::async_runtime::block_on(agent_runtime::restart::restart_with_account(
             self,
             tab_id,
             &provider,
             &nonce,
             fresh.then_some((&snap, force)),
             retry_refused_start,
+            account,
         ));
+        outcome.source_account_restored = attempt.source_account_restored;
+        outcome.account_target_refused = attempt.target_refusal.is_some();
+        outcome.account_refusal_nonce = attempt.account_refusal_nonce;
+        let target_refusal = attempt.target_refusal;
+        let result = attempt.session;
         if result.as_ref().is_ok_and(|session| {
             matches!(
                 session.state.lock().phase,
@@ -215,6 +246,13 @@ impl RuntimeRestartExt for ServiceContext {
                 }
                 self.schedule_session_persist_debounced();
                 self.emit_state_changed(MuxEmitCause::AgentRestart);
+                if let Some(reason) = target_refusal {
+                    return Err(RestartAttemptError::Failed {
+                        outcome,
+                        reason,
+                        timed_out: false,
+                    });
+                }
                 Ok(outcome)
             }
             Err(reason) => Err(RestartAttemptError::Failed {

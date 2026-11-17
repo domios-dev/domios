@@ -40,10 +40,10 @@ fn stamp_chatbackend_launch_identity(
     tab: &mut crate::multiplexer::types::Tab,
     metadata: &super::spawn::ChatBackendLaunchMetadata,
 ) {
-    if tab.neighbor_authority.is_none() {
-        tab.neighbor_authority = metadata.params.neighbor_authority.clone();
-    }
+    super::spawn::stamp_launch_authority(tab, &metadata.params);
     let agent = &metadata.agent;
+    tab.restorable_launch.account_id = agent.account_id.clone();
+    tab.restorable_launch.account_namespace = agent.account_namespace.clone();
     tab.worker_id = agent.worker_id.clone();
     tab.provisioned_cwd = agent.provisioned_cwd.clone();
     tab.report_target_tab_id = agent.report_target_tab_id.clone();

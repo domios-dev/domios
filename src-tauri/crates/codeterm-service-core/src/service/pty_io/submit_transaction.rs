@@ -481,6 +481,11 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             text.len(),
             input.len()
         );
+        crate::service::provider_accounts::admit_pty_write(
+            self.svc,
+            self.pty_id,
+            self.submit_claim.user_send_id.as_deref(),
+        );
         let session = self
             .svc
             .pty
@@ -646,7 +651,9 @@ pub(super) fn injection_write_error(pty_id: &str, error: String) -> InjectionErr
         InjectionError::WriteQueueFull {
             pty_id: pty_id.to_string(),
         }
-    } else if crate::pty::write_queue::is_stale_agent_input(&error) {
+    } else if crate::pty::write_queue::is_stale_agent_input(&error)
+        || crate::pty::write_queue::is_update_reserved(&error)
+    {
         InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         }

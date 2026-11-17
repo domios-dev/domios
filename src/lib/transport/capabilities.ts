@@ -279,7 +279,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       return webJson("POST", `/api/setup/hooks/install?provider=${enc(s(a, "provider_id"))}`, { consent: true, provider: s(a, "provider_id") });
     },
     uninstall_provider_integration: (a) => webJson("POST", `/api/setup/hooks/uninstall?provider=${enc(s(a, "provider_id"))}`, { provider: s(a, "provider_id") }),
-    provider_model_usage: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/model-usage`),
+    provider_model_usage: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/model-usage${a.accountId ? `?account_id=${enc(String(a.accountId))}` : ""}`),
     get_default_cwd: () => webJson("GET", "/api/system/default-cwd"),
     get_shell_diagnostics: () => webJson("GET", "/api/system/shell-diagnostics"),
     suggest_install_pwsh: () => webJson("POST", "/api/system/install-pwsh"),

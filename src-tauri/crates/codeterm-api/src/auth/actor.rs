@@ -9,11 +9,7 @@ use codeterm_service_core::service::tab_credentials::TabCaller;
 
 use super::{AuthenticatedOrigin, CallerIdentity};
 
-pub(super) fn resolve(
-    identity: &CallerIdentity,
-    origin: AuthenticatedOrigin,
-) -> Result<Option<TabCaller>, (StatusCode, String)> {
-    let actor = RequestActor::resolve(identity, origin, None)?;
+pub(super) fn resolve(actor: RequestActor) -> Result<Option<TabCaller>, (StatusCode, String)> {
     match actor {
         RequestActor::Owner => Ok(None),
         RequestActor::LocalAgent(caller) => Ok(Some(caller)),

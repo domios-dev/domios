@@ -5,7 +5,7 @@ import { parsePluginId } from "./pluginBlockModel";
 import { parseDsBlocks } from "@codeterm/chat-core";
 
 test("every catalogued chat block uses the shared grammar", () => {
-  const tags = ['<ds-guide section="phone" />', '<ds-plugin id="git" />', '<ds-connect bridge="telegram" />', '<ds-setting key="plugins.git.enabled" />', '<ds-agent tab="e3ec9ee9" />', '<ds-job ref="nightly" />', '<ds-checklist id="getting-started" />', '<ds-choice options=\'["Yes","No"]\' />', '<ds-tasks plan="pl_alpha" />', '<ds-canvas>{"items":[{"kind":"note","markdown":"A"}]}</ds-canvas>'];
+  const tags = ['<ds-guide section="phone" />', '<ds-plugin id="git" />', '<ds-connect bridge="telegram" />', '<ds-setting key="plugins.git.enabled" />', '<ds-agent tab="e3ec9ee9" />', '<ds-job ref="nightly" />', '<ds-checklist id="getting-started" />', '<ds-choice options=\'["Yes","No"]\' />', '<ds-tasks plan="pl_alpha" />', '<ds-canvas src="/work/board.canvas.json" />'];
   assert.equal(CHAT_BLOCKS.length, tags.length);
   assert.equal(parseChatBlocks(tags.join("\r\n"))?.length, tags.length);
   for (const tag of tags) assert.ok(parseChatBlock(tag));

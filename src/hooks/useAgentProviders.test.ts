@@ -11,8 +11,33 @@ import {
 } from "./useAgentProviders";
 
 let failed = 0;
-
 const tests: Array<[string, () => void | Promise<void>]> = [];
+
+test("account catalogue revisions refresh their own scope without poisoning the usual descriptor", () => {
+  const handlers: Array<(event: {payload: {provider:string;version:number;account_id?:string;context_key?:string}}) => void> = [];
+  const listen = async <T>(_event: string, handler: (event: {payload:T}) => void) => {
+    handlers.push(handler as typeof handlers[number]);
+    return () => {};
+  };
+  const counts = { usual: 0, a: 0, b: 0 };
+  setAgentDescriptors([provider("account-catalogue")]);
+  const cleanups = [
+    attachModelCatalogueChangedRefresh(() => counts.usual++, listen),
+    attachModelCatalogueChangedRefresh(() => counts.a++, listen, {providerId:"account-catalogue",accountId:"account-a"}),
+    attachModelCatalogueChangedRefresh(() => counts.b++, listen, {providerId:"account-catalogue",accountId:"account-b"}),
+  ];
+  const publish = (account_id:string, context_key:string, version:number) => {
+    for (const handler of handlers) handler({payload:{provider:"account-catalogue",account_id,context_key,version}});
+  };
+  publish("account-a","context-a",1);
+  publish("account-b","context-b",1);
+  publish("account-a","context-a",1);
+  publish("account-a","context-a-next",1);
+  assert(counts.a === 2 && counts.b === 1 && counts.usual === 0, "independent equal revisions and new contexts are preserved");
+  assert(acceptModelCatalogueChange({provider:"account-catalogue",version:1}), "named catalogues cannot advance the usual account revision");
+  cleanups.forEach(cleanup => cleanup());
+});
+
 function test(name: string, fn: () => void | Promise<void>) {
   tests.push([name, fn]);
 }

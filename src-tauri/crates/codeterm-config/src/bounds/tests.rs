@@ -1,6 +1,39 @@
 use super::*;
 
 #[test]
+fn provider_accounts_validate_typed_and_raw_config_at_the_same_boundary() {
+    let accounts = serde_json::json!({
+        "profiles": { "work": { "name": "Work" } },
+        "order": ["work", "default"],
+        "automatic_switch": false,
+        "workspaces": { "project": "work" }
+    });
+    let value = serde_json::json!({ "agents": { "fixture-provider": { "accounts": accounts } } });
+    validate_config_value(&value).unwrap();
+    let config: AppConfig = serde_json::from_value(value.clone()).unwrap();
+    validate_app_config(&config).unwrap();
+    let restored: AppConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&restored.agents["fixture-provider"].accounts).unwrap(),
+        accounts
+    );
+    for (field, invalid) in [
+        ("order", serde_json::json!(["work", "work"])),
+        ("workspaces", serde_json::json!({ "project": "removed" })),
+        ("profiles", serde_json::json!({ "../escape": {} })),
+        ("auth_token", serde_json::json!("not-a-credential-store")),
+    ] {
+        let mut invalid_config = value.clone();
+        invalid_config["agents"]["fixture-provider"]["accounts"][field] = invalid;
+        let error = validate_config_value(&invalid_config).unwrap_err();
+        assert!(
+            error.starts_with("agents.fixture-provider.accounts:"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
 fn config_bounds_table_enforced() {
     let mut defaults = serde_json::to_value(AppConfig::default()).unwrap();
     defaults["notifications"]["channels"]["test"] = serde_json::json!({"per_scope_limit": 12});

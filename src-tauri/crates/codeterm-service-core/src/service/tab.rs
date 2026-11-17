@@ -53,6 +53,8 @@ pub(crate) fn normalize_optional_tab_description(
 pub const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
 mod ownership;
+mod remote_close;
+pub use remote_close::REMOTE_TAB_CLOSE_REFUSAL_PREFIX;
 mod rename_guard;
 mod respond_screen;
 mod scrollback;
@@ -145,6 +147,7 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
+        super::provider_accounts::prepare_tab_close(self, tab_id)?;
         self.pending_delivery_payloads
             .user_sends
             .tab(tab_id)
@@ -454,6 +457,7 @@ impl ServiceContext {
                 self.emit_tab_focus_changed(&new);
             }
         }
+        super::provider_accounts::tab_closed(self, &canonical_tab_id);
         Ok(())
     }
 

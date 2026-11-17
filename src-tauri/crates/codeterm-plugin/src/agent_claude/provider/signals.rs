@@ -30,6 +30,24 @@ pub(super) fn auth(record: &Value) -> Option<AuthStatus> {
     })
 }
 
+pub(super) fn identity(
+    record: &Value,
+) -> Option<crate::provider_account::storage::AccountIdentity> {
+    if record["loggedIn"] != true {
+        return None;
+    }
+    let email = record["email"].as_str()?;
+    if !email.contains('@') || !email.bytes().all(|byte| (33..=126).contains(&byte)) {
+        return None;
+    }
+    let identity = crate::provider_account::storage::AccountIdentity {
+        subject: email.into(),
+        label: email.into(),
+    };
+    identity.validate().ok()?;
+    Some(identity)
+}
+
 pub(super) fn session(record: &Value) -> Option<SessionObservations> {
     let permission_mode = record
         .get("permissionMode")

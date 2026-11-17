@@ -27,6 +27,7 @@ pub fn start(service: ServiceState) {
         run_blocking(&service, &reconciler, None).await;
         loop {
             match changes.recv().await {
+                Ok(change) if change.context_key.is_some() => {}
                 Ok(change) => run_blocking(&service, &reconciler, Some(change.provider)).await,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                     run_blocking(&service, &reconciler, None).await

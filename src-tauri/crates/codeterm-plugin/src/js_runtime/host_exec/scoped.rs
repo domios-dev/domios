@@ -88,13 +88,16 @@ where
     let mut pending = Unlaunched {
         job: Some(job_id.clone()),
     };
+    let account = crate::provider_account::current();
     let admitted = admit(Box::new(move |token| {
         let Some(worker) = pending.job.take() else {
             return;
         };
         spawn_json_worker(worker, move || {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || work(token)))
-                .unwrap_or_else(|_| failure.to_string())
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                crate::provider_account::with_context(account, || work(token))
+            }))
+            .unwrap_or_else(|_| failure.to_string())
         });
     }));
     admitted?;

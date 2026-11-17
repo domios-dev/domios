@@ -1,4 +1,9 @@
 [
+  "src/hooks/useAccountSelectors.test.tsx",
+  "src/hooks/useAccountTransition.test.tsx",
+  "src/components/Terminal/AccountSelectors.test.tsx",
+  "src/hooks/useProviderAccounts.test.tsx",
+  "src/components/Settings/ProviderAccountsCard.test.tsx",
   "src/hooks/terminal/rendererOutputFlow.test.ts",
   "src/components/Terminal/ChatSetupState.launchFailure.test.tsx",
   "src/components/Titlebar/KeepAwakeTray.test.tsx",

@@ -5,6 +5,7 @@ use std::{fmt, future::Future};
 pub(super) enum ReadinessFailure {
     Transport(String),
     Protocol(String),
+    Refused(String),
     EndOfStream,
     Deadline,
 }
@@ -12,7 +13,9 @@ pub(super) enum ReadinessFailure {
 impl fmt::Display for ReadinessFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Transport(reason) | Self::Protocol(reason) => formatter.write_str(reason),
+            Self::Transport(reason) | Self::Protocol(reason) | Self::Refused(reason) => {
+                formatter.write_str(reason)
+            }
             Self::EndOfStream => {
                 formatter.write_str("Server startup stream ended before readiness")
             }
@@ -40,7 +43,7 @@ async fn observe<B: StartupBody>(
     let mut response = request.await?;
     let mut events = StartupEvents::default();
     while let Some(chunk) = response.chunk().await? {
-        if events.push(&chunk).map_err(ReadinessFailure::Protocol)? {
+        if events.push(&chunk)? {
             return Ok(());
         }
     }
@@ -86,33 +89,41 @@ struct StartupEvents {
 }
 
 impl StartupEvents {
-    fn push(&mut self, chunk: &[u8]) -> Result<bool, String> {
+    fn push(&mut self, chunk: &[u8]) -> Result<bool, ReadinessFailure> {
         for byte in chunk {
             self.bytes += 1;
             if self.bytes > 64 * 1024 {
-                return Err("Server startup event exceeds capacity".into());
+                return Err(ReadinessFailure::Protocol(
+                    "Server startup event exceeds capacity".into(),
+                ));
             }
             if *byte != b'\n' {
                 self.line.push(*byte);
                 continue;
             }
             let line = std::str::from_utf8(&self.line)
-                .map_err(|error| error.to_string())?
+                .map_err(|error| ReadinessFailure::Protocol(error.to_string()))?
                 .trim_end_matches('\r');
             if line.is_empty() {
                 let ready = if self.event == "startup-state" {
-                    let snapshot: serde_json::Value =
-                        serde_json::from_str(&self.data).map_err(|error| error.to_string())?;
+                    let snapshot: serde_json::Value = serde_json::from_str(&self.data)
+                        .map_err(|error| ReadinessFailure::Protocol(error.to_string()))?;
                     match snapshot["state"].as_str() {
                         Some("ready") => true,
                         Some("starting") => snapshot["desktop_ready"].as_bool() == Some(true),
                         Some("failed") => {
-                            return Err(snapshot["error"]
-                                .as_str()
-                                .unwrap_or("Server initialization failed")
-                                .into())
+                            return Err(ReadinessFailure::Refused(
+                                snapshot["error"]
+                                    .as_str()
+                                    .unwrap_or("Server initialization failed")
+                                    .into(),
+                            ))
                         }
-                        _ => return Err("Server startup event has no valid state".into()),
+                        _ => {
+                            return Err(ReadinessFailure::Protocol(
+                                "Server startup event has no valid state".into(),
+                            ))
+                        }
                     }
                 } else {
                     false

@@ -38,7 +38,8 @@ export function setAgentDescriptors(list: ProviderDescriptor[], loading = false)
   for (const fn of subscribers) fn();
 }
 
-export function acceptModelCatalogueChange(change: { provider: string; version: number }): boolean {
+export function acceptModelCatalogueChange(change: { provider: string; version: number; account_id?: string; context_key?: string }): boolean {
+  if (change.account_id != null || change.context_key != null) return false;
   const current = catalogueVersions[change.provider] ?? 0;
   if (change.version <= current) return false;
   catalogueVersions = { ...catalogueVersions, [change.provider]: change.version };

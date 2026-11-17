@@ -10,13 +10,15 @@ export interface AgentRuntimeState {
   requiredSecrets?: string[];
   /** Declared sign-in methods that take an API key, which the host stores and injects. */
   apiKeyMethods?: string[];
+  loginBinding?: {nonce: string; epoch: number};
   auth?: "signedIn"|"signedOut"|"unknown";
   loginCodeInput?: boolean;
+  preferredLoginMethod?:{method?:string;methodId?:string;choice?:string;apiKey:boolean};
   loginChoices?: { id: string; label: string }[];
   loginMethods?: ("browser"|"device"|"apiKey")[];
   loginProviderName?: string;
   loginTerminal?: boolean;
-  login?: {status:"pending"|"completed"|"failed"|"canceled";loginId?:string;method?:string;url?:string;userCode?:string; expiresAtMs?:number|null;error?:string}|null;
+  login?: {status:"pending"|"completed"|"failed"|"canceled";loginId?:string;method?:string;url?:string;userCode?:string;instructions?:string;codeInput?:boolean; expiresAtMs?:number|null;error?:string}|null;
   state: "loading" | "loginPending" | "loaded" | "unloaded" | "degraded";
   epoch: number;
   reason?: string | null;

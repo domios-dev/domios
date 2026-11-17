@@ -940,6 +940,7 @@ where
                     dispatched_provider_resolved_model,
                     dispatched_reasoning_effort,
                     launch_profile,
+                    spawn_params.role_profile.clone(),
                     begin_owner,
                     begin_owner_is_live,
                     true,

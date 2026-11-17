@@ -1,17 +1,40 @@
-use codeterm_provider_signals::{ApiErrorKind, RuntimeErrorSignal, RuntimeRetryableErrorKind};
+use codeterm_provider_signals::{
+    ApiErrorKind, RuntimeAccountLimit, RuntimeErrorSignal, RuntimeRetryableErrorKind,
+};
 use serde_json::Value;
 
 pub(super) fn classify(record: &Value) -> Option<RuntimeErrorSignal> {
-    classify_retry(record).or_else(|| {
+    let mut signal = classify_retry(record).or_else(|| {
         (record["type"] == "assistant"
             && record["isApiErrorMessage"] == true
             && record["isSidechain"] != true)
             .then(|| RuntimeErrorSignal {
+                account_limit: None,
                 retryable: ApiErrorKind::retrying(record.get("error"), record),
                 retryable_kind: None,
                 retry_at_ms: None,
             })
-    })
+    })?;
+    let error = &record["error"];
+    let explicit_quota = record["apiErrorCode"] == "usage_limit"
+        || error["code"] == "usage_limit"
+        || error["type"] == "usage_limit";
+    if !signal.retryable
+        && signal.retryable_kind != Some(RuntimeRetryableErrorKind::OutputLimit)
+        && explicit_quota
+        && ApiErrorKind::from_error(Some(error), record) == ApiErrorKind::UsageLimit
+    {
+        let reset = record
+            .get("apiErrorResetAtMs")
+            .filter(|value| !value.is_null())
+            .or_else(|| error.get("retryAtMs"));
+        signal.account_limit = Some(RuntimeAccountLimit {
+            resets_at_ms: reset
+                .and_then(Value::as_u64)
+                .filter(|value| *value <= 9_007_199_254_740_991),
+        });
+    }
+    Some(signal)
 }
 
 fn classify_retry(record: &Value) -> Option<RuntimeErrorSignal> {
@@ -22,6 +45,7 @@ fn classify_retry(record: &Value) -> Option<RuntimeErrorSignal> {
         || (record["isApiErrorMessage"] == true && output_limit(&record["error"]))
     {
         return Some(RuntimeErrorSignal {
+            account_limit: None,
             retryable: false,
             retryable_kind: Some(RuntimeRetryableErrorKind::OutputLimit),
             retry_at_ms: None,
@@ -93,6 +117,7 @@ fn classify_retry(record: &Value) -> Option<RuntimeErrorSignal> {
         ApiErrorKind::Other if network => (RuntimeRetryableErrorKind::Transient, None),
         _ => {
             return Some(RuntimeErrorSignal {
+                account_limit: None,
                 retryable: ApiErrorKind::retrying(Some(error), record),
                 retryable_kind: None,
                 retry_at_ms: None,
@@ -100,6 +125,7 @@ fn classify_retry(record: &Value) -> Option<RuntimeErrorSignal> {
         }
     };
     Some(RuntimeErrorSignal {
+        account_limit: None,
         retryable: ApiErrorKind::retrying(Some(error), record),
         retryable_kind: Some(retryable_kind),
         retry_at_ms,

@@ -44,8 +44,8 @@ test("stale area prefixes are reported against the tracked files", () => {
   assert.deepEqual(staleAreas(areas, ["src/spawn/a.rs", "plugins/provider-claude/m.json", "src/team/x", "src/plan/y", "src/startup/z"]), ["J4: src/session.rs"]);
 });
 
-test("the shipped area map loads and declares J1-J4", () => {
-  assert.deepEqual(Object.keys(loadAreas().journeys), ["J1", "J2", "J3", "J4"]);
+test("the shipped area map loads and declares J1-J5", () => {
+  assert.deepEqual(Object.keys(loadAreas().journeys), ["J1", "J2", "J3", "J4", "J5"]);
 });
 
 test("no flags run the full suite; --journeys runs only the listed journeys and records the rest as not run", () => {

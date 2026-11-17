@@ -30,6 +30,7 @@ import { LiquidToggle } from "../shared/LiquidToggle";
 import { receivingLine, useReceiverState } from "./useReceiverState";
 import { useNeighborStatus } from "./neighborStatusStore";
 import { NeighborReceiveHere } from "./NeighborReceiveHere";
+import { grantSummary, useReceiverGrants } from "./neighborReceiverGrants";
 import { agentModelForBadge } from "../../lib/agentLabel";
 import { matchesModel } from "../Terminal/statusLinePickerModel";
 
@@ -60,6 +61,10 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   const { permission } = useNeighborPermission(runtimeClient, conciergeClient, friendship);
   const receiver = useReceiverState(runtimeClient, enabled, friendship);
   const runtimeStatus = useNeighborStatus(runtimeClient, enabled);
+  const receiverGrants = useReceiverGrants(runtimeClient, friendship, receiver?.revision ?? -1, enabled && receiver !== null);
+  const grantPreview = receiverGrants?.preview;
+  const effectiveGrant = receiver?.receiving_here ? permission
+    : grantPreview && receiver && grantPreview.revision === receiver.revision ? grantPreview.previous : null;
   const concierge = useConciergeStatus(runtimeClient, enabled)[friendship] ?? null;
   const workspaces = useMuxSelector(state => state.workspaces);
   const tabs = useMuxSelector(state => state.tabs);
@@ -143,7 +148,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           {friend.email && <p className="neighbor-note">{friend.email}</p>}
           {!needsRecovery && <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />
             <span>{status}<span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></span></p>}
-          {receiver && <p className="neighbor-note">{receivingLine(receiver)}</p>}
+          {receiver && <p className="neighbor-note">{receivingLine(receiver)} · Effective access on {receiver.receiver_machine_label ?? (receiver.receiving_here ? runtimeStatus?.machine_label ?? "this machine" : "receiver")}: {effectiveGrant ? grantSummary(effectiveGrant) : "unavailable"}</p>}
           {paused && <p className="neighbor-note">{pausedLine(name)}</p>}
           {friend.their_paused && <p className="neighbor-note">{theyPausedLine(name)}</p>}
           <FriendStats friend={friend} quota={quota} page={recent} />
@@ -173,8 +178,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           headerRight={!needsRecovery && concierge?.state !== "ready" && <SettingsPill tone={state.tone}>{state.label}</SettingsPill>}>
           {concierge?.concierge_dormant && <p className="neighbor-note">Starts fresh when you receive this friend's messages here.</p>}
           {enabled && !locked && receiver && !receiver.receiving_here && <NeighborReceiveHere key={`${friendship}:set`}
-            receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
-            onReceive={revision => runtimeClient.receiveFriend(friendship, revision)} />}
+            friendship={friendship} client={runtimeClient} receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
+            onReceive={(revision, decision) => runtimeClient.receiveFriend(friendship, revision, "set", decision)} />}
           <div className="neighbor-friend__row pl-[calc(2rem+var(--neighbor-space-2))]">
             <span className="min-w-0">
               <span className="neighbor-friend__label">{gateway ? `${provider?.display_name ?? gateway.agent_type ?? "Agent"}${modelName ? ` · ${modelName}` : ""}` : "No concierge on this machine"}</span>
@@ -185,13 +190,13 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
             </span>}
           </div>
           {enabled && !locked && receiver?.receiving_here && <NeighborReceiveHere key={`${friendship}:reset`}
-            receiver={receiver} friendName={name} operation="reset" targetMachine={runtimeStatus?.machine_label}
+            friendship={friendship} client={runtimeClient} receiver={receiver} friendName={name} operation="reset" targetMachine={runtimeStatus?.machine_label}
             onReceive={revision => runtimeClient.receiveFriend(friendship, revision, "reset")} />}
         </FriendSection>
         </div>
 
         <div ref={permissions}>
-          <FriendSection icon={<ShieldCheck size={16} />} title="Permissions" description={`What ${name}'s agents may ask yours for, and how often.`}>
+          <FriendSection icon={<ShieldCheck size={16} />} title="Permissions" description={`Permissions stored on ${runtimeStatus?.machine_label ?? "this machine"} for ${name}, and how often they may ask.`}>
             <NeighborPermissionsEditor neighbor={friend} name={name} permission={permission} pending={pending}
               onSave={(permission: NeighborPermissionDraft) => conciergeClient.setPermission(friendship, permission)}
               onSaveDailyLimit={dailyLimit => conciergeClient.setDailyLimit(friendship, dailyLimit)}
@@ -226,8 +231,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
     {changing && <ChangeConciergeDialog friendship={friendship} name={name} currentProvider={gateway?.agent_type ?? null}
       machineAccess={permission?.machine_access ?? null} client={conciergeClient}
       receiveControl={enabled && !locked && receiver && !receiver.receiving_here && <NeighborReceiveHere
-        receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
-        onReceive={revision => runtimeClient.receiveFriend(friendship, revision)} />}
+        friendship={friendship} client={runtimeClient} receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
+        onReceive={(revision, decision) => runtimeClient.receiveFriend(friendship, revision, "set", decision)} />}
       onClose={() => setChanging(false)} />}
   </div>;
 }

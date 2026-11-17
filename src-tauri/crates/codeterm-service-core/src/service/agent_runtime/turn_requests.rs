@@ -402,6 +402,7 @@ pub(super) async fn run(
         }
         runtime.turn_requests.lock().remove(&send);
         runtime.control_changes.send_replace(());
+        crate::service::provider_accounts::runtime_boundary(&owner, &runtime);
         owner.wake_user_owner_on_state_change(&pending.context.tab_id);
     });
     loop {

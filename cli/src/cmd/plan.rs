@@ -123,6 +123,8 @@ pub(crate) fn call_plan_rpc_detailed(
                 | "plan.task.attempts"
                 | "plan.task.attempt.show"
                 | "plan.task.adopt_checkpoint"
+                | "plan.task.remote_ack"
+                | "plan.task.remote_report"
         )
     {
         inject_trusted_session(&mut params);

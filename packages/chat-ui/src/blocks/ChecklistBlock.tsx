@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Circle, CircleCheck, CircleDashed, ListChecks } from "lucide-react";
 import { ChatBlockFrame, TONE_COLOR } from "./ChatBlockFrame";
-import { useChatBlockHost, type ChecklistBlockHost } from "./ChatBlockHost";
+import { useChatBlockHost, observeBlockInteraction, type ChecklistBlockHost } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 import { BlockNotice } from "./BlockNotice";
 import {
@@ -50,6 +50,7 @@ function ChecklistCard({ checklist, host, source, renderBlock }: { checklist: Ch
 }
 
 function ChecklistRow({ item, onOpen, renderBlock }: { item: ChecklistItemInfo; onOpen: () => void; renderBlock: RenderBlock }) {
+  const blockHost = useChatBlockHost();
   const [showBlock, setShowBlock] = useState(false);
   const Glyph = item.done === true ? CircleCheck : item.done === null ? CircleDashed : Circle;
   const stateText = item.done === true ? "Done" : item.done === null ? "Checking" : "To do";
@@ -75,7 +76,10 @@ function ChecklistRow({ item, onOpen, renderBlock }: { item: ChecklistItemInfo; 
             type="button"
             data-checklist-action={item.id}
             aria-expanded={action.kind === "block" ? showBlock : undefined}
-            onClick={() => (action.kind === "block" ? setShowBlock((open) => !open) : onOpen())}
+            onClick={() => {
+              if (action.kind === "block") { setShowBlock(!showBlock); if (!showBlock) observeBlockInteraction(blockHost, "checklist", "open"); }
+              else { onOpen(); observeBlockInteraction(blockHost, "checklist", "open"); }
+            }}
             className="ct-bar-pill shrink-0"
             style={{ height: 24 }}
           >

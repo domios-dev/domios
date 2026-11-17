@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -26,11 +24,17 @@ pub fn models_dir() -> PathBuf {
 }
 
 pub(super) fn override_path(provider_id: &str) -> PathBuf {
-    models_dir().join(format!("{}.toml", provider_id))
+    models_dir().join(format!(
+        "{}.toml",
+        crate::provider_account::cache_key(provider_id)
+    ))
 }
 
 pub(super) fn cache_path(provider_id: &str) -> PathBuf {
-    models_dir().join(format!("{}.cache.json", provider_id))
+    models_dir().join(format!(
+        "{}.cache.json",
+        crate::provider_account::cache_key(provider_id)
+    ))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,9 +125,11 @@ struct ProviderOverrideOwned {
     efforts: Vec<ReasoningEffortInfo>,
 }
 
-pub(super) fn override_cache() -> &'static RwLock<HashMap<String, CachedOverride>> {
-    static CACHE: OnceLock<RwLock<HashMap<String, CachedOverride>>> = OnceLock::new();
-    CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+pub(super) fn override_cache(
+) -> &'static crate::provider_account::cache::ScopedCache<HashMap<String, CachedOverride>> {
+    static CACHE: crate::provider_account::cache::ScopedCache<HashMap<String, CachedOverride>> =
+        crate::provider_account::cache::ScopedCache::new();
+    &CACHE
 }
 
 pub(super) fn load_override(provider_id: &str) -> Option<ProviderOverride> {

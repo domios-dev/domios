@@ -60,11 +60,11 @@ pub(super) async fn handle_stamped(
     let sequences = frames.iter().map(|frame| frame.sequence).collect();
     let frames = frames.into_iter().map(|frame| frame.frame).collect();
     let result = handle(svc, session, process, epoch, frames, sequences, lagged).await;
-    let context = session.context.lock();
-    if context.epoch == epoch {
+    if session.context.lock().epoch == epoch {
         let previous = *session.stream_progress.borrow();
         session.stream_progress.send_replace(previous.max(through));
     }
+    crate::service::provider_accounts::runtime_boundary(svc, session);
     result
 }
 
@@ -180,9 +180,13 @@ pub(super) async fn handle(
     if let Some(trace) = trace {
         trace.batch(&reducible, &state);
     }
-    let result = tokio::time::timeout(
-        RUNTIME_HOOK_DEADLINE,
-        adapter.runtime_reduce(&context, &state, &reducible),
+    let invocation = session.invocation.lock().clone();
+    let result = codeterm_plugin::provider_account::scope(
+        invocation,
+        tokio::time::timeout(
+            RUNTIME_HOOK_DEADLINE,
+            adapter.runtime_reduce(&context, &state, &reducible),
+        ),
     )
     .await;
     if let Some(trace) = trace {

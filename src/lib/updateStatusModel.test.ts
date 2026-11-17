@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { classifyUpdateFailure, classifyUpdateStatus, unavailableSourceKeys, updateCheckDetails, updateIndicator, updateRestartDescription } from "./updateStatusModel";
+import { blockingUpdateTabs, classifyUpdateFailure, classifyUpdateStatus, unavailableSourceKeys, updateCheckDetails, updateIndicator, updateRestartDescription } from "./updateStatusModel";
 import type { UpdateRow } from "./updatePanelModel";
 import type { UpdateAvailabilitySnapshot } from "./updateAvailability";
 
@@ -85,3 +85,10 @@ assert.equal(updateIndicator([lastKnownRow], { ...idle, failed: true }).state, "
 assert.deepEqual(unavailableSourceKeys({ app: "HTTP 504", community: "offline", "codeterm-core": unavailable }), ["app", "community"]);
 assert.deepEqual(unavailableSourceKeys({}), []);
 console.log("restart line, quiet source outage indicator and failed source keys: passed");
+
+const blocker = { tab_id: "shell-1", title: "Build", workspace: "Project", command: "node long-task.js" };
+const refusal = `Update blocked by busy tabs: Build in Project: node long-task.js\n[update-blocking-tabs]${JSON.stringify([blocker, blocker])}`;
+assert.deepEqual(blockingUpdateTabs(refusal), [blocker]);
+assert.equal(classifyUpdateFailure(refusal).message, "Update blocked by busy tabs: Build in Project: node long-task.js");
+assert.deepEqual(blockingUpdateTabs("[update-blocking-tabs]broken"), []);
+assert.deepEqual(blockingUpdateTabs('[update-blocking-tabs][{"tab_id":42}]'), []);

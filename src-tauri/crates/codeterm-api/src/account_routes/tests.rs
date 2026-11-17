@@ -702,6 +702,10 @@ async fn receiver_refusals_retain_machine_readable_codes() {
     for code in [
         "receiver_elsewhere",
         "receiver_revision_stale",
+        "receiver_grant_confirmation_required",
+        "receiver_grant_stale",
+        "receiver_grant_invalid",
+        "receiver_move_unconfirmed",
         "not_receiver",
         "recipient_not_receiving",
         "installation_unverified",

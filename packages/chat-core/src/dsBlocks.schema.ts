@@ -6,7 +6,6 @@ export interface DsTaskItem { id: string; key: string; status: DsTaskStatus; nam
 export interface DsTaskSnapshot { title: string; items: DsTaskItem[] }
 export type DsBlock =
   | { kind: "html"; html: string }
-  | { kind: "canvas"; body: string }
   | { kind: "canvas"; src: string; view?: string }
   | { kind: "page" | "document"; src: string }
   | { kind: "image"; sources: string[] }
@@ -78,8 +77,8 @@ export function validateDsBlock(opening: DsOpening, body?: string): DsBlock | nu
   if (Object.keys(a).some((key) => !ALLOWED[kind].includes(key))) return null;
   if (kind === "html") return !selfClosing && body !== undefined && new TextEncoder().encode(body).length <= 200_000 ? { kind, html: body } : null;
   if (kind === "canvas") {
-    if (!selfClosing) return body !== undefined && Object.keys(a).length === 0 ? { kind, body } : null;
     if (body !== undefined || !a.src || !isDsAbsolutePath(a.src)) return null;
+    if (!selfClosing) return null;
     if (a.view === undefined) return { kind, src: a.src };
     return a.view && new TextEncoder().encode(a.view).length <= 80 ? { kind, src: a.src, view: a.view } : null;
   }
@@ -135,7 +134,6 @@ export function serializeDsBlock(block: DsBlock): string {
   switch (block.kind) {
     case "html": return `<ds-html>${block.html}</ds-html>`;
     case "canvas":
-      if ("body" in block) return `<ds-canvas>${block.body}</ds-canvas>`;
       attributes.src = block.src;
       if (block.view !== undefined) attributes.view = block.view;
       break;

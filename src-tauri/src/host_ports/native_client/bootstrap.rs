@@ -251,22 +251,13 @@ impl HelperFailure {
 #[derive(Debug)]
 pub(crate) struct ClientStartupFailure {
     message: String,
-    stated_refusal: bool,
     retryable: bool,
 }
 
 impl ClientStartupFailure {
-    /// A server that refused its launch with a stated reason repeats it on every unchanged retry.
     pub(in crate::host_ports) fn launch(error: &HelperFailure) -> Self {
         Self {
             message: error.to_string(),
-            stated_refusal: matches!(
-                error,
-                HelperFailure::Exit {
-                    detail: Some(_),
-                    ..
-                }
-            ),
             retryable: matches!(
                 error,
                 HelperFailure::Exit {
@@ -280,10 +271,6 @@ impl ClientStartupFailure {
 
     pub(crate) fn message(&self) -> &str {
         &self.message
-    }
-
-    pub(crate) fn stated_refusal(&self) -> bool {
-        self.stated_refusal
     }
 
     pub(crate) fn retryable(&self) -> bool {
@@ -300,7 +287,6 @@ impl ClientStartupFailure {
         );
         Self {
             message: error.to_string(),
-            stated_refusal: false,
             retryable,
         }
     }
@@ -308,7 +294,6 @@ impl ClientStartupFailure {
     fn attach(error: &HelperFailure) -> Self {
         Self {
             message: error.to_string(),
-            stated_refusal: false,
             retryable: error.allows_initial_server_launch()
                 || matches!(error, HelperFailure::Deadline { .. }),
         }
@@ -319,7 +304,6 @@ impl From<String> for ClientStartupFailure {
     fn from(message: String) -> Self {
         Self {
             message,
-            stated_refusal: false,
             retryable: false,
         }
     }

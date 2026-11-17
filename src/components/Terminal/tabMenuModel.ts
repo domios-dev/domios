@@ -6,6 +6,8 @@ import { pluginTabMenuEntries, type PluginTabMenuEntry, type PluginTabMenuState 
 import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
 import { isPlanner } from "../../lib/roleKind";
 import type { ProviderDescriptor, Tab, TabStatus } from "../../lib/types";
+import type { useTabAccounts } from "../../hooks/useAccountSelectors";
+import { accountChoiceDescription, accountChoiceName, accountChoices } from "../shared/accountChoices";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { orchestratorRecoveryMenuView, type OrchestratorRecoveryMenuView } from "../Sidebar/orchestratorRecoveryMenu";
 import { tabModelEntryLabel, tabModelMenuView, type TabModelMenuView } from "../Sidebar/tabModelMenu";
@@ -57,6 +59,7 @@ function modelHint(providerName: string): string {
 }
 
 export type TabMenuAction =
+  | { type: "switchAccount"; accountId: string }
   | { type: "rename" }
   | { type: "makeOrchestrator" }
   | { type: "makePlanner"; planId: string }
@@ -140,12 +143,44 @@ export interface TabMenuSubmenuEntry extends TabMenuEntryBase {
   label: string;
   icon: TabMenuIcon;
   description?: string;
+  showDescription?: boolean;
   disabled?: boolean;
   title?: string;
   entries: TabMenuLeafEntry[];
 }
 
 export type TabMenuEntry = TabMenuHeaderEntry | TabMenuLeafEntry | TabMenuSubmenuEntry;
+
+export function tabAccountSubmenu(view: Pick<ReturnType<typeof useTabAccounts>, "snapshot" | "currentAccountId" | "switching" | "blockedReason" | "canVerify" | "turnActive">,
+  providerName: string): TabMenuSubmenuEntry | null {
+  const { snapshot, currentAccountId, switching, blockedReason, canVerify, turnActive } = view;
+  const accounts = snapshot ? accountChoices(snapshot) : [];
+  if (!snapshot || accounts.length < 2) return null;
+  const canContinue = snapshot.continuation === "proven";
+  const ownerTrial = snapshot.continuation === "unverified" && canVerify === true;
+  return { kind: "submenu", id: "account", label: "Account", icon: null,
+    description: ownerTrial ? "Choosing an account tries this conversation there. Its history stays the same." : undefined,
+    showDescription: ownerTrial,
+    entries: accounts.map((account): TabMenuItemEntry => {
+    const current = account.id === currentAccountId;
+    if (snapshot.continuation === "unverified") {
+      const canTry = ownerTrial && turnActive === false && !current && account.status === "ready" && !switching;
+      const reason = switching ? "Switching account" : !ownerTrial ? blockedReason ?? "Account switching is unavailable."
+        : current || turnActive !== false ? "Wait for this turn to finish"
+          : account.status === "signedOut" ? "Sign in first"
+            : accountChoiceDescription(account) ?? "This account isn't ready.";
+      return { kind: "item", id: `account-${account.id}`, label: accountChoiceName(account, providerName), icon: null,
+        selected: current, disabled: switching, unavailable: !canTry, hint: canTry ? accountChoiceDescription(account) : reason,
+        action: canTry ? { type: "switchAccount", accountId: account.id } : null };
+    }
+    const blocked = !canContinue || Boolean(blockedReason) || account.status === "signedOut";
+    return { kind: "item", id: `account-${account.id}`, label: accountChoiceName(account, providerName), icon: null,
+      selected: current, disabled: switching || current, unavailable: !current && blocked,
+      hint: !current && blocked ? blockedReason ?? (account.status === "signedOut" ? "Sign in to this account first." : "Account switching is unavailable.") : accountChoiceDescription(account),
+      action: current || switching || blocked ? null : { type: "switchAccount", accountId: account.id },
+    };
+  }) };
+}
 
 export interface TabMenuContext {
   lock?: LockedView;

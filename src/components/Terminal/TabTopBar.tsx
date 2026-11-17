@@ -336,7 +336,9 @@ export function TabTopBar({
         )}
         {usageSource?.kind === "meter" && (
           <UsageBubble
+            key={`${tabId}:${usageSource.provider}:${shellTab?.restorable_launch?.account_id ?? "default"}`}
             provider={usageSource.provider}
+            accountId={usageSource.borrowedAccount || shellTab?.restorable_launch?.account_id === "default" ? null : shellTab?.restorable_launch?.account_id}
             providerLabel={usageLabel}
             tabId={tabId}
             threadId={shellTab?.agent_session_id}
@@ -357,6 +359,7 @@ export function TabTopBar({
       </div>
         {entries.length > 0 && (
           <TabActionsMenu
+            tab={menuTab ?? undefined}
             entries={entries}
             busy={reconnecting || restarting}
             onAction={runMenuAction}

@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Lock, Minus, Plus, SlidersHorizontal } from "lucide-react";
 import { BlockNotice } from "./BlockNotice";
 import { BLOCK_INPUT, BlockButton, ChatBlockFrame, FOCUS_RING } from "./ChatBlockFrame";
-import { useChatBlockHost, type SettingBlockHost } from "./ChatBlockHost";
+import { useChatBlockHost, observeBlockInteraction, type SettingBlockHost } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 import {
   SETTING_REFUSAL_TEXT,
@@ -40,6 +40,7 @@ export function SettingBlock({ settingKey, source }: { settingKey: string; sourc
 type WriteState = { pending: boolean; error: string | null };
 
 function SettingCard({ setting, host, source }: { setting: SettingInfo; host: SettingBlockHost; source: string }) {
+  const blockHost = useChatBlockHost();
   const [write, setWrite] = useState<WriteState>({ pending: false, error: null });
   const inFlight = useRef(false);
   const commit = async (value: SettingValue) => {
@@ -48,6 +49,7 @@ function SettingCard({ setting, host, source }: { setting: SettingInfo; host: Se
     setWrite({ pending: true, error: null });
     try {
       await host.write(setting.key, value);
+      observeBlockInteraction(blockHost, "setting", "submit");
       setWrite({ pending: false, error: null });
     } catch (error) {
       setWrite({ pending: false, error: `Could not save ${setting.label}: ${error instanceof Error ? error.message : String(error)}` });

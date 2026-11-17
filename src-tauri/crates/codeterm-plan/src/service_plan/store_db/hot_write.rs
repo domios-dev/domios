@@ -90,6 +90,7 @@ pub(in crate::service_plan) enum HotChange {
 
 #[derive(Default)]
 pub(in crate::service_plan) struct CommittedRows {
+    pub element_action: Option<(&'static str, &'static str)>,
     pub plan_id: String,
     pub revision: i64,
     pub previous_revision: i64,

@@ -13,6 +13,7 @@ pub mod machine;
 pub mod pipeline_journal;
 pub mod portable;
 pub mod probe;
+pub mod product_observer;
 pub mod progress;
 pub mod provenance;
 pub mod public_definition;

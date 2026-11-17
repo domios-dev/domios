@@ -183,7 +183,7 @@ impl TeamRoleStore {
     }
 
     /// The roles the Team has: its registrations, or the default package as a whole when it
-    /// has none (host policy, never a per-role fallback).
+    /// has none (host default).
     pub fn effective(&self, team_id: Option<&str>) -> Vec<RoleRegistration> {
         let stored = team_id
             .filter(|team_id| valid_team_id(team_id).is_ok())
@@ -197,12 +197,12 @@ impl TeamRoleStore {
     }
 
     /// Resolves `--role` against the Team: the registration's kind gives the structural role.
-    /// Only the host-owned watcher resolves without one.
+    /// Builtin Workers and the host-owned watcher remain available without a registration.
     pub fn role_type(&self, team_id: Option<&str>, value: &str) -> Result<RoleType, RoleTypeError> {
         resolve_role(&self.effective(team_id), value)
     }
 
-    /// The worker `plan task dispatch` launches: `--role` must name a registered worker, and
+    /// The worker `plan task dispatch` launches: a registered or builtin Worker, and
     /// without it the Team's `worker`, only when the Team lists one.
     pub fn worker_type(
         &self,
@@ -220,7 +220,7 @@ fn names_of(team: &[RoleRegistration], kind: Option<RoleKind>) -> Vec<String> {
         .collect()
 }
 
-/// A role name resolved against exactly the Team's roles.
+/// A registered role or builtin Worker.
 pub fn resolve_role(team: &[RoleRegistration], value: &str) -> Result<RoleType, RoleTypeError> {
     let name = RoleName::parse(value)?;
     if let Some(host_owned) = name.host_owned() {
@@ -229,6 +229,7 @@ pub fn resolve_role(team: &[RoleRegistration], value: &str) -> Result<RoleType, 
     team.iter()
         .find(|registration| registration.name == name.as_str())
         .map(|registration| RoleType::new(AgentRole::from(registration.kind), &registration.name))
+        .or_else(|| builtin_worker(name.as_str()))
         .ok_or_else(|| RoleTypeError::NotRegistered {
             name: name.to_string(),
             roles: names_of(team, None),
@@ -264,11 +265,19 @@ pub fn resolve_worker(
             name: name.to_string(),
             workers,
         }),
+        None if builtin_worker(name.as_str()).is_some() => {
+            Ok(RoleType::new(AgentRole::Worker, name.as_str()))
+        }
         None => Err(RoleTypeError::NotRegistered {
             name: name.to_string(),
             roles: workers,
         }),
     }
+}
+
+fn builtin_worker(name: &str) -> Option<RoleType> {
+    (name == builtins::WORKER || builtins::is_taskless_worker_kind(name))
+        .then(|| RoleType::new(AgentRole::Worker, name))
 }
 
 /// The registrations stored for a Team; empty means the Team is the default package as a whole,

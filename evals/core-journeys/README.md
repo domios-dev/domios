@@ -22,8 +22,10 @@ CODETERM_DEV_INSTANCE=curated CODETERM_DEV_API_PORT=7697 \
 CODETERM_DEV_VITE_PORT=14997 CODETERM_DEV_CDP_PORT=9397 ./build.sh dev --wait --wait-build
 ```
 
-`run.sh` fails before any journey or restart if `/api/health` has no valid
+For J1–J4, `run.sh` fails before any journey or restart if `/api/health` has no valid
 `instance.cdp_port`. A window without native CDP cannot run these UI journeys.
+J5-only runs use the API on both platforms and require a separate curated Browser
+idle check; they do not require native CDP or claim a native screenshot.
 It refuses an unset
 `CODETERM_INSTANCE` and ports 7685 and 7686 before it contacts anything.
 
@@ -139,6 +141,11 @@ fails. Claude, Codex and OpenCode remain required unless excluded explicitly
 makes every agent tab on the instance part of the restart oracle, `--keep`
 skips cleanup.
 
+J5 requires two qualified QA peers and `--neighbors-config FILE`; follow
+[J5 Neighbors](NEIGHBORS.md) for the private config, Windows fail-first run,
+three access levels and the mandatory macOS and Browser evidence. J5-only runs
+use the stored concierge model and need no complete-provider model mapping.
+
 ## Journey selection
 
 `areas.json` is the journey → source-area map, owned by this bench. Each
@@ -159,7 +166,7 @@ run-everything fallback. Unselected journeys are `not_run` with reason
 rename cannot silently stop selection. An empty selection is the not-run record
 itself; `run.sh` refuses to start with nothing to run.
 
-`run.sh` selection flags (default: the full suite J1–J4):
+`run.sh` selection flags (default: the full suite J1–J5):
 
 - `--selection FILE` runs what the selector chose. The output is copied into
   `results.json`, and the contract recomputes it from its own `changed_paths`.
@@ -222,6 +229,7 @@ malformed. Exit 3: evidence complete but a check failed. It requires:
 | J2 | `POST /api/orchestration/new` with exactly the dialog's body and no caller claim creates a Team whose Orchestrator and Planner reach ready. Then, in the DEV window, with a Manager tab and then a chat_backend Worker tab selected through its visible sidebar control and proven by its mounted pane, the Start-a-session dialog in Team mode (PTY provider, then runtime provider) closes without an alert and a new two-member Team reaches ready. |
 | J3 | A deterministic control provider, launched through the normal provider lifecycle, creates a Plan and a read-only task using its own scoped launch credential and dispatches to the selected real runtime provider. The Worker's backing is `chat_backend`; the attempt is acknowledged; the task reaches `in_review` with a report; `review bounce` is delivered and answered with a newer report. After restart the control provider resumes, reacquires its scoped launch environment, rebinds the Plan, bounces again and accepts a newer report. |
 | J4 | The listener PID and kernel start time changed. Every agent tab recorded before the restart reaches ready with the same session, backing and `task_binding.attempt_id`; the restored Worker's attempt id is the task's current attempt; J1 tabs and the J2 Manager answer a new exact marker on their restored session. |
+| J5 | On two isolated QA peers, each of `read_only`, `folder` and `full` gets a fresh question answered by B's host-created concierge through the trusted linked reply path. A receives that answer, both receipts are delivered, B's same session becomes idle, and the curated Browser leg verifies the friend page returns to idle. [Procedure and platform evidence](NEIGHBORS.md). |
 
 A run-specific control provider owns J3's review verdicts so model-driven
 Orchestrator decisions cannot race the bench. Its ordinary launch/resume path

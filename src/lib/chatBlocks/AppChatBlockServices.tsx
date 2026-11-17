@@ -32,6 +32,7 @@ import { createScopedPlanBlockRead } from "./scopedPlanBlockRead";
 import { watchPlanBlockChanges } from "./watchPlanBlockChanges";
 import { readTasksBlockPlan } from "./readTasksBlockPlan";
 import { createValueFeed } from "./valueFeed";
+import { recordProductEvent } from "../productAnalytics";
 
 const JOB_EVENTS = ["cron-run-finished", "cron-fired", AUTOMATION_GRAPH_EVENT];
 
@@ -110,6 +111,7 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
       },
     });
     return {
+      interacted: (kind, action) => { void recordProductEvent({ event_type: "ds_block_interacted", event_properties: { kind, action } }); },
       mentions: createMentionHost({
         mux, plans: plainPlans, taskReferences:references,
         readGraph: async (scope, signal) => {

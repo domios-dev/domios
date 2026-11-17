@@ -14,7 +14,7 @@ export function fixtureResults() {
   const results = emptyResults(new Date("2026-01-01T00:00:00Z"));
   const target = { instance: "fixture", port: 7697, build_sha: "0123456789abcdef" };
   results.phases = ["setup", "verify", "cleanup"].map((name) => ({ name, ...target, started_at: "2026-01-01T00:00:00.000Z", wall_ms: 5000 }));
-  results.selection = resolveSelection(loadAreas(), emptyFlags());
+  results.selection = resolveSelection(loadAreas(), { ...emptyFlags(), journeys: "J1,J2,J3,J4" });
   results.checks = [
     check("SETUP", "workspace_provisioned", "run1"),
     check("J1", "spawn_ready", "claude"),
