@@ -17,3 +17,10 @@ export function aggregateTabStatuses(
   }
   return worst;
 }
+
+export function countWorkingTabs(
+  tabs: readonly Tab[],
+  statuses: Record<string, TabStatus | null | undefined>,
+): number {
+  return tabs.filter((tab) => tabActivity(tab, statuses[tab.id]).active).length;
+}
