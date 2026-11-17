@@ -337,7 +337,7 @@ pub(super) fn supervise(app: codeterm_client_shell::app_runtime::AppHandle, view
                 if let Some(window) = handle.get_webview_window("starting")
                     .or_else(|| handle.get_webview_window("main"))
                 {
-                    show_start_failure(&window, "The initial Domios window did not finish loading. Retry to create a new window.");
+                    show_start_failure(&window, FailureCode::InitialDocumentFailed, "The initial Domios window did not finish loading. Retry to create a new window.");
                 }
             }
             Ok(())

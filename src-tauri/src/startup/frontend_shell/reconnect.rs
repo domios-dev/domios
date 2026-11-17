@@ -1,10 +1,11 @@
 use super::*;
-use std::future::Future;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 
 pub(super) struct RecoveryOwner {
     current: watch::Sender<Option<Arc<()>>>,
     completion: parking_lot::Mutex<Option<watch::Receiver<bool>>>,
+    incident: parking_lot::Mutex<Incident>,
+    root: watch::Sender<RootOutcome>,
 }
 
 impl Default for RecoveryOwner {
@@ -12,6 +13,8 @@ impl Default for RecoveryOwner {
         Self {
             current: watch::channel(None).0,
             completion: parking_lot::Mutex::new(None),
+            incident: Default::default(),
+            root: watch::channel(RootOutcome::Pending).0,
         }
     }
 }
@@ -82,99 +85,225 @@ impl Lease {
     }
 }
 
-#[derive(Debug)]
-enum Availability {
-    ServerReady,
-    ExactProcessExited,
+const MAX_AUTOMATIC_ATTEMPTS: u8 = 2;
+
+#[derive(Default)]
+struct Incident {
+    running: bool,
+    exhausted: bool,
+    attempt: u8,
+    after_navigation: u64,
 }
 
-enum AttemptFailure {
-    Transient(String),
-    Manual(String),
+#[derive(Clone)]
+enum RootOutcome {
+    Pending,
+    Ready,
+    Failed(FrontendFailure),
 }
 
-enum Outcome<T> {
-    Ready(T),
-    Failed(String),
-    Cancelled,
+#[derive(Debug, PartialEq, Eq)]
+enum Decision {
+    Recover,
+    Join,
+    ShowFailure,
 }
 
-async fn recover<T, F, A>(
-    events: &mut mpsc::Receiver<Availability>,
-    cancelled: impl Future<Output = ()>,
-    mut attempt: A,
-) -> Outcome<T>
-where
-    F: Future<Output = Result<T, AttemptFailure>>,
-    A: FnMut() -> F,
-{
-    tokio::pin!(cancelled);
+impl Incident {
+    fn failure(&mut self, code: FailureCode) -> Decision {
+        if self.running {
+            Decision::Join
+        } else if self.exhausted || !code.recoverable() {
+            Decision::ShowFailure
+        } else {
+            self.running = true;
+            Decision::Recover
+        }
+    }
+
+    fn accepts_root(&self, navigation: u64) -> bool {
+        self.running && navigation > self.after_navigation
+    }
+
+    fn next_attempt(&mut self, retryable: bool) -> Option<u8> {
+        if !retryable || self.attempt >= MAX_AUTOMATIC_ATTEMPTS {
+            self.running = false;
+            self.exhausted = true;
+            return None;
+        }
+        self.attempt += 1;
+        Some(self.attempt)
+    }
+}
+
+pub(super) fn recover_before_failure(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+    code: FailureCode,
+    reason: &str,
+) -> bool {
+    if crate::crash::exit::is_client_exit_pending() {
+        return true;
+    }
+    let Some(supervisor) = app.try_state::<ShellSupervisor>() else {
+        return false;
+    };
+    let owner = &supervisor.reconnect;
+    let mut incident = owner.incident.lock();
+    match incident.failure(code) {
+        Decision::ShowFailure => false,
+        Decision::Join => {
+            owner
+                .root
+                .send_replace(RootOutcome::Failed(FrontendFailure::new(code, reason)));
+            true
+        }
+        Decision::Recover => {
+            let lease = owner.begin();
+            drop(incident);
+            let app = app.clone();
+            let failure = FrontendFailure::new(code, reason);
+            tauri::async_runtime::spawn(run(app, lease, failure));
+            true
+        }
+    }
+}
+
+async fn root_outcome(events: &mut watch::Receiver<RootOutcome>) -> Result<(), FrontendFailure> {
     loop {
+        match events.borrow_and_update().clone() {
+            RootOutcome::Ready => return Ok(()),
+            RootOutcome::Failed(failure) => return Err(failure),
+            RootOutcome::Pending => {}
+        }
+        events.changed().await.map_err(|_| {
+            FrontendFailure::new(
+                FailureCode::ReconnectFailed,
+                "Root acknowledgement channel closed",
+            )
+        })?;
+    }
+}
+
+async fn run(
+    app: codeterm_client_shell::app_runtime::AppHandle,
+    lease: Lease,
+    mut failure: FrontendFailure,
+) {
+    let mut events = app.state::<ShellSupervisor>().reconnect.root.subscribe();
+    loop {
+        if !lease.current() || crate::crash::exit::is_client_exit_pending() {
+            return;
+        }
+        let attempt = {
+            let supervisor = app.state::<ShellSupervisor>();
+            let mut incident = supervisor.reconnect.incident.lock();
+            incident.after_navigation = supervisor.navigation.load(Ordering::Acquire);
+            incident.next_attempt(failure.code.recoverable())
+        };
+        let Some(attempt) = attempt else {
+            break;
+        };
+        app.state::<ShellSupervisor>()
+            .reconnect
+            .root
+            .send_replace(RootOutcome::Pending);
+        failure
+            .code
+            .record_attempt(attempt, "started", &failure.reason);
+        let operation = async {
+            run_on_main_thread(app.clone(), |handle| surfaces::show_reconnecting(&handle))
+                .await
+                .map_err(|reason| {
+                    FailureCode::RecoveryNavigationFailed.record(&reason);
+                    FrontendFailure::new(FailureCode::RecoveryNavigationFailed, reason)
+                })?;
+            recovery::retry_once(app.clone(), attempt == MAX_AUTOMATIC_ATTEMPTS)
+                .await
+                .map_err(|error| {
+                    error.code.record(&error.reason);
+                    error
+                })?;
+            root_outcome(&mut events).await
+        };
         let result = tokio::select! {
             biased;
-            _ = &mut cancelled => return Outcome::Cancelled,
-            result = attempt() => result,
+            _ = lease.cancelled(crate::crash::exit::subscribe_client_exit()) => {
+                failure.code.record_attempt(attempt, "cancelled", "Recovery owner retired");
+                return;
+            },
+            result = tokio::time::timeout(Duration::from_secs(60), operation) => {
+                result.unwrap_or_else(|_| {
+                    let reason = "Automatic recovery exceeded its failure deadline";
+                    FailureCode::AutomaticRecoveryDeadline.record(reason);
+                    Err(FrontendFailure::new(FailureCode::AutomaticRecoveryDeadline, reason))
+                })
+            },
         };
-        let last_failure = match result {
-            Ok(ready) => return Outcome::Ready(ready),
-            Err(AttemptFailure::Manual(reason)) => return Outcome::Failed(reason),
-            Err(AttemptFailure::Transient(reason)) => reason,
-        };
-        tokio::select! {
-            biased;
-            _ = &mut cancelled => return Outcome::Cancelled,
-            event = events.recv() => {
-                if event.is_none() {
-                    return Outcome::Failed(last_failure);
-                }
+        if !lease.current() {
+            return;
+        }
+        match result {
+            Ok(()) => {
+                failure
+                    .code
+                    .record_attempt(attempt, "recovered", "Root render acknowledged");
+                reset(&app);
+                return;
+            }
+            Err(error) => {
+                error.code.record_attempt(attempt, "failed", &error.reason);
+                failure = error;
             }
         }
     }
-}
-
-struct Observations {
-    events: mpsc::Receiver<Availability>,
-    tasks: Vec<tokio::task::JoinHandle<()>>,
-}
-
-impl Drop for Observations {
-    fn drop(&mut self) {
-        for task in &self.tasks {
-            task.abort();
+    let attempts = app
+        .state::<ShellSupervisor>()
+        .reconnect
+        .incident
+        .lock()
+        .attempt;
+    failure
+        .code
+        .record_attempt(attempts, "exhausted", &failure.reason);
+    let detail = failure.code.detail(&failure.reason);
+    let identity = lease.identity.clone();
+    let _ = run_on_main_thread(app, move |handle| {
+        if !handle.state::<ShellSupervisor>().reconnect.owns(&identity)
+            || crate::crash::exit::is_client_exit_pending()
+        {
+            return Ok(());
         }
+        if let Some(window) = handle
+            .get_webview_window("starting")
+            .or_else(|| handle.get_webview_window("main"))
+        {
+            surfaces::show_start_failure_recorded(&window, &detail);
+        }
+        Ok(())
+    })
+    .await;
+}
+
+pub(super) fn root_ready(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+    generation: ClientViewGeneration,
+) {
+    let supervisor = app.state::<ShellSupervisor>();
+    let owner = &supervisor.reconnect;
+    let incident = owner.incident.lock();
+    if incident.accepts_root(generation.navigation) {
+        owner.root.send_replace(RootOutcome::Ready);
     }
 }
 
-fn observe(origin: String, process: Arc<codeterm_process_identity::PinnedProcess>) -> Observations {
-    let (sender, events) = mpsc::channel(2);
-    let ready = sender.clone();
-    let readiness = tokio::spawn(async move {
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .build();
-        if let Ok(client) = client {
-            if super::readiness::wait(&client, &origin).await.is_ok() {
-                let _ = ready.send(Availability::ServerReady).await;
-            }
-        }
-    });
-    let exited = tokio::spawn(async move {
-        let result =
-            tokio::task::spawn_blocking(move || process.wait_exit(Duration::from_secs(30))).await;
-        if matches!(result, Ok(Ok(()))) {
-            let _ = sender.send(Availability::ExactProcessExited).await;
-        }
-    });
-    Observations {
-        events,
-        tasks: vec![readiness, exited],
-    }
+pub(super) fn reset(app: &codeterm_client_shell::app_runtime::AppHandle) {
+    *app.state::<ShellSupervisor>().reconnect.incident.lock() = Incident::default();
 }
 
 pub(crate) fn cancel(app: &codeterm_client_shell::app_runtime::AppHandle) {
     if let Some(supervisor) = app.try_state::<ShellSupervisor>() {
         supervisor.reconnect.cancel();
+        *supervisor.reconnect.incident.lock() = Incident::default();
     }
 }
 
@@ -200,99 +329,6 @@ pub(super) async fn cancel_and_wait(
     })
     .await
     .map_err(|_| "Recovery cancellation exceeded its failure deadline".to_string())?
-}
-
-pub(super) fn start(
-    app: codeterm_client_shell::app_runtime::AppHandle,
-    ready: codeterm_types::server_bootstrap::ServerReady,
-    process: Arc<codeterm_process_identity::PinnedProcess>,
-) {
-    let lease = app.state::<ShellSupervisor>().reconnect.begin();
-    let exit = crate::crash::exit::subscribe_client_exit();
-    tauri::async_runtime::spawn(async move {
-        let Ok(origin) = loopback_origin(ready.api_address) else {
-            return;
-        };
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-        let mut observations = observe(origin, process);
-        let attempt_app = app.clone();
-        let operation = recover(&mut observations.events, lease.cancelled(exit), move || {
-            let app = attempt_app.clone();
-            async move {
-                if crate::crash::exit::is_client_exit_pending() {
-                    return Err(AttemptFailure::Manual("Domios is quitting".into()));
-                }
-                match crate::host_ports::native_client::retry_initialize_client(app).await {
-                    Ok(initialized)
-                        if initialized.native
-                            == crate::host_ports::native_client::NativeClientStatus::Attached =>
-                    {
-                        Ok(initialized)
-                    }
-                    Ok(crate::host_ports::native_client::NativeClientInitialization {
-                        native: crate::host_ports::native_client::NativeClientStatus::NativeHostUnavailable {
-                            message, retryable,
-                        },
-                        ..
-                    }) => {
-                        if retryable {
-                            Err(AttemptFailure::Transient(message))
-                        } else {
-                            Err(AttemptFailure::Manual(message))
-                        }
-                    },
-                    Ok(_) => Err(AttemptFailure::Manual(
-                        "Native attachment did not complete".into(),
-                    )),
-                    Err(error) if error.retryable() => {
-                        Err(AttemptFailure::Transient(error.message().into()))
-                    }
-                    Err(error) => Err(AttemptFailure::Manual(error.message().into())),
-                }
-            }
-        });
-        let outcome = tokio::time::timeout_at(deadline, operation).await;
-        if !lease.current() || crate::crash::exit::is_client_exit_pending() {
-            return;
-        }
-        let failure = match outcome {
-            Ok(Outcome::Ready(initialized)) => {
-                tokio::select! {
-                    biased;
-                    _ = lease.cancelled(crate::crash::exit::subscribe_client_exit()) => None,
-                    result = tokio::time::timeout_at(deadline, recover_for_attachment(app.clone(), &initialized.ready)) => {
-                        match result {
-                            Ok(result) => result.err(),
-                            Err(_) => Some("Frontend recovery exceeded its failure deadline".into()),
-                        }
-                    },
-                }
-            }
-            Ok(Outcome::Failed(reason)) => Some(reason),
-            Ok(Outcome::Cancelled) => None,
-            Err(_) => Some("Server recovery exceeded its failure deadline. Retry when the server is available.".into()),
-        };
-        if let Some(reason) = failure {
-            let identity = lease.identity.clone();
-            let result = run_on_main_thread(app.clone(), move |handle| {
-                if handle.state::<ShellSupervisor>().reconnect.owns(&identity)
-                    && !crate::crash::exit::is_client_exit_pending()
-                {
-                    if let Some(window) = handle
-                        .get_webview_window("starting")
-                        .or_else(|| handle.get_webview_window("main"))
-                    {
-                        show_start_failure(&window, &reason);
-                    }
-                }
-                Ok(())
-            })
-            .await;
-            if let Err(error) = result {
-                log::error!("[frontend-shell] recovery failure surface unavailable: {error}");
-            }
-        }
-    });
 }
 
 #[cfg(test)]
