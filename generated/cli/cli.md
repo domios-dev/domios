@@ -886,15 +886,17 @@ Disable a cron job
 Edit a cron job
 
 - `--agent` — Agent provider override (e.g. "claude", "codex")
+- `--clear-tab` — Clear the report target, keeping runs private to the cron
 - `--cwd`
 - `--description`
-- `<id>` — Cron job ID
+- `<id>` — Cron job name or ID
 - `--jitter-max-ms` — Max jitter in milliseconds added to each scheduled fire. Set 0 to disable jitter. Omit to leave unchanged
 - `--model` — Model within the agent provider. Pass empty string to clear
 - `--name`
 - `--reasoning-effort` — Reasoning-effort level advertised by the agent provider. Pass empty string to clear
 - `--schedule`
 - `--skill` — Mem skill slug to resolve and inject into the task brief at fire time. Pass an empty string to clear
+- `--tab` — Tab to receive reports. Omit to leave unchanged
 - `--task`
 - `--timeout-secs` — Per-cron run timeout (seconds). 0 clears the override (back to global default)
 - `--tz` — IANA timezone (e.g. "Europe/Riga"). Pass empty string to clear back to UTC
