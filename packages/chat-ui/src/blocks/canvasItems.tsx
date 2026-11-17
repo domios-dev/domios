@@ -127,14 +127,14 @@ function TextBox({ children, scrolls, fill }: { children: ReactNode; scrolls: bo
   );
 }
 
-function ItemContent({ item, live, active, theme }: { item: DsCanvasItem; live: boolean; active: boolean; theme: ThemeVars }) {
+function ItemContent({ item, live, active, interactive, theme }: { item: DsCanvasItem; live: boolean; active: boolean; interactive: boolean; theme: ThemeVars }) {
   const file = useItemFile(item);
   const label = canvasItemLabel(item);
   const html = item.kind === "html" ? item.html : null;
   const inlineDoc = useMemo(() => html === null ? null : buildHtmlPreviewDocument(html, theme), [html, theme]);
   const pageDoc = useMemo(() => file?.status === "ready" && file.content.kind === "html" ? buildHtmlPreviewDocument(file.content.html, theme) : null, [file, theme]);
   if (item.kind === "note") return <TextBox scrolls={active} fill><Markdown text={item.markdown} /></TextBox>;
-  if (file?.status === "error") return <CanvasItemFailure text={FAILURE_TEXT[item.kind]} reason={file.reason} retry={file.retry} label={label} />;
+  if (file?.status === "error") return <CanvasItemFailure text={FAILURE_TEXT[item.kind]} reason={file.reason} retry={interactive ? file.retry : undefined} label={label} />;
   if (file?.status === "loading") return <div role="status" aria-label={`Loading ${label}`} className="h-full w-full" />;
   const doc = inlineDoc ?? pageDoc;
   if (doc !== null) return live ? <CanvasFrame doc={doc} label={label} active={active} /> : <FramePlaceholder label={label} />;
@@ -227,7 +227,7 @@ export function CanvasItemView({ placed, live, selected = false, interactive, th
       onMouseDown={edit ? (event) => event.stopPropagation() : undefined}
       onDoubleClick={edit && item.kind === "note" ? (event) => { event.stopPropagation(); edit.onOpenNote(); } : undefined}
       onClick={interactive ? (event) => { event.stopPropagation(); onSelect?.(item.id); } : undefined}>
-      {editing ? <NoteEditor text={edit!.draft!} edit={edit!} /> : <ItemContent item={item} live={live && isLiveFrameItem(item)} active={takesInput} theme={theme} />}
+      {editing ? <NoteEditor text={edit!.draft!} edit={edit!} /> : <ItemContent item={item} live={live && isLiveFrameItem(item)} active={takesInput} interactive={interactive} theme={theme} />}
       {interactive && !selected && <button type="button" aria-label={`Select ${label}`} data-canvas-select="" className="absolute inset-0 border-0 bg-transparent p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]" style={{ cursor: "inherit" }} />}
       {edit && selected && !editing && <ResizeHandle edit={edit} />}
     </div>

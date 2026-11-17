@@ -43,7 +43,7 @@ function host(writable: boolean, { text = board("first"), watching = true } = {}
 }
 const reset = () => { configureLocalArtifactLoader(null); configureCanvasFilePort(null); };
 
-test("failed canvas items recover on board changes without remounting and keep an explicit retry", async () => {
+test("failed canvas items recover on board changes without remounting", async () => {
   const view = await mount();
   const files = host(false);
   let available = false;
@@ -68,25 +68,67 @@ test("failed canvas items recover on board changes without remounting and keep a
     await act(async () => { files.change?.(); });
     await settle();
     assert.equal(reads, 2, "one authoritative board change retries a failed item once");
-    const retry = item.querySelector<HTMLButtonElement>("button[aria-label='Retry shot.png']");
-    assert.ok(retry, "continuing failure remains actionable");
-    await click(retry);
-    await settle();
-    assert.equal(reads, 3);
+    assert.match(item.textContent ?? "", /Fixture file access denied/, "continuing failure stays visible");
+    assert.equal(item.querySelector("button"), null, "the static preview adds no hidden retry control");
     available = true;
     await act(async () => { files.change?.(); files.change?.(); files.change?.(); });
-    assert.equal(reads, 4, "changes coalesce while the item read is in flight");
+    assert.equal(reads, 3, "changes coalesce while the item read is in flight");
     await act(async () => { finish!(); });
     await settle();
     assert.equal(view.host.querySelector("[data-canvas-item='shot']"), item);
     assert.equal(item.querySelector("img")?.getAttribute("src"), "data:image/png;base64,AA==");
     await act(async () => { files.change?.(); });
     await settle();
-    assert.equal(reads, 4, "successful items are not re-read on board changes");
+    assert.equal(reads, 3, "successful items are not re-read on board changes");
   } finally { await view.close(); reset(); }
   assert.equal(files.released, 1);
   files.change?.();
-  assert.equal(reads, 4, "disposed item subscriptions cannot read");
+  assert.equal(reads, 3, "disposed item subscriptions cannot read");
+});
+
+test("the opened viewer retries a still-failing item and recovers the same item", async () => {
+  const view = await mount();
+  const files = host(false);
+  let available = false;
+  let reads = 0;
+  configureLocalArtifactLoader(async (path) => {
+    if (path === SRC) return { data: files.text, media_type: "application/json" };
+    reads++;
+    if (!available) throw new Error("Fixture file access denied");
+    return { data: "data:image/png;base64,AA==", media_type: "image/png" };
+  });
+  try {
+    await view.render(<LocalArtifactScope tabId="owner"><RichMarkdown text={`<ds-canvas src="${SRC}" />`} /></LocalArtifactScope>);
+    await settle();
+    const previewItem = view.host.querySelector("[data-canvas-item='shot']")!;
+    await click(view.host.querySelector("[aria-label^='Open canvas']"));
+    await settle();
+    const stage = viewer()!;
+    const item = stage.querySelector("[data-canvas-item='shot']")!;
+    const retry = () => item.querySelector<HTMLButtonElement>("button[aria-label='Retry shot.png']");
+    assert.ok(retry(), "the interactive viewer exposes Retry");
+    assert.equal(reads, 2, "preview and viewer each own their item read");
+    await act(async () => { files.change?.(); });
+    await settle();
+    assert.equal(reads, 4, "an authoritative change retries failed items in both mounts");
+    await act(async () => { const button = retry()!; button.click(); button.click(); });
+    await settle();
+    assert.equal(reads, 5, "repeated clicks share the active read");
+    assert.match(item.textContent ?? "", /Fixture file access denied/);
+    assert.ok(retry(), "continuing denial remains actionable");
+    available = true;
+    await click(retry());
+    await settle();
+    assert.ok(stage.querySelector("[data-canvas-item='shot']") === item, "Retry preserves the mounted item");
+    assert.equal(item.querySelector("img")?.getAttribute("src"), "data:image/png;base64,AA==");
+    assert.equal(reads, 6);
+    await act(async () => { files.change?.(); });
+    await settle();
+    assert.equal(reads, 7, "only the still-failed preview retries on the next change");
+    assert.ok(view.host.querySelector("[data-canvas-item='shot']") === previewItem);
+    assert.equal(previewItem.querySelector("img")?.getAttribute("src"), "data:image/png;base64,AA==");
+  } finally { await view.close(); reset(); }
+  assert.equal(files.released, 1);
 });
 
 test("a retry from an old tab cannot overwrite or read through the new tab", async () => {
@@ -99,7 +141,7 @@ test("a retry from an old tab cannot overwrite or read through the new tab", asy
     assert.equal(canvas, SRC);
     reads.push(tabId!);
     if (tabId === "owner") {
-      if (reads.length === 1) throw new Error("Not ready");
+      if (reads.length <= 2) throw new Error("Not ready");
       await new Promise<void>((resolve) => { finish = resolve; });
     }
     return { data: `data:image/png;base64,${tabId === "owner" ? "AA==" : "BB=="}`, media_type: "image/png" };
@@ -108,11 +150,13 @@ test("a retry from an old tab cannot overwrite or read through the new tab", asy
     const render = (tabId: string) => view.render(<LocalArtifactScope tabId={tabId}><RichMarkdown text={`<ds-canvas src="${SRC}" />`} /></LocalArtifactScope>);
     await render("owner");
     await settle();
-    const item = view.host.querySelector("[data-canvas-item='shot']")!;
+    await click(view.host.querySelector("[aria-label^='Open canvas']"));
+    await settle();
+    const item = viewer()!.querySelector("[data-canvas-item='shot']")!;
     const retry = item.querySelector<HTMLButtonElement>("button[aria-label='Retry shot.png']")!;
     assert.ok(retry);
     await act(async () => { retry.click(); retry.click(); });
-    assert.deepEqual(reads, ["owner", "owner"], "repeated clicks share the in-flight read");
+    assert.deepEqual(reads, ["owner", "owner", "owner"], "repeated clicks share the in-flight read");
     await render("other");
     await settle();
     const current = view.host.querySelector("[data-canvas-item='shot']")!;
@@ -120,7 +164,7 @@ test("a retry from an old tab cannot overwrite or read through the new tab", asy
     await act(async () => { finish!(); retry.click(); });
     await settle();
     assert.equal(current.querySelector("img")?.getAttribute("src"), "data:image/png;base64,BB==", "stale completion cannot replace the current tab's content");
-    assert.deepEqual(reads, ["owner", "owner", "other"], "a detached retry cannot issue an old-tab read");
+    assert.deepEqual(reads, ["owner", "owner", "owner", "other"], "a detached retry cannot issue an old-tab read");
   } finally { await view.close(); reset(); }
   assert.equal(files.released, 2);
 });
