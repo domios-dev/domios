@@ -1,4 +1,4 @@
-import { channelStatus } from "./neighborRuntime.testdata";
+import { channelStatus, permissionResponse } from "./neighborRuntime.testdata";
 import { it, vi, expect } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -180,5 +180,18 @@ it("keeps the single-friend receiving action inside concierge setup", async () =
   const receive = Array.from(dialog?.querySelectorAll("button") ?? []).find(node => node.textContent === "Confirm receiving");
   expect(receive).toBeDefined();
   await act(async () => receive!.click());
-  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7);
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set", undefined);
+});
+
+
+it("the friend page shows the receiving machine's effective grant rather than the local grant", async () => {
+  const runtimeClient = receiving(elsewhere);
+  vi.mocked(runtimeClient.receiverGrants).mockResolvedValue({ revision: 7, previous_machine: "Studio Mac", digest: "reviewed",
+    local: permissionResponse({ machine_access: "read_only" }),
+    previous: permissionResponse({ allowed: true, machine_access: "full", scope: "Joint project" }), different: true, unavailable: false });
+  await render("paid", { runtimeClient });
+  await act(async () => button("Ada, connected").click());
+  const receiverLine = Array.from(document.querySelectorAll("p")).find(node => node.textContent?.includes("Effective access on Studio Mac"));
+  expect(receiverLine?.textContent).toContain("Machine: full");
+  expect(receiverLine?.textContent).not.toContain("read_only");
 });

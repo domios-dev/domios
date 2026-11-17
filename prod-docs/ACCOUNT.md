@@ -99,6 +99,17 @@ Standard envelope fields (separate from event properties):
 | `memory_searched` | None |
 | `canvas_opened` | None |
 | `onboarding_completed` | None |
+| `agent_provider_changed` | `provider_id`: ProviderId, `outcome`: ProviderChangeOutcome |
+| `agent_model_changed` | `mode`: ModelChangeMode, `outcome`: ModelChangeOutcome |
+| `agent_tab_selected` | None |
+| `mesh_request_completed` | `operation`: MeshOperation, `outcome`: RequestOutcome |
+| `canvas_element_saved` | `operation`: CanvasOperation, `kind`: CanvasKind |
+| `ds_block_interacted` | `kind`: DsBlockKind, `action`: DsBlockAction |
+| `blueprint_run_completed` | `outcome`: BlueprintOutcome |
+| `plugin_enabled_changed` | `enabled`: bool |
+| `update_checked` | `offers`: u32 |
+| `account_created` | `auth_provider`: AuthProvider |
+| `neighbor_invite_created` | None |
 
 - **Platform:** `macos`, `windows`, `linux`
 - **AuthProvider:** `local`, `fake`, `firebase`
@@ -111,6 +122,16 @@ Standard envelope fields (separate from event properties):
 - **UpgradeSource:** `limit_dialog`, `account_settings`
 - **CheckoutOutcome:** `opened`, `returned`, `failed`
 - **SettingsSection:** `root`, `account`, `privacy`, `general`, `notifications`, `agents`, `secrets`, `jobs`, `logs`, `guide`, `about`, `agent_provider`
+- **ProviderChangeOutcome:** `applied`, `pending`
+- **ModelChangeMode:** `live`, `restart`, `next_turn`
+- **ModelChangeOutcome:** `observed`, `pending`
+- **MeshOperation:** `plan`, `spec`, `effort`, `task`, `team`, `other`
+- **RequestOutcome:** `success`, `refused`, `failure`
+- **CanvasOperation:** `create`, `update`, `delete`
+- **CanvasKind:** `note`, `mermaid`, `image`, `html`, `page`, `document`, `canvas`, `other`
+- **DsBlockKind:** `html`, `page`, `image`, `document`, `canvas`, `guide`, `plugin`, `connect`, `setting`, `agent`, `job`, `checklist`, `choice`, `tasks`
+- **DsBlockAction:** `open`, `submit`
+- **BlueprintOutcome:** `success`, `failure`, `cancelled`
 - **ProviderId:** `acp`, `claude`, `codex`, `cursor`, `opencode`, `other`
 <!-- analytics-catalog:end -->
 
@@ -144,4 +165,4 @@ Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"se
 
 Headless sign-in: `domios account login --no-browser` prints an authorization URL. Open it on another machine, then paste the whole redirected callback URL into stdin; it must include both code and state. A failed loopback navigation still leaves that URL in the browser's address bar. Bare codes are refused. EOF on stdin leaves the flow pending in the daemon until its normal timeout. In a Domios tab, `domios account login --no-browser --code-from-pad callback.txt` completes that pending flow from the calling tab's pad without replacing its state/verifier. Keep callback values out of logs and shell history. The existing timeout and single-use checks apply.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->

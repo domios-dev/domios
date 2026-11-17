@@ -2,11 +2,16 @@ import { PRODUCT_EVENT_CATALOG, PRODUCT_EVENT_ENUMS, type ProductEvent, type Fea
 
 export type AnalyticsEndpoint = (method: "POST", path: "/api/analytics/event", event: ProductEvent) => Promise<unknown>;
 
+export function agentTabSelection(changed: boolean, agentType: string | null | undefined): ProductEvent | null {
+  return changed && agentType ? { event_type: "agent_tab_selected", event_properties: {} } : null;
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function catalogValue(type: string, value: unknown): boolean {
+  if (type === "bool") return typeof value === "boolean";
   if (type === "Version") return typeof value === "string" && /^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(value) && value.split(".").every(part => Number(part) <= 65535);
   if (type === "u32") return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 4294967295;
   if (type.startsWith("Option<")) return value === null || catalogValue(type.slice(7, -1), value);

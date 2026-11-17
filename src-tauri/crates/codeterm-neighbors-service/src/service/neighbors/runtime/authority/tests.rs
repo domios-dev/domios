@@ -157,6 +157,10 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
             receiver_operation: receiver::selection::Selection::Set,
             takeover_confirmed: false,
             expected_receiver_revision: 0,
+            grant_decision: None,
+        },
+        NeighborRuntimeCommand::ReceiverGrants {
+            friendship_id: friend_a.clone(),
         },
         NeighborRuntimeCommand::OwnKeys,
         NeighborRuntimeCommand::Permission {
@@ -181,6 +185,7 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
             receiver_operation: receiver::selection::Selection::Reset,
             takeover_confirmed: true,
             expected_receiver_revision: 0,
+            grant_decision: None,
         },
         NeighborRuntimeCommand::Rotate,
         NeighborRuntimeCommand::Revoke,

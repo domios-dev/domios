@@ -49,6 +49,7 @@ pub use crate::service::neighbors::runtime::owner::NeighborsExt as NeighborsNeig
 pub use crate::service::neighbors::runtime::pending::NeighborsExt as NeighborsNeighborsRuntimePending1Ext;
 pub use crate::service::neighbors::runtime::read::NeighborsExt as NeighborsNeighborsRuntimeRead1Ext;
 pub use crate::service::neighbors::runtime::receiver::friends::NeighborsExt as NeighborsNeighborsRuntimeReceiverFriends1Ext;
+pub use crate::service::neighbors::runtime::receiver::grants::NeighborsExt as NeighborsNeighborsRuntimeReceiverGrantsExt;
 pub use crate::service::neighbors::runtime::receiver::selection::NeighborsExt as NeighborsNeighborsRuntimeReceiverSelection1Ext;
 pub use crate::service::neighbors::runtime::receiver::startup::NeighborsExt as NeighborsNeighborsRuntimeReceiverStartup1Ext;
 pub use crate::service::neighbors::runtime::receiver::stop::NeighborsExt as NeighborsNeighborsRuntimeReceiverStop1Ext;

@@ -1,4 +1,5 @@
 use super::super::*;
+mod deferred;
 use codeterm_analytics::{
     sinks::fake::{Fake, Recording},
     Consent,

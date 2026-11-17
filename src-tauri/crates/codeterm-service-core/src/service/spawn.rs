@@ -50,7 +50,7 @@ mod spawn_reasoning_effort;
 pub(crate) use spawn_identity::task_spawn_handle;
 pub(crate) use spawn_identity::{
     now_unix_secs, params_caller_tab_id, roleless_spawner, spawn_caller_tab_id,
-    task_binding_from_spawn,
+    stamp_launch_authority, task_binding_from_spawn,
 };
 pub use spawn_reasoning_effort::validate_agent_reasoning_effort;
 
@@ -425,13 +425,10 @@ impl ServiceContext {
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.role_profile = agent.role_profile.clone();
-                tab.taskless_authorized_gates = taskless_authorized_gates.clone();
-                if tab.neighbor_authority.is_none() {
-                    tab.neighbor_authority = spec
-                        .chatbackend_launch
-                        .as_ref()
-                        .and_then(|metadata| metadata.params.neighbor_authority.clone());
+                if let Some(metadata) = &spec.chatbackend_launch {
+                    stamp_launch_authority(tab, &metadata.params);
                 }
+                tab.taskless_authorized_gates = taskless_authorized_gates.clone();
                 tab.audience = spec.audience;
             }
             if let Some(ref description) = spec.description {
@@ -871,13 +868,10 @@ impl ServiceContext {
                 tab.show_in_tabbar = false;
                 tab.audience = spec.audience;
                 tab.role_profile = agent.role_profile.clone();
-                tab.taskless_authorized_gates = taskless_authorized_gates.clone();
-                if tab.neighbor_authority.is_none() {
-                    tab.neighbor_authority = spec
-                        .chatbackend_launch
-                        .as_ref()
-                        .and_then(|metadata| metadata.params.neighbor_authority.clone());
+                if let Some(metadata) = &spec.chatbackend_launch {
+                    stamp_launch_authority(tab, &metadata.params);
                 }
+                tab.taskless_authorized_gates = taskless_authorized_gates.clone();
                 if let Some(ref wid) = agent.worker_id {
                     tab.worker_id = Some(wid.clone());
                 }

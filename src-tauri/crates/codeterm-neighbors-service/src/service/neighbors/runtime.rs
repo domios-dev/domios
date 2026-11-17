@@ -124,11 +124,16 @@ pub enum NeighborRuntimeCommand {
         service_tier: Option<String>,
     },
     Status,
+    ReceiverGrants {
+        friendship_id: String,
+    },
     SetFriendReceiver {
         friendship_id: String,
         receiver_operation: receiver::selection::Selection,
         takeover_confirmed: bool,
         expected_receiver_revision: u64,
+        #[serde(default)]
+        grant_decision: Option<receiver::grants::Decision>,
     },
     Rotate,
     Retry {
@@ -565,8 +570,60 @@ impl NeighborsExt for ServiceContext {
             receiver_operation,
             takeover_confirmed,
             expected_receiver_revision,
+            grant_decision,
         } = &command
         {
+            let adopted = if matches!(receiver_operation, receiver::selection::Selection::Set) {
+                let list = registry
+                    .calls
+                    .invoke("friendsList", json!({}))
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let friend =
+                    first_action::friend_status(&list, friendship_id, &registry.installation_id)
+                        .map_err(|error| error.to_string())?;
+                if friend.receiver_revision != *expected_receiver_revision {
+                    return Err(Error::ReceiverRevisionStale.to_string());
+                }
+                let preview = self
+                    .neighbor_receiver_grants(&metadata, friendship_id, &friend)
+                    .await?;
+                let adopted = preview.decide(grant_decision.as_ref(), *takeover_confirmed)?;
+                if let Some(permission) = &adopted {
+                    self.validate_neighbor_memory_areas(permission)
+                        .await
+                        .map_err(|error| format!("receiver_grant_invalid: {error}"))?;
+                    let mux = self.mux.read();
+                    if permission
+                        .workspaces
+                        .as_ref()
+                        .is_some_and(|ids| ids.iter().any(|id| mux.get_workspace(id).is_none()))
+                    {
+                        return Err("receiver_grant_invalid: Previous workspaces do not exist on this machine; keep the local grant and edit it here".into());
+                    }
+                }
+                adopted
+            } else {
+                None
+            };
+            let grant_adopted = adopted.is_some();
+            if let Some(permission) = adopted {
+                self.retire_neighbor_concierge(&metadata, &registry.uid, friendship_id, generation).await.map_err(|error| format!("receiver_grant_invalid: Grant adoption failed before moving receiving: {error}"))?;
+                self.require_neighbor_generation(generation)?;
+                let mut settings = metadata
+                    .settings()
+                    .await
+                    .map_err(|error| error.to_string())?;
+                settings
+                    .permissions
+                    .insert(friendship_id.clone(), permission);
+                self.require_neighbor_generation(generation)?;
+                metadata.save_settings(settings).await.map_err(|error| format!("receiver_grant_invalid: Grant adoption failed before moving receiving: {error}"))?;
+                self.ui.emit(
+                    "neighbor-permission-changed",
+                    json!({"friendship_id":friendship_id}),
+                );
+            }
             let selection = self
                 .set_neighbor_friend_receiver(
                     &registry,
@@ -615,7 +672,11 @@ impl NeighborsExt for ServiceContext {
                             }
                         }
                     }
-                    return Err(error.to_string());
+                    return Err(if grant_adopted {
+                        format!("receiver_move_unconfirmed: Target grant adopted; receiver move is unconfirmed: {error}. Refresh status before any further action")
+                    } else {
+                        error.to_string()
+                    });
                 }
             };
             return Ok(owner::Outcome::ReceiverCommitted(Box::new(
@@ -699,6 +760,7 @@ impl NeighborsExt for ServiceContext {
                 NeighborRuntimeCommand::FlagMessage { .. }
                 | NeighborRuntimeCommand::History { .. }
                 | NeighborRuntimeCommand::Status
+                | NeighborRuntimeCommand::ReceiverGrants { .. }
                 | NeighborRuntimeCommand::Permission { .. }
                 | NeighborRuntimeCommand::NotificationPreference { .. } => {
                     Err(Error::InvalidEnvelope)
