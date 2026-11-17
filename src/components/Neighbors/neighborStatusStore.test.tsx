@@ -5,9 +5,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { ChannelStatus, NeighborListenerEvent, NeighborRuntimeClient, ReceiverState } from "./neighborRuntimeClient";
 import { resetNeighborStatus } from "./neighborStatusStore";
 import { friendReceiverState, useReceiverState } from "./useReceiverState";
+import { conciergeNeedsAttention, conciergeStatusLine, useConciergeStatus } from "./useConciergeStatus";
 
-const events = vi.hoisted(() => ({ handlers: {} as Record<string, () => void> }));
-vi.mock("../../lib/bridge", () => ({ listen: vi.fn(async (name: string, handler: () => void) => {
+const events = vi.hoisted(() => ({ handlers: {} as Record<string, (event?: {payload:unknown}) => void> }));
+vi.mock("../../lib/bridge", () => ({ listen: vi.fn(async (name: string, handler: (event?: {payload:unknown}) => void) => {
   events.handlers[name] = handler;
   return () => { delete events.handlers[name]; };
 }) }));
@@ -153,6 +154,28 @@ it("shares receiver status on open across concurrent consumers", async () => {
   await act(async () => pending.resolve(status(true, 1)));
   expect(runtime.status).toHaveBeenCalledTimes(1);
   expect(seen).toEqual([true, true, true]);
+});
+
+it.each(["agent-runtime-state", "tab-boot-stage"])("%s resolves provisional concierge labels even without a listener", async event => {
+  const concierge = {gateway_tab:"own-tab",concierge_missing:false,pending_count:null,receiving_here:true,receiver_machine_label:null,state:"concierge_starting"};
+  const initial = {...status(true, 1),bindings:{first:"own-tab"},concierges:{first:concierge}};
+  const failed = {...initial,concierges:{first:{...concierge,state:"concierge_crashed"}}};
+  const { runtime } = client(Promise.resolve(initial), Promise.resolve(failed));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const Probe = () => {
+    const concierge = useConciergeStatus(runtime, true).first;
+    return <span>{conciergeNeedsAttention(concierge) ? "needs attention: " : ""}{conciergeStatusLine(concierge)}</span>;
+  };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<><Probe /><Probe /></>));
+  expect(host.textContent).toContain("concierge starting");
+  await act(async () => events.handlers[event]({payload:{tab_id:"foreign-tab"}}));
+  expect(runtime.status).toHaveBeenCalledTimes(1);
+  await act(async () => events.handlers[event]({payload:{tab_id:"own-tab"}}));
+  expect(host.textContent).not.toContain("starting");
+  expect(host.textContent).toContain("needs attention: concierge stopped");
+  expect(runtime.status).toHaveBeenCalledTimes(2);
 });
 
 it.each([4, 5])("keeps an unversioned friend event at revision %s when its reread returns the old receiver", async revision => {

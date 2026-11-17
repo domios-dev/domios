@@ -2,6 +2,46 @@ use super::super::super::storage::{ConciergeReceiver, DormantConcierge};
 use super::*;
 use std::collections::BTreeSet;
 
+async fn notify_access_review(
+    service: &ServiceContext,
+    friendship: &str,
+    generation: u64,
+) -> Result<(), String> {
+    if !service
+        .neighbor_cell()
+        .restore_access_notices
+        .lock()
+        .insert(friendship.into())
+    {
+        return Ok(());
+    }
+    let owner = service.clone();
+    let friendship = friendship.to_owned();
+    tokio::task::spawn_blocking(move || {
+        owner
+            .require_neighbor_history_generation(generation)
+            .map_err(|error| error.to_string())?;
+        owner.create_in_app_notice(
+            "A concierge needs your access review before it can answer".into(),
+            vec![
+                codeterm_notification_core::contract::NotificationAction::Url {
+                    label: "Review access".into(),
+                    value: format!("domios://neighbor/{friendship}/permissions"),
+                },
+            ],
+            crate::service::notification::NotificationOrigin::default(),
+            crate::service::notification::PushIntent {
+                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+                event_key: Some(format!("neighbor-restore-access:{friendship}")),
+            },
+            true,
+        );
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 fn receiver_authority(
     status: Option<&codeterm_neighbors::adapter::ReceiverStatus>,
 ) -> codeterm_neighbors::Result<()> {
@@ -148,6 +188,7 @@ impl NeighborsExt for ServiceContext {
                     .map_err(|error| error.to_string())?;
                 if launch_error(error.clone()) == Error::RestoreGrantRequired {
                     self.clear_neighbor_friend_restore_grants(uid, friendship);
+                    notify_access_review(self, friendship, generation).await?;
                 }
                 let settings = metadata
                     .settings()
@@ -183,6 +224,11 @@ impl NeighborsExt for ServiceContext {
                     "neighbor-agent-changed",
                     json!({"friendship_id":friendship,"gateway_tab":settings.bindings.get(friendship)}),
                 );
+            } else {
+                self.neighbor_cell()
+                    .restore_access_notices
+                    .lock()
+                    .remove(friendship);
             }
         }
         Ok(())

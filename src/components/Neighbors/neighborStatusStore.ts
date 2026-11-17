@@ -82,6 +82,13 @@ class StatusStore extends SharedRead<NeighborStatusSnapshot> {
       this.write({ ...this.value, concierges: { ...(this.value.concierges ?? {}), [payload.friendship_id]: payload } });
     }).then(keep);
     void listen("neighbor-agent-changed", reread).then(keep);
+    const runtimeChanged = (event: { payload: unknown }) => {
+      const payload = event.payload as { tab_id?: unknown } | null;
+      if (!payload || typeof payload.tab_id !== "string") return;
+      if (!this.value || Object.values(this.value.bindings).includes(payload.tab_id)) reread();
+    };
+    void listen("agent-runtime-state", runtimeChanged).then(keep);
+    void listen("tab-boot-stage", runtimeChanged).then(keep);
     // Membership expiry and renewal change which machine may be shown receiving.
     void listen("account-mesh-changed", reread).then(keep);
     void listen("mesh-state-changed", reread).then(keep);

@@ -53,6 +53,7 @@ pub struct NeighborRuntimeCell {
     pub handling: super::handling::Cell,
     pub concierge_accounts: parking_lot::Mutex<HashMap<String, String>>,
     pub restore_grants: parking_lot::Mutex<HashMap<String, super::confinement::RestoreGrant>>,
+    pub restore_access_notices: parking_lot::Mutex<std::collections::HashSet<String>>,
     registry_snapshot: parking_lot::Mutex<Option<Value>>,
     owner: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<owner::Request>>>,
     pub generation: AtomicU64,
@@ -1022,6 +1023,7 @@ impl NeighborsExt for ServiceContext {
         self.neighbor_pauses().clear();
         self.neighbor_cell().handling.clear();
         self.neighbor_cell().restore_grants.lock().clear();
+        self.neighbor_cell().restore_access_notices.lock().clear();
         self.neighbor_cell().control_cancel.notify_waiters();
         self.cancel_neighbor_restoration();
         self.neighbor_restoration_entitlement_changed();
@@ -1067,6 +1069,7 @@ impl NeighborsExt for ServiceContext {
         self.neighbor_pauses().clear();
         self.neighbor_cell().handling.clear();
         self.neighbor_cell().restore_grants.lock().clear();
+        self.neighbor_cell().restore_access_notices.lock().clear();
     }
 }
 

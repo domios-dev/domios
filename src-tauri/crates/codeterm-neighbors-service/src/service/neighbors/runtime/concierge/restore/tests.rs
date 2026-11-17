@@ -317,11 +317,14 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
-    for access in [
+    for (access, saved_session) in [
         MachineAccess::ReadOnly,
         MachineAccess::Folder,
         MachineAccess::Full,
-    ] {
+    ]
+    .into_iter()
+    .flat_map(|access| [Some("same-restored-session"), None].map(|session| (access, session)))
+    {
         let data_dir = tempfile::tempdir().unwrap();
         let (mut mux, general) = MultiplexerState::new();
         let workspace = mux.find_workspace_for_tab(&general).unwrap();
@@ -329,7 +332,7 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
         let friend = "a".repeat(64);
         let tab = mux.get_tab_mut(&root).unwrap();
         tab.agent_type = Some("opaque-pty".into());
-        tab.agent_session_id = Some("same-restored-session".into());
+        tab.agent_session_id = saved_session.map(str::to_owned);
         tab.session_binding_nonce = Some("same-nonce".into());
         tab.neighbor_authority = Some(NeighborAuthority {
             uid: "owner".into(),
@@ -378,6 +381,16 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
             data_dir.path(),
         );
         let service = &restored.service;
+        assert_eq!(
+            service
+                .mux
+                .read()
+                .get_tab(&root)
+                .unwrap()
+                .session_binding_nonce
+                .is_none(),
+            saved_session.is_none()
+        );
         service
             .ext::<crate::config::ConfigState>()
             .lock()
@@ -414,6 +427,9 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
                 let tab = mux.get_tab_mut(&target).unwrap();
                 tab.boot_stage = Some(BootStage::AgentReady);
                 tab.agent_booting = false;
+                if tab.agent_session_id.is_none() {
+                    tab.agent_session_id = Some("fresh-recovered-session".into());
+                }
                 tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
                 Ok(())
             }),
@@ -450,7 +466,7 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
                 .unwrap()
                 .agent_session_id
                 .as_deref(),
-            Some("same-restored-session")
+            Some(saved_session.unwrap_or("fresh-recovered-session"))
         );
         drop(boundary);
         service.mux.write().get_tab_mut(&root).unwrap().frozen = true;
