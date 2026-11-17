@@ -92,12 +92,17 @@ impl GuardedInputGate {
 const WRITE_QUEUE_FULL: &str = "tab_busy_refused: PTY write queue capacity refused before enqueue";
 const WRITE_CANCELLED: &str = "PTY write cancelled after enqueue";
 const WRITE_QUEUE_CLOSED: &str = "PTY write channel closed";
+const UPDATE_RESERVED: &str = "tab_busy_refused: update shutdown reserved PTY input before enqueue";
 const MAX_REQUESTS: usize = 64;
 const MAX_BYTES: usize = 32 * 1024 * 1024;
 const MAX_FRAMES: usize = 64;
 
 pub fn is_write_queue_full(error: &str) -> bool {
     error == WRITE_QUEUE_FULL
+}
+
+pub fn is_update_reserved(error: &str) -> bool {
+    error == UPDATE_RESERVED
 }
 
 struct WriteRequest {
@@ -113,6 +118,8 @@ struct QueueState {
     closed: bool,
     requests: usize,
     bytes: usize,
+    input_revision: u64,
+    update_reserved: bool,
 }
 
 #[derive(Default)]
@@ -147,7 +154,47 @@ pub struct WriteQueue {
     cancel: Arc<dyn Fn() + Send + Sync>,
 }
 
+pub struct UpdateWriteReservation(Arc<Shared>);
+
+impl Drop for UpdateWriteReservation {
+    fn drop(&mut self) {
+        self.0.state.lock().update_reserved = false;
+    }
+}
+
 impl WriteQueue {
+    pub fn input_revision(&self) -> u64 {
+        self.shared.state.lock().input_revision
+    }
+
+    pub fn admit_work(&self) -> Result<(), String> {
+        let mut state = self.shared.state.lock();
+        if state.update_reserved {
+            return Err(UPDATE_RESERVED.into());
+        }
+        state.input_revision = state
+            .input_revision
+            .checked_add(1)
+            .ok_or("input revision exhausted")?;
+        Ok(())
+    }
+
+    pub fn reserve_update_shutdown(
+        &self,
+        expected_revision: u64,
+    ) -> Result<UpdateWriteReservation, String> {
+        let mut state = self.shared.state.lock();
+        if state.closed
+            || state.update_reserved
+            || state.requests != 0
+            || state.input_revision != expected_revision
+        {
+            return Err("PTY input changed or remains in flight since update preflight".into());
+        }
+        state.update_reserved = true;
+        Ok(UpdateWriteReservation(self.shared.clone()))
+    }
+
     pub fn new(writer: Box<dyn Write + Send>) -> Self {
         Self::new_cancellable(portable_pty::CancellableWriter {
             writer,
@@ -215,6 +262,9 @@ impl WriteQueue {
         on_enqueued: impl FnOnce(),
     ) -> Result<(), String> {
         let mut state = self.shared.state.lock();
+        if state.update_reserved {
+            return Err(UPDATE_RESERVED.into());
+        }
         if state.closed {
             return Err(WRITE_QUEUE_CLOSED.into());
         }
@@ -234,6 +284,10 @@ impl WriteQueue {
         {
             return Err(WRITE_QUEUE_FULL.into());
         }
+        state.input_revision = state
+            .input_revision
+            .checked_add(1)
+            .ok_or("input revision exhausted")?;
         state.requests += 1;
         state.bytes += bytes;
         state.pending.push_back(WriteRequest {

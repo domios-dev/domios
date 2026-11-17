@@ -11,6 +11,16 @@ export type Resource = "workspaces" | "teams" | "agent_tabs" | "mesh_machines" |
 export type UpgradeSource = "limit_dialog" | "account_settings";
 export type CheckoutOutcome = "opened" | "returned" | "failed";
 export type SettingsSection = "root" | "account" | "privacy" | "general" | "notifications" | "agents" | "secrets" | "jobs" | "logs" | "guide" | "about" | "agent_provider";
+export type ProviderChangeOutcome = "applied" | "pending";
+export type ModelChangeMode = "live" | "restart" | "next_turn";
+export type ModelChangeOutcome = "observed" | "pending";
+export type MeshOperation = "plan" | "spec" | "effort" | "task" | "team" | "other";
+export type RequestOutcome = "success" | "refused" | "failure";
+export type CanvasOperation = "create" | "update" | "delete";
+export type CanvasKind = "note" | "mermaid" | "image" | "html" | "page" | "document" | "canvas" | "other";
+export type DsBlockKind = "html" | "page" | "image" | "document" | "canvas" | "guide" | "plugin" | "connect" | "setting" | "agent" | "job" | "checklist" | "choice" | "tasks";
+export type DsBlockAction = "open" | "submit";
+export type BlueprintOutcome = "success" | "failure" | "cancelled";
 export type ProviderId = "acp" | "claude" | "codex" | "cursor" | "opencode" | "other";
 export type Version = `${number}.${number}.${number}`;
 export type ProductEvent =
@@ -42,6 +52,17 @@ export type ProductEvent =
   | { event_type: "memory_searched"; event_properties: Record<string, never> }
   | { event_type: "canvas_opened"; event_properties: Record<string, never> }
   | { event_type: "onboarding_completed"; event_properties: Record<string, never> }
+  | { event_type: "agent_provider_changed"; event_properties: { provider_id: ProviderId; outcome: ProviderChangeOutcome } }
+  | { event_type: "agent_model_changed"; event_properties: { mode: ModelChangeMode; outcome: ModelChangeOutcome } }
+  | { event_type: "agent_tab_selected"; event_properties: Record<string, never> }
+  | { event_type: "mesh_request_completed"; event_properties: { operation: MeshOperation; outcome: RequestOutcome } }
+  | { event_type: "canvas_element_saved"; event_properties: { operation: CanvasOperation; kind: CanvasKind } }
+  | { event_type: "ds_block_interacted"; event_properties: { kind: DsBlockKind; action: DsBlockAction } }
+  | { event_type: "blueprint_run_completed"; event_properties: { outcome: BlueprintOutcome } }
+  | { event_type: "plugin_enabled_changed"; event_properties: { enabled: boolean } }
+  | { event_type: "update_checked"; event_properties: { offers: number } }
+  | { event_type: "account_created"; event_properties: { auth_provider: AuthProvider } }
+  | { event_type: "neighbor_invite_created"; event_properties: Record<string, never> }
 ;
 export const PRODUCT_EVENT_CATALOG = {
   "app_first_run": {
@@ -118,7 +139,41 @@ export const PRODUCT_EVENT_CATALOG = {
   "chat_message_submitted": {},
   "memory_searched": {},
   "canvas_opened": {},
-  "onboarding_completed": {}
+  "onboarding_completed": {},
+  "agent_provider_changed": {
+    "provider_id": "ProviderId",
+    "outcome": "ProviderChangeOutcome"
+  },
+  "agent_model_changed": {
+    "mode": "ModelChangeMode",
+    "outcome": "ModelChangeOutcome"
+  },
+  "agent_tab_selected": {},
+  "mesh_request_completed": {
+    "operation": "MeshOperation",
+    "outcome": "RequestOutcome"
+  },
+  "canvas_element_saved": {
+    "operation": "CanvasOperation",
+    "kind": "CanvasKind"
+  },
+  "ds_block_interacted": {
+    "kind": "DsBlockKind",
+    "action": "DsBlockAction"
+  },
+  "blueprint_run_completed": {
+    "outcome": "BlueprintOutcome"
+  },
+  "plugin_enabled_changed": {
+    "enabled": "bool"
+  },
+  "update_checked": {
+    "offers": "u32"
+  },
+  "account_created": {
+    "auth_provider": "AuthProvider"
+  },
+  "neighbor_invite_created": {}
 } as const;
 export const PRODUCT_EVENT_ENUMS = {
   "Platform": [
@@ -201,6 +256,72 @@ export const PRODUCT_EVENT_ENUMS = {
     "guide",
     "about",
     "agent_provider"
+  ],
+  "ProviderChangeOutcome": [
+    "applied",
+    "pending"
+  ],
+  "ModelChangeMode": [
+    "live",
+    "restart",
+    "next_turn"
+  ],
+  "ModelChangeOutcome": [
+    "observed",
+    "pending"
+  ],
+  "MeshOperation": [
+    "plan",
+    "spec",
+    "effort",
+    "task",
+    "team",
+    "other"
+  ],
+  "RequestOutcome": [
+    "success",
+    "refused",
+    "failure"
+  ],
+  "CanvasOperation": [
+    "create",
+    "update",
+    "delete"
+  ],
+  "CanvasKind": [
+    "note",
+    "mermaid",
+    "image",
+    "html",
+    "page",
+    "document",
+    "canvas",
+    "other"
+  ],
+  "DsBlockKind": [
+    "html",
+    "page",
+    "image",
+    "document",
+    "canvas",
+    "guide",
+    "plugin",
+    "connect",
+    "setting",
+    "agent",
+    "job",
+    "checklist",
+    "choice",
+    "tasks"
+  ],
+  "DsBlockAction": [
+    "open",
+    "submit"
+  ],
+  "BlueprintOutcome": [
+    "success",
+    "failure",
+    "cancelled"
   ],
   "ProviderId": [
     "acp",

@@ -14,7 +14,7 @@ export function codexRestrictedCliConfig(ctx: RuntimeContext): Record<string, Js
     || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0")
     || ![policy.executableSha256,policy.configSha256,policy.ruleSha256].every(hash))
     throw {code:"binding_mismatch",message:"Restricted CLI policy differs from the bound launch"};
-  return {projects:{[ctx.cwd]:{trust_level:"trusted"}}};
+  return {project_root_markers:[],projects:{[ctx.cwd]:{trust_level:"trusted"}}};
 }
 
 export function codexValidateCliTrust(ctx: RuntimeContext, raw: unknown): void {

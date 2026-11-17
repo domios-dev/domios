@@ -3,6 +3,25 @@ use codeterm_lanes::spawn_identity::first_live_tab_id;
 use super::{AgentSpawnSpec, SpawnTabSpec};
 use crate::multiplexer::types::TaskBinding;
 
+pub(crate) fn stamp_launch_authority(
+    tab: &mut crate::multiplexer::types::Tab,
+    params: &crate::service::SpawnAgentParams,
+) {
+    if tab.neighbor_authority.is_none() {
+        tab.neighbor_authority = params.neighbor_authority.clone();
+    }
+    if let Some(ownership) = &params.ownership {
+        tab.ownership = Some(ownership.clone());
+    }
+    if let Some(peer) = params
+        .report_target_mesh_peer
+        .as_ref()
+        .filter(|peer| !peer.is_empty())
+    {
+        tab.report_target_mesh_peer = Some(peer.clone());
+    }
+}
+
 pub(crate) fn now_unix_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

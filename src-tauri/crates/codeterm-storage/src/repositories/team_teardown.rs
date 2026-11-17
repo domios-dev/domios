@@ -44,6 +44,7 @@ fn apply_team_teardown(
     )?;
     let removed = remove_team_rows(cx, &teardown.team_id)?;
     let sentinel = SentinelCommit {
+        terminal_run: None,
         outcome: if removed.is_empty() {
             MutationOutcome::Unchanged
         } else {

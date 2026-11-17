@@ -2,6 +2,7 @@ use super::ServiceContext;
 use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Worker};
 use std::sync::Arc;
 
+mod actions;
 mod context;
 mod hardware;
 pub(crate) mod update_confirm;
@@ -34,6 +35,16 @@ pub(crate) fn agent_spawned(provider: Option<&str>, role: Option<&str>) -> Optio
     })
 }
 impl ServiceContext {
+    pub(crate) fn record_product_canvas_file(
+        &self,
+        outcome: &Result<codeterm_local_preview::html_preview::CanvasWrite, String>,
+        before: &str,
+        after: &str,
+    ) {
+        for event in actions::canvas_file_events(outcome, before, after) {
+            self.record_product_event(event);
+        }
+    }
     pub async fn set_product_analytics_consent(
         &self,
         consent: codeterm_analytics::Consent,
@@ -140,6 +151,12 @@ impl ServiceContext {
                 self.plan_store.bind_product_observer(Arc::new(move || {
                     let _ = observer.record_nowait(Event::PlanCreated {});
                 }));
+                self.plan_store
+                    .bind_element_observer(actions::element_observer(worker.clone()));
+                crate::config::product_observer::bind_plugin_enabled_observer(
+                    self.ext::<crate::config::ConfigState>(),
+                    actions::plugin_observer(worker.clone()),
+                );
                 if let Some(mesh) = self.try_ext::<crate::mesh::MeshState>() {
                     let counts = worker.clone();
                     mesh.lock().bind_connection_observers(

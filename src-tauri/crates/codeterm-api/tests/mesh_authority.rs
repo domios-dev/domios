@@ -521,7 +521,7 @@ async fn owner_and_agent_mesh_workflows_reach_the_same_registered_target_routes(
         .await
         .unwrap();
     assert_eq!(inventory["machine_id"], "target");
-    let app = routes::create_router_with_frontend(source, None);
+    let app = routes::create_router_with_frontend(source.clone(), None);
     for (kind, token) in [("owner", "owner-secret"), ("agent", agent.as_str())] {
         for path in [
             "/api/identify",
@@ -597,9 +597,94 @@ async fn owner_and_agent_mesh_workflows_reach_the_same_registered_target_routes(
             assert!(result.get("error").is_none(), "{kind} {method}: {result}");
             assert_eq!(result["result"]["peer"], "source", "{result}");
             assert_eq!(result["result"]["method"], method);
+            if kind == "agent" {
+                let refused = relay(app.clone(), token, "POST", "/api/mesh/rpc", json!({
+                    "method":method, "protocol_version":1,
+                    "request_id":format!("matrix-forged-{method}"),
+                    "params":{"worker_tab_id":"foreign-worker","report":{"reporter_tab_id":"foreign-worker"}},
+                })).await;
+                assert_eq!(refused["error"]["code"], -32003, "{refused}");
+                assert_eq!(
+                    refused["error"]["message"],
+                    "Remote lifecycle request must match the signed originating agent"
+                );
+            }
         }
     }
     assert_eq!(writes.texts.lock().len(), 2);
+    let direct_owner = {
+        let mesh = source.mesh.lock();
+        crown::sign_request_with_origin(
+            mesh.ident.identity.private_key.as_deref().unwrap(),
+            "source",
+            AuthenticatedOrigin::Owner,
+        )
+        .unwrap()
+    };
+    let direct_agent = signed_agent(&source, "source", &tab);
+    for (kind, token, direct) in [
+        ("owner", "owner-secret", false),
+        ("agent", agent.as_str(), false),
+        ("owner", direct_owner.as_str(), true),
+        ("agent", direct_agent.as_str(), true),
+    ] {
+        for (owner_peer, owner_agent, allowed) in [
+            ("source", tab.as_str(), true),
+            ("source", "foreign-agent", kind == "owner"),
+            ("foreign-peer", tab.as_str(), false),
+        ] {
+            let target_tab = {
+                let mut mux = target.svc.mux.write();
+                let workspace = mux.find_workspace_for_tab(&recipient).unwrap();
+                let created = mux.create_tab(&workspace).unwrap();
+                mux.get_tab_mut(&created).unwrap().ownership =
+                    Some(codeterm_types::pty::RemoteOwnership {
+                        peer_id: owner_peer.into(),
+                        peer_name: owner_peer.into(),
+                        controller_tab_id: Some(owner_agent.into()),
+                        controller_title: owner_agent.into(),
+                        team: None,
+                    });
+                created
+            };
+            let path = format!("/api/tabs/{target_tab}/close?force=true");
+            let (status, answer) = if direct {
+                let (status, answer) = request(
+                    routes::create_router_with_frontend(target.clone(), None),
+                    token,
+                    "POST",
+                    &path,
+                    Value::Null,
+                )
+                .await;
+                (
+                    StatusCode::OK,
+                    json!({"status":status.as_u16(), "data":answer}),
+                )
+            } else {
+                request(
+                    app.clone(),
+                    token,
+                    "POST",
+                    "/api/mesh/relay-to",
+                    json!({
+                        "target_peer_id":"target", "method":"POST", "path":path, "body":null,
+                    }),
+                )
+                .await
+            };
+            assert_eq!(status, StatusCode::OK, "{answer}");
+            assert_eq!(
+                answer["status"],
+                if allowed { 200 } else { 403 },
+                "{kind}: {answer}"
+            );
+            assert_eq!(
+                target.svc.mux.read().get_tab(&target_tab).is_none(),
+                allowed
+            );
+        }
+    }
     stop.send(()).unwrap();
     server.await.unwrap();
 }

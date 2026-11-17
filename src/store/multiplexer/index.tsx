@@ -1,4 +1,5 @@
 import { createNoticePublisher } from "../../lib/notices";
+import { agentTabSelection, recordProductEvent } from "../../lib/productAnalytics";
 import { useContextCompactionObserver } from "../../components/Terminal/useContextCompactionObserver";
 import { tabCloseRejectionNotice } from "./tabCloseRejection";
 import { sendNotificationAnswer, type AnswerResult } from "../../lib/notificationAnswerSend";
@@ -970,15 +971,18 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
     const remote = stateRef.current.tabs[tabId];
+    const selected = stateRef.current.activeTabIds[workspaceId];
+    const event = agentTabSelection(stateRef.current.active_workspace_id !== workspaceId || selected !== tabId, remote?.agent_type);
+    const recordSelection = () => { if (event) void recordProductEvent(event); };
     if (remote?.remote_peer_id) {
       dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id: workspaceId });
       dispatch({ type: "SET_ACTIVE_TAB", source: "user", workspaceId, tabId });
       dispatch({ type: "SET_FOCUSED_TAB", tabId });
-      void guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => undefined);
+      void guardedInvoke("mux_set_focused_tab", { tabId }).then(recordSelection).catch(() => undefined);
       return;
     }
     pendingTabSwitchRef.current[workspaceId] = { tabId };
-    guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {
+    guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).then(recordSelection).catch(() => {
       delete pendingTabSwitchRef.current[workspaceId];
       void restoreFromBackend();
     });

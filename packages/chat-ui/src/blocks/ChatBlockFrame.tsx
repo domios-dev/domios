@@ -2,7 +2,7 @@ import { ExpandableReader } from "../ExpandableReader";
 import React, { useId, useRef, useState } from "react";
 import { ChevronRight, Loader2, MessageSquarePlus, Pin } from "lucide-react";
 import { ChatCardMenu } from "../ChatCardMenu";
-import { useChatBlockHost, type ChatCardMenuItem } from "./ChatBlockHost";
+import { useChatBlockHost, observeBlockInteraction, type ChatCardMenuItem } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 
 export type ChatBlockTone = "ok" | "accent" | "warn" | "muted";
@@ -78,6 +78,7 @@ export function ChatBlockFrame({
     setOutcome({ kind: "running", id: action.id });
     try {
       const message = await action.run();
+      observeBlockInteraction(host, name, action.id === "open" ? "open" : "submit");
       setOutcome(message ? { kind: "done", message } : { kind: "idle" });
     } catch (error) {
       setOutcome({ kind: "failed", message: `${action.label} failed: ${error instanceof Error ? error.message : String(error)}` });
@@ -153,7 +154,7 @@ export function ChatBlockFrame({
                 </BlockButton>
               );
             })}
-            {fullPage && <BlockButton onClick={fullPage.open}>{fullPage.label}</BlockButton>}
+            {fullPage && <BlockButton onClick={() => { fullPage.open(); observeBlockInteraction(host, name, "open"); }}>{fullPage.label}</BlockButton>}
             {details && (
               <button
                 type="button"

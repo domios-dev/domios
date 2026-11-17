@@ -1,6 +1,55 @@
 use super::*;
 use std::sync::{Arc, Mutex};
 
+#[test]
+fn update_reservation_refuses_before_enqueue_and_releases_without_replaying() {
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let queue = WriteQueue::new(Box::new(MockWriter {
+        data: writes.clone(),
+    }));
+    let reservation = queue
+        .reserve_update_shutdown(queue.input_revision())
+        .unwrap();
+    let callback = std::cell::Cell::new(false);
+    let error = queue
+        .send_and_wait_with_enqueued(b"new work".to_vec(), Duration::from_secs(1), || {
+            callback.set(true)
+        })
+        .unwrap_err();
+    assert!(is_update_reserved(&error));
+    assert!(!callback.get());
+    assert!(writes.lock().unwrap().is_empty());
+    drop(reservation);
+    queue
+        .send_and_wait(b"explicit next send".to_vec(), Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(*writes.lock().unwrap(), b"explicit next send");
+}
+
+#[test]
+fn update_reservation_cannot_discard_an_in_flight_write() {
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let (entered, observed) = mpsc::sync_channel(1);
+    let (release, released) = mpsc::sync_channel(1);
+    let queue = Arc::new(WriteQueue::new(Box::new(FirstWriteBarrier {
+        data: writes.clone(),
+        first_entered: entered,
+        release_first: released,
+        first: true,
+    })));
+    let sender = queue.clone();
+    let thread = std::thread::spawn(move || {
+        sender.send_and_wait(b"original".to_vec(), Duration::from_secs(2))
+    });
+    observed.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(queue
+        .reserve_update_shutdown(queue.input_revision())
+        .is_err());
+    release.send(()).unwrap();
+    thread.join().unwrap().unwrap();
+    assert_eq!(*writes.lock().unwrap(), b"original");
+}
+
 struct MockWriter {
     data: Arc<Mutex<Vec<u8>>>,
 }

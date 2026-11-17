@@ -428,3 +428,64 @@ fn activation_actions_keep_exact_payloads_frequency_and_consent() {
     assert!(!engine.enqueue(Event::ChatMessageSubmitted {}, 1).unwrap());
     assert!(engine.state.queue.is_empty());
 }
+
+#[test]
+fn deferred_actions_use_closed_payloads_fake_sink_and_existing_consent() {
+    let dir = tempfile::tempdir().unwrap();
+    let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = recording_engine(dir.path().join("settings.json"), recording.clone());
+    engine.consent(Consent::On).unwrap();
+    let events = [
+        Event::AgentProviderChanged {
+            provider_id: crate::ProviderId::Other,
+            outcome: crate::ProviderChangeOutcome::Applied,
+        },
+        Event::AgentModelChanged {
+            mode: crate::ModelChangeMode::Live,
+            outcome: crate::ModelChangeOutcome::Observed,
+        },
+        Event::AgentTabSelected {},
+        Event::MeshRequestCompleted {
+            operation: crate::MeshOperation::Plan,
+            outcome: crate::RequestOutcome::Success,
+        },
+        Event::CanvasElementSaved {
+            operation: crate::CanvasOperation::Create,
+            kind: crate::CanvasKind::Note,
+        },
+        Event::DsBlockInteracted {
+            kind: crate::DsBlockKind::Choice,
+            action: crate::DsBlockAction::Submit,
+        },
+        Event::BlueprintRunCompleted {
+            outcome: crate::BlueprintOutcome::Success,
+        },
+        Event::PluginEnabledChanged { enabled: false },
+        Event::UpdateChecked { offers: 0 },
+        Event::AccountCreated {
+            auth_provider: crate::AuthProvider::Firebase,
+        },
+        Event::NeighborInviteCreated {},
+    ];
+    for event in &events {
+        let mut value = serde_json::to_value(event).unwrap();
+        value["event_properties"]["private"] = serde_json::json!("private");
+        assert!(serde_json::from_value::<Event>(value).is_err());
+        assert!(engine.enqueue(event.clone(), 1).unwrap());
+    }
+    engine.deliver(1).unwrap();
+    let sent = recording
+        .lock()
+        .unwrap()
+        .batches
+        .iter()
+        .flatten()
+        .map(|event| event.event.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(sent, events);
+    engine.consent(Consent::Off).unwrap();
+    for event in events {
+        assert!(!engine.enqueue(event, 2).unwrap());
+    }
+    assert!(engine.state.queue.is_empty());
+}

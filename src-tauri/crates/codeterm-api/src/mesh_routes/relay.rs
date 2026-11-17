@@ -752,6 +752,12 @@ async fn perform_relay_unredacted(
             PeerRelayAuthorization::MeshRpc { peer_id } => {
                 return mesh_rpc_from_mesh_peer(state, peer_id, &cmd.body, origin, agent).await;
             }
+            PeerRelayAuthorization::TabClose { peer_id, tab_id } => {
+                return peer_authorization::close_tab_from_mesh_peer(
+                    state, peer_id, tab_id, &cmd.path, origin, agent,
+                )
+                .await;
+            }
             PeerRelayAuthorization::Forward => {}
         }
         if access == codeterm_service_core::mesh::types::AccessLevel::AgentIsolated {
