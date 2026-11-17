@@ -135,6 +135,19 @@ fn agent_isolated_keeps_agent_scope() {
     assert!(!check_access(&access, &Method::DELETE, "/api/crons/123"));
 }
 
+#[test]
+fn isolated_tab_close_requires_the_stored_peer_owner_and_write_access() {
+    let path = "/api/tabs/owned/close?force=true";
+    for (access, owner, allowed) in [
+        (AccessLevel::AgentIsolated, Some("peer-a"), true),
+        (AccessLevel::AgentIsolated, Some("peer-b"), false),
+        (AccessLevel::AgentIsolated, None, false),
+        (AccessLevel::ReadOnly, Some("peer-a"), false),
+    ] {
+        assert_eq!(owned_by(&access, &Method::POST, path, owner), allowed);
+    }
+}
+
 fn owned_by(access: &AccessLevel, method: &Method, path: &str, owner: Option<&str>) -> bool {
     peer_access_allowed(access, "peer-a", method, path, |_| {
         owner.map(str::to_string)

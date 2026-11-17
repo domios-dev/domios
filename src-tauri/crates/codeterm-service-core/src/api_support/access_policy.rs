@@ -118,6 +118,7 @@ pub fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
                     "/respond",
                     "/report",
                     "/clear",
+                    "/close",
                 ]
                 .iter()
                 .any(|suffix| path.ends_with(suffix))
