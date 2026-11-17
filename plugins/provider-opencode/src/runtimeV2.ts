@@ -9,7 +9,7 @@ export function v2Model(settings:RuntimeSettings):Record<string,string>|undefine
   const model=modelParts(settings.model);
   return model ? {providerID:model.providerID,id:model.modelID,...(settings.effort ? {variant:settings.effort} : {})} : undefined;
 }
-function prompt(ctx:RuntimeContext, op:Extract<Operation,{kind:"submitTurn"}>, id:string):RuntimePlan {
+function prompt(op:Extract<Operation,{kind:"submitTurn"}>, id:string):RuntimePlan {
   const plan=request("v2.session.prompt",{path:{sessionID:op.threadId},body:{id,text:op.input.text,files:op.input.attachments.map(attachment=>({uri:attachmentUrl(attachment)}))}},{stage:"prompt",id});
   if (plan.action.kind === "request") plan.action.call.target={threadId:op.threadId,turnId:id};
   return plan;
@@ -34,7 +34,7 @@ export function v2Plan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       if (JSON.stringify(v2Model(op.settings)) !== JSON.stringify(v2Model(state.settings))) fail("unsupported","OpenCode model changes require restarting the same session");
       const id=messageIdentity(op.sendId,Date.now(),++state.counter);
       claimed(ctx,{sendId:op.sendId,messageId:id,turnId:id});
-      return prompt(ctx,op,id);
+      return prompt(op,id);
     }
     case "interrupt": return request("v2.session.abort",{path:{sessionID:own(ctx,op.threadId)},query:{resume:"false"},body:{}});
     case "answer": return v2Answer(ctx,op);
