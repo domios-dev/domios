@@ -80,8 +80,8 @@ fn concierge_socket_preserves_system_notices_and_typed_owner_refusals() {
     let response = request(&svc, "owner-fixture", "tab.send_text", notice);
     assert!(response.error.is_none(), "{:?}", response.error);
     assert_eq!(response.result.unwrap()["ok"], true);
-    writes.wait_for_flush();
     assert_eq!(writes.texts.lock().as_slice(), ["opaque build result"]);
+    assert!(!fixture.has_pending_agent_delivery(&target));
 }
 
 #[test]

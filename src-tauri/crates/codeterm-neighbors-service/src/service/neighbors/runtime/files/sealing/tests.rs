@@ -103,6 +103,7 @@ fn symlinked_pad_files_and_directories_refuse_even_when_the_target_is_inside_pad
     let pad = AgentPad::create(temp.path(), "sender", AgentPadRole::General).unwrap();
     std::fs::create_dir(pad.path().join("nested")).unwrap();
     std::fs::write(pad.path().join("nested/report.bin"), b"opaque bytes").unwrap();
+    let mut paths = vec!["linked-dir/report.bin"];
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(
@@ -112,18 +113,35 @@ fn symlinked_pad_files_and_directories_refuse_even_when_the_target_is_inside_pad
         .unwrap();
         std::os::unix::fs::symlink(pad.path().join("nested"), pad.path().join("linked-dir"))
             .unwrap();
+        paths.push("linked.bin");
     }
     #[cfg(windows)]
     {
-        std::os::windows::fs::symlink_file(
+        match std::os::windows::fs::symlink_file(
             pad.path().join("nested/report.bin"),
             pad.path().join("linked.bin"),
-        )
-        .unwrap();
-        std::os::windows::fs::symlink_dir(pad.path().join("nested"), pad.path().join("linked-dir"))
+        ) {
+            Ok(()) => paths.push("linked.bin"),
+            Err(error) if error.raw_os_error() == Some(1314) => {
+                eprintln!("file symlink capability unavailable (Windows privilege 1314); directory reparse refusal is exercised with a junction");
+            }
+            Err(error) => panic!("file symlink fixture failed: {error}"),
+        }
+        let mut command = std::process::Command::new("cmd");
+        codeterm_util::process_util::no_window_std(&mut command);
+        let output = command
+            .args(["/C", "mklink", "/J"])
+            .arg(pad.path().join("linked-dir"))
+            .arg(pad.path().join("nested"))
+            .output()
             .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    for relative in ["linked.bin", "linked-dir/report.bin"] {
+    for relative in paths {
         assert!(matches!(
             seal_files(&envelope(), vec![relative.into()], Some(pad.clone())),
             Err(Error::InvalidRequest)

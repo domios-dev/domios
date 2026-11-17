@@ -12,7 +12,15 @@ fn fixture() -> (ServiceFixture, String) {
     tab.reported_session_binding_nonce = Some("nonce".into());
     tab.agent_session_model = Some("prior".into());
     tab.cwd = Some(std::env::temp_dir().display().to_string());
-    (ServiceFixture::new(mux), id)
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(MockProvider::with_session(
+            "analytics-fixture",
+            "session",
+        )));
+    (fixture, id)
 }
 
 fn outcome(tab: &str, mechanism: ModelSwitchMode) -> ModelSwitchOutcome {

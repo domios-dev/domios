@@ -72,7 +72,7 @@ steps:
     if change_team {
         assert_eq!(
             result.unwrap_err().to_string(),
-            "blueprint send target scope changed"
+            "blueprint send requires a tab in the creator's Team and workspace"
         );
         assert!(handle.store.lock().jobs.is_empty());
     } else {

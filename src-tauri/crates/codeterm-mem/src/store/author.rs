@@ -124,6 +124,22 @@ pub fn guard_instruction(author: &MemAuthor, kind: &str, pinned: bool) -> Result
     Ok(())
 }
 
+pub(crate) fn guard_save(
+    context: &crate::backend::WriteContext,
+    item: &super::NewMemItem,
+) -> Result<(), String> {
+    if item.kind == super::MemKind::Skill
+        && !item.pinned
+        && context
+            .replace_guard
+            .as_ref()
+            .is_some_and(|guard| guard.allows_skill_save(item.area.as_deref().unwrap_or("")))
+    {
+        return Ok(());
+    }
+    guard_instruction(&context.author, item.kind.as_str(), item.pinned)
+}
+
 pub fn refuse_neighbor_promotion(conn: &Connection, id: &str) -> Result<(), String> {
     if item_author(conn, id)?.is_some_and(|a| a.is_neighbor()) {
         return Err("neighbor content cannot be promoted".into());

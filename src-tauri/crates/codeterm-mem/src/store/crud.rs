@@ -116,7 +116,7 @@ pub fn replace_existing_with_context(
         return Err(format!("mem item {id} not found"));
     };
     let author = ctx.author.clone();
-    super::guard_instruction(&author, item.kind.as_str(), item.pinned)?;
+    super::author::guard_save(ctx, item)?;
     let (source, source_path) = normalized_sources(item);
     let previous_source_path: Option<String> = conn
         .query_row(
@@ -256,7 +256,7 @@ fn insert_with_options_with_context(
 ) -> Result<String, String> {
     let kind_str = item.kind.as_str();
     let author = ctx.author.clone();
-    super::guard_instruction(&author, item.kind.as_str(), item.pinned)?;
+    super::author::guard_save(ctx, item)?;
     let (source, source_path) = normalized_sources(item);
     let slug = ids::slugify(&item.title);
     let candidate = ids::compose(kind_str, &slug);

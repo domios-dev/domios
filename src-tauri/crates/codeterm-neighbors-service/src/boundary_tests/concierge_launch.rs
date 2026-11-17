@@ -33,9 +33,7 @@ async fn owner_permission_review_launches_confined_runtime_with_bound_cli_policy
         let _storage = fixture.install_seeded_storage_desk();
         let executable = fixture.temp.path().join("trusted-cli.exe");
         std::fs::write(&executable, b"trusted-cli").unwrap();
-        service
-            .set_ext(agent_runtime::cli_exception::tests::Executable(executable))
-            .unwrap();
+        service.ext_or_init(|| agent_runtime::cli_exception::tests::Executable(executable));
         let binary = std::env::current_exe().unwrap();
         let manifest = PluginManifest::from_json_str(&json!({
             "id":"confined-runtime","version":"1.0.0","displayName":"Fixture",
