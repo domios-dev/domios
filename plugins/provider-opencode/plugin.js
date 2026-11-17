@@ -403,6 +403,70 @@ function providerKeyEnvName(id) {
   return `DOMIOS_PROVIDER_${snake}_KEY`;
 }
 
+// plugins/provider-opencode/src/cliLaunch.ts
+function generation(version) {
+  if (typeof version !== "string") return;
+  if (/^1\.\d+\.\d+(?:[-+].*)?$/.test(version)) return 1;
+  if (/^2\.3\.\d+(?:[-+].*)?$/.test(version)) return 2;
+}
+function* cliGeneration() {
+  let observation;
+  try {
+    observation = yield { op: "providerVersion" };
+  } catch {
+  }
+  const version = observation && typeof observation === "object" ? observation.version : void 0;
+  const known = generation(version);
+  if (known) return known;
+  if (version) throw new Error(`Unsupported OpenCode CLI version ${String(version)}; supported launch contracts are 1.x and 2.3.x`);
+  const result = yield* host.io.exec({ bin: "opencode", args: ["--help"], timeoutMs: 1e4 });
+  const help = result.stdout ?? "";
+  if (result.code !== 0 || result.error || result.truncated || help.length > 65536) throw new Error("OpenCode CLI capabilities could not be read");
+  if (/--standalone\b/.test(help) && /--server\b/.test(help) && !/--hostname\b/.test(help) && !/--model\b/.test(help)) return 2;
+  if (/--hostname\b/.test(help) && /--port\b/.test(help) && /--model\b/.test(help)) return 1;
+  throw new Error("Unsupported OpenCode CLI launch capabilities");
+}
+function v2Arguments(args) {
+  const retained = [];
+  let model, variant, agent;
+  for (let index = 0; index < args.length; index++) {
+    const arg = String(args[index]);
+    const take = (names) => names.includes(arg) ? String(args[++index] ?? "") : names.some((name) => arg.startsWith(name + "=")) ? arg.slice(arg.indexOf("=") + 1) : void 0;
+    const selectedModel2 = take(["-m", "--model"]);
+    if (selectedModel2 !== void 0) {
+      model = selectedModel2;
+      continue;
+    }
+    const selectedVariant = take(["--variant"]);
+    if (selectedVariant !== void 0) {
+      variant = selectedVariant;
+      continue;
+    }
+    const selectedAgent = take(["--agent"]);
+    if (selectedAgent !== void 0) {
+      agent = selectedAgent;
+      continue;
+    }
+    if (["--hostname", "--port", "--server", "--standalone"].some((name) => arg === name || arg.startsWith(name + "="))) throw new Error("OpenCode server ownership is controlled by the host");
+    retained.push(arg);
+  }
+  if (model && !/^[^/#\s]+\/[^#\s]+(?:#[^#\s]+)?$/.test(model)) throw new Error("OpenCode 2.x requires a qualified provider/model selection");
+  if (variant && !/^[a-zA-Z0-9_.-]+$/.test(variant)) throw new Error("Invalid OpenCode model variant");
+  if (variant && !model) throw new Error("OpenCode 2.x requires an explicit model for a variant override");
+  const selected = model ? model.split("#")[0] + (variant && variant !== "default" ? `#${variant}` : variant === void 0 && model.includes("#") ? `#${model.split("#")[1]}` : "") : void 0;
+  return { args: retained, config: { ...selected ? { model: selected } : {}, ...agent ? { default_agent: agent } : {} } };
+}
+function v2ConfigCommand(command, launchConfig, instructions, resumeSession, hostOwned) {
+  const permissions = [{ action: "*", resource: "*", effect: "ask" }];
+  const pad = host.envGet("CODETERM_PAD_DIR")?.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (pad) permissions.push({ action: "*", resource: pad + "/*", effect: "allow" });
+  permissions.push(...Object.entries({ question: hostOwned?.questions, todoread: hostOwned?.todos, todowrite: hostOwned?.todos }).filter(([, enabled]) => enabled).map(([action]) => ({ action, resource: "*", effect: "deny" })));
+  const config = { ...launchConfig, permissions, ...instructions ? { instructions } : {} };
+  const platform = host.platform(), quote = (value) => host.shell.quoteFor(value, platform);
+  if (platform === "windows") return `$ct_previous_config = $env:OPENCODE_CONFIG_CONTENT; $ct_previous_resume = $env:CODETERM_RESUME_SESSION_ID; $env:OPENCODE_CONFIG_CONTENT = ${quote(JSON.stringify(config))}; $env:CODETERM_RESUME_SESSION_ID = ${quote(resumeSession ?? "")}; try { ${command} } finally { $env:OPENCODE_CONFIG_CONTENT = $ct_previous_config; $env:CODETERM_RESUME_SESSION_ID = $ct_previous_resume }`;
+  return `( export OPENCODE_CONFIG_CONTENT=${quote(JSON.stringify(config))}; export CODETERM_RESUME_SESSION_ID=${quote(resumeSession ?? "")}; ${command} )`;
+}
+
 // plugins/provider-opencode/src/modelRejections.json
 var modelRejections_default = {
   query: "WITH recent AS MATERIALIZED (SELECT id, time_updated FROM message ORDER BY time_updated DESC, id DESC LIMIT 200) SELECT json_object('role', 'assistant', 'providerID', substr(json_extract(data, '$.providerID'), 1, 1024), 'modelID', substr(json_extract(data, '$.modelID'), 1, 1024), 'time', json_object('completed', CASE WHEN json_extract(data, '$.time.completed') IS NOT NULL THEN 1 END), 'error', json_object('name', substr(json_extract(data, '$.error.name'), 1, 64), 'data', json_object('message', substr(json_extract(data, '$.error.data.message'), 1, 4096), 'statusCode', CAST(json_extract(data, '$.error.data.statusCode') AS INTEGER), 'isRetryable', json(CASE json_type(data, '$.error.data.isRetryable') WHEN 'false' THEN 'false' WHEN 'true' THEN 'true' ELSE 'null' END)))) AS data FROM recent CROSS JOIN message ON message.id = recent.id WHERE CASE WHEN octet_length(data) > ?1 THEN 0 WHEN NOT json_valid(data) THEN 0 ELSE json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) END ORDER BY recent.time_updated DESC, recent.id DESC"
@@ -851,7 +915,9 @@ function completeModelOutput(result) {
 }
 function* probeModels(verbose) {
   try {
-    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 1e4 });
+    const generation2 = yield* cliGeneration();
+    if (generation2 === 2 && verbose) return null;
+    return yield* host.io.exec({ bin: "opencode", args: generation2 === 2 ? ["models", "--standalone"] : verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 1e4 });
   } catch {
     return null;
   }
@@ -976,13 +1042,13 @@ function* withGroupBalances(rows, then) {
   const now = host.unixNowMs();
   const group = rows.map((row) => row.g).find((group2) => typeof group2 === "string" && BALANCE_BY_GROUP[group2] && !balanceFresh(group2, now));
   if (typeof group !== "string") return yield* ioResolve(then());
-  const generation = ++balanceRequestGeneration;
+  const generation2 = ++balanceRequestGeneration;
   let response = null;
   try {
     response = yield* host.io.fetch(balanceRequest(group));
   } catch {
   }
-  if (generation === balanceRequestGeneration) balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
+  if (generation2 === balanceRequestGeneration) balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
   return yield* ioResolve(then());
 }
 function balanceRequest(group) {
@@ -1775,7 +1841,8 @@ function hostOwnedPermissions(hostOwned) {
     ...hostOwned?.todos ? { todoread: "deny", todowrite: "deny" } : {}
   };
 }
-function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}, resumeSession, hostOwned) {
+function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}, resumeSession, hostOwned, generation2 = 1) {
+  if (generation2 === 2) return v2ConfigCommand(command, launchConfig, instructions, resumeSession ?? void 0, hostOwned);
   const platform = host.platform();
   const config = {
     ...launchConfig,
@@ -1902,7 +1969,8 @@ var plugin = {
   },
   *buildLaunchCommand(params) {
     const p = params || {};
-    const launch = variantLaunch(p.args ?? []);
+    const generation2 = yield* cliGeneration();
+    const launch = generation2 === 2 ? v2Arguments(p.args ?? []) : variantLaunch(p.args ?? []);
     const parts = [];
     let taskPath = null;
     if (p.task) {
@@ -1910,9 +1978,10 @@ var plugin = {
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
     }
     parts.push("opencode");
+    if (generation2 === 2) parts.push("--standalone");
     if (p.skipPermissions) parts.push("--auto");
     const sps = p.structuredPromptServer;
-    if (sps && sps.port) {
+    if (generation2 === 1 && sps && sps.port) {
       const platform = host.platform();
       parts.push("--hostname", host.shell.quoteFor(String(sps.hostname || "127.0.0.1"), platform));
       parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
@@ -1927,19 +1996,21 @@ var plugin = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId, p.hostOwned);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId, p.hostOwned, generation2);
   },
   *buildResumeCommand(sessionId, skipPermissions) {
-    return withPadPermissionConfig((yield* resumeLaunch(sessionId, skipPermissions)).parts.join(" "), void 0, void 0, {}, sessionId);
+    const generation2 = yield* cliGeneration();
+    return withPadPermissionConfig((yield* resumeLaunch(sessionId, skipPermissions, generation2)).parts.join(" "), void 0, void 0, {}, sessionId, void 0, generation2);
   },
   // A resumed session re-reads `instructions`, so the composed prompt is
   // re-applied through the same session-config channel buildLaunchCommand uses.
   *buildResumeCommandWithContext(params) {
     const p = params || {};
+    const generation2 = yield* cliGeneration();
     const platform = host.platform();
-    const launch = yield* resumeLaunch(p.sessionId, p.skipPermissions);
+    const launch = yield* resumeLaunch(p.sessionId, p.skipPermissions, generation2);
     const parts = launch.parts;
-    const variant = variantLaunch(p.args ? yield* resumeLaunchArgs(p.args, p.sessionId) : []);
+    const variant = generation2 === 2 ? v2Arguments(p.args ?? []) : variantLaunch(p.args ? yield* resumeLaunchArgs(p.args, p.sessionId) : []);
     const args = variant.args;
     for (let i = 0; i < args.length; i++) {
       const arg = String(args[i]);
@@ -1951,12 +2022,12 @@ var plugin = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned, generation2);
     const taskPath = yield* host.io.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned, generation2);
     const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
     const prologue = project ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&` : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config, p.sessionId, p.hostOwned);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config, p.sessionId, p.hostOwned, generation2);
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
@@ -2198,11 +2269,12 @@ function* resumeLaunchArgs(args, sessionId) {
   retained.push("-m", model);
   return retained;
 }
-function* resumeLaunch(sessionId, skipPermissions) {
+function* resumeLaunch(sessionId, skipPermissions, generation2 = 1) {
   const platform = host.platform();
-  const db = opencodeDbPath();
+  const db = generation2 === 1 ? opencodeDbPath() : null;
   const directory = db && (yield* host.io.fs.fileExists(db)) ? yield* scanSessionDirectory(db, sessionId) : null;
   const parts = ["opencode"];
+  if (generation2 === 2) parts.push("--standalone");
   if (directory) parts.push(host.shell.quoteFor(directory, platform));
   parts.push("--session", host.shell.quoteFor(sessionId, platform));
   if (skipPermissions) parts.push("--auto");

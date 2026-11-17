@@ -1,4 +1,5 @@
 import { ioResolve } from "@codeterm/plugin-sdk";
+import {cliGeneration} from "./cliLaunch";
 import { ioSqlite, type HostIoSteps } from "@codeterm/plugin-sdk";
 import modelRejections from "./modelRejections.json";
 import { modelMetadata, modelUnavailable, rejectedModelIds } from "./turnErrors";
@@ -352,8 +353,10 @@ function completeModelOutput(result: ModelCommandResult | null): result is Model
 
 function* probeModels(verbose: boolean): HostIoSteps<ModelCommandResult | null> {
   try {
+    const generation=yield* cliGeneration();
+    if (generation===2 && verbose) return null;
     // WHY: `opencode models [--verbose]` measured ~2.8-3.1 s on BLACKSTAR; 10 s bounds only a hung CLI.
-    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 10000 });
+    return yield* host.io.exec({ bin: "opencode", args: generation===2 ? ["models","--standalone"] : verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 10000 });
   } catch { return null; }
 }
 
