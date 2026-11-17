@@ -3027,10 +3027,6 @@ EOF
       return "$status"
     }
     preflight_real() { (cd "${CT_REAL_WORKTREE:-.}" && "$@"); }
-    preflight_step server-features node scripts/release-stage.mjs check-server-features
-    preflight_step resources-frontend prepare_dev_frontend_dist "$(pwd -P)"
-    preflight_step resources-bundles prepare_bundle_stubs
-    preflight_step dependencies preflight_real env CI=true pnpm install --frozen-lockfile
     preflight_step rustfmt bash scripts/check-rustfmt.sh
     preflight_step plan-schema python scripts/check-plan-schema.py
     preflight_step file-sizes bash scripts/check-file-sizes.sh --fail
@@ -3038,16 +3034,10 @@ EOF
     preflight_step tauri-reach bash scripts/check-tauri-reach.sh
     preflight_step crate-layering bash scripts/check-crate-layering.sh
     preflight_step array-expansion bash scripts/check-empty-array-expansion.sh
-    # esbuild cannot relativize a linked workspace package across the gateway's subst drive,
-    # so the bundle diff runs from the real worktree where the committed bundles were built.
-    preflight_step plugin-bundles preflight_real node scripts/check-plugin-bundles.mjs
     preflight_step plugin-versions node scripts/sync-plugin-versions.mjs --check
     preflight_step release-locks node scripts/check-release-locks.mjs
     # Under the gateway's subst drive the catalogue reads every Cargo.toml as an unmatched test; run from the real worktree.
     preflight_step script-guards preflight_real bash ./build.sh script-guards
-    preflight_step typescript node node_modules/typescript/bin/tsc --noEmit
-    # Knip cannot enumerate pnpm workspaces under the gateway's subst drive root; run from the real worktree.
-    preflight_step exports preflight_real node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
     preflight_step api-effects node scripts/check-api-effect-dependencies.mjs
     preflight_step public-privacy node scripts/check-public-privacy.mjs
     ;;

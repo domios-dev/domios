@@ -359,7 +359,8 @@ for (const [mode, fingerprints] of [
       });
       const diagnostic = result.stdout?.slice(-3000) + result.stderr;
       assert.equal(result.error, undefined, diagnostic);
-      assert.equal(result.status, failedReader ? 74 : mode === '23' ? 23 : 0, diagnostic);
+      const expectedCommandStatus = mode === 'open-failed' || mode === 'stuck-handoff' ? 74 : mode === '23' ? 23 : 0;
+      assert.equal(result.status, expectedCommandStatus, diagnostic);
       const record = fs.readdirSync(path.join(directory, 'jobs')).find(file => file.endsWith('.json'));
       const job = JSON.parse(fs.readFileSync(path.join(directory, 'jobs', record), 'utf8'));
       assert.equal(job.state, failedReader || mode === '23' ? 'failed' : 'completed');

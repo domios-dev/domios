@@ -298,11 +298,9 @@ fn lane_settle_repository_changes_only_reach_the_ui() {
 }
 
 fn git(cwd: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .current_dir(cwd)
-        .args(args)
-        .output()
-        .unwrap();
+    let mut command = Command::new("git");
+    crate::process_util::no_window_std(&mut command);
+    let output = command.current_dir(cwd).args(args).output().unwrap();
     assert!(
         output.status.success(),
         "{}",

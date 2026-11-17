@@ -113,8 +113,9 @@ rerun successful CI suites to obtain timings already captured on the candidate.
 
 The broad release gate is CI qualification on the exact release SHA. The local
 `./build.ps1 release-preflight` is a seconds-long sanity check before pushing;
-it runs only static guards, dependency/resource preparation and type checking.
-Do not use it as release qualification or repeat the CI suites locally.
+it runs only fast static guards. The release push graph must run the removed
+compiler, Rust, TypeScript, Vitest, plugin and Biome checks on that exact SHA.
+Do not use local preflight as release qualification or repeat the CI suites.
 
 The release Rust set is every `release`-tier Rust runner in
 `tests/catalogue.json` (`node scripts/test-catalogue.mjs select --tier release`):

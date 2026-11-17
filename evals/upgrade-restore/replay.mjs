@@ -1,5 +1,5 @@
 import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
-import {readFileSync, realpathSync, writeFileSync} from 'node:fs';
+import {existsSync, readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
@@ -36,12 +36,15 @@ const currentHealth = await daemon.health();
 if (currentHealth.instance?.name !== dev.instance) throw new Error('Daemon instance differs from the resolved DEV instance');
 if (currentHealth.build_sha !== expectedBuild) throw new Error('Running full build SHA differs from required replay SHA');
 const providers = await daemon.providers();
-const provider = providers.find(provider => provider.id === 'codex');
-const resolvedBinary = provider?.cli_status?.resolved_path;
-const mockBinary = join(resolve(root), 'bin', process.platform === 'win32' ? 'codex.cmd' : 'codex');
-if (provider?.agent_runtime?.command?.binary !== 'codex' || !resolvedBinary
-  || realpathSync(resolvedBinary) !== realpathSync(mockBinary)) {
-  throw new Error('Fake app-server backing is not the DEV daemon’s resolved runtime binary');
+for (const providerId of new Set(expected.filter(tab => tab.agent_type).map(tab => tab.agent_type))) {
+  const provider = providers.find(row => row.id === providerId);
+  const resolvedBinary = provider?.cli_status?.resolved_path;
+  const executable = process.platform === 'win32' ? `${providerId}.cmd` : providerId;
+  const mockBinary = join(resolve(root), 'bin', executable);
+  if (provider?.agent_runtime?.command?.binary !== providerId || !resolvedBinary
+    || realpathSync(resolvedBinary) !== realpathSync(mockBinary)) {
+    throw new Error(`Fake ${providerId} backing is not the DEV daemon’s resolved runtime binary`);
+  }
 }
 if (mode === 'stage') {
   await dc('config', 'set', 'general_agent.enabled', 'false', '--json');
@@ -101,7 +104,14 @@ const results = await Promise.all(active.map(async tab => {
   }
 }));
 const trace = readFileSync(join(root, 'provider-trace.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
-const shellTrace = readFileSync(join(root, 'shell-trace.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+const claudeTracePath = join(root, 'claude-trace.jsonl');
+const claudeTrace = existsSync(claudeTracePath)
+  ? readFileSync(claudeTracePath, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)
+  : [];
+const shellTracePath = join(root, 'shell-trace.jsonl');
+const shellTrace = existsSync(shellTracePath)
+  ? readFileSync(shellTracePath, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)
+  : [];
 for (const tab of active.filter(tab => !tab.agent_type && !tab.surface)) {
   const actual = await daemon.inspect(tab.tab_id);
   const launches = shellTrace.filter(row => row.tab_id === tab.tab_id && row.cwd === actual.cwd
@@ -114,8 +124,18 @@ for (const tab of active.filter(tab => !tab.agent_type && !tab.surface)) {
 }
 for (const tab of active.filter(tab => tab.agent_type)) {
   const session = tab.claude_session_id ?? tab.agent_session_id;
-  if (!trace.some(row => row.thread_id === session && row.method === 'thread/turns/list')) {
+  if (tab.agent_type === 'codex' && !trace.some(row => row.thread_id === session && row.method === 'thread/turns/list')) {
     results.push({tab_id: tab.tab_id, ready: false, reason: 'history backing was not consumed by restored runtime'});
+  }
+  if (tab.agent_type === 'claude') {
+    const actual = await daemon.inspect(tab.tab_id);
+    const launches = claudeTrace.filter(row => row.session_id === session && row.cwd === actual.cwd && row.pid);
+    let live = false;
+    for (const launch of launches) {
+      try { process.kill(launch.pid, 0); live = true; } catch {}
+    }
+    if (!live) results.push({tab_id: tab.tab_id, ready: false,
+      reason: 'fake Claude did not resume its own isolated session backing'});
   }
 }
 const preservedUnavailable = await Promise.all(passive.map(async tab => {
