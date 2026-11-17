@@ -299,6 +299,7 @@ fn finished(
         sentinels.push(current(conn, id)?.ok_or_else(|| corrupt("touched stage vanished"))?);
     }
     Ok(SentinelCommit {
+        terminal_run: None,
         outcome,
         sentinels,
         removed: Vec::new(),
@@ -869,6 +870,7 @@ pub(super) fn delete_scenario(
         params![workspace, team, id.as_str()],
     )?;
     Ok(SentinelCommit {
+        terminal_run: None,
         outcome: MutationOutcome::Applied,
         sentinels: Vec::new(),
         removed: ids.into_iter().map(SentinelId::trusted).collect(),
@@ -881,6 +883,7 @@ pub(super) fn remove_team(
 ) -> Result<SentinelCommit, StorageError> {
     let removed = remove_team_rows(cx, team)?;
     Ok(SentinelCommit {
+        terminal_run: None,
         outcome: if removed.is_empty() {
             MutationOutcome::Unchanged
         } else {

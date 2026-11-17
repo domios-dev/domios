@@ -213,6 +213,12 @@ pub(crate) async fn submit_loaded(
         .map_err(|reason| before_write(&session.context.lock().tab_id, reason))?;
     let context = session.context.lock().clone();
     let tab = context.tab_id.as_str();
+    let _update_input =
+        svc.admit_update_input(tab)
+            .map_err(|detail| DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail,
+            })?;
     if session.compaction.lock().held(context.epoch) {
         return Err(before_write(
             tab,

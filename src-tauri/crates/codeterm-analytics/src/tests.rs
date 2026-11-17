@@ -379,6 +379,7 @@ fn catalog_every_event_rejects_extra_properties_and_unknown_enum_values() {
             let value = match kind {
                 "Version" => serde_json::json!("1.2.3"),
                 "u32" => serde_json::json!(1),
+                "bool" => serde_json::json!(true),
                 "ProviderId" => serde_json::json!("codex"),
                 _ => enums[kind][0].clone(),
             };

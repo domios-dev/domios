@@ -2740,7 +2740,7 @@ function codexRestrictedCliConfig(ctx) {
   const hash = (value) => /^[0-9a-f]{64}$/.test(value);
   if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || !["workspace-write", "read-only-with-writable-roots"].includes(ctx.settings.mode ?? "") || ctx.settings.networkAccess !== false || !/^[A-Za-z0-9/\\:._~-]+$/.test(policy.executable) || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash))
     throw { code: "binding_mismatch", message: "Restricted CLI policy differs from the bound launch" };
-  return { projects: { [ctx.cwd]: { trust_level: "trusted" } } };
+  return { project_root_markers: [], projects: { [ctx.cwd]: { trust_level: "trusted" } } };
 }
 function codexValidateCliTrust(ctx, raw) {
   if (!ctx.restrictedCli) return;

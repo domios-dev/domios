@@ -14,6 +14,11 @@ vi.hoisted(() => {
 type Bridge = typeof import("../../lib/bridge");
 type Store = typeof import("./index");
 type Handler = (event: { payload: unknown }) => void;
+const analytics = vi.hoisted(() => ({ events: [] as unknown[] }));
+vi.mock("../../lib/productAnalytics", async importOriginal => ({
+  ...await importOriginal<typeof import("../../lib/productAnalytics")>(),
+  recordProductEvent: async (event: unknown) => { analytics.events.push(event); },
+}));
 
 let bridge: Bridge;
 let store: Store;
@@ -24,6 +29,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  analytics.events.length = 0;
   window.sessionStorage.clear();
   window.localStorage.clear();
 });
@@ -121,6 +127,25 @@ afterEach(async () => {
 });
 
 describe("each client keeps its own selection", () => {
+  it("analytics records an acknowledged human agent selection and excludes restore, programmatic focus, noops and refusals", async () => {
+    const daemon = createDaemon({ chatty: false });
+    daemon.state.tabs.a2.agent_type = "private-provider";
+    daemon.state.tabs.b1.agent_type = "private-provider";
+    const { a } = await mountClients(daemon);
+    expect(analytics.events).toEqual([]);
+    await act(async () => { await a.actions().selectTabByTab("ws-a", "a2"); });
+    expect(analytics.events).toEqual([]);
+    await act(async () => { a.actions().setActiveTab("ws-a", "a1"); });
+    await act(async () => { a.actions().setActiveTab("ws-a", "a2"); });
+    await act(async () => { a.actions().setActiveTab("ws-a", "a2"); });
+    bridge.__setInvokeForTest(async (cmd, args) => {
+      if (cmd === "mux_set_active_tab_and_workspace") throw new Error("refused");
+      return daemon.invoke(cmd, args);
+    });
+    await act(async () => { a.actions().setActiveTab("ws-b", "b1"); });
+    await settle();
+    expect(analytics.events).toEqual([{ event_type: "agent_tab_selected", event_properties: {} }]);
+  });
   it("a selection in one client never moves, reads or wakes another client", async () => {
     const daemon = createDaemon({ chatty: true });
     const { a, b } = await mountClients(daemon);

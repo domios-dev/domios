@@ -18,7 +18,7 @@ pub(crate) fn restart(app: &AppHandle) -> Result<(), String> {
         .apply(&mut command);
     codeterm_util::process_util::no_window_std(&mut command);
     schedule_cleanup(app)?
-        .recv()
+        .recv_timeout(std::time::Duration::from_secs(30))
         .map_err(|error| format!("application cleanup was interrupted: {error}"))?;
     command
         .spawn()

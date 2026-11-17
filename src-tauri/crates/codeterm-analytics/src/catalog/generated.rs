@@ -288,6 +288,244 @@ impl SettingsSection {
     }
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ProviderChangeOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "pending")]
+    Pending,
+}
+impl ProviderChangeOutcome {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "applied" => Some(Self::Applied),
+            "pending" => Some(Self::Pending),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ModelChangeMode {
+    #[serde(rename = "live")]
+    Live,
+    #[serde(rename = "restart")]
+    Restart,
+    #[serde(rename = "next_turn")]
+    NextTurn,
+}
+impl ModelChangeMode {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "live" => Some(Self::Live),
+            "restart" => Some(Self::Restart),
+            "next_turn" => Some(Self::NextTurn),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ModelChangeOutcome {
+    #[serde(rename = "observed")]
+    Observed,
+    #[serde(rename = "pending")]
+    Pending,
+}
+impl ModelChangeOutcome {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "observed" => Some(Self::Observed),
+            "pending" => Some(Self::Pending),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MeshOperation {
+    #[serde(rename = "plan")]
+    Plan,
+    #[serde(rename = "spec")]
+    Spec,
+    #[serde(rename = "effort")]
+    Effort,
+    #[serde(rename = "task")]
+    Task,
+    #[serde(rename = "team")]
+    Team,
+    #[serde(rename = "other")]
+    Other,
+}
+impl MeshOperation {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "plan" => Some(Self::Plan),
+            "spec" => Some(Self::Spec),
+            "effort" => Some(Self::Effort),
+            "task" => Some(Self::Task),
+            "team" => Some(Self::Team),
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RequestOutcome {
+    #[serde(rename = "success")]
+    Success,
+    #[serde(rename = "refused")]
+    Refused,
+    #[serde(rename = "failure")]
+    Failure,
+}
+impl RequestOutcome {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "success" => Some(Self::Success),
+            "refused" => Some(Self::Refused),
+            "failure" => Some(Self::Failure),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CanvasOperation {
+    #[serde(rename = "create")]
+    Create,
+    #[serde(rename = "update")]
+    Update,
+    #[serde(rename = "delete")]
+    Delete,
+}
+impl CanvasOperation {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "create" => Some(Self::Create),
+            "update" => Some(Self::Update),
+            "delete" => Some(Self::Delete),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CanvasKind {
+    #[serde(rename = "note")]
+    Note,
+    #[serde(rename = "mermaid")]
+    Mermaid,
+    #[serde(rename = "image")]
+    Image,
+    #[serde(rename = "html")]
+    Html,
+    #[serde(rename = "page")]
+    Page,
+    #[serde(rename = "document")]
+    Document,
+    #[serde(rename = "canvas")]
+    Canvas,
+    #[serde(rename = "other")]
+    Other,
+}
+impl CanvasKind {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "note" => Some(Self::Note),
+            "mermaid" => Some(Self::Mermaid),
+            "image" => Some(Self::Image),
+            "html" => Some(Self::Html),
+            "page" => Some(Self::Page),
+            "document" => Some(Self::Document),
+            "canvas" => Some(Self::Canvas),
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DsBlockKind {
+    #[serde(rename = "html")]
+    Html,
+    #[serde(rename = "page")]
+    Page,
+    #[serde(rename = "image")]
+    Image,
+    #[serde(rename = "document")]
+    Document,
+    #[serde(rename = "canvas")]
+    Canvas,
+    #[serde(rename = "guide")]
+    Guide,
+    #[serde(rename = "plugin")]
+    Plugin,
+    #[serde(rename = "connect")]
+    Connect,
+    #[serde(rename = "setting")]
+    Setting,
+    #[serde(rename = "agent")]
+    Agent,
+    #[serde(rename = "job")]
+    Job,
+    #[serde(rename = "checklist")]
+    Checklist,
+    #[serde(rename = "choice")]
+    Choice,
+    #[serde(rename = "tasks")]
+    Tasks,
+}
+impl DsBlockKind {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "html" => Some(Self::Html),
+            "page" => Some(Self::Page),
+            "image" => Some(Self::Image),
+            "document" => Some(Self::Document),
+            "canvas" => Some(Self::Canvas),
+            "guide" => Some(Self::Guide),
+            "plugin" => Some(Self::Plugin),
+            "connect" => Some(Self::Connect),
+            "setting" => Some(Self::Setting),
+            "agent" => Some(Self::Agent),
+            "job" => Some(Self::Job),
+            "checklist" => Some(Self::Checklist),
+            "choice" => Some(Self::Choice),
+            "tasks" => Some(Self::Tasks),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DsBlockAction {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "submit")]
+    Submit,
+}
+impl DsBlockAction {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "open" => Some(Self::Open),
+            "submit" => Some(Self::Submit),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BlueprintOutcome {
+    #[serde(rename = "success")]
+    Success,
+    #[serde(rename = "failure")]
+    Failure,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+}
+impl BlueprintOutcome {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "success" => Some(Self::Success),
+            "failure" => Some(Self::Failure),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProviderId {
     #[serde(rename = "acp")]
     Acp,
@@ -398,4 +636,38 @@ pub enum Event {
     MemorySearched {},
     CanvasOpened {},
     OnboardingCompleted {},
+    AgentProviderChanged {
+        provider_id: ProviderId,
+        outcome: ProviderChangeOutcome,
+    },
+    AgentModelChanged {
+        mode: ModelChangeMode,
+        outcome: ModelChangeOutcome,
+    },
+    AgentTabSelected {},
+    MeshRequestCompleted {
+        operation: MeshOperation,
+        outcome: RequestOutcome,
+    },
+    CanvasElementSaved {
+        operation: CanvasOperation,
+        kind: CanvasKind,
+    },
+    DsBlockInteracted {
+        kind: DsBlockKind,
+        action: DsBlockAction,
+    },
+    BlueprintRunCompleted {
+        outcome: BlueprintOutcome,
+    },
+    PluginEnabledChanged {
+        enabled: bool,
+    },
+    UpdateChecked {
+        offers: u32,
+    },
+    AccountCreated {
+        auth_provider: AuthProvider,
+    },
+    NeighborInviteCreated {},
 }

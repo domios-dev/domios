@@ -635,7 +635,9 @@ pub(super) fn injection_write_error(pty_id: &str, error: String) -> InjectionErr
         InjectionError::WriteQueueFull {
             pty_id: pty_id.to_string(),
         }
-    } else if crate::pty::write_queue::is_stale_agent_input(&error) {
+    } else if crate::pty::write_queue::is_stale_agent_input(&error)
+        || crate::pty::write_queue::is_update_reserved(&error)
+    {
         InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         }
