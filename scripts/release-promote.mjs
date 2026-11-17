@@ -11,13 +11,19 @@ import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchAndAggregate, PLATFORMS } from './release-dry-run-manifest.mjs';
+import { HEADLESS_TARGETS } from './headless-release-package.mjs';
 
 const SOURCE_REPO = sourceRepository();
 // 1.19 transition mirror: PUBLISH_MIRROR also writes this repository; delete after 1.19 ships.
 const MIRROR_REPO = 'rollacode/codeterm-releases';
 const exec = promisify(execFile);
 export const PUBLICATION_CONCURRENCY = 6;
+const PLATFORMS = Object.keys(HEADLESS_TARGETS).sort();
+
+async function fetchAndAggregate(options) {
+  const manifest = await import('./release-dry-run-manifest.mjs');
+  return manifest.fetchAndAggregate(options);
+}
 
 // Each name prefixes a release.yml job (reusable callers add " / <job>") that must have succeeded.
 export const REQUIRED_JOBS = [

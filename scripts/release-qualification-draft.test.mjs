@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { admitDraft, draftNotes, qualificationTag, requireQualificationPush, prepareDraft, resetPlatform, uploadDraft } from './release-qualification-draft.mjs';
+import { admitDraft, draftNotes, qualificationTag, requireQualificationPush, prepareDraft, resetPlatform, sealDraft, uploadDraft } from './release-qualification-draft.mjs';
 import { promoteQualifiedDrafts } from './release-promote.mjs';
 import { fetchPlatformEvidence, PLATFORMS, storeAsync } from './release-dry-run-manifest.mjs';
 
@@ -59,6 +59,10 @@ test('platform reset supersedes only older same-version drafts and clears only i
   await resetPlatform({ ...identity, platform: 'linux-x86_64', run: async args => {
     calls.push(args);
     if (args[1] === 'view') return JSON.stringify(draft);
+    if (args.includes('PATCH')) {
+      assert.ok(args.includes(`tag_name=${draft.tagName}`));
+      return '';
+    }
     if (args.includes('DELETE')) return '';
     return (args.at(-1).includes('/assets?') ? assets : releases).map(row => JSON.stringify(row)).join('\n');
   } });
@@ -66,6 +70,24 @@ test('platform reset supersedes only older same-version drafts and clears only i
     'repos/domios-dev/domios/releases/4', 'repos/domios-dev/domios/releases/assets/8',
     'repos/domios-dev/domios/releases/assets/9', 'repos/domios-dev/domios/releases/assets/10',
   ]);
+});
+
+test('sealing preserves the unpublished tag and verifies the retained identity and seal', async () => {
+  let updated;
+  await sealDraft({ ...identity, run: async args => {
+    if (args.includes('PATCH')) {
+      assert.ok(args.includes(`tag_name=${draft.tagName}`));
+      updated = { ...draft, body: args.at(-1).slice('body='.length) };
+      return '';
+    }
+    return JSON.stringify(updated ?? draft);
+  } });
+  assert.ok(updated.body.includes('<!-- qualification-complete -->'));
+  let reads = 0;
+  await assert.rejects(sealDraft({ ...identity, run: async args => {
+    if (args.includes('PATCH')) return '';
+    return JSON.stringify(++reads === 1 ? draft : { ...draft, tagName: 'untagged-placeholder' });
+  } }), /Foreign qualification draft/);
 });
 
 test('uploads use the admitted numeric ID, check API digests, and complete only after all bytes', async () => {

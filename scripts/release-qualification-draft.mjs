@@ -89,7 +89,10 @@ export async function sealDraft({ tag, sourceSha, runId, repository, env, run = 
   const draft = await readDraft(qualificationTag(tag, runId), repository, env, run) ?? await readDraft(tag, repository, env, run);
   const id = admitDraft(draft, tag, sourceSha, runId, repository);
   await run(['api', '--method', 'PATCH', `repos/${repository}/releases/${id}`, '-f',
-    `body=${draftNotes(sourceSha, runId)}\n<!-- qualification-complete -->`], env);
+    `tag_name=${draft.tagName}`, '-f', `body=${draftNotes(sourceSha, runId)}\n<!-- qualification-complete -->`], env);
+  const sealed = await readDraft(draft.tagName, repository, env, run);
+  admitDraft(sealed, tag, sourceSha, runId, repository);
+  if (!sealed.body.includes('<!-- qualification-complete -->')) throw new Error('Qualification draft seal was not retained');
 }
 
 export async function qualificationRepositories(action) {
@@ -115,7 +118,9 @@ export async function resetPlatform({ tag, sourceSha, runId, platform, repositor
   if (candidates.some(release => BigInt(release.tag_name.slice(prefix.length)) > BigInt(runId))) throw new Error('Superseded qualification run');
   const draft = await readDraft(qualificationTag(tag, runId), repository, env, run);
   const id = admitDraft(draft, tag, sourceSha, runId, repository);
-  await run(['api', '--method', 'PATCH', `repos/${repository}/releases/${id}`, '-f', `body=${draftNotes(sourceSha, runId)}`], env);
+  await run(['api', '--method', 'PATCH', `repos/${repository}/releases/${id}`, '-f',
+    `tag_name=${draft.tagName}`, '-f', `body=${draftNotes(sourceSha, runId)}`], env);
+  admitDraft(await readDraft(draft.tagName, repository, env, run), tag, sourceSha, runId, repository);
   for (const old of candidates.filter(release => BigInt(release.tag_name.slice(prefix.length)) < BigInt(runId))) {
     try { await run(['api', '--method', 'DELETE', `repos/${repository}/releases/${old.id}`], env); }
     catch (error) { if (!/HTTP 404/.test(error.stderr ?? error.message)) throw error; }

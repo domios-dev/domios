@@ -606,6 +606,10 @@ Every release-branch push restarts the full graph, so a fix must not introduce t
 
 ### Known traps
 
+- Include the admitted `tag_name` when PATCHing a qualification draft's body, then read back
+  its identity. A body-only update can replace an unpublished tag with an `untagged-*` placeholder.
+- Keep the promotion module's manifest aggregation import lazy: capture dynamically imports
+  draft helpers, so a static promotion-to-manifest import deadlocks that top-level await.
 - rustc hides link.exe progress output (`Creating library ...`) only when the linker is the bare
   name `link.exe`; an absolute linker path produces advisory `linker_messages` warnings.
   Put the native MSVC tool directory first on PATH during warning cleanup.
@@ -702,4 +706,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
