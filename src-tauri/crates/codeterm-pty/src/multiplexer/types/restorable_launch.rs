@@ -147,6 +147,8 @@ impl RestorableLaunchParameters {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct AccountContinuationNotice {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<String>,
     pub id: String,
     pub provider: String,
     pub session: String,

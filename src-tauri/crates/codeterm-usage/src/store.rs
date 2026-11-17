@@ -276,9 +276,28 @@ impl UsageStore {
         limit: i64,
         account_id: Option<&str>,
     ) -> Result<Vec<UsageSnapshotRow>, String> {
+        self.history(provider, since_ms, limit, account_id, false)
+    }
+    pub fn get_provider_history(
+        &self,
+        provider: &str,
+        since_ms: i64,
+        limit: i64,
+    ) -> Result<Vec<UsageSnapshotRow>, String> {
+        self.history(provider, since_ms, limit, None, true)
+    }
+
+    fn history(
+        &self,
+        provider: &str,
+        since_ms: i64,
+        limit: i64,
+        account_id: Option<&str>,
+        all_accounts: bool,
+    ) -> Result<Vec<UsageSnapshotRow>, String> {
         let conn = self.conn.lock();
         let sql = format!(
-            "{} WHERE provider = ?1 AND captured_at >= ?2 AND (?3 IS NULL OR account_id = ?3) ORDER BY captured_at DESC LIMIT ?4",
+            "{} WHERE provider = ?1 AND captured_at >= ?2 AND (?5 OR account_id IS ?3) ORDER BY captured_at DESC LIMIT ?4",
             SELECT_HEADER
         );
         let mut stmt = conn
@@ -286,7 +305,7 @@ impl UsageStore {
             .map_err(|e| format!("prepare get_history: {}", e))?;
         let rows: Vec<UsageSnapshotRow> = stmt
             .query_map(
-                params![provider, since_ms, account_id, limit],
+                params![provider, since_ms, account_id, limit, all_accounts],
                 row_to_header,
             )
             .map_err(|e| format!("query history: {}", e))?
@@ -299,6 +318,7 @@ impl UsageStore {
         &self,
         provider: &str,
         since_ms: i64,
+        account_id: Option<&str>,
     ) -> Result<Vec<DailyRollup>, String> {
         let conn = self.conn.lock();
         let mut stmt = conn
@@ -306,13 +326,13 @@ impl UsageStore {
                 r#"SELECT date(captured_at/1000,'unixepoch','localtime') AS day,
                           AVG(session_pct), MAX(session_pct), MAX(weekly_pct)
                    FROM usage_snapshots
-                   WHERE provider = ?1 AND captured_at >= ?2 AND parsed_ok = 1
+                   WHERE provider = ?1 AND captured_at >= ?2 AND parsed_ok = 1 AND account_id IS ?3
                    GROUP BY day
                    ORDER BY day"#,
             )
             .map_err(|e| format!("prepare rollup: {}", e))?;
         let out: Vec<DailyRollup> = stmt
-            .query_map(params![provider, since_ms], |r| {
+            .query_map(params![provider, since_ms, account_id], |r| {
                 Ok(DailyRollup {
                     day: r.get(0)?,
                     avg_session_pct: r.get::<_, Option<f64>>(1)?.map(|v| v as f32),
@@ -690,7 +710,7 @@ mod tests {
         for s in &snaps {
             store.insert_snapshot(s).unwrap();
         }
-        let roll = store.get_daily_rollup("claude", 0).unwrap();
+        let roll = store.get_daily_rollup("claude", 0, None).unwrap();
         assert_eq!(roll.len(), 3, "three distinct days");
         let day0 = &roll[0];
         assert_eq!(day0.avg_session_pct, Some(30.0), "avg of 20+40");
@@ -1067,8 +1087,27 @@ mod tests {
             .unwrap();
         assert!(usual.account_id.is_none());
         assert!(usual.failure_reason.is_none());
-        let any = store.get_history("claude", 0, 10, None).unwrap();
-        assert_eq!(any.len(), 4);
+        let usual = store.get_history(&s1.provider, 0, 10, None).unwrap();
+        assert_eq!(usual.len(), 1);
+        assert!(usual.iter().all(|row| row.account_id.is_none()));
+        let named = store
+            .get_history(&s1.provider, 0, 10, Some("acct-a"))
+            .unwrap();
+        assert_eq!(named.len(), 1);
+        assert!(named
+            .iter()
+            .all(|row| row.account_id.as_deref() == Some("acct-a")));
+        assert_eq!(
+            store
+                .get_provider_history(&s1.provider, 0, 10)
+                .unwrap()
+                .len(),
+            4
+        );
+        let absent = store
+            .get_daily_rollup(&s1.provider, 0, Some("absent"))
+            .unwrap();
+        assert!(absent.is_empty());
     }
 
     #[test]

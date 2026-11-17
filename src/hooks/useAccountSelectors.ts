@@ -94,7 +94,7 @@ export function useTabAccounts(tab: Tab) {
   const catalogue = useAgentProviders();
   const descriptor = catalogue.providers.find(provider => provider.id === tab.agent_type);
   const accounts = useProviderAccounts(descriptor?.accounts && !tab.remote_peer_id ? tab.agent_type : null);
-  const transition=useAccountTransition(descriptor?.accounts && !tab.remote_peer_id ? tab.id:null,tab.agent_type);
+  const transition=useAccountTransition(descriptor?.accounts && !tab.remote_peer_id ? tab.id:null,tab.agent_type,`${tab.session_binding_nonce}:${tab.agent_runtime_state?.epoch}:${tab.agent_runtime_state?.active_turn_started_at_ms}`);
   const currentAccountId = tab.restorable_launch?.account_id ?? "default";
   const row = accounts.snapshot?.accounts.find(account => account.id === currentAccountId);
   const currentIdentity = row?.name ?? row?.identity ?? null;
@@ -111,15 +111,16 @@ export function useTabAccounts(tab: Tab) {
     : null;
   const choose = useCallback(async (accountId: string,resume?:{turnId:string}) => {
     const snapshot = accounts.snapshot;
-    if (!snapshot || latest.current !== binding || blockedReason || inFlight.current) throw new Error(blockedReason ?? "The tab account changed. Refresh it before trying again.");
+    const verifying=snapshot?.continuation==="unverified" && transition.canVerify && !transition.turnActive && !resume;
+    if (!snapshot || latest.current !== binding || (blockedReason && !verifying) || inFlight.current) throw new Error(blockedReason ?? "The tab account changed. Refresh it before trying again.");
     if (accountId === currentAccountId) return;
     const target = snapshot.accounts.find(account => account.id === accountId);
-    if (!target || target.status === "signedOut" || target.status === "removing") throw new Error("The selected account is unavailable");
+    if (!target || target.status === "signedOut" || target.status === "removing" || (verifying && target.status!=="ready")) throw new Error("The selected account is unavailable");
     inFlight.current=true;
     setPending(binding);
     setFailure(null);
     try {
-      await selectedDaemonTransport.json("POST", `/api/tabs/${encodeURIComponent(tab.id)}/account`, {
+      await selectedDaemonTransport.json("POST", `/api/tabs/${encodeURIComponent(tab.id)}/account${verifying?"/verify":""}`, {
         providerId: tab.agent_type, accountId, previousAccountId: currentAccountId,
         accountNamespace:tab.restorable_launch?.account_namespace ?? null,
         ...(resume?{resumeWork:true,turnId:resume.turnId}:{}),
@@ -127,6 +128,6 @@ export function useTabAccounts(tab: Tab) {
       });
     } catch (failure) { if (latest.current === binding) setFailure({binding,reason:String(failure)}); throw failure; }
     finally { inFlight.current=false;setPending(current => current === binding ? null : current); }
-  }, [accounts.snapshot, binding, blockedReason, pending, currentAccountId, tab.id, tab.agent_type, tab.session_binding_nonce, tab.agent_runtime_state?.epoch,tab.restorable_launch?.account_namespace]);
-  return { snapshot: accounts.snapshot, currentAccountId, currentIdentity, transition:transition.transition,switching: pending === binding || transition.transition?.status==="waiting" || transition.transition?.status==="switching", blockedReason, error: (failure?.binding===binding?failure.reason:null) ?? accounts.error ?? transition.error, choose,continueOn:(accountId:string,turnId:string)=>choose(accountId,{turnId}) };
+  }, [accounts.snapshot, binding, blockedReason, pending, currentAccountId, tab.id, tab.agent_type, tab.session_binding_nonce, tab.agent_runtime_state?.epoch,tab.restorable_launch?.account_namespace,transition.canVerify,transition.turnActive]);
+  return { canVerify:transition.canVerify,turnActive:transition.turnActive,snapshot: accounts.snapshot, currentAccountId, currentIdentity, transition:transition.transition,switching: pending === binding || transition.transition?.status==="waiting" || transition.transition?.status==="switching", blockedReason, error: (failure?.binding===binding?failure.reason:null) ?? accounts.error ?? transition.error, choose,continueOn:(accountId:string,turnId:string)=>choose(accountId,{turnId}) };
 }

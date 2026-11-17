@@ -13,8 +13,12 @@ mod sign_in;
 mod storage;
 pub mod switching;
 mod work;
-pub use scheduler::{account_turn_boundary, select, transition, SelectRequest, Transition};
-pub(crate) use scheduler::{invalidate_boundary, runtime_observe, transcript_limit};
+pub use scheduler::{
+    account_turn_boundary, can_try_now, select, transition, SelectRequest, Transition,
+};
+pub(crate) use scheduler::{
+    invalidate_boundary, runtime_observe, successful_turn, transcript_limit,
+};
 
 use codeterm_plugin::provider_account::{storage::AccountCapability, InvocationContext};
 use codeterm_types::config::provider_accounts::{ProviderAccountsConfig, IMPLICIT_ACCOUNT};

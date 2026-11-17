@@ -363,6 +363,17 @@ pub(crate) fn runtime_observe(
                 .is_some_and(|boundary| boundary.turn == *turn);
         }
         RuntimeEvent::TurnUpdated {
+            thread_id,
+            turn_id: Some(_),
+            state: RuntimeTurnState::Idle,
+            detail: None,
+            ..
+        } if context.thread_id.as_ref() == Some(thread_id)
+            && *session.auth.lock() == RuntimeAuthState::SignedIn =>
+        {
+            successful_turn(svc, &context.tab_id, thread_id, &context.binding_nonce);
+        }
+        RuntimeEvent::TurnUpdated {
             state: RuntimeTurnState::Working,
             ..
         } => {
@@ -503,22 +514,43 @@ fn exhausted(svc: &ServiceContext, tab: &str, limit: Limit) {
     if let Err(reason) = limits::remember(svc, &limit.expected.provider, account, limit.resets_at) {
         log::debug!("[provider-accounts] could not persist exhausted account state: {reason}");
     }
+    let (all, first_reset) = {
+        let scheduler = state.scheduler.lock();
+        let limits: Vec<_> = policy
+            .order
+            .iter()
+            .map(|account| {
+                scheduler
+                    .book
+                    .authentication(&limit.expected.provider, account)
+            })
+            .collect();
+        let all = limits
+            .iter()
+            .all(|limit| matches!(limit, Some(Authentication::Exhausted { .. })));
+        let resets: Option<Vec<u64>> = limits
+            .into_iter()
+            .map(|limit| match limit {
+                Some(Authentication::Exhausted {
+                    resets_at: Some(at),
+                }) => Some(at),
+                _ => None,
+            })
+            .collect();
+        (all, resets.and_then(|resets| resets.into_iter().min()))
+    };
     let mut transition = Transition {
         cause: "limit",
         account_identity: identity(svc, &limit.expected.provider, account),
         id: uuid::Uuid::new_v4().to_string(),
         provider_id: limit.expected.provider.clone(),
         account_id: account.into(),
-        status: if next.is_some() {
-            "exhausted"
-        } else {
-            "allExhausted"
-        },
+        status: if all { "allExhausted" } else { "exhausted" },
         next_identity: next
             .as_ref()
             .map(|account| identity(svc, &limit.expected.provider, account)),
         next_account_id: next,
-        resets_at_ms: limit.resets_at,
+        resets_at_ms: if all { first_reset } else { limit.resets_at },
         turn_id: Some(limit.turn),
         reason: None,
         continuation: super::continuation(svc, &limit.expected.provider),
@@ -639,4 +671,81 @@ fn emit(svc: &ServiceContext, tab: &str) {
         "provider-account-transition",
         serde_json::json!({"tabId":tab,"transition":transition(svc,tab)}),
     );
+}
+
+pub fn can_try_now(svc: &ServiceContext, tab: &str) -> bool {
+    if let Some(session) = engine::for_tab(tab) {
+        engine::account_trial_idle(svc, &session)
+    } else {
+        svc.try_snapshot_with_reconciled_status()
+            .is_some_and(|snapshot| {
+                snapshot.tab_statuses.get(tab) == Some(&codeterm_types::pty::TabStatus::Idle)
+            })
+    }
+}
+
+pub(crate) fn successful_turn(svc: &ServiceContext, tab: &str, session: &str, nonce: &str) {
+    let Ok(expected) = capture(svc, tab) else {
+        return;
+    };
+    if expected.session_id != session || expected.binding_nonce != nonce {
+        return;
+    }
+    let account = expected
+        .account_id
+        .as_deref()
+        .unwrap_or(super::IMPLICIT_ACCOUNT);
+    let policy = policy(svc, &expected.provider);
+    if limits::active(&policy, account).is_none() {
+        return;
+    }
+    let owner = svc.clone();
+    let tab = tab.to_owned();
+    let receipt = super::work::Receipt::capture(svc);
+    crate::async_runtime::spawn(async move {
+        let _ = codeterm_plugin::js_runtime::spawn_blocking(move || {
+            let _receipt = receipt;
+            if !bound(&owner, &tab, &expected) {
+                return;
+            }
+            let account = expected
+                .account_id
+                .as_deref()
+                .unwrap_or(super::IMPLICIT_ACCOUNT);
+            if let Err(reason) = limits::clear(&owner, &expected.provider, account) {
+                log::debug!("[provider-accounts] completed-turn quota update failed: {reason}");
+                return;
+            }
+            let mut scheduler = owner
+                .ext_or_init::<State>(Default::default)
+                .scheduler
+                .lock();
+            scheduler
+                .book
+                .set_authentication(&expected.provider, account, Authentication::Ready);
+            let retired: Vec<_> = scheduler
+                .transitions
+                .iter()
+                .filter(|(_, transition)| {
+                    transition.provider_id == expected.provider
+                        && transition.account_id == account
+                        && transition.cause == "limit"
+                        && matches!(transition.status, "exhausted" | "allExhausted")
+                })
+                .map(|(tab, _)| tab.clone())
+                .collect();
+            for tab in &retired {
+                scheduler.transitions.remove(tab);
+            }
+            drop(scheduler);
+            for tab in retired {
+                emit(&owner, &tab);
+            }
+            owner.ui.emit(
+                "provider-accounts-changed",
+                serde_json::json!({"providerId":expected.provider}),
+            );
+        })
+        .await;
+    });
 }

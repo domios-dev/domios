@@ -33,3 +33,21 @@ pub async fn ensure_with_invocation(
 ) -> Result<Arc<Session>, RuntimeFailure> {
     codeterm_plugin::provider_account::scope(invocation, ensure_scoped(svc, tab, None)).await
 }
+
+pub(crate) fn account_boundary_ready(session: &Session, completion: Option<(&str, &str)>) -> bool {
+    let context = session.context.lock();
+    context.active_turn_id.is_none()
+        && context.active_turns.is_empty()
+        && context.pending_request.is_none()
+        && session.turn_requests.lock().is_empty()
+        && completion.is_none_or(|(thread, turn)| session.completions.lock().contains(thread, turn))
+}
+
+pub(crate) fn account_trial_idle(svc: &ServiceContext, session: &Session) -> bool {
+    validate_binding(svc, session).is_ok()
+        && session
+            .thread_loaded
+            .load(std::sync::atomic::Ordering::Acquire)
+        && account_boundary_ready(session, None)
+        && session.prompts.lock().is_empty()
+}

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { accountNoticeRows,mergeAccountNoticeRows } from "./accountNoticeRows";
 
 const notices=[
-  {id:"foreign",provider:"other",session:"own",at_ms:1000,content:"foreign",boundary:null,resets_at_ms:null},
-  {id:"foreign-session",provider:"fixture",session:"other",at_ms:1000,content:"foreign",boundary:null,resets_at_ms:null},
-  {id:"own",provider:"fixture",session:"own",at_ms:2000,content:"continued",boundary:"turn",resets_at_ms:3000},
+  {id:"foreign",verification:null,provider:"other",session:"own",at_ms:1000,content:"foreign",boundary:null,resets_at_ms:null},
+  {id:"foreign-session",verification:null,provider:"fixture",session:"other",at_ms:1000,content:"foreign",boundary:null,resets_at_ms:null},
+  {id:"own",verification:null,provider:"fixture",session:"own",at_ms:2000,content:"continued",boundary:"turn",resets_at_ms:3000},
 ];
 const projected=accountNoticeRows(notices,"fixture","own");
 assert.equal(projected.length,1);

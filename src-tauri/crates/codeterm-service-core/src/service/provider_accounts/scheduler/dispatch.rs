@@ -29,16 +29,11 @@ pub(in crate::service::provider_accounts) fn dispatch(svc: &ServiceContext, tab:
             return;
         }
         if let Some(session) = engine::for_tab(tab) {
-            let context = session.context.lock();
-            if context.active_turn_id.is_some()
-                || !context.active_turns.is_empty()
-                || !session.turn_requests.lock().is_empty()
-                || (pending.resume_work
-                    && !session
-                        .completions
-                        .lock()
-                        .contains(&pending.claim.source.session, &pending.claim.turn))
-            {
+            let completion = pending.resume_work.then_some((
+                pending.claim.source.session.as_str(),
+                pending.claim.turn.as_str(),
+            ));
+            if !engine::account_boundary_ready(&session, completion) {
                 return;
             }
         } else {
@@ -158,10 +153,10 @@ fn finish(svc: &ServiceContext, tab: &str, pending: Pending) {
         }
         scheduler.boundaries.remove(tab);
         drop(scheduler);
-        append_notice(svc, tab);
         if verify {
             super::super::receipt::record(svc, &target.expected, &resumed)?;
         }
+        append_notice(svc, tab);
         if resume_work {
             svc.continue_after_account(
                 tab,
@@ -205,6 +200,16 @@ fn append_notice(svc: &ServiceContext, tab: &str) {
     let Some(transition) = transition(svc, tab) else {
         return;
     };
+    let verification = (transition.cause == "verification").then(|| {
+        format!(
+            "Recorded that {} can move a conversation between accounts.",
+            svc.agent_registry
+                .with_provider(&transition.provider_id, |provider| provider
+                    .display_name()
+                    .to_owned())
+                .unwrap_or_else(|| "This harness".into())
+        )
+    });
     let mut mux = svc.mux.write();
     let Some(target) = mux.get_tab_mut(tab) else {
         return;
@@ -229,6 +234,7 @@ fn append_notice(svc: &ServiceContext, tab: &str) {
     let notices = &mut target.restorable_launch.account_notices;
     if !notices.iter().any(|notice| notice.id == transition.id) {
         notices.push(crate::multiplexer::types::AccountContinuationNotice {
+            verification,
             id: transition.id,
             provider: transition.provider_id,
             session,

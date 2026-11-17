@@ -59,6 +59,9 @@ pub fn select(
     {
         return Err("The conversation no longer has this exact failed-turn boundary".into());
     }
+    if verify && !can_try_now(svc, tab) {
+        return Err("Wait for this turn to finish".into());
+    }
     if verify {
         super::super::receipt::validate_accounts(
             svc,

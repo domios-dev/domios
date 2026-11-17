@@ -38,6 +38,7 @@ pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
 }
 
 pub use accounts::ensure_with_invocation;
+pub(crate) use accounts::{account_boundary_ready, account_trial_idle};
 
 pub(super) fn login_pending_session(
     svc: &ServiceContext,

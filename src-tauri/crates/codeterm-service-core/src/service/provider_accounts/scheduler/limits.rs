@@ -68,3 +68,28 @@ pub(super) fn expire(book: &mut Switches, provider: &str, accounts: &[String]) {
         }
     }
 }
+
+pub(super) fn clear(svc: &ServiceContext, provider: &str, account: &str) -> Result<(), String> {
+    let applied = super::super::mutate_config(svc, |config| {
+        let policy = config
+            .agents
+            .get_mut(provider)
+            .and_then(|provider| provider.accounts.as_mut())
+            .ok_or("The account policy is unavailable")?;
+        if account == super::super::IMPLICIT_ACCOUNT {
+            policy.default_limit = None;
+        } else {
+            policy
+                .profiles
+                .get_mut(account)
+                .ok_or("The account no longer exists")?
+                .limit = None;
+        }
+        Ok(())
+    })?;
+    svc.ui.emit(
+        "config-changed",
+        serde_json::to_value(applied).unwrap_or_default(),
+    );
+    Ok(())
+}

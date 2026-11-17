@@ -162,6 +162,7 @@ fn observe_at(
             continue;
         }
         if observation.is_some_and(|observation| observation.retry_succeeded) {
+            crate::service::provider_accounts::successful_turn(svc, tab, session, nonce);
             state.busy = false;
             let decision = state.retry.finish(id, None, now);
             if let Err(error) =
