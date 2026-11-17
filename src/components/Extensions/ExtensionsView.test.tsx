@@ -233,6 +233,63 @@ test("selecting a plugin opens its detail view and back returns to the list", as
   cleanup();
 });
 
+test("selecting an uninstalled agent plugin keeps marketplace details and Install visible", async () => {
+  const marketplace: PluginSnapshot = {
+    ...SNAPSHOT,
+    marketplace: [{
+      channel: "codeterm-plugins",
+      id: "grok",
+      drift: "same",
+      remote_version: "0.1.5",
+      display_name: "Grok",
+      description: "Optional Grok CLI agent provider.",
+      capabilities: { agent_provider: true },
+    }],
+  };
+  const { host, root } = await renderExtensions(marketplace);
+
+  await act(async () => {
+    host.querySelector<HTMLElement>('[data-testid="extensions-plugin-row"][data-plugin-id="grok"]')?.click();
+  });
+
+  assert(host.querySelector('[data-testid="extensions-plugin-detail"][data-plugin-id="grok"]'), "uninstalled provider should render generic marketplace detail");
+  assert(host.querySelector('[data-testid="extensions-plugin-name"]')?.textContent === "Grok", "marketplace manifest name should be visible");
+  assert(host.querySelector('[data-testid="extensions-description"]')?.textContent === "Optional Grok CLI agent provider.", "marketplace description should be visible");
+  assert(host.querySelector<HTMLButtonElement>('[data-testid="extensions-plugin-install"][data-plugin-id="grok"]'), "uninstalled provider should offer Install");
+
+  await act(async () => root.unmount());
+  cleanup();
+});
+
+test("a selected plugin missing from the loaded catalogue shows a retryable detail error", async () => {
+  __resetPluginSnapshotStoreForTest();
+  let snapshotCalls = 0;
+  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "get_config") return { plugins: {} } as T;
+    if (cmd === "plugin_manager_snapshot") {
+      snapshotCalls += 1;
+      return (snapshotCalls === 1 ? { ...SNAPSHOT, marketplace: [] } : SNAPSHOT) as T;
+    }
+    throw new Error(`unexpected invoke: ${cmd}`);
+  });
+  const { host, root } = await renderExtensionsView();
+  await flush();
+  await act(async () => {
+    window.dispatchEvent(new CustomEvent("codeterm:select-extension", { detail: { id: "scratchpad" } }));
+  });
+
+  assert(host.querySelector('[data-testid="extensions-detail-error"] [role="alert"]'), "missing selected detail should produce an explicit error");
+  await act(async () => {
+    button(host.querySelector('[data-testid="extensions-detail-error"]') as HTMLElement, 'button[aria-label="Retry"]').click();
+  });
+  await flush();
+  assert(snapshotCalls === 2, "Retry should load the catalogue again");
+  assert(host.querySelector('[data-testid="extensions-plugin-detail"][data-plugin-id="scratchpad"]'), "successful retry should render the selected plugin details");
+
+  await act(async () => root.unmount());
+  cleanup();
+});
+
 test("Allowed hosts editor adds and removes grants through plugin settings action", async () => {
   __resetPluginSnapshotStoreForTest();
   const calls = installInvokeMock(NETWORK_SNAPSHOT, {
