@@ -129,6 +129,23 @@ impl AgentPad {
         &self.path
     }
 
+    pub fn open_file(&self, relative: &str) -> Result<fs::File, String> {
+        validate_relative_file_path(Path::new(relative))?;
+        if relative.contains(['\\', ':'])
+            || relative.chars().any(char::is_control)
+            || relative
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            return Err(
+                "AgentPad attachment requires a relative file path without traversal".into(),
+            );
+        }
+        codeterm_blueprint_types::code_source::open_file(&self.path, relative).map_err(|_| {
+            "AgentPad attachment must be a regular file without symlinks or escapes".into()
+        })
+    }
+
     pub fn write_inbox_body(&self, body: &[u8]) -> Result<PathBuf, String> {
         let pad = self.clone();
         let body = body.to_vec();

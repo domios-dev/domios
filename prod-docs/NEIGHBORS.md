@@ -110,10 +110,14 @@ Empty/whitespace-only text refuses `empty_body` before submission; nothing was s
 
 ```bash
 domios account neighbors send FRIENDSHIP_ID --from-pad request.md
+domios account neighbors send FRIENDSHIP_ID --from-pad request.md --attach logs.zip
+domios account neighbors send FRIENDSHIP_ID --attach report.pdf
 domios account neighbors send FRIENDSHIP_ID --from-pad reply.md --kind answer --in-reply-to MESSAGE_ID
 domios account neighbors send FRIENDSHIP_ID --from-pad refusal.md --kind refusal --in-reply-to MESSAGE_ID
 domios account neighbors delivery-status MESSAGE_ID
 ```
+
+Repeat `--attach <pad-relative-file>` for up to four files. Files must be regular files in the authenticated caller's own AgentPad; absolute paths, traversal and symlinks refuse. Omit `--from-pad` for file-only sends. Attachments use the same encrypted size/digest checks and daily file-byte limits as UI sends; a non-receiving recipient refuses before upload. Sending own-pad files follows the send grant; `allow_files` governs reading received files.
 
 Send clears composer. `pending`: no recipient ack; `delivered`: verified/decrypted/admitted locally and server ciphertext deleted, not answered; `not_delivered`: expiry/key revocation with `key_revoked`. Check explicitly, never poll. Unconfirmed sends stay pending; never auto-resend.
 
@@ -177,4 +181,4 @@ File API (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_limit`): `d
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->

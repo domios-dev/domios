@@ -107,8 +107,11 @@ pub enum NeighborAction {
     /// Encrypt and send one authored message; prints only its ID and status
     Send {
         friendship_id: String,
-        #[arg(long)]
-        from_pad: String,
+        #[arg(long, required_unless_present = "attach")]
+        from_pad: Option<String>,
+        /// Attach a file from this tab's AgentPad; repeat for up to four files
+        #[arg(long, value_name = "PAD_RELATIVE_FILE")]
+        attach: Vec<String>,
         #[arg(long, default_value = "question", value_parser = ["question", "answer", "refusal", "tab_request"])]
         kind: String,
         #[arg(long)]

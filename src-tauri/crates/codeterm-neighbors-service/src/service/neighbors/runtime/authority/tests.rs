@@ -28,6 +28,7 @@ async fn paused_concierge_cannot_send_or_unpause_but_owner_and_general_can_still
     service.set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
     for command in [
         NeighborRuntimeCommand::Send {
+            attach: vec![],
             friendship_id: friend.clone(),
             kind: Kind::Question,
             body: "opaque".into(),
@@ -109,6 +110,7 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
                 limit: None,
             },
             NeighborRuntimeCommand::Send {
+                attach: vec![],
                 friendship_id: friendship.clone(),
                 kind: Kind::Question,
                 body: "opaque".into(),
