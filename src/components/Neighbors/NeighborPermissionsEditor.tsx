@@ -187,8 +187,8 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         disabled={!draft || saving} onCheckedChange={allow_memory => edit({ allow_memory })} />}
       options={[...new Set([...(areas ?? []), ...(draft?.memory_areas ?? [])])].sort((a, b) => a.localeCompare(b)).map(area => ({ value: area, label: area }))}
       chosen={draft?.memory_areas ?? []} onChange={chosen => edit({ memory_areas: chosen.length > 0 ? chosen : null })} />
-    {draft && <ChoiceMenu label="Write" icon={<Pencil size={14} aria-hidden="true" />} hint="Save or change memory only in these areas. Off until an area is selected."
-      menuLabel="Memory write areas" every="Off" noun="areas" disabled={saving}
+    {draft && <ChoiceMenu label="Write" icon={<Pencil size={14} aria-hidden="true" />} hint={access === "full" ? "Save facts, notes and skills. Select areas to narrow Full access; no selection allows all current areas. Secrets are never shared." : "Save facts and notes only in these areas. Off until an area is selected."}
+      menuLabel="Memory write areas" every={access === "full" ? "All current areas" : "Off"} noun="areas" disabled={saving}
       options={(areas ?? []).map(area => ({ value: area, label: area }))} chosen={draft.memory_write_areas ?? []}
       onChange={memory_write_areas => edit({ memory_write_areas })} />}
     </SettingsSection>
@@ -219,7 +219,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       {access === "read_only" && !awaitingFolder && (baseline?.machine_access === "read_only" && baseline.folder_enforcement?.writes === "pad_only"
         ? <EnforcementNote enforcement={baseline.folder_enforcement} />
         : <p className="neighbor-note">Looks things up; changes nothing on this machine.</p>)}
-      {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning"><TriangleAlert size={14} aria-hidden="true" />Their requests can change anything your agents on this machine can reach.</p>}
+      {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning"><TriangleAlert size={14} aria-hidden="true" />Full access includes saving facts, notes and skills in {draft?.memory_write_areas?.length ? "the selected memory areas" : "all current memory areas"}, attributed to this friend. Content is scanned; secrets are never allowed. Their requests can change anything your agents on this machine can reach.</p>}
       {access === "folder" && <div className="neighbor-folder">
         <div className="min-w-0">
           <p className="neighbor-folder__path" title={draft?.folder ?? undefined}>{draft?.folder ?? "No folder chosen"}</p>

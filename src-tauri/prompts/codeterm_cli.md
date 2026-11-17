@@ -117,7 +117,7 @@ Account mesh: machines signed in to the same account connect automatically. Flow
 
 The Domios memory protocol is in your provider rules. Commands: `domios mem --help`; depth: `domios docs MEMORY`. Past conversations are not mem: `domios sessions search`.
 
-Concierges save requested facts or notes only through `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>`, after searching within their read grant. The daemon checks the live write grant, content safety and verified friend authorship; an empty write-area list allows no saves.
+Concierges save requested facts, notes or (with Full access) skills only through `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>`, after searching within their read grant. The daemon checks the live write grant, content safety and verified friend authorship; a nonempty write-area list narrows Full access. With Full, an empty list permits all current non-secret taxonomy areas; with read_only/folder it permits no saves. Use --kind skill for a requested skill under Full access; secrets and other memory mutations remain forbidden.
 
 Use `domios mem taxonomy` for area counts and `domios mem area merge <from> --into <to> --dry-run` to preview a reversible area move; omit `--dry-run` to apply. Undo per item with `domios mem restore <id> --version <history-row>`.
 

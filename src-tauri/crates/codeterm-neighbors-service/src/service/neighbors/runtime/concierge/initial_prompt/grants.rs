@@ -47,8 +47,22 @@ pub fn capability_grants(friendship: &str, permission: &Permission) -> Value {
     grants["allow_memory"] = json!(memory);
     grants["allow_files"] = json!(files);
     grants["allow_tab_requests"] = json!(permission.allowed && permission.allow_tab_requests);
+    grants["memory_write_all_current_areas"] =
+        json!(permission.allowed && permission.writes_all_memory_areas());
+    grants["memory_write_kinds"] = if !permission.allows_memory_writes() {
+        json!([])
+    } else if permission.machine_access == codeterm_neighbors::permissions::MachineAccess::Full {
+        json!(["fact", "note", "skill"])
+    } else {
+        json!(["fact", "note"])
+    };
+    let write_areas = if permission.writes_all_memory_areas() {
+        vec!["<current_taxonomy_area>".to_owned()]
+    } else {
+        permission.memory_write_areas.clone()
+    };
     grants["commands"] = json!({
-        "memory_neighbor_save":permission.memory_write_areas.iter().filter(|_|permission.allowed).map(|area|json!(["domios","mem","neighbor-save","--kind","fact","--title","<title>","--from-pad","<body.md>","--area",area])).collect::<Vec<_>>(),
+        "memory_neighbor_save":write_areas.iter().filter(|_|permission.allowed).map(|area|json!(["domios","mem","neighbor-save","--kind","fact","--title","<title>","--from-pad","<body.md>","--area",area])).collect::<Vec<_>>(),
         "memory_search":memory_search,
         "memory_get":(memory && areas.is_none_or(|areas|!areas.is_empty())).then(||json!(["domios","mem","get","<item_id>"])),
         "memory_wake_up":(memory && areas.is_none()).then(||json!(["domios","mem","wake-up"])),

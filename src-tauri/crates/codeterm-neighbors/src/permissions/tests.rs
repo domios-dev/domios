@@ -132,3 +132,34 @@ fn write_areas_default_empty_round_trip_and_reject_invalid_shapes() {
     )
     .is_err());
 }
+
+#[test]
+fn full_access_inherits_memory_writes_and_explicit_areas_narrow_it() {
+    let mut permission = Permission {
+        allowed: true,
+        scope: "opaque".into(),
+        ..Default::default()
+    };
+    for access in [
+        MachineAccess::ReadOnly,
+        MachineAccess::Folder,
+        MachineAccess::Full,
+    ] {
+        permission.machine_access = access;
+        permission.memory_write_areas.clear();
+        assert_eq!(
+            permission.allows_memory_writes(),
+            access == MachineAccess::Full
+        );
+        assert_eq!(
+            permission.writes_all_memory_areas(),
+            access == MachineAccess::Full
+        );
+        permission.memory_write_areas = vec!["opaque-area".into()];
+        assert!(permission.allows_memory_writes());
+        assert!(!permission.writes_all_memory_areas());
+        permission.allowed = false;
+        assert!(!permission.allows_memory_writes());
+        permission.allowed = true;
+    }
+}
