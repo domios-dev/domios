@@ -42,17 +42,16 @@ impl JsBubbleProvider {
             Some(crate::js_runtime::vm::spawn_blocking(move || loop {
                 super::vm::grant_ctx_cwd(&vm, &ctx);
                 let result = call_json::<Option<BubbleData>>(&vm, "statusBubble", &[ctx.clone()]);
-                let succeeded = result.is_ok();
                 if let Err(error) = &result {
                     log::debug!("[plugin-bubble] {id} refresh failed: {error:?}");
                 }
-                let again = cache.lock().finish(&key, result.ok());
-                if succeeded {
+                let outcome = cache.lock().finish(&key, result.ok());
+                if outcome.changed {
                     if let Some(service) = vm.service() {
                         service.contributions_changed(&format!("status_bubble:{id}"));
                     }
                 }
-                if !again {
+                if !outcome.refresh_again {
                     break;
                 }
             }))

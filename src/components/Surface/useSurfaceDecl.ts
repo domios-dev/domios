@@ -1,6 +1,7 @@
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "../../lib/bridge";
+import { pluginCatalogChanged } from "../../lib/pluginProviderMeta";
 import { daemonFetch, type DaemonApiConfig } from "../../lib/webApi";
 import { rememberDeclaredSurfaces } from "./surfaceIcon";
 import { findDeclaredSurface, parseDeclaredSurfaces, type SurfaceDeclLookup } from "./surfaceRenderPlan";
@@ -18,8 +19,8 @@ function usePluginsGeneration(): number | null {
   useEffect(() => {
     let alive = true;
     let unlisten: UnlistenFn | undefined;
-    listen("contributions-changed", () => {
-      if (alive) setGeneration((n) => (n ?? 0) + 1);
+    listen<{ kind: string }>("contributions-changed", ({ payload }) => {
+      if (alive && pluginCatalogChanged(payload.kind)) setGeneration((n) => (n ?? 0) + 1);
     })
       .then((fn) => {
         if (alive) {
