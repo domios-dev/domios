@@ -14,6 +14,7 @@ use std::{
 };
 
 mod cli;
+mod declared;
 mod relay;
 pub(crate) fn close_cli(tab: &str) {
     cli::close(tab);
@@ -26,6 +27,10 @@ static OWNERS: LazyLock<Mutex<HashMap<String, Weak<Session>>>> = LazyLock::new(D
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LoginRequest {
+    #[serde(default)]
+    pub binding: Option<LoginBinding>,
+    #[serde(default)]
+    pub login_id: Option<String>,
     #[serde(default)]
     pub action: Option<String>,
     #[serde(default)]
@@ -40,12 +45,71 @@ pub struct LoginRequest {
     #[serde(default)]
     pub api_key: Option<String>,
 }
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoginBinding {
+    pub nonce: String,
+    pub epoch: u64,
+}
 #[derive(Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct LoginState {
     pub login: Option<RuntimeLoginState>,
     #[serde(skip)]
     pub phone_notification: Option<String>,
+    #[serde(skip)]
+    declared: Option<declared::Claim>,
+}
+
+fn validate_request(session: &Session, request: &LoginRequest) -> Result<(), String> {
+    validate_login_binding(session, request.binding.as_ref())?;
+    if let Some(id) = request.login_id.as_deref() {
+        if session
+            .login
+            .lock()
+            .login
+            .as_ref()
+            .and_then(|login| login.login_id.as_deref())
+            != Some(id)
+        {
+            return Err("Sign-in challenge is no longer current".into());
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_login_binding(
+    session: &Session,
+    binding: Option<&LoginBinding>,
+) -> Result<(), String> {
+    let context = session.context.lock();
+    if binding.is_some_and(|binding| {
+        binding.nonce != context.binding_nonce || binding.epoch != context.epoch
+    }) {
+        return Err("Sign-in belongs to a different runtime session".into());
+    }
+    Ok(())
+}
+
+pub(super) fn declared_operation_witness(operation: &RuntimeOperation) -> Option<(String, String)> {
+    let RuntimeOperation::Control { action, value, .. } = operation else {
+        return None;
+    };
+    if action != "login" {
+        return None;
+    }
+    Some((
+        value.get("methodId")?.as_str()?.into(),
+        value.get("loginId")?.as_str()?.into(),
+    ))
+}
+
+pub(super) fn validate_declared_witness(
+    session: &Session,
+    witness: &(String, String),
+) -> Result<(), RuntimeFailure> {
+    declared::validate_witness(session, witness)
 }
 
 pub fn forget(session: &Arc<Session>) {
@@ -155,7 +219,7 @@ pub async fn operate(
     request: LoginRequest,
 ) -> Result<Value, String> {
     let label = request_label(&request);
-    let secret = request.api_key.clone();
+    let secret = request.api_key.clone().or_else(|| request.code.clone());
     operate_unlogged(svc, tab, request).await.map_err(|reason| {
         let reason = safe_reason(&reason, secret.as_deref());
         log::warn!("[agent_runtime.login] tab={tab} request={label} refused: {reason}");
@@ -172,7 +236,7 @@ async fn operate_unlogged(
     if cli::supported(svc, tab, request.provider_id.as_deref()) {
         return cli::operate(svc, tab, request).await;
     }
-    if request.provider_id.is_some() || request.account.is_some() || request.code.is_some() {
+    if request.provider_id.is_some() || request.account.is_some() {
         return Err("This provider does not support CLI account sign-in".into());
     }
     let session = match engine::for_tab(tab) {
@@ -183,6 +247,13 @@ async fn operate_unlogged(
         }
     };
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
+    validate_request(&session, &request)?;
+    if declared::handles(&session, &request) {
+        return declared::operate(svc, tab, &session, request).await;
+    }
+    if request.code.is_some() {
+        return Err("This provider does not accept a browser sign-in code".into());
+    }
     if let Some(method) = request.method_id.as_deref() {
         if request.action.is_some() || request.method.is_some() {
             return Err("Invalid declared sign-in request".into());
@@ -190,7 +261,19 @@ async fn operate_unlogged(
         if let Some(key) = request.api_key.as_deref() {
             return super::auth_env::sign_in_with_key(svc, tab, &session, method, key).await;
         }
-        return super::declared_controls::authenticate(svc, tab, &session, method).await;
+        if session.login.lock().declared.is_some() {
+            claim(&session, tab)?;
+            session.login.lock().declared = None;
+            forget(&session);
+        }
+        return super::declared_controls::authenticate(
+            svc,
+            tab,
+            &session,
+            method,
+            request.binding.as_ref(),
+        )
+        .await;
     }
     let capability = session
         .adapter
@@ -222,6 +305,7 @@ async fn operate_unlogged(
         .map_err(|_| "Sign-in deadline exceeded")?
         .map_err(|_| "Runtime unavailable")?;
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
+    validate_request(&session, &request)?;
     if request.action.as_deref() == Some("notify") {
         return relay::notify(svc, tab, &session);
     }
@@ -263,8 +347,11 @@ async fn operate_unlogged(
             return Err("API key required (maximum 16 KiB)".into());
         }
         claim(&session, tab)?;
+        session.login.lock().declared = None;
         session.login.lock().phone_notification = None;
         session.login.lock().login = Some(RuntimeLoginState {
+            instructions: None,
+            code_input: None,
             status: RuntimeLoginStatus::Pending,
             method: Some(method.clone()),
             login_id: None,
@@ -295,6 +382,8 @@ async fn operate_unlogged(
         forget(&session);
         let reason = safe_reason(&run_failure_reason(&failure), request.api_key.as_deref());
         session.login.lock().login = Some(RuntimeLoginState {
+            instructions: None,
+            code_input: None,
             status: RuntimeLoginStatus::Failed,
             method: None,
             login_id: None,
@@ -318,17 +407,31 @@ pub fn apply(
     if session.context.lock().epoch != epoch {
         return;
     }
+    if !declared::accepts(session, &login) {
+        return;
+    }
     if login.status == RuntimeLoginStatus::Pending {
         let now = now_ms();
-        login.expires_at_ms = Some(
-            login
-                .expires_at_ms
-                .unwrap_or(u64::MAX)
-                .min(now.saturating_add(15 * 60 * 1000)),
-        );
+        let mut expiry = login
+            .expires_at_ms
+            .unwrap_or(u64::MAX)
+            .min(now.saturating_add(15 * 60 * 1000));
+        let state = session.login.lock();
+        if state.declared.is_some() {
+            expiry = expiry.min(
+                state
+                    .login
+                    .as_ref()
+                    .and_then(|login| login.expires_at_ms)
+                    .unwrap_or(expiry),
+            );
+        }
+        login.expires_at_ms = Some(expiry);
     } else {
         login.url = None;
         login.user_code = None;
+        login.instructions = None;
+        login.code_input = None;
         login.expires_at_ms = None;
     }
     if matches!(
@@ -344,6 +447,7 @@ pub fn apply(
         session.login.lock().login = Some(login);
         let tab = session.context.lock().tab_id.clone();
         engine::publish(svc, &tab, session);
+        declared::start_callback(svc, session);
         return;
     }
     let owner = svc.clone();
@@ -430,7 +534,11 @@ pub fn show(svc: &ServiceContext, tab: &str) -> Result<Value, String> {
     let api_key_methods = super::auth_env::selected_profile(svc, tab, &session)
         .map(|profile| super::auth_env::api_key_methods(&profile))
         .unwrap_or_default();
-    Ok(json!({"login":login,"authentication":authentication,"apiKeyMethods":api_key_methods}))
+    let context = session.context.lock();
+    Ok(
+        json!({"login":login,"authentication":authentication,"apiKeyMethods":api_key_methods,
+        "loginBinding":{"nonce":context.binding_nonce,"epoch":context.epoch}}),
+    )
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -447,6 +555,8 @@ pub(super) fn project(login: Option<&RuntimeLoginState>, now: u64) -> Option<Run
     {
         login.url = None;
         login.user_code = None;
+        login.instructions = None;
+        login.code_input = None;
         if login.status == RuntimeLoginStatus::Pending {
             login.status = RuntimeLoginStatus::Failed;
             login.error = Some("Sign-in expired. Cancel it and try again.".into());

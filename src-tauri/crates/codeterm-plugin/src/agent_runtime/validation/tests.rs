@@ -2,6 +2,59 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn declared_login_inputs_and_unavailability_round_trip_without_credentials() {
+    let raw = json!({
+        "state":"needs_auth",
+        "methods":[
+            {"id":"fixture:oauth:2","name":"Browser sign-in","available":true,"input":"none"},
+            {"id":"fixture:api:0","name":"Use a key","available":true,"input":"apiKey"},
+            {"id":"fixture:oauth:3","name":"Other sign-in","available":false,"unavailableReason":"Additional prompts are unsupported"}
+        ]
+    });
+    let authentication: RuntimeAuthentication = serde_json::from_value(raw.clone()).unwrap();
+    super::super::declarations::validate_authentication(&authentication).unwrap();
+    assert_eq!(serde_json::to_value(authentication).unwrap(), raw);
+    for reason in [String::new(), "x".repeat(4097), "invalid\0reason".into()] {
+        let mut invalid = raw.clone();
+        invalid["methods"][2]["unavailableReason"] = json!(reason);
+        let invalid: RuntimeAuthentication = serde_json::from_value(invalid).unwrap();
+        assert!(super::super::declarations::validate_authentication(&invalid).is_err());
+    }
+}
+
+#[test]
+fn login_challenge_instructions_are_bounded_and_browser_code_is_explicit() {
+    let raw = json!({"kind":"authLogin","login":{
+        "status":"pending","loginId":"host-owned-login","method":"browser",
+        "url":"https://example.test/authorize","codeInput":true,"instructions":"Paste the returned browser code"
+    }});
+    let event: AgentRuntimeEvent = serde_json::from_value(raw.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&event).unwrap(), raw);
+    let context = RuntimeContext::default();
+    assert!(validate_runtime_reduction(
+        &context,
+        &RuntimeReduction {
+            state: json!(null),
+            events: vec![event]
+        }
+    )
+    .is_ok());
+    for instructions in ["x".repeat(4097), "invalid\0instructions".into()] {
+        let mut invalid = raw.clone();
+        invalid["login"]["instructions"] = json!(instructions);
+        let event = serde_json::from_value(invalid).unwrap();
+        assert!(validate_runtime_reduction(
+            &context,
+            &RuntimeReduction {
+                state: json!(null),
+                events: vec![event]
+            }
+        )
+        .is_err());
+    }
+}
+
+#[test]
 fn context_event_wire_shape_and_owned_thread_validation() {
     let context = RuntimeContext {
         thread_id: Some("own".into()),

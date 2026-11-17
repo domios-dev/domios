@@ -2,6 +2,8 @@ use super::*;
 #[test]
 fn completion_requires_exact_pending_login_and_canceled_cannot_resume() {
     let pending = RuntimeLoginState {
+        instructions: None,
+        code_input: None,
         status: RuntimeLoginStatus::Pending,
         login_id: Some("own".into()),
         method: Some(RuntimeLoginMethod::Browser),
@@ -34,11 +36,13 @@ fn completion_requires_exact_pending_login_and_canceled_cannot_resume() {
 
 #[test]
 fn login_projection_removes_expired_and_finished_values() {
-    let pending: RuntimeLoginState = serde_json::from_value(json!({"status":"pending","loginId":"opaque-id","url":"https://example.invalid/opaque-path","userCode":"opaque-token","expiresAtMs":5000})).unwrap();
+    let pending: RuntimeLoginState = serde_json::from_value(json!({"status":"pending","loginId":"opaque-id","url":"https://example.invalid/opaque-path","userCode":"opaque-token","expiresAtMs":5000,"instructions":"Opaque challenge instructions","codeInput":true})).unwrap();
     let current = serde_json::to_value(project(Some(&pending), 4999)).unwrap();
     assert_eq!(current["url"], "https://example.invalid/opaque-path");
     assert_eq!(current["userCode"], "opaque-token");
     assert_eq!(current["expiresAtMs"], 5000);
+    assert_eq!(current["instructions"], "Opaque challenge instructions");
+    assert_eq!(current["codeInput"], true);
     for state in [
         pending.clone(),
         RuntimeLoginState {
@@ -53,6 +57,8 @@ fn login_projection_removes_expired_and_finished_values() {
         let hidden = serde_json::to_value(project(Some(&state), 5000)).unwrap();
         assert!(hidden.get("url").is_none());
         assert!(hidden.get("userCode").is_none());
+        assert!(hidden.get("instructions").is_none());
+        assert!(hidden.get("codeInput").is_none());
     }
     assert!(project(None, 0).is_none());
 }
