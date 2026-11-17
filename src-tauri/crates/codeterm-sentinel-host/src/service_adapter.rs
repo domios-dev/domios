@@ -482,8 +482,7 @@ pub(crate) fn validate_send_scope_in_view(
     for handler in job.routes.values().flatten().chain(&job.on_other) {
         if let crate::machine::Route::Send(id) = &handler.action {
             let target = mux.get_tab(id).ok_or("blueprint send target disappeared")?;
-            if target.agent_type.is_none()
-                || target.team_id != job.team_id
+            if target.team_id != job.team_id
                 || mux.find_workspace_for_tab(id).as_deref() != Some(&job.workspace_id)
             {
                 return Err("blueprint send target scope changed".into());
