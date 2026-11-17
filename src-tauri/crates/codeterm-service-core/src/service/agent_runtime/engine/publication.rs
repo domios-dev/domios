@@ -39,6 +39,10 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
     if let Some(snapshot) = value.as_object_mut() {
         super::super::declared_controls::project(session, snapshot);
         snapshot.insert(
+            "loginBinding".into(),
+            serde_json::json!({"nonce":context.binding_nonce,"epoch":context.epoch}),
+        );
+        snapshot.insert(
             "auth".into(),
             serde_json::to_value(session.auth.lock().clone()).unwrap_or(Value::Null),
         );
