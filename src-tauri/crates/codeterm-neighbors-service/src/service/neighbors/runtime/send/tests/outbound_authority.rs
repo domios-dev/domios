@@ -45,6 +45,7 @@ async fn assert_preflight(
     let before = metadata.history_page(&friend, None, 50).await.unwrap();
     let body = if file {
         OutboundBody::Files {
+            pad: None,
             text: Zeroizing::new(String::new()),
             paths: vec!["opaque-file".into()],
         }
@@ -111,6 +112,11 @@ async fn owner_and_authenticated_general_send_text_answers_and_files_without_inb
                 (Kind::Answer, true),
             ] {
                 let command = NeighborRuntimeCommand::Send {
+                    attach: if file {
+                        vec!["opaque-file".into()]
+                    } else {
+                        vec![]
+                    },
                     friendship_id: friend.clone(),
                     kind,
                     body: "opaque".into(),
@@ -142,6 +148,7 @@ async fn owner_and_authenticated_general_send_text_answers_and_files_without_inb
                 .await;
             }
             let command = NeighborRuntimeCommand::Send {
+                attach: vec![],
                 friendship_id: friend.clone(),
                 kind: Kind::TabRequest,
                 body: "opaque".into(),
@@ -163,6 +170,7 @@ async fn owner_and_authenticated_general_send_text_answers_and_files_without_inb
             .await;
         }
         let command = NeighborRuntimeCommand::Send {
+            attach: vec![],
             friendship_id: friend.clone(),
             kind: Kind::Question,
             body: "opaque".into(),
@@ -213,6 +221,7 @@ async fn bound_concierge_and_descendant_sends_stay_gated_by_the_exact_friend_gra
                 friend.clone(),
                 Permission {
                     allowed,
+                    allow_files: false,
                     ..Default::default()
                 },
             );
@@ -237,6 +246,11 @@ async fn bound_concierge_and_descendant_sends_stay_gated_by_the_exact_friend_gra
                 (Kind::Answer, true),
             ] {
                 let command = NeighborRuntimeCommand::Send {
+                    attach: if file {
+                        vec!["opaque-file".into()]
+                    } else {
+                        vec![]
+                    },
                     friendship_id: friend.clone(),
                     kind,
                     body: "opaque".into(),
@@ -269,6 +283,7 @@ async fn bound_concierge_and_descendant_sends_stay_gated_by_the_exact_friend_gra
                 .await;
             }
             let foreign = NeighborRuntimeCommand::Send {
+                attach: vec![],
                 friendship_id: "b".repeat(64),
                 kind: Kind::Question,
                 body: "opaque".into(),

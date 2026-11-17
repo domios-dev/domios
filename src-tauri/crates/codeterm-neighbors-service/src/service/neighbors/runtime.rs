@@ -152,6 +152,8 @@ pub enum NeighborRuntimeCommand {
         kind: Kind,
         body: String,
         in_reply_to: Option<String>,
+        #[serde(default)]
+        attach: Vec<String>,
     },
     DeliveryStatus {
         message_id: String,
@@ -172,6 +174,7 @@ pub enum OutboundBody {
     Files {
         text: Zeroizing<String>,
         paths: Vec<String>,
+        pad: Option<crate::service::agent_pad::AgentPad>,
     },
     Refusal,
 }
@@ -432,9 +435,14 @@ impl NeighborsExt for ServiceContext {
         if let NeighborRuntimeCommand::StopConcierge { friendship_id } = &command {
             return self.stop_neighbor_concierge(friendship_id).await;
         }
-        if let NeighborRuntimeCommand::Send { body, .. } = &command {
-            codeterm_neighbors::wire::validate_nonempty_text(body)
-                .map_err(|error| error.to_string())?;
+        if let NeighborRuntimeCommand::Send { body, attach, .. } = &command {
+            if attach.is_empty() {
+                codeterm_neighbors::wire::validate_nonempty_text(body)
+                    .map_err(|error| error.to_string())?;
+            }
+            if attach.len() > codeterm_neighbors::files::MAX_ATTACHMENTS {
+                return Err(Error::InvalidRequest.to_string());
+            }
             codeterm_neighbors::wire::validate_message_size(body)
                 .map_err(|error| error.to_string())?;
         }
@@ -786,7 +794,22 @@ impl NeighborsExt for ServiceContext {
                     kind,
                     body,
                     in_reply_to,
+                    attach,
                 } => {
+                    let body = if attach.is_empty() {
+                        OutboundBody::Granted(Zeroizing::new(body))
+                    } else {
+                        if attach.len() > codeterm_neighbors::files::MAX_ATTACHMENTS {
+                            return Err(Error::InvalidRequest);
+                        }
+                        let tab = caller.ok_or(Error::PermissionDenied)?;
+                        let pad = self.ensure_agent_pad(tab).map_err(|_| Error::InvalidRequest)?;
+                        OutboundBody::Files {
+                            text: Zeroizing::new(body),
+                            paths: attach,
+                            pad: Some(pad),
+                        }
+                    };
                     self.send_neighbor(
                         &transport,
                         &lifecycle,
@@ -795,7 +818,7 @@ impl NeighborsExt for ServiceContext {
                             authority: send_authority,
                             friendship: friendship_id,
                             kind,
-                            body: OutboundBody::Granted(Zeroizing::new(body)),
+                            body,
                             in_reply_to,
                             author: self.neighbor_author(caller)?,
                         },

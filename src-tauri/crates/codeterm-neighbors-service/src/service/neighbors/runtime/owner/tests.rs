@@ -132,6 +132,7 @@ async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_networ
             Kind::TabRequest,
         ] {
             let command = NeighborRuntimeCommand::Send {
+                attach: vec![],
                 friendship_id: "a".repeat(64),
                 kind,
                 body: body.clone(),
@@ -148,6 +149,7 @@ async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_networ
         Err(mpsc::error::TryRecvError::Empty)
     ));
     let command = NeighborRuntimeCommand::Send {
+        attach: vec![],
         friendship_id: "a".repeat(64),
         kind: Kind::Question,
         body: "opaque nonempty".into(),
@@ -187,6 +189,44 @@ async fn public_file_only_send_still_enters_its_distinct_owner_operation() {
         .send(Ok(Outcome::Value(json!({"opaque":"queued"}))))
         .unwrap_or_else(|_| panic!("caller abandoned queue"));
     assert_eq!(send.await.unwrap(), json!({"opaque":"queued"}));
+}
+
+#[tokio::test]
+async fn runtime_pad_file_only_send_is_queued_once_and_fifth_attachment_is_refused() {
+    let fixture =
+        crate::test_support::fixture(crate::multiplexer::state::MultiplexerState::new().0);
+    let service = &fixture.service;
+    let (sender, mut requests) = mpsc::channel::<Request>(1);
+    *service.neighbor_cell().owner.lock() = Some(sender);
+    let command = |count| {
+        serde_json::from_value(json!({
+            "operation":"send","friendship_id":"a".repeat(64),"kind":"question",
+            "body":"","attach":vec!["report.bin";count]
+        }))
+        .unwrap()
+    };
+    tokio::select! {
+        result = service.neighbor_runtime(command(5), None, None) => assert_eq!(result.unwrap_err(), Error::InvalidRequest.to_string()),
+        _ = requests.recv() => panic!("fifth attachment reached queue"),
+    }
+    let send = service.neighbor_runtime(command(1), None, None);
+    tokio::pin!(send);
+    let request = tokio::select! {
+        result = &mut send => panic!("file-only send bypassed queue: {result:?}"),
+        request = requests.recv() => request.unwrap(),
+    };
+    assert!(matches!(&request.operation, Operation::Command {
+        command: NeighborRuntimeCommand::Send { body, attach, .. }, ..
+    } if body.is_empty() && attach == &["report.bin"]));
+    request
+        .reply
+        .send(Err("queue sentinel".into()))
+        .unwrap_or_else(|_| panic!("caller abandoned queue"));
+    assert_eq!(send.await.unwrap_err(), "queue sentinel");
+    assert!(matches!(
+        requests.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
 }
 
 pub struct Port {

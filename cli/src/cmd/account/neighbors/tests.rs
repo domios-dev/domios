@@ -2,6 +2,49 @@ use crate::Cli;
 use clap::Parser;
 
 #[test]
+fn pad_attachments_are_repeatable_and_file_only_sends_need_no_text_source() {
+    for count in 1..=4 {
+        let mut args = vec!["domios", "account", "neighbors", "send", "pair"];
+        for _ in 0..count {
+            args.extend(["--attach", "logs.zip"]);
+        }
+        let cli = Cli::try_parse_from(args).unwrap();
+        let crate::Commands::Account {
+            action:
+                crate::args::account::AccountAction::Neighbors {
+                    action:
+                        crate::args::account::NeighborAction::Send {
+                            attach, from_pad, ..
+                        },
+                },
+        } = cli.command
+        else {
+            panic!("expected Neighbor send")
+        };
+        assert_eq!(attach, vec!["logs.zip"; count]);
+        assert!(from_pad.is_none());
+        assert!(super::validate_attachments(&attach).is_ok());
+    }
+    assert!(super::validate_attachments(&vec!["logs.zip".into(); 5]).is_err());
+    assert!(Cli::try_parse_from(["domios", "account", "neighbors", "send", "pair"]).is_err());
+    let (path, command) = super::request(crate::args::account::NeighborAction::Send {
+        friendship_id: "pair".into(),
+        from_pad: None,
+        attach: vec!["logs.zip".into()],
+        kind: "question".into(),
+        in_reply_to: None,
+    });
+    assert_eq!(path, "/api/account/neighbors/runtime");
+    assert_eq!(
+        command,
+        serde_json::json!({
+            "operation":"send","friendship_id":"pair","body":"","kind":"question",
+            "in_reply_to":null,"attach":["logs.zip"]
+        })
+    );
+}
+
+#[test]
 fn list_parses_with_json_and_renders_ids_scopes_and_both_request_directions() {
     for args in [
         vec!["domios", "account", "neighbors", "list"],

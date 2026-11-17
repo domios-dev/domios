@@ -1,6 +1,7 @@
 use super::*;
 
 pub mod outbound_authority;
+mod pad_files;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
 #[tokio::test]
@@ -237,6 +238,7 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
                     friendship: friend.clone(),
                     kind: Kind::Question,
                     body: OutboundBody::Files {
+                        pad: None,
                         text: Zeroizing::new(String::new()),
                         paths,
                     },

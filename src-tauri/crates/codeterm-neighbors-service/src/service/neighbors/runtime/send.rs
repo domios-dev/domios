@@ -79,6 +79,10 @@ impl NeighborsExt for ServiceContext {
             .get(&friendship)
             .cloned()
             .unwrap_or_default();
+        let pad = match &body {
+            OutboundBody::Files { pad, .. } => pad.clone(),
+            _ => None,
+        };
         let (body, paths) = prepare_outgoing_body(
             metadata,
             &friendship,
@@ -121,7 +125,7 @@ impl NeighborsExt for ServiceContext {
             issued_at: now().seconds,
         };
         let (body, visible_body, attachments) = self
-            .prepare_neighbor_files(transport, metadata, &envelope, body, paths)
+            .prepare_neighbor_files(transport, metadata, &envelope, body, paths, pad)
             .await?;
         keys.encrypt(
             &mut envelope,
@@ -243,7 +247,7 @@ async fn prepare_outgoing_body(
 ) -> codeterm_neighbors::Result<(Zeroizing<String>, Vec<String>)> {
     match &body {
         OutboundBody::Granted(text) => codeterm_neighbors::wire::validate_nonempty_text(text)?,
-        OutboundBody::Files { text, paths } if paths.is_empty() => {
+        OutboundBody::Files { text, paths, .. } if paths.is_empty() => {
             codeterm_neighbors::wire::validate_nonempty_text(text)?;
         }
         _ => {}
@@ -292,7 +296,7 @@ async fn prepare_outgoing_body(
     authority.require(permission, kind)?;
     match body {
         OutboundBody::Granted(body) => Ok((body, vec![])),
-        OutboundBody::Files { text, paths } => Ok((text, paths)),
+        OutboundBody::Files { text, paths, .. } => Ok((text, paths)),
         OutboundBody::Refusal => Err(Error::InvalidRequest),
     }
 }
