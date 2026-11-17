@@ -28,7 +28,7 @@ import { TabActionsMenu } from "./TabActionsMenu";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
 import { tabAccountSubmenu } from "./tabMenuModel";
 
-const ownTab: Tab = { tab_type: "terminal", cwd: null, id: "own-tab", agent_type: "opaque-harness", pty_id: "own-pty", title: "Agent", agent_session_model: "model", account: { id: "default", notices: [] } };
+const ownTab: Tab = { tab_type: "Terminal", cwd: null, id: "own-tab", agent_type: "opaque-harness", pty_id: "own-pty", title: "Agent", agent_session_model: "model", account: { id: "default", notices: [] } };
 const workspace = { id: "own-workspace", name: "Project", tabs: [], active_tab_id: null, cwd: "/project" } as Workspace;
 function snapshot(): ProviderAccountsSnapshot {
   return { providerId: "opaque-harness", revision: "rev", continuation: "proven", automaticSwitch: true, workspaceOverrides: [], accounts: [

@@ -10,7 +10,7 @@ vi.mock("./useAgentProviders",()=>({useAgentProviders:()=>({providers:[{id:"fixt
 vi.mock("./useProviderAccounts",()=>({useProviderAccounts:()=>({snapshot:{providerId:"fixture",revision:"rendered",automaticSwitch:false,continuation:fixture.continuation,accounts:[{id:"default",status:"ready",tabsInUse:1},{id:"work",status:fixture.status,tabsInUse:0}],workspaceOverrides:[]} satisfies ProviderAccountsSnapshot,error:null})}));
 vi.mock("./useAccountTransition",()=>({useAccountTransition:()=>({canVerify:fixture.canVerify,turnActive:fixture.turnActive,error:null,transition:null,onRefresh:()=>{}})}));
 import {useTabAccounts} from "./useAccountSelectors";
-const tab:Tab={pty_id:"own-pty",tab_type:"terminal",title:"Own",cwd:null,id:"own",agent_type:"fixture",session_binding_nonce:"own-nonce",agent_runtime_state:{epoch:9},account:{id:"default",notices:[]}};
+const tab:Tab={pty_id:"own-pty",tab_type:"Terminal",title:"Own",cwd:null,id:"own",agent_type:"fixture",session_binding_nonce:"own-nonce",agent_runtime_state:{state:"loaded",epoch:9},account:{id:"default",notices:[]}};
 
 async function mounted(){
   Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
