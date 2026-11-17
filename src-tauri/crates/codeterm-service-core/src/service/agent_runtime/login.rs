@@ -265,6 +265,8 @@ async fn operate_unlogged(
         claim(&session, tab)?;
         session.login.lock().phone_notification = None;
         session.login.lock().login = Some(RuntimeLoginState {
+            instructions: None,
+            code_input: None,
             status: RuntimeLoginStatus::Pending,
             method: Some(method.clone()),
             login_id: None,
@@ -295,6 +297,8 @@ async fn operate_unlogged(
         forget(&session);
         let reason = safe_reason(&run_failure_reason(&failure), request.api_key.as_deref());
         session.login.lock().login = Some(RuntimeLoginState {
+            instructions: None,
+            code_input: None,
             status: RuntimeLoginStatus::Failed,
             method: None,
             login_id: None,
@@ -329,6 +333,8 @@ pub fn apply(
     } else {
         login.url = None;
         login.user_code = None;
+        login.instructions = None;
+        login.code_input = None;
         login.expires_at_ms = None;
     }
     if matches!(
@@ -447,6 +453,8 @@ pub(super) fn project(login: Option<&RuntimeLoginState>, now: u64) -> Option<Run
     {
         login.url = None;
         login.user_code = None;
+        login.instructions = None;
+        login.code_input = None;
         if login.status == RuntimeLoginStatus::Pending {
             login.status = RuntimeLoginStatus::Failed;
             login.error = Some("Sign-in expired. Cancel it and try again.".into());
