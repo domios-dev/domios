@@ -148,7 +148,7 @@ fn foreign_metadata_writable_executable_and_changed_cwd_refuse_without_overwrite
 #[test]
 fn restored_session_under_provider_home_and_git_project_gets_fresh_scoped_policy() {
     let (directory, mut context, mut sandbox, executable) = fixture();
-    for marker in [".codex", ".runtime-policy", ".git"] {
+    for marker in [".runtime-policy", ".git"] {
         fs::create_dir(directory.path().join(marker)).unwrap();
     }
     let foreign = directory.path().join(".runtime-policy/config.toml");
