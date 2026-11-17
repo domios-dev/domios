@@ -434,7 +434,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
-- `--role` — Role name the Team registers, or the host-only watcher. The Orchestrator starts a Team manager (built-in or custom) with it, one live instance per name; a name the Team does not list is refused. reviewer is read-only by default
+- `--role` — Team-registered role, builtin Worker role, or host-only watcher. Managers have one live instance per name; unknown names refuse. reviewer is read-only by default
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
@@ -3068,7 +3068,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--profile` — ACP launch profile declared by the provider
 - `--provider-reserve-pct` — Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
-- `--role` — Worker the Team registers to launch; a manager or unlisted name is refused with the Team's workers. Omitted uses `worker` only when the Team lists it. The task's executor_role is unchanged
+- `--role` — Team-registered or builtin Worker role; managers and unknown names refuse. Omitted uses the Team's worker default. The task's executor_role is unchanged
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
@@ -3156,6 +3156,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--profile` — ACP launch profile; inherits the source attempt when omitted and the provider stays the same
 - `--provider`
 - `--reasoning-effort`
+- `--role` — Worker role override; inherits the source attempt when omitted
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--title`
