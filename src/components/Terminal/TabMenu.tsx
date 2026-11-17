@@ -116,6 +116,7 @@ function submenuEntry(entry: TabMenuSubmenuEntry, onAction: ActionHandler): Drop
     submenu: {
       label: entry.label,
       description: entry.description,
+      showDescription: entry.showDescription,
       items: entry.entries.map((child) => leafEntry(child, onAction)),
     },
   };

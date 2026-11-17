@@ -143,6 +143,7 @@ export interface TabMenuSubmenuEntry extends TabMenuEntryBase {
   label: string;
   icon: TabMenuIcon;
   description?: string;
+  showDescription?: boolean;
   disabled?: boolean;
   title?: string;
   entries: TabMenuLeafEntry[];
@@ -150,14 +151,28 @@ export interface TabMenuSubmenuEntry extends TabMenuEntryBase {
 
 export type TabMenuEntry = TabMenuHeaderEntry | TabMenuLeafEntry | TabMenuSubmenuEntry;
 
-export function tabAccountSubmenu(view: Pick<ReturnType<typeof useTabAccounts>, "snapshot" | "currentAccountId" | "switching" | "blockedReason">,
+export function tabAccountSubmenu(view: Pick<ReturnType<typeof useTabAccounts>, "snapshot" | "currentAccountId" | "switching" | "blockedReason" | "canVerify" | "turnActive">,
   providerName: string): TabMenuSubmenuEntry | null {
-  const { snapshot, currentAccountId, switching, blockedReason } = view;
+  const { snapshot, currentAccountId, switching, blockedReason, canVerify, turnActive } = view;
   const accounts = snapshot ? accountChoices(snapshot) : [];
   if (!snapshot || accounts.length < 2) return null;
   const canContinue = snapshot.continuation === "proven";
-  return { kind: "submenu", id: "account", label: "Account", icon: null, entries: accounts.map((account): TabMenuItemEntry => {
+  const ownerTrial = snapshot.continuation === "unverified" && canVerify === true;
+  return { kind: "submenu", id: "account", label: "Account", icon: null,
+    description: ownerTrial ? "Choosing an account tries this conversation there. Its history stays the same." : undefined,
+    showDescription: ownerTrial,
+    entries: accounts.map((account): TabMenuItemEntry => {
     const current = account.id === currentAccountId;
+    if (snapshot.continuation === "unverified") {
+      const canTry = ownerTrial && turnActive === false && !current && account.status === "ready" && !switching;
+      const reason = switching ? "Switching account" : !ownerTrial ? blockedReason ?? "Account switching is unavailable."
+        : current || turnActive !== false ? "Wait for this turn to finish"
+          : account.status === "signedOut" ? "Sign in first"
+            : accountChoiceDescription(account) ?? "This account isn't ready.";
+      return { kind: "item", id: `account-${account.id}`, label: accountChoiceName(account, providerName), icon: null,
+        selected: current, disabled: switching, unavailable: !canTry, hint: canTry ? accountChoiceDescription(account) : reason,
+        action: canTry ? { type: "switchAccount", accountId: account.id } : null };
+    }
     const blocked = !canContinue || Boolean(blockedReason) || account.status === "signedOut";
     return { kind: "item", id: `account-${account.id}`, label: accountChoiceName(account, providerName), icon: null,
       selected: current, disabled: switching || current, unavailable: !current && blocked,

@@ -7,7 +7,7 @@ import type { ProviderAccountsSnapshot } from "../../hooks/providerAccountsTypes
 const fixture = vi.hoisted(() => ({
   descriptor: {} as ProviderDescriptor,
   tabAccounts: { snapshot: null as ProviderAccountsSnapshot | null, currentAccountId: "default", currentIdentity: "usual@example.test" as string | null,
-    switching: false, blockedReason: null as string | null, error: null as string | null, choose: vi.fn() },
+    switching: false, canVerify: false, turnActive: true, blockedReason: null as string | null, error: null as string | null, choose: vi.fn() },
   workspaceAccounts: { providers: [] as { providerId: string; displayName: string; snapshot: ProviderAccountsSnapshot }[], loading: false, error: null, choose: vi.fn() },
   tabHook: vi.fn(), workspaceHook: vi.fn(), published: vi.fn(),
 }));
@@ -44,7 +44,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 beforeEach(() => {
   fixture.descriptor = { id: "opaque-harness", display_name: "Fixture", accounts: {}, model_switch: "next_turn",
     available_models: [{ id: "model", display_name: "Model" }], reasoning_efforts: [] } as unknown as ProviderDescriptor;
-  Object.assign(fixture.tabAccounts, { snapshot: snapshot(), currentAccountId: "default", currentIdentity: "usual@example.test", switching: false, blockedReason: null, error: null });
+  Object.assign(fixture.tabAccounts, { snapshot: snapshot(), currentAccountId: "default", currentIdentity: "usual@example.test", switching: false, canVerify: false, turnActive: true, blockedReason: null, error: null });
   fixture.tabAccounts.choose.mockReset().mockResolvedValue(undefined);
   fixture.workspaceAccounts.providers = [{ providerId: "opaque-harness", displayName: "Fixture", snapshot: snapshot() }];
   fixture.workspaceAccounts.choose.mockReset().mockResolvedValue(undefined);
@@ -179,4 +179,89 @@ it("does not mount account subscriptions on tab surfaces for an incapable harnes
   await render(<><TabStatusLineModelPicker tab={ownTab} label="Fixture · Model" />
     <TabMenu tab={ownTab} entries={[]} onAction={vi.fn()} trigger={<button>Tab actions</button>} /></>);
   expect(fixture.tabHook).not.toHaveBeenCalled();
+});
+
+function ownerTrial() {
+  fixture.tabAccounts.snapshot!.continuation = "unverified";
+  fixture.tabAccounts.snapshot!.accounts[1].status = "ready";
+  Object.assign(fixture.tabAccounts, { canVerify: true, turnActive: false, blockedReason: "Moving this conversation to another account isn't confirmed yet." });
+  return <TabMenu tab={ownTab} entries={[]} onAction={vi.fn()} trigger={<button>Tab actions</button>} />;
+}
+
+it("uses the explicit idle owner's radio choice as one trial through the parent's choose contract", async () => {
+  await render(ownerTrial());
+  await open("Tab actions"); await click("Account", "menuitem");
+  const active = document.querySelector<HTMLElement>('[role="menu"]:not([hidden])')!;
+  const explanation = document.getElementById(active.getAttribute("aria-describedby")!);
+  expect(explanation?.textContent).toBe("Choosing an account tries this conversation there. Its history stays the same.");
+  expect(active.contains(explanation)).toBe(true);
+  const current = button("usual@example.test", "menuitemradio");
+  expect(current.getAttribute("aria-checked")).toBe("true");
+  expect(current.disabled).toBe(false);
+  expect(document.getElementById(current.getAttribute("aria-describedby")!)?.textContent).toBe("Wait for this turn to finish");
+  const work = button("Work", "menuitemradio");
+  expect(work.disabled).toBe(false);
+  expect(work.getAttribute("aria-disabled")).toBeNull();
+  await click("Work", "menuitemradio");
+  expect(fixture.tabAccounts.choose).toHaveBeenCalledExactlyOnceWith("work");
+});
+
+it("keeps a nonowner's ready unverified target inert without the trial explanation", async () => {
+  const view = ownerTrial(); fixture.tabAccounts.canVerify = false;
+  await render(view); await open("Tab actions"); await click("Account", "menuitem");
+  const active = document.querySelector<HTMLElement>('[role="menu"]:not([hidden])')!;
+  expect(active.getAttribute("aria-describedby")).toBeNull();
+  const work = button("Work", "menuitemradio");
+  expect(work.getAttribute("aria-disabled")).toBe("true");
+  await click("Work", "menuitemradio");
+  expect(fixture.tabAccounts.choose).not.toHaveBeenCalled();
+});
+
+it.each(["turn", "request"])("blocks another owner trial while a %s is active", async busy => {
+  const view = ownerTrial();
+  fixture.tabAccounts.turnActive = busy === "turn";
+  fixture.tabAccounts.switching = busy === "request";
+  await render(view); await open("Tab actions"); await click("Account", "menuitem");
+  const work = button("Work", "menuitemradio");
+  expect(work.disabled || work.getAttribute("aria-disabled") === "true").toBe(true);
+  if (busy === "turn") expect(document.getElementById(work.getAttribute("aria-describedby")!)?.textContent).toBe("Wait for this turn to finish");
+  await click("Work", "menuitemradio");
+  expect(fixture.tabAccounts.choose).not.toHaveBeenCalled();
+});
+
+it.each([
+  { status: "signedOut", reason: "Sign in first" },
+  { status: "exhausted", reason: "Limit reached, resets" },
+  { status: "unknown", reason: "This account isn't ready." },
+] as const)("keeps an owner's $status target inert with an accessible reason", async ({ status, reason }) => {
+  const view = ownerTrial(); fixture.tabAccounts.snapshot!.accounts[1].status = status;
+  await render(view); await open("Tab actions"); await click("Account", "menuitem");
+  const work = button("Work", "menuitemradio"); work.focus();
+  expect(document.activeElement).toBe(work);
+  expect(work.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(work.getAttribute("aria-describedby")!)?.textContent).toContain(reason);
+  await click("Work", "menuitemradio");
+  expect(fixture.tabAccounts.choose).not.toHaveBeenCalled();
+});
+
+it("does not let stale owner-trial authority enable an unsupported harness", async () => {
+  const view = ownerTrial(); fixture.tabAccounts.snapshot!.continuation = "unsupported";
+  fixture.tabAccounts.blockedReason = "Fixture can't move this conversation";
+  await render(view); await open("Tab actions"); await click("Account", "menuitem");
+  const active = document.querySelector<HTMLElement>('[role="menu"]:not([hidden])')!;
+  expect(active.getAttribute("aria-describedby")).toBeNull();
+  await click("Work", "menuitemradio");
+  expect(fixture.tabAccounts.choose).not.toHaveBeenCalled();
+});
+
+it("removes the trial explanation when the parent projects proven continuation and retains safe-boundary choices", async () => {
+  await render(ownerTrial()); await open("Tab actions"); await click("Account", "menuitem");
+  fixture.tabAccounts.snapshot!.continuation = "proven";
+  fixture.tabAccounts.blockedReason = null; fixture.tabAccounts.turnActive = true;
+  await render(<TabMenu tab={ownTab} entries={[]} onAction={vi.fn()} trigger={<button>Tab actions</button>} />);
+  const active = document.querySelector<HTMLElement>('[role="menu"]:not([hidden])')!;
+  expect(active.getAttribute("aria-describedby")).toBeNull();
+  expect(active.textContent).not.toContain("Choosing an account tries");
+  await click("Work", "menuitemradio");
+  expect(fixture.tabAccounts.choose).toHaveBeenCalledExactlyOnceWith("work");
 });

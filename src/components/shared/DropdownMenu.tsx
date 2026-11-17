@@ -20,6 +20,7 @@ export interface DropdownMenuItem {
   submenu?: {
     label: string;
     description?: string;
+    showDescription?: boolean;
     items: DropdownMenuEntry[];
   };
   danger?: boolean;
@@ -396,7 +397,8 @@ export function DropdownMenu({
               event.preventDefault();
               moveFocus(event.key);
             }}
-            aria-description={activeSubmenu?.description}
+            aria-description={activeSubmenu?.showDescription ? undefined : activeSubmenu?.description}
+            aria-describedby={activeSubmenu?.showDescription && activeSubmenu.description ? `${descriptionIdBase}-submenu` : undefined}
             className={`ct-menu w-max${triggerRef.current?.closest('[aria-modal="true"]') ? " ct-menu--modal" : ""}`}
             style={{ width: maxWidth ?? (inSubmenu && pageWidth ? pageWidth : undefined), maxHeight, maxWidth }}
           >
@@ -416,6 +418,8 @@ export function DropdownMenu({
                   <span className="ct-menu-row__icon"><ChevronLeft aria-hidden size={14} /></span>
                   <span className="min-w-0 flex-1 truncate">{activeSubmenu.label}</span>
                 </button>
+                {activeSubmenu.showDescription && activeSubmenu.description && <p id={`${descriptionIdBase}-submenu`}
+                  className="ct-menu-row__description min-w-0 max-w-full whitespace-normal px-3 pb-2 [overflow-wrap:anywhere]">{activeSubmenu.description}</p>}
               </div>
             ) : header}
             {visibleEntries.map((entry, i) => isSeparator(entry) ? (
