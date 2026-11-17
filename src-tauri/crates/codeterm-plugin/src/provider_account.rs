@@ -19,6 +19,7 @@ pub struct InvocationContext {
     protected_roots: Vec<PathBuf>,
     shared_reads: Vec<SharedReadGrant>,
     cache_key: String,
+    credential_secret_scope: Option<String>,
 }
 
 impl std::fmt::Debug for InvocationContext {
@@ -68,6 +69,7 @@ impl InvocationContext {
             protected_roots,
             shared_reads: Vec::new(),
             cache_key: String::new(),
+            credential_secret_scope: None,
         };
         context.cache_key = context.identity()?;
         Ok(Arc::new(context))
@@ -82,6 +84,7 @@ impl InvocationContext {
             &self.read_roots,
             &self.protected_roots,
             &self.shared_reads,
+            &self.credential_secret_scope,
         ))
         .map_err(|error| error.to_string())?;
         Ok(format!("{:x}", Sha256::digest(identity)))
@@ -120,13 +123,29 @@ impl InvocationContext {
         if !read_roots.iter().any(|root| root == Path::new(home)) {
             return Err("selected provider account home must be an authorized read root".into());
         }
+        let root = codeterm_util::project_roots::canonical_target(Path::new(home))
+            .ok_or("Selected credential home cannot be resolved")?;
+        let root = root
+            .to_str()
+            .ok_or("Selected credential home must be Unicode")?;
+        let root = if cfg!(windows) {
+            codeterm_paths::strip_verbatim_prefix(root).replace('\\', "/")
+        } else {
+            root.to_owned()
+        };
+        use sha2::{Digest, Sha256};
+        let credential_secret_scope = format!("{:x}", Sha256::digest(root.as_bytes()));
         for name in &capability.excluded_environment {
             environment.entry(name.clone()).or_insert(None);
         }
         for name in &capability.secret_environment {
             environment.insert(name.clone(), None);
         }
-        Self::new(provider, account, environment, read_roots, protected_roots)
+        let mut context =
+            (*Self::new(provider, account, environment, read_roots, protected_roots)?).clone();
+        context.credential_secret_scope = Some(credential_secret_scope);
+        context.cache_key = context.identity()?;
+        Ok(Arc::new(context))
     }
 
     pub fn provider(&self) -> &str {
@@ -137,6 +156,15 @@ impl InvocationContext {
     }
     pub fn cache_key(&self) -> &str {
         &self.cache_key
+    }
+
+    pub fn credential_secret_scope(&self) -> Option<&str> {
+        self.credential_secret_scope.as_deref()
+    }
+
+    pub fn credential_secret_prefix(&self, provider: &str) -> Option<String> {
+        (self.provider() == provider).then_some(())?;
+        Some(format!("account:{}:", self.credential_secret_scope()?))
     }
 
     pub fn environment_entries(&self) -> impl Iterator<Item = (&str, Option<&str>)> {
@@ -311,13 +339,39 @@ pub(crate) fn read_to_string(path: impl AsRef<Path>) -> std::io::Result<String> 
     Ok(contents)
 }
 
+fn reserved_secret_name(name: &str) -> bool {
+    name.split_once(':')
+        .is_some_and(|(prefix, _)| prefix.eq_ignore_ascii_case("account"))
+}
+
 pub fn secret_name(plugin: &str, name: &str) -> Option<String> {
+    if reserved_secret_name(name) {
+        return None;
+    }
     match current() {
-        Some(context) if context.provider() == plugin => {
-            Some(format!("account:{}:{name}", context.account()))
-        }
-        Some(_) => None,
+        Some(context) => Some(format!(
+            "{}{name}",
+            context.credential_secret_prefix(plugin)?
+        )),
         None => Some(name.to_owned()),
+    }
+}
+
+pub fn secret_reference(
+    provider: &str,
+    reference: &str,
+    context: Option<&InvocationContext>,
+) -> Option<String> {
+    let namespace = format!("domios:provider:{provider}:");
+    let name = reference
+        .strip_prefix(&namespace)
+        .filter(|name| !name.is_empty() && !name.contains('\0') && !reserved_secret_name(name))?;
+    match context {
+        Some(context) => Some(format!(
+            "{namespace}{}{name}",
+            context.credential_secret_prefix(provider)?
+        )),
+        None => Some(reference.to_owned()),
     }
 }
 

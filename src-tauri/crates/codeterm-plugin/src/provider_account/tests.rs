@@ -44,10 +44,7 @@ fn account_home_nested_scope_restores_after_unwind_and_explicit_removal() {
     with_context(Some(a.clone()), || {
         assert_eq!(environment("ACCOUNT_FIXTURE"), Some("a".into()));
         assert!(environment("PATH").is_none());
-        assert_eq!(
-            secret_name("fixture", "token"),
-            Some("account:a:token".into())
-        );
+        assert_eq!(secret_name("fixture", "token"), None);
         assert_eq!(secret_name("foreign", "token"), None);
         let mut command = std::process::Command::new("unused-fixture-command");
         a.configure_command(&mut command);
@@ -188,4 +185,90 @@ fn account_home_catalogues_overlays_and_cache_files_are_isolated() {
     });
     assert!(!crate::model_catalog::has_live_snapshot(provider));
     crate::model_catalog::cleanup(provider);
+}
+
+fn credential_context(account: &str, home: &Path) -> Arc<InvocationContext> {
+    let capability: storage::AccountCapability = serde_json::from_value(serde_json::json!({
+        "homeEnvironment":"FIXTURE_HOME","defaultHome":"~/.fixture","secretEnvironment":[],
+        "isolatedPaths":["auth.json"],"sharedPaths":[],"continuation":"unverified"
+    }))
+    .unwrap();
+    InvocationContext::from_capability(
+        "fixture".into(),
+        account.into(),
+        &capability,
+        BTreeMap::from([("FIXTURE_HOME".into(), Some(home.to_str().unwrap().into()))]),
+        vec![home.into()],
+        vec![],
+    )
+    .unwrap()
+}
+
+#[test]
+fn account_home_secret_scope_survives_promotion_without_exposing_other_roots_or_default() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("staged-home");
+    let other = root.path().join("other-home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let staged = credential_context("auth-stage", &home);
+    let promoted = credential_context("a", &home);
+    let sibling = credential_context("b", &other);
+    assert_ne!(staged.cache_key(), promoted.cache_key());
+    assert_eq!(
+        staged.credential_secret_scope(),
+        promoted.credential_secret_scope()
+    );
+    assert_ne!(
+        staged.credential_secret_scope(),
+        sibling.credential_secret_scope()
+    );
+    let bucket =
+        codeterm_util::secret_file::plugin_secret_bucket(root.path().join("vault"), "fixture");
+    let name = with_context(Some(staged.clone()), || {
+        secret_name("fixture", "api-key").unwrap()
+    });
+    bucket.set(&name, "opaque-fixture-key").unwrap();
+    with_context(Some(promoted.clone()), || {
+        assert_eq!(
+            bucket
+                .get(&secret_name("fixture", "api-key").unwrap())
+                .unwrap(),
+            "opaque-fixture-key"
+        )
+    });
+    with_context(Some(sibling.clone()), || {
+        assert!(bucket
+            .get(&secret_name("fixture", "api-key").unwrap())
+            .is_err())
+    });
+    with_context(None, || {
+        assert!(bucket
+            .get(&secret_name("fixture", "api-key").unwrap())
+            .is_err());
+        assert!(secret_name("fixture", &name).is_none());
+    });
+    let reference = "domios:provider:fixture:key";
+    let staged_ref = secret_reference("fixture", reference, Some(&staged)).unwrap();
+    assert_eq!(
+        Some(staged_ref.clone()),
+        secret_reference("fixture", reference, Some(&promoted))
+    );
+    assert_ne!(
+        Some(staged_ref.clone()),
+        secret_reference("fixture", reference, Some(&sibling))
+    );
+    assert_eq!(
+        secret_reference("fixture", reference, None).as_deref(),
+        Some(reference)
+    );
+    assert!(secret_reference("fixture", &staged_ref, None).is_none());
+    assert!(secret_reference(
+        "fixture",
+        &staged_ref.replace(":account:", ":Account:"),
+        None
+    )
+    .is_none());
+    assert!(secret_reference("foreign", reference, Some(&promoted)).is_none());
+    assert!(secret_reference("fixture", reference, Some(&context("a"))).is_none());
 }

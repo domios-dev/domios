@@ -329,3 +329,41 @@ fn a_receipt_written_by_an_earlier_build_starts_without_reinstall_and_is_rebound
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn account_home_required_profile_secrets_never_use_global_keys() {
+    let root = tempfile::tempdir().unwrap();
+    let capability = serde_json::from_value(json!({"homeEnvironment":"FIXTURE_HOME","defaultHome":"~/.fixture","secretEnvironment":[],"isolatedPaths":[],"sharedPaths":[],"continuation":"unverified"})).unwrap();
+    let invocation = codeterm_plugin::provider_account::InvocationContext::from_capability(
+        "acp".into(),
+        "auth-stage".into(),
+        &capability,
+        BTreeMap::from([(
+            "FIXTURE_HOME".into(),
+            Some(root.path().to_str().unwrap().into()),
+        )]),
+        vec![root.path().into()],
+        vec![],
+    )
+    .unwrap();
+    let profile = profile();
+    let references = scoped_secret_references("acp", &profile, Some(&invocation)).unwrap();
+    let global = "domios:provider:acp:deepseek-api-key";
+    assert_ne!(references[global], global);
+    assert_eq!(
+        scoped_secret_references("acp", &profile, None).unwrap()[global],
+        global
+    );
+    let result = compose_secret_environment(&profile, |declared| {
+        (references[declared] == global).then(|| "global-fixture".into())
+    });
+    assert!(matches!(
+        result,
+        Err(super::super::model::RuntimeFailure::SignInRequired)
+    ));
+    let mut foreign = profile;
+    foreign
+        .secret_env
+        .insert("OTHER".into(), "owner:shared-key".into());
+    assert!(scoped_secret_references("acp", &foreign, Some(&invocation)).is_err());
+}

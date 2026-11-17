@@ -189,3 +189,38 @@ fn startup_never_imports_the_retired_keychain_directory() {
     assert!(!root.path().join(".secrets").exists());
     assert_eq!(std::fs::read(old).unwrap(), original);
 }
+
+#[test]
+fn credential_prefix_cleanup_preserves_sibling_roots_services_and_default_keys() {
+    let root = tempfile::tempdir().unwrap();
+    let bucket = plugin_secret_bucket(root.path(), "fixture");
+    let foreign = plugin_secret_bucket(root.path(), "other");
+    for key in [
+        "account:root-a:key",
+        "account:root-a:alternate",
+        "account:root-ab:key",
+        "key",
+    ] {
+        bucket.set(key, "opaque").unwrap();
+    }
+    foreign.set("account:root-a:key", "opaque-foreign").unwrap();
+    assert!(bucket.delete_prefix("").is_err());
+    let lock = bucket.lock_backend().unwrap();
+    assert!(matches!(
+        bucket.delete_prefix("account:root-a:"),
+        Err(SecretFileError::Busy)
+    ));
+    drop(lock);
+    assert_eq!(bucket.delete_prefix("account:root-a:").unwrap(), 2);
+    assert!(bucket.get("account:root-a:key").is_err());
+    assert!(bucket.get("account:root-ab:key").is_ok());
+    assert!(bucket.get("key").is_ok());
+    assert!(foreign.get("account:root-a:key").is_ok());
+    assert_eq!(bucket.delete_prefix("account:root-a:").unwrap(), 0);
+    std::fs::write(root.path().join(".secrets"), "{invalid").unwrap();
+    assert!(bucket.delete_prefix("account:root-ab:").is_err());
+    assert_eq!(
+        std::fs::read_to_string(root.path().join(".secrets")).unwrap(),
+        "{invalid"
+    );
+}
