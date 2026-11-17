@@ -124,9 +124,6 @@ pub fn decide_model(
     referenced: Option<&ModelDecision>,
     target: &TargetCatalogue,
 ) -> ModelDecision {
-    if let Some(blocked) = machine_need(request, target) {
-        return blocked_decision(blocked, Vec::new());
-    }
     let mut skipped_owner = false;
     for choice in request.owner_choices {
         if is_lost(request, choice) {
@@ -144,6 +141,9 @@ pub fn decide_model(
             }
             Err(_) => skipped_owner = true,
         }
+    }
+    if let Some(blocked) = machine_need(request, target) {
+        return blocked_decision(blocked, Vec::new());
     }
     let mut decision = match request.preference {
         None => match request.kind {

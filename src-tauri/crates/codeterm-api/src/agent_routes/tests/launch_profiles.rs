@@ -54,3 +54,19 @@ fn launch_profile_refusals_are_422_and_create_no_tab() {
         assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
     }
 }
+
+#[test]
+fn pair_profile_errors_remain_actionable_422_after_service_string_conversion() {
+    for code in [
+        "launch_profile_required",
+        "unknown_launch_profile",
+        "launch_profile_not_installed",
+    ] {
+        let message = format!("{code}: choose an installed profile in Settings > Providers");
+        let refusal = SpawnRejection::from(message.clone());
+        assert_eq!(refusal.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(refusal.body["error"]["code"], code);
+        assert_eq!(refusal.body["error"]["message"], message);
+        assert!(refusal.body["error"].get("class").is_none());
+    }
+}

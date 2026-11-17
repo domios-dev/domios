@@ -26,6 +26,7 @@ pub(crate) struct Seat {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct OwnerPick {
     pub provider: String,
+    pub launch_profile: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
     /// A chat backend or remote target: the decision service has no catalogue for it.
@@ -46,6 +47,7 @@ impl OwnerPick {
         };
         Some(Self {
             provider: provider.to_string(),
+            launch_profile: None,
             model: clean(model),
             effort: clean(effort),
             outside_catalogue: false,

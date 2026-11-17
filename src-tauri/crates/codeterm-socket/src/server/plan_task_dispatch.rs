@@ -462,16 +462,17 @@ where
         preparation.brief.executor_role.as_deref(),
     )
     .map_err(invalid_dispatch)?;
-    let requested_model = owned_str(p, "model")
-        .or_else(|| task.model.clone())
-        .or(role.model);
-    let model_selection = codeterm_service_core::service::spawn::resolve_agent_model_selection(
-        &svc.agent_registry,
-        owned_str(p, "agent").as_deref(),
-        requested_model.as_deref(),
-        &svc.configuration().general_agent.agent_provider,
-    )
-    .map_err(super::model_errors::invalid_model_rpc_error)?;
+    let requested_model = owned_str(p, "model");
+    let recommended_model = task.model.clone().or(role.model);
+    let model_selection =
+        codeterm_service_core::service::spawn::resolve_agent_model_selection_with_default(
+            &svc.agent_registry,
+            owned_str(p, "agent").as_deref(),
+            requested_model.as_deref(),
+            recommended_model.as_deref(),
+            &svc.configuration().general_agent.agent_provider,
+        )
+        .map_err(super::model_errors::invalid_model_rpc_error)?;
     let resolved_provider = model_selection.provider_id;
     let selected_model = model_selection.model;
     let execution_intent = match owned_str(p, "execution_intent").as_deref() {
