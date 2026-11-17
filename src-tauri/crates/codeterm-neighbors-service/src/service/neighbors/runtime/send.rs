@@ -1,6 +1,8 @@
 use super::authority::SendAuthority;
 use super::*;
 
+mod admission;
+
 pub trait NeighborsExt {
     fn send_neighbor(
         &self,
@@ -77,15 +79,6 @@ impl NeighborsExt for ServiceContext {
         if !hex_id(&message_id, 32) {
             return Err(Error::InvalidEnvelope);
         }
-        if metadata
-            .history(&friendship)
-            .await?
-            .entries
-            .iter()
-            .any(|entry| entry.message_id == message_id)
-        {
-            return Err(Error::OperationIdConflict);
-        }
         let permission = metadata
             .settings()
             .await?
@@ -103,6 +96,7 @@ impl NeighborsExt for ServiceContext {
             in_reply_to.as_deref(),
         )
         .await?;
+        admission::reserve(self, metadata, &message_id, generation).await?;
         let keys = lifecycle.load().await?.ok_or(Error::Revoked)?;
         if !lifecycle
             .registry
