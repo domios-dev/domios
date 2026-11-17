@@ -87,6 +87,7 @@ it("reads the 410 from a real SQLite own session, advances on message updates, a
     db.prepare("INSERT INTO message VALUES (?, ?, ?, ?, ?)").run("msg_error", "ses_own", 10, 30, JSON.stringify(error));
     Object.defineProperty(globalThis, "host", { configurable: true, value: {
       platform: () => "linux",
+      providerVersionJson: () => JSON.stringify({ version: "1.19.6", status: "detected" }),
       envGet: (key: string) => key === "OPENCODE_DB" ? join(dir, "opencode.db") : null,
       expandHome: (value: string) => value,
       exec: () => JSON.stringify({ code: 0, stdout: 'opencode/exo-free\n{"name":"Exo"}\nopencode/good\n{"name":"Good"}' }),
