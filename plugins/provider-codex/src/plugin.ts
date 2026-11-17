@@ -1,6 +1,6 @@
 import { parseUsageRecord } from "./usageRecord";
 import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
-import { type HostIoSteps } from "@codeterm/plugin-sdk";
+import { type AccountIdentity, type HostIoSteps } from "@codeterm/plugin-sdk";
 import { runPromptSteps } from "../../provider-shared/runPromptStep";
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
 import { buildCodexLaunchSpec, codexCommandFromSpec, CODEX_LAUNCH_CONFIG, hostOwnedCodexLaunchArgs } from "./launchSpec";
@@ -439,7 +439,7 @@ const plugin = {
     return (yield* fetchCodexUsage(host));
   },
 
-  *accountIdentity(): HostIoSteps<unknown> {
+  *accountIdentity(): HostIoSteps<AccountIdentity | null> {
     return (yield* codexAccountIdentity());
   },
 

@@ -278,7 +278,7 @@ function TabSessionChatBody({
   const composerErrorNotice = useMemo(() => createChatErrorNotice(tabId, { upsertToast, dismissToast }), [tabId, upsertToast, dismissToast]);
   const showComposerError = composerErrorNotice.show;
 
-  const hostAccountRows=useMemo(()=>accountNoticeRows(tab?.restorable_launch?.account_notices ?? [],tab?.agent_type,agentSessionId),[tab?.restorable_launch?.account_notices,tab?.agent_type,agentSessionId]);
+  const hostAccountRows=useMemo(()=>accountNoticeRows(tab?.account?.notices ?? [],tab?.agent_type,agentSessionId),[tab?.account?.notices,tab?.agent_type,agentSessionId]);
   const {
     loading,
     recovering,

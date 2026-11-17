@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { useTabAccounts } from "../../hooks/useAccountSelectors";
-import { useMultiplexer } from "../../store/multiplexer/hooks";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
 import { RuntimeLoginActions } from "./RuntimeLoginActions";
 import { BusyState } from "../shared/BusyState";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -16,7 +16,8 @@ export function AccountTransitionActions({tab}:{tab:Tab}) {
 
 function AccountTransition({tab,displayName}:{tab:Tab;displayName:string}) {
   const accounts=useTabAccounts(tab);
-  const {state,spawnAgentTab,selectTabByTab}=useMultiplexer();
+  const {spawnAgentTab,selectTabByTab}=useMultiplexer();
+  const state=useMuxState();
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const transition=accounts.transition;
@@ -44,7 +45,7 @@ function AccountTransition({tab,displayName}:{tab:Tab;displayName:string}) {
         const workspace=state.workspaces.find(workspace=>workspace.tabs.includes(tab.id));
         if(!workspace || !tab.agent_type)throw new Error("The tab workspace is unavailable");
         const created=await spawnAgentTab(workspace.id,tab.agent_type,tab.cwd ?? undefined,undefined,undefined,undefined,undefined,undefined,undefined,next);
-        if(created)await selectTabByTab(created.workspace_id ?? workspace.id,created.tab_id);
+        if(created)await selectTabByTab(created.workspaceId,created.tabId);
       }
     } catch(failure){setError(String(failure));}finally{setBusy(false);}
   };

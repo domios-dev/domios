@@ -157,7 +157,7 @@ it("shares receiver status on open across concurrent consumers", async () => {
 });
 
 it.each(["agent-runtime-state", "tab-boot-stage"])("%s resolves provisional concierge labels even without a listener", async event => {
-  const concierge = {gateway_tab:"own-tab",concierge_missing:false,pending_count:null,receiving_here:true,receiver_machine_label:null,state:"concierge_starting"};
+  const concierge = {concierge_dormant:false,reasoning_effort:null,service_tier:null,initial_context_digest:null,paused:false,my_paused:false,pending_count_capped:false,gateway_tab:"own-tab",concierge_missing:false,pending_count:null,receiving_here:true,receiver_machine_label:null,state:"concierge_starting"};
   const initial = {...status(true, 1),bindings:{first:"own-tab"},concierges:{first:concierge}};
   const failed = {...initial,concierges:{first:{...concierge,state:"concierge_crashed"}}};
   const { runtime } = client(Promise.resolve(initial), Promise.resolve(failed));

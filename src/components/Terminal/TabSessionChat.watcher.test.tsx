@@ -445,9 +445,9 @@ test("concierge keeps model management and routes the owner to the friend conver
   const friendship = "opaque-friendship";
   const tab = tabBase(tabId, { agent_type: "fixture", agent_session_model: "fast", pty_id: "own-pty",
     neighbor_authority: { uid: "opaque-user", friendship_id: friendship, root_tab_id: null } });
-  setAgentDescriptors([{ id: "fixture", display_name: "Fixture", transport: "pty", model_switch: "next_turn",
+  setAgentDescriptors([{ schema_version:1, system_prompt_delivery:"external",settings_schema:[],notifications_schema:[],supports_lazy_skills:false,has_hooks:false,id: "fixture", display_name: "Fixture", transport: "pty", model_switch: "next_turn",
     available_models: [{ id: "fast", display_name: "Fast", reasoning_efforts: [] }, { id: "deep", display_name: "Deep", reasoning_efforts: [] }],
-  } as import("../../lib/types").ProviderDescriptor]);
+  } satisfies import("../../lib/types").ProviderDescriptor]);
   const switched: string[] = [];
   __setTabModelApiForTest({ switchModel: async (_tab, model) => {
     switched.push(model);

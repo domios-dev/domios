@@ -13,14 +13,14 @@ const actionClass="ct-bar-pill";
 
 export function AccountRuntimeLoginActions({tab,...props}:Props) {
   const descriptor=useAgentDescriptor(tab?.agent_type);
-  return descriptor?.accounts && tab && (tab.restorable_launch?.account_id ?? "default")!=="default" && !tab.remote_peer_id
+  return descriptor?.accounts && tab && (tab.account?.id ?? "default")!=="default" && !tab.remote_peer_id
     ? <NamedAccountLogin key={`${tab.id}:${tab.session_binding_nonce}`} tab={tab} {...props}/>
     : <RuntimeLoginActions {...props}/>;
 }
 
 function NamedAccountLogin({tab,...props}:Props & {tab:Tab}) {
   const provider=tab.agent_type!;
-  const account=tab.restorable_launch.account_id!;
+  const account=tab.account!.id!;
   const accounts=useProviderAccounts(provider);
   const transition=useAccountTransition(tab.id,provider);
   const row=accounts.snapshot?.accounts.find(row=>row.id===account);

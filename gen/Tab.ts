@@ -23,6 +23,7 @@ import type { ShellCommandState } from "./ShellCommandState";
 import type { ShellProfile } from "./ShellProfile";
 import type { ShellPurpose } from "./ShellPurpose";
 import type { SleepReason } from "./SleepReason";
+import type { TabAccount } from "./TabAccount";
 import type { TabAudience } from "./TabAudience";
 import type { TabBacking } from "./TabBacking";
 import type { TabType } from "./TabType";
@@ -114,7 +115,7 @@ model_fallback?: ModelFallbackNotice,
 /**
  * Runtime evidence that the provider ran a different model than requested.
  */
-model_identity_mismatch?: ModelIdentityMismatch, reasoning_effort_identity?: ReasoningEffortIdentity, context_epoch_archives?: Array<ContextEpochArchive>,
+model_identity_mismatch?: ModelIdentityMismatch, reasoning_effort_identity?: ReasoningEffortIdentity, account: TabAccount, context_epoch_archives?: Array<ContextEpochArchive>,
 /**
  * Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this tab.
  */

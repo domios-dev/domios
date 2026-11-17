@@ -1,6 +1,30 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TabAccount {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub namespace: Option<String>,
+    pub notices: Vec<AccountContinuationNotice>,
+}
+
+pub(super) fn serialize_account<S: serde::Serializer>(
+    launch: &RestorableLaunchParameters,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    TabAccount {
+        id: launch
+            .account_id
+            .clone()
+            .unwrap_or_else(|| "default".into()),
+        namespace: launch.account_namespace.clone(),
+        notices: launch.account_notices.clone(),
+    }
+    .serialize(serializer)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ReasoningEffortIdentity {
     #[serde(default, skip_serializing_if = "Option::is_none")]

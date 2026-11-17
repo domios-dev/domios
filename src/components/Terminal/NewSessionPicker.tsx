@@ -27,6 +27,7 @@ import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards } from "./NewSessionPickerParts";
 import { useAnimatedHeight } from "../shared/useAnimatedHeight";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
 import { FolderPaneState } from "../shared/FolderPaneState";
@@ -277,6 +278,9 @@ export function NewSessionPicker({
         ...(accountId ? [accountId] as const : [] as const)));
       return;
     }
+    const selectionArgs: [intent?: "fresh_general", executionMode?: string, profile?: string, accountId?: string] = accountId
+      ? [section === "general" ? "fresh_general" : undefined, undefined, undefined, accountId]
+      : section === "general" ? ["fresh_general"] : [];
     await finishSpawn(() =>
       spawnAgentTab(
         workspaceId,
@@ -285,8 +289,7 @@ export function NewSessionPicker({
         modelId,
         effortId,
         preset,
-        ...(accountId ? [section === "general" ? "fresh_general" as const : undefined, undefined, undefined, accountId] as const
-          : section === "general" ? ["fresh_general" as const] : [] as const),
+        ...selectionArgs,
       ),
     );
   }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd, section]);

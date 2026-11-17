@@ -3,14 +3,14 @@ import {createRoot} from "react-dom/client";
 import {expect,it,vi} from "vitest";
 import type {Tab} from "../lib/types";
 import type {ProviderAccountsSnapshot} from "./providerAccountsTypes";
-const fixture=vi.hoisted(()=>({json:vi.fn(),canVerify:false,turnActive:true,continuation:"unverified",status:"ready"}));
+const fixture=vi.hoisted(()=>({json:vi.fn(),canVerify:false,turnActive:true,continuation:"unverified" as ProviderAccountsSnapshot["continuation"],status:"ready" as ProviderAccountsSnapshot["accounts"][number]["status"]}));
 vi.mock("../lib/daemonRuntime",()=>({selectedDaemonTransport:{json:fixture.json}}));
 vi.mock("../lib/bridge",()=>({listen:async()=>()=>{}}));
 vi.mock("./useAgentProviders",()=>({useAgentProviders:()=>({providers:[{id:"fixture",accounts:{},display_name:"Fixture"}],loading:false,error:null})}));
-vi.mock("./useProviderAccounts",()=>({useProviderAccounts:()=>({snapshot:{providerId:"fixture",revision:"rendered",continuation:fixture.continuation,accounts:[{id:"default",status:"ready"},{id:"work",status:fixture.status}],workspaceOverrides:[]} as ProviderAccountsSnapshot,error:null})}));
+vi.mock("./useProviderAccounts",()=>({useProviderAccounts:()=>({snapshot:{providerId:"fixture",revision:"rendered",automaticSwitch:false,continuation:fixture.continuation,accounts:[{id:"default",status:"ready",tabsInUse:1},{id:"work",status:fixture.status,tabsInUse:0}],workspaceOverrides:[]} satisfies ProviderAccountsSnapshot,error:null})}));
 vi.mock("./useAccountTransition",()=>({useAccountTransition:()=>({canVerify:fixture.canVerify,turnActive:fixture.turnActive,error:null,transition:null,onRefresh:()=>{}})}));
 import {useTabAccounts} from "./useAccountSelectors";
-const tab={id:"own",agent_type:"fixture",session_binding_nonce:"own-nonce",agent_runtime_state:{epoch:9},restorable_launch:{account_id:"default",account_namespace:null}} as unknown as Tab;
+const tab:Tab={pty_id:"own-pty",tab_type:"Terminal",title:"Own",cwd:null,id:"own",agent_type:"fixture",session_binding_nonce:"own-nonce",agent_runtime_state:{state:"loaded",epoch:9},account:{id:"default",notices:[]}};
 
 async function mounted(){
   Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
