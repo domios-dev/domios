@@ -1,7 +1,7 @@
 use super::*;
 
-#[test]
-fn runtime_spawn_selects_the_declared_default_and_preserves_explicit_and_resume_models() {
+#[tokio::test]
+async fn runtime_spawn_selects_the_declared_default_and_preserves_explicit_and_resume_models() {
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
     let fixture = crate::service::test_fixture::ServiceFixture::new(
         crate::multiplexer::state::MultiplexerState::new().0,
@@ -10,7 +10,7 @@ fn runtime_spawn_selects_the_declared_default_and_preserves_explicit_and_resume_
     let default = "opaque/default";
     let manifest = PluginManifest::from_json_str(
         &serde_json::json!({
-            "id":provider,"displayName":"Fixture","version":"1.0.0","defaultModel":default,
+            "id":provider,"displayName":"Fixture","version":"1.0.0","defaultModel":"opaque/seed",
             "modelCatalogue":{"authority":"authoritative","liveDiscoveryRequired":true},
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
                 "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture","args":[]},
@@ -20,15 +20,43 @@ fn runtime_spawn_selects_the_declared_default_and_preserves_explicit_and_resume_
         .to_string(),
     )
     .unwrap();
+    let live_provider = Box::new(JsProvider::new(
+        manifest,
+        std::sync::Arc::new(
+            PluginVm::from_source(
+                provider,
+                r#"module.exports.default = {
+                    discoverModels() {
+                        return [
+                            {id:"opaque/default", displayName:"Default"},
+                            {id:"opaque/selected", displayName:"Selected"}
+                        ];
+                    }
+                };"#
+                .into(),
+            )
+            .unwrap(),
+        ),
+    ));
     fixture
         .service
         .agent_registry
-        .register_provider(Box::new(JsProvider::new(
-            manifest,
-            std::sync::Arc::new(
-                PluginVm::from_source(provider, "module.exports = {};".into()).unwrap(),
-            ),
-        )));
+        .register_provider(live_provider);
+    let live_provider = fixture
+        .service
+        .agent_registry
+        .provider_arc(provider)
+        .unwrap();
+    assert_eq!(crate::agent::model_catalog::resolve_default(provider), None);
+    assert!(
+        crate::agent::model_catalog::refresh_models(live_provider, false)
+            .await
+            .is_some()
+    );
+    assert_eq!(
+        crate::agent::model_catalog::resolve_default(provider).as_deref(),
+        Some(default)
+    );
     for (input, resume, expected) in [
         (serde_json::json!({}), None, Some(default)),
         (
@@ -61,6 +89,7 @@ fn runtime_spawn_selects_the_declared_default_and_preserves_explicit_and_resume_
             assert_eq!(config["model"].as_str(), expected);
         }
     }
+    crate::agent::model_catalog::unregister(provider);
 }
 
 fn permission_provider(id: &str, sandboxed: bool) -> crate::agent::test_provider::MockProvider {
