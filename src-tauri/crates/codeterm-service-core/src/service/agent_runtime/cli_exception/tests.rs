@@ -96,7 +96,7 @@ fn only_the_root_read_only_concierge_is_eligible_for_split_windows_roots() {
             tab.restorable_launch.execution_sandbox = Some(policy.clone());
         }
         assert_eq!(
-            sandbox(&service.service, &context).unwrap(),
+            sandbox_with_preference(&service.service, &context).unwrap(),
             Some((policy.clone(), eligible))
         );
     }

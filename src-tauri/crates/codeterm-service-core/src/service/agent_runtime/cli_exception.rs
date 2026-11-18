@@ -306,7 +306,14 @@ fn remove_owned(policy: &RestrictedCliPolicy) {
     let _ = fs::remove_dir(directory);
 }
 
-fn sandbox(
+pub fn sandbox(
+    svc: &ServiceContext,
+    context: &RuntimeContext,
+) -> Result<Option<ExecutionSandboxPolicy>, String> {
+    sandbox_with_preference(svc, context).map(|value| value.map(|(policy, _)| policy))
+}
+
+fn sandbox_with_preference(
     svc: &ServiceContext,
     context: &RuntimeContext,
 ) -> Result<Option<(ExecutionSandboxPolicy, Option<bool>)>, String> {
@@ -393,7 +400,7 @@ pub(super) fn prepare(
     let Some(metadata_directory) = metadata_directory(svc, provider)? else {
         return Ok(None);
     };
-    let Some((sandbox, split_windows_roots)) = sandbox(svc, context)? else {
+    let Some((sandbox, split_windows_roots)) = sandbox_with_preference(svc, context)? else {
         return Ok(None);
     };
     let _policy_io = POLICY_IO.lock();
@@ -430,7 +437,7 @@ pub(super) fn prepare(
     let executable_pin = pin_executable(&executable)?;
     let mut policy = provision(context, &sandbox, &executable, &metadata_directory)?;
     policy.split_windows_roots = split_windows_roots;
-    if !self::sandbox(svc, context).is_ok_and(|current| {
+    if !sandbox_with_preference(svc, context).is_ok_and(|current| {
         current.is_some_and(|(current, preference)| {
             current == sandbox && preference == split_windows_roots
         })
@@ -457,7 +464,7 @@ pub(super) fn validate(svc: &ServiceContext, context: &RuntimeContext) -> Result
     let Some(policy) = &context.restricted_cli else {
         return Ok(());
     };
-    let (current, split_windows_roots) = sandbox(svc, context)?.ok_or(DENIED)?;
+    let (current, split_windows_roots) = sandbox_with_preference(svc, context)?.ok_or(DENIED)?;
     let lease = LEASES.lock().get(&context.tab_id).cloned().ok_or(DENIED)?;
     if lease.policy != *policy
         || lease.sandbox != current
@@ -489,7 +496,7 @@ pub(super) fn validate_binding(
     let Some(policy) = &context.restricted_cli else {
         return Ok(());
     };
-    let (current, split_windows_roots) = sandbox(svc, context)?.ok_or(DENIED)?;
+    let (current, split_windows_roots) = sandbox_with_preference(svc, context)?.ok_or(DENIED)?;
     let leases = LEASES.lock();
     let lease = leases.get(&context.tab_id).ok_or(DENIED)?;
     if lease.policy != *policy
