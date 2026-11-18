@@ -799,7 +799,7 @@ check("terminal turn errors retain classified failure metadata without a prior e
   assert.equal(result.events.length,2);
   const row=result.events[0];if(row.kind !== "chatItem")throw new Error("Expected error item");
   assert.equal(row.item.content,"Quota exhausted");
-  assert.deepEqual(plain(row.item.toolInput),{code:"usageLimitExceeded",class:"usage_limit",retryable:false});
+  assert.deepEqual(plain(row.item.toolInput),{code:"usageLimitExceeded",class:"usage_limit",retryable:false,accountLimit:{}});
   assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,turnId:"turn-a",state:"idle",detail:"failed"});
 });
 check("failed turns map each declared provider class once",()=> {
