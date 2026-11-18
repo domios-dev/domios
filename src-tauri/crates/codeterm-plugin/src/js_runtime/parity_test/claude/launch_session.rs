@@ -41,8 +41,8 @@ fn exact_switch_preflight_reads_shared_transcript_without_a_pid_record() {
     let temp = tempfile::tempdir().unwrap();
     let usual = temp.path().join("usual");
     let accounts = temp.path().join("provider-accounts");
-    let named = accounts.join("claude/named");
-    let foreign = accounts.join("claude/foreign");
+    let named = accounts.join(&manifest.id).join("named");
+    let foreign = accounts.join(&manifest.id).join("foreign");
     let projects = usual.join("projects");
     let project = projects.join("-actual-project");
     std::fs::create_dir_all(&project).unwrap();

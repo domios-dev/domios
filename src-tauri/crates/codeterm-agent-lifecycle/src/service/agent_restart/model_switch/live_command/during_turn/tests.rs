@@ -50,7 +50,7 @@ fn picker_checks_current_confirmation_before_waiting_for_another_frame() {
         crate::agent::provider::AgentProvider::model_switch_terminal_label(&provider, "sonnet")
             .unwrap();
     let (mut picker, mut prompt) = declarations_with_label(&terminal_label);
-    let (_, catalogue_prompt) = declarations_with_label("Claude Sonnet 5.5");
+    let (_, catalogue_prompt) = declarations_with_label(&format!("Catalogue {terminal_label}"));
     let picker_screen = fixture("tests/fixtures/model-switch/live-2.1.327-picker.txt");
     let selected = picker_screen
         .replace("❯ 5.", "  5.")
