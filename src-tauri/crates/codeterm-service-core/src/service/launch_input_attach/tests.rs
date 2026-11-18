@@ -10,6 +10,7 @@ fn only_a_declared_signal_requires_its_terminal_mode() {
         for started in [
             SessionStart::Awaited,
             SessionStart::Reported,
+            SessionStart::ObservedByRegistry,
             SessionStart::HooksUnavailable,
         ] {
             assert!(input_ready(InputAttachSignal::None, mode, started));
@@ -28,6 +29,12 @@ fn session_start_declaring_provider_needs_its_hook_and_bracketed_paste_in_either
     assert!(!input_ready(signal, None, SessionStart::Awaited));
     assert!(!input_ready(signal, Some(true), SessionStart::Awaited));
     assert!(input_ready(signal, Some(true), SessionStart::Reported));
+    assert!(!input_ready(signal, None, SessionStart::ObservedByRegistry));
+    assert!(input_ready(
+        signal,
+        Some(true),
+        SessionStart::ObservedByRegistry
+    ));
     assert!(!input_ready(signal, None, SessionStart::Reported));
     assert!(!input_ready(signal, Some(false), SessionStart::Reported));
     assert!(input_ready(signal, Some(true), SessionStart::Reported));
@@ -46,39 +53,55 @@ fn hooks_unavailable_at_launch_leave_readiness_to_the_input_attach() {
 
 #[test]
 fn session_start_evidence_belongs_to_the_launch_nonce_it_carried() {
-    assert_eq!(session_start(None, "launch-2"), SessionStart::Awaited);
+    let attempt = LaunchAttempt {
+        tab_id: "tab".into(),
+        pty_id: "active-pty".into(),
+        binding_nonce: "launch-2".into(),
+    };
+    assert_eq!(session_start(None, &attempt), SessionStart::Awaited);
     let previous_launch = TabSessionStart {
         reported_nonce: Some("launch-1".into()),
+        registry_binding: Some(("active-pty".into(), "launch-1".into())),
         availability: Some(("launch-1".into(), false)),
     };
     assert_eq!(
-        session_start(Some(&previous_launch), "launch-2"),
+        session_start(Some(&previous_launch), &attempt),
         SessionStart::Awaited,
-        "a hook or hookless verdict from the previous launch proves nothing now"
+        "session-start evidence from the previous launch proves nothing now"
     );
     let reported = TabSessionStart {
         reported_nonce: Some("launch-2".into()),
-        availability: None,
+        ..Default::default()
     };
     assert_eq!(
-        session_start(Some(&reported), "launch-2"),
+        session_start(Some(&reported), &attempt),
         SessionStart::Reported
     );
     let hookless = TabSessionStart {
         reported_nonce: Some("launch-1".into()),
         availability: Some(("launch-2".into(), false)),
+        ..Default::default()
     };
     assert_eq!(
-        session_start(Some(&hookless), "launch-2"),
+        session_start(Some(&hookless), &attempt),
         SessionStart::HooksUnavailable
     );
     let installed = TabSessionStart {
         reported_nonce: Some("launch-1".into()),
         availability: Some(("launch-2".into(), true)),
+        registry_binding: Some(("old-pty".into(), "launch-2".into())),
     };
     assert_eq!(
-        session_start(Some(&installed), "launch-2"),
+        session_start(Some(&installed), &attempt),
         SessionStart::Awaited
+    );
+    let registered = TabSessionStart {
+        registry_binding: Some(("active-pty".into(), "launch-2".into())),
+        ..installed
+    };
+    assert_eq!(
+        session_start(Some(&registered), &attempt),
+        SessionStart::ObservedByRegistry
     );
 }
 
@@ -147,7 +170,7 @@ fn ended_launch_or_closed_output_supersedes_without_a_deadline_record() {
     );
     assert_eq!(
         await_attach(|| false, || true, |_| false, || deadlines.set(1), far),
-        AttachOutcome::Superseded
+        AttachOutcome::ScreenClosed
     );
     assert_eq!(deadlines.get(), 0);
 }

@@ -19,6 +19,7 @@ static IN_FLIGHT: LazyLock<TimedMutex<HashSet<String>>> =
 
 struct DetectedLaunchSession {
     provider_id: String,
+    pty_id: String,
     binding_nonce: String,
     detection: LaunchSessionDetection,
     invocation: Option<Arc<InvocationContext>>,
@@ -987,6 +988,7 @@ impl ServiceContext {
         log::debug!("[resume-session-evidence] tab={tab_id} session={session_id} owns_session={owns_session}");
         owns_session.then_some(DetectedLaunchSession {
             provider_id,
+            pty_id,
             binding_nonce,
             detection: LaunchSessionDetection {
                 session_id,
@@ -1064,6 +1066,7 @@ impl ServiceContext {
         })?;
         Some(DetectedLaunchSession {
             provider_id,
+            pty_id,
             binding_nonce,
             detection,
             invocation,
@@ -1073,20 +1076,38 @@ impl ServiceContext {
     async fn commit_detected_launch_session(&self, tab_id: &str, detected: DetectedLaunchSession) {
         let DetectedLaunchSession {
             provider_id,
+            pty_id,
             binding_nonce,
             detection,
             invocation,
         } = detected;
         let source = binding_source(detection.source);
         let session_id = detection.session_id;
+        let attempt = super::launch_readiness::LaunchAttempt {
+            tab_id: tab_id.to_string(),
+            pty_id,
+            binding_nonce: binding_nonce.clone(),
+        };
         let service = self.clone();
         let target = tab_id.to_string();
         let provider = provider_id.clone();
         let session = session_id.clone();
         let nonce = binding_nonce.clone();
+        let detected_attempt = attempt.clone();
         let committed = crate::async_runtime::spawn_blocking(move || {
             with_context(invocation, || {
                 service.commit_session_binding_custody(&target, || {
+                    if source == BindingSource::PidRegistry
+                        && !service.mux.read().get_tab(&target).is_some_and(|tab| {
+                            super::launch_readiness::attempt_owns_tab(tab, &detected_attempt)
+                        })
+                    {
+                        return Err((
+                            axum::http::StatusCode::CONFLICT,
+                            "registry evidence belongs to a superseded PTY launch".into(),
+                            None,
+                        ));
+                    }
                     crate::service::hook_session_binding::bind_detected_session(
                         &service.mux,
                         service.agent_registry.as_ref(),
@@ -1116,6 +1137,9 @@ impl ServiceContext {
                 return;
             }
         };
+        if source == BindingSource::PidRegistry && claim.nonce_verified {
+            self.observe_registry_session_start(&attempt, &session_id);
+        }
         log::info!(
             "[launch-session-detection] Tab {tab_id} bound {provider_id} session {session_id} from {}",
             source_label(source),
