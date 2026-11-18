@@ -70,6 +70,8 @@ fn role_launch_identity_reaches_the_spawned_agent() {
 
 #[test]
 fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run() {
+    const JOB_NAME: &str = "Scout cron QA";
+
     for scheduled in [false, true] {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = ServiceFixture::new(mux);
@@ -84,7 +86,7 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
             .lock()
             .create(
                 serde_json::from_value(serde_json::json!({
-                    "name":"disposable", "workspace_id":workspace, "schedule":"in 1h",
+                    "name":JOB_NAME, "workspace_id":workspace, "schedule":"in 1h",
                     "task":"opaque-fixture", "agent":"portable-cron-fixture", "model":"fixture",
                     "cwd":fixture.temp.path(), "enabled":false, "oneshot":true, "jitter_max_ms":0
                 }))
@@ -92,15 +94,18 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
             )
             .unwrap();
         let mut events = svc.events.subscribe();
-        let spawn = |spec: crate::service::spawn::SpawnTabSpec| {
+        let spawn = |mut spec: crate::service::spawn::SpawnTabSpec| {
+            crate::service::spawn::prepare_tab_identity_for_test(&mut spec)?;
             assert_eq!(spec.workspace_id.as_deref(), Some(workspace.as_str()));
-            let tab_id = svc.mux.write().create_tab(&workspace)?;
+            let mut mux = svc.mux.write();
+            let tab_id = mux.create_tab(&workspace)?;
+            spec.apply_pty_agent_identity(&mut mux, &tab_id, None);
             Ok(crate::service::spawn::TabHandle {
                 command_submission: None,
                 tab_id,
                 pty_id: None,
                 workspace_id: workspace.clone(),
-                description: None,
+                description: spec.description,
                 worker_id: None,
                 warning: None,
                 model_fallback: None,
@@ -117,6 +122,13 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
             svc.cron_trigger_with_spawn(&cron, &job.id, spawn).unwrap()
         };
         let tab_id = run.tab_id.as_deref().expect("successful fixture launch");
+        assert_eq!(run.status, super::super::store::CronRunStatus::Running);
+        {
+            let mux = svc.mux.read();
+            let tab = mux.get_tab(tab_id).expect("registered run tab");
+            assert_eq!(tab.title, "Cron");
+            assert_eq!(tab.description.as_deref(), Some(JOB_NAME));
+        }
         let fired = crate::async_runtime::block_on(async {
             tokio::time::timeout(Duration::from_secs(2), async {
                 loop {

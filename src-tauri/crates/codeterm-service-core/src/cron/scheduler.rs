@@ -331,7 +331,6 @@ fn fire_job_with_spawn(
         (!resolved.is_empty()).then_some(resolved)
     });
 
-    // Include cron job name in the tab title so reports show `cron:<job>` instead of plain `Terminal`.
     let job_name = cron_state
         .lock()
         .get(job_id)

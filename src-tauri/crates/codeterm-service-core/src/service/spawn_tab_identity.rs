@@ -1,4 +1,29 @@
 use super::{SpawnTabSpec, TabCommand};
+use crate::multiplexer::state::MultiplexerState;
+
+impl SpawnTabSpec {
+    pub(crate) fn apply_pty_agent_identity(
+        &self,
+        mux: &mut MultiplexerState,
+        tab_id: &str,
+        agent_name: Option<&str>,
+    ) {
+        if let Some(ref description) = self.description {
+            if self.task_description_managed {
+                let _ = mux.set_task_tab_description(tab_id, Some(description.clone()));
+            } else {
+                let _ = mux.set_tab_description(tab_id, Some(description.clone()));
+            }
+        }
+        if let Some((title, level)) =
+            crate::service::spawn_title::creation_title_override(self.title.as_deref(), agent_name)
+        {
+            if let Err(e) = mux.rename_tab_at_level(tab_id, &title, level) {
+                log::warn!("[spawn] rename_tab failed: {}", e);
+            }
+        }
+    }
+}
 
 pub fn prepare_tab_identity(spec: &mut SpawnTabSpec) -> Result<(), String> {
     if spec.shell.is_some() && !matches!(spec.command, TabCommand::Shell) {
