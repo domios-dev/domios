@@ -51,6 +51,35 @@ fn vm_with(src: &str) -> Arc<PluginVm> {
 }
 
 #[test]
+fn continuation_limit_after_exec_keeps_the_specific_error_and_consumes_jobs() {
+    let plugin = "command-continuation-limit";
+    let job = super::super::host_exec::start_json_job(plugin, || {
+        json!({"done":true,"code":0,"stdout":"x".repeat(85_854)}).to_string()
+    })
+    .unwrap();
+    let source = format!(
+        r#"module.exports = {{
+        onAgentCommand() {{ return host.awaitJob({job:?}, function() {{
+            return host.io.run((function*() {{
+                yield* host.io.exec({{bin:'domios-test-missing-executable-q7'}});
+                for (var i = 0; i < 257; i++) yield* host.io.fs.fileExists('opaque');
+                return {{result:'must not reach'}};
+            }})());
+        }}); }}
+    }};"#
+    );
+    let vm = Arc::new(PluginVm::from_source(plugin, source).unwrap());
+    let handler =
+        JsAgentCommandHandler::new(vm, plugin, true).with_read_only_verbs(vec!["lookup".into()]);
+    let error = handler
+        .on_agent_command("session", "lookup", &[], None)
+        .unwrap_err();
+    assert!(error.contains("continuation_limit:"), "{error}");
+    assert!(!error.contains("I/O interruption"), "{error}");
+    assert_eq!(super::super::host_exec::plugin_job_count(plugin), 0);
+}
+
+#[test]
 fn forwards_ctx_and_returns_result() {
     let vm = vm_with(
         r#"module.exports.default = {

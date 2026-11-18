@@ -371,7 +371,16 @@ fn run_drains_output_larger_than_pipe_buffer_without_deadlock() {
     // A deadlocked pipe cannot reach the assertions below, which is the proof.
     // Wall-clock is not: it measured machine load and flaked at 6.6s.
     let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
-    assert!(out.get("error").is_none(), "unexpected error: {out}");
+    assert!(out["error"]
+        .as_str()
+        .unwrap()
+        .starts_with("output_too_large:"));
+    assert_eq!(
+        out["outputTooLarge"],
+        serde_json::json!({
+            "stream": "stdout", "limitBytes": 131072, "actualBytes": 200000
+        })
+    );
     assert_eq!(out["code"], 0);
     assert_eq!(out["stdout"].as_str().map(str::len), Some(128 * 1024));
     assert_eq!(out["truncated"], true);
