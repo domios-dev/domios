@@ -41,8 +41,7 @@ impl std::fmt::Display for GitCheckoutError {
 impl std::error::Error for GitCheckoutError {}
 
 pub fn command(cwd: &Path) -> Command {
-    let mut command = Command::new("git");
-    crate::process_util::no_window_std(&mut command);
+    let mut command = crate::process_util::git_command();
     command
         .current_dir(cwd)
         .args(["rev-parse", "--git-dir", "--git-common-dir"]);
@@ -63,8 +62,7 @@ pub fn paths(cwd: &Path) -> Result<(PathBuf, PathBuf), GitCheckoutError> {
 
 pub fn parse_output(cwd: &Path, stdout: &[u8]) -> Result<(PathBuf, PathBuf), GitCheckoutError> {
     let raw = parse_paths(cwd, stdout, || {
-        let mut command = Command::new("git");
-        crate::process_util::no_window_std(&mut command);
+        let mut command = crate::process_util::git_command();
         command
             .current_dir(cwd)
             .arg("--version")

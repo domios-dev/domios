@@ -5,6 +5,7 @@ use crate::plan::{
 };
 use crate::service::plan::interruption::{checkpoint_digest, PROVIDER_EXHAUSTED_LABEL};
 use crate::service::plan::{NewTask, PlanStore};
+use std::process::Command;
 
 #[test]
 fn account_quota_targets_only_tabs_on_the_observed_provider_account() {

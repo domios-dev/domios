@@ -9,7 +9,6 @@ use super::TeamMutationCaller;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::TabBacking;
 use codeterm_service_core::plan::LaneOwnership;
-use codeterm_service_core::process_util;
 use codeterm_service_core::service::plan::lane_ownership::{
     strictest_ownership, unmanaged_lane_reason_listed, LANE_BRANCH_PREFIX,
 };
@@ -813,8 +812,7 @@ fn non_empty(value: Option<&str>) -> Option<String> {
 }
 
 fn git_command(cwd: &str, args: &[&str]) -> Command {
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_service_core::process_util::git_command();
     command.current_dir(cwd).args(args);
     command
 }

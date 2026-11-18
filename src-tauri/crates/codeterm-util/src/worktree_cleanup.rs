@@ -1,9 +1,8 @@
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 pub fn git(cwd: &str, args: &[&str]) -> Result<Output, String> {
-    let mut command = Command::new("git");
-    crate::process_util::no_window_std(&mut command);
+    let mut command = crate::process_util::git_command();
     let output = command
         .current_dir(cwd)
         .args(args)
@@ -16,7 +15,7 @@ pub fn git(cwd: &str, args: &[&str]) -> Result<Output, String> {
         Err(format!(
             "git {} at '{cwd}': {}",
             args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
+            crate::process_util::git_diagnostics(&output.stderr)
         ))
     }
 }

@@ -4,7 +4,6 @@ use std::process::Command;
 use codeterm_plan::plan::LaneOwnership;
 use codeterm_plan::service_plan::lane_ownership::{strictest_ownership, unmanaged_lane_reason_git};
 use codeterm_plan::service_plan::{PlanStore, TaskLaneUpdate};
-use codeterm_util::process_util;
 
 /// One live tab as the removal preflight sees it: the shell cwd decides
 /// ownership, the title and id are what a refusal has to name.
@@ -289,8 +288,7 @@ fn canonical_checkout_for(worktree_path: &str) -> Result<String, String> {
 }
 
 fn git_command<'a>(cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Command {
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
+    let mut command = codeterm_util::process_util::git_command();
     command.current_dir(strip_verbatim(cwd)).args(args);
     command
 }
@@ -312,7 +310,7 @@ fn run_git<'a>(cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Result<(),
     if output.status.success() {
         return Ok(());
     }
-    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    Err(codeterm_util::process_util::git_diagnostics(&output.stderr))
 }
 
 fn git_value<'a>(cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Result<String, String> {
@@ -320,7 +318,7 @@ fn git_value<'a>(cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Result<S
     if !output.status.success() {
         return Err(format!(
             "cannot inspect lane '{cwd}': {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+            codeterm_util::process_util::git_diagnostics(&output.stderr)
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -332,7 +330,7 @@ fn worktree_registered(canonical_cwd: &str, worktree_path: &str) -> Result<bool,
         return Err(format!(
             "cannot inspect Git worktree registrations in '{}': {}",
             canonical_cwd,
-            String::from_utf8_lossy(&output.stderr).trim()
+            codeterm_util::process_util::git_diagnostics(&output.stderr)
         ));
     }
     let expected = comparable_path(worktree_path);
@@ -411,7 +409,7 @@ fn branch_exists(canonical_cwd: &str, branch: &str) -> Result<bool, String> {
     } else {
         Err(format!(
             "cannot inspect branch '{branch}' in '{canonical_cwd}': {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+            codeterm_util::process_util::git_diagnostics(&output.stderr)
         ))
     }
 }
@@ -428,7 +426,7 @@ fn branch_is_ancestor(canonical_cwd: &str, branch: &str) -> Result<bool, String>
     } else {
         Err(format!(
             "cannot verify whether branch '{branch}' is merged into '{canonical_cwd}': {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+            codeterm_util::process_util::git_diagnostics(&output.stderr)
         ))
     }
 }
