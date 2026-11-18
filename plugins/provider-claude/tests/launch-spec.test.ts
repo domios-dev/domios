@@ -38,7 +38,8 @@ for (const platform of ["windows", "linux", "macos"]) {
     };
     const spec = JSON.parse(JSON.stringify(plugin.buildLaunchSpec!(params)!));
     assert.equal(spec.program, "claude");
-    assert.deepEqual(spec.envSet, {});
+    const expectedEnvironment = platform === "macos" ? { LC_ALL: "C", TZ: "UTC0" } : {};
+    assert.deepEqual(spec.envSet, expectedEnvironment);
     assert.deepEqual(spec.envUnset, ["CLAUDECODE"]);
     assert.deepEqual(spec.args.slice(0, skipPermissions ? 9 : 8), [
       ...(skipPermissions ? ["--dangerously-skip-permissions"] : []),
@@ -54,6 +55,7 @@ for (const platform of ["windows", "linux", "macos"]) {
       sessionId: "own-session", args: ["--model", "fixture-model"], skipPermissions,
       systemPrompt: "opaque resume context 😀",
     } })!));
+    assert.deepEqual(resumed.envSet, expectedEnvironment);
     assert.deepEqual(resumed.args.slice(0, skipPermissions ? 5 : 4), [
       ...(skipPermissions ? ["--dangerously-skip-permissions"] : []),
       "--resume", "own-session", "--model", "fixture-model",
