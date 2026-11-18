@@ -1069,7 +1069,8 @@ function outputLimit(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record3 = value;
   const details = record3.incomplete_details;
-  if (record3.stop_reason === "max_tokens" || record3.finish_reason === "length") return true;
+  if (record3.stop_reason === "max_tokens") return true;
+  if (record3.finish_reason === "length") return true;
   if (record3.status === "incomplete" && details?.reason === "max_output_tokens") return true;
   const message = record3.message;
   return typeof message === "string" && message.length <= 16384 && /incomplete response[^\n]*\bmax_output_tokens\b/i.test(message);
