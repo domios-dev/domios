@@ -48,7 +48,7 @@ fn recorded_http_provider() -> (Value, JsProvider) {
         "/../../../tests/fixtures/runtime-http-sse.json"
     )))
     .unwrap();
-    let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let directory = crate::test_support::fixture_manifest_dir()
         .join("../../..")
         .join(fixture["source"]["pluginDirectory"].as_str().unwrap());
     let manifest = PluginManifest::from_json_str(
