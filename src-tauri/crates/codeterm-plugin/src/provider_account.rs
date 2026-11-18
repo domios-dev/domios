@@ -449,6 +449,13 @@ pub(crate) fn exact_session_read_root(provider: &str, root: &Path) -> Option<Pat
     let Some(target) = context.shared_directory_links.get(root) else {
         return Some(root.to_owned());
     };
+    if root.canonicalize().ok().as_deref() != Some(target.as_path()) {
+        log::debug!(
+            "[session-store] provider={provider} live shared root does not resolve to its provisioned target: {}",
+            root.display()
+        );
+        return None;
+    }
     if codeterm_util::project_roots::canonical_target(target).as_ref() != Some(target)
         || !context
             .shared_reads
