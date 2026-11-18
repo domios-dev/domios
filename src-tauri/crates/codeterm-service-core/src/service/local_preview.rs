@@ -102,6 +102,7 @@ pub(super) fn artifact_policy(
     references: std::collections::HashSet<String>,
     configured: &[String],
 ) -> Result<PreviewPolicy, String> {
+    let agent_pads = svc.agent_pad_data_dir.join("runtime").join("agent-pads");
     codeterm_local_preview::PreviewPolicy::for_context(
         references,
         codeterm_local_preview::PreviewRoots {
@@ -116,6 +117,11 @@ pub(super) fn artifact_policy(
                 .chain(["chat", "images", "files"].map(crate::attachments::bucket_dir))
                 .collect(),
             own_pad: tab_id.and_then(|tab| agent_pad_root(svc, tab)),
+            agent_pads: tab_id.map(|_| {
+                PathBuf::from(crate::paths::strip_verbatim_prefix(
+                    &agent_pads.to_string_lossy(),
+                ))
+            }),
             workspace: tab_id
                 .and_then(|tab| svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone()))
                 .map(PathBuf::from),
@@ -166,8 +172,15 @@ fn read_with(
 ) -> Result<LocalPreviewFile, String> {
     let result = policy.and_then(|policy| {
         if kind == "image" {
-            return super::image_attachments::preview(std::path::Path::new(path), || {
-                html_preview::read_artifact_file(path, &policy, 150 * 1024 * 1024)
+            let source = std::path::Path::new(path);
+            if matches!(
+                super::image_attachments::extension(source).as_str(),
+                "gif" | "webp" | "svg"
+            ) {
+                return html_preview::read_local_image_file(path, &policy);
+            }
+            return super::image_attachments::preview(source, || {
+                html_preview::read_image_artifact_file(path, &policy, 150 * 1024 * 1024)
             });
         }
         read_local_preview_file_guarded(path, kind, |path, canonical| {

@@ -47,14 +47,23 @@ pub fn read_artifact_file(
     policy: &crate::PreviewPolicy,
     limit: u64,
 ) -> Result<Vec<u8>, String> {
-    let mut source =
-        PreviewSource::open(raw, &|path, canonical| policy.authorize(path, canonical))?;
-    source.read(limit)
+    PreviewSource::open(raw, &|path, canonical| policy.authorize(path, canonical))?.read(limit)
+}
+
+pub fn read_image_artifact_file(
+    raw: &str,
+    policy: &crate::PreviewPolicy,
+    limit: u64,
+) -> Result<Vec<u8>, String> {
+    PreviewSource::open(raw, &|path, canonical| {
+        policy.authorize_image(path, canonical)
+    })?
+    .read(limit)
 }
 
 pub use codeterm_wire::api_contracts::LocalPreviewFile;
 
-fn extension(path: &std::path::Path) -> String {
+pub(crate) fn extension(path: &std::path::Path) -> String {
     path.extension()
         .and_then(|value| value.to_str())
         .unwrap_or_default()
@@ -121,6 +130,15 @@ pub fn read_local_preview_file_guarded(
     Ok(LocalPreviewFile {
         data,
         media_type: media_type.into(),
+    })
+}
+
+pub fn read_local_image_file(
+    path: &str,
+    policy: &crate::PreviewPolicy,
+) -> Result<LocalPreviewFile, String> {
+    read_local_preview_file_guarded(path, "image", |path, canonical| {
+        policy.authorize_image(path, canonical)
     })
 }
 

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::references::path_key;
-use crate::html_preview::checked_path;
+use crate::html_preview::{checked_path, extension};
 
 pub struct PreviewPolicy {
     references: std::sync::Arc<HashSet<String>>,
@@ -14,6 +14,7 @@ pub struct PreviewPolicy {
     referenced_uploads: Vec<PathBuf>,
     referenced_upload_denied: Vec<String>,
     own_pad: Option<PathBuf>,
+    agent_pads: Option<(PathBuf, PathBuf)>,
     pad_denied: Vec<String>,
     workspace: Option<PathBuf>,
     workspace_denied: Vec<String>,
@@ -24,6 +25,7 @@ pub struct PreviewRoots {
     pub private: Vec<PathBuf>,
     pub uploads: Vec<PathBuf>,
     pub own_pad: Option<PathBuf>,
+    pub agent_pads: Option<PathBuf>,
     /// The tab's working directory; it may sit under a private root, such as a provisioned workspace.
     pub workspace: Option<PathBuf>,
     pub ssh: Option<PathBuf>,
@@ -31,9 +33,10 @@ pub struct PreviewRoots {
 
 impl PreviewPolicy {
     pub fn for_context(references: HashSet<String>, roots: PreviewRoots) -> Result<Self, String> {
-        let private = roots.private.clone();
+        let mut private = roots.private;
+        private.extend(roots.agent_pads.iter().cloned());
         let mut denied = roots.configured.clone();
-        denied.extend(roots.private);
+        denied.extend(private.iter().cloned());
         denied.extend(roots.ssh.clone());
         let mut evidence_denied = roots.configured.clone();
         evidence_denied.extend(roots.ssh);
@@ -41,11 +44,21 @@ impl PreviewPolicy {
         for uploads in roots.uploads {
             policy = policy.with_uploads(&uploads, &roots.configured)?;
         }
+        if let Some(root) = &roots.agent_pads {
+            let root = checked_path(&root.to_string_lossy())?;
+            if let Ok(canonical) = root.canonicalize() {
+                policy.agent_pads = Some((root, canonical));
+            }
+        }
         if let Some(pad) = roots.own_pad {
             policy = policy.with_own_pad(&pad, &evidence_denied)?;
+        } else if policy.agent_pads.is_some() {
+            policy.pad_denied = Self::new(HashSet::new(), &evidence_denied)?.denied;
         }
         if let Some(workspace) = roots.workspace {
-            policy = policy.with_workspace(&workspace, &private, &evidence_denied)?;
+            let mut workspace_denied = evidence_denied;
+            workspace_denied.extend(roots.agent_pads);
+            policy = policy.with_workspace(&workspace, &private, &workspace_denied)?;
         }
         Ok(policy)
     }
@@ -68,6 +81,7 @@ impl PreviewPolicy {
             referenced_uploads: Vec::new(),
             referenced_upload_denied: Vec::new(),
             own_pad: None,
+            agent_pads: None,
             pad_denied: Vec::new(),
             workspace: None,
             workspace_denied: Vec::new(),
@@ -195,6 +209,37 @@ impl PreviewPolicy {
                     .iter()
                     .any(|denied| within(&denial_key(path), denied))
         })
+    }
+
+    pub(crate) fn authorize_image(
+        &self,
+        requested: &Path,
+        canonical: Option<&Path>,
+    ) -> Result<(), String> {
+        if let Some((root, canonical_root)) = &self.agent_pads {
+            let requested_key = denial_key(requested);
+            if matches!(
+                extension(requested).as_str(),
+                "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg"
+            ) && self.referenced(requested)
+                && within(&requested_key, &denial_key(root))
+                && !self
+                    .pad_denied
+                    .iter()
+                    .any(|root| within(&requested_key, root))
+            {
+                let resolved = canonical
+                    .map(Path::to_path_buf)
+                    .or_else(|| requested.canonicalize().ok());
+                if resolved.as_deref().is_some_and(|path| {
+                    path.parent() != Some(canonical_root)
+                        && self.inside(canonical_root, &self.pad_denied, requested, Some(path))
+                }) {
+                    return Ok(());
+                }
+            }
+        }
+        self.authorize(requested, canonical)
     }
 
     pub fn authorize(&self, requested: &Path, canonical: Option<&Path>) -> Result<(), String> {

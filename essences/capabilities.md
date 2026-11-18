@@ -23,7 +23,7 @@ Every element carries an explicit stable id in its metadata: a vector heading en
 
 ## 1. Agents live and work in tabs {#vector:agents-live-and-work-in-tabs}
 
-Chat file previews share the [tab-scoped preview contract](core.md#clients-are-not-the-core) on desktop and web: each tab may show referenced files within its own canonical agent pad while foreign pads, other instance data and escapes remain private.
+Chat file previews share the [tab-scoped preview contract](core.md#clients-are-not-the-core) on desktop and web. Each tab may show referenced files from its own canonical agent pad and render referenced images from any agent pad.
 
 Detail: Workspace sidebar and chat view; workspace, tab, agent, and sessions command groups; workspace, tab, agent, and session APIs; [core essence](core.md).
 
