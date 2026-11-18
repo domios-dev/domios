@@ -297,23 +297,25 @@ for (const touch of [false, true]) {
       const tabId = `runtime-${state}-${touch}`;
       const { host, root, calls, dispatch } = await renderChat(tabId, { state, epoch: 2, reason: "opaque-overflow" });
       try {
-        const badge = host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]');
-        assert(badge, "runtime status badge is mounted");
-        await act(async () => badge.click());
-        const retry = document.querySelector<HTMLButtonElement>('button[aria-label="Retry"]');
-        assert(retry, "runtime recovery action is mounted");
+        const card = host.querySelector('[role="log"] [data-testid="runtime-chat-notice"]');
         assert(host.querySelector('textarea'), "composer remains available during runtime recovery");
-        assert(retry.disabled === (state === "loading"), "only pending recovery disables Retry");
-        if (state !== "loading") {
-          await act(async () => { retry.click(); });
-          assert(calls.filter(command => command === "agent_runtime_retry").length === 1, "Retry reaches the runtime once");
-        } else {
+        if (state === "loading") {
+          assert(!card, "transient loading has no recovery card");
           await act(async () => dispatch("agent-runtime-state", {
             tab_id: tabId, session_binding_nonce: "nonce-1", state: { state: "loaded", epoch: 3 },
           }));
+        } else {
+          const label = state === "degraded" ? "Restart the agent" : "Try again";
+          const recover = [...(card?.querySelectorAll("button") ?? [])].find(button => button.textContent === label);
+          assert(recover && !recover.disabled, "runtime recovery action is available in the transcript");
+          await act(async () => recover.click());
+          const command = state === "degraded" ? "restart_agent_tab" : "agent_runtime_retry";
+          assert(calls.filter(call => call === command).length === 1, "the offered action reaches its recovery route once");
+          if (state === "degraded") await act(async () => dispatch("agent-runtime-state", {
+            tab_id: tabId, session_binding_nonce: "nonce-1", state: { state: "loaded", epoch: 3 },
+          }));
         }
-        assert(!host.querySelector('button[aria-haspopup="dialog"]'), "loaded runtime removes recovery badge");
-        assert(!document.querySelector('[role="dialog"]'), "loaded runtime removes open popover");
+        assert(!host.querySelector('[data-testid="runtime-chat-notice"]'), "loaded runtime clears the recovery card");
         assert(host.querySelector('textarea'), "loaded runtime restores the shared composer");
       } finally {
         await act(async () => root.unmount()); host.remove();
@@ -346,7 +348,7 @@ test("mobile held and written sends retain one bubble beside runtime recovery", 
       assert(bubble()[0]?.querySelector('[role="status"]'), "shared delivery model reaches the bubble");
       assert(![...(bubble()[0]?.querySelectorAll("button") ?? [])].some(button => button.textContent === "Retry"
         || button.textContent === "Edit and resend"), "held and written sends never offer replay");
-      assert(host.querySelector('button[aria-haspopup="dialog"]'), "runtime recovery remains available");
+      assert(host.querySelector('[role="log"] [data-testid="runtime-chat-notice"]'), "runtime recovery remains available in the log");
     }
   } finally {
     await act(async () => root.unmount()); host.remove();

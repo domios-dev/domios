@@ -9,35 +9,23 @@ vi.mock("../../lib/bridge", () => ({invoke:vi.fn().mockResolvedValue(undefined)}
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("opens the accessible runtime badge and wires Retry once, with outside and Escape dismissal", async () => {
-  const retry = vi.fn();
+it("shows one transcript action, keeps its label while loading, and clears on recovery", async () => {
+  let finish!: () => void;
+  const retry = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
   try {
     await act(async () => root.render(<AgentRuntimeBanner state={{ state: "degraded", epoch: 1, reason: "opaque-fault" }} onRetry={retry} />));
-    const badge = host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!;
-    expect(badge).not.toBeNull();
-    expect(badge.getAttribute("aria-label")).toBeTruthy();
-    await act(async () => badge.click());
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-    const control = document.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
-    expect(control).not.toBeNull();
+    const control = [...host.querySelectorAll("button")].find(button => button.textContent === "Try again")!;
     await act(async () => control.click());
     expect(retry).toHaveBeenCalledTimes(1);
-    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.activeElement).toBe(badge);
-    await act(async () => badge.click());
-    await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    await act(async () => badge.click());
+    expect(control.disabled).toBe(true);
+    expect(control.textContent).toBe("Try again");
     await act(async () => root.render(<AgentRuntimeBanner state={{ state: "loaded", epoch: 2 }} onRetry={retry} />));
-    expect(badge.disabled).toBe(true);
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-    await act(async () => root.render(<AgentRuntimeBanner state={{ state: "degraded", epoch: 3, reason: "another-fault" }} onRetry={retry} />));
-    expect(host.querySelector('button[aria-haspopup="dialog"]')).toBe(badge);
-    expect(badge.disabled).toBe(false);
+    expect(host.contains(control)).toBe(true);
+    await act(async () => finish());
+    expect(host.querySelector('[role="status"]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -50,10 +38,7 @@ it("offers history Retry while the conversation runtime is loaded", async () => 
   const root=createRoot(host);
   try {
     await act(async()=>root.render(<AgentRuntimeBanner state={{state:"loaded",epoch:2,history:"failed",historyPages:8,historyError:"fixture-page-nine"}} onRetry={retry} />));
-    const badge=host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!;
-    expect(badge.getAttribute("aria-label")).toBeTruthy();
-    await act(async()=>badge.click());
-    const control=document.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
+    const control = [...host.querySelectorAll("button")].find(button => button.textContent === "Try again")!;
     expect(control.disabled).toBe(false);
     await act(async()=>control.click());expect(retry).toHaveBeenCalledTimes(1);
   } finally { await act(async()=>root.unmount());host.remove(); }
@@ -65,10 +50,9 @@ it("offers one fresh-conversation action for a missing saved rollout", async () 
   const retry = vi.fn();
   try {
     await act(async () => root.render(<AgentRuntimeBanner tabId="opaque-tab" state={{state:"degraded",epoch:2,reason:"ConversationMissing: opaque diagnostic"}} onRetry={retry} />));
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click());
-    const start = document.querySelector<HTMLButtonElement>('button[aria-label="Start a new conversation"]');
-    expect(start).not.toBeNull();
-    expect(document.querySelector('button[aria-label="Retry"]')).toBeNull();
+    const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start a new conversation");
+    expect(start).toBeDefined();
+    expect([...host.querySelectorAll("button")].some(button => button.textContent === "Try again")).toBe(false);
     await act(async () => start!.click());
     expect(invoke).toHaveBeenCalledWith("restart_agent_tab",{tabId:"opaque-tab",fresh:true});
     expect(retry).not.toHaveBeenCalled();
@@ -108,16 +92,15 @@ it("shows one typed failure sentence with collapsed technical details", async ()
   const reason='/api/tabs/opaque/chat-raw/start → HTTP 400: '+JSON.stringify({error:{code:"provider_refused",message:"The session is already active.",sessionId:"opaque-session"}});
   try {
     await act(async()=>root.render(<AgentRuntimeBanner tabId="owned" state={{state:"degraded",epoch:1,reason}} onRetry={vi.fn()} />));
-    await act(async()=>host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click());
-    const notice=document.querySelector('[role="status"][aria-label="The session is already active."]');
-    expect(notice).not.toBeNull();
-    const details=notice!.querySelector("details")!;
-    expect(details.open).toBe(false);
-    expect(details.querySelector("summary")?.textContent).toBe("Details");
-    expect(details.textContent).toContain("HTTP 400");
-    expect(notice!.querySelector("p")?.textContent).toBe("The session is already active.");
+    const notice = host.querySelector('[data-testid="runtime-chat-notice"]')!;
+    expect(notice.querySelector('[role="status"]')?.textContent).toBe("The session is already active.");
+    const details = [...notice.querySelectorAll("button")].find(button => button.textContent === "Details")!;
+    expect(details.getAttribute("aria-expanded")).toBe("false");
+    expect(notice.textContent).not.toContain("HTTP 400");
+    await act(async () => details.click());
+    expect(notice.querySelector("pre")?.textContent).toContain("HTTP 400");
     await act(async()=>root.render(<AgentRuntimeBanner tabId="owned" state={{state:"degraded",epoch:1,reason:JSON.stringify({error:{code:"provider_refused",message:"Provider refused: ProviderRefused: opaque"}})}} onRetry={vi.fn()} />));
-    expect(document.querySelector('[role="status"][aria-label="The agent refused this operation."]')).not.toBeNull();
+    expect(notice.querySelector('[role="status"]')?.textContent).toBe("The agent refused this operation.");
 
   } finally {await act(async()=>root.unmount());host.remove();}
 });

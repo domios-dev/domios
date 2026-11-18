@@ -4,6 +4,7 @@ import type { ChatSendStatus } from "./chatSendStatus";
 import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
 import type { ComposerReply } from "./composerReply";
+import type { RemoteChatFailure, RemoteChatState } from "../../lib/remoteChatState";
 
 export type DeliveryState = "sending" | "written" | "queued" | "uncertain" | "delivered" | "failed";
 export interface DeliveryDraft {
@@ -15,7 +16,7 @@ export interface DeliveryDraft {
   reply: ComposerReply | null;
 }
 export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestError?: string; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
-  wasHeld?: boolean };
+  wasHeld?: boolean; remoteFailure?: RemoteChatFailure & { state: RemoteChatState } };
 
 export function chatSendFailureReason(reason?: unknown): string {
   const message = typeof reason === "string" ? reason
@@ -111,6 +112,7 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
     ...(send.requestError !== undefined || status.state === "failed"
       ? { requestError: status.state === "failed" ? chatSendFailureReason(status.error || send.requestError) : undefined } : {}),
     requestUncertain: false,
+    remoteFailure: undefined,
     echo: status.state === "failed" ? undefined : send.echo,
   };
 }

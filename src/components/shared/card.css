@@ -67,6 +67,16 @@
   outline-offset: 2px;
 }
 
+.ct-card--inline-notice {
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
+  border: 0;
+  border-radius: 12px;
+}
+
+.ct-card--inline-notice > .ct-card__head {
+  padding: 12px 16px;
+}
+
 .ct-card--quiet {
   border-color: transparent;
   background: color-mix(in srgb, var(--ct-fg) 1.5%, var(--ct-bg));

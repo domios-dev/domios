@@ -1,7 +1,7 @@
 import {act} from "react";
 import {createRoot} from "react-dom/client";
 import {expect,it,vi} from "vitest";
-import {RuntimeDeclaredControls} from "./RuntimeDeclaredControls";
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import {RuntimeLoginActions} from "./RuntimeLoginActions";
 import {runtimeStateFromSnapshot} from "../../lib/agentRuntimeState";
 import type {AgentRuntimeState} from "../../lib/agentRuntimeState";
@@ -119,14 +119,13 @@ it("asks for a key before a key-taking declared method and sends both together",
   } finally {await act(async()=>root.unmount());}
 });
 
-it("dismisses the agent notice above the composer", async () => {
+it("keeps a non-actionable runtime diagnostic out of chat", async () => {
   const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
   const state:AgentRuntimeState={state:"loaded",epoch:4,notice:"Agent notice"};
   try {
-    await act(async()=>root.render(<RuntimeDeclaredControls tabId="owned" state={state}/>));
-    expect(host.querySelector('[role="status"]')?.textContent).toContain("Agent notice");
-    await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent === "Dismiss notice")!.click());
+    await act(async()=>root.render(<AgentRuntimeBanner tabId="owned" state={state} onRetry={() => {}} />));
     expect(host.querySelector('[role="status"]')).toBeNull();
+    expect(host.textContent).toBe("");
   } finally {await act(async()=>root.unmount());host.remove();}
 });
 

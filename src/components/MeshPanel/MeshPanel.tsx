@@ -45,6 +45,7 @@ interface Props {
   config: AppConfig;
   onConfigUpdate: (config: AppConfig) => Promise<void>;
   onClose: () => void;
+  inventoryRequest?: number;
 }
 
 function normalizeTab(t: unknown): MeshTab {
@@ -54,13 +55,14 @@ function normalizeTab(t: unknown): MeshTab {
   return "inventory";
 }
 
-export function MeshPanel({ config, onClose }: Props) {
+export function MeshPanel({ config, onClose, inventoryRequest }: Props) {
   const touchUi = useTouchOptimizedUi();
   const connecting = useMeshConnections(config.mesh.enabled);
   const goOnline = useCallback(async () => {
     await invoke("mesh_set_enabled", { enabled: true });
   }, []);
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
+  useEffect(() => { if (inventoryRequest) setActiveTab("inventory"); }, [inventoryRequest]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
