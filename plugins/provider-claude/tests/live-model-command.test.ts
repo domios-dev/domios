@@ -52,7 +52,7 @@ for (const width of [90, 120]) {
   assert.ok(confirmation.test(screen.replace(/\r?\n/g, "\r\n")));
   assert.equal(pattern(commands.model.prompt.screenRegex, "haiku").test(screen), false);
   assert.equal(confirmation.test(screen.replace("❯ 1.", "  1.").replace("  2.", "❯ 2.")), false);
-  assert.equal(confirmation.test(screen.replace("Sonnet 5.5\n", "Sonnet 5.50\n")), false);
+  assert.equal(confirmation.test(screen.replace(/Sonnet 5\.5(\r?\n)/, "Sonnet 5.50$1")), false);
   assert.equal(confirmation.test(screen.replace("Enter to confirm · Esc to cancel", "Enter to select")), false);
 }
 const busy = fs.readFileSync(path.join(root, "tests/fixtures/tab-state/normal-working.txt"), "utf8");
